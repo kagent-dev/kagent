@@ -67,28 +67,13 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			skillsDirectory = strings.TrimSpace(folder)
 		}
 	}
-	if skillsDirectory != "" {
-		// A SKILL.md written for another harness carries frontmatter fields the
-		// ADK does not know; skillfs serves it with the agentskills.io fields only.
-		skillsSource := skill.NewFileSystemSource(skillfs.Lenient(os.DirFS(skillsDirectory)))
-		skills, err := skillsSource.ListFrontmatters(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load skills: %w", err)
-		}
-		if len(skills) > 0 {
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
-			}
-			extraTools = append(extraTools, executionTools...)
-
-			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
-			}
-			toolsets = append(toolsets, skillsToolset)
-			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills), "execution_tool_count", len(executionTools))
-		}
+	executionTools, skillsToolset, err := wireSkills(ctx, skillsDirectory, log)
+	if err != nil {
+		return nil, err
+	}
+	extraTools = append(extraTools, executionTools...)
+	if skillsToolset != nil {
+		toolsets = append(toolsets, skillsToolset)
 	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
 
@@ -202,6 +187,41 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		"toolsets_count", len(llmAgentConfig.Toolsets))
 
 	return llmAgent, nil
+}
+
+// wireSkills returns the execution tools (bash and the file tools), which every
+// agent gets, and the skills toolset when skillsDirectory holds skills. The
+// execution tools are the agent's way into the session's working directory,
+// which a session may carry whether or not its agent has skills; the runtime
+// does not know at boot whether a session will, so the tools are always
+// registered and their descriptions say where they work. The skills toolset
+// and the scratch directory's skills link stay bound to skills.
+func wireSkills(ctx context.Context, skillsDirectory string, log *slog.Logger) ([]tool.Tool, tool.Toolset, error) {
+	var skillsToolset tool.Toolset
+	linkedSkillsDirectory := ""
+	if skillsDirectory != "" {
+		// A SKILL.md written for another harness carries frontmatter fields the
+		// ADK does not know; skillfs serves it with the agentskills.io fields only.
+		skillsSource := skill.NewFileSystemSource(skillfs.Lenient(os.DirFS(skillsDirectory)))
+		skills, err := skillsSource.ListFrontmatters(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load skills: %w", err)
+		}
+		if len(skills) > 0 {
+			skillsToolset, err = skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create skill toolset: %w", err)
+			}
+			linkedSkillsDirectory = skillsDirectory
+			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills))
+		}
+	}
+	executionTools, err := tools.NewExecutionTools(linkedSkillsDirectory)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create execution tools: %w", err)
+	}
+	log.InfoContext(ctx, "wired execution tools", "tool_count", len(executionTools), "with_skills", skillsToolset != nil)
+	return executionTools, skillsToolset, nil
 }
 
 // usesRawOutputSchema reports whether the kagent provider adapter has a native

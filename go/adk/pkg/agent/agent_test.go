@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -683,4 +685,50 @@ func TestGeminiVertexAIClientConfigSendsGatewayPlaceholder(t *testing.T) {
 	if want := "Bearer kagent-credential-injected"; got.Header.Get("Authorization") != want {
 		t.Fatalf("Authorization = %q, want %q", got.Header.Get("Authorization"), want)
 	}
+}
+
+// Every agent gets the execution tools; the skills toolset only an agent with
+// skills, and only then do the tools know a skills directory.
+func TestWireSkills(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	skillsDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, "deploy"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillsDir, "deploy", "SKILL.md"), []byte("---\nname: deploy\ndescription: Deploys the service.\n---\n# Deploy\n"), 0o644))
+	executionToolNames := []string{"read_file", "write_file", "edit_file", "bash"}
+
+	for _, test := range []struct {
+		name            string
+		skillsDirectory string
+		wantToolset     bool
+	}{
+		{name: "no skills directory", skillsDirectory: "", wantToolset: false},
+		{name: "skills directory without skills", skillsDirectory: t.TempDir(), wantToolset: false},
+		{name: "skills", skillsDirectory: skillsDir, wantToolset: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tools, toolset, err := wireSkills(context.Background(), test.skillsDirectory, slog.Default())
+			require.NoError(t, err)
+			var names []string
+			for _, tool := range tools {
+				names = append(names, tool.Name())
+				require.Equal(t, test.wantToolset, strings.Contains(tool.Description(), "skills/"), "%s names skills/", tool.Name())
+			}
+			require.ElementsMatch(t, executionToolNames, names)
+			require.Equal(t, test.wantToolset, toolset != nil, "skills toolset")
+		})
+	}
+}
+
+// An agent without skills is created with the execution tools and no skills
+// toolset; one with skills as before.
+func TestCreateGoogleADKAgentWithoutSkills(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("KAGENT_SKILLS_FOLDER", "")
+	config := &adk.AgentConfig{
+		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4o"}, BaseUrl: "https://api.openai.com/v1"},
+		Description: "root", Instruction: "work",
+	}
+	root, err := CreateGoogleADKAgent(context.Background(), config, "root", nil)
+	require.NoError(t, err)
+	require.Equal(t, "root", root.Name())
 }

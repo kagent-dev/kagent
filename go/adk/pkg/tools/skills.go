@@ -22,7 +22,7 @@ Usage:
 - Optional offset and limit parameters for reading specific line ranges
 - Lines longer than 2000 characters are truncated
 - Always read a file before editing it
-- You can read from skills/ directory, uploads/, outputs/, or any file in your session`
+- You can read any file of your working directory and of your scratch directory`
 
 	writeFileDescription = `Writes content to a file on the filesystem.
 
@@ -32,8 +32,7 @@ Usage:
 - Creates parent directories if needed
 - For existing files, read them first using read_file
 - Prefer editing existing files over writing new ones
-- You can write to your working directory, outputs/, or any writable location
-- Note: skills/ directory is read-only`
+- You can write to your working directory and to your scratch directory`
 
 	editFileDescription = `Performs exact string replacements in files.
 
@@ -45,43 +44,48 @@ Usage:
 - old_string must be unique unless replace_all=true
 - Use replace_all to rename variables/strings throughout the file
 - old_string and new_string must be different
-- Note: skills/ directory is read-only`
+- You can edit any file of your working directory and of your scratch directory`
 
 	listFilesDescription = `Lists files and directories at a given path.
 
 Usage:
 - Provide a path (absolute or relative to your working directory); defaults to the working directory
 - Directories are listed with a trailing "/"; files are followed by their size in bytes
-- You can list skills/ directory, uploads/, outputs/, or any directory in your session`
+- You can list any directory of your working directory and of your scratch directory`
 
 	grepFileDescription = `Searches for a regular expression pattern in a file or directory.
 
 Usage:
 - Provide a pattern and a path (absolute or relative to your working directory)
 - Set recursive=true to search all files under a directory path
-- Recursion does not follow symlinked subdirectories (e.g. skills/ is a symlink) -
-  point path directly at skills/ to search inside it
+- Recursion does not follow symlinked subdirectories - point path directly at a
+  symlinked directory to search inside it
 - Set ignore_case=true for case-insensitive matching
 - Returns matching lines as path:line_number:content
-- You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session`
+- You can search any file or directory of your working directory and of your scratch directory`
 
-	bashDescription = `Execute bash commands in the skills environment with sandbox protection.
+	bashDescription = `Executes a bash command in your session's sandbox.
 
-Working Directory & Structure:
-- Commands run in a temporary session directory: /tmp/kagent/{session_id}/
-- /skills -> All skills are available here (read-only).
-- Your current working directory and /skills are added to PYTHONPATH.
+Usage:
+- Provide the command; its output comes back as the result
+- Commands run in your working directory; cd into a repository to work on it
+- Use read_file, write_file and edit_file for file operations rather than cat, heredocs and sed`
 
-Python Imports (CRITICAL):
-- To import from a skill, use the name of the skill.
-  Example: from skills_name.module import function
-- If the skills name contains a dash '-', you need to use importlib to import it.
-  Example:
-    import importlib
-    skill_module = importlib.import_module('skill-name.module')
+	// workingDirectoryRule tells the model where the tools work. It is a rule
+	// rather than a path: the working directory is the turn's, which the
+	// runtime learns per turn and never at boot, since a runtime restored from
+	// a snapshot predates the session's mounts. Every execution tool's
+	// description carries it, so an agent without skills, which has no other
+	// way into its workspace, is told where its repositories are.
+	workingDirectoryRule = `
 
-For file operations:
-- Use read_file, write_file, and edit_file for interacting with the filesystem.`
+Working directory:
+- You work in the turn's working directory. In a session with a workspace it is the session's own directory, whose top level holds one <owner>/<repository> directory per repository of the workspace. A session without a workspace works in /data/workspace.`
+
+	// skillsHint is appended when the agent has skills: the scratch directory
+	// then links to them, and a skill's Python modules import from there.
+	skillsHint = `
+- skills/ in your scratch directory holds your skills (read-only). To import a skill's Python module, put skills/ on PYTHONPATH and import it by the skill's name; a name with a dash needs importlib (importlib.import_module('skill-name.module')).`
 
 	// fileSearchToolsBashHint is appended to bashDescription only when
 	// list_files/grep_file are enabled, so bash's own description doesn't
@@ -89,8 +93,26 @@ For file operations:
 	// trailing paragraph rather than interpolated into bashDescription, so
 	// the long, free-form prose above stays a plain string -- not a format
 	// template where a stray '%' added later could silently corrupt output.
-	fileSearchToolsBashHint = "\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command."
+	fileSearchToolsBashHint = "\n\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command."
 )
+
+// scratchDirectoryHint names the scratch directory, which holds uploads/ and
+// outputs/ at an absolute path the tools reach from any working directory,
+// and skills/ when the agent has skills.
+func scratchDirectoryHint(withSkills bool) string {
+	hint := "\n- Your scratch directory is " + filepath.Join(os.TempDir(), "kagent", "<session id>") +
+		"/: uploads/ holds the files attached to the conversation and outputs/ the files you hand back, both reachable by their absolute paths."
+	if withSkills {
+		hint += skillsHint
+	}
+	return hint
+}
+
+// toolDescription is a tool's usage followed by the working-directory rule and
+// the scratch directory hint, which every execution tool carries.
+func toolDescription(usage string, withSkills bool) string {
+	return usage + workingDirectoryRule + scratchDirectoryHint(withSkills)
+}
 
 // bashToolTimeout is the configured KAGENT_BASH_TOOL_TIMEOUT; a value that is
 // not a positive duration keeps the default.
@@ -142,28 +164,33 @@ type grepFileInput struct {
 	IgnoreCase bool   `json:"ignore_case,omitempty"`
 }
 
-// NewSkillExecutionTools creates the filesystem and shell tools used to execute
-// skills. Skill discovery and loading are provided by Go ADK's skilltoolset.
-func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
+// NewExecutionTools creates the filesystem and shell tools an agent works
+// with: read_file, write_file, edit_file and bash, plus list_files and
+// grep_file when enabled. skillsDirectory, when the agent has skills, is
+// linked into the scratch directory as skills/ and readable through the tools;
+// skill discovery and loading are Go ADK's skilltoolset. Without skills the
+// tools are the same, with no skills link and no skills root.
+func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	skillsDirectory = strings.TrimSpace(skillsDirectory)
-	if skillsDirectory == "" {
-		return nil, nil
+	absSkillsDir := ""
+	if skillsDirectory != "" {
+		var err error
+		absSkillsDir, err = filepath.Abs(skillsDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve skills directory %q: %w", skillsDirectory, err)
+		}
+		if _, err := os.Stat(absSkillsDir); err != nil {
+			return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
+		}
 	}
-
-	absSkillsDir, err := filepath.Abs(skillsDirectory)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve skills directory %q: %w", skillsDirectory, err)
-	}
-	if _, err := os.Stat(absSkillsDir); err != nil {
-		return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
-	}
+	withSkills := absSkillsDir != ""
 
 	commandTimeout := bashToolTimeout()
 	commandExecutor := NewCommandExecutor(commandTimeout)
 
 	readFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "read_file",
-		Description: readFileDescription,
+		Description: toolDescription(readFileDescription, withSkills),
 	}, func(ctx adkagent.Context, in readFileInput) (string, error) {
 		path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
@@ -182,7 +209,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 
 	writeFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "write_file",
-		Description: writeFileDescription,
+		Description: toolDescription(writeFileDescription, withSkills),
 	}, func(ctx adkagent.Context, in writeFileInput) (string, error) {
 		path, err := resolveWritePath(ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
@@ -200,7 +227,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 
 	editFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "edit_file",
-		Description: editFileDescription,
+		Description: toolDescription(editFileDescription, withSkills),
 	}, func(ctx adkagent.Context, in editFileInput) (string, error) {
 		path, err := resolveEditPath(ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
@@ -225,7 +252,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	if fileSearchEnabled {
 		listFilesTool, err := functiontool.New(functiontool.Config{
 			Name:        "list_files",
-			Description: listFilesDescription,
+			Description: toolDescription(listFilesDescription, withSkills),
 		}, func(ctx adkagent.Context, in listFilesInput) (string, error) {
 			requestedPath := in.Path
 			if strings.TrimSpace(requestedPath) == "" {
@@ -249,7 +276,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 
 		grepFileTool, err := functiontool.New(functiontool.Config{
 			Name:        "grep_file",
-			Description: grepFileDescription,
+			Description: toolDescription(grepFileDescription, withSkills),
 		}, func(ctx adkagent.Context, in grepFileInput) (string, error) {
 			if strings.TrimSpace(in.Pattern) == "" {
 				return "Error: No pattern provided", nil
@@ -288,7 +315,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		tools = append(tools, listFilesTool, grepFileTool)
 	}
 
-	desc := bashDescription + bashTimeoutHint(commandTimeout)
+	desc := toolDescription(bashDescription, withSkills) + bashTimeoutHint(commandTimeout)
 	if fileSearchEnabled {
 		desc += fileSearchToolsBashHint
 	}
@@ -373,7 +400,7 @@ func resolveSandboxedPath(sessionID, skillsDirectory, requestedPath string, poli
 	}
 	roots := []string{sessionRoot}
 
-	if policy.allowSkillsRoot {
+	if policy.allowSkillsRoot && skillsDirectory != "" {
 		// Resolved eagerly rather than only when the session root misses, so
 		// an unresolvable skills directory still surfaces as an error the way
 		// it did before these three were merged into one function.

@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -159,7 +160,7 @@ func TestResolvePathContainment(t *testing.T) {
 	}
 }
 
-func TestNewSkillExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
+func TestNewExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
 	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 	skillDir := filepath.Join(skillsDir, "demo")
@@ -174,9 +175,9 @@ description: Demo skill.
 		t.Fatalf("failed to write skill metadata: %v", err)
 	}
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillExecutionTools() error = %v", err)
+		t.Fatalf("NewExecutionTools() error = %v", err)
 	}
 
 	got := map[string]bool{}
@@ -191,13 +192,13 @@ description: Demo skill.
 	}
 }
 
-func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
+func TestNewExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
 	skillsDir := t.TempDir()
 	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillExecutionTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
+		t.Fatalf("NewExecutionTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
 	}
 
 	got := map[string]bool{}
@@ -218,7 +219,7 @@ func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T)
 	}
 }
 
-func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
+func TestNewExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
 	skillsDir := t.TempDir()
 
 	findBash := func(t *testing.T, tools []tool.Tool) tool.Tool {
@@ -234,9 +235,9 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 
 	t.Run("disabled by default", func(t *testing.T) {
 		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
-		tools, err := NewSkillExecutionTools(skillsDir)
+		tools, err := NewExecutionTools(skillsDir)
 		if err != nil {
-			t.Fatalf("NewSkillExecutionTools() error = %v", err)
+			t.Fatalf("NewExecutionTools() error = %v", err)
 		}
 		desc := findBash(t, tools).Description()
 		if strings.Contains(desc, "list_files") || strings.Contains(desc, "grep_file") {
@@ -246,9 +247,9 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 
 	t.Run("mentioned when enabled", func(t *testing.T) {
 		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
-		tools, err := NewSkillExecutionTools(skillsDir)
+		tools, err := NewExecutionTools(skillsDir)
 		if err != nil {
-			t.Fatalf("NewSkillExecutionTools() error = %v", err)
+			t.Fatalf("NewExecutionTools() error = %v", err)
 		}
 		desc := findBash(t, tools).Description()
 		if !strings.Contains(desc, "list_files and grep_file") {
@@ -260,16 +261,16 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 // TestListFilesAndGrepFileTools_RunThroughADK invokes the real functiontool.Run()
 // path (the same one the ADK flow engine uses to execute a model's tool call),
 // rather than calling ListDirContent/GrepContent directly, to verify the
-// closures in NewSkillExecutionTools correctly wire path resolution and
+// closures in NewExecutionTools correctly wire path resolution and
 // argument parsing end-to-end.
 func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
 	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillExecutionTools() error = %v", err)
+		t.Fatalf("NewExecutionTools() error = %v", err)
 	}
 
 	var listFilesTool, grepFileTool, readFileTool, bashTool tool.Tool
@@ -397,4 +398,166 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 			t.Errorf("list_files result = %q, want file-link sized by its target (5000)", result)
 		}
 	})
+}
+
+// Without skills the execution tools are the same tools, with no skills link
+// in the scratch directory and no skills root: an agent reaches its working
+// directory through them whether or not it has skills.
+func TestNewExecutionTools_WithoutSkills(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
+
+	tools, err := NewExecutionTools("")
+	if err != nil {
+		t.Fatalf("NewExecutionTools(\"\") error = %v", err)
+	}
+	got := map[string]tool.Tool{}
+	for _, tl := range tools {
+		got[tl.Name()] = tl
+	}
+	for _, name := range []string{"read_file", "write_file", "edit_file", "bash"} {
+		if got[name] == nil {
+			t.Errorf("expected tool %q without skills", name)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("got %d tools without skills, want the four execution tools", len(got))
+	}
+
+	sessionID := t.Name() + "-session"
+	sessionPath, err := GetSessionPath(sessionID, "")
+	if err != nil {
+		t.Fatalf("GetSessionPath() error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(sessionPath, "skills")); !os.IsNotExist(err) {
+		t.Errorf("expected no skills link without skills, Lstat error = %v", err)
+	}
+	for _, dir := range []string{"uploads", "outputs"} {
+		if _, err := os.Stat(filepath.Join(sessionPath, dir)); err != nil {
+			t.Errorf("expected %s/ in the scratch directory: %v", dir, err)
+		}
+	}
+
+	ctx := &fakeToolContext{sessionID: sessionID}
+	if err := os.WriteFile(filepath.Join(sessionPath, "notes.txt"), []byte("hello\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if result := runTool(t, got["read_file"], ctx, map[string]any{"file_path": "notes.txt"}); !strings.Contains(result, "hello") {
+		t.Errorf("read_file result = %q, want the file", result)
+	}
+	if result := runTool(t, got["read_file"], ctx, map[string]any{"file_path": "skills/script.py"}); !strings.Contains(result, "Error reading file") {
+		t.Errorf("read_file of skills/ without skills = %q, want an error", result)
+	}
+}
+
+// A stale skills link of an earlier boot with skills does not outlive them.
+func TestGetSessionPath_RemovesAStaleSkillsLink(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	sessionID := t.Name() + "-session"
+	skillsDir := t.TempDir()
+	sessionPath, err := GetSessionPath(sessionID, skillsDir)
+	if err != nil {
+		t.Fatalf("GetSessionPath() error = %v", err)
+	}
+	if _, err := os.Readlink(filepath.Join(sessionPath, "skills")); err != nil {
+		t.Fatalf("expected the skills link with skills: %v", err)
+	}
+	if _, err := GetSessionPath(sessionID, ""); err != nil {
+		t.Fatalf("GetSessionPath() without skills error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(sessionPath, "skills")); !os.IsNotExist(err) {
+		t.Errorf("expected the skills link removed without skills, Lstat error = %v", err)
+	}
+}
+
+// Every execution tool tells the model where it works: the turn's working
+// directory with its <owner>/<repository> directories, /data/workspace without
+// a workspace, and the scratch directory by its absolute path; skills/ only
+// when the agent has skills.
+func TestNewExecutionTools_DescriptionsNameTheWorkingDirectoryRule(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
+	scratch := filepath.Join(os.TempDir(), "kagent", "<session id>")
+
+	for _, test := range []struct {
+		name       string
+		skillsDir  string
+		withSkills bool
+	}{
+		{name: "without skills", skillsDir: "", withSkills: false},
+		{name: "with skills", skillsDir: t.TempDir(), withSkills: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tools, err := NewExecutionTools(test.skillsDir)
+			if err != nil {
+				t.Fatalf("NewExecutionTools() error = %v", err)
+			}
+			if len(tools) != 6 {
+				t.Fatalf("got %d tools, want 6 with the file search tools enabled", len(tools))
+			}
+			for _, tl := range tools {
+				desc := tl.Description()
+				for _, want := range []string{"<owner>/<repository>", "/data/workspace", scratch, "uploads/", "outputs/"} {
+					if !strings.Contains(desc, want) {
+						t.Errorf("%s description lacks %q:\n%s", tl.Name(), want, desc)
+					}
+				}
+				if strings.Contains(desc, "skills/") != test.withSkills {
+					t.Errorf("%s description mentions skills/ = %v, want %v:\n%s", tl.Name(), !test.withSkills, test.withSkills, desc)
+				}
+			}
+		})
+	}
+}
+
+// In a working directory laid out as a workspace, bash runs git status inside
+// <working directory>/<owner>/<repository> and reports the repository.
+func TestBashTool_RunsGitStatusInARepositoryOfTheWorkingDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+	workingDirectory := t.TempDir()
+	repository := filepath.Join(workingDirectory, "owner", "repository")
+	if err := os.MkdirAll(repository, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main"},
+		{"-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "initial"},
+	} {
+		command := exec.CommandContext(t.Context(), "git", args...)
+		command.Dir = repository
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+
+	tools, err := NewExecutionTools("")
+	if err != nil {
+		t.Fatalf("NewExecutionTools(\"\") error = %v", err)
+	}
+	var bashTool tool.Tool
+	for _, tl := range tools {
+		if tl.Name() == "bash" {
+			bashTool = tl
+		}
+	}
+	if bashTool == nil {
+		t.Fatal("expected the bash tool")
+	}
+	// The bash tool bounds its command by the tool context's deadline.
+	ctx := &fakeToolContext{StrictContextMock: adkagent.StrictContextMock{Ctx: t.Context()}, sessionID: t.Name() + "-session"}
+	result := runTool(t, bashTool, ctx, map[string]any{
+		"command": "cd " + repository + " && git rev-parse --show-toplevel && git status --short --branch",
+	})
+	toplevel, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{toplevel, "## main"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("bash result = %q, want %q", result, want)
+		}
+	}
 }

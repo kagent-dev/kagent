@@ -1,0 +1,66 @@
+{
+  "openai": [
+    {
+      "name": "report",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Report the repository.",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-tools-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_report",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"test -d /workspace/e2e/alpha/.git || git clone --quiet --shared /mirrors/e2e/alpha.git /workspace/e2e/alpha; cd /workspace/e2e/alpha && printf 'toplevel=%s\\\\nbranch=%s\\\\n' \\\"$(git rev-parse --show-toplevel)\\\" \\\"$(git status --short --branch | head -1)\\\"; echo REPORT_DONE\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reported",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "REPORT_DONE",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-workspace-tools-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "REPOSITORY_REPORTED"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -100,7 +100,10 @@ func truncateRunes(s string, maxRunes int) string {
 	return s
 }
 
-// GetSessionPath creates the working directory used by skill execution tools.
+// GetSessionPath creates the session's scratch directory, which the execution
+// tools work in: uploads/ and outputs/, and a skills link to skillsDirectory
+// when the agent has skills. Without one, no link is left behind: the link is
+// bound to the skills, not to the tools.
 func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 	if sessionID == "" {
 		return "", fmt.Errorf("sessionID cannot be empty")
@@ -119,11 +122,15 @@ func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 		return "", fmt.Errorf("failed to create outputs directory: %w", err)
 	}
 
+	skillsLink := filepath.Join(sessionPath, "skills")
+	if skillsDirectory == "" {
+		_ = os.Remove(skillsLink)
+		return sessionPath, nil
+	}
 	absSkillsDir, err := filepath.Abs(skillsDirectory)
 	if err != nil {
 		absSkillsDir = skillsDirectory
 	}
-	skillsLink := filepath.Join(sessionPath, "skills")
 	if target, err := os.Readlink(skillsLink); err == nil {
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(filepath.Dir(skillsLink), target)
