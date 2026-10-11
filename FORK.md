@@ -340,6 +340,13 @@ write access.
   maintains the line's upstream relationship opens the prepared branches in batches. Once one is opened,
   the `Upstream` column links it and the upstream pull request names the fork commit, so the two
   reference each other.
+- **Lint with `make -C go lint`** (`make -C go lint-fix` to apply the fixes), the command CI's `go-lint`
+  runs. `go/.golangci.yaml` enables `kubeapilinter`, a custom linter loaded as a Go plugin from
+  `go/bin/kube-api-linter.so`; a plugin loads only into a binary built with the same toolchain and
+  dependencies, so a stock `golangci-lint` stops with `unable to load custom analyzer kubeapilinter:
+  plugin: not implemented`. The target builds the plugin and a matching `golangci-lint` from source into
+  `go/bin/` on its first run and needs only Go and git; never strip the linter from a copy of the
+  config to lint with a stock binary.
 - **A carried commit takes a type that releases.** Pull requests here are rebase-merged, so each commit's
   own subject reaches the Auto Release workflow, and its `cliff.toml` skips `test`, `docs` and `style`: a
   push that carries only those cuts no release candidate, and the change has no published artifact to be
