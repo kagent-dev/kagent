@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +21,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -58,7 +58,7 @@ func TestMCPSessionInteraction(t *testing.T) {
 			pageToken = next
 		}
 
-		created := mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", true)
+		created := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", true)
 		handle, ok := created["taskId"].(string)
 		if !ok || handle == "" {
 			t.Fatalf("task-capable MCP invocation = %#v", created)
@@ -79,7 +79,7 @@ func TestMCPSessionInteraction(t *testing.T) {
 			t.Fatalf("A2A task = %#v, error %v", persisted, err)
 		}
 
-		synchronous := mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", false)
+		synchronous := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", false)
 		if synchronous["resultType"] != "complete" || !strings.Contains(mcpResultText(synchronous), "The answer is 4.") {
 			t.Fatalf("synchronous MCP result = %#v", synchronous)
 		}
@@ -96,7 +96,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 		}
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
 		endpoint := mcpEndpoint(t)
-		handle := mcpInvoke(t, endpoint, fixture.sessionID, "Which database should we use for storage?", true)["taskId"].(string)
+		handle := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "Which database should we use for storage?", true)["taskId"].(string)
 		waiting := waitMCPTask(t, endpoint, handle, "input_required")
 		requests := waiting["inputRequests"].(map[string]any)
 		if len(requests) != 1 {
@@ -126,7 +126,7 @@ func TestMCPCancelTask(t *testing.T) {
 		modelURL, started := startBlockingInteractionMock(t)
 		fixture := newInteractionFixture(t, harness, target, modelURL)
 		endpoint := mcpEndpoint(t)
-		handle := mcpInvoke(t, endpoint, fixture.sessionID, "Wait for cancellation", true)["taskId"].(string)
+		handle := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "Wait for cancellation", true)["taskId"].(string)
 		select {
 		case <-started:
 		case <-time.After(time.Minute):
@@ -143,7 +143,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		endpoint := mcpEndpoint(t)
-		initial := mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", false)
+		initial := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", false)
 		if initial["resultType"] != "complete" {
 			t.Fatalf("initial invocation = %#v", initial)
 		}
@@ -156,18 +156,23 @@ func TestMCPCheckpointFork(t *testing.T) {
 		// Task completion precedes its idle snapshot. Retry the same checkpoint
 		// request until that snapshot is available; report the last tool error.
 		var result map[string]any
-		err := wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, 2*time.Minute, true, func(context.Context) (bool, error) {
-			result = mcpCall(t, endpoint, "tools/call", request, false)["result"].(map[string]any)
-			if result["isError"] != true {
-				return true, nil
-			}
-			if meta, ok := result["_meta"].(map[string]any); ok && meta["kagent.dev/error-reason"] == "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" {
-				return false, nil
-			}
-			return false, fmt.Errorf("checkpoint failed: %v", result)
-		})
+		err := waitForStep(t.Context(), mcpStep("tools/call", request), "a checkpoint of task "+taskID, mcpStepTimeout, 100*time.Millisecond,
+			func(ctx context.Context) (bool, string, error) {
+				response, err := mcpRequest(ctx, endpoint, "tools/call", request, false)
+				if err != nil {
+					return false, "", err
+				}
+				result = response["result"].(map[string]any)
+				if result["isError"] != true {
+					return true, "", nil
+				}
+				if meta, ok := result["_meta"].(map[string]any); ok && meta["kagent.dev/error-reason"] == "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" {
+					return false, fmt.Sprintf("snapshot pending: %#v", result), nil
+				}
+				return false, "", fmt.Errorf("checkpoint failed: %#v", result)
+			})
 		if err != nil {
-			t.Fatalf("create checkpoint: %v; last result: %#v", err, result)
+			t.Fatal(err)
 		}
 		created := result["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
 		checkpointID := created["id"].(string)
@@ -211,7 +216,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 			}
 		})
 
-		if result := mcpInvoke(t, endpoint, forkID, "What is 2+2?", false); !strings.Contains(mcpResultText(result), "The answer is 4.") {
+		if result := fixture.mcpInvoke(t, endpoint, forkID, "What is 2+2?", false); !strings.Contains(mcpResultText(result), "The answer is 4.") {
 			t.Fatalf("fork invocation = %#v", result)
 		}
 	})
@@ -222,49 +227,135 @@ func mcpEndpoint(t *testing.T) string {
 	return "http://" + interactionTarget(t) + "/mcp"
 }
 
+// mcpStepTimeout bounds each MCP step a test waits on: one call, including the
+// turn a synchronous invocation waits for, or a poll for a state.
+const mcpStepTimeout = 2 * time.Minute
+
 // mcpInvoke follows the gateway's rejection contract as sendMessageWithRetry
 // does: a completed task can precede the session settling its turn, and the
 // MCP tool reports the refusal that proves the input was not accepted as its
-// error text. Only that refusal is sent again.
-func mcpInvoke(t *testing.T, endpoint, sessionID, message string, tasks bool) map[string]any {
+// error text. Only that refusal is sent again. A synchronous invocation waits
+// for its turn, so a turn that never ends fails the step with the Session's
+// state and its tasks'.
+func (f *interactionFixture) mcpInvoke(t *testing.T, endpoint, sessionID, message string, tasks bool) map[string]any {
 	t.Helper()
-	var response map[string]any
-	err := wait.PollUntilContextTimeout(t.Context(), 250*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
-		response = mcpCall(t, endpoint, "tools/call", map[string]any{
-			"name": "invoke_session",
-			"arguments": map[string]any{
-				"session_id": sessionID, "message": message,
-			},
-		}, tasks)
-		result, ok := response["result"].(map[string]any)
-		return !ok || result["isError"] != true || mcpResultText(result) != sessionsvc.ErrSendNotAccepted.Error(), nil
-	})
-	result, ok := response["result"].(map[string]any)
-	if err != nil || !ok || result["isError"] == true || (tasks && result["taskId"] == nil) {
-		t.Fatalf("MCP invocation failed: %#v", response)
+	params := map[string]any{
+		"name":      "invoke_session",
+		"arguments": map[string]any{"session_id": sessionID, "message": message},
+	}
+	want := "the turn's result"
+	if tasks {
+		want = "a task handle"
+	}
+	var result map[string]any
+	err := waitForStep(t.Context(), mcpStep("tools/call", params), want, mcpStepTimeout, 250*time.Millisecond,
+		func(ctx context.Context) (bool, string, error) {
+			response, err := mcpRequest(ctx, endpoint, "tools/call", params, tasks)
+			if err != nil {
+				return false, "", err
+			}
+			result, _ = response["result"].(map[string]any)
+			if result == nil || result["isError"] != true || mcpResultText(result) != sessionsvc.ErrSendNotAccepted.Error() {
+				return true, "", nil
+			}
+			return false, "the send was not accepted", nil
+		})
+	if err != nil {
+		t.Fatalf("%v; %s", err, f.turnState(sessionID))
+	}
+	if result == nil || result["isError"] == true || (tasks && result["taskId"] == nil) {
+		t.Fatalf("MCP invocation failed: %#v", result)
 	}
 	return result
 }
 
-func waitMCPTask(t *testing.T, endpoint, taskID, status string) map[string]any {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Minute)
-	for time.Now().Before(deadline) {
-		result := mcpCall(t, endpoint, "tasks/get", map[string]any{"taskId": taskID}, true)["result"].(map[string]any)
-		if result["status"] == status {
-			return result
-		}
-		if result["status"] == "failed" || result["status"] == "cancelled" || result["status"] == "completed" {
-			t.Fatalf("MCP task reached %q, want %q: %#v", result["status"], status, result)
-		}
-		time.Sleep(250 * time.Millisecond)
+// turnState reports the Session's runtime state and the state of each of its
+// tasks: what a step that waited on a turn last saw of it.
+func (f *interactionFixture) turnState(sessionID string) string {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(f.ctx), 10*time.Second)
+	defer cancel()
+	response, err := f.sessions.GetSession(ctx, &apiv1alpha1.GetSessionRequest{SessionId: sessionID})
+	if err != nil {
+		return fmt.Sprintf("Session %s: %v", sessionID, err)
 	}
-	t.Fatalf("MCP task did not reach %q", status)
-	return nil
+	session := response.GetSession()
+	state := fmt.Sprintf("Session %s %s, operation %s", sessionID, session.GetState(), session.GetOperation())
+	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: f.tenant, ContextID: session.GetContextId()})
+	if err != nil {
+		return fmt.Sprintf("%s; tasks: %v", state, err)
+	}
+	listed, err := f.client.ListTasks(ctx, request)
+	if err != nil {
+		return fmt.Sprintf("%s; tasks: %v", state, err)
+	}
+	for _, task := range listed.GetTasks() {
+		state += fmt.Sprintf("; task %s %s", task.GetId(), task.GetStatus().GetState())
+	}
+	return state
 }
 
+func waitMCPTask(t *testing.T, endpoint, taskID, status string) map[string]any {
+	t.Helper()
+	params := map[string]any{"taskId": taskID}
+	var result map[string]any
+	err := waitForStep(t.Context(), mcpStep("tasks/get", params), fmt.Sprintf("status %q", status), mcpStepTimeout, 250*time.Millisecond,
+		func(ctx context.Context) (bool, string, error) {
+			response, err := mcpRequest(ctx, endpoint, "tasks/get", params, true)
+			if err != nil {
+				return false, "", err
+			}
+			result = response["result"].(map[string]any)
+			seen := fmt.Sprintf("status %q", result["status"])
+			if result["status"] == status {
+				return true, seen, nil
+			}
+			if result["status"] == "failed" || result["status"] == "cancelled" || result["status"] == "completed" {
+				return false, seen, fmt.Errorf("MCP task reached %q, want %q: %#v", result["status"], status, result)
+			}
+			return false, seen, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// mcpStep names an MCP call for a failure: the method, the tool and the
+// Session, checkpoint or task it is about.
+func mcpStep(method string, params map[string]any) string {
+	step := "MCP " + method
+	if name, ok := params["name"].(string); ok {
+		step += " " + name
+	}
+	if taskID, ok := params["taskId"].(string); ok {
+		step += " of task " + taskID
+	}
+	arguments, _ := params["arguments"].(map[string]any)
+	for _, key := range []string{"session_id", "checkpoint_id"} {
+		if value, ok := arguments[key].(string); ok {
+			step += " " + key + "=" + value
+		}
+	}
+	return step
+}
+
+// mcpCall makes one MCP call that must answer within mcpStepTimeout.
 func mcpCall(t *testing.T, endpoint, method string, params map[string]any, tasks bool) map[string]any {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), mcpStepTimeout)
+	defer cancel()
+	response, err := mcpRequest(ctx, endpoint, method, params, tasks)
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("%s: no answer within %s: %v", mcpStep(method, params), mcpStepTimeout, err)
+	}
+	if err != nil {
+		t.Fatalf("%s: %v", mcpStep(method, params), err)
+	}
+	return response
+}
+
+// mcpRequest posts one MCP request under ctx and decodes its JSON-RPC result.
+func mcpRequest(ctx context.Context, endpoint, method string, params map[string]any, tasks bool) (map[string]any, error) {
 	extensions := map[string]any{}
 	if tasks {
 		extensions[mcpTasksExtension] = map[string]any{}
@@ -278,11 +369,11 @@ func mcpCall(t *testing.T, endpoint, method string, params map[string]any, tasks
 	}
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json, text/event-stream")
@@ -296,28 +387,28 @@ func mcpCall(t *testing.T, endpoint, method string, params map[string]any, tasks
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	defer response.Body.Close()
 	body, err = io.ReadAll(response.Body)
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	if bytes.HasPrefix(body, []byte("event:")) {
 		_, data, ok := bytes.Cut(body, []byte("data: "))
 		if !ok {
-			t.Fatalf("invalid MCP event stream: %s", body)
+			return nil, fmt.Errorf("invalid MCP event stream: %s", body)
 		}
 		body = bytes.TrimSpace(data)
 	}
 	var result map[string]any
 	if err := json.Unmarshal(body, &result); err != nil {
-		t.Fatalf("decode MCP response (status %d): %v; body = %s", response.StatusCode, err, body)
+		return nil, fmt.Errorf("decode MCP response (status %d): %w; body = %s", response.StatusCode, err, body)
 	}
 	if rpcErr := result["error"]; rpcErr != nil {
-		t.Fatalf("MCP error: %#v", rpcErr)
+		return nil, fmt.Errorf("MCP error: %#v", rpcErr)
 	}
-	return result
+	return result, nil
 }
 
 func mcpResultText(result map[string]any) string {
