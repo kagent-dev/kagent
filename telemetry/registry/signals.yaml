@@ -121,7 +121,7 @@ attribute_groups:
         requirement_level:
           conditionally_required: gen_ai.output.messages is present.
 
-  - id: kagent.model_call
+  - id: kagent.inference
     visibility: public
     brief: What one model request returned.
     stability: development
@@ -130,10 +130,18 @@ attribute_groups:
         requirement_level:
           recommended: The runtime reported it.
         note: The model the harness reported.
+      - ref: gen_ai.response.id
+        requirement_level:
+          recommended: The runtime reported it.
+        note: The Claude message ID. Codex reports none.
+      - ref: kagent.inference.request_id
+        requirement_level:
+          recommended: The runtime reported it.
+        note: The Claude request ID. Codex reports none.
       - ref: gen_ai.response.finish_reasons
         requirement_level:
           recommended: The runtime reported it.
-        note: Claude only. Codex reports none.
+        note: Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none.
       - ref: gen_ai.usage.input_tokens
         requirement_level: recommended
         note: Includes cached tokens. Absent when the runtime reported no usage.
@@ -146,7 +154,11 @@ attribute_groups:
       - ref: gen_ai.usage.cache_write.input_tokens
         requirement_level:
           recommended: The runtime reported a non-zero count.
-      - ref: kagent.model_call.usage_partial
+      - ref: gen_ai.usage.reasoning.output_tokens
+        requirement_level:
+          recommended: The runtime reported a non-zero count.
+        note: Included in gen_ai.usage.output_tokens.
+      - ref: kagent.inference.usage_partial
         requirement_level:
           conditionally_required: The call ended without final usage.
 
@@ -157,8 +169,12 @@ attribute_groups:
     attributes:
       - ref: gen_ai.tool.name
         requirement_level: required
+        note: For an MCP tool, the MCP tool name without the server.
       - ref: gen_ai.tool.call.id
         requirement_level: required
+      - ref: kagent.mcp.server.name
+        requirement_level:
+          conditionally_required: The tool is an MCP tool.
       - ref: error.type
         requirement_level:
           conditionally_required: The tool reported a failure or never finished.
@@ -224,7 +240,8 @@ span_refinements:
       Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a
       runtime that emits no invoke_agent span of its own. A resumed segment links
       to the segment that started the native turn, with
-      `kagent.invocation.relationship` set to `resume_origin`.
+      `kagent.invocation.relationship` set to `resume_origin`. Usage and finish
+      reasons are only on inference spans, so they are opt-in here and never set.
     stability: development
     attributes:
       - ref: gen_ai.operation.name
@@ -242,13 +259,10 @@ span_refinements:
           `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`.
       - ref: gen_ai.usage.input_tokens
         requirement_level: opt_in
-        note: Never set here. Token usage is on the chat spans.
       - ref: gen_ai.usage.output_tokens
         requirement_level: opt_in
-        note: Never set here. Token usage is on the chat spans.
       - ref: gen_ai.response.finish_reasons
         requirement_level: opt_in
-        note: Never set here. The finish reason is on the chat spans.
       - ref_group: kagent.identity
       - ref_group: kagent.request
       - ref_group: kagent.outcome
@@ -263,7 +277,9 @@ span_refinements:
       root span. A call
       that ended with finish reason `error` has an error status, unless it was
       canceled. Codex reports no finish reason, so its calls never have an
-      error status. A request rejected before any response has no chat span.
+      error status. Codex also reports no call times, so a Codex call starts at
+      the previous call's usage report and ends when its first tool starts or the
+      turn pauses for input, or at its own usage report otherwise.
     stability: development
     attributes:
       - ref: gen_ai.operation.name
@@ -281,8 +297,9 @@ span_refinements:
         requirement_level:
           conditionally_required: The call ended with finish reason `error` and was not canceled.
         note: >
-          Always `model_error`. A canceled call keeps finish reason `error`, as
-          the conventions require, but has no error status.
+          The error category from the harness, such as `rate_limit`, or
+          `model_error` when the harness gives none. A canceled call keeps finish
+          reason `error`, as the conventions require, but has no error status.
       - ref: gen_ai.conversation.id
         requirement_level:
           conditionally_required: The gateway assigned an A2A context.
@@ -293,7 +310,7 @@ span_refinements:
       - ref: gen_ai.output.messages
         requirement_level: opt_in
         note: Never set here. With content capture on, the turn content is on the invoke_agent span.
-      - ref_group: kagent.model_call
+      - ref_group: kagent.inference
 
   - id: kagent.execute_tool.internal
     ref: gen_ai.execute_tool.internal
@@ -301,7 +318,8 @@ span_refinements:
     note: >
       Named `execute_tool {gen_ai.tool.name}`. A child of the invoke_agent span
       when one exists, otherwise a root span, from the tool call to its result.
-      A call that waits for approval starts at the approval.
+      A call open across a pause belongs to the segment its result arrives in,
+      and starts no earlier than that segment.
     stability: development
     attributes:
       - ref: gen_ai.operation.name
@@ -312,6 +330,21 @@ span_refinements:
           conditionally_required: The gateway assigned an A2A context.
         note: The A2A context ID.
       - ref_group: kagent.tool_call
+      - ref: gen_ai.tool.call.arguments
+        note: >
+          The tool input as JSON. It can hold sensitive data, so it is recorded only under
+          `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. It is cut to the
+          same byte budget as `gen_ai.input.messages`, so a cut value is not valid JSON.
+      - ref: gen_ai.tool.call.result
+        note: >
+          The tool result as JSON, which can hold sensitive data, under the same rule
+          and budget. Absent when the call failed or never finished.
+      - ref: kagent.capture.input_truncated
+        requirement_level:
+          conditionally_required: gen_ai.tool.call.arguments is present.
+      - ref: kagent.capture.output_truncated
+        requirement_level:
+          conditionally_required: gen_ai.tool.call.result is present.
 
 metric_refinements:
   - id: kagent.invoke_agent.duration

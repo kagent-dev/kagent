@@ -612,7 +612,7 @@ func TestModelCallRecordsChatSpan(t *testing.T) {
 			call: runtime.ModelCall{
 				Provider: "anthropic", RequestModel: "opus", ResponseModel: "claude-opus-5-5",
 				InputTokens: 38368, CacheReadTokens: 10699, CacheWriteTokens: 27667, OutputTokens: 4,
-				StopReason: "end_turn", Start: start, End: start.Add(time.Second),
+				StopReason: "stop", Start: start, End: start.Add(time.Second),
 			},
 			wantName: "chat opus",
 			wantString: map[string]string{
@@ -623,7 +623,7 @@ func TestModelCallRecordsChatSpan(t *testing.T) {
 				"gen_ai.usage.input_tokens": 38368, "gen_ai.usage.output_tokens": 4,
 				"gen_ai.usage.cache_read.input_tokens": 10699, "gen_ai.usage.cache_write.input_tokens": 27667,
 			},
-			wantFinish: []string{"end_turn"},
+			wantFinish: []string{"stop"},
 		},
 		{
 			name:     "unknown fields omitted",
@@ -643,7 +643,8 @@ func TestModelCallRecordsChatSpan(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := newTraceRecorder(t)
 			run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-				return runtime.Outcome{}, sink.ModelCall(tc.call)
+				sink.ModelCall(tc.call)
+				return runtime.Outcome{}, nil
 			}
 			executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
 			for range executor.Execute(recorder.segment(t.Context()), requestContext("task-chat", "hello")) {
@@ -686,7 +687,7 @@ func TestToolCallsRecordExecuteToolSpans(t *testing.T) {
 	run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 		for _, err := range []error{
 			sink.ToolCall(runtime.ToolCall{ID: "call_ok", Name: "Bash"}),
-			sink.ToolCall(runtime.ToolCall{ID: "call_bad", Name: "mcp__kagent__k8s_get"}),
+			sink.ToolCall(runtime.ToolCall{ID: "call_bad", Name: "mcp__kagent__k8s_get", MCPServer: "kagent", MCPTool: "k8s_get"}),
 			sink.ToolResult(runtime.ToolResult{ID: "call_bad", Name: "mcp__kagent__k8s_get", IsError: true}),
 			sink.ToolResult(runtime.ToolResult{ID: "call_ok", Name: "Bash"}),
 			sink.ToolCall(runtime.ToolCall{ID: "call_open", Name: "Read"}),
@@ -704,9 +705,9 @@ func TestToolCallsRecordExecuteToolSpans(t *testing.T) {
 	spans := recorder.spans(t, 4)
 	invoke := spans[3]
 	for i, want := range []struct {
-		name, id, errorType string
+		name, id, server, errorType string
 	}{
-		{name: "mcp__kagent__k8s_get", id: "call_bad", errorType: "tool_error"},
+		{name: "k8s_get", id: "call_bad", server: "kagent", errorType: "tool_error"},
 		{name: "Bash", id: "call_ok"},
 		{name: "Read", id: "call_open", errorType: "unfinished"},
 	} {
@@ -722,6 +723,9 @@ func TestToolCallsRecordExecuteToolSpans(t *testing.T) {
 				t.Errorf("%s %s = %q, want %q", want.id, key, got, value)
 			}
 		}
+		if got, _ := attributeOf(span, "kagent.mcp.server.name"); got.AsString() != want.server {
+			t.Errorf("%s kagent.mcp.server.name = %q, want %q", want.id, got.AsString(), want.server)
+		}
 		if got, _ := attributeOf(span, "error.type"); got.AsString() != want.errorType {
 			t.Errorf("%s error.type = %q, want %q", want.id, got.AsString(), want.errorType)
 		}
@@ -732,6 +736,89 @@ func TestToolCallsRecordExecuteToolSpans(t *testing.T) {
 		if span.Status.Code != wantCode || span.Status.Description != want.errorType {
 			t.Errorf("%s status = %v %q, want %v %q", want.id, span.Status.Code, span.Status.Description, wantCode, want.errorType)
 		}
+	}
+}
+
+func TestToolSpanCapturesArgumentsAndResult(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		capture                bool
+		limit                  int
+		arguments              map[string]any
+		result                 any
+		isError                bool
+		wantArguments          string // "" means absent
+		wantResult             string
+		wantArgumentsShortened bool
+		wantResultShortened    bool
+	}{
+		{name: "capture off", arguments: map[string]any{"path": "notes.txt"}, result: "hello"},
+		{
+			name: "captured", capture: true, arguments: map[string]any{"path": "notes.txt"}, result: "hello",
+			wantArguments: `{"path":"notes.txt"}`, wantResult: `"hello"`,
+		},
+		{
+			// Cut like invoke_agent content: the first bytes within the budget, flagged as shortened.
+			name: "arguments over the budget are cut", capture: true, limit: 8, arguments: map[string]any{"path": "notes.txt"}, result: "x",
+			wantArguments: `{"path":`, wantResult: `"x"`, wantArgumentsShortened: true,
+		},
+		{
+			name: "a result over the budget is cut", capture: true, limit: 4, arguments: map[string]any{}, result: "hello",
+			wantArguments: `{}`, wantResult: `"hel`, wantResultShortened: true,
+		},
+		{
+			name: "a failed call keeps its arguments only", capture: true, arguments: map[string]any{"a": 1}, result: "boom", isError: true,
+			wantArguments: `{"a":1}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := newTraceRecorder(t)
+			run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+				if err := sink.ToolCall(runtime.ToolCall{ID: "c1", Name: "Read", Arguments: tc.arguments}); err != nil {
+					return runtime.Outcome{}, err
+				}
+				return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "c1", Name: "Read", Result: tc.result, IsError: tc.isError})
+			}
+			executor := newExecutor(t, run, tracing.RuntimeTelemetry{CaptureContent: tc.capture, MaxCaptureBytes: tc.limit})
+			if _, errs := collect(executor.Execute(recorder.segment(t.Context()), requestContext("task-capture", "go"))); len(errs) != 0 {
+				t.Fatalf("errors = %v", errs)
+			}
+
+			tool := recorder.spans(t, 2)[0]
+			for key, want := range map[string]string{"gen_ai.tool.call.arguments": tc.wantArguments, "gen_ai.tool.call.result": tc.wantResult} {
+				if got, ok := attributeOf(tool, key); ok != (want != "") || got.AsString() != want {
+					t.Errorf("%s = %q (present %v), want %q", key, got.AsString(), ok, want)
+				}
+			}
+			for key, want := range map[string]struct{ present, value bool }{
+				"kagent.capture.input_truncated":  {tc.wantArguments != "", tc.wantArgumentsShortened},
+				"kagent.capture.output_truncated": {tc.wantResult != "", tc.wantResultShortened},
+			} {
+				if got, ok := attributeOf(tool, key); ok != want.present || got.AsBool() != want.value {
+					t.Errorf("%s = %v (present %v), want %v (present %v)", key, got.AsBool(), ok, want.value, want.present)
+				}
+			}
+		})
+	}
+}
+
+// Arguments are captured when the call starts, so they reach the span written after an approval.
+func TestCapturedArgumentsSurviveAnApprovalPause(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	parkThenResume(t, recorder, gatedTurn{
+		first: func(sink runtime.EventSink) error {
+			return sink.ToolCall(runtime.ToolCall{ID: "call-1", Name: "tools.write", Arguments: map[string]any{"value": 7}})
+		},
+		resume: func(sink runtime.EventSink) error {
+			return sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", Result: "ok"})
+		},
+		approved:  true,
+		telemetry: tracing.RuntimeTelemetry{CaptureContent: true},
+	})
+
+	tool := recorder.spans(t, 3)[1]
+	if got := stringAttribute(t, tool, "gen_ai.tool.call.arguments"); tool.Name != "execute_tool tools.write" || got != `{"value":7}` {
+		t.Errorf("span %q arguments = %q, want the arguments from before the pause", tool.Name, got)
 	}
 }
 
@@ -770,9 +857,7 @@ func TestModelCallReportedAfterThePauseStaysInItsSegment(t *testing.T) {
 				{RequestModel: "asked", Start: asked, End: asked.Add(time.Millisecond)},
 				{RequestModel: "resumed", Start: now, End: now.Add(time.Millisecond)},
 			} {
-				if err := sink.ModelCall(call); err != nil {
-					return err
-				}
+				sink.ModelCall(call)
 			}
 			return nil
 		},
@@ -821,7 +906,7 @@ func TestDeniedToolRecordsNoSpan(t *testing.T) {
 	parkThenResume(t, recorder, gatedTurn{
 		first: startGatedCall,
 		resume: func(sink runtime.EventSink) error {
-			return sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", IsError: true})
+			return sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", IsError: true, Status: runtime.ToolDeclined})
 		},
 	})
 
@@ -832,16 +917,15 @@ func TestDeniedToolRecordsNoSpan(t *testing.T) {
 	}
 }
 
-// Claude can deliver the gated ToolCall after the pause, in the resumed segment.
+// Claude can deliver the gated ToolCall after the pause, in the resumed segment. A denied
+// call still gets a declined result, so it never gets a span.
 func TestLateGatedToolCall(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		approved bool
-		noResult bool
 		want     int
 	}{
 		{name: "denied", want: 2},
-		{name: "denied without result", noResult: true, want: 2},
 		{name: "approved", approved: true, want: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -849,10 +933,14 @@ func TestLateGatedToolCall(t *testing.T) {
 			parkThenResume(t, recorder, gatedTurn{
 				first: noEvents,
 				resume: func(sink runtime.EventSink) error {
-					if err := startGatedCall(sink); err != nil || tc.noResult {
+					if err := startGatedCall(sink); err != nil {
 						return err
 					}
-					return sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", IsError: !tc.approved})
+					result := runtime.ToolResult{ID: "call-1", Name: "tools.write", IsError: !tc.approved}
+					if !tc.approved {
+						result.Status = runtime.ToolDeclined
+					}
+					return sink.ToolResult(result)
 				},
 				approved: tc.approved,
 			})
@@ -896,42 +984,89 @@ func TestDeclinedToolRecordsNoSpanWithoutApproval(t *testing.T) {
 	recorder.spans(t, 1)
 }
 
-func TestPauseKeepsOtherOpenToolsWithTheirStart(t *testing.T) {
-	recorder := newTraceRecorder(t)
-	_, run := gatedPair(func(sink runtime.EventSink) error {
-		time.Sleep(time.Millisecond)
-		for _, err := range []error{
-			sink.ToolResult(runtime.ToolResult{ID: "call-a", Name: "Bash"}),
-			sink.ToolResult(runtime.ToolResult{ID: "call-b", Name: "tools.write"}),
-		} {
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
+func TestToolsOpenAcrossAPauseEndInTheResumedSegment(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		approved  bool
+		gated     runtime.ToolStatus
+		wantTools []string
+	}{
+		{name: "approved", approved: true, wantTools: []string{"execute_tool Bash", "execute_tool tools.write"}},
+		// The denied call never ran, so only the other open tool gets a span.
+		{name: "denied", gated: runtime.ToolDeclined, wantTools: []string{"execute_tool Bash"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := newTraceRecorder(t)
+			_, run := gatedPair(func(sink runtime.EventSink) error {
+				time.Sleep(time.Millisecond)
+				for _, err := range []error{
+					sink.ToolResult(runtime.ToolResult{ID: "call-a", Name: "Bash"}),
+					sink.ToolResult(runtime.ToolResult{ID: "call-b", Name: "tools.write", Status: tc.gated}),
+				} {
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
 
-	request := requestContext("task-two-tools", "go")
+			request := requestContext("task-two-tools", "go")
+			events, errs := collect(executor.Execute(recorder.segment(t.Context()), request))
+			parked := parkedStatus(t, events, errs)
+			if _, errs := collect(executor.Execute(recorder.segment(t.Context()), approvalVerdict(t, request, parked, "1", tc.approved))); len(errs) != 0 {
+				t.Fatalf("resumed segment errors = %v", errs)
+			}
+
+			spans := recorder.spans(t, 2+len(tc.wantTools))
+			first, tools, second := spans[0], spans[1:len(spans)-1], spans[len(spans)-1]
+			// Each result arrives after the resume, so each span belongs to the resumed segment.
+			for i, tool := range tools {
+				if tool.Name != tc.wantTools[i] || tool.Parent.SpanID() != second.SpanContext.SpanID() {
+					t.Errorf("span %q parent %s, want %q under the resumed segment, not the first %s",
+						tool.Name, tool.Parent.SpanID(), tc.wantTools[i], first.SpanContext.SpanID())
+				}
+				if tool.StartTime.Before(second.StartTime) || tool.EndTime.Sub(tool.StartTime) < time.Millisecond {
+					t.Errorf("%s span %s..%s, want it to run from the resume to its result", tool.Name, tool.StartTime, tool.EndTime)
+				}
+			}
+		})
+	}
+}
+
+// A tool open across two pauses belongs to the last segment, where its result arrives.
+func TestToolOpenAcrossTwoPausesEndsInTheLastSegment(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	second := &fakePendingTurn{
+		request: &runtime.ApprovalRequest{ID: "2", CallID: "call-2", Name: "tools.write", Hint: "Allow tools.write?"},
+		resume: func(_ context.Context, _ runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
+			return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "call-a", Name: "Bash"})
+		},
+	}
+	first := &fakePendingTurn{
+		request: &runtime.ApprovalRequest{ID: "1", CallID: "call-1", Name: "tools.read", Hint: "Allow tools.read?"},
+		resume: func(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error) {
+			return runtime.Outcome{Pending: second}, nil
+		},
+	}
+	executor := newExecutor(t, func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{Pending: first}, sink.ToolCall(runtime.ToolCall{ID: "call-a", Name: "Bash"})
+	}, tracing.RuntimeTelemetry{})
+
+	request := requestContext("task-two-pauses-tool", "go")
 	events, errs := collect(executor.Execute(recorder.segment(t.Context()), request))
-	parked := parkedStatus(t, events, errs)
-	if _, errs := collect(executor.Execute(recorder.segment(t.Context()), approvalDecision(t, request, parked, "1"))); len(errs) != 0 {
-		t.Fatalf("resumed segment errors = %v", errs)
+	parkedOnce := parkedStatus(t, events, errs)
+	events, errs = collect(executor.Execute(recorder.segment(t.Context()), approvalDecision(t, request, parkedOnce, "1")))
+	parkedTwice := parkedStatus(t, events, errs)
+	if _, errs := collect(executor.Execute(recorder.segment(t.Context()), approvalDecision(t, request, parkedTwice, "2"))); len(errs) != 0 {
+		t.Fatalf("final segment errors = %v", errs)
 	}
 
 	spans := recorder.spans(t, 4)
-	first, a, b, second := spans[0], spans[1], spans[2], spans[3]
-	if a.Name != "execute_tool Bash" || b.Name != "execute_tool tools.write" {
-		t.Fatalf("tool spans = %q, %q", a.Name, b.Name)
-	}
-	if a.StartTime.After(first.EndTime) || a.Parent.SpanID() != first.SpanContext.SpanID() {
-		t.Errorf("tool A start %s parent %s, want it to start and stay under the first segment", a.StartTime, a.Parent.SpanID())
-	}
-	if b.Parent.SpanID() != second.SpanContext.SpanID() {
-		t.Errorf("gated tool parent %s, want the resumed segment", b.Parent.SpanID())
-	}
-	if b.StartTime.Before(second.StartTime) || b.EndTime.Sub(b.StartTime) < time.Millisecond {
-		t.Errorf("gated tool span %s..%s, want it to run from the resume to its result", b.StartTime, b.EndTime)
+	tool, last := spans[2], spans[3]
+	if tool.Name != "execute_tool Bash" || tool.Parent.SpanID() != last.SpanContext.SpanID() || tool.StartTime.Before(last.StartTime) {
+		t.Fatalf("span %q parent %s start %s, want execute_tool Bash under the last segment from its start %s",
+			tool.Name, tool.Parent.SpanID(), tool.StartTime, last.StartTime)
 	}
 }
 
@@ -975,7 +1110,8 @@ func TestCancelWhilePausedFlushesUnfinishedTools(t *testing.T) {
 	exporter, provider := newBatchedProvider(t)
 	pending, run := gatedPair(func(runtime.EventSink) error { return nil })
 	pending.cancel = func(_ context.Context, sink runtime.ModelCallSink) error {
-		return sink.ModelCall(runtime.ModelCall{RequestModel: "m"})
+		sink.ModelCall(runtime.ModelCall{RequestModel: "m"})
+		return nil
 	}
 	executor := newExecutor(t, run, tracing.RuntimeTelemetry{Provider: "aws.bedrock"})
 
@@ -1009,7 +1145,8 @@ func TestModelCallDefaultsToCompiledModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := newTraceRecorder(t)
 			run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-				return runtime.Outcome{}, sink.ModelCall(tc.call)
+				sink.ModelCall(tc.call)
+				return runtime.Outcome{}, nil
 			}
 			executor := newExecutor(t, run, tracing.RuntimeTelemetry{Provider: "aws.bedrock", Model: "compiled"})
 			for range executor.Execute(recorder.segment(t.Context()), requestContext("task-model", "hello")) {
@@ -1032,19 +1169,23 @@ func TestModelCallUsageAndStatus(t *testing.T) {
 		name      string
 		call      runtime.ModelCall
 		wantUsage bool
-		wantError bool
+		wantError string
 	}{
-		{name: "interrupted before any usage", call: runtime.ModelCall{UsagePartial: true, StopReason: "error"}, wantError: true},
-		{name: "interrupted with partial usage", call: runtime.ModelCall{InputTokens: 5, UsagePartial: true, StopReason: "error"}, wantUsage: true, wantError: true},
-		{name: "final usage of zero", call: runtime.ModelCall{StopReason: "end_turn"}, wantUsage: true},
+		{name: "interrupted before any usage", call: runtime.ModelCall{UsagePartial: true, StopReason: "error"}, wantError: "model_error"},
+		{name: "interrupted with partial usage", call: runtime.ModelCall{InputTokens: 5, UsagePartial: true, StopReason: "error"}, wantUsage: true, wantError: "model_error"},
+		{name: "runtime error category", call: runtime.ModelCall{UsagePartial: true, StopReason: "error", ErrorType: "rate_limit"}, wantError: "rate_limit"},
+		{name: "final usage of zero", call: runtime.ModelCall{StopReason: "stop"}, wantUsage: true},
 		{name: "canceled", call: runtime.ModelCall{InputTokens: 5, UsagePartial: true, StopReason: "error", Canceled: true}, wantUsage: true},
+		{name: "response and request IDs", call: runtime.ModelCall{StopReason: "stop", ResponseID: "msg_1", RequestID: "req_1"}, wantUsage: true},
+		{name: "reasoning tokens", call: runtime.ModelCall{StopReason: "stop", OutputTokens: 9, ReasoningOutputTokens: 7}, wantUsage: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := newTraceRecorder(t)
 			call := tc.call
 			call.Provider, call.ResponseModel, call.Start, call.End = "anthropic", "claude-opus-5-5", start, start
 			run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-				return runtime.Outcome{}, sink.ModelCall(call)
+				sink.ModelCall(call)
+				return runtime.Outcome{}, nil
 			}
 			executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
 			for range executor.Execute(recorder.segment(t.Context()), requestContext("task-usage", "hello")) {
@@ -1056,12 +1197,24 @@ func TestModelCallUsageAndStatus(t *testing.T) {
 					t.Errorf("%s present = %v, want %v", key, ok, tc.wantUsage)
 				}
 			}
-			if partial, ok := attributeOf(chat, "kagent.model_call.usage_partial"); ok != tc.call.UsagePartial || (ok && !partial.AsBool()) {
+			if partial, ok := attributeOf(chat, "kagent.inference.usage_partial"); ok != tc.call.UsagePartial || (ok && !partial.AsBool()) {
 				t.Errorf("usage_partial = %v (present %v), want present %v", partial.AsBool(), ok, tc.call.UsagePartial)
 			}
+			if got, ok := attributeOf(chat, "gen_ai.usage.reasoning.output_tokens"); ok != (tc.call.ReasoningOutputTokens != 0) || got.AsInt64() != tc.call.ReasoningOutputTokens {
+				t.Errorf("reasoning tokens = %d (present %v), want %d", got.AsInt64(), ok, tc.call.ReasoningOutputTokens)
+			}
+			for key, want := range map[string]string{"gen_ai.response.id": tc.call.ResponseID, "kagent.inference.request_id": tc.call.RequestID} {
+				if got, ok := attributeOf(chat, key); ok != (want != "") || got.AsString() != want {
+					t.Errorf("%s = %q (present %v), want %q", key, got.AsString(), ok, want)
+				}
+			}
 			errorType, _ := attributeOf(chat, "error.type")
-			if gotError := chat.Status.Code == codes.Error && errorType.AsString() == "model_error"; gotError != tc.wantError {
-				t.Errorf("status = %v error.type = %q, want error %v", chat.Status.Code, errorType.AsString(), tc.wantError)
+			wantCode := codes.Unset
+			if tc.wantError != "" {
+				wantCode = codes.Error
+			}
+			if chat.Status.Code != wantCode || chat.Status.Description != tc.wantError || errorType.AsString() != tc.wantError {
+				t.Errorf("status = %v %q, error.type = %q, want %q", chat.Status.Code, chat.Status.Description, errorType.AsString(), tc.wantError)
 			}
 		})
 	}
@@ -1079,7 +1232,8 @@ func TestCancelWinningTheParkRaceFlushesOpenTools(t *testing.T) {
 		return runtime.Outcome{Pending: &fakePendingTurn{
 			request: &runtime.ApprovalRequest{ID: "1", CallID: "call-b", Name: "tools.write"},
 			cancel: func(_ context.Context, sink runtime.ModelCallSink) error {
-				return sink.ModelCall(runtime.ModelCall{RequestModel: "m"})
+				sink.ModelCall(runtime.ModelCall{RequestModel: "m"})
+				return nil
 			},
 		}}, nil
 	}
@@ -1123,7 +1277,8 @@ func TestModelCallRecordedWithoutAnAdoptedInvocation(t *testing.T) {
 				_, _ = invocation.EndTransport(ctx, tracing.Result{})
 			}
 			run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-				return runtime.Outcome{}, sink.ModelCall(runtime.ModelCall{RequestModel: "m", InputTokens: 3})
+				sink.ModelCall(runtime.ModelCall{RequestModel: "m", InputTokens: 3})
+				return runtime.Outcome{}, nil
 			}
 			executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
 			for range executor.Execute(ctx, requestContext("task-unadopted", "hello")) {
@@ -1149,7 +1304,8 @@ func TestUnadoptedInvocationFlushesRuntimeSpans(t *testing.T) {
 	ctx, invocation := tracing.StartInvocation(t.Context(), provider.Tracer("test"), "invoke_agent", provider.ForceFlush)
 	_, _ = invocation.EndTransport(ctx, tracing.Result{})
 	run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-		return runtime.Outcome{}, sink.ModelCall(runtime.ModelCall{RequestModel: "m", InputTokens: 3})
+		sink.ModelCall(runtime.ModelCall{RequestModel: "m", InputTokens: 3})
+		return runtime.Outcome{}, nil
 	}
 	executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
 	collect(executor.Execute(ctx, requestContext("task-unadopted-flush", "hello")))
@@ -1213,6 +1369,7 @@ func noEvents(runtime.EventSink) error { return nil }
 type gatedTurn struct {
 	first, resume func(runtime.EventSink) error
 	approved      bool
+	telemetry     tracing.RuntimeTelemetry
 }
 
 func parkThenResume(t *testing.T, recorder *traceRecorder, turn gatedTurn) {
@@ -1226,7 +1383,7 @@ func parkThenResume(t *testing.T, recorder *traceRecorder, turn gatedTurn) {
 	run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 		return runtime.Outcome{Pending: pending}, turn.first(sink)
 	}
-	executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
+	executor := newExecutor(t, run, turn.telemetry)
 	request := requestContext("task-gated", "write")
 	events, errs := collect(executor.Execute(recorder.segment(t.Context()), request))
 	parked := parkedStatus(t, events, errs)

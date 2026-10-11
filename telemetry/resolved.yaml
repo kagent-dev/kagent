@@ -164,7 +164,7 @@ refinements:
     - brief: The component that writes the GenAI model and tool spans of an agent.
       key: kagent.genai.producer
       note: |
-        Set on the resource of a native harness process. With the value `adapter`, the collector counts the spans of the kagent harness adapter for that agent. When absent, the harness writes its own native spans, as in older images.
+        Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans.
       provenance:
         path: telemetry/registry/kagent.yaml
       requirement_level:
@@ -172,10 +172,10 @@ refinements:
       stability: development
       type:
         members:
-        - brief: The kagent harness adapter writes the model and tool spans.
-          id: adapter
+        - brief: The kagent harness runtime writes the model and tool spans.
+          id: runtime
           stability: development
-          value: adapter
+          value: runtime
     - brief: The framework or harness that runs an agent.
       key: kagent.runtime
       note: |
@@ -789,12 +789,7 @@ refinements:
         }
       key: gen_ai.tool.call.arguments
       note: |
-        \u003e [!WARNING]
-        \u003e This attribute may contain sensitive information.
-
-        It\u0027s expected to be an object - in case a serialized string is available
-        to the instrumentation, the instrumentation SHOULD do the best effort to
-        deserialize it to an object.
+        The tool input as JSON. It can hold sensitive data, so it is recorded only under `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. It is cut to the same byte budget as `gen_ai.input.messages`, so a cut value is not valid JSON.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: opt_in
@@ -824,12 +819,7 @@ refinements:
         }
       key: gen_ai.tool.call.result
       note: |
-        \u003e [!WARNING]
-        \u003e This attribute may contain sensitive information.
-
-        It\u0027s expected to be an object - in case a serialized string is available
-        to the instrumentation, the instrumentation SHOULD do the best effort to
-        deserialize it to an object.
+        The tool result as JSON, which can hold sensitive data, under the same rule and budget. Absent when the call failed or never finished.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: opt_in
@@ -852,6 +842,7 @@ refinements:
       examples:
       - Flights
       key: gen_ai.tool.name
+      note: For an MCP tool, the MCP tool name without the server.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: required
@@ -877,6 +868,34 @@ refinements:
       sampling_relevant: true
       stability: development
       type: string
+    - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
+      key: kagent.capture.input_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.tool.call.arguments is present.
+      stability: development
+      type: boolean
+    - brief: Whether the captured output messages or tool result were shortened to the capture budget.
+      key: kagent.capture.output_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.tool.call.result is present.
+      stability: development
+      type: boolean
+    - brief: The name of the MCP server that serves a tool call.
+      examples:
+      - kagent-tool-server
+      key: kagent.mcp.server.name
+      note: |
+        The value is the server name in the runtime\u0027s MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The tool is an MCP tool.
+      stability: development
+      type: string
     brief: One tool call of a harness turn.
     id: kagent.execute_tool.internal
     kind: internal
@@ -884,7 +903,7 @@ refinements:
       note: |
         **Span name** SHOULD be `execute_tool {gen_ai.tool.name}`.
     note: |
-      Named `execute_tool {gen_ai.tool.name}`. A child of the invoke_agent span when one exists, otherwise a root span, from the tool call to its result. A call that waits for approval starts at the approval.
+      Named `execute_tool {gen_ai.tool.name}`. A child of the invoke_agent span when one exists, otherwise a root span, from the tool call to its result. A call open across a pause belongs to the segment its result arrives in, and starts no earlier than that segment.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -900,7 +919,7 @@ refinements:
       - \u0027500\u0027
       key: error.type
       note: |
-        Always `model_error`. A canceled call keeps finish reason `error`, as the conventions require, but has no error status.
+        The error category from the harness, such as `rate_limit`, or `model_error` when the harness gives none. A canceled call keeps finish reason `error`, as the conventions require, but has no error status.
       provenance:
         source: https://opentelemetry.io/schemas/1.44.0
       requirement_level:
@@ -1405,7 +1424,7 @@ refinements:
         - length
         - error
       key: gen_ai.response.finish_reasons
-      note: Claude only. Codex reports none.
+      note: Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level:
@@ -1416,9 +1435,11 @@ refinements:
       examples:
       - chatcmpl-123
       key: gen_ai.response.id
+      note: The Claude message ID. Codex reports none.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-      requirement_level: recommended
+      requirement_level:
+        recommended: The runtime reported it.
       stability: development
       type: string
     - brief: The name of the model that generated the response.
@@ -1655,12 +1676,11 @@ refinements:
       examples:
       - 50
       key: gen_ai.usage.reasoning.output_tokens
-      note: |
-        The value SHOULD be included in `gen_ai.usage.output_tokens`.
+      note: Included in gen_ai.usage.output_tokens.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level:
-        recommended: When applicable.
+        recommended: The runtime reported a non-zero count.
       stability: development
       type: int
     - brief: The number of text input tokens served from a provider-managed cache.
@@ -1699,8 +1719,19 @@ refinements:
         recommended: When applicable.
       stability: development
       type: int
+    - brief: The provider\u0027s request ID of a model call.
+      examples:
+      - req_011CUa1b2c3d4e5f6g7h8i9j
+      key: kagent.inference.request_id
+      note: The Claude request ID. Codex reports none.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
     - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
-      key: kagent.model_call.usage_partial
+      key: kagent.inference.usage_partial
       note: |
         Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
       provenance:
@@ -1747,7 +1778,7 @@ refinements:
         Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format
         and MUST follow the overall [guidelines for span names](https://github.com/open-telemetry/opentelemetry-specification/blob/v1.56.0/specification/trace/api.md#span).
     note: |
-      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A child of the invoke_agent span when one exists, otherwise a root span. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. A request rejected before any response has no chat span.
+      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A child of the invoke_agent span when one exists, otherwise a root span. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call\u0027s usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2281,7 +2312,18 @@ refinements:
         - length
         - error
       key: gen_ai.response.finish_reasons
-      note: Never set here. The finish reason is on the chat spans.
+      note: |
+        Values correspond to generations in the same order as the returned
+        choices/candidates.
+
+        Each position SHOULD contain the finish reason for the corresponding
+        choice/candidate. If a finish reason was expected but not received, for
+        example because generation failed, was cancelled, or a stream ended before
+        the final event, instrumentations SHOULD report `error` for that position
+        instead of omitting it.
+
+        `error` indicates that the generation ended abnormally, whether reported
+        by the provider or inferred by the instrumentation.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: opt_in
@@ -2382,7 +2424,24 @@ refinements:
       examples:
       - 100
       key: gen_ai.usage.input_tokens
-      note: Never set here. Token usage is on the chat spans.
+      note: |
+        This value SHOULD include all types of input tokens, including cached tokens.
+        Instrumentations SHOULD make a best effort to populate this value, using a total
+        provided by the provider when available or, depending on the provider API,
+        by summing different token types parsed from the provider output.
+
+        When the provider reports both billed token counts and model-consumed
+        token counts (for example, Cohere exposes both `usage.billed_units` and
+        `usage.tokens`), instrumentations SHOULD report the billed count so the
+        value matches the units the customer is charged for.
+
+        Detailed usage attributes are subsets of total and aggregate counts. For example,
+        if a request has 100 text tokens (40 cached) and 200 image tokens:
+        - `gen_ai.usage.input_tokens`: 300
+        - `gen_ai.usage.cache_read.input_tokens`: 40
+        - `gen_ai.usage.text.input_tokens`: 100
+        - `gen_ai.usage.text.cache_read.input_tokens`: 40
+        - `gen_ai.usage.image.input_tokens`: 200
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: opt_in
@@ -2392,13 +2451,17 @@ refinements:
       examples:
       - 180
       key: gen_ai.usage.output_tokens
-      note: Never set here. Token usage is on the chat spans.
+      note: |
+        When the provider reports both billed token counts and model-consumed
+        token counts (for example, Cohere exposes both `usage.billed_units` and
+        `usage.tokens`), instrumentations SHOULD report the billed count so the
+        value matches the units the customer is charged for.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: opt_in
       stability: development
       type: int
-    - brief: Whether the captured input messages were shortened to the capture budget.
+    - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
       key: kagent.capture.input_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -2406,7 +2469,7 @@ refinements:
         conditionally_required: gen_ai.input.messages is present.
       stability: development
       type: boolean
-    - brief: Whether the captured output messages were shortened to the capture budget.
+    - brief: Whether the captured output messages or tool result were shortened to the capture budget.
       key: kagent.capture.output_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -2462,7 +2525,7 @@ refinements:
         When `gen_ai.agent.name` is not available, it SHOULD be `invoke_agent`.
         Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format.
     note: |
-      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`.
+      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`. Usage and finish reasons are only on inference spans, so they are opt-in here and never set.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2471,7 +2534,7 @@ refinements:
 registry:
   attribute_groups:
   - attributes:
-    - brief: Whether the captured input messages were shortened to the capture budget.
+    - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
       key: kagent.capture.input_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -2479,7 +2542,7 @@ registry:
         conditionally_required: gen_ai.input.messages is present.
       stability: development
       type: boolean
-    - brief: Whether the captured output messages were shortened to the capture budget.
+    - brief: Whether the captured output messages or tool result were shortened to the capture budget.
       key: kagent.capture.output_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -2625,13 +2688,24 @@ registry:
         - length
         - error
       key: gen_ai.response.finish_reasons
-      note: Claude only. Codex reports none.
+      note: Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level:
         recommended: The runtime reported it.
       stability: development
       type: string[]
+    - brief: The unique identifier for the completion.
+      examples:
+      - chatcmpl-123
+      key: gen_ai.response.id
+      note: The Claude message ID. Codex reports none.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
     - brief: The name of the model that generated the response.
       examples:
       - gpt-4-0613
@@ -2687,8 +2761,30 @@ registry:
       requirement_level: recommended
       stability: development
       type: int
+    - brief: The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking).
+      examples:
+      - 50
+      key: gen_ai.usage.reasoning.output_tokens
+      note: Included in gen_ai.usage.output_tokens.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The provider\u0027s request ID of a model call.
+      examples:
+      - req_011CUa1b2c3d4e5f6g7h8i9j
+      key: kagent.inference.request_id
+      note: The Claude request ID. Codex reports none.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
     - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
-      key: kagent.model_call.usage_partial
+      key: kagent.inference.usage_partial
       note: |
         Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
       provenance:
@@ -2698,7 +2794,7 @@ registry:
       stability: development
       type: boolean
     brief: What one model request returned.
-    id: kagent.model_call
+    id: kagent.inference
     provenance:
       path: telemetry/registry/signals.yaml
     stability: development
@@ -3123,9 +3219,22 @@ registry:
       examples:
       - Flights
       key: gen_ai.tool.name
+      note: For an MCP tool, the MCP tool name without the server.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the MCP server that serves a tool call.
+      examples:
+      - kagent-tool-server
+      key: kagent.mcp.server.name
+      note: |
+        The value is the server name in the runtime\u0027s MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The tool is an MCP tool.
       stability: development
       type: string
     brief: One tool call of an invocation.
@@ -3200,13 +3309,13 @@ registry:
         id: auth_required
         stability: development
         value: TASK_STATE_AUTH_REQUIRED
-  - brief: Whether the captured input messages were shortened to the capture budget.
+  - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
     key: kagent.capture.input_truncated
     provenance:
       path: telemetry/registry/kagent.yaml
     stability: development
     type: boolean
-  - brief: Whether the captured output messages were shortened to the capture budget.
+  - brief: Whether the captured output messages or tool result were shortened to the capture budget.
     key: kagent.capture.output_truncated
     provenance:
       path: telemetry/registry/kagent.yaml
@@ -3230,16 +3339,34 @@ registry:
   - brief: The component that writes the GenAI model and tool spans of an agent.
     key: kagent.genai.producer
     note: |
-      Set on the resource of a native harness process. With the value `adapter`, the collector counts the spans of the kagent harness adapter for that agent. When absent, the harness writes its own native spans, as in older images.
+      Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans.
     provenance:
       path: telemetry/registry/kagent.yaml
     stability: development
     type:
       members:
-      - brief: The kagent harness adapter writes the model and tool spans.
-        id: adapter
+      - brief: The kagent harness runtime writes the model and tool spans.
+        id: runtime
         stability: development
-        value: adapter
+        value: runtime
+  - brief: The provider\u0027s request ID of a model call.
+    examples:
+    - req_011CUa1b2c3d4e5f6g7h8i9j
+    key: kagent.inference.request_id
+    note: |
+      Lets a backend join the call with the provider\u0027s logs. Claude only. A call canceled early can lack it.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: string
+  - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
+    key: kagent.inference.usage_partial
+    note: |
+      Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: boolean
   - brief: How a segment stopped, when the task state does not say it.
     key: kagent.invocation.disposition
     provenance:
@@ -3289,14 +3416,16 @@ registry:
         id: resumed
         stability: development
         value: resumed
-  - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
-    key: kagent.model_call.usage_partial
+  - brief: The name of the MCP server that serves a tool call.
+    examples:
+    - kagent-tool-server
+    key: kagent.mcp.server.name
     note: |
-      Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
+      The value is the server name in the runtime\u0027s MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes.
     provenance:
       path: telemetry/registry/kagent.yaml
     stability: development
-    type: boolean
+    type: string
   - brief: The framework or harness that runs an agent.
     key: kagent.runtime
     note: |

@@ -3,6 +3,7 @@ package a2a
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
@@ -46,20 +47,25 @@ type spanOwner struct {
 
 // pendingTool is a call whose execute_tool span is written once its outcome is known.
 type pendingTool struct {
-	id    string
-	name  string
-	start time.Time
-	owner spanOwner
+	id     string
+	name   string
+	server string
+	start  time.Time
+	owner  spanOwner
+	// capturedArguments holds the arguments' span attributes. Only the ToolCall carries the
+	// arguments, so they are captured at the start; empty when capture is off.
+	capturedArguments []attribute.KeyValue
 }
 
 func (s *executionSink) startToolSpan(event runtime.ToolCall) {
-	if event.ID == s.denied {
-		return
-	}
 	if s.tools == nil {
 		s.tools = map[string]pendingTool{}
 	}
-	s.tools[event.ID] = pendingTool{id: event.ID, name: event.Name, start: time.Now(), owner: s.owner}
+	// The plain MCP tool name groups a tool the same way in all runtimes.
+	s.tools[event.ID] = pendingTool{
+		id: event.ID, name: cmp.Or(event.MCPTool, event.Name), server: event.MCPServer, start: time.Now(), owner: s.owner,
+		capturedArguments: capturedJSON(event.Arguments, s.captureLimit, conv.GenAIToolCallArgumentsKey, conv.KagentCaptureInputTruncatedKey),
+	}
 }
 
 func (s *executionSink) endToolSpan(event runtime.ToolResult) {
@@ -76,7 +82,26 @@ func (s *executionSink) endToolSpan(event runtime.ToolResult) {
 	case event.IsError:
 		errorType = errorTypeTool
 	}
-	pending.record(time.Now(), errorType)
+	var result []attribute.KeyValue
+	// Only a call that succeeded has a result to report.
+	if errorType == "" {
+		result = capturedJSON(event.Result, s.captureLimit, conv.GenAIToolCallResultKey, conv.KagentCaptureOutputTruncatedKey)
+	}
+	pending.record(time.Now(), errorType, result...)
+}
+
+// capturedJSON encodes value under content capture, cut to limit bytes like the invoke_agent
+// content. It returns nothing when capture is off or value is nil or cannot be encoded.
+func capturedJSON(value any, limit int, key, truncatedKey attribute.Key) []attribute.KeyValue {
+	if limit <= 0 || value == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil || string(encoded) == "null" {
+		return nil
+	}
+	text, truncated := tracing.BoundedText(string(encoded), limit)
+	return []attribute.KeyValue{key.String(text), truncatedKey.Bool(truncated)}
 }
 
 func newSpanOwner(ctx context.Context, reqCtx *a2asrv.ExecutorContext) spanOwner {
@@ -104,12 +129,17 @@ func (o spanOwner) start(name string, kind trace.SpanKind, start time.Time, attr
 	return span
 }
 
-func (tool pendingTool) record(end time.Time, errorType string) {
+func (tool pendingTool) record(end time.Time, errorType string, result ...attribute.KeyValue) {
 	span := tool.owner.start("execute_tool "+tool.name, trace.SpanKindInternal, tool.start,
 		attribute.String(tracing.AttributeOperationName, conv.GenAIOperationNameExecuteTool),
 		conv.GenAIToolNameKey.String(tool.name),
 		conv.GenAIToolCallIDKey.String(tool.id),
 	)
+	span.SetAttributes(tool.capturedArguments...)
+	span.SetAttributes(result...)
+	if tool.server != "" {
+		span.SetAttributes(conv.KagentMcpServerNameKey.String(tool.server))
+	}
 	if errorType != "" {
 		span.SetAttributes(attribute.String(tracing.AttributeErrorType, errorType))
 		span.SetStatus(codes.Error, errorType)
@@ -137,13 +167,18 @@ func (s *executionSink) pauseTools(request runtime.InputRequest) openTools {
 	return open
 }
 
-// resume returns an approved held call to the open calls. It starts now under owner,
-// so its span excludes the approval wait.
+// resume moves the open calls to the resumed segment, where their results arrive. A call
+// starts no earlier than that segment, so its span excludes the pause.
 func (o openTools) resume(owner spanOwner, approved bool) {
 	if approved && o.held != nil {
-		tool := *o.held
-		tool.start, tool.owner = time.Now(), owner
-		o.tools[o.gated] = tool
+		o.tools[o.gated] = *o.held
+	}
+	for id, tool := range o.tools {
+		if tool.start.Before(owner.began) {
+			tool.start = owner.began
+		}
+		tool.owner = owner
+		o.tools[id] = tool
 	}
 }
 
@@ -161,14 +196,14 @@ func tracerOf(spanCtx context.Context) trace.Tracer {
 }
 
 // ModelCall records a GenAI chat span under the invoke_agent span.
-func (s *executionSink) ModelCall(event runtime.ModelCall) error {
+func (s *executionSink) ModelCall(event runtime.ModelCall) {
 	event.Provider = cmp.Or(event.Provider, s.compiled.Provider)
 	event.RequestModel = cmp.Or(event.RequestModel, s.compiled.Model)
 	attributes := []attribute.KeyValue{attribute.String(tracing.AttributeOperationName, conv.GenAIOperationNameChat)}
 	// A partial call with no counts never reported usage, which differs from reporting zero.
 	hasUsage := !event.UsagePartial || event.InputTokens != 0 || event.OutputTokens != 0
 	if event.UsagePartial {
-		attributes = append(attributes, conv.KagentModelCallUsagePartialKey.Bool(true))
+		attributes = append(attributes, conv.KagentInferenceUsagePartialKey.Bool(true))
 	}
 	if hasUsage {
 		attributes = append(attributes,
@@ -183,6 +218,8 @@ func (s *executionSink) ModelCall(event runtime.ModelCall) error {
 		{conv.GenAIProviderNameKey, event.Provider},
 		{conv.GenAIRequestModelKey, event.RequestModel},
 		{conv.GenAIResponseModelKey, event.ResponseModel},
+		{conv.GenAIResponseIDKey, event.ResponseID},
+		{conv.KagentInferenceRequestIDKey, event.RequestID},
 	} {
 		if field.value != "" {
 			attributes = append(attributes, field.key.String(field.value))
@@ -192,14 +229,18 @@ func (s *executionSink) ModelCall(event runtime.ModelCall) error {
 	if event.StopReason != "" {
 		attributes = append(attributes, conv.GenAIResponseFinishReasonsKey.StringSlice([]string{event.StopReason}))
 	}
+	errorType := cmp.Or(event.ErrorType, errorTypeModel)
 	if failed {
-		attributes = append(attributes, attribute.String(tracing.AttributeErrorType, errorTypeModel))
+		attributes = append(attributes, attribute.String(tracing.AttributeErrorType, errorType))
 	}
 	if event.CacheReadTokens != 0 {
 		attributes = append(attributes, conv.GenAIUsageCacheReadInputTokensKey.Int64(event.CacheReadTokens))
 	}
 	if event.CacheWriteTokens != 0 {
 		attributes = append(attributes, conv.GenAIUsageCacheWriteInputTokensKey.Int64(event.CacheWriteTokens))
+	}
+	if event.ReasoningOutputTokens != 0 {
+		attributes = append(attributes, conv.GenAIUsageReasoningOutputTokensKey.Int64(event.ReasoningOutputTokens))
 	}
 	owner := s.owner
 	// Usage can arrive after an approval pause; keep the call under the segment it ran in.
@@ -208,8 +249,7 @@ func (s *executionSink) ModelCall(event runtime.ModelCall) error {
 	}
 	span := owner.start(strings.TrimSpace("chat "+event.RequestModel), trace.SpanKindClient, event.Start, attributes...)
 	if failed {
-		span.SetStatus(codes.Error, errorTypeModel)
+		span.SetStatus(codes.Error, errorType)
 	}
 	span.End(trace.WithTimestamp(event.End))
-	return nil
 }

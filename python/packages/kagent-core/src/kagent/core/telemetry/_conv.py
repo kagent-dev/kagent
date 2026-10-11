@@ -49,11 +49,20 @@ GEN_AI_REQUEST_MODEL: Final = "gen_ai.request.model"
 GEN_AI_RESPONSE_FINISH_REASONS: Final = "gen_ai.response.finish_reasons"
 """Array of reasons the model stopped generating tokens, corresponding to each generation received."""
 
+GEN_AI_RESPONSE_ID: Final = "gen_ai.response.id"
+"""The unique identifier for the completion."""
+
 GEN_AI_RESPONSE_MODEL: Final = "gen_ai.response.model"
 """The name of the model that generated the response."""
 
+GEN_AI_TOOL_CALL_ARGUMENTS: Final = "gen_ai.tool.call.arguments"
+"""Parameters passed to the tool call."""
+
 GEN_AI_TOOL_CALL_ID: Final = "gen_ai.tool.call.id"
 """The tool call identifier."""
+
+GEN_AI_TOOL_CALL_RESULT: Final = "gen_ai.tool.call.result"
+"""The result returned by the tool call (if any and if execution was successful)."""
 
 GEN_AI_TOOL_NAME: Final = "gen_ai.tool.name"
 """Name of the tool utilized by the agent."""
@@ -70,17 +79,26 @@ GEN_AI_USAGE_INPUT_TOKENS: Final = "gen_ai.usage.input_tokens"
 GEN_AI_USAGE_OUTPUT_TOKENS: Final = "gen_ai.usage.output_tokens"
 """The number of tokens used in the GenAI response (completion)."""
 
+GEN_AI_USAGE_REASONING_OUTPUT_TOKENS: Final = "gen_ai.usage.reasoning.output_tokens"
+"""The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking)."""
+
 KAGENT_CAPTURE_INPUT_TRUNCATED: Final = "kagent.capture.input_truncated"
-"""Whether the captured input messages were shortened to the capture budget."""
+"""Whether the captured input messages or tool arguments were shortened to the capture budget."""
 
 KAGENT_CAPTURE_OUTPUT_TRUNCATED: Final = "kagent.capture.output_truncated"
-"""Whether the captured output messages were shortened to the capture budget."""
+"""Whether the captured output messages or tool result were shortened to the capture budget."""
 
 KAGENT_GC_STAGE: Final = "kagent.gc.stage"
 """The stage of a runtime revision garbage collection attempt."""
 
 KAGENT_GENAI_PRODUCER: Final = "kagent.genai.producer"
 """The component that writes the GenAI model and tool spans of an agent."""
+
+KAGENT_INFERENCE_REQUEST_ID: Final = "kagent.inference.request_id"
+"""The provider's request ID of a model call."""
+
+KAGENT_INFERENCE_USAGE_PARTIAL: Final = "kagent.inference.usage_partial"
+"""Whether the call ended without final usage, so its output tokens are a lower bound."""
 
 KAGENT_INVOCATION_DISPOSITION: Final = "kagent.invocation.disposition"
 """How a segment stopped, when the task state does not say it."""
@@ -91,8 +109,8 @@ KAGENT_INVOCATION_RELATIONSHIP: Final = "kagent.invocation.relationship"
 KAGENT_INVOCATION_SEGMENT: Final = "kagent.invocation.segment"
 """Whether an execution starts a task or continues it."""
 
-KAGENT_MODEL_CALL_USAGE_PARTIAL: Final = "kagent.model_call.usage_partial"
-"""Whether the call ended without final usage, so its output tokens are a lower bound."""
+KAGENT_MCP_SERVER_NAME: Final = "kagent.mcp.server.name"
+"""The name of the MCP server that serves a tool call."""
 
 KAGENT_RUNTIME: Final = "kagent.runtime"
 """The framework or harness that runs an agent."""
@@ -232,8 +250,8 @@ class KagentGcStageValues(StrEnum):
 class KagentGenaiProducerValues(StrEnum):
     """Values of KAGENT_GENAI_PRODUCER."""
 
-    ADAPTER = "adapter"
-    """The kagent harness adapter writes the model and tool spans."""
+    RUNTIME = "runtime"
+    """The kagent harness runtime writes the model and tool spans."""
 
 
 class KagentInvocationDispositionValues(StrEnum):

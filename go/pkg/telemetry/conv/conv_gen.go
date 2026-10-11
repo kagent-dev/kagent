@@ -36,10 +36,16 @@ const (
 	GenAIRequestModelKey = attribute.Key("gen_ai.request.model")
 	// GenAIResponseFinishReasonsKey is "gen_ai.response.finish_reasons". Array of reasons the model stopped generating tokens, corresponding to each generation received.
 	GenAIResponseFinishReasonsKey = attribute.Key("gen_ai.response.finish_reasons")
+	// GenAIResponseIDKey is "gen_ai.response.id". The unique identifier for the completion.
+	GenAIResponseIDKey = attribute.Key("gen_ai.response.id")
 	// GenAIResponseModelKey is "gen_ai.response.model". The name of the model that generated the response.
 	GenAIResponseModelKey = attribute.Key("gen_ai.response.model")
+	// GenAIToolCallArgumentsKey is "gen_ai.tool.call.arguments". Parameters passed to the tool call.
+	GenAIToolCallArgumentsKey = attribute.Key("gen_ai.tool.call.arguments")
 	// GenAIToolCallIDKey is "gen_ai.tool.call.id". The tool call identifier.
 	GenAIToolCallIDKey = attribute.Key("gen_ai.tool.call.id")
+	// GenAIToolCallResultKey is "gen_ai.tool.call.result". The result returned by the tool call (if any and if execution was successful).
+	GenAIToolCallResultKey = attribute.Key("gen_ai.tool.call.result")
 	// GenAIToolNameKey is "gen_ai.tool.name". Name of the tool utilized by the agent.
 	GenAIToolNameKey = attribute.Key("gen_ai.tool.name")
 	// GenAIUsageCacheReadInputTokensKey is "gen_ai.usage.cache_read.input_tokens". The number of input tokens served from a provider-managed cache.
@@ -50,22 +56,28 @@ const (
 	GenAIUsageInputTokensKey = attribute.Key("gen_ai.usage.input_tokens")
 	// GenAIUsageOutputTokensKey is "gen_ai.usage.output_tokens". The number of tokens used in the GenAI response (completion).
 	GenAIUsageOutputTokensKey = attribute.Key("gen_ai.usage.output_tokens")
-	// KagentCaptureInputTruncatedKey is "kagent.capture.input_truncated". Whether the captured input messages were shortened to the capture budget.
+	// GenAIUsageReasoningOutputTokensKey is "gen_ai.usage.reasoning.output_tokens". The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking).
+	GenAIUsageReasoningOutputTokensKey = attribute.Key("gen_ai.usage.reasoning.output_tokens")
+	// KagentCaptureInputTruncatedKey is "kagent.capture.input_truncated". Whether the captured input messages or tool arguments were shortened to the capture budget.
 	KagentCaptureInputTruncatedKey = attribute.Key("kagent.capture.input_truncated")
-	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages were shortened to the capture budget.
+	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages or tool result were shortened to the capture budget.
 	KagentCaptureOutputTruncatedKey = attribute.Key("kagent.capture.output_truncated")
 	// KagentGCStageKey is "kagent.gc.stage". The stage of a runtime revision garbage collection attempt.
 	KagentGCStageKey = attribute.Key("kagent.gc.stage")
 	// KagentGenaiProducerKey is "kagent.genai.producer". The component that writes the GenAI model and tool spans of an agent.
 	KagentGenaiProducerKey = attribute.Key("kagent.genai.producer")
+	// KagentInferenceRequestIDKey is "kagent.inference.request_id". The provider's request ID of a model call.
+	KagentInferenceRequestIDKey = attribute.Key("kagent.inference.request_id")
+	// KagentInferenceUsagePartialKey is "kagent.inference.usage_partial". Whether the call ended without final usage, so its output tokens are a lower bound.
+	KagentInferenceUsagePartialKey = attribute.Key("kagent.inference.usage_partial")
 	// KagentInvocationDispositionKey is "kagent.invocation.disposition". How a segment stopped, when the task state does not say it.
 	KagentInvocationDispositionKey = attribute.Key("kagent.invocation.disposition")
 	// KagentInvocationRelationshipKey is "kagent.invocation.relationship". Why a segment links to another span.
 	KagentInvocationRelationshipKey = attribute.Key("kagent.invocation.relationship")
 	// KagentInvocationSegmentKey is "kagent.invocation.segment". Whether an execution starts a task or continues it.
 	KagentInvocationSegmentKey = attribute.Key("kagent.invocation.segment")
-	// KagentModelCallUsagePartialKey is "kagent.model_call.usage_partial". Whether the call ended without final usage, so its output tokens are a lower bound.
-	KagentModelCallUsagePartialKey = attribute.Key("kagent.model_call.usage_partial")
+	// KagentMcpServerNameKey is "kagent.mcp.server.name". The name of the MCP server that serves a tool call.
+	KagentMcpServerNameKey = attribute.Key("kagent.mcp.server.name")
 	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
 )
@@ -184,8 +196,8 @@ const (
 
 // Values of KagentGenaiProducerKey.
 const (
-	// KagentGenaiProducerAdapter: The kagent harness adapter writes the model and tool spans.
-	KagentGenaiProducerAdapter = "adapter"
+	// KagentGenaiProducerRuntime: The kagent harness runtime writes the model and tool spans.
+	KagentGenaiProducerRuntime = "runtime"
 )
 
 // Values of KagentInvocationDispositionKey.

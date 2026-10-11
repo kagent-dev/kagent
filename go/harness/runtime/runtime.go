@@ -47,7 +47,7 @@ type EventSink interface {
 
 // ModelCallSink records model usage, including usage reported while a turn is canceled.
 type ModelCallSink interface {
-	ModelCall(ModelCall) error
+	ModelCall(ModelCall)
 }
 
 // SessionStarted reports the stable private continuation selected by a runtime.
@@ -65,6 +65,9 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments map[string]any
+	// MCPServer and MCPTool are set for an MCP tool, such as kagent and k8s_get.
+	// Name keeps the harness's full name, such as mcp__kagent__k8s_get for Claude.
+	MCPServer, MCPTool string
 }
 
 // ToolResult reports the result paired with one ToolCall ID.
@@ -91,16 +94,22 @@ const (
 // ModelCall reports one model request. InputTokens includes cached tokens. UsagePartial
 // means the harness never reported final usage, so OutputTokens is a lower bound.
 type ModelCall struct {
-	Provider         string
-	RequestModel     string
-	ResponseModel    string
-	InputTokens      int64
-	CacheReadTokens  int64
-	CacheWriteTokens int64
-	OutputTokens     int64
-	StopReason       string
-	Start, End       time.Time
-	UsagePartial     bool
+	Provider              string
+	RequestModel          string
+	ResponseModel         string
+	ResponseID            string
+	RequestID             string
+	InputTokens           int64
+	CacheReadTokens       int64
+	CacheWriteTokens      int64
+	OutputTokens          int64
+	ReasoningOutputTokens int64
+	StopReason            string
+	// ErrorType is the harness's own error category for a failed call, such as
+	// Claude Code's rate_limit. Empty means the harness gave none.
+	ErrorType    string
+	Start, End   time.Time
+	UsagePartial bool
 	// Canceled marks a partial call that cancellation cut short; it is not a failure.
 	Canceled bool
 }

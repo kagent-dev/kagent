@@ -15,7 +15,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -85,6 +84,16 @@ const interruptedResponseWarning = "API Error: Connection lost mid-response. The
 // emits it during an ordinary, uninterrupted turn.
 type resumedEventSink struct {
 	runtime.EventSink
+	// declined is the call the user denied. Its result looks like a tool error,
+	// so this is the only way to mark it as never run.
+	declined string
+}
+
+func (s resumedEventSink) ToolResult(event runtime.ToolResult) error {
+	if s.declined != "" && event.ID == s.declined {
+		event.Status = runtime.ToolDeclined
+	}
+	return s.EventSink.ToolResult(event)
 }
 
 func (s resumedEventSink) TextDelta(event runtime.TextDelta) error {
@@ -213,8 +222,8 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 				return context.Canceled
 			}
 		})
-		// Wait closes pipes returned by StdoutPipe, so it must not run until the
-		// parser has finished its final read.
+		// Wait closes pipes returned by StdoutPipe, so it runs only after the parser
+		// returns; a read still in flight then fails and its goroutine exits.
 		close(parseDone)
 		select {
 		case items <- parseItem{err: parseErr}:
@@ -234,7 +243,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			logDrainErr(ctx, d.stopSession(session, sink))
+			d.stopSession(session, sink)
 		}
 	}()
 	outcome, err := d.consume(ctx, session, sink)
@@ -349,7 +358,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				// A process that exits before its result can explain the failure
 				// only on stderr. Reap it to finish draining stderr; malformed
 				// output can also stop the parser while the process is still alive.
-				logDrainErr(ctx, d.stopSession(session, sink))
+				d.stopSession(session, sink)
 				if stderr := strings.TrimSpace(session.stderr.String()); stderr != "" {
 					return runtime.Outcome{}, fmt.Errorf("%w: %s", item.err, stderr)
 				}
@@ -377,7 +386,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			logDrainErr(ctx, p.driver.stopSession(p.session, sink))
+			p.driver.stopSession(p.session, sink)
 		}
 	}()
 	decision, ok := response.(*runtime.ApprovalDecision)
@@ -390,7 +399,11 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if err := p.pending.resolve(*decision); err != nil {
 		return runtime.Outcome{}, err
 	}
-	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink})
+	resumed := resumedEventSink{EventSink: sink}
+	if !decision.Approved {
+		resumed.declined = p.pending.request.CallID
+	}
+	outcome, err := p.driver.consume(ctx, p.session, resumed)
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
 }
@@ -401,7 +414,8 @@ func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) erro
 		ID: p.pending.request.ID, Approved: false, RejectionReason: "The task was canceled.",
 	})
 	p.session.canceled = true
-	return p.driver.stopSession(p.session, sink)
+	p.driver.stopSession(p.session, sink)
+	return nil
 }
 
 // Close releases the Actor-local permission MCP listener. Pending process ownership is
@@ -427,9 +441,9 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	case EventToolActivity:
 		switch event.ToolPhase {
 		case "started":
-			return nil, sink.ToolCall(runtime.ToolCall{
-				ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata,
-			})
+			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata}
+			call.MCPServer, call.MCPTool = splitMCPName(event.ToolName)
+			return nil, sink.ToolCall(call)
 		case "completed":
 			return nil, sink.ToolResult(runtime.ToolResult{
 				ID: event.ToolID, Name: event.ToolName, Result: event.ToolResult, IsError: event.ToolError,
@@ -438,7 +452,8 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)
 		}
 	case EventModelCall:
-		return nil, sink.ModelCall(*event.ModelCall)
+		sink.ModelCall(*event.ModelCall)
+		return nil, nil
 	case EventCompleted:
 		return &runtime.Outcome{}, nil
 	case EventFailed:
@@ -448,15 +463,7 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	}
 }
 
-// logDrainErr keeps telemetry fail-open: only Cancel returns a drain error.
-func logDrainErr(ctx context.Context, err error) {
-	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to record drained Claude model calls", "error", err)
-	}
-}
-
-func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) error {
-	var drainErr error
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) {
 	session.stopOnce.Do(func() {
 		drained := make(chan struct{})
 		go func() {
@@ -465,9 +472,7 @@ func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelC
 				if item.event != nil && item.event.ModelCall != nil {
 					call := *item.event.ModelCall
 					call.Canceled = session.canceled && call.UsagePartial
-					if err := sink.ModelCall(call); err != nil && drainErr == nil {
-						drainErr = fmt.Errorf("record drained Claude model call: %w", err)
-					}
+					sink.ModelCall(call)
 				}
 			}
 		}()
@@ -486,7 +491,20 @@ func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelC
 		<-drained
 		close(session.stopEmit)
 	})
-	return drainErr
 }
 
 var _ runtime.PendingTurn = (*pendingTurn)(nil)
+
+// splitMCPName splits Claude's mcp__<server>__<tool> name at the first "__". Agent server
+// names come from Kubernetes names, which never contain "__"; plugin servers are best effort.
+func splitMCPName(name string) (server, tool string) {
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return "", ""
+	}
+	server, tool, ok = strings.Cut(rest, "__")
+	if !ok || server == "" || tool == "" {
+		return "", ""
+	}
+	return server, tool
+}

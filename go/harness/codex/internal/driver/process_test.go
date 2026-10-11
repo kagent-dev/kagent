@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -204,6 +205,7 @@ printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta
 read approval
 printf '%s\n' "$approval" > "$CAPTURE"
 printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 sleep 5
 `
@@ -234,11 +236,16 @@ sleep 5
 	if _, err := os.Stat(capture); !os.IsNotExist(err) {
 		t.Fatalf("MCP call was resolved before approval: %v", err)
 	}
+	resumed := time.Now()
 	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{
 		ID: "7", Approved: false, RejectionReason: "production is still serving traffic",
 	}, sink)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	// Usage arrives after the resume, but the call ended at its tool start before the pause.
+	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) || sink.models[0].Start.After(sink.models[0].End) {
+		t.Fatalf("model calls = %#v, resumed at %v", sink.models, resumed)
 	}
 	response, err := os.ReadFile(capture)
 	if err != nil {
@@ -266,6 +273,7 @@ printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 printf '%s\n' '{"id":8,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"item-1","isBlocking":true,"questions":[{"id":"namespace","header":"Namespace","question":"Which namespace?","options":[{"label":"default","description":"Default namespace"}],"isOther":true,"isSecret":false},{"id":"cluster","header":"Cluster","question":"Which cluster?","options":null,"isOther":false,"isSecret":false}]}}'
 read response
 printf '%s\n' "$response" > "$RESPONSE_CAPTURE"
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 sleep 5
 `
@@ -300,11 +308,16 @@ sleep 5
 		t.Fatalf("experimental API was not enabled: %s", initialize)
 	}
 
+	resumed, sink := time.Now(), &recordingSink{}
 	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{
 		ID: "8", Answers: [][]string{{"default"}, {"production"}},
-	}, &recordingSink{})
+	}, sink)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	// The question starts no tool item, so the call that asked it ends at the pause.
+	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) || sink.models[0].Start.After(sink.models[0].End) {
+		t.Fatalf("model calls = %#v, resumed at %v", sink.models, resumed)
 	}
 	response, err := os.ReadFile(responseCapture)
 	if err != nil {
@@ -357,8 +370,10 @@ printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId"
 printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
 read approval
 printf '%s\n' "$approval" > "$APPROVAL_CAPTURE"
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 read interrupt
 printf '%s\n' "$interrupt" > "$INTERRUPT_CAPTURE"
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"id":4,"result":{}}'
 sleep 5
 `
@@ -379,8 +394,13 @@ sleep 5
 	if err != nil || outcome.Pending == nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
-	if err := outcome.Pending.Cancel(t.Context(), &recordingSink{}); err != nil {
+	sink := &recordingSink{}
+	if err := outcome.Pending.Cancel(t.Context(), sink); err != nil {
 		t.Fatal(err)
+	}
+	// One usage was waiting before the interrupt and one arrived while Codex answered it.
+	if len(sink.models) != 2 {
+		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
 	}
 
 	approval, err := os.ReadFile(approvalCapture)
@@ -396,6 +416,52 @@ sleep 5
 	}
 	if !bytes.Contains(interrupt, []byte(`"method":"turn/interrupt"`)) || !bytes.Contains(interrupt, []byte(`"threadId":"thread-1"`)) || !bytes.Contains(interrupt, []byte(`"turnId":"turn-1"`)) {
 		t.Fatalf("interrupt request = %s", interrupt)
+	}
+}
+
+func TestProcessDriverCancellationKeepsReportedUsage(t *testing.T) {
+	directory := t.TempDir()
+	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+: > "$STARTED"
+read interrupt
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
+printf '%s\n' '{"id":4,"result":{}}'
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		// Cancel only once the turn is running, so the cancel reaches consume.
+		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	sink := &recordingSink{}
+	if _, err := driver.Run(ctx, runtime.Turn{Prompt: "work"}, sink); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	// Codex reports usage while it answers the interrupt and after it.
+	if len(sink.models) != 2 {
+		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
 	}
 }
 

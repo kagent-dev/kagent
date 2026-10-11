@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -18,8 +19,11 @@ type eventTranslator struct {
 	turnID   string
 	tools    map[string]activeTool
 
-	now         func() time.Time
-	lastCallEnd time.Time
+	now func() time.Time
+	// Codex sends no call times: a model call starts when the previous call's usage arrives
+	// and ends when its first tool starts or the turn pauses for input.
+	modelCallStart time.Time
+	modelCallEnd   time.Time
 	// seenTotals holds the last running total per thread, to skip a replayed notification.
 	seenTotals map[string]codexUsage
 }
@@ -28,12 +32,12 @@ func newEventTranslator(threadID, turnID string) *eventTranslator {
 	now := time.Now
 	return &eventTranslator{
 		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool),
-		now: now, lastCallEnd: now(), seenTotals: map[string]codexUsage{},
+		now: now, modelCallStart: now(), seenTotals: map[string]codexUsage{},
 	}
 }
 
 type codexUsage struct {
-	InputTokens, CachedInputTokens, CacheWriteInputTokens, OutputTokens int64
+	InputTokens, CachedInputTokens, CacheWriteInputTokens, OutputTokens, ReasoningOutputTokens int64
 }
 
 type activeTool struct {
@@ -130,19 +134,20 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 	// Subagent calls have no start time, so their spans are zero-length at arrival.
 	last, end := params.TokenUsage.Last, t.now()
 	call := runtime.ModelCall{
-		InputTokens:      last.InputTokens,
-		CacheReadTokens:  last.CachedInputTokens,
-		CacheWriteTokens: last.CacheWriteInputTokens,
-		OutputTokens:     last.OutputTokens,
-		Start:            end,
-		End:              end,
+		InputTokens:           last.InputTokens,
+		CacheReadTokens:       last.CachedInputTokens,
+		CacheWriteTokens:      last.CacheWriteInputTokens,
+		ReasoningOutputTokens: last.ReasoningOutputTokens,
+		OutputTokens:          last.OutputTokens,
+		Start:                 end,
+		End:                   end,
 	}
 	if own {
-		// Usage arrives only after the call's tools ran, so the span is approximate.
-		call.Start = t.lastCallEnd
-		t.lastCallEnd = end
+		call.Start, call.End = t.modelCallStart, cmp.Or(t.modelCallEnd, end)
+		t.modelCallStart, t.modelCallEnd = end, time.Time{}
 	}
-	return sink.ModelCall(call)
+	sink.ModelCall(call)
+	return nil
 }
 
 func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sink runtime.EventSink) error {
@@ -168,8 +173,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 	if item.ID == "" {
 		return nil
 	}
-	name := ""
-	approvalServer := ""
+	name, mcpServer, mcpTool := "", "", ""
 	var arguments map[string]any
 	result := map[string]any{"status": item.Status}
 	switch item.Type {
@@ -184,7 +188,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		result["changes"] = boundValue(item.Changes)
 	case "mcpToolCall":
 		name, arguments = item.Server+"."+item.Tool, map[string]any{"arguments": boundValue(item.Arguments)}
-		approvalServer = item.Server
+		mcpServer, mcpTool = item.Server, item.Tool
 		result["result"], result["error"] = boundValue(item.Result), boundValue(item.Error)
 	case "collabAgentToolCall":
 		name, arguments = "Agent", map[string]any{"prompt": bounded(item.Prompt), "tool": item.Tool}
@@ -195,8 +199,11 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		if _, exists := t.tools[item.ID]; exists {
 			return fmt.Errorf("codex tool item %q started more than once", item.ID)
 		}
-		t.tools[item.ID] = activeTool{name: name, server: approvalServer, arguments: item.Arguments}
-		return sink.ToolCall(runtime.ToolCall{ID: item.ID, Name: name, Arguments: arguments})
+		t.tools[item.ID] = activeTool{name: name, server: mcpServer, arguments: item.Arguments}
+		if t.modelCallEnd.IsZero() {
+			t.modelCallEnd = t.now()
+		}
+		return sink.ToolCall(runtime.ToolCall{ID: item.ID, Name: name, Arguments: arguments, MCPServer: mcpServer, MCPTool: mcpTool})
 	}
 	started, exists := t.tools[item.ID]
 	if !exists {

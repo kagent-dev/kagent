@@ -238,3 +238,20 @@ func TestParseJSONLReportsReadAndFlushErrors(t *testing.T) {
 		t.Fatalf("ParseJSONL() error = %v, want both the read and the flush error", err)
 	}
 }
+
+func TestClaudeFinishReason(t *testing.T) {
+	for stopReason, want := range map[string]string{
+		"end_turn":                      "stop",
+		"stop_sequence":                 "stop",
+		"tool_use":                      "tool_call",
+		"max_tokens":                    "length",
+		"model_context_window_exceeded": "length",
+		"refusal":                       "content_filter",
+		"pause_turn":                    "pause_turn",
+		"":                              "",
+	} {
+		if got := claudeFinishReason(stopReason); got != want {
+			t.Errorf("claudeFinishReason(%q) = %q, want %q", stopReason, got, want)
+		}
+	}
+}

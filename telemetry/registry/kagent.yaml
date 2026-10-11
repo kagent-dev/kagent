@@ -58,15 +58,17 @@ attributes:
   - key: kagent.genai.producer
     brief: The component that writes the GenAI model and tool spans of an agent.
     note: >
-      Set on the resource of a native harness process. With the value `adapter`, the
-      collector counts the spans of the kagent harness adapter for that agent. When absent,
-      the harness writes its own native spans, as in older images.
+      Set on the resource of a native harness process. With the value `runtime`, the kagent
+      harness runtime writes the model and tool spans of this process. Its native spans repeat
+      the same calls, so the reference collector removes their GenAI operation, model, finish
+      reason and token usage attributes. Each call is then counted once. Absent when the image
+      writes its own native GenAI spans.
     stability: development
     type:
       members:
-        - id: adapter
-          value: adapter
-          brief: The kagent harness adapter writes the model and tool spans.
+        - id: runtime
+          value: runtime
+          brief: The kagent harness runtime writes the model and tool spans.
           stability: development
 
   - key: kagent.invocation.segment
@@ -118,11 +120,20 @@ attributes:
           stability: development
 
   - key: kagent.capture.input_truncated
-    brief: Whether the captured input messages were shortened to the capture budget.
+    brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
     stability: development
     type: boolean
 
-  - key: kagent.model_call.usage_partial
+  - key: kagent.inference.request_id
+    brief: The provider's request ID of a model call.
+    note: >
+      Lets a backend join the call with the provider's logs. Claude only. A call
+      canceled early can lack it.
+    stability: development
+    type: string
+    examples: ['req_011CUa1b2c3d4e5f6g7h8i9j']
+
+  - key: kagent.inference.usage_partial
     brief: Whether the call ended without final usage, so its output tokens are a lower bound.
     note: >
       Set only when true. Input tokens, when present, stay exact. Calls cut short
@@ -130,7 +141,17 @@ attributes:
     stability: development
     type: boolean
 
+  - key: kagent.mcp.server.name
+    brief: The name of the MCP server that serves a tool call.
+    note: >
+      The value is the server name in the runtime's MCP configuration. A `.` in a
+      RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds
+      the tool name without the server, so the same tool groups together in all runtimes.
+    stability: development
+    type: string
+    examples: ['kagent-tool-server']
+
   - key: kagent.capture.output_truncated
-    brief: Whether the captured output messages were shortened to the capture budget.
+    brief: Whether the captured output messages or tool result were shortened to the capture budget.
     stability: development
     type: boolean

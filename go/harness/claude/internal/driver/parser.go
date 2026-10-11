@@ -31,8 +31,11 @@ type parser struct {
 	openCall         *runtime.ModelCall
 	openUsage        claudeUsage
 	streamedMessages map[string]struct{}
-	// snapshots holds each subagent's latest unstreamed call, keyed by parent_tool_use_id.
+	// snapshots holds each thread's latest unstreamed call, keyed by parent_tool_use_id.
 	snapshots map[string]snapshotCall
+	// callStart holds when each thread's next model call starts, keyed by parent_tool_use_id
+	// ("" is the main thread).
+	callStart map[string]time.Time
 }
 
 const agentToolName = "Agent"
@@ -47,12 +50,16 @@ type claudeUsage struct {
 	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 	OutputTokens             int64 `json:"output_tokens"`
+	OutputTokensDetails      struct {
+		ThinkingTokens int64 `json:"thinking_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 func (u claudeUsage) apply(call *runtime.ModelCall) {
 	call.InputTokens = u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 	call.CacheReadTokens, call.CacheWriteTokens = u.CacheReadInputTokens, u.CacheCreationInputTokens
 	call.OutputTokens = u.OutputTokens
+	call.ReasoningOutputTokens = u.OutputTokensDetails.ThinkingTokens
 }
 
 // merge overlays the non-zero fields of a message_delta usage on its message_start usage.
@@ -61,6 +68,7 @@ func (u claudeUsage) merge(delta claudeUsage) claudeUsage {
 	u.CacheCreationInputTokens = cmp.Or(delta.CacheCreationInputTokens, u.CacheCreationInputTokens)
 	u.CacheReadInputTokens = cmp.Or(delta.CacheReadInputTokens, u.CacheReadInputTokens)
 	u.OutputTokens = cmp.Or(delta.OutputTokens, u.OutputTokens)
+	u.OutputTokensDetails.ThinkingTokens = cmp.Or(delta.OutputTokensDetails.ThinkingTokens, u.OutputTokensDetails.ThinkingTokens)
 	return u
 }
 
@@ -68,7 +76,7 @@ func newParser(now func() time.Time) *parser {
 	return &parser{
 		emitted: map[string]string{}, tools: map[string]string{},
 		emittedToolCalls: map[string]struct{}{}, emittedResults: map[string]struct{}{},
-		now: now, streamedMessages: map[string]struct{}{}, snapshots: map[string]snapshotCall{},
+		now: now, streamedMessages: map[string]struct{}{}, snapshots: map[string]snapshotCall{}, callStart: map[string]time.Time{},
 	}
 }
 
@@ -85,6 +93,19 @@ func (p *parser) flushOpenCall(emit func(Event) error) error {
 	return emit(Event{Kind: EventModelCall, ModelCall: call})
 }
 
+// failCall emits a request the API rejected. An error after message_start ends that
+// streamed call, so it stays one call.
+func (p *parser) failCall(parent, errorType string, at time.Time, emit func(Event) error) error {
+	call := &runtime.ModelCall{Start: cmp.Or(p.callStart[parent], at), End: at}
+	if parent == "" && p.openCall != nil {
+		call, p.openCall = p.openCall, nil
+		call.End = p.now()
+	}
+	p.callStart[parent] = at
+	call.StopReason, call.ErrorType, call.UsagePartial = tracing.FinishReasonError, errorType, true
+	return emit(Event{Kind: EventModelCall, ModelCall: call})
+}
+
 // flushCalls emits every model call still held when the stream ends.
 func (p *parser) flushCalls(emit func(Event) error) error {
 	if err := p.flushOpenCall(emit); err != nil {
@@ -93,7 +114,7 @@ func (p *parser) flushCalls(emit func(Event) error) error {
 	return p.flushSnapshots(emit)
 }
 
-// flushSnapshots emits buffered calls of subagents that never reported their final usage.
+// flushSnapshots emits the unstreamed calls still held when the stream ends.
 func (p *parser) flushSnapshots(emit func(Event) error) error {
 	for _, parent := range slices.Sorted(maps.Keys(p.snapshots)) {
 		pending := p.snapshots[parent]
@@ -116,21 +137,23 @@ func ParseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, emit func(E
 	if maxEventBytes <= 0 {
 		return fmt.Errorf("max event bytes must be positive")
 	}
-	p := newParser(time.Now)
-	reader := bufio.NewReaderSize(r, min(maxEventBytes+1, 64*1024))
-	for {
-		line, err := readBoundedLine(reader, maxEventBytes)
-		if len(bytes.TrimSpace(line)) > 0 {
-			if parseErr := p.parseLine(ctx, line, emit); parseErr != nil {
+	done := make(chan struct{})
+	defer close(done)
+	var arrived time.Time
+	p := newParser(func() time.Time { return arrived })
+	for item := range readStamped(r, maxEventBytes, done) {
+		arrived = item.arrived
+		if len(bytes.TrimSpace(item.line)) > 0 {
+			if parseErr := p.parseLine(ctx, item.line, emit); parseErr != nil {
 				return errors.Join(parseErr, p.flushCalls(emit))
 			}
 		}
-		if err == io.EOF {
+		if item.err == io.EOF {
 			break
 		}
-		if err != nil {
+		if item.err != nil {
 			// A closed pipe is how an abandoned process ends, and its open call still happened.
-			return errors.Join(fmt.Errorf("read Claude event: %w", err), p.flushCalls(emit))
+			return errors.Join(fmt.Errorf("read Claude event: %w", item.err), p.flushCalls(emit))
 		}
 	}
 	if err := p.flushCalls(emit); err != nil {
@@ -140,6 +163,38 @@ func ParseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, emit func(E
 		return fmt.Errorf("claude process exited without a terminal result event")
 	}
 	return nil
+}
+
+// waitingLines is how many lines can wait while an approval pause blocks the parser. Claude stops
+// printing once it asks; past this, reading pauses and later lines get the time the parser reads them.
+const waitingLines = 64
+
+type stampedLine struct {
+	line    []byte
+	arrived time.Time
+	err     error
+}
+
+// readStamped reads lines on its own goroutine and stamps each when it arrives. The parser
+// blocks on emit during an approval pause, so lines Claude already printed must not wait for it.
+func readStamped(r io.Reader, max int, done <-chan struct{}) <-chan stampedLine {
+	lines := make(chan stampedLine, waitingLines)
+	go func() {
+		defer close(lines)
+		reader := bufio.NewReaderSize(r, min(max+1, 64*1024))
+		for {
+			line, err := readBoundedLine(reader, max)
+			select {
+			case lines <- stampedLine{line: line, arrived: time.Now(), err: err}:
+			case <-done:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return lines
 }
 
 func readBoundedLine(r *bufio.Reader, max int) ([]byte, error) {
@@ -171,6 +226,11 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 
 		ParentToolUseID string          `json:"parent_tool_use_id"`
 		ToolUseResult   json.RawMessage `json:"tool_use_result"`
+		RequestID       string          `json:"request_id"`
+		Timestamp       string          `json:"timestamp"`
+		// Claude Code writes a failed request as a "<synthetic>" assistant message with these set.
+		IsAPIErrorMessage bool   `json:"is_api_error_message"`
+		Error             string `json:"error"`
 	}
 	if err := json.Unmarshal(line, &envelope); err != nil {
 		return fmt.Errorf("decode Claude event: %w", err)
@@ -178,14 +238,24 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 	switch envelope.Type {
 	case "system":
 		if envelope.Subtype == "init" && envelope.SessionID != "" {
+			p.callStart[""] = p.now()
 			return emit(Event{Kind: EventSessionStarted, SessionID: envelope.SessionID})
 		}
 	case "stream_event":
 		return p.parseStreamEvent(envelope.Event, envelope.ParentToolUseID != "", emit)
 	case "assistant":
-		return p.parseAssistant(envelope.Message, envelope.ParentToolUseID, emit)
+		lineTime := p.lineTime(envelope.Timestamp)
+		if envelope.IsAPIErrorMessage {
+			if err := p.failCall(envelope.ParentToolUseID, envelope.Error, lineTime, emit); err != nil {
+				return err
+			}
+		}
+		return p.parseAssistant(envelope.Message, envelope.ParentToolUseID, envelope.RequestID, lineTime, emit)
 	case "user":
-		return p.parseUser(ctx, envelope.Message, envelope.ToolUseResult, emit)
+		lineTime := p.lineTime(envelope.Timestamp)
+		// A prompt or tool result: that thread's next model call starts here.
+		p.callStart[envelope.ParentToolUseID] = lineTime
+		return p.parseUser(ctx, envelope.Message, envelope.ToolUseResult, lineTime, emit)
 	case "result":
 		if envelope.Origin.Kind == "task-notification" {
 			return nil
@@ -247,7 +317,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 			return err
 		}
 		p.streamedMessages[event.Message.ID] = struct{}{}
-		p.openCall = &runtime.ModelCall{ResponseModel: event.Message.Model, Start: p.now()}
+		p.openCall = &runtime.ModelCall{ResponseModel: event.Message.Model, ResponseID: event.Message.ID, Start: p.now()}
 		p.openUsage = event.Message.Usage
 		event.Message.Usage.apply(p.openCall)
 	case "message_delta":
@@ -257,7 +327,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		call := p.openCall
 		p.openCall = nil
 		p.openUsage.merge(event.Usage).apply(call)
-		call.StopReason, call.End = event.Delta.StopReason, p.now()
+		call.StopReason, call.End = claudeFinishReason(event.Delta.StopReason), p.now()
 		return emit(Event{Kind: EventModelCall, ModelCall: call})
 	case "content_block_delta":
 		if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
@@ -286,7 +356,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 	return nil
 }
 
-func (p *parser) parseAssistant(raw json.RawMessage, parent string, emit func(Event) error) error {
+func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, lineTime time.Time, emit func(Event) error) error {
 	var message struct {
 		ID      string `json:"id"`
 		Content []struct {
@@ -308,12 +378,19 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent string, emit func(Ev
 		p.currentMessageID = message.ID
 	}
 	_, streamed := p.streamedMessages[message.ID]
+	// request_id is only on the assistant envelope, which arrives before the stream's message_delta.
+	if streamed && p.openCall != nil && p.openCall.ResponseID == message.ID {
+		p.openCall.RequestID = cmp.Or(p.openCall.RequestID, requestID)
+	}
 	// Claude Code writes "<synthetic>" messages itself, without a model call.
 	unstreamed := message.ID != "" && !streamed && message.Model != "<synthetic>"
 	if unstreamed {
-		call := runtime.ModelCall{ResponseModel: message.Model, StopReason: message.StopReason, UsagePartial: true}
+		// Claude Code sends a main-thread call all at once only when streaming failed, so its
+		// token count is final. A subagent's count can still grow, so it stays partial.
+		call := runtime.ModelCall{ResponseModel: message.Model, ResponseID: message.ID, RequestID: requestID,
+			StopReason: claudeFinishReason(message.StopReason), UsagePartial: parent != ""}
 		message.Usage.apply(&call)
-		if err := p.holdSnapshot(parent, message.ID, call, emit); err != nil {
+		if err := p.holdSnapshot(parent, message.ID, call, lineTime, emit); err != nil {
 			return err
 		}
 	}
@@ -363,7 +440,7 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent string, emit func(Ev
 	return nil
 }
 
-func (p *parser) parseUser(ctx context.Context, raw, toolUseResult json.RawMessage, emit func(Event) error) error {
+func (p *parser) parseUser(ctx context.Context, raw, toolUseResult json.RawMessage, lineTime time.Time, emit func(Event) error) error {
 	var message struct {
 		Content []struct {
 			Type      string          `json:"type"`
@@ -395,7 +472,7 @@ func (p *parser) parseUser(ctx context.Context, raw, toolUseResult json.RawMessa
 		p.emittedResults[content.ToolUseID] = struct{}{}
 		// Other tools, such as MCP tools, may report their own usage here.
 		if name == agentToolName {
-			if err := p.endSubagent(ctx, content.ToolUseID, toolUseResult, emit); err != nil {
+			if err := p.endSubagent(ctx, content.ToolUseID, toolUseResult, lineTime, emit); err != nil {
 				return err
 			}
 		}
@@ -411,12 +488,20 @@ func (p *parser) parseUser(ctx context.Context, raw, toolUseResult json.RawMessa
 	return nil
 }
 
-// holdSnapshot keeps a subagent call until a newer message replaces it, so it carries the latest usage.
+// lineTime is when Claude Code wrote the line, or when it arrived if it has no valid timestamp.
+func (p *parser) lineTime(timestamp string) time.Time {
+	if t, err := time.Parse(time.RFC3339Nano, timestamp); err == nil {
+		return t
+	}
+	return p.now()
+}
+
+// holdSnapshot keeps an unstreamed call until a newer message replaces it, so it carries the latest usage.
 // Subagent calls arrive only as assistant snapshots whose usage predates the final delta.
-func (p *parser) holdSnapshot(parent, messageID string, call runtime.ModelCall, emit func(Event) error) error {
-	// Subagent calls carry no timing, so the span runs from the first to the last snapshot of one message.
-	call.Start = p.now()
-	call.End = call.Start
+func (p *parser) holdSnapshot(parent, messageID string, call runtime.ModelCall, lineTime time.Time, emit func(Event) error) error {
+	// Claude Code reports an unstreamed call only when it ends, so the call starts at its thread's previous line.
+	call.Start, call.End = cmp.Or(p.callStart[parent], lineTime), lineTime
+	p.callStart[parent] = lineTime
 	if pending, ok := p.snapshots[parent]; ok && pending.messageID == messageID {
 		call.Start = pending.call.Start
 	} else if ok {
@@ -429,7 +514,7 @@ func (p *parser) holdSnapshot(parent, messageID string, call runtime.ModelCall, 
 }
 
 // endSubagent emits the subagent's held call. tool_use_result.usage is the exact usage of its final call.
-func (p *parser) endSubagent(ctx context.Context, parent string, toolUseResult json.RawMessage, emit func(Event) error) error {
+func (p *parser) endSubagent(ctx context.Context, parent string, toolUseResult json.RawMessage, lineTime time.Time, emit func(Event) error) error {
 	var result struct {
 		ResolvedModel string       `json:"resolvedModel"`
 		Usage         *claudeUsage `json:"usage"`
@@ -449,14 +534,14 @@ func (p *parser) endSubagent(ctx context.Context, parent string, toolUseResult j
 		}
 		return emit(Event{Kind: EventModelCall, ModelCall: &pending.call})
 	}
-	final := runtime.ModelCall{ResponseModel: result.ResolvedModel, Start: p.now()}
-	final.End = final.Start
+	final := runtime.ModelCall{ResponseModel: result.ResolvedModel, Start: cmp.Or(p.callStart[parent], lineTime), End: lineTime}
+	delete(p.callStart, parent)
 	result.Usage.apply(&final)
 	if held {
 		// The held snapshot is the final call itself when its input matches. tool_use_result has no message ID
 		// (agentId names the whole subagent), so an earlier call with identical input merges into the final one.
 		if pending.call.InputTokens == final.InputTokens && pending.call.CacheReadTokens == final.CacheReadTokens {
-			final.Start = pending.call.Start
+			final.Start, final.ResponseID, final.RequestID = pending.call.Start, pending.call.ResponseID, pending.call.RequestID
 		} else if err := emit(Event{Kind: EventModelCall, ModelCall: &pending.call}); err != nil {
 			return err
 		}
@@ -466,4 +551,20 @@ func (p *parser) endSubagent(ctx context.Context, parent string, toolUseResult j
 
 func (p *parser) blockKey(index int) string {
 	return p.currentMessageID + ":" + strconv.Itoa(index)
+}
+
+// claudeFinishReason maps an Anthropic stop_reason onto the GenAI finish reasons;
+// a reason the conventions do not list keeps its own name.
+func claudeFinishReason(stopReason string) string {
+	switch stopReason {
+	case "end_turn", "stop_sequence":
+		return tracing.FinishReasonStop
+	case "tool_use":
+		return tracing.FinishReasonToolCall
+	case "max_tokens", "model_context_window_exceeded":
+		return tracing.FinishReasonLength
+	case "refusal":
+		return tracing.FinishReasonContentFilter
+	}
+	return stopReason
 }

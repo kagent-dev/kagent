@@ -33,9 +33,8 @@ func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
 	s.results = append(s.results, event)
 	return nil
 }
-func (s *recordingSink) ModelCall(event runtime.ModelCall) error {
+func (s *recordingSink) ModelCall(event runtime.ModelCall) {
 	s.models = append(s.models, event)
-	return nil
 }
 
 func TestTranslatePinnedNotifications(t *testing.T) {
@@ -70,8 +69,11 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	if !ok || result["exitCode"] != 0 {
 		t.Fatalf("command result = %#v, want integer exitCode 0", sink.results[0].Result)
 	}
-	if sink.calls[1].Name != "tools.lookup" || sink.results[1].Name != "tools.lookup" {
+	if call := sink.calls[1]; call.Name != "tools.lookup" || call.MCPServer != "tools" || call.MCPTool != "lookup" || sink.results[1].Name != "tools.lookup" {
 		t.Fatalf("MCP events = %#v, %#v, want tools.lookup", sink.calls[1], sink.results[1])
+	}
+	if call := sink.calls[0]; call.MCPServer != "" || call.MCPTool != "" {
+		t.Fatalf("non-MCP call = %#v, want no MCP server or tool", call)
 	}
 }
 
@@ -236,10 +238,10 @@ func TestTerminalClosesOpenToolsAsUnfinished(t *testing.T) {
 	}
 }
 
-func TestUsageReadsCacheWriteTokens(t *testing.T) {
+func TestUsageReadsTheTokenBreakdown(t *testing.T) {
 	sink := &recordingSink{}
 	translator := newEventTranslator("thread", "turn")
-	raw := `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thread","turnId":"turn","tokenUsage":{"total":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2},"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2}}}}`
+	raw := `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thread","turnId":"turn","tokenUsage":{"total":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2,"reasoningOutputTokens":1},"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2,"reasoningOutputTokens":1}}}}`
 	var message rpcMessage
 	if err := json.Unmarshal([]byte(raw), &message); err != nil {
 		t.Fatal(err)
@@ -247,7 +249,7 @@ func TestUsageReadsCacheWriteTokens(t *testing.T) {
 	if _, _, err := translator.translate(message, sink); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.models) != 1 || sink.models[0].CacheWriteTokens != 3 || sink.models[0].CacheReadTokens != 4 {
-		t.Fatalf("model calls = %+v, want cache write 3 and cache read 4", sink.models)
+	if len(sink.models) != 1 || sink.models[0].CacheWriteTokens != 3 || sink.models[0].CacheReadTokens != 4 || sink.models[0].ReasoningOutputTokens != 1 {
+		t.Fatalf("model calls = %+v, want cache write 3, cache read 4 and reasoning 1", sink.models)
 	}
 }

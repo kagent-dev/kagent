@@ -96,12 +96,12 @@ type executionSink struct {
 	yield          func(a2atype.Event, error) bool
 	continuation   ContinuationStore
 	capture        *tracing.TextCapture
+	captureLimit   int
 	textArtifactID a2atype.ArtifactID
 	lastPosition   time.Time
 	owner          spanOwner
 	paused         *spanOwner
 	tools          map[string]pendingTool
-	denied         string
 	// compiled names the model when the driver reports none.
 	compiled tracing.RuntimeTelemetry
 }
@@ -137,7 +137,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			// already completed the invocation.
 			invocation = nil
 		}
-		// The native process reports producer=adapter either way, so its spans are written even untraced.
+		// The native process reports producer=runtime either way, so its spans are written even untraced.
 		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx), compiled: e.telemetry}
 		result := tracing.Result{}
 		flushed := false
@@ -193,7 +193,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		// approval or question carries a structured decision, not prompt text,
 		// so it records no input messages at all.
 		if limit := e.captureLimit(invocation); limit > 0 {
-			sink.capture = tracing.NewTextCapture(limit)
+			sink.capture, sink.captureLimit = tracing.NewTextCapture(limit), limit
 			if turn.Prompt != "" {
 				text, truncated := tracing.BoundedText(turn.Prompt, limit)
 				invocation.SetAttributes(
@@ -298,10 +298,6 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			continued.open.resume(sink.owner, !denied)
 			sink.tools = continued.open.tools
 			sink.paused = &continued.open.owner
-			if denied {
-				// Claude may deliver the denied ToolCall only after the resume.
-				sink.denied = continued.open.gated
-			}
 			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
 		}
 		if errors.Is(runErr, errYieldStopped) {

@@ -21,7 +21,7 @@ func TestRPCClientRejectsOversizedAndUnexpectedRequests(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := newRPCClient(nopWriteCloser{Buffer: &bytes.Buffer{}}, strings.NewReader(test.input), test.max)
-			_, err := client.call(context.Background(), 1, "initialize", map[string]any{})
+			_, err := client.call(context.Background(), 1, "initialize", map[string]any{}, nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("call() error = %v, want %q", err, test.want)
 			}
@@ -35,7 +35,7 @@ func TestRPCClientAcceptsOmittedJSONRPCVersion(t *testing.T) {
 		strings.NewReader(`{"id":1,"result":{"serverInfo":{"name":"codex-app-server"}}}`+"\n"),
 		1024,
 	)
-	result, err := client.call(context.Background(), 1, "initialize", map[string]any{})
+	result, err := client.call(context.Background(), 1, "initialize", map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestRPCClientPropagatesTraceContext(t *testing.T) {
 		strings.NewReader(`{"id":1,"result":{}}`+"\n"),
 		1024,
 	)
-	if _, err := client.call(ctx, 1, "turn/start", map[string]string{"threadId": "thread"}); err != nil {
+	if _, err := client.call(ctx, 1, "turn/start", map[string]string{"threadId": "thread"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	var message rpcMessage

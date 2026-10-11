@@ -2,7 +2,6 @@ package driver
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -151,6 +150,100 @@ func TestProcessDriverParksAndResumesSequentialApprovals(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.285 writes an is_error tool_result for a denied call, after the decision.
+func TestResumeMarksTheDeniedResultDeclined(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		approved bool
+		want     runtime.ToolStatus
+	}{
+		{name: "denied", want: runtime.ToolDeclined},
+		{name: "approved", approved: true, want: runtime.ToolRan},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			decision := filepath.Join(dir, "decision")
+			executable := filepath.Join(dir, "claude")
+			script := `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+while [ ! -f "$DECISION" ]; do sleep 0.01; done
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"call-1","name":"mcp__tools__write","input":{}}]}}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"operator denied","is_error":true}]}}'
+printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
+			driver := NewProcessDriver(ProcessConfig{
+				Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
+				MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
+				ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
+			})
+			pending := newTestPending("approval-1", "call-1")
+			broker.requests <- pending
+			bridgeDecisionToFile(t, pending, decision)
+
+			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
+			if err != nil || outcome.Pending == nil {
+				t.Fatalf("Run() = %#v, %v", outcome, err)
+			}
+			sink := &recordingSink{}
+			if _, err := outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: tc.approved}, sink); err != nil {
+				t.Fatal(err)
+			}
+			if len(sink.results) != 1 || sink.results[0].Status != tc.want || !sink.results[0].IsError {
+				t.Fatalf("results = %+v, want one %q result that keeps is_error", sink.results, tc.want)
+			}
+		})
+	}
+}
+
+// Claude prints the rest of a message before it blocks on the gated call. Those lines
+// must keep the time they arrived, not the time the parser reads them after the resume.
+func TestModelCallKeepsItsTimesAcrossAnApprovalPause(t *testing.T) {
+	dir := t.TempDir()
+	decision := filepath.Join(dir, "decision")
+	executable := filepath.Join(dir, "claude")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m","usage":{"input_tokens":7}}}}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-2","name":"Read","input":{}}]}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":3}}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"}}'
+while [ ! -f "$DECISION" ]; do sleep 0.01; done
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"ok"},{"type":"tool_result","tool_use_id":"call-2","content":"ok"}]}}'
+printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
+		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
+		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
+	})
+	pending := newTestPending("approval-1", "call-1")
+	broker.requests <- pending
+	bridgeDecisionToFile(t, pending, decision)
+
+	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
+	if err != nil || outcome.Pending == nil {
+		t.Fatalf("Run() = %#v, %v", outcome, err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	resumed := time.Now()
+	sink := &recordingSink{}
+	if _, err := outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) {
+		t.Fatalf("model calls = %+v, want one that ended before the resume at %v", sink.models, resumed)
+	}
+}
+
 func TestProcessDriverCancelsParkedApproval(t *testing.T) {
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "claude")
@@ -174,16 +267,7 @@ func TestProcessDriverCancelsParkedApproval(t *testing.T) {
 }
 
 func TestProcessDriverCancelsParkedApprovalKeepingBufferedModelCalls(t *testing.T) {
-	sinkErr := errors.New("sink failed")
-	for _, tc := range []struct {
-		name    string
-		sinkErr error
-	}{
-		{name: "records the buffered call"},
-		{name: "reports a failing sink", sinkErr: sinkErr},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir, executable := writeFakeClaude(t, `#!/bin/sh
+	dir, executable := writeFakeClaude(t, `#!/bin/sh
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
 while [ ! -f "$RELEASE" ]; do sleep 0.01; done
 printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":5}}}}'
@@ -191,36 +275,34 @@ printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"
 touch "$PRINTED"
 exec sleep 30
 `)
-			release, printed := filepath.Join(dir, "release"), filepath.Join(dir, "printed")
-			broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
-			driver := NewProcessDriver(ProcessConfig{
-				Executable: executable, Workspace: dir, Environment: []string{"RELEASE=" + release, "PRINTED=" + printed},
-				MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
-				ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
-			})
-			broker.requests <- newTestPending("approval-1", "call-1")
-			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-			if err != nil || outcome.Pending == nil {
-				t.Fatalf("Run() = %#v, %v", outcome, err)
-			}
-			if err := os.WriteFile(release, nil, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			deadline := time.Now().Add(10 * time.Second)
-			for _, err := os.Stat(printed); err != nil; _, err = os.Stat(printed) {
-				if time.Now().After(deadline) {
-					t.Fatalf("fake Claude never printed its model call: %v", err)
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			sink := &recordingSink{modelErr: tc.sinkErr}
-			if err := outcome.Pending.Cancel(t.Context(), sink); !errors.Is(err, tc.sinkErr) {
-				t.Fatalf("Cancel() error = %v, want %v", err, tc.sinkErr)
-			}
-			if len(sink.models) != 1 || sink.models[0].OutputTokens != 3 || sink.models[0].UsagePartial {
-				t.Fatalf("model calls = %#v, want the buffered complete call", sink.models)
-			}
-		})
+	release, printed := filepath.Join(dir, "release"), filepath.Join(dir, "printed")
+	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir, Environment: []string{"RELEASE=" + release, "PRINTED=" + printed},
+		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
+		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
+	})
+	broker.requests <- newTestPending("approval-1", "call-1")
+	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
+	if err != nil || outcome.Pending == nil {
+		t.Fatalf("Run() = %#v, %v", outcome, err)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for _, err := os.Stat(printed); err != nil; _, err = os.Stat(printed) {
+		if time.Now().After(deadline) {
+			t.Fatalf("fake Claude never printed its model call: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	sink := &recordingSink{}
+	if err := outcome.Pending.Cancel(t.Context(), sink); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if len(sink.models) != 1 || sink.models[0].OutputTokens != 3 || sink.models[0].UsagePartial {
+		t.Fatalf("model calls = %#v, want the buffered complete call", sink.models)
 	}
 }
 

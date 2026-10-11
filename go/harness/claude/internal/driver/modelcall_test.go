@@ -26,20 +26,29 @@ func TestModelCallsFromCaptures(t *testing.T) {
 		wantMissingIn, wantMissingOut int64
 		wantTools                     []string
 		wantStop                      string
+		wantStops                     []string
+		wantIDs                       []string // response/request ID of each call, in order
+		wantReasoning                 int64
 		wantErr                       string
 	}{
-		{file: "claude-normal.jsonl", wantCalls: 1},
-		{file: "claude-tools.jsonl", wantCalls: 4, wantTools: []string{"Read", "Write", "Bash"}},
+		{file: "claude-normal.jsonl", wantCalls: 1, wantStops: []string{"stop"}, wantIDs: []string{"msg_000001/req_000001"}},
+		{
+			file: "claude-tools.jsonl", wantCalls: 4, wantTools: []string{"Read", "Write", "Bash"},
+			wantStops: []string{"tool_call", "tool_call", "tool_call", "stop"},
+			wantIDs:   []string{"msg_000001/req_000001", "msg_000002/req_000002", "msg_000003/req_000003", "msg_000004/req_000004"},
+		},
 		// Only an earlier subagent call's final output count never reaches stdout.
 		{
 			file: "claude-subagent.jsonl", wantCalls: 4, wantPartial: 1, wantMissingOut: 90,
-			wantTools: []string{"Agent", "Read"},
+			wantTools: []string{"Agent", "Read"}, wantReasoning: 38,
+			// tool_use_result carries no message or request ID for the subagent's final call.
+			wantIDs: []string{"msg_000001/req_000001", "msg_000002/req_000002", "/", "msg_000003/req_000003"},
 		},
 		{
-			file: "claude-cancel.jsonl", wantCalls: 1, wantPartial: 1, wantStop: "error",
+			file: "claude-cancel.jsonl", wantCalls: 1, wantPartial: 1, wantStop: "error", wantIDs: []string{"msg_000001/"},
 			wantErr: "claude process exited without a terminal result event",
 		},
-		{file: "claude-fail.jsonl"},
+		{file: "claude-fail.jsonl", wantCalls: 1, wantPartial: 1, wantStop: "error", wantIDs: []string{"/"}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			raw, err := os.ReadFile("testdata/modelcall/" + tc.file)
@@ -75,7 +84,11 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			}
 			var partial int
 			var main, all [2]int64
+			var stops, ids []string
+			var reasoning int64
 			for _, call := range calls {
+				ids = append(ids, call.ResponseID+"/"+call.RequestID)
+				reasoning += call.ReasoningOutputTokens
 				all[0] += call.InputTokens
 				all[1] += call.OutputTokens
 				if call.UsagePartial {
@@ -89,12 +102,22 @@ func TestModelCallsFromCaptures(t *testing.T) {
 				if call.ResponseModel == "" {
 					t.Errorf("incomplete call %+v", call)
 				}
+				stops = append(stops, call.StopReason)
 				// A subagent's final call has exact usage but no finish reason, and result.usage excludes it.
 				if call.StopReason == "" {
 					continue
 				}
 				main[0] += call.InputTokens
 				main[1] += call.OutputTokens
+			}
+			if reasoning != tc.wantReasoning {
+				t.Errorf("reasoning tokens = %d, want %d", reasoning, tc.wantReasoning)
+			}
+			if tc.wantIDs != nil && !slices.Equal(ids, tc.wantIDs) {
+				t.Errorf("call IDs = %v, want %v", ids, tc.wantIDs)
+			}
+			if tc.wantStops != nil && !slices.Equal(stops, tc.wantStops) {
+				t.Errorf("complete call stop reasons = %v, want %v", stops, tc.wantStops)
 			}
 			if partial != tc.wantPartial {
 				t.Errorf("partial = %d, want %d", partial, tc.wantPartial)
@@ -134,11 +157,12 @@ func TestCapturesUseThePinnedClaudeVersion(t *testing.T) {
 	}
 }
 
-func TestSubagentModelCalls(t *testing.T) {
+func TestUnstreamedModelCalls(t *testing.T) {
 	type call struct {
 		input, output int64
 		partial       bool
 		start         int64
+		stop          string
 	}
 	for _, tc := range []struct {
 		name  string
@@ -154,7 +178,7 @@ func TestSubagentModelCalls(t *testing.T) {
 				`{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":99}}}`,
 				`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}}`,
 			},
-			want: []call{{input: 7, output: 3, start: 100}},
+			want: []call{{input: 7, output: 3, start: 100, stop: "stop"}},
 		},
 		{
 			name:  "subagent calls use their latest usage",
@@ -165,7 +189,8 @@ func TestSubagentModelCalls(t *testing.T) {
 				`{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"id":"msg_b","model":"m","usage":{"input_tokens":9,"output_tokens":1}}}`,
 				`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"done"}]},"tool_use_result":{"resolvedModel":"m","usage":{"input_tokens":9,"output_tokens":7}}}`,
 			},
-			want: []call{{input: 5, output: 4, partial: true, start: 100}, {input: 9, output: 7, start: 102}},
+			// msg_b starts when msg_a's last snapshot arrived.
+			want: []call{{input: 5, output: 4, partial: true, start: 100}, {input: 9, output: 7, start: 101}},
 		},
 		{
 			// tool_use_result has no message ID, so an earlier call with the final call's input merges into it.
@@ -176,6 +201,39 @@ func TestSubagentModelCalls(t *testing.T) {
 				`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"done"}]},"tool_use_result":{"agentId":"a1","resolvedModel":"m","usage":{"input_tokens":9,"output_tokens":7}}}`,
 			},
 			want: []call{{input: 9, output: 7, start: 100}},
+		},
+		{
+			// Each call starts at the subagent's previous line: its prompt, then its tool result.
+			name:  "subagent calls start at the subagent's previous line",
+			tools: map[string]string{"toolu_1": "Agent", "toolu_r": "Read"},
+			lines: []string{
+				`{"type":"user","timestamp":"1970-01-01T00:16:30Z","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"text","text":"read notes"}]}}`,
+				`{"type":"assistant","timestamp":"1970-01-01T00:16:40Z","parent_tool_use_id":"toolu_1","message":{"id":"msg_a","model":"m","usage":{"input_tokens":5,"output_tokens":1}}}`,
+				`{"type":"user","timestamp":"1970-01-01T00:16:45Z","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_r","content":"hello"}]}}`,
+				`{"type":"assistant","timestamp":"1970-01-01T00:16:50Z","parent_tool_use_id":"toolu_1","message":{"id":"msg_b","model":"m","usage":{"input_tokens":9,"output_tokens":1}}}`,
+				`{"type":"user","timestamp":"1970-01-01T00:17:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"done"}]},"tool_use_result":{"resolvedModel":"m","usage":{"input_tokens":9,"output_tokens":7}}}`,
+			},
+			want: []call{{input: 5, output: 1, partial: true, start: 990}, {input: 9, output: 7, start: 1005}},
+		},
+		{
+			name:  "an unreadable timestamp falls back to the parse time",
+			tools: map[string]string{"toolu_1": "Agent"},
+			lines: []string{
+				`{"type":"assistant","timestamp":"yesterday","parent_tool_use_id":"toolu_1","message":{"id":"msg_a","model":"m","usage":{"input_tokens":5,"output_tokens":1}}}`,
+				`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"done"}]},"tool_use_result":{"resolvedModel":"m","usage":{"input_tokens":9,"output_tokens":7}}}`,
+			},
+			want: []call{{input: 5, output: 1, partial: true, start: 100}, {input: 9, output: 7, start: 100}},
+		},
+		{
+			// Claude Code falls back to a non-streaming request, for example behind a gateway without streaming.
+			name: "an unstreamed main-thread call is complete and starts at the previous prompt",
+			lines: []string{
+				`{"type":"user","message":{"content":[{"type":"text","text":"hello"}]}}`,
+				`{"type":"assistant","message":{"id":"msg_1","model":"m","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":2}}}`,
+				`{"type":"assistant","message":{"id":"msg_1","model":"m","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":2}}}`,
+				`{"type":"result","subtype":"success","result":""}`,
+			},
+			want: []call{{input: 5, output: 2, start: 100, stop: "stop"}},
 		},
 		{
 			name:  "non-Agent tool usage is not a model call",
@@ -199,7 +257,96 @@ func TestSubagentModelCalls(t *testing.T) {
 			}
 			got := make([]call, 0, len(calls))
 			for _, c := range calls {
-				got = append(got, call{input: c.InputTokens, output: c.OutputTokens, partial: c.UsagePartial, start: c.Start.Unix()})
+				got = append(got, call{input: c.InputTokens, output: c.OutputTokens, partial: c.UsagePartial, start: c.Start.Unix(), stop: c.StopReason})
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("calls = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFailedModelCalls(t *testing.T) {
+	type call struct {
+		errorType, stop string
+		input           int64
+		partial         bool
+		start, end      int64
+	}
+	apiError := func(parent, errorType string) string {
+		return `{"type":"assistant","parent_tool_use_id":"` + parent + `","is_api_error_message":true,"error":"` + errorType +
+			`","message":{"id":"msg_err","model":"<synthetic>","content":[{"type":"text","text":"API Error"}],"usage":{"input_tokens":0,"output_tokens":0}}}`
+	}
+	for _, tc := range []struct {
+		name  string
+		tools map[string]string
+		lines []string
+		want  []call
+	}{
+		{
+			name:  "a rejected request starts when the main thread last waited",
+			lines: []string{`{"type":"system","subtype":"init","session_id":"s1"}`, apiError("", "model_not_found")},
+			want:  []call{{errorType: "model_not_found", stop: "error", partial: true, start: 100, end: 101}},
+		},
+		{
+			name: "an API error closes the open streamed call once",
+			lines: []string{
+				`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m","usage":{"input_tokens":7}}}}`,
+				apiError("", "server_error"),
+				`{"type":"result","subtype":"success","result":""}`,
+			},
+			want: []call{{errorType: "server_error", stop: "error", input: 7, partial: true, start: 100, end: 101}},
+		},
+		{
+			name:  "a subagent API error starts at the subagent's previous line",
+			tools: map[string]string{"toolu_1": "Agent"},
+			lines: []string{
+				`{"type":"user","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"text","text":"read notes"}]}}`,
+				apiError("toolu_1", "rate_limit"),
+			},
+			want: []call{{errorType: "rate_limit", stop: "error", partial: true, start: 100, end: 101}},
+		},
+		{
+			name:  "an API error without a category leaves the type empty",
+			lines: []string{`{"type":"system","subtype":"init","session_id":"s1"}`, apiError("", "")},
+			want:  []call{{stop: "error", partial: true, start: 100, end: 101}},
+		},
+		{
+			// The held call is complete and still emitted, after the failed one.
+			name:  "a subagent API error keeps the subagent's held call",
+			tools: map[string]string{"toolu_1": "Agent"},
+			lines: []string{
+				`{"type":"user","parent_tool_use_id":"toolu_1","message":{"content":[{"type":"text","text":"read notes"}]}}`,
+				`{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"id":"msg_a","model":"m","usage":{"input_tokens":5,"output_tokens":1}}}`,
+				apiError("toolu_1", "rate_limit"),
+				`{"type":"result","subtype":"success","result":""}`,
+			},
+			want: []call{
+				{errorType: "rate_limit", stop: "error", partial: true, start: 101, end: 102},
+				{input: 5, partial: true, start: 100, end: 101},
+			},
+		},
+		{
+			name:  "a synthetic message without the API error flag is not a call",
+			lines: []string{`{"type":"assistant","message":{"id":"msg_x","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Unix(100, 0)
+			p := newParser(func() time.Time { return clock })
+			maps.Copy(p.tools, tc.tools)
+			var calls []runtime.ModelCall
+			emit := collectCalls(&calls)
+			for _, line := range tc.lines {
+				if err := p.parseLine(t.Context(), []byte(line), emit); err != nil {
+					t.Fatal(err)
+				}
+				clock = clock.Add(time.Second)
+			}
+			var got []call
+			for _, c := range calls {
+				got = append(got, call{errorType: c.ErrorType, stop: c.StopReason, input: c.InputTokens, partial: c.UsagePartial,
+					start: c.Start.Unix(), end: c.End.Unix()})
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("calls = %+v, want %+v", got, tc.want)

@@ -166,33 +166,67 @@ func TestModelCallsFromUsage(t *testing.T) {
 	}
 }
 
-func TestModelCallStartsAtThePreviousCallEnd(t *testing.T) {
-	clock := time.Unix(100, 0)
-	sink := &recordingSink{}
-	translator := newEventTranslator("thread", "turn")
-	translator.now = func() time.Time { return clock }
-	translator.lastCallEnd = clock
-	for _, step := range []struct {
-		raw     string
-		advance time.Duration
+func TestModelCallTiming(t *testing.T) {
+	started := func(id string) string {
+		return `{"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"` + id + `","command":"ls","cwd":"/w","status":"inProgress"}}}`
+	}
+	completed := func(id string) string {
+		return `{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"` + id + `","command":"ls","cwd":"/w","status":"completed","exitCode":0}}}`
+	}
+	type step struct {
+		raw string // "" sends the next usage report
+		at  int64
+	}
+	for _, tc := range []struct {
+		name  string
+		steps []step
+		want  [][2]int64 // start and end of each call
 	}{
-		{raw: `{"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"ls","cwd":"/w","status":"inProgress"}}}`, advance: 5 * time.Second},
-		{raw: `{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"ls","cwd":"/w","status":"completed","exitCode":0}}}`, advance: 2 * time.Second},
+		{
+			name:  "a call without tools runs to its usage",
+			steps: []step{{at: 104}},
+			want:  [][2]int64{{100, 104}},
+		},
+		{
+			// Usage arrives only after the tools ran, so the call ends at its first tool start.
+			name:  "a call ends at its first tool start",
+			steps: []step{{started("c1"), 105}, {started("c2"), 106}, {completed("c1"), 130}, {completed("c2"), 131}, {"", 132}},
+			want:  [][2]int64{{100, 105}},
+		},
+		{
+			name:  "the next call starts at the previous usage",
+			steps: []step{{started("c1"), 105}, {completed("c1"), 130}, {"", 131}, {"", 135}},
+			want:  [][2]int64{{100, 105}, {131, 135}},
+		},
 	} {
-		var message rpcMessage
-		if err := json.Unmarshal([]byte(step.raw), &message); err != nil {
-			t.Fatal(err)
-		}
-		clock = clock.Add(step.advance)
-		if _, _, err := translator.translate(message, sink); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, _, err := translator.translate(usageMessage(t, "thread", "turn", 10, 10), sink); err != nil {
-		t.Fatal(err)
-	}
-	if got := sink.models[0]; !got.Start.Equal(time.Unix(100, 0)) || !got.End.Equal(time.Unix(107, 0)) {
-		t.Fatalf("call = %s..%s, want the previous call end (100s) to the usage arrival (107s)", got.Start, got.End)
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Unix(100, 0)
+			sink := &recordingSink{}
+			translator := newEventTranslator("thread", "turn")
+			translator.now = func() time.Time { return clock }
+			translator.modelCallStart = clock
+			reports := int64(0)
+			for _, step := range tc.steps {
+				clock = time.Unix(step.at, 0)
+				message := rpcMessage{}
+				if step.raw == "" {
+					reports++
+					message = usageMessage(t, "thread", "turn", 10*reports, 10*reports)
+				} else if err := json.Unmarshal([]byte(step.raw), &message); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := translator.translate(message, sink); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := make([][2]int64, 0, len(sink.models))
+			for _, call := range sink.models {
+				got = append(got, [2]int64{call.Start.Unix(), call.End.Unix()})
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("calls = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

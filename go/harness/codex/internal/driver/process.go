@@ -124,7 +124,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		// Unknown experimental server requests still fail closed below.
 		"capabilities": map[string]bool{"experimentalApi": true},
 	}
-	if _, err := client.call(ctx, 1, "initialize", initialize); err != nil {
+	if _, err := client.call(ctx, 1, "initialize", initialize, nil); err != nil {
 		return runtime.Outcome{}, d.protocolError(err, stderr)
 	}
 	if err := client.notify("initialized", map[string]any{}); err != nil {
@@ -135,7 +135,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		result, err := client.call(ctx, 2, "thread/start", map[string]any{
 			"cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
-		})
+		}, nil)
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
 		}
@@ -147,7 +147,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		result, err := client.call(ctx, 2, "thread/resume", map[string]any{
 			"threadId": threadID, "cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
-		})
+		}, nil)
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
 		}
@@ -164,7 +164,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	result, err := client.call(ctx, 3, "turn/start", map[string]any{
 		"threadId": threadID, "input": []map[string]any{{"type": "text", "text": turn.Prompt}},
-	})
+	}, nil)
 	if err != nil {
 		return runtime.Outcome{}, d.protocolError(err, stderr)
 	}
@@ -198,9 +198,8 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 	for {
 		select {
 		case <-ctx.Done():
-			interruptCtx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
-			_, err := client.call(interruptCtx, 4, "turn/interrupt", map[string]string{"threadId": translator.threadID, "turnId": translator.turnID})
-			cancel()
+			err := d.interrupt(session, sink)
+			drained := session.drainUsage(sink)
 			if err != nil {
 				_ = utils.KillProcessGroup(command.Process)
 			} else {
@@ -212,6 +211,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				_ = utils.KillProcessGroup(command.Process)
 				<-wait
 			}
+			<-drained
 			return runtime.Outcome{}, ctx.Err()
 		case waitErr := <-wait:
 			if waitErr != nil {
@@ -235,6 +235,11 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 					return runtime.Outcome{}, err
 				}
 				if expose {
+					// Every pause is inside a tool, and Codex reports usage only after the tools,
+					// so the open call ends here unless its first tool already ended it.
+					if translator.modelCallEnd.IsZero() {
+						translator.modelCallEnd = translator.now()
+					}
 					return runtime.Outcome{Pending: &pendingTurn{
 						driver: d, session: session, request: request,
 						id: append(json.RawMessage(nil), message.ID...),
@@ -380,8 +385,6 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if err := p.session.client.respond(p.id, native); err != nil {
 		return runtime.Outcome{}, err
 	}
-	// The next call's span must not include the human wait for this input.
-	p.session.translator.lastCallEnd = p.session.translator.now()
 	outcome, err := p.driver.consume(ctx, p.session, sink)
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
@@ -389,7 +392,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 
 // Cancel resolves the outstanding request when possible, interrupts the Codex
 // turn, and always reaps the App Server process.
-func (p *pendingTurn) Cancel(ctx context.Context, _ runtime.ModelCallSink) error {
+func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) error {
 	responded := true
 	if _, approval := p.request.(*runtime.ApprovalRequest); approval {
 		responded = p.session.client.respond(p.id, map[string]any{
@@ -397,15 +400,41 @@ func (p *pendingTurn) Cancel(ctx context.Context, _ runtime.ModelCallSink) error
 		}) == nil
 	}
 	if responded {
-		interruptCtx, cancel := context.WithTimeout(ctx, p.driver.config.InterruptGrace)
-		_, _ = p.session.client.call(interruptCtx, 4, "turn/interrupt", map[string]string{
-			"threadId": p.session.translator.threadID,
-			"turnId":   p.session.translator.turnID,
-		})
-		cancel()
+		_ = p.driver.interrupt(p.session, sink)
 	}
+	drained := p.session.drainUsage(sink)
 	p.driver.stopSession(p.session)
+	<-drained
 	return nil
+}
+
+// interrupt asks Codex to stop the turn. Usage Codex reports until it answers, including
+// usage already buffered, still reaches sink; drainUsage records what arrives after.
+func (d *ProcessDriver) interrupt(session *processSession, sink runtime.ModelCallSink) error {
+	ctx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
+	defer cancel()
+	params := map[string]string{"threadId": session.translator.threadID, "turnId": session.translator.turnID}
+	_, err := session.client.call(ctx, 4, "turn/interrupt", params, func(message rpcMessage) { session.recordUsage(message, sink) })
+	return err
+}
+
+// drainUsage records usage from the frames left until the reader stops. Start it before
+// stopping Codex, so a full frame buffer cannot drop or block Codex's last writes.
+func (s *processSession) drainUsage(sink runtime.ModelCallSink) <-chan struct{} {
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for frame := range s.client.frames {
+			s.recordUsage(frame.message, sink)
+		}
+	}()
+	return drained
+}
+
+func (s *processSession) recordUsage(message rpcMessage, sink runtime.ModelCallSink) {
+	if message.Method == "thread/tokenUsage/updated" {
+		_ = s.translator.usage(message.Params, sink)
+	}
 }
 
 // codexInputResponse maps the runtime-neutral input request onto Codex's input response,
