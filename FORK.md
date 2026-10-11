@@ -235,7 +235,9 @@ the same way: an expired entry fails the scan until it is re-reviewed, and only 
 may be listed there.
 
 Upstream automation the fork does not need is off: Dependabot version updates are disabled on this fork (a
-fork's default; dependency updates arrive through the re-pin), `stalebot`, `conventional-label` and
+fork's default; dependency updates arrive through the re-pin), Renovate runs only its regex manager for the
+GitHub CLI pin in `go/github-cli.version` and keeps its Dependency Dashboard issue as the record of the scan
+(`renovate.json5`), `stalebot`, `conventional-label` and
 `label-pull-requests` are disabled workflows (repository setting, not a file edit), `migration-immutability`
 only fires on pull requests to `main`/`release/**`, which do not exist here. Upstream's workflow files do start
 when the mirror is pushed (the push has to be made as the App — see "The mirror"); the sync cancels those runs

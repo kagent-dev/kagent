@@ -8,9 +8,14 @@
 // The one exception is what a carried patch pins itself: the GitHub CLI in
 // the Go runtime and Claude harness images (go/github-cli.version). Only the
 // regex manager below runs, so no other manager opens a pull request.
+//
+// The Dependency Dashboard is on: with one tracked dependency that is
+// usually current, it is the only visible trace that Renovate scans this
+// line and what it tracks.
 {
   reviewers: ['teemow'],
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  dependencyDashboard: true,
   enabledManagers: ['custom.regex'],
   customManagers: [
     {
