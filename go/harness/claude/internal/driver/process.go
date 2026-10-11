@@ -329,18 +329,20 @@ func (d *ProcessDriver) prepareWorkspace(ctx context.Context, sink runtime.Event
 // prepareAsUser sets a session directory up as Claude's user, who owns it
 // and everything the setup writes: inside the sandbox root may not write
 // another user's directory on a volume mount, and the user's files are what
-// Claude works with. Root hands the directory over first, best effort: a
-// sub-path someone else created stays theirs, and the setup then reports
-// what it could not do.
+// Claude works with. Root hands the directory over first, on every turn and
+// whether or not the source mounts mirrors: the volume creates a missing
+// session directory for the container's user, root, and Claude could not
+// even enter it. The handover is best effort: a sub-path someone else created
+// stays theirs, and the setup then reports what it could not do.
 func (d *ProcessDriver) prepareAsUser(ctx context.Context, dispatch workspace.Dispatch, options workspace.Options) (workspace.Report, error) {
+	if err := os.Lchown(dispatch.Directory, int(d.config.RunAs.UID), int(d.config.RunAs.GID)); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "the working directory stays with its owner", "directory", dispatch.Directory, "error", err)
+	}
 	if dispatch.Mirrors == "" {
 		return workspace.Report{}, nil
 	}
 	if len(d.config.PrepareCommand) == 0 {
 		return workspace.Report{}, fmt.Errorf("a harness that runs as root needs the command that prepares the workspace")
-	}
-	if err := os.Lchown(dispatch.Directory, int(d.config.RunAs.UID), int(d.config.RunAs.GID)); err != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "the working directory stays with its owner", "directory", dispatch.Directory, "error", err)
 	}
 	runAs := workspace.Identity{UID: d.config.RunAs.UID, GID: d.config.RunAs.GID}
 	return workspace.PrepareAs(ctx, dispatch, options, &runAs, d.config.PrepareCommand...)
