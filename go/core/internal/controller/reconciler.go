@@ -95,14 +95,15 @@ func newAgentReconciliations(
 	collections translator.Collections,
 	agentRuntimeObservations krt.Collection[AgentRuntimeObservation],
 	opts krt.OptionsBuilder,
+	settings translator.CompilerSettings,
 ) krt.Collection[AgentReconciliation] {
 	return krt.NewCollection(agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *AgentReconciliation {
 		state := &AgentReconciliation{Agent: agent}
 		compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
-			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
-			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
-			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
+			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
+			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
+			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
+			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
 		}).CompileAgent(context.Background(), agent)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"

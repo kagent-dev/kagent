@@ -20,7 +20,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
@@ -53,19 +52,18 @@ func TestNew_NilExecutor(t *testing.T) {
 }
 
 func TestNew_RequiresController(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "")
 	app, err := New(AppConfig{
 		AgentCard: a2atype.AgentCard{Name: "test-agent"},
 	}, &fakeExecutor{})
-	require.ErrorContains(t, err, "ControllerClient or KAGENT_API_URL is required")
+	require.ErrorContains(t, err, "ControllerClient or ControlPlaneURL is required")
 	require.Nil(t, app)
 }
 
-func TestNew_ControllerFromEnv(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "http://127.0.0.1:1")
+func TestNew_ControllerFromConfig(t *testing.T) {
 	app, err := New(AppConfig{
-		AgentCard: a2atype.AgentCard{Name: "test-agent"},
-		Port:      "0",
+		AgentCard:       a2atype.AgentCard{Name: "test-agent"},
+		Port:            "0",
+		ControlPlaneURL: "http://127.0.0.1:1",
 	}, &fakeExecutor{})
 	require.NoError(t, err)
 	require.NotNil(t, app)
@@ -74,7 +72,6 @@ func TestNew_ControllerFromEnv(t *testing.T) {
 }
 
 func TestNew_ProvidedController(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "")
 	controller, err := controllerclient.New(controllerclient.Config{APIURL: "http://127.0.0.1:1"})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
@@ -93,14 +90,6 @@ func TestApplyDefaults_Port(t *testing.T) {
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
-	}
-}
-
-func TestApplyDefaults_PortFromEnv(t *testing.T) {
-	t.Setenv("KAGENT_PORT", "9090")
-	cfg := applyDefaults(AppConfig{})
-	if cfg.Port != "9090" {
-		t.Errorf("expected port %q, got %q", "9090", cfg.Port)
 	}
 }
 
@@ -126,15 +115,6 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	}
 }
 
-func TestBuildAppName_FromEnv(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "my-agent")
-	t.Setenv("KAGENT_NAMESPACE", "my-ns")
-	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
-	if name != "my_ns__NS__my_agent" {
-		t.Errorf("expected %q, got %q", "my_ns__NS__my_agent", name)
-	}
-}
-
 func TestBuildAppName_FromAgentCard(t *testing.T) {
 	t.Setenv("KAGENT_NAME", "")
 	t.Setenv("KAGENT_NAMESPACE", "")
@@ -142,13 +122,6 @@ func TestBuildAppName_FromAgentCard(t *testing.T) {
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
 	}
-}
-
-func TestBuildAppName_UnsetNamespace(t *testing.T) {
-	t.Setenv(env.KagentName.Name(), "my-agent")
-	t.Setenv(env.KagentNamespace.Name(), "")
-	require.NoError(t, os.Unsetenv(env.KagentNamespace.Name()))
-	require.Equal(t, "card-name", buildAppName(&a2atype.AgentCard{Name: "card-name"}))
 }
 
 func TestBuildAppName_Default(t *testing.T) {

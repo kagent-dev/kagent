@@ -11,20 +11,21 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
-type Compiler struct{ config *adkconfig.Builder }
+type Compiler struct {
+	config   *adkconfig.Builder
+	settings translator.CompilerSettings
+}
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
-	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings translator.CompilerSettings) *Compiler {
+	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -33,6 +34,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
+	compiled.Config.Runtime = c.settings.RuntimeConfig(input.AgentName, template.Namespace)
 	configJSON, err := json.Marshal(compiled.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
@@ -42,19 +44,15 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 	// An opaque image may export to its own backend, so its own values win.
-	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
+	telemetryConfig := c.settings.Telemetry
 	environment := append([]corev1.EnvVar(nil), compiled.Environment...)
-	if telemetryConfig.Enabled() {
-		environment = append(environment, translator.DefaultsEnvironment()...)
-		environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
-			AgentName: input.AgentName, AgentNamespace: template.Namespace,
-		}, "")...)
-		compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
-	}
 	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
-	environment = adkconfig.DedupeEnv(append(environment,
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	))
+	environment = adkconfig.DedupeEnv(environment)
+	if telemetryConfig.Enabled() {
+		environment = telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
+			AgentName: input.AgentName, AgentNamespace: template.Namespace,
+		}, environment)
+	}
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
@@ -63,7 +61,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	compiled.Egress = append(compiled.Egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations(environment)...)
+	compiled.Egress = append(compiled.Egress, c.settings.APIURL)
 	slices.Sort(compiled.Egress)
 
 	return &translator.CompileResult{Revision: translator.Revision{

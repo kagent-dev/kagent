@@ -1,7 +1,7 @@
 # End-to-end tests
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
-Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
+Set `controller.config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.
 It creates and cleans up its own SandboxTemplates. Run from `go/`:
@@ -29,7 +29,7 @@ runtime and sandbox tools.
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets
-`KAGENT_SESSION_IDLE_TTL=30s` and `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=5s` on the
+`sessions.idleTtl: 30s` and `sessions.expirationInterval: 5s` in controller config on the
 controller Deployment and restores its environment afterward, rolling the
 controller both times and waiting for a
 fresh API connection after each rollout. Use a disposable test cluster and a

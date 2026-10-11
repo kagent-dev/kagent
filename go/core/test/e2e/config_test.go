@@ -16,11 +16,10 @@ func TestInteractionTargetConfiguration(t *testing.T) {
 	}{
 		{name: "explicit E2E URL", e2eURL: "http://e2e.example:8083", want: "e2e.example:8083"},
 		{name: "E2E URL takes precedence", e2eURL: "http://e2e.example:8083", apiURL: "http://runtime.example:8084", want: "e2e.example:8083"},
-		{name: "empty E2E URL falls back", apiURL: "http://runtime.example:8084", want: "runtime.example:8084"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(kagentenv.E2EAPIURL.Name(), tc.e2eURL)
-			t.Setenv(kagentenv.KagentAPIURL.Name(), tc.apiURL)
+			t.Setenv("KAGENT_API_URL", tc.apiURL)
 			require.Equal(t, tc.want, interactionTarget(t))
 		})
 	}

@@ -354,7 +354,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
-			interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil))
+			interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil), false)
 			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), time.Second)
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })

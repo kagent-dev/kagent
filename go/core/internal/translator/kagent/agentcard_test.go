@@ -13,7 +13,7 @@ import (
 )
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
-	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}).Compile(context.Background(), &translator.HarnessInput{
+	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
 		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 		Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}},
 	})
@@ -57,4 +57,8 @@ func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
 	if card.Name != "pizza_agent" {
 		t.Fatalf("card name = %q, want the ADK-safe form", card.Name)
 	}
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }

@@ -64,6 +64,9 @@ func OwnsEnvironment(name string) bool {
 }
 
 type Config struct {
+	MaxContentLength      *int64                 `json:"max_content_length,omitempty"`
+	ControlPlaneURL       string                 `json:"control_plane_url"`
+	LogLevel              string                 `json:"log_level,omitempty"`
 	Version               int                    `json:"version"`
 	ClaudeExecutable      string                 `json:"claude_executable"`
 	ExpectedClaudeVersion string                 `json:"expected_claude_version"`
@@ -132,6 +135,14 @@ func Parse(b []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.MaxContentLength != nil && *c.MaxContentLength < 0 {
+		return fmt.Errorf("max_content_length must be nonnegative")
+	}
+	switch c.LogLevel {
+	case "", "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("log_level must be debug, info, warn, or error")
+	}
 	if c.Version != Version {
 		return fmt.Errorf("unsupported config version %d (want %d)", c.Version, Version)
 	}
