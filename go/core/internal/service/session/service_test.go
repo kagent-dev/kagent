@@ -261,6 +261,26 @@ func TestServiceListPaginatesBySessionID(t *testing.T) {
 	}
 }
 
+func TestServiceListDefaultAuthorizerRejectsAllCreators(t *testing.T) {
+	store := &serviceTestStore{sessions: []*apiv1alpha1.Session{{Id: uuid.NewString()}}}
+	service := NewService(store, auth.DefaultAuthorizer{}, nil)
+	ctx := serviceTestContext("bob")
+
+	if _, err := service.List(ctx, ListRequest{AllCreators: true}); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		t.Fatalf("List(all creators) = %v, want permission denied", err)
+	}
+	if store.listCalls != 0 {
+		t.Fatal("cross-user list reached the session store")
+	}
+
+	if _, err := service.List(ctx, ListRequest{}); err != nil {
+		t.Fatalf("List(own sessions) = %v", err)
+	}
+	if store.listQuery.UserID != "bob" || store.listQuery.AllUsers {
+		t.Fatalf("own-session list query = %+v", store.listQuery)
+	}
+}
+
 func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})

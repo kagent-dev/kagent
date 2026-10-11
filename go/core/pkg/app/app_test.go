@@ -50,13 +50,13 @@ func TestOptionsResolve(t *testing.T) {
 			name:      "both nil selects core defaults",
 			opts:      Options{},
 			wantAuthn: &authimpl.InsecureAuthenticator{},
-			wantAuthz: &auth.NoopAuthorizer{},
+			wantAuthz: &auth.DefaultAuthorizer{},
 		},
 		{
 			name:      "authenticator only leaves the default authorizer",
 			opts:      Options{Authenticator: consumerAuthn},
 			wantAuthn: consumerAuthn,
-			wantAuthz: &auth.NoopAuthorizer{},
+			wantAuthz: &auth.DefaultAuthorizer{},
 		},
 		{
 			name:      "authorizer only leaves the default authenticator",
@@ -85,6 +85,17 @@ func TestOptionsResolve(t *testing.T) {
 				t.Errorf("authorizer = %s, want %s", got, want)
 			}
 		})
+	}
+}
+
+func TestDefaultAuthorizerKeepsConversationListsPrivate(t *testing.T) {
+	_, authorizer := (Options{}).resolve()
+	principal := auth.Principal{User: auth.User{ID: "alice"}}
+	if err := authorizer.Check(context.Background(), principal, auth.VerbGet, auth.Resource{Type: auth.SessionAllCreators}); err == nil {
+		t.Fatal("default authorizer allowed listing other users' conversations")
+	}
+	if err := authorizer.Check(context.Background(), principal, auth.VerbList, auth.Resource{Type: "Session"}); err != nil {
+		t.Fatalf("default authorizer denied ordinary session list: %v", err)
 	}
 }
 

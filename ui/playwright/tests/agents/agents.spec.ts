@@ -63,9 +63,9 @@ test("agents: the list is Agent resources, with each half shared or inline", asy
   });
 
   await test.step("6. conversation counts are per Agent, not per template", async () => {
-    await expect(page.getByTestId(`agent-conversations-kagent/${agents.k8s.name}`)).toHaveText("4 conversations");
-    await expect(page.getByTestId(`agent-conversations-kagent/${agents.sharedOnK8s.name}`)).toHaveText("1 conversation");
-    await expect(page.getByTestId("agent-conversations-kagent/shared-brain-twin")).toHaveText("0 conversations");
+    await expect(page.getByTestId(`agent-conversations-kagent/${agents.k8s.name}`)).toHaveText("2 conversations (yours)");
+    await expect(page.getByTestId(`agent-conversations-kagent/${agents.sharedOnK8s.name}`)).toHaveText("1 conversation (yours)");
+    await expect(page.getByTestId("agent-conversations-kagent/shared-brain-twin")).toHaveText("0 conversations (yours)");
   });
 
   await test.step("7. a conversation whose Agent is gone is reported", async () => {

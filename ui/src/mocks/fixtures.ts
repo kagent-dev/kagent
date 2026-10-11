@@ -373,9 +373,9 @@ export const mockSubstrateInventory: {
  * The controller filters an instance list by the authenticated user unless
  * `all_creators` is asked for, and mock mode has nobody signed in — there is no
  * backend to have signed in to. Rather than pretend the filter does not exist, the
- * fake treats every call as this person, so the toggle is observably a filter and
- * not decoration: asked for the `kagent` namespace it lists four instances without
- * the toggle and seven with it.
+ * fake treats every call as this person. The API's `all_creators` option is
+ * observably a filter: asked for the `kagent` namespace it lists four instances
+ * without the option and seven with it.
  */
 export const MOCK_INSTANCE_CREATOR = "alice@example.com";
 

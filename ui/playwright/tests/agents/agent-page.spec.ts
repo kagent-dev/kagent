@@ -33,10 +33,8 @@ import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
  * - **A conversation has a name, and an unnamed one is not a bare UUID.** That was
  *   the thing that made the old list unreadable — rows of hex under a heading — so
  *   what it degrades to is asserted rather than assumed.
- * - **Somebody else's conversation is listed and cannot be opened.** `all_creators`
- *   is always asked for now, and `GetAgentInstance` is scoped to its creator, so
- *   such a row is genuinely a dead end. Offering a link into a chat that answers
- *   `NotFound` would be worse than not listing it at all.
+ * - **Somebody else's conversation is never listed.** Its title and creator must
+ *   remain private even when the agent itself is shared.
  */
 
 test("agents: one agent lists its own conversations, and only its own", async ({
@@ -168,74 +166,23 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 });
 
-/**
- * Item 7: the "include agents created by others" toggle is gone, and the consequence
- * of removing it is handled rather than hidden.
- *
- * Always asking for `all_creators` is the easy half. The hard half is that an
- * instance is scoped to its creator on *read* — `GetAgentInstance` resolves through
- * `WHERE id = $1 AND user_id = $2`, and the A2A gateway reads it
- * through that same call — so a conversation somebody else started is listable and
- * genuinely not openable. This is what that has to look like.
- */
-test("agents: somebody else's conversation is listed, and plainly cannot be opened", async ({
+/** An agent's conversation list must not disclose another user's titles or identity. */
+test("agents: only the caller's conversations appear", async ({
   page,
 }) => {
   await loadPage(page, agentPage(agents.k8s));
   await expectSettled(page);
 
-  await test.step("1. the toggle and its alert are gone", async () => {
-    await expect(page.getByTestId("instances-all-creators")).toHaveCount(0);
-    await expect(page.getByTestId("instances-own-only")).toHaveCount(0);
-  });
+  await expect(dataRows(page)).toHaveCount(2);
+  await expect(page.getByTestId("conversations-table")).not.toContainText(
+    "bob@example.com",
+  );
+  await expect(page.getByTestId("conversations-table")).not.toContainText(
+    "Search relevance spike",
+  );
+  await expect(page.getByTestId(`conversation-link-${instances.ready}`)).toBeVisible();
 
-  await test.step("2. everyone's conversations are listed", async () => {
-    // Four: two the caller started and two somebody else did. Without `all_creators`
-    // this would be two, and a shared agent would look half idle.
-    await expect(dataRows(page)).toHaveCount(4);
-    await expect(page.getByTestId("conversations-table")).toContainText(
-      "bob@example.com",
-    );
-  });
-
-  await test.step("3. and the ones that are not the reader's carry no link", async () => {
-    // The point of the whole step: no anchor, so nothing invites a click into a chat
-    // that will answer NotFound. A link here would be worse than not listing the row.
-    await expect(
-      page.getByTestId(`conversation-link-${instances.someoneElses}`),
-    ).toHaveCount(0);
-    await expect(
-      page.getByTestId(`conversation-unopenable-${instances.someoneElses}`),
-    ).toBeVisible();
-    // Still named, so it reads as a conversation rather than as a row that failed to
-    // render.
-    await expect(
-      page.getByTestId(`conversation-unopenable-${instances.someoneElses}`),
-    ).toHaveText("Search relevance spike");
-  });
-
-  await test.step("4. the page says why, once, so the missing link reads as a rule", async () => {
-    const note = page.getByTestId("conversations-others-note");
-    await expect(note).toBeVisible();
-    await expect(note).toContainText("started by somebody else");
-    // The mechanism, in the words a reader can act on: a share link is the way in.
-    await expect(note).toContainText("share link");
-  });
-
-  await test.step("5. renaming and deleting are refused for the same reason", async () => {
-    // Both writes resolve the instance through the creator exactly as the read does,
-    // so offering them and then failing would be worse than plainly not offering.
-    await expect(
-      page.getByTestId(`conversation-rename-${instances.someoneElses}`),
-    ).toBeDisabled();
-    await expect(
-      page.getByTestId(`conversation-rename-${instances.ready}`),
-    ).toBeEnabled();
-  });
-
-  await test.step("6. and opening one directly says so in the same terms", async () => {
-    // The claim above is only worth making if it is what the backend actually does.
-    // This is the same conversation, addressed directly.
+  await test.step("another user's conversation is still inaccessible by ID", async () => {
     await loadPage(page, `/agents/${instances.someoneElses}`, { scenario: "ok" });
     const missing = page.getByTestId("instance-not-found");
     await expect(missing).toBeVisible();
@@ -283,7 +230,7 @@ test("agents: an agent links to its template, and a conversation links up to its
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expect(page).toHaveURL(new RegExp(`${agentPage(agents.k8s)}$`));
     await expectSettled(page);
-    await expect(dataRows(page)).toHaveCount(4);
+    await expect(dataRows(page)).toHaveCount(2);
   });
 
   await test.step("4. the conversation's own record links up too", async () => {

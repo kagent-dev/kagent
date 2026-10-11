@@ -70,11 +70,7 @@ export function AgentPage() {
    * filter, the state options and the columns would all rebuild continuously, and
    * antd rebuilds a table's internal column state whenever its columns change.
    */
-  const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
-  const openableIds = useMemo(
-    () => conversations.data && new Set(conversations.data.own.map((row) => row.id)),
-    [conversations.data],
-  );
+  const rows = useMemo(() => conversations.data?.own ?? [], [conversations.data]);
 
   const stateOptions = useMemo(() => {
     // Built from the rows rather than from the enum: offering all eight states on a
@@ -145,9 +141,7 @@ export function AgentPage() {
    *
    * A reader clearing out an agent will do it from whichever surface they are on, and
    * one that offers it while the other does not is a difference they have to learn.
-   * Only their own conversations can be ticked: an instance is scoped to its creator on
-   * write, so offering a checkbox beside somebody else's would be offering a delete
-   * that is refused.
+   * The list contains only the caller's conversations, which can be deleted.
    */
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [isBulkDeleting, setBulkDeleting] = useState(false);
@@ -179,41 +173,20 @@ export function AgentPage() {
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => {
           const title = conversationTitle(row);
-          // Until the read lands nothing is known about who may open what, so
-          // nothing is claimed: treating an unread answer as "not yours" would
-          // strip the links off a list that is about to be perfectly openable.
-          const openable = openableIds === undefined || openableIds.has(row.id);
 
           return (
             <Space size={8}>
-              {openable ? (
-                <Link
-                  to={chatPath(row)}
-                  aria-label={`Open conversation ${title}`}
-                  data-testid={`conversation-link-${row.id}`}
-                  css={{
-                    color: theme.color.primaryText,
-                    fontStyle: hasConversationName(row) ? undefined : "italic",
-                  }}
-                >
-                  {title}
-                </Link>
-              ) : (
-                /* No link, deliberately. `GetAgentInstance` is scoped to its
-                   creator and the A2A gateway reads through the same call, so this
-                   conversation answers NotFound to everyone but the person who
-                   started it. A link here would be an invitation to a 404. */
-                <Tooltip
-                  title={`Only ${row.creator || "the person who started it"} can open this conversation. An instance is read as its creator, so it answers "not found" to anyone else — a share link is the only other way in.`}
-                >
-                  <Text
-                    data-testid={`conversation-unopenable-${row.id}`}
-                    css={{ color: theme.color.textMuted, fontStyle: "italic" }}
-                  >
-                    {title}
-                  </Text>
-                </Tooltip>
-              )}
+              <Link
+                to={chatPath(row)}
+                aria-label={`Open conversation ${title}`}
+                data-testid={`conversation-link-${row.id}`}
+                css={{
+                  color: theme.color.primaryText,
+                  fontStyle: hasConversationName(row) ? undefined : "italic",
+                }}
+              >
+                {title}
+              </Link>
               <ExtensionSlot
                 id="app_agents_agentsList_agentListItem_badge"
                 context={{ agentName: row.id, namespace: row.agent?.split("/")[0] ?? "" }}
@@ -271,36 +244,25 @@ export function AgentPage() {
         title: "",
         key: "actions",
         width: 96,
-        render: (_, row) => {
-          // Both writes are scoped to the creator exactly as the read is, so a
-          // conversation somebody else started can be neither retitled nor deleted.
-          // Offered and refused would be worse than plainly unavailable.
-          const mine = openableIds === undefined || openableIds.has(row.id);
-          return (
-            <Space size={0}>
-              <RenameConversationButton instance={row} disabled={!mine} />
-              <DeleteResourceButton
-                kind="conversation"
-                name={conversationTitle(row)}
-                disabled={!mine}
-                onDelete={() => apiClient.agentInstances.remove(row.id)}
-                onDeleted={conversations.refresh}
-              />
-            </Space>
-          );
-        },
+        render: (_, row) => (
+          <Space size={0}>
+            <RenameConversationButton instance={row} />
+            <DeleteResourceButton
+              kind="conversation"
+              name={conversationTitle(row)}
+              onDelete={() => apiClient.agentInstances.remove(row.id)}
+              onDeleted={conversations.refresh}
+            />
+          </Space>
+        ),
       },
     ],
     // `chatPath` is rebuilt every render and closes only over the extension link, which
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations.refresh, openableIds, theme, extensionColumns, view],
+    [conversations.refresh, theme, extensionColumns, view],
   );
-
-  const othersCount = rows.filter(
-    (row) => openableIds !== undefined && !openableIds.has(row.id),
-  ).length;
 
   return (
     // No heading and no actions row.
@@ -427,28 +389,13 @@ export function AgentPage() {
           />
         ) : null}
 
-        {/* The wide read is authorised separately from the list and the controller
-            refuses the request outright when it is not allowed, rather than quietly
-            narrowing it. Answering with the reader's own conversations and saying so
-            is better than answering with nothing — but it must be said, or a partial
-            list reads as the whole one. */}
-        {conversations.data?.widerReadRefused ? (
-          <Alert
-            type="info"
-            showIcon
-            title="Showing only the conversations you started"
-            description={`Reading everyone's conversations is authorised separately from the list, and that request was refused: ${conversations.data.widerReadRefused}`}
-            data-testid="conversations-own-only"
-          />
-        ) : null}
-
         {agent ? <AgentIdentityCard agent={agent} /> : null}
 
         <FilterBar
           testId="conversations-filters"
           view={view}
           search={{
-            label: "Search conversations by name, id or who started them",
+            label: "Search conversations by name or id",
             placeholder: "Search conversations",
           }}
           filters={[
@@ -472,16 +419,6 @@ export function AgentPage() {
             ) : null
           }
         />
-
-        {othersCount > 0 ? (
-          <Alert
-            type="info"
-            showIcon
-            data-testid="conversations-others-note"
-            title={`${othersCount} of these ${othersCount === 1 ? "conversation was" : "conversations were"} started by somebody else`}
-            description="They are listed because this is a shared agent and hiding them would understate what it is doing. They cannot be opened, renamed or deleted from here: the controller reads an instance as its creator, so it answers “not found” to anybody else. A share link from the person who started one is the only other way in."
-          />
-        ) : null}
 
         {/* Offered above the table only when something is ticked: a bar that is always
             there costs a row of the page for an action most visits never take. */}
@@ -537,11 +474,6 @@ export function AgentPage() {
           rowSelection={{
             selectedRowKeys: selectedIds as string[],
             onChange: (keys) => setSelectedIds(keys.map(String)),
-            // Somebody else's conversation cannot be deleted from here, so it cannot be
-            // ticked either — a checkbox that leads to a refusal is worse than none.
-            getCheckboxProps: (row) => ({
-              disabled: !(openableIds?.has(row.id) ?? true),
-            }),
           }}
           rowKey={(row) => row.id}
           columns={columns}
@@ -558,11 +490,7 @@ export function AgentPage() {
                   ? "No conversations with this agent yet. Start one with “New chat”."
                   : " ",
           }}
-          onRow={(row) =>
-            clickableRow(() => void navigate(chatPath(row)), {
-              enabled: openableIds === undefined || openableIds.has(row.id),
-            })
-          }
+          onRow={(row) => clickableRow(() => void navigate(chatPath(row)))}
         />
 
         {/* Below the conversations, because a conversation is what a reader came here

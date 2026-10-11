@@ -72,8 +72,8 @@ export function AgentsTab() {
     [definitions.data, templates.data],
   );
   const loadFailure = namespaces.error ?? definitions.error;
-  // Everyone's conversations, so a count means what the agent is doing, not what this reader did.
-  const conversations = useAgentInstances(true);
+  // Counts include only the caller's conversations.
+  const conversations = useAgentInstances();
 
   const conversationCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -185,7 +185,7 @@ export function AgentsTab() {
         sorter: byNumber<Agent>((row) => conversationCounts.get(row.ref) ?? 0),
         sortOrder: sortOrderFor(view, "conversations"),
         render: (_, row) => {
-          // No count until the read lands: a confident 0 would claim nobody talked to it.
+          // No count until the read lands: a confident 0 would claim the caller has none.
           if (conversations.error || !conversations.data) {
             return (
               <Text css={{ color: theme.color.textMuted, fontSize: 12 }} data-not-reported="true">
@@ -196,7 +196,7 @@ export function AgentsTab() {
           const count = conversationCounts.get(row.ref) ?? 0;
           return (
             <Text data-testid={`agent-conversations-${row.ref}`}>
-              {count} {count === 1 ? "conversation" : "conversations"}
+              {count} {count === 1 ? "conversation" : "conversations"} (yours)
             </Text>
           );
         },
