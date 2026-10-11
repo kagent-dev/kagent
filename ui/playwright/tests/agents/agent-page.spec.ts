@@ -375,13 +375,12 @@ test("agents: conversations can be picked and deleted together from the table to
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
 
-  await test.step("1. somebody else's conversation cannot be ticked", async () => {
-    // An instance is scoped to its creator on write as well as read, so a checkbox
-    // beside somebody else's would be offering a delete that is refused.
+  await test.step("1. every listed conversation belongs to the caller", async () => {
+    await expect(dataRows(page)).toHaveCount(2);
     const disabled = page.locator(
       "tbody tr td.ant-table-selection-column input:disabled",
     );
-    await expect(disabled.first()).toBeVisible();
+    await expect(disabled).toHaveCount(0);
   });
 
   await test.step("2. picking one offers the bulk action, counted", async () => {

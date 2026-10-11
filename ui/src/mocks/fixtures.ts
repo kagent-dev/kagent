@@ -374,8 +374,8 @@ export const mockSubstrateInventory: {
  * `all_creators` is asked for, and mock mode has nobody signed in — there is no
  * backend to have signed in to. Rather than pretend the filter does not exist, the
  * fake treats every call as this person. The API's `all_creators` option is
- * observably a filter: asked for the `kagent` namespace it lists four instances
- * without the option and seven with it.
+ * observably a filter: the wide read includes Bob's instances and the ordinary
+ * read does not.
  */
 export const MOCK_INSTANCE_CREATOR = "alice@example.com";
 
@@ -395,9 +395,7 @@ export const MOCK_INSTANCE_CREATOR = "alice@example.com";
  * - one whose state the controller never reported, with no harness, no template
  *   and no timestamps — the row that catches a page rendering absent values as
  *   blank cells rather than saying so;
- * - three the caller did not create — two of somebody else's and the barely-written
- *   one, whose creator is nobody at all — so `all_creators` changes the answer from
- *   four rows in `kagent` to seven;
+ * - two the caller did not create, so `all_creators` changes the answer;
  * - one outside `kagent`, so a page that ignored the namespace it was asked for
  *   would show it in the wrong list.
  *
@@ -510,15 +508,15 @@ export const mockAgentInstances: AgentInstance[] = [
     /*
      * The record the controller has barely written.
      *
-     * Every optional field absent and the state left at its proto zero, which is a
-     * real thing a database row can be and the one shape a table of confident
-     * strings gets wrong. It is here so the "not reported" wording is exercised by
-     * a test rather than being prose nobody ever sees.
+     * Optional runtime fields absent and the state left at its proto zero, which
+     * is a real thing a database row can be and the one shape a table of confident
+     * strings gets wrong. The creator is the current user so the private list can
+     * still exercise the "not reported" wording.
      */
     id: "f07b3d41-2e58-4c96-a8d3-6b9042e17c5f",
 
     name: "",
-    creator: "",
+    creator: MOCK_INSTANCE_CREATOR,
     agent: undefined,
     preparedRevision: undefined,
     a2aAuthority: undefined,
