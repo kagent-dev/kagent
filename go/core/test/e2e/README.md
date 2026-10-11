@@ -264,8 +264,9 @@ probe each one, and checks the volume afterwards and the
 `SessionDirectoryReleased` Event of each deletion.
 `TestSessionWorkspaceSurvivesAQuestion` writes a file, pauses on an
 `ask_user` question, resumes with the answer and reads the file back. Both
-skip until the lane's Substrate creates a Session's missing directory at
-actor create.
+run on the pinned Substrate (`SUBSTRATE_VERSION` in the root `Makefile`,
+1.7.0 or later), which creates a Session's missing directory at actor
+create; neither carries a skip.
 
 `TestClaudeSessionWorkspace` runs a claude Agent whose egress admits the
 fixtures' origins and whose model probes the session directory with Bash
