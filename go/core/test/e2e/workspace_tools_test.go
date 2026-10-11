@@ -23,9 +23,16 @@ var workspaceToolsMocks []byte
 // tool, the probe of invoke_workspace_tools.json.
 func newWorkspaceAgentWithoutSkills(t *testing.T) *workspaceAgent {
 	t.Helper()
+	return newBashWorkspaceAgent(t, workspaceToolsMocks)
+}
+
+// newBashWorkspaceAgent is a kagent Harness Agent with no skills whose model
+// answers as mocks say, with the bash tool, and whose egress reaches origins.
+func newBashWorkspaceAgent(t *testing.T, mocks []byte, origins ...string) *workspaceAgent {
+	t.Helper()
 	kube := interactionKubeClient(t)
 	var cfg mockllm.Config
-	require.NoError(t, json.Unmarshal(workspaceToolsMocks, &cfg))
+	require.NoError(t, json.Unmarshal(mocks, &cfg))
 	model := startModelRecorder(t, startMockLLMConfig(t, cfg), nil)
 	modelConfig := createInteractionModel(t, kube, reachableModelURL(t, model.URL), nil)
 	template := &v1alpha3.AgentTemplate{
@@ -36,6 +43,9 @@ func newWorkspaceAgentWithoutSkills(t *testing.T) *workspaceAgent {
 		},
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, goADKHarness.name)
+	if len(origins) != 0 {
+		allowEgress(t, kube, template.Name, origins...)
+	}
 	return &workspaceAgent{template: template.Name, model: model}
 }
 
@@ -61,8 +71,9 @@ func modelTools(t *testing.T, requests []recordedModelRequest) map[string]string
 }
 
 // An agent without skills has bash and the file tools, told where they work:
-// in a Session on a workspace, bash runs git status in a repository of the
-// session directory and reports it; no skills tool is offered to the model.
+// in a Session on a workspace, bash checks a repository of the session
+// directory out and reports its git status; no skills tool is offered to the
+// model.
 func TestSessionWorkspaceToolsWithoutSkills(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)

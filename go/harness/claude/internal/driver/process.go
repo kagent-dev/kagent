@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
-	"github.com/kagent-dev/kagent/go/harness/internal/workspace"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel/propagation"
 )

@@ -1,12 +1,14 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
@@ -80,7 +82,7 @@ Usage:
 	workingDirectoryRule = `
 
 Working directory:
-- You work in the turn's working directory. In a session with a workspace it is the session's own directory, whose top level holds one <owner>/<repository> directory per repository of the workspace. A session without a workspace works in /data/workspace.`
+- You work in the turn's working directory. In a session with a workspace it is the session's own directory, whose top level holds one <owner>/<repository> directory per repository of the workspace and an AGENTS.md that says how to start work in one. A session without a workspace works in /data/workspace.`
 
 	// skillsHint is appended when the agent has skills: the scratch directory
 	// then links to them, and a skill's Python modules import from there.
@@ -192,7 +194,7 @@ func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		Name:        "read_file",
 		Description: toolDescription(readFileDescription, withSkills),
 	}, func(ctx adkagent.Context, in readFileInput) (string, error) {
-		path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.FilePath)
+		path, err := resolveReadPath(ctx, ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error reading file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -211,7 +213,7 @@ func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		Name:        "write_file",
 		Description: toolDescription(writeFileDescription, withSkills),
 	}, func(ctx adkagent.Context, in writeFileInput) (string, error) {
-		path, err := resolveWritePath(ctx.SessionID(), absSkillsDir, in.FilePath)
+		path, err := resolveWritePath(ctx, ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error writing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -229,7 +231,7 @@ func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		Name:        "edit_file",
 		Description: toolDescription(editFileDescription, withSkills),
 	}, func(ctx adkagent.Context, in editFileInput) (string, error) {
-		path, err := resolveEditPath(ctx.SessionID(), absSkillsDir, in.FilePath)
+		path, err := resolveEditPath(ctx, ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error editing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -259,7 +261,7 @@ func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 				requestedPath = "."
 			}
 
-			path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, requestedPath)
+			path, err := resolveReadPath(ctx, ctx.SessionID(), absSkillsDir, requestedPath)
 			if err != nil {
 				return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
 			}
@@ -285,7 +287,7 @@ func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 				return "Error: No file path provided", nil
 			}
 
-			path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.Path)
+			path, err := resolveReadPath(ctx, ctx.SessionID(), absSkillsDir, in.Path)
 			if err != nil {
 				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
 			}
@@ -333,7 +335,7 @@ func NewExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
 		}
 
-		result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
+		result, err := commandExecutor.ExecuteCommand(ctx, command, workingDirectory(ctx, sessionPath))
 		if err != nil {
 			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
 		}
@@ -371,20 +373,31 @@ type pathPolicy struct {
 // TestResolvePathContainment pins this matrix for all three policies.
 var (
 	readPolicy  = pathPolicy{filepath.EvalSymlinks, true, "the allowed roots"}
-	editPolicy  = pathPolicy{filepath.EvalSymlinks, false, "the writable session directory"}
-	writePolicy = pathPolicy{resolvePathWithExistingParents, false, "the writable session directory"}
+	editPolicy  = pathPolicy{filepath.EvalSymlinks, false, "the working and scratch directories"}
+	writePolicy = pathPolicy{resolvePathWithExistingParents, false, "the working and scratch directories"}
 )
 
-// resolveSandboxedPath maps a requested path onto the session directory,
-// resolves it under policy, and then requires the result to land inside an
-// allowed root -- the check that keeps an agent inside its sandbox.
-func resolveSandboxedPath(sessionID, skillsDirectory, requestedPath string, policy pathPolicy) (string, error) {
+// workingDirectory is the directory the tools of the turn ctx belongs to work
+// in: the one its dispatch names, or the scratch directory when it names none.
+func workingDirectory(ctx context.Context, scratchPath string) string {
+	if dir := turn.Directory(ctx); dir != "" {
+		return dir
+	}
+	return scratchPath
+}
+
+// resolveSandboxedPath maps a requested path onto the turn's working
+// directory, resolves it under policy, and then requires the result to land
+// inside an allowed root -- the working directory, the scratch directory and,
+// for reads, the skills -- the check that keeps an agent inside its sandbox.
+func resolveSandboxedPath(ctx context.Context, sessionID, skillsDirectory, requestedPath string, policy pathPolicy) (string, error) {
 	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
 	if err != nil {
 		return "", err
 	}
+	workingPath := workingDirectory(ctx, sessionPath)
 
-	candidate, err := resolveRequestedPath(sessionPath, requestedPath)
+	candidate, err := resolveRequestedPath(workingPath, requestedPath)
 	if err != nil {
 		return "", err
 	}
@@ -399,6 +412,13 @@ func resolveSandboxedPath(sessionID, skillsDirectory, requestedPath string, poli
 		return "", err
 	}
 	roots := []string{sessionRoot}
+	if workingPath != sessionPath {
+		workingRoot, err := filepath.EvalSymlinks(workingPath)
+		if err != nil {
+			return "", err
+		}
+		roots = append(roots, workingRoot)
+	}
 
 	if policy.allowSkillsRoot && skillsDirectory != "" {
 		// Resolved eagerly rather than only when the session root misses, so
@@ -420,16 +440,16 @@ func resolveSandboxedPath(sessionID, skillsDirectory, requestedPath string, poli
 	return "", fmt.Errorf("path %q is outside %s", requestedPath, policy.denied)
 }
 
-func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	return resolveSandboxedPath(sessionID, skillsDirectory, requestedPath, readPolicy)
+func resolveReadPath(ctx context.Context, sessionID, skillsDirectory, requestedPath string) (string, error) {
+	return resolveSandboxedPath(ctx, sessionID, skillsDirectory, requestedPath, readPolicy)
 }
 
-func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	return resolveSandboxedPath(sessionID, skillsDirectory, requestedPath, editPolicy)
+func resolveEditPath(ctx context.Context, sessionID, skillsDirectory, requestedPath string) (string, error) {
+	return resolveSandboxedPath(ctx, sessionID, skillsDirectory, requestedPath, editPolicy)
 }
 
-func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	return resolveSandboxedPath(sessionID, skillsDirectory, requestedPath, writePolicy)
+func resolveWritePath(ctx context.Context, sessionID, skillsDirectory, requestedPath string) (string, error) {
+	return resolveSandboxedPath(ctx, sessionID, skillsDirectory, requestedPath, writePolicy)
 }
 
 func resolveRequestedPath(basePath, requestedPath string) (string, error) {

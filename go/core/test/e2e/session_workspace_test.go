@@ -29,6 +29,11 @@ import (
 //go:embed mocks/invoke_workspace_session.json
 var workspaceSessionMocks []byte
 
+// workspaceSetUpEntries is what the top level of a Session's directory holds
+// once the runtime set it up, as ls -A lists it: the setup's record, the
+// notes, and the owner directory of the fixture's repositories.
+const workspaceSetUpEntries = ".kagent AGENTS.md e2e "
+
 // The Event and its annotations a deleted Session on a volume leaves for the
 // volume's owner.
 const (
@@ -71,9 +76,12 @@ func newWorkspaceAgent(t *testing.T) *workspaceAgent {
 }
 
 // session creates a Session of the agent on the fixture's volume, admitted
-// with a grant of the lane's issuer.
+// with a grant of the lane's issuer, or without a volume when fixture is nil.
 func (a *workspaceAgent) session(t *testing.T, target string, fixture *workspaceFixture) *interactionFixture {
 	t.Helper()
+	if fixture == nil {
+		return newInteractionFixtureWith(t, target, a.template, nil)
+	}
 	token := fixture.workspaceGrant(t)
 	session := newInteractionFixtureWith(t, target, a.template, func(request *apiv1alpha1.CreateSessionRequest) {
 		request.VolumeSource = &apiv1alpha1.SessionVolumeSource{
@@ -147,15 +155,18 @@ func deleteWorkspaceSession(t *testing.T, session *interactionFixture) {
 	require.NoError(t, deleteIdleSession(ctx, session.sessions, session.sessionID))
 }
 
-// Ten Sessions on one workspace volume each start in their own empty directory
-// at /workspace with the mirrors read-only at /mirrors, write only their own
-// directory, and fail to write the mirrors; deleting them leaves their
-// directories and the volume to the volume's owner, told by an Event each.
+// Ten Sessions on one workspace volume each start in their own directory at
+// /workspace, set up with a clone of every mirror, with the mirrors read-only
+// at /mirrors, write only their own directory, and fail to write the mirrors;
+// deleting them leaves their directories and the volume to the volume's
+// owner, told by an Event each.
 func TestSessionWorkspaceDirectory(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
 	fixture := newWorkspaceFixture(t)
+	// The fetch of changed repositories is TestGoADKSessionWorkspace's.
+	fixture.Changed = nil
 	agent := newWorkspaceAgent(t)
 
 	const sessionsOnOneVolume = 10
@@ -168,7 +179,7 @@ func TestSessionWorkspaceDirectory(t *testing.T) {
 				_, _, task := session.send(t, "Probe the workspace.")
 				agent.requireReply(t, session, task, "WORKSPACE_PROBED")
 				results := agent.toolResults(t, session.sessionID)
-				for _, want := range []string{"entries=0", "mirrors=present", "mirrors=read-only", "own=written"} {
+				for _, want := range []string{"entries=" + workspaceSetUpEntries, "mirrors=present", "mirrors=read-only", "own=written"} {
 					require.Contains(t, results, want, "session %s", session.sessionID)
 				}
 				ids[i] = session.sessionID
@@ -179,12 +190,12 @@ func TestSessionWorkspaceDirectory(t *testing.T) {
 	})
 	require.NotContains(t, ids, "", "every session probed its workspace")
 
-	// The volume holds each session's directory with its own file only, and
-	// no write reached the mirrors.
+	// The volume holds each session's directory with its setup and its own
+	// file only, and no write reached the mirrors.
 	script := `set -eu
 test "$(ls /volume/sessions | wc -l | tr -d ' ')" = ` + fmt.Sprint(sessionsOnOneVolume) + `
 for id in ` + strings.Join(ids, " ") + `; do
-  test "$(ls -A "/volume/sessions/$id")" = OWN
+  test "$(ls -A "/volume/sessions/$id" | tr '\n' ' ')" = '.kagent AGENTS.md OWN e2e '
 done
 test ! -e /volume/mirrors/written
 ` + workspaceMirrorHeadsScript("/volume/mirrors")
@@ -201,6 +212,7 @@ func TestSessionWorkspaceSurvivesAQuestion(t *testing.T) {
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
 	fixture := newWorkspaceFixture(t)
+	fixture.Changed = nil
 	agent := newWorkspaceAgent(t)
 	session := agent.session(t, target, fixture)
 

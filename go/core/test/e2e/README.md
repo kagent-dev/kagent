@@ -278,7 +278,13 @@ origin logs no request for the other, and `git switch main` checks the
 fetched branch out; on the credentialed fixture, whose origin refuses a fetch
 without the person's credential, the turn's messages name the refused
 repository and the turn answers; without a volume Claude Code works in
-`/data/workspace`.
+`/data/workspace`. `TestGoADKSessionWorkspace` proves the same of a
+Declarative agent without skills on the `kagent` Harness, whose model probes
+with the bash tool (`mocks/invoke_go_adk_workspace.json`): `bash` runs in
+`/workspace`, the directory holds the setup's `AGENTS.md`, and without a volume
+`bash` runs in `/data/workspace`. The Go ADK tests above that are not about the
+fetch clear the fixture's changed repositories; their probes see the set-up
+directory (`.kagent`, `AGENTS.md`, `e2e`).
 
 The grant signer (`go/core/test/grant`) stands in for the workspace issuer:
 `grant.NewSigner(issuer, audience)` generates an ES256 key,

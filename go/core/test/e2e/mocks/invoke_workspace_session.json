@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"printf 'entries=%s\\\\n' \\\"$(ls -A /workspace | wc -l | tr -d ' ')\\\"; test -f /mirrors/e2e/alpha.git/HEAD && echo mirrors=present; if touch /mirrors/written 2>/dev/null; then echo mirrors=writable; else echo mirrors=read-only; fi; echo own > /workspace/OWN && echo own=written; echo PROBE_DONE\"}"
+                    "arguments": "{\"command\": \"printf 'entries=%s\\\\n' \\\"$(ls -A /workspace | tr '\\\\n' ' ')\\\"; test -f /mirrors/e2e/alpha.git/HEAD && echo mirrors=present; if touch /mirrors/written 2>/dev/null; then echo mirrors=writable; else echo mirrors=read-only; fi; echo own > /workspace/OWN && echo own=written; echo PROBE_DONE\"}"
                   }
                 }
               ]
