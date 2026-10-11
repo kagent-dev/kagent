@@ -33,7 +33,7 @@ import (
 // Default model names used when not specified in configuration
 const (
 	DefaultGeminiModel    = "gemini-3.5-flash"
-	DefaultAnthropicModel = "claude-sonnet-4-20250514"
+	DefaultAnthropicModel = "claude-sonnet-4-6"
 	DefaultOllamaModel    = "llama3.2"
 )
 
@@ -387,7 +387,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		}
 		modelName := m.Model
 		if modelName == "" {
-			return nil, fmt.Errorf("bedrock requires a model name (e.g. anthropic.claude-3-sonnet-20240229-v1:0)")
+			return nil, fmt.Errorf("bedrock requires a model name (e.g. global.anthropic.claude-sonnet-4-6)")
 		}
 		// Use Bedrock Converse API for ALL models (including Anthropic).
 		// ReadTimeout maps to the overall HTTP client timeout (whole Converse

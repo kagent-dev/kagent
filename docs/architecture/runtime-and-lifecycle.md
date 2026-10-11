@@ -146,6 +146,25 @@ database transaction. Successful snapshot references are retried on database fai
 without repeating the Substrate operation. Checkpoint creation requires the matching
 snapshot and can return FailedPrecondition after task completion while it is pending.
 
+After settlement commits, a bounded, nonblocking in-memory signal wakes the local
+workers. Signals coalesce; four workers drain durable claims, handing off a wake-up
+before runtime I/O so a burst can use all four workers. PostgreSQL claims coordinate
+replicas. Each worker scans at startup and, when idle, every minute by default
+(`KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL`). A crash between commit and signaling can
+leave an actor running until a surviving replica's next recovery scan; increasing
+the interval increases that delay and the time until its snapshot is available.
+Ordinary committed settlements do not wait for the recovery interval.
+
+An empty claim is followed by a check for unclaimed work on ready sessions. If
+dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
+work, workers retry within one second until it becomes eligible or is superseded.
+Database errors also use this short retry. Explicit lifecycle completion wakes
+workers when it returns a session to READY. Suspended/deleted sessions and claimed
+work do not keep the short retry active. Idle workers make one claim attempt and
+one pending-work check per recovery interval, rather than querying every second.
+Other background workers and connection-pool idle settings still affect whether
+PostgreSQL can become idle.
+
 Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
 never expires: losing the worker does not prove that the suspend stopped. Uncertain
 claims still block new work, but completed results remain readable. The recorded
@@ -167,6 +186,7 @@ sequenceDiagram
     API-->>Actor: committed version
     Actor->>API: settle after native cleanup
     API->>DB: publish task/history atomically
+    API-->>Worker: nonblocking local wake-up
     Actor-->>Gateway: final event
     Gateway->>Actor: close observer connection
     Gateway->>DB: observe publication
@@ -193,10 +213,13 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Templates capture Full snapshots when paused and Data snapshots when suspended.
-Substrate v0.4.0-alpha1 resumes a Data snapshot by starting fresh containers from
-the OCI image with the saved durable directories. Data restores no longer combine
-Golden memory with the Actor's saved data.
+Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
+both the node-local snapshot taken on pause and the one uploaded on suspend.
+Templates use Full, so paused and suspended Actors keep their process memory, and
+their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
+scopes again. A Data snapshot resumes by starting fresh containers from the OCI
+image with the saved durable directories; Substrate still restores one as Data when
+the Actor's template changed after the snapshot was taken.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest

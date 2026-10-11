@@ -7,15 +7,14 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
-from kagent.core.tracing import signal_enabled
-from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
+from kagent.core.telemetry import conv, shutdown_lifespan
 
 from crewai import Crew, Flow
 
@@ -72,7 +71,7 @@ class KAgentApp:
 
         faulthandler.enable()
         app = FastAPI(
-            lifespan=controller.lifespan(),
+            lifespan=shutdown_lifespan(controller.lifespan()),
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
@@ -83,10 +82,8 @@ class KAgentApp:
         )
 
         if self.tracing:
-            configure_tracing(self.config.name, self.config.namespace, app)
-            # Setup crewAI instrumentor separately as core configure does not include it
-            if signal_enabled("TRACES"):
-                CrewAIInstrumentor().instrument()
+            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name)
+            instrument_app(app)
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)

@@ -16,7 +16,7 @@ This page lists what the [registry](../../telemetry/registry) defines.
 {% for m in ctx.metrics %}
 ### `{{ m.name }}`
 
-Instrument: {{ m.instrument }}. Unit: `{{ m.unit }}`. {{ m.brief }}{% if m.note %} {{ m.note }}{% endif %}
+{% if m.id != m.name %}Refines `{{ m.name }}` as `{{ m.id }}`. {% endif %}Instrument: {{ m.instrument }}. Unit: `{{ m.unit }}`. {{ m.brief }}{% if m.note %} {{ m.note }}{% endif %}
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -40,7 +40,7 @@ Instrument: {{ m.instrument }}. Unit: `{{ m.unit }}`. {{ m.brief }}{% if m.note 
 {% for s in ctx.spans %}
 ### `{{ s.id }}`
 
-Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.note }}{% endif %}
+{% if s.id != s.type %}Refines `{{ s.type }}`, kind{% else %}Kind{% endif %} `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.note }}{% endif %}
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -50,9 +50,9 @@ Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.n
 {%- endfor %}
 ## Resource
 {% for e in ctx.entities %}
-### `{{ e.type }}`
+### `{{ e.id }}`
 
-{{ e.brief }}{% if e.note %} {{ e.note }}{% endif %}
+{% if e.id != e.type %}Refines the `{{ e.type }}` entity. {% endif %}{{ e.brief }}{% if e.note %} {{ e.note }}{% endif %}
 
 | Attribute | Role | Requirement | Note |
 | --- | --- | --- | --- |
@@ -63,3 +63,11 @@ Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.n
 | `{{ a.key }}` | description | {{ a.req }} | {{ a.note }} |
 {% endfor %}
 {%- endfor %}
+
+## Imported signals
+
+The registry imports these upstream signals, so live-check compares the runtimes' own instrumentation with them.
+
+Spans: {% for s in ctx.imported_spans %}`{{ s }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+
+Metrics: {% for m in ctx.imported_metrics %}`{{ m }}`{% if not loop.last %}, {% endif %}{% endfor %}.

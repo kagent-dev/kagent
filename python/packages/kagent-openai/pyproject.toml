@@ -8,7 +8,7 @@ dependencies = [
   "openai>=1.72.0",
   "openai-agents>=0.4.0",
   "a2a-sdk>=1.1.5",
-  "kagent-core>=0.1.0",
+  "kagent-core[openai-agents]>=0.1.0",
   "kagent-proto>=0.1.0",
   "kagent-skills>=0.1.0",
   "httpx>=0.25.0",
@@ -16,7 +16,6 @@ dependencies = [
   "uvicorn>=0.20.0",
   "pydantic>=2.0.0",
   "typing-extensions>=4.16.0",
-  "opentelemetry-instrumentation-openai-agents>=0.52.3,<0.53.0"
 ]
 
 [project.optional-dependencies]

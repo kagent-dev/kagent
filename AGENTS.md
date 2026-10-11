@@ -68,7 +68,7 @@ Every component has a single responsibility. If code reaches into another compon
 | [go/core/internal/grpcserver](go/core/internal/grpcserver/AGENTS.md) | gRPC transport |
 | `go/core/internal/service` | Control-plane services and workflows |
 | [go/core/internal/database](go/core/internal/database/AGENTS.md) | PostgreSQL queries and persistence |
-| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | API v2 execution and A2A gateway |
+| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | Control-plane execution and A2A gateway |
 | `go/adk` | Go agent development kit |
 | `python/packages` | Python agent packages and ADK |
 | [proto](proto/AGENTS.md) | gRPC API definitions |
@@ -112,15 +112,14 @@ Common commands:
 | Go lint | `make -C go lint` |
 | Generate Go artifacts | `make -C go generate` |
 | Create a Kind cluster | `make create-kind-cluster` |
-| Install into Kind | `make helm-install` |
+| Install into Kind | `make kagent-cli-install` |
 
-## 8. Git and Review
+## 8. Contribution Requirements
 
-- Use Conventional Commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`, `perf:`, or `ci:`.
-- Sign off commits with `git commit -s`.
-- Do not commit or push unless asked.
-- Do not open a pull request, including a draft, without explicit approval.
-- Keep PRs focused. Explain non-obvious invariants and operational tradeoffs, not line-by-line implementation details.
+- Every commit must include the DCO sign-off required by
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+- Use Conventional Commit prefixes in pull request titles so repository
+  automation can classify changes.
 
 ## 9. References
 

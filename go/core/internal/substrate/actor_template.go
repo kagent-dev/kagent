@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	workerPoolLabelKey   = "kagent.dev/worker-pool"
-	defaultContainerName = "kagent"
-	durableDataVolume    = "data"
-	durableDataMount     = "/data"
+	workerPoolNameLabelKey      = "kagent.dev/worker-pool-name"
+	workerPoolNamespaceLabelKey = "kagent.dev/worker-pool-namespace"
+	defaultContainerName        = "kagent"
+	durableDataVolume           = "data"
+	durableDataMount            = "/data"
 	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
 	maxEnvironmentValueRunes = 32768
 )
@@ -109,8 +110,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
-			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			// Substrate 0.5 applies one scope to pause and suspend. Keep process memory
+			// for both until lifecycle v2 separates them again.
+			OnCommit: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
@@ -175,7 +177,13 @@ func revisionActorTemplateName(agentName string, revision translator.RevisionID)
 }
 
 func workerSelectorForPool(pool types.NamespacedName) *ateapipb.Selector {
-	return &ateapipb.Selector{MatchLabels: map[string]string{workerPoolLabelKey: pool.Name}}
+	// Substrate matches worker labels across the entire fleet and never checks
+	// them against the pool's namespace. Placement therefore stays within the
+	// referenced pool's namespace only while every pool's labels name its own.
+	return &ateapipb.Selector{MatchLabels: map[string]string{
+		workerPoolNameLabelKey:      pool.Name,
+		workerPoolNamespaceLabelKey: pool.Namespace,
+	}}
 }
 
 func truncateDNS1123(value string) string {

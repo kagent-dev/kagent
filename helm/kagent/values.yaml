@@ -20,10 +20,9 @@ global:
   # -- Registry that overrides every per-image registry when set. This is the
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
-  # registry keys. Covers this chart's own images: controller, sandbox guest, ui, bundled
-  # postgres, grafana-mcp, and substrateWorkerPool.workerImage. The vendored
-  # subcharts (kagent-tools, kmcp, substrate) adopt it when their pinned
-  # versions bump.
+  # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
+  # grafana-mcp, and substrateWorkerPool.workerImage. The vendored subcharts
+  # (kagent-tools, kmcp) adopt it when their pinned versions bump.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
   # pod's own imagePullSecrets, so a local secret is never removed. Coverage
@@ -104,12 +103,22 @@ nodeSelector: {}
 
 database:
   postgres:
-    # -- External PostgreSQL connection string.
-    # Is always used if set regardless of the `.bundled.enabled` field.
-    url: ""
-    # -- Path to a file containing the database URL. Takes precedence over url when set.
-    # Is always used if set regardless of the `.bundled.enabled` field.
-    urlFile: ""
+    # -- Source the PostgreSQL connection string from a pre-created Secret.
+    # Secret changes require restarting the controller.
+    connectionStringSecretRef:
+      name: kagent-postgres
+      key: connectionString
+    # -- Project the bundled PostgreSQL client certificate. The connection
+    # string must reference the files under /run/postgres.podcert.ate.dev.
+    clientCertificate:
+      enabled: false
+    # -- Role assumed on each Kagent connection. Set a distinct role for each install sharing a database.
+    role: kagent_owner
+    # -- Schema for Kagent tables.
+    schema: kagent
+    # -- Schema for the shared pgvector extension. Existing installations must match this value.
+    # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
+    vectorSchema: extensions
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
@@ -124,67 +133,8 @@ database:
       maxConns: null
       minConns: null
       maxConnIdleTime: ""
+      # -- Maximum physical connection lifetime.
       maxConnLifetime: ""
-    # -- Bundled PostgreSQL instance — for development and evaluation only.
-    # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
-    bundled:
-      # -- Set to false to disable the bundled database and provide your own via url or urlFile.
-      enabled: true
-      image:
-        # -- Bundled PostgreSQL image registry
-        registry: docker.io
-        # -- Bundled PostgreSQL image repository (org/namespace)
-        repository: library
-        # -- Bundled PostgreSQL image name
-        name: postgres
-        # -- Bundled PostgreSQL image tag
-        tag: "18.6-alpine3.23"
-        # -- Bundled PostgreSQL image pull policy. Empty falls back to the
-        # top-level imagePullPolicy, then global.imagePullPolicy, then
-        # IfNotPresent. A declared default here would shadow both fallbacks.
-        pullPolicy: ""
-      # -- PersistentVolumeClaim size for demo PostgreSQL data
-      storage: 500Mi
-      # -- StorageClass for the PostgreSQL PVC. Defaults to the cluster default when empty.
-      storageClassName: ""
-      # The database name, user, and password are hardcoded for the bundled instance (all: "kagent").
-      # This is intentional for a dev/eval setup. Switch to an external database for production.
-      # -- Resource requests/limits for the demo PostgreSQL container
-      resources:
-        requests:
-          cpu: 250m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
-      # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
-      tolerations: []
-
-      # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
-      nodeSelector: {}
-
-      # -- [Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) rules for the bundled PostgreSQL pod.
-      affinity: {}
-
-      # -- Pod-level security context for the bundled PostgreSQL deployment.
-      podSecurityContext:
-        fsGroup: 999
-        runAsUser: 999
-        runAsGroup: 999
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      # -- Container-level security context for the bundled PostgreSQL container.
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
-
-      # -- Additional labels for the bundled PostgreSQL pod template, merged over the
-      # global `podLabels` (per-key; component keys win). Selector labels can
-      # never be overridden.
-      podLabels: {}
 
 # ==============================================================================
 # RBAC CONFIGURATION
@@ -210,6 +160,19 @@ rbac:
 # ==============================================================================
 
 controller:
+  push:
+    # -- Allow plain HTTP callback URLs. HTTPS is required by default.
+    allowHTTP: false
+    # -- Allow callbacks to private, loopback, and link-local addresses.
+    allowPrivateNetworks: false
+    signing:
+      # Name of the Secret containing `private-key.pem`, an unencrypted PKCS#8 Ed25519 PEM key.
+      # Optional: empty sends push notifications without JWT authentication.
+      # Operators manage key generation, persistence, and rotation.
+      secretName: ""
+      # Stable URL that webhook receivers trust as the JWT issuer.
+      # Empty uses ui.externalUrl, then the in-cluster A2A gateway URL.
+      issuer: ""
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
     # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.
@@ -484,8 +447,10 @@ substrateWorkerPool:
   # the corresponding SandboxConfig installed (gvisor-default or microvm);
   # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
-  # Extra labels merged onto the WorkerPool metadata (in addition to the
-  # kagent.dev/worker-pool label used by generated ActorTemplates to select this pool).
+  # Extra labels merged onto the WorkerPool metadata. The placement labels
+  # kagent.dev/worker-pool-name and kagent.dev/worker-pool-namespace always use this
+  # pool's name and namespace, so ActorTemplates generated for other namespaces
+  # do not select its workers.
   labels: {}
   # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
   # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
@@ -799,23 +764,6 @@ kmcp:
   nameOverride: "kmcp"
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
-
-# ==============================================================================
-# SUBSTRATE
-# ==============================================================================
-
-substrate:
-  enabled: false
-  # Grant each agent atespace access to its credential namespace explicitly.
-  # HTTPS also requires the egress-mitm-ca-pool Secret in Substrate's namespace.
-  credentialProvider:
-    namespacePolicies: []
-    # - atespace: kagent
-    #   allowedNamespaces: [kagent]
-  ateApi:
-    extraArgs:
-      # Minimum supported interval for discovering and reconciling actor templates.
-      - --template-resync-interval=250ms
 
 # ==============================================================================
 # BUILT-IN TOOLS

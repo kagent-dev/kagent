@@ -42,6 +42,7 @@ var (
 	E2ESandboxNamespace       = RegisterStringVar("KAGENT_E2E_SANDBOX_NAMESPACE", "kagent", "Namespace for sandbox E2E resources.", ComponentTesting)
 	E2ESandboxWorkerPool      = RegisterStringVar("KAGENT_E2E_SANDBOX_WORKER_POOL", "kagent-default", "Worker pool used by sandbox E2E resources.", ComponentTesting)
 	E2EOTLPListenAddress      = RegisterStringVar("KAGENT_E2E_OTLP_LISTEN_ADDRESS", "", "Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver.", ComponentTesting)
+	E2ELiveCheckEndpoint      = RegisterStringVar("KAGENT_E2E_LIVE_CHECK_ENDPOINT", "", "gRPC address of a Weaver live-check OTLP listener. After the tests, the suite replays every trace and metric export its receiver got, except those of native child processes, to this address. Unset disables the replay.", ComponentTesting)
 	E2ERequireTracing         = RegisterStringVar("KAGENT_E2E_REQUIRE_TRACING", "false", "Fail instead of skip when expected native harness tracing support is unavailable. Enabled by true, ignoring case and surrounding whitespace.", ComponentTesting)
 	E2ERunUpgradeTests        = RegisterStringVar("KAGENT_E2E_RUN_UPGRADE_TESTS", "false", "Run upgrade integration tests when exactly true.", ComponentTesting)
 	E2ERunRollingUpgradeTests = RegisterStringVar("KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS", "false", "Run rolling upgrade integration tests when exactly true.", ComponentTesting)

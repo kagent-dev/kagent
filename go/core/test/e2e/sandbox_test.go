@@ -216,8 +216,11 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
 	require.Equal(t, data, f.read(t, id, "binary.dat"))
-	_, err = f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.Equal(t, codes.NotFound, status.Code(err))
+	// Sandboxes take FULL snapshots until Substrate's lifecycle v2, so the guest's
+	// in-memory process registry survives suspend and resume.
+	restored, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+	require.NoError(t, err)
+	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, restored.Status)
 	_, err = f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
 	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)

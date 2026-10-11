@@ -328,7 +328,15 @@ export const mockSubstrateInventory: {
     // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
     // reach the page unread and no test object.
     { actorId: "actor-0aa1", atespace: "kagent", status: "ACTOR_STATE_CRASHED", version: 1 },
-    { actorId: "actor-3b55", atespace: "kagent", status: "Running", version: 1 },
+    // Shares the first worker with actor-7f21, so one worker reports two actors.
+    {
+      actorId: "actor-3b55",
+      atespace: "kagent",
+      status: "Running",
+      ateomPodNamespace: "kagent",
+      ateomPodName: "ateom-kagent-default-0",
+      version: 1,
+    },
     // Parked rather than broken, and the only status here that reads as neither:
     // without it nothing on the page is drawn in the idle tone.
     { actorId: "actor-5d17", atespace: "kagent", status: "Paused", version: 1 },

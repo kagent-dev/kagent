@@ -2,11 +2,17 @@ package e2e_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"iter"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -15,9 +21,17 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	appsv1 "k8s.io/api/apps/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/portforward"
+	"k8s.io/client-go/transport/spdy"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func TestSessionHTTPInteraction(t *testing.T) {
@@ -168,6 +182,7 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	var card a2atype.AgentCard
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+	require.True(t, card.Capabilities.PushNotifications)
 	require.Len(t, card.SupportedInterfaces, 2)
 	require.Equal(t, a2atype.TransportProtocolJSONRPC, card.SupportedInterfaces[0].ProtocolBinding)
 	require.True(t, strings.HasSuffix(card.SupportedInterfaces[0].URL, "/agents/"+fixture.tenant))
@@ -184,4 +199,271 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 	t.Cleanup(func() { require.NoError(t, client.Destroy()) })
 	ctx := a2aclient.AttachServiceParams(fixture.ctx, a2aclient.ServiceParams{"x-user-id": {"e2e"}})
 	return client, ctx
+}
+
+func TestSessionHTTPPushNotifications(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		for _, streaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("stream=%t", streaming), func(t *testing.T) {
+				exerciseHTTPPush(t, harness, interactionTarget(t), streaming, "", nil)
+			})
+		}
+	})
+}
+
+// Keep this parent sequential: it changes controller replica count and replaces
+// the leader. The configured API endpoint must survive pod replacement.
+func TestSessionHTTPPushFromNonleader(t *testing.T) {
+	target := interactionTarget(t)
+	followerTarget, replaceLeader := preparePushLeaderHandoff(t)
+	exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, followerTarget, replaceLeader)
+}
+
+// preparePushLeaderHandoff leaves the test with a ready follower to receive
+// registration and a hook that replaces the current leader after disconnect.
+func preparePushLeaderHandoff(t *testing.T) (string, func()) {
+	t.Helper()
+	kube := interactionKubeClient(t)
+	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
+	require.NoError(t, coordinationv1.AddToScheme(kube.Scheme()))
+	deployments := &appsv1.DeploymentList{}
+	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
+	require.Len(t, deployments.Items, 1)
+	deployment := deployments.Items[0]
+	replicas := deployment.Spec.Replicas
+	scale := func(count *int32) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		current := &appsv1.Deployment{}
+		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(&deployment), current))
+		base := current.DeepCopy()
+		current.Spec.Replicas = count
+		require.NoError(t, kube.Patch(ctx, current, ctrlclient.MergeFrom(base)))
+		require.NoError(t, wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
+			if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(&deployment), current); err != nil {
+				return false, err
+			}
+			return current.Status.ReadyReplicas == *count && current.Status.Replicas == *count, nil
+		}))
+	}
+	t.Cleanup(func() { scale(replicas) })
+	twoReplicas := int32(2)
+	scale(&twoReplicas)
+	lease := &coordinationv1.Lease{}
+	leaseKey := ctrlclient.ObjectKey{Namespace: "kagent", Name: "0e9f6799.kagent.dev"}
+	pods := &corev1.PodList{}
+	var follower, leaderPod *corev1.Pod
+	var leader string
+	// Deployment readiness can precede Lease renewal after a Pod replacement.
+	// Wait until the Lease holder names a current, ready controller Pod.
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Get(ctx, leaseKey, lease); err != nil {
+			return false, err
+		}
+		if lease.Spec.HolderIdentity == nil || *lease.Spec.HolderIdentity == "" {
+			return false, nil
+		}
+		leader = *lease.Spec.HolderIdentity
+		if err := kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
+			return false, err
+		}
+		leaderPod, follower = nil, nil
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.DeletionTimestamp != nil {
+				continue
+			}
+			ready := false
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+					ready = true
+					break
+				}
+			}
+			if !ready {
+				continue
+			}
+			if strings.HasPrefix(leader, pod.Name+"_") {
+				leaderPod = pod
+			} else {
+				follower = pod
+			}
+		}
+		return leaderPod != nil && follower != nil, nil
+	})
+	require.NoError(t, err, "Lease holder %q did not match a ready controller Pod", leader)
+	followerTarget := forwardPushController(t, follower)
+	leaderKID, leaderKey := pushJWKSKey(t, forwardPushController(t, leaderPod))
+	followerKID, followerKey := pushJWKSKey(t, followerTarget)
+	require.Equal(t, leaderKID, followerKID, "scaled-up replicas must reuse the signing key")
+	require.Equal(t, leaderKey, followerKey)
+	return followerTarget, func() {
+		require.NoError(t, kube.Get(t.Context(), leaseKey, lease))
+		require.Equal(t, leader, *lease.Spec.HolderIdentity, "registration must have been accepted by a nonleader")
+		require.NoError(t, kube.Delete(t.Context(), leaderPod))
+		require.Eventually(t, func() bool {
+			return kube.Get(t.Context(), leaseKey, lease) == nil && lease.Spec.HolderIdentity != nil && *lease.Spec.HolderIdentity != leader
+		}, 90*time.Second, time.Second, "replacement leader did not acquire the lease")
+	}
+}
+
+func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
+	t.Helper()
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + target + "/.well-known/jwks.json")
+	require.NoError(t, err)
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	var set struct {
+		Keys []struct {
+			KID string `json:"kid"`
+			X   string `json:"x"`
+		} `json:"keys"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&set))
+	require.Len(t, set.Keys, 1)
+	public, err := base64.RawURLEncoding.DecodeString(set.Keys[0].X)
+	require.NoError(t, err)
+	require.Len(t, public, ed25519.PublicKeySize)
+	return set.Keys[0].KID, ed25519.PublicKey(public)
+}
+
+// exerciseHTTPPush keeps the model blocked until the observation connection is
+// gone. The optional hook replaces the leader before allowing task completion.
+func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget string, afterDisconnect func()) {
+	t.Helper()
+	modelURL, started, unblock, _ := startScheduledRecoveryModel(t)
+	fixture := newInteractionFixture(t, harness, target, modelURL)
+	keyID, publicKey := pushJWKSKey(t, target)
+	callbacks := make(chan *a2atype.TaskStatusUpdateEvent, 8)
+	var callbackURL string
+	receiver := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var verified *jwt.Token
+		if publicKey != nil {
+			credential, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !found {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			var err error
+			verified, err = jwt.Parse(credential, func(token *jwt.Token) (any, error) {
+				if token.Header["kid"] != keyID {
+					return nil, fmt.Errorf("unexpected push signing key")
+				}
+				return publicKey, nil
+			}, jwt.WithValidMethods([]string{"EdDSA"}), jwt.WithAudience(callbackURL))
+			if err != nil || !verified.Valid {
+				http.Error(w, "invalid JWT", http.StatusUnauthorized)
+				return
+			}
+		} else if r.Header.Get("Authorization") != "" {
+			http.Error(w, "unexpected authentication on unsigned callback", http.StatusUnauthorized)
+			return
+		}
+		var envelope struct {
+			StatusUpdate *a2atype.TaskStatusUpdateEvent `json:"statusUpdate"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil || envelope.StatusUpdate == nil {
+			http.Error(w, "invalid A2A callback", http.StatusBadRequest)
+			return
+		}
+		if verified != nil && verified.Claims.(jwt.MapClaims)["taskId"] != string(envelope.StatusUpdate.TaskID) {
+			http.Error(w, "wrong task", http.StatusUnauthorized)
+			return
+		}
+		callbacks <- envelope.StatusUpdate
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	require.NoError(t, receiver.Listener.Close())
+	var err error
+	receiver.Listener, err = net.Listen("tcp", "0.0.0.0:0")
+	require.NoError(t, err)
+	receiver.Start()
+	t.Cleanup(receiver.Close)
+	callbackURL = reachableServerURL(t, receiver.URL, "/callback")
+	client, ctx := discoverHTTPAgent(t, fixture)
+	if sendTarget != "" {
+		pinned, err := a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{a2atype.NewAgentInterface("http://"+sendTarget+"/agents/"+fixture.tenant, a2atype.TransportProtocolJSONRPC)}, a2aclient.WithJSONRPCTransport(&http.Client{}))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, pinned.Destroy()) })
+		client = pinned
+	}
+	request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?")), Config: &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{URL: callbackURL}}}
+	observation, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var taskID a2atype.TaskID
+	var contextID string
+	if streaming {
+		next, stop := iter.Pull2(sendHTTPStreamingMessageWithRetry(observation, client, request))
+		defer stop()
+		event, err, ok := next()
+		require.True(t, ok)
+		require.NoError(t, err)
+		taskID, contextID = event.TaskInfo().TaskID, event.TaskInfo().ContextID
+		cancel()
+		stop()
+	} else {
+		result, err := client.SendMessage(observation, request)
+		require.NoError(t, err)
+		task := result.(*a2atype.Task)
+		taskID, contextID = task.ID, task.ContextID
+		cancel()
+	}
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
+		defer cancel()
+		require.NoError(t, deleteIdleSession(cleanup, fixture.sessions, contextID))
+	})
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("model did not receive initial task")
+	}
+	if afterDisconnect != nil {
+		afterDisconnect()
+	}
+	unblock()
+	select {
+	case event := <-callbacks:
+		require.Equal(t, taskID, event.TaskID)
+		require.Equal(t, contextID, event.ContextID)
+		require.Equal(t, a2atype.TaskStateCompleted, event.Status.State)
+	case <-ctx.Done():
+		t.Fatal("callback did not arrive after disconnect")
+	}
+	task, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: taskID})
+	require.NoError(t, err)
+	require.Contains(t, taskText(task), "The answer is 4.")
+}
+
+func forwardPushController(t *testing.T, pod *corev1.Pod) string {
+	t.Helper()
+	cfg, err := config.GetConfig()
+	require.NoError(t, err)
+	transport, upgrader, err := spdy.RoundTripperFor(cfg)
+	require.NoError(t, err)
+	endpoint, err := url.Parse(cfg.Host)
+	require.NoError(t, err)
+	endpoint.Path = "/api/v1/namespaces/" + pod.Namespace + "/pods/" + pod.Name + "/portforward"
+	stop, ready := make(chan struct{}), make(chan struct{})
+	forwarder, err := portforward.New(spdy.NewDialer(upgrader, &http.Client{Transport: transport}, http.MethodPost, endpoint), []string{"0:8083"}, stop, ready, io.Discard, io.Discard)
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- forwarder.ForwardPorts() }()
+	t.Cleanup(func() { close(stop) })
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("forward controller API: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("controller port-forward did not start")
+	}
+	ports, err := forwarder.GetPorts()
+	require.NoError(t, err)
+	require.Len(t, ports, 1)
+	return fmt.Sprintf("127.0.0.1:%d", ports[0].Local)
 }

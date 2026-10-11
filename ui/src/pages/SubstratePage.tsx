@@ -1440,6 +1440,17 @@ export function SubstratePage() {
             emptyText="No actors in this scope."
           />
 
+          {/* Summary counts cover every worker: more running actors than busy workers means sharing. */}
+          {inventory && inventory.runningActorCount > inventory.busyWorkerCount ? (
+            <Alert
+              type="info"
+              showIcon
+              css={{ marginBottom: theme.space(3) }}
+              data-testid="substrate-actors-shared-note"
+              title="Multiple actors are running on the same worker. Each individual worker can run many actors at once, until it runs out of actor slots, CPU or memory."
+            />
+          ) : null}
+
           <Table<SubstrateActorEntry>
             data-testid="substrate-actors-table"
             rowKey={(actor) => `${actor.atespace}/${actor.actorId}`}

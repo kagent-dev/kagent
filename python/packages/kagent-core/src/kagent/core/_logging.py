@@ -1,9 +1,34 @@
+import json
 import logging
 import os
+from datetime import datetime, timezone
+
+from opentelemetry import trace
 
 _logging_configured = False
 
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line, with the field names go/pkg/logging writes."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "time": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+        }
+        span_context = trace.get_current_span().get_span_context()
+        if span_context.is_valid:
+            entry["trace_id"] = trace.format_trace_id(span_context.trace_id)
+            entry["span_id"] = trace.format_span_id(span_context.span_id)
+            entry["trace_flags"] = f"{span_context.trace_flags:02x}"
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exception.type"] = record.exc_info[0].__name__
+            entry["exception.stacktrace"] = self.formatException(record.exc_info)
+        elif record.stack_info:
+            entry["exception.stacktrace"] = self.formatStack(record.stack_info)
+        return json.dumps(entry, default=str)
 
 
 def configure_logging() -> None:
@@ -11,23 +36,20 @@ def configure_logging() -> None:
     global _logging_configured
 
     log_level = os.getenv("KAGENT_LOG_LEVEL", "INFO").upper()
-    formatter = logging.Formatter(LOG_FORMAT)
+    formatter = JsonFormatter()
 
-    # Only configure if not already configured (avoid duplicate handlers)
     if not logging.root.handlers:
-        logging.basicConfig(
-            level=log_level,
-            format=LOG_FORMAT,
-        )
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        logging.root.addHandler(handler)
+        logging.root.setLevel(log_level)
         _logging_configured = True
-        logging.info(f"Logging configured with level: {log_level}")
+        logging.info("Logging configured with level: %s", log_level)
     elif not _logging_configured:
-        # Update level and ensure timestamp format on existing handlers
         logging.root.setLevel(log_level)
         for handler in logging.root.handlers:
             handler.setFormatter(formatter)
         _logging_configured = True
-        logging.info(f"Logging level updated to: {log_level}")
+        logging.info("Logging level updated to: %s", log_level)
     else:
-        # Already configured and logged, just update the level silently
         logging.root.setLevel(log_level)

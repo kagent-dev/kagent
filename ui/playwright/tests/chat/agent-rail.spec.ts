@@ -3,6 +3,7 @@ import { test, expect } from "../../fixtures/test";
 import {
   agentChat,
   agentDetail,
+  agentNewChat,
   agentPage,
   agents,
   instances,
@@ -10,6 +11,7 @@ import {
   loadPage,
   withScenario,
 } from "../../helpers/app";
+import { expectTurnFinished } from "../../helpers/chat";
 import { dialog, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
@@ -305,6 +307,44 @@ test("chat agent rail: conversations are named", async ({ page }) => {
     await expect(row).toContainText("…");
     // And emphatically not the id, which is what an unnamed conversation falls back to
     // when there is nothing said in it to derive from.
+    await expect(row).not.toContainText("Untitled");
+  });
+});
+
+/**
+ * A new conversation keeps its title once you leave it. Only the Agent Details hop fails
+ * without the fix here; the mock re-reads on the sibling hop, so the unit tests cover it.
+ */
+test("chat agent rail: a new conversation keeps its title once you leave it", async ({
+  page,
+}) => {
+  const said = "This is twin B.";
+  await loadPage(page, agentNewChat(agents.k8s));
+  await expect(page.getByTestId("new-chat-empty")).toBeVisible({ timeout: 30_000 });
+
+  const created = await test.step("1. the first message starts a conversation", async () => {
+    await page.getByTestId("chat-input").fill(said);
+    await page.getByTestId("chat-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
+    const id = new URL(page.url()).pathname.split("/")[2];
+    await expectTurnFinished(page, { finishedBefore: 0 });
+    return id;
+  });
+
+  const row = page.getByTestId(`chat-session-${created}`);
+
+  await test.step("2. opening another conversation leaves this one titled", async () => {
+    await page.getByTestId(`chat-session-${SIBLING_OF_READY}`).click();
+    await expect(page).toHaveURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
+    await expect(row).toContainText(said);
+    await expect(row).not.toContainText("Untitled");
+  });
+
+  await test.step("3. and so does the agent's details page", async () => {
+    // Clicked, not visited: a reload re-reads every title and would hide the defect.
+    await page.getByTestId("agent-nav-agent-conversations").click();
+    await expect(page.getByTestId("chat-panel")).toHaveCount(0);
+    await expect(row).toContainText(said);
     await expect(row).not.toContainText("Untitled");
   });
 });

@@ -45,7 +45,7 @@ metrics, and ignores `TRACEPARENT`. The driver therefore adds a loopback
 Prometheus metrics reader and sends the prompt once `claude_code.session.count`
 appears there, which Claude Code increments only after its providers are
 registered. That ordering is a Claude Code implementation detail, verified on
-2.1.260 and 2.1.282.
+2.1.260, 2.1.282 and 2.1.285.
 
 The wait is bounded at 10 seconds, so a stalled settings fetch delays a turn by
 at most that much. The driver then sends the prompt and records a

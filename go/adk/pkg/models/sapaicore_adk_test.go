@@ -152,6 +152,27 @@ func TestGenaiContentsToOrchTemplate_ToolCall(t *testing.T) {
 	if toolCalls[0]["id"] != "call_1" {
 		t.Errorf("tool_calls[0].id = %v, want call_1", toolCalls[0]["id"])
 	}
+
+	t.Run("nil args (replay regression) encode as empty object", func(t *testing.T) {
+		contents := []*genai.Content{
+			{Role: "model", Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "ping", Args: nil}}}},
+		}
+		msgs, _ := genaiContentsToOrchTemplate(contents, nil)
+		if len(msgs) == 0 {
+			t.Fatal("expected at least 1 message")
+		}
+		toolCalls, ok := msgs[0]["tool_calls"].([]map[string]any)
+		if !ok || len(toolCalls) == 0 {
+			t.Fatalf("tool_calls = %v, want non-empty slice", msgs[0]["tool_calls"])
+		}
+		fn, ok := toolCalls[0]["function"].(map[string]any)
+		if !ok {
+			t.Fatalf("tool_calls[0].function = %v, want map", toolCalls[0]["function"])
+		}
+		if fn["arguments"] != `{}` {
+			t.Errorf("tool_calls[0].function.arguments = %v, want {}", fn["arguments"])
+		}
+	})
 }
 
 func TestGenaiContentsToOrchTemplate_FunctionResponse(t *testing.T) {

@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import {
   dataRows,
+  expectPageTitle,
   expectSettled,
   loadPage,
   rowNamed,
@@ -15,6 +16,7 @@ import {
   clickRefresh,
   confirmDelete,
   expectRequired,
+  optionNamed,
   pressUntil,
 } from "../../helpers/resource";
 import { operationCallCounts, operationCalls, rpc } from "../../helpers/mockCalls";
@@ -61,7 +63,9 @@ const fragmentValue = (page: Page, index: number) =>
  * `LIFECYCLE_TIMEOUT`. Set per file rather than across the suite, so the tight default
  * keeps doing its job everywhere else.
  */
-test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
+// 30s more than other lifecycles: its page loads run on the Vite dev server, and a
+// cold Firefox run comes close to the shared budget.
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT + 30_000 });
 
 test("prompts: a library is created, read, changed and deleted", async ({
   page,
@@ -99,15 +103,10 @@ test("prompts: a library is created, read, changed and deleted", async ({
   });
 
   await test.step("4. refreshing re-reads the list, and says that it did", async () => {
-    /*
-     * Back on `ok` first, and that is the point rather than housekeeping: the scenario
-     * persists for the browsing session, so a refresh clicked while `slow` is still in
-     * force waits 2.5 seconds *per call* — and this page fans out one call per
-     * namespace, which put the confirmation well past any sensible timeout. It failed
-     * exactly that way, on both engines, and reads as a missing feature rather than a
-     * slow one.
-     */
-    await loadPage(page, routes.prompts, { scenario: "ok", title: "Prompts" });
+    // Navigates in-app, since a full load costs seconds under parallel load.
+    // Step 1 left the scenario on `ok`, so the refresh is not slowed per call.
+    await page.getByRole("link", { name: "Back to libraries" }).click();
+    await expectPageTitle(page, "Prompts");
     await expect(rowNamed(page, "shared-fragments")).toHaveCount(1, {
       timeout: 30_000,
     });
@@ -137,7 +136,12 @@ test("prompts: a library is created, read, changed and deleted", async ({
     // The distinction the scoped read forces. "No prompt libraries yet" would be a
     // claim about the cluster that this page, having asked about one namespace, is in
     // no position to make.
-    await page.goto("/prompts?mock=ok&ns=analytics");
+    // Swaps the namespace in place, since a reload costs seconds under parallel load.
+    await chooseFilter(page, "prompts-filters-filter-ns", "analytics");
+    await page.getByTestId("prompts-filters-filter-ns").click();
+    await optionNamed(page, "platform").click();
+    await expect(optionNamed(page, "platform")).toHaveAttribute("aria-selected", "false");
+    await page.keyboard.press("Escape");
     await expectSettled(page);
     await expect(
       page.getByText("No prompt libraries match those filters."),
@@ -146,7 +150,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   });
 
   await test.step("6. the create form asks for the identity an edit cannot change", async () => {
-    await loadPage(page, routes.prompts, { title: "Prompts" });
+    // Opened from the filtered list: creating returns to the unfiltered one.
     await page.getByTestId("prompts-new").click();
     await expect(page.getByTestId("prompt-submit")).toBeVisible();
 
@@ -409,7 +413,9 @@ test("prompts: a library is created, read, changed and deleted", async ({
   });
 
   await test.step("17. retrying asks the backend again, and it recovers", async () => {
-    await loadPage(page, routes.prompts, { scenario: "error", title: "Prompts" });
+    // Still on `error` from step 16, which the scenario keeps across in-app navigation.
+    await page.getByRole("link", { name: "Back to libraries" }).click();
+    await expect(page.getByTestId("prompts-error")).toBeVisible();
 
     /*
      * Either read counts as the retry. Listing across namespaces starts with the

@@ -12,7 +12,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
@@ -116,20 +115,8 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
 	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
 	executor = runtimeExecutor
-	handlerOpts := []a2asrv.RequestHandlerOption{
-		a2asrv.WithTaskStore(tasks),
-		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}),
-	}
-
-	// Coordinate native execution with ordinary SDK persistence and cleanup.
-	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
-		a2a.HITLActivationInterceptor(),
-		a2a.UserIDCallInterceptor(),
-		runtimeExecutor,
-	))
-
 	// Append any caller-supplied handler options.
-	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
+	handlerOpts := append(handlerOptions(tasks, runtimeExecutor), cfg.HandlerOpts...)
 
 	serverConfig := server.ServerConfig{
 		Host:            cfg.Host,
@@ -151,6 +138,15 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	app.server = a2aServer
 
 	return app, nil
+}
+
+// handlerOptions coordinates native execution with SDK persistence and cleanup.
+// The runtime interceptor admits one send; the SDK limiter frees only after settlement.
+func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallInterceptor) []a2asrv.RequestHandlerOption {
+	return []a2asrv.RequestHandlerOption{
+		a2asrv.WithTaskStore(tasks),
+		a2asrv.WithCallInterceptors(a2a.HITLActivationInterceptor(), a2a.UserIDCallInterceptor(), runtime),
+	}
 }
 
 // buildAgentCard returns the card the server serves. The HITL extension is declared

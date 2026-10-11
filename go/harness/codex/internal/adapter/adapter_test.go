@@ -262,7 +262,7 @@ func TestNativeEnvironmentDropsCompressionCodexCannotLoad(t *testing.T) {
 		}
 	}
 	if !slices.Contains(got, "CODEX_HOME=/data/codex") || !slices.ContainsFunc(got, func(variable string) bool {
-		return strings.HasPrefix(variable, "OTEL_RESOURCE_ATTRIBUTES=") && strings.Contains(variable, "gen_ai.agent.name=demo-codex")
+		return strings.HasPrefix(variable, "OTEL_RESOURCE_ATTRIBUTES=") && strings.Contains(variable, "gen_ai.main_agent.name=demo-codex")
 	}) {
 		t.Fatalf("environment = %v, want CODEX_HOME and the compiled identity", got)
 	}
