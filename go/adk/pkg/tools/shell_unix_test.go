@@ -123,9 +123,10 @@ func TestExecuteCommand_TimeoutBoundsTheCommand(t *testing.T) {
 		wantResult  string
 		wantTimeout bool
 		maxElapsed  time.Duration
-		// groupGone is whether every process the command started has exited
-		// when the call returns. A background job outlives the call; the turn
-		// ends it.
+		// groupGone is whether every process the command started exits once
+		// the call returns: the kill is sent before the call returns, and a
+		// killed process exits when the scheduler next runs it. A background
+		// job outlives the call; the turn ends it.
 		groupGone bool
 	}{
 		{
@@ -170,8 +171,12 @@ func TestExecuteCommand_TimeoutBoundsTheCommand(t *testing.T) {
 			if elapsed > tt.maxElapsed {
 				t.Errorf("returned after %v, want at most %v", elapsed, tt.maxElapsed)
 			}
-			if gone := !groupRunning(pgid); gone != tt.groupGone {
-				t.Errorf("process group %d gone after the call = %v, want %v", pgid, gone, tt.groupGone)
+			if tt.groupGone {
+				if !groupExits(pgid) {
+					t.Errorf("process group %d is still running %v after the timed-out call returned", pgid, groupExitWait)
+				}
+			} else if !groupRunning(pgid) {
+				t.Errorf("process group %d is gone after the call, want its background job running", pgid)
 			}
 		})
 	}
@@ -192,12 +197,8 @@ func TestExecuteCommand_TurnEndKillsBackgroundJobs(t *testing.T) {
 	}
 
 	processes.End()
-	deadline := time.Now().Add(2 * time.Second)
-	for groupRunning(pgid) {
-		if time.Now().After(deadline) {
-			t.Fatalf("process group %d is still running after the turn ended", pgid)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if !groupExits(pgid) {
+		t.Fatalf("process group %d is still running %v after the turn ended", pgid, groupExitWait)
 	}
 }
 
@@ -208,6 +209,27 @@ func readProcessGroup(t *testing.T, path string) int {
 	pgid := readPid(t, path)
 	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
 	return pgid
+}
+
+// groupExitWait bounds how long a test waits for a killed group to exit: long
+// enough for the scheduler to run every killed process on a loaded machine,
+// and well under the 6 s a timed-out `sleep 8` would still run, so a group
+// that was not killed fails the test.
+const groupExitWait = 2 * time.Second
+
+// groupExits reports whether every process of the group pgid is gone within
+// groupExitWait. A killed process exits when the scheduler next runs it, not
+// when the signal is sent, so a single check right after the kill can still
+// find it running.
+func groupExits(pgid int) bool {
+	deadline := time.Now().Add(groupExitWait)
+	for groupRunning(pgid) {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return true
 }
 
 // groupRunning reports whether a live process is left in the group pgid. An

@@ -331,7 +331,9 @@ func NewCommandExecutor(timeout time.Duration) *CommandExecutor {
 // ExecuteCommand executes a shell command in an environment built by
 // turn.CommandEnvironment, so the command cannot read the runtime's secrets.
 // A process the command leaves running in the background ends with the turn
-// of ctx.
+// of ctx. A timeout kills the command's whole process group before the call
+// returns; the killed processes exit when the scheduler next runs them, so
+// the call does not wait for them.
 func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
 	return e.executeCommand(ctx, command, workingDir, e.timeout)
 }
