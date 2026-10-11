@@ -70,7 +70,10 @@ jobs:
       # the Makefile's SUBSTRATE_VERSION is built from.
       KUBECTL_ATE_VERSION: 0.0.29
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # The setup before the tests takes up to 16 minutes on hosted runners and
+    # the tests up to 15: go test's own -timeout (20m) must fire before this one, so
+    # a test that hangs still prints its goroutine dump and the logs upload.
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -281,7 +284,7 @@ jobs:
           ) &
           controller_logs_pid=$!
           trap 'kill "$worker_logs_pid" "$substrate_logs_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true' EXIT
-          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=30m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
+          go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=20m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
 
       - name: Check E2E telemetry with Weaver live-check
         if: always()
