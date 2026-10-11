@@ -155,13 +155,13 @@ tests:
           namespace: other
           any: true
 
-  - it: should fold controller.config.kubernetes.watchNamespaces into the RBAC scope under the global
+  - it: should fold config.kubernetes.watchNamespaces into the RBAC scope under the global
     release:
       namespace: NAMESPACE
     set:
       global.watchNamespaces:
         - NAMESPACE
-      controller.config.kubernetes.watchNamespaces:
+      config.kubernetes.watchNamespaces:
         - NAMESPACE
         - extra
     template: rbac/getter-role.yaml
@@ -178,10 +178,10 @@ tests:
     set:
       rbac.namespaces:
         - NAMESPACE
-      controller.config.kubernetes.watchNamespaces:
+      config.kubernetes.watchNamespaces:
         - NAMESPACE
         - outside
     template: rbac/getter-role.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'controller\.config\.kubernetes\.watchNamespaces includes "outside" but rbac\.namespaces does not'
+          errorPattern: 'config\.kubernetes\.watchNamespaces includes "outside" but rbac\.namespaces does not'

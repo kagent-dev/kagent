@@ -329,7 +329,7 @@ For production use, configure:
 - LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
-- OpenTelemetry endpoints (`controller.config.runtimeDefaults.telemetry.traces`, `controller.config.runtimeDefaults.telemetry.traces.endpoint`)
+- OpenTelemetry endpoints (`config.runtimeDefaults.telemetry.traces`, `config.runtimeDefaults.telemetry.traces.endpoint`)
 - Network policies for pod isolation
 - RBAC policies per agent based on required permissions
 

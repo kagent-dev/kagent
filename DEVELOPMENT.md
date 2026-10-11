@@ -164,7 +164,7 @@ Helm `--set` overrides:
 
 ```shell
 # .env
-HELM_ARGS=--set ui.replicas=0 --set controller.config.logging.level=debug
+HELM_ARGS=--set ui.replicas=0 --set config.logging.level=debug
 ```
 
 The Substrate chart version defaults to the `github.com/kagent-dev/substrate`
@@ -227,7 +227,7 @@ The optional addons above provide observability components.
 
 > **pgvector:** The PostgreSQL image `kagent install` deploys does not include the pgvector
 > extension. Vector features require a PostgreSQL deployment with pgvector and
-> `controller.config.database.vectorEnabled=true`.
+> `config.database.vectorEnabled=true`.
 
 Verify the database connection by checking the controller logs:
 
@@ -303,6 +303,6 @@ run; see the Conformance section of that document.
 
 To look at traces locally, `make otel-local` starts Jaeger with an OTLP receiver
 on ports 4317 and 4318 and its UI on http://localhost:16686. Point an install
-at it with `--set controller.config.runtimeDefaults.telemetry.traces.endpoint=http://<host>:4317`.
+at it with `--set config.runtimeDefaults.telemetry.traces.endpoint=http://<host>:4317`.
 `make otel-collector-kind` installs the reference collector from
 `examples/observability` into the kind cluster and prints what it receives.

@@ -9,7 +9,7 @@
   "gateway" (dict "publicUrl" $apiURL "push" (dict))
   "runtimeDefaults" (dict "controlPlaneUrl" $apiURL "gatewayUrl" $apiURL)
 -}}
-{{- $config := mergeOverwrite $base (deepCopy .Values.controller.config) -}}
+{{- $config := mergeOverwrite $base (deepCopy .Values.config) -}}
 {{- if .Values.controller.push.signing.secretName -}}
 {{- $_ := set $config.gateway.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
 {{- end -}}

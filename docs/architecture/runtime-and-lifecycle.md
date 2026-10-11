@@ -86,7 +86,7 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 ## Idle expiration
 
 Sessions expire after seven days without task activity by default, using the same
-bounded deletion workflow as Sandboxes. `controller.config.sessions.idleTtl` in Helm configures
+bounded deletion workflow as Sandboxes. `config.sessions.idleTtl` in Helm configures
 the controller. Values use protobuf durations (`604800s` for seven days,
 `2592000s` for thirty); `0s` disables the worker, including retries, and negative values
 are rejected. There is no per-agent override or maximum TTL.

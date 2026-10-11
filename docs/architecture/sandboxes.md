@@ -103,12 +103,12 @@ pin the runtime artifacts they need.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.
-Configure `controller.config.sandboxes.guestImage` in Helm with an
+Configure `config.sandboxes.guestImage` in Helm with an
 `image@sha256:...` reference. The guest image is required for sandbox preparation
 and passes unchanged to Substrate. The controller does not resolve tags or
 contact image registries.
 
-The remaining `controller.config.sandboxes` settings configure CPU, memory, and default/max
+The remaining `config.sandboxes` settings configure CPU, memory, and default/max
 TTL. Helm supplies these through the controller ConfigMap. Defaults are one CPU,
 1 GiB memory, a one-hour TTL, and a 24-hour maximum TTL. Activity does not extend
 expiration.

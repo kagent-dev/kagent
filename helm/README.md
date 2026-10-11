@@ -58,18 +58,17 @@ database:
     # Only for databases that trust the Substrate postgres CA.
     clientCertificate:
       enabled: false
-controller:
-  config:
-    database:
-      role: kagent_owner
-      schema: kagent
-      vectorSchema: extensions
-      vectorEnabled: false
+config:
+  database:
+    role: kagent_owner
+    schema: kagent
+    vectorSchema: extensions
+    vectorEnabled: false
 ```
 
-With an external database, either create the `kagent_owner` role and grant it to the login user, or set `controller.config.database.role: ""`. The role needs access to `controller.config.database.schema`, which must exist or be creatable by that role.
+With an external database, either create the `kagent_owner` role and grant it to the login user, or set `config.database.role: ""`. The role needs access to `config.database.schema`, which must exist or be creatable by that role.
 
-When vectors are enabled, install pgvector into `controller.config.database.vectorSchema` before Kagent starts, and grant the Kagent role `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
+When vectors are enabled, install pgvector into `config.database.vectorSchema` before Kagent starts, and grant the Kagent role `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 
 The Substrate chart reads its own connection Secrets. See that chart's `postgres.ownerConnectionStringSecretRef` and `postgres.readWriteConnectionStringSecretRef` values.
 
@@ -77,12 +76,12 @@ The Substrate chart reads its own connection Secrets. See that chart's `postgres
 
 Kagent reads the connection string from the Secret once, at startup. After the Secret changes, restart the controller.
 
-When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `controller.config.database.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
+When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `config.database.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
 
 #### OIDC authentication
 
-Set `controller.config.server.auth.mode: trusted-proxy` together with
-`oauth2-proxy.enabled: true`. Set `controller.config.server.auth.userIdClaim: email` to use
+Set `config.server.auth.mode: trusted-proxy` together with
+`oauth2-proxy.enabled: true`. Set `config.server.auth.userIdClaim: email` to use
 email identities, or leave it empty to use `sub`. The chart writes these settings into `controller.yaml`, which the controller
 validates at startup. Unsupported modes fail startup; `insecure` remains the
 default.
@@ -137,10 +136,10 @@ kagent --config config.yaml install
 
 ## Application configuration
 
-`controller.config` follows the [ControllerConfig schema](../proto/kagent/api/v1alpha1/config.proto).
+`config` follows the [ControllerConfig schema](../proto/kagent/api/v1alpha1/config.proto).
 It is rendered as `/etc/kagent/controller.yaml`; secret files are projected separately.
-Configure controller and agent telemetry independently using `controller.config.telemetry`
-and `controller.config.runtimeDefaults.telemetry`. Standard OTEL overrides can be supplied
+Configure controller and agent telemetry independently using `config.telemetry`
+and `config.runtimeDefaults.telemetry`. Standard OTEL overrides can be supplied
 through `controller.env`/`envFrom` for this controller process only.
 
 See [process configuration](../docs/architecture/process-configuration.md) for examples,

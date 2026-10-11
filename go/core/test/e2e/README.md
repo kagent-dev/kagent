@@ -1,7 +1,7 @@
 # End-to-end tests
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
-Set `controller.config.sandboxes.guestImage` to the
+Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.
 It creates and cleans up its own SandboxTemplates. Run from `go/`:

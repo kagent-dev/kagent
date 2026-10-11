@@ -60,11 +60,11 @@ DOCUMENTATION:
   These values are ignored. Please remove them from your values override.
 
 {{- end }}
-{{- if (eq .Values.controller.config.database.migrations "verify") }}
+{{- if (eq .Values.config.database.migrations "verify") }}
 ################################################################################
 # NOTE: STARTUP MIGRATIONS ARE DISABLED                                        #
 ################################################################################
-  controller.config.database.migrations is verify: the controller will not run database
+  config.database.migrations is verify: the controller will not run database
   migrations at startup. It verifies the schema is already migrated and fails
   to start if it is not.
 

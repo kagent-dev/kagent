@@ -36,7 +36,7 @@ global:
   # this one value, so they cannot disagree. Prefer this value over the
   # per-surface keys. rbac.namespaces overrides it when the key is present. An
   # explicit empty rbac.namespaces restores cluster-scoped RBAC. Mixing in
-  # controller.config.kubernetes.watchNamespaces is validated: the watch must stay inside the RBAC
+  # config.kubernetes.watchNamespaces is validated: the watch must stay inside the RBAC
   # scope. A watched namespace without a Role is a permanent Forbidden loop at
   # runtime.
   watchNamespaces: []
@@ -122,8 +122,8 @@ rbac:
   # If that is also unset, the chart creates cluster-scoped ClusterRole and
   # ClusterRoleBinding resources, and the controller watches all namespaces.
   # If set, the chart creates a Role and a RoleBinding per listed namespace.
-  # The controller's config.kubernetes.watchNamespaces derives from the same list, unless
-  # controller.config.kubernetes.watchNamespaces overrides it.
+  # The controller watches the same list, unless config.kubernetes.watchNamespaces
+  # overrides it.
   # An explicit empty list forces cluster-scoped RBAC, even under a parent that
   # sets global.watchNamespaces. This is why the key ships commented out: a
   # declared default [] would make every install look explicitly cluster-scoped,
@@ -132,55 +132,60 @@ rbac:
   {}
 
 # ==============================================================================
-# CONTROLLER CONFIGURATION
+# APPLICATION CONFIGURATION
+# ==============================================================================
+
+# Application settings use the ControllerConfig protobuf schema, with no
+# Kubernetes kind/version envelope. Durations use seconds (e.g. 3600s).
+# Namespace, listeners, endpoints and secret paths are supplied by the chart.
+config:
+  kubernetes: {}
+  server:
+    auth:
+      mode: insecure
+    grpcReflection: false
+  database:
+    role: kagent_owner
+    # PostgreSQL schema for Kagent tables and the shared pgvector extension.
+    schema: kagent
+    vectorSchema: extensions
+    vectorEnabled: false
+    migrations: apply
+  gateway:
+    push:
+      allowHttp: false
+      allowPrivateNetworks: false
+  sessions:
+    idleTtl: 604800s
+    shareMaxTtl: 0s
+  sandboxes:
+    guestImage: ""
+    cpu: "1"
+    memory: 1Gi
+    defaultTtl: 3600s
+    maxTtl: 86400s
+  substrate:
+    apiEndpoint: dns:///api.ate-system.svc:443
+    routerUrl: http://atenet-router.ate-system.svc:80
+  logging:
+    level: info
+  metrics:
+    bindAddress: ":8443"
+    secure: true
+  telemetry: {}
+  runtimeDefaults:
+    logging:
+      level: info
+    telemetry: {}
+
+# ==============================================================================
+# CONTROLLER DEPLOYMENT
 # ==============================================================================
 
 controller:
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []
-  # Application settings use the ControllerConfig protobuf schema, with no
-  # Kubernetes kind/version envelope. Durations use seconds (e.g. 3600s).
-  # Namespace, listeners, endpoints and secret paths are supplied by the chart.
-  config:
-    kubernetes: {}
-    server:
-      auth:
-        mode: insecure
-      grpcReflection: false
-    database:
-      role: kagent_owner
-      # PostgreSQL schema for Kagent tables and the shared pgvector extension.
-      schema: kagent
-      vectorSchema: extensions
-      vectorEnabled: false
-      migrations: apply
-    gateway:
-      push:
-        allowHttp: false
-        allowPrivateNetworks: false
-    sessions:
-      idleTtl: 604800s
-      shareMaxTtl: 0s
-    sandboxes:
-      guestImage: ""
-      cpu: "1"
-      memory: 1Gi
-      defaultTtl: 3600s
-      maxTtl: 86400s
-    substrate:
-      apiEndpoint: dns:///api.ate-system.svc:443
-      routerUrl: http://atenet-router.ate-system.svc:80
-    logging:
-      level: info
-    metrics:
-      bindAddress: ":8443"
-      secure: true
-    telemetry: {}
-    runtimeDefaults:
-      logging:
-        level: info
-      telemetry: {}
   # Mount rotating Substrate PodIdentity/ServiceDNS credentials.
   substrateClientCertificate:
     enabled: false
@@ -268,7 +273,7 @@ controller:
       targetPort: 8083
     annotations: {}
   # Kubernetes packaging for the controller's Prometheus listener. Its address
-  # and TLS mode come from controller.config.metrics.
+  # and TLS mode come from config.metrics.
   metrics:
     enabled: false
     service:
@@ -754,7 +759,7 @@ grafana-mcp:
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================
 # Enable oauth2-proxy subchart for OIDC authentication
-# Set controller.config.server.auth.mode=trusted-proxy to authenticate controller requests; see
+# Set config.server.auth.mode=trusted-proxy to authenticate controller requests; see
 # docs/architecture/oidc-proxy-authentication.md.
 
 oauth2-proxy:

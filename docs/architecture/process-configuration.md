@@ -95,10 +95,11 @@ duplicate keys, nulls, YAML aliases/merges, and multiple documents are rejected.
 Defaults preserve explicit false and zero values. Zero disables session idle
 expiration and leaves share TTL unbounded; nonzero intervals must be positive.
 
-Helm's `controller.config` mirrors the schema. The chart writes one config file,
+Helm's top-level `config` block mirrors the schema and includes both controller
+settings and managed runtime defaults. The chart writes one config file,
 projects database and signing secrets separately, and changes the pod checksum
 when settings change. Deployment settings (images, probes, volumes, Services,
-Secret references) remain Helm values outside `controller.config`.
+Secret references) remain Helm values outside `config`.
 
 The controller loads and validates once, then passes typed settings to owners.
 Reconciliation and request handling do not read application settings from env.
