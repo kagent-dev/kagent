@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -761,20 +762,43 @@ func newInteractionFixtureWith(t *testing.T, target, templateName string, config
 	}
 }
 
-// Completion is public before automatic suspension finishes. Cleanup retries
-// only the precondition indicating that lifecycle work still owns the session.
+// deleteSessionBackoff paces the retries of a Session delete while lifecycle
+// work still owns the Session: doubling from 100 ms to a 2 s cap, within the
+// minute deleteSessionWhenIdle gives the whole wait.
+var deleteSessionBackoff = wait.Backoff{Duration: 100 * time.Millisecond, Factor: 2, Jitter: 0.1, Steps: 10, Cap: 2 * time.Second}
+
+// Completion is public before automatic suspension finishes, and a lifecycle
+// operation the Session admitted (a suspend, the deleted-Agent sweep's
+// delete) may still be pending when a test cleans up. Cleanup retries only
+// the two answers that say lifecycle work still owns the Session —
+// FailedPrecondition for the former, Aborted for the latter — and fails on
+// any other code.
 func deleteIdleSession(ctx context.Context, sessions apiv1alpha1.SessionServiceClient, id string) error {
-	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+	return deleteSessionWhenIdle(ctx, sessions, id, deleteSessionBackoff)
+}
+
+// deleteSessionWhenIdle deletes the Session once no lifecycle work owns it,
+// retrying FailedPrecondition and Aborted on the backoff for up to a minute;
+// any other code fails at once, and the deadline fails with the last answer
+// the wait was on.
+func deleteSessionWhenIdle(ctx context.Context, sessions apiv1alpha1.SessionServiceClient, id string, backoff wait.Backoff) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	for {
 		_, err := sessions.DeleteSession(ctx, &apiv1alpha1.DeleteSessionRequest{SessionId: id})
 		switch status.Code(err) {
 		case codes.OK, codes.NotFound:
-			return true, nil
-		case codes.FailedPrecondition:
-			return false, nil
+			return nil
+		case codes.FailedPrecondition, codes.Aborted:
 		default:
-			return false, err
+			return err
 		}
-	})
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w while lifecycle work owned the Session: %w", ctx.Err(), err)
+		case <-time.After(backoff.Step()):
+		}
+	}
 }
 
 func newSharedInteractionFixture(t *testing.T, harness testHarness, target string) *sharedInteractionFixture {
