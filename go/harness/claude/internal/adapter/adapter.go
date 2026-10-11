@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	"github.com/kagent-dev/kagent/go/harness/internal/workspace"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -212,6 +213,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 	}
 	var runAs *driver.Identity
+	var prepareCommand []string
 	if runsAsRoot {
 		if err := handOver(input.DurableDir, claudeTrees); err != nil {
 			closeListeners()
@@ -219,6 +221,14 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		}
 		runAs = &driver.Identity{UID: config.UnprivilegedUID, GID: config.UnprivilegedGID}
 		environment = setEnvironment(environment, config.HomeEnvName, claudeDir)
+		// A session directory on a volume is set up as Claude's user: this
+		// binary again, with the subcommand.
+		executable, err := os.Executable()
+		if err != nil {
+			closeListeners()
+			return nil, fmt.Errorf("find the harness executable: %w", err)
+		}
+		prepareCommand = []string{executable, workspace.PrepareSubcommand}
 	}
 	processConfig := driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
@@ -227,7 +237,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		SettingsPath: settingsPath, PermissionPromptTool: permissionPromptTool, ApprovalBroker: approvalBroker,
 		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
-		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry, RunAs: runAs,
+		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry, RunAs: runAs, PrepareCommand: prepareCommand,
 		MaxBudgetUSD: cfg.MaxBudgetUSD, MaxTurns: cfg.MaxTurns,
 	}
 	if forwarder != nil {

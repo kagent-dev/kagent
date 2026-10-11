@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -126,6 +127,15 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	// The directory the turn works in: its own directory of the session's
 	// workspace volume, or a directory of its durable /data.
 	httpRequest.Header.Set(adk.WorkingDirectoryHeader, substrate.WorkingDirectory(u.session))
+	// What the runtime sets the directory up from before the session's first
+	// turn: the mirrors its clones borrow from, and the repositories the
+	// admission named as moved since their last sync.
+	if mirrors := substrate.MirrorsDirectory(u.session); mirrors != "" {
+		httpRequest.Header.Set(adk.MirrorsDirectoryHeader, mirrors)
+	}
+	if changed := u.session.GetChanged(); u.session.GetVolumeSource() != nil && len(changed) != 0 {
+		httpRequest.Header.Set(adk.ChangedRepositoriesHeader, strings.Join(changed, ","))
+	}
 	for key, values := range httpRequest.Header {
 		for _, value := range values {
 			req.ServiceParams.Append(key, value)

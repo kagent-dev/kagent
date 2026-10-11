@@ -34,4 +34,16 @@ const (
 	// durable /data without one. A runtime resolves it per turn, never at boot,
 	// since a runtime restored from a snapshot predates the session's mounts.
 	WorkingDirectoryHeader = "x-kagent-working-directory"
+	// MirrorsDirectoryHeader carries the read-only directory of the session's
+	// workspace volume that holds its bare git mirrors, as
+	// <owner>/<repository>.git, which the controller's gateway forwards to the
+	// runtime on every turn of a session that mounts it. A turn without it has
+	// no mirrors to clone.
+	MirrorsDirectoryHeader = "x-kagent-mirrors-directory"
+	// ChangedRepositoriesHeader carries the repositories, as <owner>/<repository>
+	// relative to the working directory, whose origin moved since the mirrors'
+	// last sync, comma-separated, which the controller's gateway forwards on
+	// every turn of a session with a workspace volume. A runtime fetches exactly
+	// these before the session's first turn; an absent header fetches nothing.
+	ChangedRepositoriesHeader = "x-kagent-changed-repositories"
 )

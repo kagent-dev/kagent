@@ -267,6 +267,18 @@ probe each one, and checks the volume afterwards and the
 skip until the lane's Substrate creates a Session's missing directory at
 actor create.
 
+`TestClaudeSessionWorkspace` runs a claude Agent whose egress admits the
+fixtures' origins and whose model probes the session directory with Bash
+(`mocks/invoke_claude_workspace.json`): on a fixture whose origin serves
+anyone (`newWorkspaceFixtureOf(t, false)`), every mirror is cloned with
+alternates at `/workspace/<owner>/<repository>` without a working tree, the
+changed repository's `origin/main` has the commit pushed after the sync, the
+origin logs no request for the other, and `git switch main` checks the
+fetched branch out; on the credentialed fixture, whose origin refuses a fetch
+without the person's credential, the turn's messages name the refused
+repository and the turn answers; without a volume Claude Code works in
+`/data/workspace`.
+
 The grant signer (`go/core/test/grant`) stands in for the workspace issuer:
 `grant.NewSigner(issuer, audience)` generates an ES256 key,
 `SignGrant(subject, snapshot, changed, providers, ttl)` returns the JWT a

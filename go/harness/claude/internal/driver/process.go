@@ -8,23 +8,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	"github.com/kagent-dev/kagent/go/harness/internal/workspace"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel/propagation"
 )
 
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
 // process. Actor-owned paths and environment are supplied by the adapter.
 type ProcessConfig struct {
-	Executable         string
-	ExpectedVersion    string
-	StrictVersion      bool
+	Executable      string
+	ExpectedVersion string
+	StrictVersion   bool
+	// Workspace is the working directory of a turn whose dispatch names none.
 	Workspace          string
 	Model              string
 	AppendSystemPrompt string
@@ -32,7 +37,10 @@ type ProcessConfig struct {
 	MCPConfigPath      string
 	SettingsPath       string
 	// RunAs, when set, is the user Claude Code runs as.
-	RunAs                *Identity
+	RunAs *Identity
+	// PrepareCommand sets a session directory up as RunAs: the harness's own
+	// executable with workspace.PrepareSubcommand. Required with RunAs.
+	PrepareCommand       []string
 	PermissionPromptTool string
 	SkillRoot            string
 	PluginDirs           []string
@@ -201,6 +209,10 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
+	directory, err := d.prepareWorkspace(ctx, sink)
+	if err != nil {
+		return runtime.Outcome{}, err
+	}
 	environment := traceEnvironment(ctx, d.config.Environment)
 	var gate *tracingGate
 	if d.config.AwaitTelemetry {
@@ -213,7 +225,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
 	d.runAs(cmd)
-	cmd.Dir = d.config.Workspace
+	cmd.Dir = directory
 	cmd.Env = environment
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -270,6 +282,68 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
+}
+
+// workspaceNotes is the file the workspace setup explains the session
+// directory in: Claude Code reads it from its working directory on start.
+const workspaceNotes = "CLAUDE.md"
+
+// prepareWorkspace returns the directory the turn works in, the one its
+// dispatch names, read per turn because a runtime restored from a snapshot
+// predates the session's mounts. A session directory on a workspace volume is
+// set up before its first turn; what could not be cloned or fetched, or a
+// setup that failed, is the turn's first status message and the turn runs.
+// A resumed turn continues its process and never comes here.
+func (d *ProcessDriver) prepareWorkspace(ctx context.Context, sink runtime.EventSink) (string, error) {
+	dispatch := workspace.DispatchFrom(ctx)
+	if !filepath.IsAbs(dispatch.Directory) {
+		return d.config.Workspace, nil
+	}
+	options := workspace.Options{Notes: workspaceNotes, Environment: d.config.Environment}
+	var report workspace.Report
+	var err error
+	if d.config.RunAs != nil {
+		report, err = d.prepareAsUser(ctx, dispatch, options)
+	} else {
+		report, err = workspace.Prepare(ctx, dispatch, options)
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if report.SetUp {
+		logging.FromContext(ctx).DebugContext(ctx, "session directory set up", "directory", dispatch.Directory,
+			"cloned", report.Cloned, "fetched", report.Fetched, "problems", len(report.Problems))
+	}
+	notice := report.Notice()
+	if err != nil {
+		notice = strings.TrimSpace("Workspace setup failed: " + err.Error() + "\n" + notice)
+	}
+	if notice != "" {
+		if err := sink.Notice(runtime.Notice{Text: notice}); err != nil {
+			return "", err
+		}
+	}
+	return dispatch.Directory, nil
+}
+
+// prepareAsUser sets a session directory up as Claude's user, who owns it
+// and everything the setup writes: inside the sandbox root may not write
+// another user's directory on a volume mount, and the user's files are what
+// Claude works with. Root hands the directory over first, best effort: a
+// sub-path someone else created stays theirs, and the setup then reports
+// what it could not do.
+func (d *ProcessDriver) prepareAsUser(ctx context.Context, dispatch workspace.Dispatch, options workspace.Options) (workspace.Report, error) {
+	if dispatch.Mirrors == "" {
+		return workspace.Report{}, nil
+	}
+	if len(d.config.PrepareCommand) == 0 {
+		return workspace.Report{}, fmt.Errorf("a harness that runs as root needs the command that prepares the workspace")
+	}
+	if err := os.Lchown(dispatch.Directory, int(d.config.RunAs.UID), int(d.config.RunAs.GID)); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "the working directory stays with its owner", "directory", dispatch.Directory, "error", err)
+	}
+	runAs := workspace.Identity{UID: d.config.RunAs.UID, GID: d.config.RunAs.GID}
+	return workspace.PrepareAs(ctx, dispatch, options, &runAs, d.config.PrepareCommand...)
 }
 
 // bindCallerCredential hands the turn's caller credential to the binder and

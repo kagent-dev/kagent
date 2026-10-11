@@ -57,6 +57,17 @@ func WorkingDirectory(session *apiv1alpha1.Session) string {
 	return DurableWorkingDirectory
 }
 
+// MirrorsDirectory is where a Session's turns read the workspace's shared
+// mirrors, or empty when its volume source mounts none.
+func MirrorsDirectory(session *apiv1alpha1.Session) string {
+	for _, mount := range session.GetVolumeSource().GetMounts() {
+		if mount.GetMountPath() == MirrorsMountPath && mount.GetReadOnly() {
+			return MirrorsMountPath
+		}
+	}
+	return ""
+}
+
 // ValidateWorkspaceLayout refuses a volume source whose mounts the
 // ActorTemplate does not declare: its own directory read-write at
 // WorkspaceMountPath, and optionally a read-only directory at

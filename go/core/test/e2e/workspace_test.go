@@ -65,19 +65,33 @@ type workspaceFixture struct {
 	// OriginURL, over HTTPS for the egress gateway, and records every request.
 	Origin    *gitFixture
 	OriginURL string
-	// Authorization is the header value Origin requires.
+	// Authorization is the header value Origin requires; empty when it
+	// serves anyone.
 	Authorization string
 }
 
 func newWorkspaceFixture(t *testing.T) *workspaceFixture {
 	t.Helper()
+	return newWorkspaceFixtureOf(t, true)
+}
+
+// newWorkspaceFixtureOf builds the fixture; an origin without a credential
+// serves anyone, as a public repository does.
+func newWorkspaceFixtureOf(t *testing.T, credentialed bool) *workspaceFixture {
+	t.Helper()
 	kube := interactionKubeClient(t)
-	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + workspaceGitToken))
-	fixture := &workspaceFixture{Authorization: "Basic " + credential, Heads: map[string]string{}, Changed: []string{workspaceChanged}}
+	fixture := &workspaceFixture{Heads: map[string]string{}, Changed: []string{workspaceChanged}}
+	env := []corev1.EnvVar{{Name: "GIT_SSL_CAINFO", Value: "/origin-ca/ca.crt"}}
+	if credentialed {
+		credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + workspaceGitToken))
+		fixture.Authorization = "Basic " + credential
+		secret := createCredentialSecret(t, kube, credential)
+		env = append(env, corev1.EnvVar{Name: "GIT_CREDENTIAL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}})
+	}
 	fixture.Origin = newGitFixtureOf(t, fixture.Authorization, workspaceOriginPaths()...)
 	fixture.OriginURL = fixture.Origin.serveThroughEgress(t)
+	env = append(env, corev1.EnvVar{Name: "ORIGIN", Value: fixture.OriginURL})
 
-	secret := createCredentialSecret(t, kube, credential)
 	authority, err := os.ReadFile(kagentenv.E2EEgressCAFile.Get())
 	require.NoError(t, err)
 	trust := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{GenerateName: "workspace-origin-ca-", Namespace: "kagent"}, Data: map[string]string{"ca.crt": string(authority)}}
@@ -86,17 +100,14 @@ func newWorkspaceFixture(t *testing.T) *workspaceFixture {
 	fixture.Claim, fixture.Volume = createWorkspaceVolume(t, kube)
 	mirror := `set -eu
 mkdir -p /volume/sessions
+set --
+if [ -n "${GIT_CREDENTIAL:-}" ]; then set -- -c "http.extraHeader=Authorization: Basic $GIT_CREDENTIAL"; fi
 for repository in ` + strings.Join(workspaceRepositories, " ") + `; do
-  git -c "http.extraHeader=Authorization: Basic $GIT_CREDENTIAL" clone --quiet --mirror "$ORIGIN/$repository.git" "/volume/mirrors/$repository.git"
+  git "$@" clone --quiet --mirror "$ORIGIN/$repository.git" "/volume/mirrors/$repository.git"
 done
 ` + workspaceMirrorHeadsScript("/volume/mirrors")
 	report := runWorkspaceJob(t, kube, fixture.Claim, mirror,
-		[]workspaceMount{{Path: "/volume"}},
-		[]corev1.EnvVar{
-			{Name: "ORIGIN", Value: fixture.OriginURL},
-			{Name: "GIT_SSL_CAINFO", Value: "/origin-ca/ca.crt"},
-			{Name: "GIT_CREDENTIAL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}},
-		},
+		[]workspaceMount{{Path: "/volume"}}, env,
 		corev1.Volume{Name: "origin-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: trust.Name}}}},
 	)
 	for repository, head := range parseWorkspaceHeads(t, report) {

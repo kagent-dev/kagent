@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/executor"
+	"github.com/kagent-dev/kagent/go/harness/internal/workspace"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
@@ -26,6 +27,16 @@ const (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == workspace.PrepareSubcommand {
+		// The harness runs itself this way, as Claude's user, to set a session
+		// directory up (driver.ProcessDriver): one request on its standard
+		// input, one response on its standard output.
+		if err := workspace.PrepareRequested(context.Background(), os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	check := flag.Bool("check", false, "validate configuration and Claude version, then exit")
 	flag.Parse()
 	logger, err := logging.NewFromEnv(os.Stderr)

@@ -130,6 +130,40 @@ func TestExecuteStreamsCompletesAndPersistsSession(t *testing.T) {
 	}
 }
 
+// A notice is a working status message of the task, after the turn's first
+// working status and before its activity; an empty one reports nothing.
+func TestExecuteReportsANoticeAsAWorkingStatus(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		if err := sink.Notice(runtime.Notice{}); err != nil {
+			return runtime.Outcome{}, err
+		}
+		if err := sink.Notice(runtime.Notice{Text: "Workspace setup: o/r was not fetched"}); err != nil {
+			return runtime.Outcome{}, err
+		}
+		return runtime.Outcome{}, sink.TextDelta(runtime.TextDelta{Text: "answer"})
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	if len(errs) != 0 {
+		t.Fatalf("Execute() errors = %v", errs)
+	}
+	if len(events) != 4 {
+		t.Fatalf("events = %d, want working, notice, text and completed", len(events))
+	}
+	notice, ok := events[1].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || notice.Status.State != a2atype.TaskStateWorking || notice.Status.Message == nil {
+		t.Fatalf("second event = %#v, want a working status with a message", events[1])
+	}
+	if got := notice.Status.Message.Parts[0].Text(); got != "Workspace setup: o/r was not fetched" {
+		t.Errorf("notice = %q", got)
+	}
+	if _, ok := events[2].(*a2atype.TaskArtifactUpdateEvent); !ok {
+		t.Errorf("third event = %T, want the answer's text", events[2])
+	}
+}
+
 func TestExecutePreservesTextAndToolOrder(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 		steps := []func() error{

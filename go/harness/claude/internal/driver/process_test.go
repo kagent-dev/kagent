@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
@@ -18,11 +20,16 @@ import (
 
 type recordingSink struct {
 	sessions []runtime.SessionStarted
+	notices  []runtime.Notice
 	text     strings.Builder
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
 	s.sessions = append(s.sessions, event)
+	return nil
+}
+func (s *recordingSink) Notice(event runtime.Notice) error {
+	s.notices = append(s.notices, event)
 	return nil
 }
 func (s *recordingSink) TextDelta(event runtime.TextDelta) error {
@@ -179,6 +186,104 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	}
 	if len(sink.sessions) != 1 || sink.sessions[0].ContinuationID != turn.ContinuationID {
 		t.Errorf("session events = %#v", sink.sessions)
+	}
+}
+
+// Claude Code works in the directory each turn's dispatch names, its
+// configured workspace without one; a session directory with mirrors is set
+// up before the turn, and a fetch its origin refuses is the turn's notice
+// while the turn still runs.
+func TestProcessDriverWorksInTheDispatchedDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required")
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "pwd")
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\npwd > \"$CAPTURE\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	configured := filepath.Join(dir, "data-workspace")
+	sessionDirectory := filepath.Join(dir, "session")
+	mirrors := filepath.Join(dir, "mirrors")
+	for _, directory := range []string{configured, sessionDirectory} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A mirror whose origin is gone: its fetch is refused.
+	origin := filepath.Join(dir, "origin")
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main", origin},
+		{"-C", origin, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "--allow-empty", "--message", "initial"},
+		{"clone", "--quiet", "--mirror", origin, filepath.Join(mirrors, "o", "r.git")},
+	} {
+		if output, err := exec.CommandContext(t.Context(), "git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	if err := os.RemoveAll(origin); err != nil {
+		t.Fatal(err)
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: configured, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	for _, test := range []struct {
+		name       string
+		params     map[string][]string
+		want       string
+		wantNotice string
+	}{
+		{name: "no dispatch", want: configured},
+		{name: "durable directory", params: map[string][]string{adk.WorkingDirectoryHeader: {configured}}, want: configured},
+		{
+			name: "session directory",
+			params: map[string][]string{
+				adk.WorkingDirectoryHeader: {sessionDirectory}, adk.MirrorsDirectoryHeader: {mirrors}, adk.ChangedRepositoriesHeader: {"o/r"},
+			},
+			want: sessionDirectory, wantNotice: "o/r: the origin refused the fetch",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			if test.params != nil {
+				ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(test.params))
+			}
+			sink := &recordingSink{}
+			if _, err := d.Run(ctx, runtime.Turn{Prompt: "hello"}, sink); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			pwd, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimSpace(string(pwd)); got != test.want {
+				t.Errorf("Claude's working directory = %q, want %q", got, test.want)
+			}
+			if test.wantNotice == "" {
+				if len(sink.notices) != 0 {
+					t.Errorf("notices = %#v, want none", sink.notices)
+				}
+				return
+			}
+			if len(sink.notices) != 1 || !strings.Contains(sink.notices[0].Text, test.wantNotice) {
+				t.Errorf("notices = %#v, want one with %q", sink.notices, test.wantNotice)
+			}
+			for _, path := range []string{"o/r/.git/objects/info/alternates", workspaceNotes} {
+				if _, err := os.Stat(filepath.Join(sessionDirectory, path)); err != nil {
+					t.Errorf("the session directory misses %s: %v", path, err)
+				}
+			}
+			// The next turn finds the directory set up and reports nothing.
+			sink = &recordingSink{}
+			if _, err := d.Run(ctx, runtime.Turn{Prompt: "again"}, sink); err != nil {
+				t.Fatalf("second Run() error = %v", err)
+			}
+			if len(sink.notices) != 0 {
+				t.Errorf("second turn notices = %#v, want none", sink.notices)
+			}
+		})
 	}
 }
 

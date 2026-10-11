@@ -149,7 +149,8 @@ func TestRuntimeDialerRunsASharedTurnInTheOwnersSession(t *testing.T) {
 
 // Every dispatch names the directory its turn works in: the session's own
 // directory of its workspace volume, or a directory of its durable /data
-// without one, whoever the caller is.
+// without one, whoever the caller is; a session on a volume also names its
+// mirrors and the repositories that moved since their sync.
 func TestRuntimeDialerNamesTheWorkingDirectory(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -168,15 +169,28 @@ func TestRuntimeDialerNamesTheWorkingDirectory(t *testing.T) {
 		Volume: &apiv1alpha1.SessionVolume{CsiDriver: "nfs.csi.k8s.io", VolumeHandle: "workspace"},
 		Mounts: []*apiv1alpha1.SessionVolumeMount{{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace"}},
 	}
+	withMirrors := &apiv1alpha1.SessionVolumeSource{
+		Volume: volume.GetVolume(),
+		Mounts: append([]*apiv1alpha1.SessionVolumeMount{{SubPath: "mirrors", MountPath: "/mirrors", ReadOnly: true}}, volume.GetMounts()...),
+	}
+	changed := []string{"e2e/alpha", "e2e/beta"}
 	for _, tt := range []struct {
-		name    string
-		caller  auth.Session
-		session *apiv1alpha1.Session
-		want    string
+		name        string
+		caller      auth.Session
+		session     *apiv1alpha1.Session
+		want        string
+		wantMirrors []string
+		wantChanged []string
 	}{
 		{name: "workspace volume", caller: claimsSession{user: "alice@example.com"}, session: &apiv1alpha1.Session{VolumeSource: volume}, want: "/workspace"},
 		{name: "no volume", caller: claimsSession{user: "alice@example.com"}, session: &apiv1alpha1.Session{}, want: "/data/workspace"},
 		{name: "no caller", session: &apiv1alpha1.Session{VolumeSource: volume}, want: "/workspace"},
+		{
+			name: "mirrors and changed repositories", caller: claimsSession{user: "alice@example.com"},
+			session: &apiv1alpha1.Session{VolumeSource: withMirrors, Changed: changed},
+			want:    "/workspace", wantMirrors: []string{"/mirrors"}, wantChanged: []string{"e2e/alpha,e2e/beta"},
+		},
+		{name: "changed without a volume", caller: claimsSession{user: "alice@example.com"}, session: &apiv1alpha1.Session{Changed: changed}, want: "/data/workspace"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -196,6 +210,8 @@ func TestRuntimeDialerNamesTheWorkingDirectory(t *testing.T) {
 			select {
 			case md := <-received:
 				require.Equal(t, []string{tt.want}, md.Get(adk.WorkingDirectoryHeader))
+				require.Equal(t, tt.wantMirrors, md.Get(adk.MirrorsDirectoryHeader))
+				require.Equal(t, tt.wantChanged, md.Get(adk.ChangedRepositoriesHeader))
 			case <-ctx.Done():
 				t.Fatal("runtime did not receive the call")
 			}
