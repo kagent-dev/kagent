@@ -161,11 +161,14 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 // digests the environment, so the compiler cannot render it.
 func withServiceVersion(environment []corev1.EnvVar, version string) []corev1.EnvVar {
 	for index, variable := range environment {
-		if variable.Name == tracing.ResourceEnvironmentVariable && variable.ValueFrom == nil {
-			environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+		if variable.Name == tracing.ResourceEnvironmentVariable {
+			if variable.ValueFrom == nil {
+				environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+			}
+			return environment
 		}
 	}
-	return environment
+	return append(environment, corev1.EnvVar{Name: tracing.ResourceEnvironmentVariable, Value: tracing.MergeResourceAttributes("", []attribute.KeyValue{semconv.ServiceVersion(version)})})
 }
 
 func revisionActorTemplateName(agentName string, revision translator.RevisionID) string {

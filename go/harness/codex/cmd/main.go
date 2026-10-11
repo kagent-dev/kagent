@@ -70,7 +70,7 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	}
 	ctx = logging.IntoContext(ctx, logger)
 	providers, err := telemetry.Init(ctx, telemetry.Options{
-		Config: cfg.RuntimeTelemetry.ExporterConfig(), Runtime: string(cfg.RuntimeTelemetry.Runtime), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
+		Config: cfg.RuntimeTelemetry.ExporterConfig(), Identity: cfg.RuntimeTelemetry.ResourceIdentity(), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
 	})
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", err)

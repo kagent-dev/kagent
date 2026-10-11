@@ -22,6 +22,8 @@ The agent test uses the CLI-installed `kagent-api` RemoteMCPServer, a determinis
 local model, and a real Go ADK Session to create a sandbox through MCP as its
 invoking user. Install with `kagent install` in the test namespace; the test
 requires that registration and leaves it intact.
+Set `config.runtimeDefaults.tokenPropagation.enabled: true` in the test install
+so the agent forwards its caller identity to the MCP server.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.

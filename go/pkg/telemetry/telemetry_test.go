@@ -73,7 +73,7 @@ func resourceAttributes(t *testing.T, opts Options) map[string]string {
 func TestEnvironmentResourceAttributesOverrideFileDefaults(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "override")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=override")
-	got := resourceAttributes(t, Options{Runtime: conv.KagentRuntimeClaude, Defaults: []attribute.KeyValue{semconv.ServiceName("fallback")}, Config: Config{ResourceAttributes: map[string]string{"service.name": "demo", "service.namespace": "team"}}})
+	got := resourceAttributes(t, Options{Identity: []attribute.KeyValue{conv.KagentRuntimeKey.String(conv.KagentRuntimeClaude)}, Defaults: []attribute.KeyValue{semconv.ServiceName("fallback")}, Config: Config{ResourceAttributes: map[string]string{"service.name": "demo", "service.namespace": "team"}}})
 	if got["service.name"] != "override" || got["service.namespace"] != "override" || got["kagent.runtime"] != conv.KagentRuntimeClaude {
 		t.Fatal(got)
 	}
@@ -88,6 +88,26 @@ func TestResourceDefaultsFillUnsetKeys(t *testing.T) {
 	}
 	if _, ok := got["kagent.runtime"]; ok {
 		t.Fatal("kagent.runtime set without a runtime")
+	}
+}
+
+func TestResourceIdentityOverridesFileAndEnvironment(t *testing.T) {
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "kagent.runtime=forged,gen_ai.main_agent.name=forged,gen_ai.main_agent.id=forged,service.version=revision")
+	got := resourceAttributes(t, Options{
+		Identity: []attribute.KeyValue{
+			conv.KagentRuntimeKey.String(conv.KagentRuntimeClaude),
+			conv.GenAIMainAgentNameKey.String("assistant"),
+			conv.GenAIMainAgentIDKey.String("team/assistant"),
+		},
+		Config: Config{ResourceAttributes: map[string]string{"gen_ai.main_agent.name": "file"}},
+	})
+	for key, want := range map[string]string{
+		"kagent.runtime": conv.KagentRuntimeClaude, "gen_ai.main_agent.name": "assistant",
+		"gen_ai.main_agent.id": "team/assistant", "service.version": "revision",
+	} {
+		if got[key] != want {
+			t.Errorf("resource %s = %q, want %q", key, got[key], want)
+		}
 	}
 }
 

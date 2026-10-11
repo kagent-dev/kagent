@@ -111,6 +111,9 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 				if attrs["service.name"] != tc.wantService || attrs["service.namespace"] != "agent-namespace" || attrs["kagent.runtime"] != "adk-go" {
 					t.Fatalf("resource = %v", attrs)
 				}
+				if attrs[tracing.AttributeMainAgentName] != "adk-service" || attrs[tracing.AttributeMainAgentID] != "agent-namespace/adk-service" {
+					t.Fatalf("resource is missing compiled agent identity: %v", attrs)
+				}
 				found := false
 				for _, scope := range resource.ScopeSpans {
 					for _, span := range scope.Spans {

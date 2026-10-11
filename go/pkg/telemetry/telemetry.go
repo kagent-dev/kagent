@@ -21,18 +21,17 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // FlushTimeout bounds one ForceFlush.
 const FlushTimeout = 3 * time.Second
 
-// Options identify the process. The environment wins over Defaults.
+// Options identify the process. The environment wins over Defaults, but Identity
+// contains compiler-owned attributes that file and environment settings cannot override.
 // MetricReaders are added beside the reader the environment configures.
 type Options struct {
 	Config         Config
-	Runtime        string
+	Identity       []attribute.KeyValue
 	Defaults       []attribute.KeyValue
 	SpanProcessors []sdktrace.SpanProcessor
 	MetricReaders  []sdkmetric.Reader
@@ -119,10 +118,7 @@ func newResource(ctx context.Context, opts Options) (*resource.Resource, error) 
 	for key, value := range opts.Config.ResourceAttributes {
 		detectors = append(detectors, resource.WithAttributes(attribute.String(key, value)))
 	}
-	detectors = append(detectors, resource.WithFromEnv())
-	if opts.Runtime != "" {
-		detectors = append(detectors, resource.WithAttributes(conv.KagentRuntimeKey.String(opts.Runtime)))
-	}
+	detectors = append(detectors, resource.WithFromEnv(), resource.WithAttributes(opts.Identity...))
 	return resource.New(ctx, detectors...)
 }
 

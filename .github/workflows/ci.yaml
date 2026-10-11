@@ -153,6 +153,8 @@ jobs:
               metrics:
                 endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
             runtimeDefaults:
+              tokenPropagation:
+                enabled: true
               telemetry:
                 traces:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317

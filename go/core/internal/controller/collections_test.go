@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -254,6 +255,12 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					}
 					expected := proto.CloneOf(gvisorTemplate)
 					expected.Metadata.Name = state.Target.ActorTemplate.GetMetadata().GetName()
+					// Changing the sandbox also changes the revision reported by telemetry.
+					for _, variable := range expected.Containers[0].Env {
+						if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+							variable.Value = strings.Replace(variable.Value, "service.version="+gvisorRevision.Short(), "service.version="+state.Target.RevisionID.Short(), 1)
+						}
+					}
 					if step.class == atev1alpha1.SandboxClassMicroVM {
 						require.NotEqual(t, gvisorRevision, state.Target.RevisionID)
 						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
