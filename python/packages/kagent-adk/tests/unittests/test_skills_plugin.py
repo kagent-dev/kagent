@@ -27,7 +27,7 @@ def test_add_skills_tool_to_agent_adds_list_files_and_grep_file_when_enabled(tmp
     agent = LlmAgent(name="test_agent", model="gemini-2.0-flash", tools=[])
 
     with patch.dict("os.environ", {"KAGENT_ENABLE_FILE_SEARCH_TOOLS": "true"}, clear=True):
-        add_skills_tool_to_agent(str(tmp_path), agent)
+        add_skills_tool_to_agent(str(tmp_path), agent, file_search_tools=True)
 
     names = _tool_names(agent)
     assert {"skills", "read_file", "write_file", "edit_file", "bash", "list_files", "grep_file"} <= names

@@ -49,8 +49,7 @@ uv sync
 
 ```bash
 export OPENAI_API_KEY=your_api_key_here
-export KAGENT_API_URL=http://localhost:8083
-export KAGENT_GATEWAY_URL=http://localhost:8083
+# Load process settings from /config/config.json (see Configuration).
 ```
 
 3. Run the agent server:
@@ -81,8 +80,6 @@ The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/
 The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for OpenAI API access
-- `KAGENT_API_URL`: Required. KAgent control-plane API URL; locally, `http://localhost:8083`
-- `KAGENT_GATEWAY_URL`: Required. KAgent A2A and MCP gateway URL; locally, `http://localhost:8083`
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
 
@@ -109,3 +106,14 @@ High-level options for tracing this sample:
 References:
 - LangSmith SDK: `https://github.com/langchain-ai/langsmith-sdk`
 - Trace with OpenTelemetry: `https://docs.langchain.com/langsmith/trace-with-opentelemetry`
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

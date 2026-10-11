@@ -61,7 +61,7 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", collector.URL)
 			t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
-			t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "")
+			t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
 			oldTrace, oldLog, oldPropagation := otel.GetTracerProvider(), logglobal.GetLoggerProvider(), otel.GetTextMapPropagator()
 			t.Cleanup(func() {
 				otel.SetTracerProvider(oldTrace)

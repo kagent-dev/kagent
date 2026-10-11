@@ -4,7 +4,7 @@ templates:
 release:
   namespace: kagent
 set:
-  controller.substrate.enabled: true
+  controller.substrateClientCertificate.enabled: true
   substrateWorkerPool.create: true
   substrateWorkerPool.name: selected-pool
   substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
@@ -115,12 +115,6 @@ tests:
   - it: should not create an externally managed pool
     set:
       substrateWorkerPool.create: false
-    asserts:
-      - hasDocuments:
-          count: 0
-  - it: should not create a pool when substrate integration is disabled
-    set:
-      controller.substrate.enabled: false
     asserts:
       - hasDocuments:
           count: 0

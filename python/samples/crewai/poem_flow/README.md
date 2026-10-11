@@ -45,8 +45,7 @@ When interacting with the agent, you do not need to provide any input because th
 2. **Set environment variables**:
 
    ```bash
-   export KAGENT_API_URL=http://localhost:8083
-   export KAGENT_GATEWAY_URL=http://localhost:8083
+   # Load process settings from /config/config.json (see Configuration).
    export OPENAI_API_KEY="..."
    ```
 
@@ -70,7 +69,16 @@ When interacting with the agent, you do not need to provide any input because th
 The agent can be configured via environment variables:
 
 - `GEMINI_API_KEY`: Required for LLM access
-- `KAGENT_API_URL`: Required. KAgent control-plane API URL (for local development, `http://localhost:8083`)
-- `KAGENT_GATEWAY_URL`: Required. KAgent A2A and MCP gateway URL (for local development, `http://localhost:8083`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

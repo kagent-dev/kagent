@@ -13,10 +13,11 @@ from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, bootstrap, configure_logging, instrument_app
+from kagent.core._config_materialize import materialize_from_env
+from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
 from . import AgentConfig, KAgentApp
-from ._config_materialize import materialize_from_env
 from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
@@ -25,47 +26,24 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 app = typer.Typer()
 
 
-def _split_csv(value: Optional[str]) -> Optional[list[str]]:
-    """Parse a comma-separated env value into trimmed, non-empty entries.
-
-    Returns None when none are present so the exchange target stays unset.
-    resource/audience are RFC 8707/8693 repeatable, so a list scopes the token
-    to multiple backends.
-    """
-    if not value:
-        return None
-    entries = [p.strip() for p in value.split(",")]
-    entries = [p for p in entries if p]
-    return entries or None
-
-
-sts_well_known_uri = os.getenv("KAGENT_STS_WELL_KNOWN_URI")
-propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
-token_resource = _split_csv(os.getenv("KAGENT_STS_RESOURCE"))
-token_audience = _split_csv(os.getenv("KAGENT_STS_AUDIENCE"))
-uvicorn_log_level = os.getenv("KAGENT_LOG_LEVEL", "info").lower()
-
-
-def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
-    if sts_well_known_uri or propagate_token:
-        sts_integration = None
-        if sts_well_known_uri:
-            sts_integration = ADKSTSIntegration(sts_well_known_uri)
-        return ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
-
-
-def maybe_add_skills(root_agent: BaseAgent):
-    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
-    if skills_directory:
-        logger.info(f"Adding skills from directory: {skills_directory}")
-        add_skills_tool_to_agent(skills_directory, root_agent)
+def create_sts_integration(settings: TokenPropagationConfig) -> Optional[ADKTokenPropagationPlugin]:
+    if settings.sts_well_known_uri or settings.enabled:
+        integration = ADKSTSIntegration(settings.sts_well_known_uri) if settings.sts_well_known_uri else None
+        return ADKTokenPropagationPlugin(
+            integration, resource=settings.resources or None, audience=settings.audiences or None
+        )
+    return None
 
 
 def maybe_add_skills_with_config(root_agent: BaseAgent, agent_config: Optional[AgentConfig] = None):
-    skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", None)
-    if skills_directory:
-        logger.info(f"Adding skills from directory: {skills_directory}")
-        add_skills_tool_to_agent(skills_directory, root_agent)
+    if agent_config and agent_config.skills_directory:
+        runtime = agent_config.runtime or RuntimeConfig()
+        add_skills_tool_to_agent(
+            agent_config.skills_directory,
+            root_agent,
+            file_search_tools=runtime.file_search_tools,
+            bash_venv_path=runtime.bash_venv_path,
+        )
 
 
 def parse_agent_card(data: dict) -> AgentCard:
@@ -80,8 +58,6 @@ def static(
     filepath: str = "/config",
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
-    app_cfg = KAgentConfig()
-
     # On Agent Substrate the config is injected as env vars rather than mounted
     # files; materialize them into `filepath` before loading. No-op on the Deployment path.
     materialize_from_env(filepath)
@@ -89,11 +65,14 @@ def static(
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)
     agent_config = AgentConfig.model_validate(config)
+    runtime = agent_config.runtime or RuntimeConfig()
+    app_cfg = KAgentConfig(runtime=runtime)
+    configure_logging(runtime.log_level or "info")
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = parse_agent_card(agent_card)
     plugins = None
-    sts_integration = create_sts_integration()
+    sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
         plugins = [sts_integration]
 
@@ -105,7 +84,7 @@ def static(
         plugins.append(LLMPassthroughPlugin())
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
+        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, runtime.token_propagation.enabled)
 
         maybe_add_skills_with_config(root_agent, agent_config)
 
@@ -122,7 +101,7 @@ def static(
     )
 
     server = kagent_app.build()
-    bootstrap(conv.KagentRuntimeValues.ADK_PYTHON, fallback_name=agent_card.name)
+    bootstrap(conv.KagentRuntimeValues.ADK_PYTHON, fallback_name=agent_card.name, config=runtime)
     instrument_app(server)
 
     uvicorn.run(
@@ -131,7 +110,7 @@ def static(
         port=port,
         workers=workers,
         reload=reload,
-        log_level=uvicorn_log_level,
+        log_level=runtime.log_level or "info",
         log_config=None,
     )
 
@@ -168,10 +147,22 @@ def run(
         bool, typer.Option("--local", help="Run with in-memory session service (for local development)")
     ] = False,
 ):
-    app_cfg = KAgentConfig()
+    # Load agent config to get stream setting
+    agent_config = None
+    config_path = os.path.join(working_dir, name, "config.json")
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        agent_config = AgentConfig.model_validate(config)
+    except FileNotFoundError:
+        logger.debug(f"No config.json found at {config_path}, using defaults")
+
+    runtime = agent_config.runtime if agent_config and agent_config.runtime else RuntimeConfig()
+    app_cfg = KAgentConfig(runtime=runtime)
+    configure_logging(runtime.log_level or "info")
 
     plugins = None
-    sts_integration = create_sts_integration()
+    sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
         plugins = [sts_integration]
 
@@ -186,16 +177,6 @@ def run(
         maybe_add_skills_with_config(root_agent, agent_config)
 
         return root_agent
-
-    # Load agent config to get stream setting
-    agent_config = None
-    config_path = os.path.join(working_dir, name, "config.json")
-    try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        agent_config = AgentConfig.model_validate(config)
-    except FileNotFoundError:
-        logger.debug(f"No config.json found at {config_path}, using defaults")
 
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
@@ -227,7 +208,7 @@ def run(
     else:
         server = kagent_app.build()
 
-    bootstrap(conv.KagentRuntimeValues.ADK_PYTHON, fallback_name=agent_card.name)
+    bootstrap(conv.KagentRuntimeValues.ADK_PYTHON, fallback_name=agent_card.name, config=runtime)
     instrument_app(server)
 
     uvicorn.run(
@@ -235,7 +216,7 @@ def run(
         host=host,
         port=port,
         workers=workers,
-        log_level=uvicorn_log_level,
+        log_level=runtime.log_level or "info",
         log_config=None,
     )
 
@@ -247,13 +228,14 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         name="test-agent",
         namespace="kagent",
     )
+    runtime = agent_config.runtime or RuntimeConfig()
     plugins = None
-    sts_integration = create_sts_integration()
+    sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
         plugins = [sts_integration]
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
+        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, runtime.token_propagation.enabled)
         maybe_add_skills_with_config(root_agent, agent_config)
         return root_agent
 

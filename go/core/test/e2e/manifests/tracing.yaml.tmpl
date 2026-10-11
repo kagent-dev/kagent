@@ -58,9 +58,6 @@ spec:
   codex: {}
   workload:
     image: ${KAGENT_E2E_CODEX_IMAGE}
-  env:
-  - name: OTEL_BSP_SCHEDULE_DELAY
-    value: "3600000"
   substrate:
     workerPoolRef:
       name: kagent-default

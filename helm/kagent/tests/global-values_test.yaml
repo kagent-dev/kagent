@@ -21,7 +21,7 @@ tests:
   - it: should rewrite the worker pool image onto global.imageRegistry
     set:
       global.imageRegistry: mirror.example
-      controller.substrate.enabled: true
+      controller.substrateClientCertificate.enabled: true
       substrateWorkerPool.create: true
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
     template: substrate-workerpool.yaml
@@ -31,7 +31,7 @@ tests:
           value: mirror.example/kagent-dev/substrate/ateom:v1
   - it: should leave the worker pool image alone when the global is unset
     set:
-      controller.substrate.enabled: true
+      controller.substrateClientCertificate.enabled: true
       substrateWorkerPool.create: true
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
     template: substrate-workerpool.yaml
@@ -42,7 +42,7 @@ tests:
   - it: should tolerate a trailing slash on global.imageRegistry
     set:
       global.imageRegistry: "mirror.example/"
-      controller.substrate.enabled: true
+      controller.substrateClientCertificate.enabled: true
       substrateWorkerPool.create: true
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
     template: substrate-workerpool.yaml
@@ -54,14 +54,6 @@ tests:
   # come from each harness spec, not from this env. The global must therefore
   # not touch it -- rewiring it would claim mirror coverage the runtime does
   # not have. This pins the removal itself.
-  - it: should keep the agent-runtime env on its per-image registry under the global
-    set:
-      global.imageRegistry: mirror.example
-    template: controller-configmap.yaml
-    asserts:
-      - equal:
-          path: data.IMAGE_REGISTRY
-          value: ghcr.io
   - it: should point the ui image at global.imageRegistry
     set:
       global.imageRegistry: mirror.example
@@ -163,13 +155,13 @@ tests:
           namespace: other
           any: true
 
-  - it: should fold controller.watchNamespaces into the RBAC scope under the global
+  - it: should fold controller.config.kubernetes.watchNamespaces into the RBAC scope under the global
     release:
       namespace: NAMESPACE
     set:
       global.watchNamespaces:
         - NAMESPACE
-      controller.watchNamespaces:
+      controller.config.kubernetes.watchNamespaces:
         - NAMESPACE
         - extra
     template: rbac/getter-role.yaml
@@ -186,10 +178,10 @@ tests:
     set:
       rbac.namespaces:
         - NAMESPACE
-      controller.watchNamespaces:
+      controller.config.kubernetes.watchNamespaces:
         - NAMESPACE
         - outside
     template: rbac/getter-role.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'controller\.watchNamespaces includes "outside" but rbac\.namespaces does not'
+          errorPattern: 'controller\.config\.kubernetes\.watchNamespaces includes "outside" but rbac\.namespaces does not'

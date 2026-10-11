@@ -12,6 +12,7 @@ import (
 func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (*kagenttelemetry.Providers, error) {
 	return kagenttelemetry.Init(ctx, kagenttelemetry.Options{
 		Runtime:        string(telemetry.Runtime),
+		Config:         telemetry.ExporterConfig(),
 		Defaults:       telemetry.ResourceDefaults(""),
 		SpanProcessors: []sdktrace.SpanProcessor{requestAttributesSpanProcessor{}},
 	})

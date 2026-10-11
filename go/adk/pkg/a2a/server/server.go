@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,7 +18,6 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -39,9 +37,11 @@ const (
 
 // ServerConfig holds configuration for the A2A server.
 type ServerConfig struct {
-	Host            string
-	Port            string
-	ShutdownTimeout time.Duration
+	// Nil uses the default; zero permits unlimited HTTP request size.
+	MaxContentLength *int64
+	Host             string
+	Port             string
+	ShutdownTimeout  time.Duration
 	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
 	HealthPaths   []string
 	HealthHandler http.Handler
@@ -69,8 +69,15 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		newInvocationInterceptor(logger, config.Telemetry, config.Flush)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
-	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
-		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, *maxContentLength)
+	maxContentLength := defaultMaxContentLength
+	if config.MaxContentLength != nil {
+		maxContentLength = *config.MaxContentLength
+	}
+	if maxContentLength < 0 {
+		return nil, fmt.Errorf("max content length must be nonnegative")
+	}
+	if maxContentLength > 0 {
+		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, maxContentLength)
 	}
 
 	healthPaths := defaultHealthPaths()
@@ -203,32 +210,6 @@ func (h rpcEndSignal) HandleRPC(ctx context.Context, rpcStats stats.RPCStats) {
 			close(ended)
 		}
 	}
-}
-
-func getMaxContentLength(logger *slog.Logger) *int64 {
-	value, ok := env.KagentA2AMaxContentLength.Lookup()
-	if !ok {
-		maxContentLength := defaultMaxContentLength
-		return &maxContentLength
-	}
-
-	trimmedValue := strings.TrimSpace(value)
-	switch strings.ToLower(trimmedValue) {
-	case "0", "none", "unlimited":
-		return nil
-	}
-
-	maxContentLength, err := strconv.ParseInt(trimmedValue, 10, 64)
-	if err != nil || maxContentLength < 0 {
-		logger.Info(
-			"invalid A2A request size limit, using default",
-			"environment_variable", env.KagentA2AMaxContentLength.Name(),
-			"value", value,
-			"default", defaultMaxContentLength,
-		)
-		maxContentLength = defaultMaxContentLength
-	}
-	return &maxContentLength
 }
 
 func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handler {

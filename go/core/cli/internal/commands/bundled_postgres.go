@@ -16,7 +16,6 @@ package commands
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
@@ -25,7 +24,6 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/postgressetup"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -69,8 +67,7 @@ func kubectl(ctx context.Context, stdin string, args ...string) ([]byte, error) 
 	return out, nil
 }
 
-func prepareBundledPostgres(ctx context.Context, namespace string) error {
-	image := cmp.Or(env.KagentBundledPostgresImage.Get(), env.KagentBundledPostgresImage.DefaultValue())
+func prepareBundledPostgres(ctx context.Context, namespace, image string) error {
 	manifest, err := bundledPostgresManifest(namespace, image)
 	if err != nil {
 		return err

@@ -1,4 +1,4 @@
-{{- if and .Values.controller.substrate.enabled .Values.substrateWorkerPool.create }}
+{{- if .Values.substrateWorkerPool.create }}
 {{- if not .Values.substrateWorkerPool.workerImage }}
 {{- fail "substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true" }}
 {{- end }}

@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	logger, err := logging.NewFromEnv(os.Stderr)
+	logger, err := logging.New(os.Stderr, "info")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -1,8 +1,7 @@
 import os
 
 import pytest
-
-from kagent.adk._config_materialize import materialize_from_env
+from kagent.core._config_materialize import materialize_from_env
 
 
 def test_materializes_present_env_vars(tmp_path, monkeypatch):
@@ -67,7 +66,7 @@ def test_unwritable_token_path_does_not_crash(tmp_path, monkeypatch):
     monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
     monkeypatch.setenv("KAGENT_TOKEN", "tok")
     monkeypatch.setattr(
-        "kagent.adk._config_materialize._KAGENT_TOKEN_PATH",
+        "kagent.core._config_materialize._KAGENT_TOKEN_PATH",
         str(tmp_path / "ro" / "tokens" / "kagent-token"),
     )
 

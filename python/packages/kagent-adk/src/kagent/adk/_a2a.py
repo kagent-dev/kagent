@@ -2,7 +2,6 @@
 import asyncio
 import faulthandler
 import logging
-import os
 from contextlib import asynccontextmanager
 from typing import Any, Callable, List, Optional
 
@@ -24,6 +23,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
+from kagent.core._runtime_config import RuntimeConfig
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentGrpcServerCallContextBuilder,
@@ -87,7 +87,8 @@ class KAgentApp:
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
-        self.a2a_grpc_address = a2a_grpc_address or f"[::]:{os.getenv('KAGENT_PORT') or '80'}"
+        runtime = agent_config.runtime if agent_config and agent_config.runtime else RuntimeConfig()
+        self.a2a_grpc_address = a2a_grpc_address or f"{runtime.host or '[::]'}:{runtime.port or '80'}"
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
@@ -179,7 +180,11 @@ class KAgentApp:
         app = FastAPI(lifespan=lifespan_manager)
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(
+                self.agent_config.runtime.max_content_length
+                if self.agent_config and self.agent_config.runtime
+                else None
+            ),
         )
 
         # Health check/readiness probe

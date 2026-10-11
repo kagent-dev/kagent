@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
@@ -159,11 +160,14 @@ const MaxCaptureBytes = 64 << 10
 // conversations, tasks, and users.
 //
 // A configuration without this section stays valid: the runtime keeps its
-// environment-derived service identity and capture stays off.
+// standalone service identity and capture stays off.
 type RuntimeTelemetry struct {
-	Runtime        Runtime `json:"runtime,omitempty"`
-	AgentName      string  `json:"agent_name,omitempty"`
-	AgentNamespace string  `json:"agent_namespace,omitempty"`
+	Exporters           *telemetry.Config `json:"exporters,omitempty"`
+	CaptureRawAPIBodies bool              `json:"capture_raw_api_bodies,omitempty"`
+	OpenAINativeTracing bool              `json:"openai_native_tracing,omitempty"`
+	Runtime             Runtime           `json:"runtime,omitempty"`
+	AgentName           string            `json:"agent_name,omitempty"`
+	AgentNamespace      string            `json:"agent_namespace,omitempty"`
 	// Provider and Model describe the model the agent is compiled against, in
 	// the GenAI conventions' vocabulary. They let a consumer attribute usage
 	// that a native runtime reports without naming the model.
@@ -175,6 +179,11 @@ type RuntimeTelemetry struct {
 
 // Validate rejects configurations a compiler could not have produced.
 func (t RuntimeTelemetry) Validate() error {
+	if t.Exporters != nil {
+		if err := t.Exporters.Validate(); err != nil {
+			return err
+		}
+	}
 	switch t.Runtime {
 	case "", RuntimeADKGo, RuntimeClaude, RuntimeCodex:
 	default:
@@ -389,4 +398,30 @@ func ResourceEnvironment(environment []string, owned []attribute.KeyValue) []str
 		return result
 	}
 	return append(result, prefix+merged)
+}
+
+// ExporterConfig returns the resolved exporters, disabled when omitted.
+func (t RuntimeTelemetry) ExporterConfig() telemetry.Config {
+	if t.Exporters == nil {
+		return telemetry.Config{}
+	}
+	return *t.Exporters
+}
+
+// WithEnvironment applies the standard GenAI instrumentation override for this
+// process. Compiler configuration never reads the controller environment.
+func (t RuntimeTelemetry) WithEnvironment(environment []string) RuntimeTelemetry {
+	for _, entry := range environment {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || name != "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT" {
+			continue
+		}
+		switch strings.ToUpper(strings.TrimSpace(value)) {
+		case "SPAN_ONLY", "SPAN_AND_EVENT", "TRUE":
+			t.CaptureContent = true
+		case "NO_CONTENT", "FALSE":
+			t.CaptureContent = false
+		}
+	}
+	return t
 }

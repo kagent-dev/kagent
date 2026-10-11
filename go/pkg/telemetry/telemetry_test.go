@@ -23,6 +23,25 @@ import (
 
 func restoreGlobals(t *testing.T) {
 	t.Helper()
+	environment := os.Environ()
+	clear := func() {
+		for _, entry := range os.Environ() {
+			name, _, _ := strings.Cut(entry, "=")
+			if strings.HasPrefix(name, "OTEL_") {
+				_ = os.Unsetenv(name)
+			}
+		}
+	}
+	clear()
+	t.Cleanup(func() {
+		clear()
+		for _, entry := range environment {
+			name, value, _ := strings.Cut(entry, "=")
+			if strings.HasPrefix(name, "OTEL_") {
+				_ = os.Setenv(name, value)
+			}
+		}
+	})
 	tracer, meter, propagator := otel.GetTracerProvider(), otel.GetMeterProvider(), otel.GetTextMapPropagator()
 	t.Cleanup(func() {
 		otel.SetTracerProvider(tracer)
@@ -51,23 +70,12 @@ func resourceAttributes(t *testing.T, opts Options) map[string]string {
 	return got
 }
 
-func TestResourceEnvironmentWinsOverDefaults(t *testing.T) {
-	t.Setenv("OTEL_SERVICE_NAME", "demo-claude")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=team,gen_ai.agent.name=demo-claude,kagent.runtime=forged")
-	got := resourceAttributes(t, Options{
-		Runtime:  conv.KagentRuntimeClaude,
-		Defaults: []attribute.KeyValue{semconv.ServiceName("fallback"), semconv.ServiceNamespace("default")},
-	})
-	for key, want := range map[string]string{
-		"service.name":           "demo-claude",
-		"service.namespace":      "team",
-		"gen_ai.agent.name":      "demo-claude",
-		"kagent.runtime":         conv.KagentRuntimeClaude,
-		"telemetry.sdk.language": "go",
-	} {
-		if got[key] != want {
-			t.Errorf("%s = %q, want %q", key, got[key], want)
-		}
+func TestEnvironmentResourceAttributesOverrideFileDefaults(t *testing.T) {
+	t.Setenv("OTEL_SERVICE_NAME", "override")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=override")
+	got := resourceAttributes(t, Options{Runtime: conv.KagentRuntimeClaude, Defaults: []attribute.KeyValue{semconv.ServiceName("fallback")}, Config: Config{ResourceAttributes: map[string]string{"service.name": "demo", "service.namespace": "team"}}})
+	if got["service.name"] != "override" || got["service.namespace"] != "override" || got["kagent.runtime"] != conv.KagentRuntimeClaude {
+		t.Fatal(got)
 	}
 }
 
@@ -107,39 +115,20 @@ func TestInitLeavesDisabledSignalsOff(t *testing.T) {
 	}
 }
 
-func TestInitKeepsWorkingSignalsWhenOneFails(t *testing.T) {
+func TestInitRejectsInvalidExporter(t *testing.T) {
 	restoreGlobals(t)
-	setExporters(t, "not-an-exporter", "none", "console")
-	providers, err := Init(t.Context(), Options{})
-	if err == nil || !strings.Contains(err.Error(), "traces") {
-		t.Fatalf("error = %v, want the traces failure", err)
+	providers, err := Init(t.Context(), Options{Config: Config{Traces: &OTLPConfig{Endpoint: "file:///invalid", Protocol: "grpc"}}})
+	if err == nil || !strings.Contains(err.Error(), "traces.endpoint") {
+		t.Fatalf("error = %v", err)
 	}
-	if providers.TracesEnabled() || providers.logger == nil {
-		t.Fatal("a failing signal must stay off without disabling the others")
-	}
-	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
-}
-
-func TestInitKeepsSignalsWithAMalformedResourceAttribute(t *testing.T) {
-	restoreGlobals(t)
-	setExporters(t, "console", "none", "none")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "team=a,b,service.instance.id=uid")
-	providers, err := Init(t.Context(), Options{})
-	if err == nil || !strings.Contains(err.Error(), "partial resource") {
-		t.Fatalf("error = %v, want the partial resource reported", err)
-	}
-	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
-	if !providers.TracesEnabled() {
-		t.Fatal("a malformed resource attribute turned traces off")
+	if providers.TracesEnabled() {
+		t.Fatal("invalid exporter enabled")
 	}
 }
 
 func TestInitAppliesDefaultsWithoutBaggage(t *testing.T) {
 	restoreGlobals(t)
 	setExporters(t, "none", "none", "none")
-	for _, value := range Defaults {
-		t.Setenv(value.Name(), "")
-	}
 	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "none")
 	if _, err := Init(t.Context(), Options{}); err != nil {
 		t.Fatal(err)
@@ -190,15 +179,10 @@ func TestForceFlushReturnsExportError(t *testing.T) {
 	}
 }
 
-func TestWithDefaultsKeepsExplicitSettings(t *testing.T) {
-	got := WithDefaults([]string{"PATH=/bin", "OTEL_PROPAGATORS=b3", "OTEL_EXPORTER_OTLP_COMPRESSION="})
-	want := []string{
-		"PATH=/bin", "OTEL_PROPAGATORS=b3", "OTEL_EXPORTER_OTLP_COMPRESSION=",
-		"OTEL_EXPORTER_OTLP_COMPRESSION=gzip",
-		"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION=base2_exponential_bucket_histogram",
-	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("WithDefaults = %v, want %v", got, want)
+func TestChildEnvironmentPreservesOverrides(t *testing.T) {
+	got := Environment([]string{"PATH=/bin", "OTEL_PROPAGATORS=baggage", "OTEL_TRACES_EXPORTER=console", "OTEL_EXPORTER_OTLP_HEADERS=secret"}, Config{})
+	if !slices.Contains(got, "PATH=/bin") || !slices.Contains(got, "OTEL_TRACES_EXPORTER=console") || !slices.Contains(got, "OTEL_PROPAGATORS=baggage") || !slices.Contains(got, "OTEL_EXPORTER_OTLP_HEADERS=secret") {
+		t.Fatal(got)
 	}
 }
 
