@@ -652,53 +652,52 @@ func TestExecuteCommand(t *testing.T) {
 	}
 }
 
-func TestSanitizeEnv(t *testing.T) {
-	// Same cases as the Python test, so both runtimes stay in sync.
-	secret := []string{
-		"OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-		"GOOGLE_API_KEY", "SERPER_API_KEY", "LANGSMITH_API_KEY",
-		"GRAFANA_SERVICE_ACCOUNT_TOKEN", "DATABASE_PASSWORD", "MY_SECRET",
-		"AWS_SECRET_ACCESS_KEY", "SSH_PRIVATE_KEY", "GIT_CREDENTIAL",
-		"GIT_CREDENTIALS", "GOOGLE_APPLICATION_CREDENTIALS", "AWS_ACCESS_KEY_ID",
-		"AZURE_AD_TOKEN", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
-		"openai_api_key",
+func TestCommandEnv(t *testing.T) {
+	kept := []string{
+		"PATH=/usr/bin", "HOME=/home/user", "USER=user", "LOGNAME=user",
+		"LANG=en_US.UTF-8", "LC_ALL=C.UTF-8", "LC_CTYPE=C.UTF-8", "TERM=xterm",
+		"TZ=UTC", "TMPDIR=/tmp", "SSL_CERT_FILE=/etc/ssl/ca.pem",
+		"SSL_CERT_DIR=/etc/ssl/certs", "CURL_CA_BUNDLE=/etc/ssl/ca.pem",
+		"REQUESTS_CA_BUNDLE=/etc/ssl/ca.pem", "GIT_SSL_CAINFO=/etc/ssl/ca.pem",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/ca.pem", "AWS_CA_BUNDLE=/etc/ssl/ca.pem",
 	}
-	safe := []string{
-		"PATH=/usr/bin", "HOME=/home/user", "PYTHONPATH=/some/path",
-		"LANG=en_US.UTF-8", "TOKENIZERS_PARALLELISM=true",
-		"GOOGLE_CLOUD_PROJECT=my-project", "AWS_REGION=us-east-1",
-		"EMPTY=", "WITH_EQUALS=a=b",
+	withheld := []string{
+		"OPENAI_API_KEY=v", "ANTHROPIC_API_KEY=v", "AZURE_AD_TOKEN=v",
+		"GOOGLE_APPLICATION_CREDENTIALS=v", "AWS_ACCESS_KEY_ID=v",
+		"AWS_SECRET_ACCESS_KEY=v", "AWS_SESSION_TOKEN=v",
+		"KAGENT_CONFIG_JSON={}", "KAGENT_NAME=agent", "KAGENT_API_URL=http://kagent",
+		"KAGENT_POSTGRES_DATABASE_URL=postgres://u:p@db/kagent",
+		"HTTPS_PROXY=http://u:p@proxy:3128", "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel",
+		"PWD=/runtime", "path=/lowercase", "LCX=v", "WITH_EQUALS=a=b",
 	}
+	environ := append(append([]string{}, withheld...), kept...)
 
-	environ := append([]string{}, safe...)
-	for _, name := range secret {
-		environ = append(environ, name+"=value")
-	}
-
-	got := sanitizeEnv(environ)
-	if strings.Join(got, "\n") != strings.Join(safe, "\n") {
-		t.Errorf("sanitizeEnv() = %q, want %q", got, safe)
+	got := commandEnv(environ, "/work")
+	want := append(append([]string{}, kept...), "PWD=/work")
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("commandEnv() = %q, want %q", got, want)
 	}
 
 	// nil would make the command inherit everything, so it must not be nil.
-	if got := sanitizeEnv([]string{"OPENAI_API_KEY=value"}); got == nil {
-		t.Error("sanitizeEnv() returned nil for an all-secret environment")
+	if got := commandEnv(nil, "/work"); len(got) != 1 || got[0] != "PWD=/work" {
+		t.Errorf("commandEnv(nil) = %q, want only PWD", got)
 	}
 }
 
-func TestExecuteCommand_StripsSecretEnv(t *testing.T) {
+func TestExecuteCommand_WithholdsRuntimeEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-leak")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "aws-leak")
-	t.Setenv("KAGENT_TEST_SAFE_VAR", "kept")
+	t.Setenv("KAGENT_CONFIG_JSON", "{}")
+	t.Setenv("LANG", "C.UTF-8")
+	workingDir := t.TempDir()
 
 	result, err := NewCommandExecutor().ExecuteCommand(context.Background(),
-		`echo "anthropic=${ANTHROPIC_API_KEY:-unset} aws=${AWS_SECRET_ACCESS_KEY:-unset} safe=${KAGENT_TEST_SAFE_VAR:-unset}"`,
-		t.TempDir())
+		`echo "${ANTHROPIC_API_KEY:-unset} ${KAGENT_CONFIG_JSON:-unset} ${LANG:-unset} $PWD"; command -v bash >/dev/null && echo found`,
+		workingDir)
 	if err != nil {
 		t.Fatalf("ExecuteCommand() error = %v", err)
 	}
 
-	if want := "anthropic=unset aws=unset safe=kept"; result != want {
+	if want := "unset unset C.UTF-8 " + workingDir + "\nfound"; result != want {
 		t.Errorf("ExecuteCommand() = %q, want %q", result, want)
 	}
 }
