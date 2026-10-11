@@ -140,24 +140,24 @@ jobs:
               pullPolicy: Always
             service:
               type: LoadBalancer
-            config:
-              gateway:
-                push:
-                  allowHttp: true
-                  allowPrivateNetworks: true
-              sandboxes:
-                guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
+          config:
+            gateway:
+              push:
+                allowHttp: true
+                allowPrivateNetworks: true
+            sandboxes:
+              guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
+            telemetry:
+              traces:
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+              metrics:
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+            runtimeDefaults:
               telemetry:
                 traces:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
                 metrics:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
-              runtimeDefaults:
-                telemetry:
-                  traces:
-                    endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
-                  metrics:
-                    endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
           ui:
             replicas: 0
           kmcp:

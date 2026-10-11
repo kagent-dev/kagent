@@ -103,7 +103,7 @@ URL, including the query string. Each attempt has a fresh `jti`. Acknowledge
 accepted callbacks promptly with 2xx; use your own A2A credentials to call
 `GetTask`.
 
-Helm chooses the issuer from `controller.config.gateway.push.issuer`,
+Helm chooses the issuer from `config.gateway.push.issuer`,
 `ui.externalUrl`, then the in-cluster gateway URL; outside Helm,
 `gateway.push.issuer` defaults to `gateway.publicUrl`. Keep the issuer stable.
 Restart all controller Pods together after rotating the key to avoid replicas
@@ -111,8 +111,8 @@ serving different JWKS during rotation.
 
 HTTPS and public destinations are required by default. Operators can enable
 HTTP and private, loopback, or link-local destinations with
-`controller.config.gateway.push.allowHttp` and
-`controller.config.gateway.push.allowPrivateNetworks`. These exceptions are
+`config.gateway.push.allowHttp` and
+`config.gateway.push.allowPrivateNetworks`. These exceptions are
 needed for some in-cluster test receivers; only enable them for trusted
 networks. The sender checks resolved addresses at connection time and does not
 follow redirects.

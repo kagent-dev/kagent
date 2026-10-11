@@ -41,9 +41,9 @@ tests:
   - it: preserves explicit false and zero duration
     template: controller-configmap.yaml
     set:
-      controller.config.sessions.idleTtl: 0s
-      controller.config.metrics.secure: false
-      controller.config.kubernetes.leaderElection: false
+      config.sessions.idleTtl: 0s
+      config.metrics.secure: false
+      config.kubernetes.leaderElection: false
     asserts:
       - matchRegex:
           path: data["controller.yaml"]
@@ -58,9 +58,9 @@ tests:
   - it: serializes telemetry for controller and runtimes independently
     template: controller-configmap.yaml
     set:
-      controller.config.telemetry.traces.endpoint: http://controller-collector:4317
-      controller.config.runtimeDefaults.telemetry.logs.endpoint: http://runtime-collector:4318/v1/logs
-      controller.config.runtimeDefaults.telemetry.logs.protocol: http/protobuf
+      config.telemetry.traces.endpoint: http://controller-collector:4317
+      config.runtimeDefaults.telemetry.logs.endpoint: http://runtime-collector:4318/v1/logs
+      config.runtimeDefaults.telemetry.logs.protocol: http/protobuf
     asserts:
       - matchRegex:
           path: data["controller.yaml"]
@@ -102,8 +102,8 @@ tests:
   - it: uses explicit database and extension schemas
     template: controller-configmap.yaml
     set:
-      controller.config.database.schema: tenant
-      controller.config.database.vectorSchema: public
+      config.database.schema: tenant
+      config.database.vectorSchema: public
     asserts:
       - matchRegex:
           path: data["controller.yaml"]

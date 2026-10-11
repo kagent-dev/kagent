@@ -40,8 +40,8 @@ The registry describes the contract the runtimes are moving to. The next section
 
 ## Enabling export
 
-Controller telemetry is configured under `controller.config.telemetry` in Helm.
-Managed runtime defaults live separately under `controller.config.runtimeDefaults.telemetry`.
+Controller telemetry is configured under `config.telemetry` in Helm.
+Managed runtime defaults live separately under `config.runtimeDefaults.telemetry`.
 Each contains optional `traces`, `metrics`, and `logs` exporters with `endpoint`,
 `protocol` (`grpc` or `http/protobuf`), and `timeout` (a protobuf duration such as
 `10s`). An absent signal is disabled unless its process explicitly enables it
@@ -49,17 +49,16 @@ through OTEL environment variables. HTTP file endpoints include the signal path,
 for example `http://collector:4318/v1/traces`.
 
 ```yaml
-controller:
-  config:
+config:
+  telemetry:
+    traces:
+      endpoint: http://controller-collector:4317
+  runtimeDefaults:
     telemetry:
       traces:
-        endpoint: http://controller-collector:4317
-    runtimeDefaults:
-      telemetry:
-        traces:
-          endpoint: http://agent-collector:4317
-        captureContent: false
-        maxCaptureBytes: 16384
+        endpoint: http://agent-collector:4317
+      captureContent: false
+      maxCaptureBytes: 16384
 ```
 
 Each process resolves defaults, file settings, then its own `OTEL_*` overrides.

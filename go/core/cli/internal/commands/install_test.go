@@ -176,7 +176,7 @@ func TestInstallValuesFilesFollowDefaults(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("KAGENT_TEST_HELM_ARGS", argsPath)
 	t.Setenv("KAGENT_TEST_HELM_VALUES", valuesPath)
-	defaults := "controller:\n  config:\n    logging: {level: info}\n"
+	defaults := "config:\n  logging: {level: info}\n"
 	_, err := installChart(t.Context(), "kagent", "team", "./charts/", "v1", nil, []string{"operator.yaml", "local.yaml"}, defaults)
 	require.NoError(t, err)
 	args, err := os.ReadFile(argsPath)

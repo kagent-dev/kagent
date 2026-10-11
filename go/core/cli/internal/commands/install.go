@@ -165,10 +165,10 @@ func setupHelmConfig(chart *apiv1.ChartConfig, modelProvider v1alpha3.ModelProvi
 	result.inlineValues = `controller:
   substrateClientCertificate:
     enabled: true
-  config:
-    substrate:
-      apiEndpoint: dns:///api.ate-system.svc:443
-      routerUrl: http://atenet-router.ate-system.svc:80
+config:
+  substrate:
+    apiEndpoint: dns:///api.ate-system.svc:443
+    routerUrl: http://atenet-router.ate-system.svc:80
 `
 	return result
 }

@@ -382,7 +382,7 @@ tests:
     template: controller-deployment.yaml
     set:
       controller.metrics.enabled: true
-      controller.config.metrics.bindAddress: "127.0.0.1:9443"
+      config.metrics.bindAddress: "127.0.0.1:9443"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].ports
@@ -395,7 +395,7 @@ tests:
     template: controller-deployment.yaml
     set:
       controller.metrics.enabled: true
-      controller.config.metrics.bindAddress: "[::1]:9443"
+      config.metrics.bindAddress: "[::1]:9443"
     asserts:
       - contains:
           path: spec.template.spec.containers[0].ports

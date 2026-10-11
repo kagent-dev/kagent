@@ -513,7 +513,7 @@ helm-install-provider: helm-version check-api-key
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
-		--set controller.config.logging.level=debug \
+		--set config.logging.level=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
@@ -680,7 +680,7 @@ otel-collector-kind: ## Install the reference OpenTelemetry Collector into the k
 	helm upgrade --install kagent-otel opentelemetry-collector --repo https://open-telemetry.github.io/opentelemetry-helm-charts \
 		--version $(OTEL_COLLECTOR_CHART_VERSION) --kube-context kind-$(KIND_CLUSTER_NAME) --namespace observability --create-namespace \
 		-f examples/observability/collector-values.yaml -f examples/observability/collector-local.yaml
-	@echo "Point kagent at it with --set-string controller.config.runtimeDefaults.telemetry.traces.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317"
+	@echo "Point kagent at it with --set-string config.runtimeDefaults.telemetry.traces.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317"
 
 .PHONY: kind-debug
 kind-debug: ## Install btop/htop inside the kind control-plane container and launch btop
