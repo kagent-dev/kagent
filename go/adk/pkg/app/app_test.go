@@ -86,7 +86,6 @@ func TestNew_ProvidedController(t *testing.T) {
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
-	t.Setenv("KAGENT_PORT", "")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
@@ -94,7 +93,6 @@ func TestApplyDefaults_Port(t *testing.T) {
 }
 
 func TestApplyDefaults_PortExplicit(t *testing.T) {
-	t.Setenv("KAGENT_PORT", "9090")
 	cfg := applyDefaults(AppConfig{Port: "3000"})
 	if cfg.Port != "3000" {
 		t.Errorf("expected port %q, got %q", "3000", cfg.Port)
@@ -116,8 +114,6 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 }
 
 func TestBuildAppName_FromAgentCard(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
@@ -125,8 +121,6 @@ func TestBuildAppName_FromAgentCard(t *testing.T) {
 }
 
 func TestBuildAppName_Default(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{})
 	if name != defaultAppName {
 		t.Errorf("expected %q, got %q", defaultAppName, name)

@@ -229,7 +229,7 @@ func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentC
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
 		appName := namespace + "__NS__" + name
-		logger.Info("built app_name from environment variables",
+		logger.Info("built app_name from runtime identity",
 			"kagent_namespace", kagentNamespace,
 			"kagent_name", kagentName,
 			"app_name", appName)

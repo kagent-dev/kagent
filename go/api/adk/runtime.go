@@ -12,8 +12,9 @@ import (
 // RuntimeConfig configures the root process. Subagents inherit these settings.
 // Session and Actor identity are projected separately by Substrate on launch.
 type RuntimeConfig struct {
-	ControlPlaneURL  string                   `json:"control_plane_url,omitempty"`
-	GatewayURL       string                   `json:"gateway_url,omitempty"`
+	ControlPlaneURL string `json:"control_plane_url,omitempty"`
+	GatewayURL      string `json:"gateway_url,omitempty"`
+	// Name and Namespace identify the runnable Agent Kubernetes resource.
 	Name             string                   `json:"name,omitempty"`
 	Namespace        string                   `json:"namespace,omitempty"`
 	LogLevel         string                   `json:"log_level,omitempty"`
