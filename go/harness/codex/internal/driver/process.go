@@ -236,10 +236,8 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				}
 				if expose {
 					// Every pause is inside a tool, and Codex reports usage only after the tools,
-					// so the open call ends here unless its first tool already ended it.
-					if translator.modelCallEnd.IsZero() {
-						translator.modelCallEnd = translator.now()
-					}
+					// so the open calls end here unless their first tools already ended them.
+					translator.endOpenCalls()
 					return runtime.Outcome{Pending: &pendingTurn{
 						driver: d, session: session, request: request,
 						id: append(json.RawMessage(nil), message.ID...),

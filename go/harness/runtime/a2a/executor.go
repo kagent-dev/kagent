@@ -16,6 +16,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,6 +40,7 @@ type Executor struct {
 	runner       Runner
 	continuation ContinuationStore
 	telemetry    tracing.RuntimeTelemetry
+	metrics      genAIMetrics
 
 	mu sync.Mutex
 	// state serializes access to the Actor's one native conversation. It also
@@ -105,6 +107,8 @@ type executionSink struct {
 	ended          *endedTools
 	// compiled names the model when the driver reports none.
 	compiled tracing.RuntimeTelemetry
+	// inferenceCalls and toolCalls count the agent's own calls in this segment.
+	inferenceCalls, toolCalls int64
 }
 
 var (
@@ -122,7 +126,12 @@ func New(runner Runner, continuation ContinuationStore, telemetry tracing.Runtim
 	if err := telemetry.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid runtime telemetry: %w", err)
 	}
-	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry}, nil
+	metrics, err := newGenAIMetrics(tracing.Meter(runtimeScope), telemetry.AgentName)
+	if err != nil {
+		// Missing metrics must not stop the runtime, so the error is only reported.
+		otel.Handle(fmt.Errorf("create GenAI metrics: %w", err))
+	}
+	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry, metrics: metrics}, nil
 }
 
 // Execute validates and serializes one A2A request onto the native Runner.
@@ -139,11 +148,16 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			invocation = nil
 		}
 		// The native process reports producer=runtime either way, so its spans are written even untraced.
-		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx), ended: newEndedTools(), compiled: e.telemetry}
+		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
 		result := tracing.Result{}
-		flushed := false
+		flushed, counted, ran := false, false, false
 		endInvocation := func() {
 			sink.endOpenTools()
+			// A request the agent never ran, such as one rejected as busy, has no calls to count.
+			if ran && !counted {
+				counted = true
+				e.metrics.recordInvocation(ctx, sink.inferenceCalls, sink.toolCalls)
+			}
 			invocation.SetAttributes(sink.captureAttributes(result)...)
 			if _, err := invocation.End(ctx, result); err != nil {
 				a2alog.Error(ctx, "failed to export A2A invocation traces", err)
@@ -291,6 +305,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		var runErr error
 		// activate returns a handle only when this request continues the task
 		// currently waiting for input. New turns enter through Runner.Run.
+		ran = true
 		if continued == nil {
 			outcome, runErr = e.runner.Run(runCtx, turn, sink)
 		} else {

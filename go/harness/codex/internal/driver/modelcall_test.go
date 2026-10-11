@@ -3,6 +3,7 @@ package driver
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -175,8 +176,13 @@ func TestModelCallTiming(t *testing.T) {
 	completed := func(id string) string {
 		return `{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"` + id + `","command":"ls","cwd":"/w","status":"completed","exitCode":0}}}`
 	}
+	spawn := func(method string, receivers ...string) string {
+		item, _ := json.Marshal(map[string]any{"type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent", "receiverThreadIds": append([]string{}, receivers...)})
+		return fmt.Sprintf(`{"method":%q,"params":{"threadId":"thread","turnId":"turn","item":%s}}`, method, item)
+	}
+	childStarted := `{"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"commandExecution","id":"c9","command":"ls","cwd":"/w","status":"inProgress"}}}`
 	type step struct {
-		raw string // "" sends the next usage report
+		raw string // "" or "usage:<thread>" sends the next usage report, "pause" pauses the turn
 		at  int64
 	}
 	for _, tc := range []struct {
@@ -200,22 +206,60 @@ func TestModelCallTiming(t *testing.T) {
 			steps: []step{{started("c1"), 105}, {completed("c1"), 130}, {"", 131}, {"", 135}},
 			want:  [][2]int64{{100, 105}, {131, 135}},
 		},
+		{
+			name:  "a subagent call starts at its spawn and ends at its first tool",
+			steps: []step{{spawn("item/started"), 101}, {spawn("item/completed", "child"), 102}, {childStarted, 105}, {"usage:child", 107}},
+			want:  [][2]int64{{102, 105}},
+		},
+		{
+			name:  "a subagent's next call starts at its previous usage",
+			steps: []step{{spawn("item/started"), 101}, {spawn("item/completed", "child"), 102}, {"usage:child", 106}, {"usage:child", 109}},
+			want:  [][2]int64{{102, 106}, {106, 109}},
+		},
+		{
+			name: "a pause ends the open call of every thread",
+			steps: []step{
+				{spawn("item/started"), 101}, {spawn("item/completed", "child"), 102}, {"pause", 104},
+				{"usage:child", 110}, {"", 111},
+			},
+			want: [][2]int64{{102, 104}, {100, 101}},
+		},
+		{
+			name: "a subagent tool leaves the main call open",
+			steps: []step{
+				{spawn("item/started"), 101}, {spawn("item/completed", "child"), 102}, {"", 103},
+				{childStarted, 105}, {"", 108},
+			},
+			want: [][2]int64{{100, 101}, {103, 108}},
+		},
+		{
+			name:  "a second spawn listing keeps the subagent's start",
+			steps: []step{{spawn("item/started", "child"), 101}, {spawn("item/completed", "child"), 104}, {"usage:child", 106}},
+			want:  [][2]int64{{101, 106}},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := time.Unix(100, 0)
 			sink := &recordingSink{}
 			translator := newEventTranslator("thread", "turn")
 			translator.now = func() time.Time { return clock }
-			translator.modelCallStart = clock
+			translator.modelCalls[translator.threadID] = callTime{start: clock}
 			reports := int64(0)
 			for _, step := range tc.steps {
 				clock = time.Unix(step.at, 0)
 				message := rpcMessage{}
-				if step.raw == "" {
+				thread, isUsage := strings.CutPrefix(step.raw, "usage:")
+				switch {
+				case step.raw == "pause":
+					translator.endOpenCalls()
+					continue
+				case step.raw == "" || isUsage:
 					reports++
-					message = usageMessage(t, "thread", "turn", 10*reports, 10*reports)
-				} else if err := json.Unmarshal([]byte(step.raw), &message); err != nil {
-					t.Fatal(err)
+					message = usageMessage(t, cmp.Or(thread, "thread"), "turn", 10*reports, 10*reports)
+				default:
+					if err := json.Unmarshal([]byte(step.raw), &message); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if _, _, err := translator.translate(message, sink); err != nil {
 					t.Fatal(err)

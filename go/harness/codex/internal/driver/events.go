@@ -20,21 +20,24 @@ type eventTranslator struct {
 	tools    map[string]activeTool
 
 	now func() time.Time
-	// Codex sends no call times: a model call starts when the previous call's usage arrives
-	// and ends when its first tool starts or the turn pauses for input.
-	modelCallStart time.Time
-	modelCallEnd   time.Time
+	// modelCalls holds the current model call of each thread, keyed by thread ID. Codex sends no call times.
+	modelCalls map[string]callTime
 	// seenTotals holds the last running total per thread, to skip a replayed notification.
 	seenTotals map[string]codexUsage
 	// spawnedBy maps a subagent thread to the spawnAgent call that started it.
 	spawnedBy map[string]string
 }
 
+// callTime estimates a model call. It starts at the previous call's usage, or when its thread
+// starts, and ends when its first tool starts or the turn pauses for input.
+type callTime struct{ start, end time.Time }
+
 func newEventTranslator(threadID, turnID string) *eventTranslator {
 	now := time.Now
 	return &eventTranslator{
-		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool),
-		now: now, modelCallStart: now(), seenTotals: map[string]codexUsage{}, spawnedBy: map[string]string{},
+		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool), now: now,
+		modelCalls: map[string]callTime{threadID: {start: now()}},
+		seenTotals: map[string]codexUsage{}, spawnedBy: map[string]string{},
 	}
 }
 
@@ -138,7 +141,7 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 		}
 		t.seenTotals[params.ThreadID] = total
 	}
-	// Subagent calls have no start time, so their spans are zero-length at arrival.
+	// A thread not known yet has no start time, so its call is zero-length at arrival.
 	last, end := params.TokenUsage.Last, t.now()
 	call := runtime.ModelCall{
 		InputTokens:           last.InputTokens,
@@ -150,12 +153,21 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 		Start:                 end,
 		End:                   end,
 	}
-	if own {
-		call.Start, call.End = t.modelCallStart, cmp.Or(t.modelCallEnd, end)
-		t.modelCallStart, t.modelCallEnd = end, time.Time{}
+	if timing, known := t.modelCalls[params.ThreadID]; known {
+		call.Start, call.End = timing.start, cmp.Or(timing.end, end)
+		t.modelCalls[params.ThreadID] = callTime{start: end}
 	}
 	sink.ModelCall(call)
 	return nil
+}
+
+// endOpenCalls ends the open call of every thread at a pause, so no call counts the wait.
+func (t *eventTranslator) endOpenCalls() {
+	for thread, call := range t.modelCalls {
+		if call.end.IsZero() {
+			t.modelCalls[thread] = callTime{start: call.start, end: t.now()}
+		}
+	}
 }
 
 // subagentItem translates an item of a spawned subagent, so its tools go under the spawn call.
@@ -236,6 +248,9 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 			for _, receiver := range item.ReceiverThreadIDs {
 				if receiver != t.threadID && receiver != thread {
 					t.spawnedBy[receiver] = item.ID
+					if _, started := t.modelCalls[receiver]; !started {
+						t.modelCalls[receiver] = callTime{start: t.now()}
+					}
 				}
 			}
 		}
@@ -256,9 +271,9 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 			}
 		}
 		t.tools[item.ID] = activeTool{name: name, server: mcpServer, thread: thread, parentToolID: parentToolID, arguments: item.Arguments}
-		// A subagent's tool does not end the main agent's model call.
-		if parentToolID == "" && t.modelCallEnd.IsZero() {
-			t.modelCallEnd = t.now()
+		// A tool ends the open call of its own thread only.
+		if call, open := t.modelCalls[thread]; open && call.end.IsZero() {
+			t.modelCalls[thread] = callTime{start: call.start, end: t.now()}
 		}
 		return sink.ToolCall(runtime.ToolCall{
 			ID: item.ID, Name: name, Arguments: arguments, MCPServer: mcpServer, MCPTool: mcpTool, ParentToolID: parentToolID,

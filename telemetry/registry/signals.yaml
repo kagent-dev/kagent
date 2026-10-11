@@ -285,7 +285,8 @@ span_refinements:
       canceled. Codex reports no finish reason, so its calls never have an
       error status. Codex also reports no call times, so a Codex call starts at
       the previous call's usage report and ends when its first tool starts or the
-      turn pauses for input, or at its own usage report otherwise.
+      turn pauses for input, or at its own usage report otherwise. The first call
+      of a Codex subagent starts when its `spawnAgent` call first names its thread.
     stability: development
     attributes:
       - ref: gen_ai.operation.name
@@ -374,6 +375,140 @@ metric_refinements:
         requirement_level:
           conditionally_required: The invocation failed.
         note: The same bounded kagent vocabulary as on the span.
+
+  - id: kagent.invoke_agent.inference_calls
+    ref: gen_ai.invoke_agent.inference_calls
+    brief: The model calls of one execution segment of a harness agent.
+    note: >
+      Recorded when the invoke_agent span kagent opens ends, if the agent ran.
+      Counts only the agent's own model calls, so a subagent's calls are not
+      counted. A call
+      that names an unknown parent tool is not counted either. A Codex call
+      whose usage arrives after a pause counts in the later segment. A call
+      reported when a paused turn is canceled is not counted.
+    stability: development
+    attributes:
+      - &invocation_agent
+        ref: gen_ai.agent.name
+        requirement_level: required
+        note: The compiled agent identity, `<agent>`.
+  - id: kagent.invoke_agent.tool_calls
+    ref: gen_ai.invoke_agent.tool_calls
+    brief: The tool calls of one execution segment of a harness agent.
+    note: >
+      Recorded when the invoke_agent span kagent opens ends, if the agent ran.
+      Counts only the agent's own tool calls, declined calls included, so a subagent's tools
+      are not counted. A tool that names an unknown parent tool is not counted
+      either.
+    stability: development
+    attributes:
+      - *invocation_agent
+  - id: kagent.execute_tool.duration
+    ref: gen_ai.execute_tool.duration
+    brief: The duration of one tool call of a harness turn.
+    note: >
+      Recorded with the execute_tool span, and equal to its duration. A declined
+      call has no span, so it has no duration either.
+    stability: development
+    attributes:
+      - ref: gen_ai.tool.name
+        requirement_level: required
+        note: The plain MCP tool name, as on the execute_tool span.
+      - ref: gen_ai.agent.name
+        requirement_level:
+          conditionally_required: The tool is the agent's own, not a subagent's.
+        note: >
+          The compiled agent identity, `<agent>`. Absent on a subagent's tool,
+          since Claude Code and Codex report no subagent name.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The call failed or never got a result.
+        note: The same bounded kagent vocabulary as on the execute_tool span.
+  - id: kagent.client.inference.duration
+    ref: gen_ai.client.inference.duration
+    brief: The duration of one model call of a harness turn.
+    note: >
+      Recorded with the chat span, and equal to its duration. Not recorded for a
+      zero-length call, such as a Codex call from a thread not known yet. Codex
+      reports no call times, so its durations are estimates, as on the chat span.
+    stability: development
+    attributes:
+      - &inference_operation
+        ref: gen_ai.operation.name
+        requirement_level: required
+        note: Always `chat`.
+      - &inference_provider
+        ref: gen_ai.provider.name
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - &inference_model
+        ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The call failed.
+        note: The same bounded kagent vocabulary as on the chat span.
+  - id: kagent.client.inference.operation.input_tokens
+    ref: gen_ai.client.inference.operation.input_tokens
+    brief: The input tokens of one model call of a harness turn.
+    note: >
+      Recorded with each chat span that reports usage. The input count of a
+      partial call is exact, so it is recorded too.
+    stability: development
+    attributes:
+      - *inference_operation
+      - *inference_provider
+      - *inference_model
+  - id: kagent.client.inference.operation.output_tokens
+    ref: gen_ai.client.inference.operation.output_tokens
+    brief: The output tokens of one model call of a harness turn.
+    note: >
+      Recorded with each chat span that reports usage. Not recorded for a
+      partial call, since its output count is a lower bound.
+    stability: development
+    attributes:
+      - *inference_operation
+      - *inference_provider
+      - *inference_model
+  - id: kagent.client.inference.usage.input_tokens
+    ref: gen_ai.client.inference.usage.input_tokens
+    brief: The input tokens of the model calls of harness turns.
+    note: &inference_usage_note >
+      Added with each chat span, with the same count. Not added when the count
+      is zero. A partial call adds its counts, which are a lower bound.
+    stability: development
+    attributes: &inference_usage_attributes
+      - *inference_operation
+      - *inference_provider
+      - *inference_model
+      - ref: gen_ai.token.modality
+        requirement_level: required
+        note: Always `unknown`, since the runtimes report no count by modality.
+  - id: kagent.client.inference.usage.output_tokens
+    ref: gen_ai.client.inference.usage.output_tokens
+    brief: The output tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+  - id: kagent.client.inference.usage.cache_read.input_tokens
+    ref: gen_ai.client.inference.usage.cache_read.input_tokens
+    brief: The cache read input tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+  - id: kagent.client.inference.usage.cache_write.input_tokens
+    ref: gen_ai.client.inference.usage.cache_write.input_tokens
+    brief: The cache write input tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+  - id: kagent.client.inference.usage.reasoning.output_tokens
+    ref: gen_ai.client.inference.usage.reasoning.output_tokens
+    brief: The reasoning output tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
 
 entity_refinements:
   - id: kagent.main_agent

@@ -26,6 +26,127 @@ This page lists what the [registry](../../telemetry/registry) defines.
 
 ## Metrics
 
+### `gen_ai.client.inference.duration`
+
+Refines `gen_ai.client.inference.duration` as `kagent.client.inference.duration`. Instrument: histogram. Unit: `s`. The duration of one model call of a harness turn. Recorded with the chat span, and equal to its duration. Not recorded for a zero-length call, such as a Codex call from a thread not known yet. Codex reports no call times, so its durations are estimates, as on the chat span.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `error.type` | conditionally required: The call failed. | The same bounded kagent vocabulary as on the chat span. |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.operation.input_tokens`
+
+Refines `gen_ai.client.inference.operation.input_tokens` as `kagent.client.inference.operation.input_tokens`. Instrument: histogram. Unit: `{token}`. The input tokens of one model call of a harness turn. Recorded with each chat span that reports usage. The input count of a partial call is exact, so it is recorded too.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.operation.output_tokens`
+
+Refines `gen_ai.client.inference.operation.output_tokens` as `kagent.client.inference.operation.output_tokens`. Instrument: histogram. Unit: `{token}`. The output tokens of one model call of a harness turn. Recorded with each chat span that reports usage. Not recorded for a partial call, since its output count is a lower bound.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.usage.cache_read.input_tokens`
+
+Refines `gen_ai.client.inference.usage.cache_read.input_tokens` as `kagent.client.inference.usage.cache_read.input_tokens`. Instrument: counter. Unit: `{token}`. The cache read input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `gen_ai.token.modality` | required | Always `unknown`, since the runtimes report no count by modality. |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.usage.cache_write.input_tokens`
+
+Refines `gen_ai.client.inference.usage.cache_write.input_tokens` as `kagent.client.inference.usage.cache_write.input_tokens`. Instrument: counter. Unit: `{token}`. The cache write input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `gen_ai.token.modality` | required | Always `unknown`, since the runtimes report no count by modality. |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.usage.input_tokens`
+
+Refines `gen_ai.client.inference.usage.input_tokens` as `kagent.client.inference.usage.input_tokens`. Instrument: counter. Unit: `{token}`. The input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `gen_ai.token.modality` | required | Always `unknown`, since the runtimes report no count by modality. |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.usage.output_tokens`
+
+Refines `gen_ai.client.inference.usage.output_tokens` as `kagent.client.inference.usage.output_tokens`. Instrument: counter. Unit: `{token}`. The output tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `gen_ai.token.modality` | required | Always `unknown`, since the runtimes report no count by modality. |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.client.inference.usage.reasoning.output_tokens`
+
+Refines `gen_ai.client.inference.usage.reasoning.output_tokens` as `kagent.client.inference.usage.reasoning.output_tokens`. Instrument: counter. Unit: `{token}`. The reasoning output tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.operation.name` | required | Always `chat`. |
+| `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | Semantic conventions for individual GenAI operations SHOULD clarify which kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted agent providers) apply when it is not clear from context. The attribute SHOULD be set based on the instrumentation's best knowledge and may differ from the actual upstream provider. For example, a client SDK may be configured against a proxy or hosting platform that transparently relays requests to a different provider. The `gen_ai.provider.name` attribute acts as a discriminator that identifies the GenAI telemetry format flavor specific to that provider within GenAI semantic conventions. It SHOULD be set consistently with provider-specific attributes and signals. For example, GenAI spans, metrics, and events related to AWS Bedrock should have the `gen_ai.provider.name` set to `aws.bedrock` and include applicable `aws.bedrock.*` attributes and are not expected to include `openai.*` attributes. |
+| `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that's been fine-tuned. |
+| `gen_ai.response.model` | recommended |  |
+| `gen_ai.token.modality` | required | Always `unknown`, since the runtimes report no count by modality. |
+| `server.address` | recommended | When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it's available. |
+| `server.port` | conditionally required: If `server.address` is set. | When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it's available. |
+
+### `gen_ai.execute_tool.duration`
+
+Refines `gen_ai.execute_tool.duration` as `kagent.execute_tool.duration`. Instrument: histogram. Unit: `s`. The duration of one tool call of a harness turn. Recorded with the execute_tool span, and equal to its duration. A declined call has no span, so it has no duration either.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `error.type` | conditionally required: The call failed or never got a result. | The same bounded kagent vocabulary as on the execute_tool span. |
+| `gen_ai.agent.name` | conditionally required: The tool is the agent's own, not a subagent's. | The compiled agent identity, `<agent>`. Absent on a subagent's tool, since Claude Code and Codex report no subagent name. |
+| `gen_ai.tool.name` | required | The plain MCP tool name, as on the execute_tool span. |
+| `gen_ai.tool.type` | recommended: If available. | Extension: A tool executed on the agent-side to directly call external APIs, bridging the gap between the agent and real-world systems. Agent-side operations involve actions that are performed by the agent on the server or within the agent's controlled environment. Function: A tool executed on the client-side, where the agent generates parameters for a predefined function, and the client executes the logic. Client-side operations are actions taken on the user's end or within the client application. Datastore: A tool used by the agent to access and query structured or unstructured external data for retrieval-augmented tasks or knowledge updates. |
+
 ### `gen_ai.invoke_agent.duration`
 
 Refines `gen_ai.invoke_agent.duration` as `kagent.invoke_agent.duration`. Instrument: histogram. Unit: `s`. The duration of one execution segment of a kagent agent. Recorded with the invoke_agent span kagent opens, and equal to its duration. A runtime that emits its own invoke_agent span reports its own metric, if any.
@@ -35,6 +156,22 @@ Refines `gen_ai.invoke_agent.duration` as `kagent.invoke_agent.duration`. Instru
 | `error.type` | conditionally required: The invocation failed. | The same bounded kagent vocabulary as on the span. |
 | `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
 | `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | This attribute SHOULD be populated if and only if the instrumented library allows to set only a single model per agent. It SHOULD NOT be populated for agents that support multiple models or dynamic selection. |
+
+### `gen_ai.invoke_agent.inference_calls`
+
+Refines `gen_ai.invoke_agent.inference_calls` as `kagent.invoke_agent.inference_calls`. Instrument: histogram. Unit: `{inference_call}`. The model calls of one execution segment of a harness agent. Recorded when the invoke_agent span kagent opens ends, if the agent ran. Counts only the agent's own model calls, so a subagent's calls are not counted. A call that names an unknown parent tool is not counted either. A Codex call whose usage arrives after a pause counts in the later segment. A call reported when a paused turn is canceled is not counted.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
+
+### `gen_ai.invoke_agent.tool_calls`
+
+Refines `gen_ai.invoke_agent.tool_calls` as `kagent.invoke_agent.tool_calls`. Instrument: histogram. Unit: `{tool_call}`. The tool calls of one execution segment of a harness agent. Recorded when the invoke_agent span kagent opens ends, if the agent ran. Counts only the agent's own tool calls, declined calls included, so a subagent's tools are not counted. A tool that names an unknown parent tool is not counted either.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `gen_ai.agent.name` | required | The compiled agent identity, `<agent>`. |
 
 ### `kagent.runtime_revision.gc.duration`
 
@@ -180,7 +317,7 @@ Refines `gen_ai.execute_tool.internal`, kind `internal`. One tool call of a harn
 
 ### `kagent.inference.client`
 
-Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call's usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise.
+Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call's usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |

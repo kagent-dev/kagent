@@ -115,9 +115,65 @@ KAGENT_MCP_SERVER_NAME: Final = "kagent.mcp.server.name"
 KAGENT_RUNTIME: Final = "kagent.runtime"
 """The framework or harness that runs an agent."""
 
+GEN_AI_CLIENT_INFERENCE_DURATION: Final = "gen_ai.client.inference.duration"
+GEN_AI_CLIENT_INFERENCE_DURATION_UNIT: Final = "s"
+GEN_AI_CLIENT_INFERENCE_DURATION_DESCRIPTION: Final = "The duration of one model call of a harness turn."
+
+GEN_AI_CLIENT_INFERENCE_OPERATION_INPUT_TOKENS: Final = "gen_ai.client.inference.operation.input_tokens"
+GEN_AI_CLIENT_INFERENCE_OPERATION_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_OPERATION_INPUT_TOKENS_DESCRIPTION: Final = (
+    "The input tokens of one model call of a harness turn."
+)
+
+GEN_AI_CLIENT_INFERENCE_OPERATION_OUTPUT_TOKENS: Final = "gen_ai.client.inference.operation.output_tokens"
+GEN_AI_CLIENT_INFERENCE_OPERATION_OUTPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_OPERATION_OUTPUT_TOKENS_DESCRIPTION: Final = (
+    "The output tokens of one model call of a harness turn."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_READ_INPUT_TOKENS: Final = "gen_ai.client.inference.usage.cache_read.input_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_READ_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_READ_INPUT_TOKENS_DESCRIPTION: Final = (
+    "The cache read input tokens of the model calls of harness turns."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_WRITE_INPUT_TOKENS: Final = "gen_ai.client.inference.usage.cache_write.input_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_WRITE_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_WRITE_INPUT_TOKENS_DESCRIPTION: Final = (
+    "The cache write input tokens of the model calls of harness turns."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_INPUT_TOKENS: Final = "gen_ai.client.inference.usage.input_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_INPUT_TOKENS_DESCRIPTION: Final = "The input tokens of the model calls of harness turns."
+
+GEN_AI_CLIENT_INFERENCE_USAGE_OUTPUT_TOKENS: Final = "gen_ai.client.inference.usage.output_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_OUTPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_OUTPUT_TOKENS_DESCRIPTION: Final = (
+    "The output tokens of the model calls of harness turns."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_REASONING_OUTPUT_TOKENS: Final = "gen_ai.client.inference.usage.reasoning.output_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_REASONING_OUTPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_REASONING_OUTPUT_TOKENS_DESCRIPTION: Final = (
+    "The reasoning output tokens of the model calls of harness turns."
+)
+
+GEN_AI_EXECUTE_TOOL_DURATION: Final = "gen_ai.execute_tool.duration"
+GEN_AI_EXECUTE_TOOL_DURATION_UNIT: Final = "s"
+GEN_AI_EXECUTE_TOOL_DURATION_DESCRIPTION: Final = "The duration of one tool call of a harness turn."
+
 GEN_AI_INVOKE_AGENT_DURATION: Final = "gen_ai.invoke_agent.duration"
 GEN_AI_INVOKE_AGENT_DURATION_UNIT: Final = "s"
 GEN_AI_INVOKE_AGENT_DURATION_DESCRIPTION: Final = "The duration of one execution segment of a kagent agent."
+
+GEN_AI_INVOKE_AGENT_INFERENCE_CALLS: Final = "gen_ai.invoke_agent.inference_calls"
+GEN_AI_INVOKE_AGENT_INFERENCE_CALLS_UNIT: Final = "{inference_call}"
+GEN_AI_INVOKE_AGENT_INFERENCE_CALLS_DESCRIPTION: Final = "The model calls of one execution segment of a harness agent."
+
+GEN_AI_INVOKE_AGENT_TOOL_CALLS: Final = "gen_ai.invoke_agent.tool_calls"
+GEN_AI_INVOKE_AGENT_TOOL_CALLS_UNIT: Final = "{tool_call}"
+GEN_AI_INVOKE_AGENT_TOOL_CALLS_DESCRIPTION: Final = "The tool calls of one execution segment of a harness agent."
 
 KAGENT_RUNTIME_REVISION_GC_DURATION: Final = "kagent.runtime_revision.gc.duration"
 KAGENT_RUNTIME_REVISION_GC_DURATION_UNIT: Final = "s"

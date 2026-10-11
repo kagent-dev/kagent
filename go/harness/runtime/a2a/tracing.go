@@ -76,6 +76,7 @@ type spanOwner struct {
 	invocation     *tracing.Invocation
 	conversationID string
 	began          time.Time
+	metrics        genAIMetrics
 }
 
 // pendingTool is a call whose execute_tool span is written once its outcome is known.
@@ -103,6 +104,9 @@ func (s *executionSink) startToolSpan(event runtime.ToolCall) {
 	// and then its span would never be written.
 	if parent == event.ID {
 		parent = ""
+	}
+	if parent == "" {
+		s.toolCalls++
 	}
 	// The plain MCP tool name groups a tool the same way in all runtimes.
 	s.tools[event.ID] = pendingTool{
@@ -178,10 +182,10 @@ func capturedJSON(value any, limit int, key, truncatedKey attribute.Key) []attri
 	return []attribute.KeyValue{key.String(text), truncatedKey.Bool(truncated)}
 }
 
-func newSpanOwner(ctx context.Context, reqCtx *a2asrv.ExecutorContext) spanOwner {
+func newSpanOwner(ctx context.Context, reqCtx *a2asrv.ExecutorContext, metrics genAIMetrics) spanOwner {
 	owner := spanOwner{
 		parent: trace.SpanFromContext(ctx), tracer: tracerOf(ctx), invocation: tracing.InvocationFromContext(ctx),
-		began: time.Now(),
+		began: time.Now(), metrics: metrics,
 	}
 	if reqCtx != nil {
 		owner.conversationID = reqCtx.ContextID
@@ -224,6 +228,7 @@ func (tool pendingTool) record(end time.Time, errorType string, result ...attrib
 		write(under)
 	}
 	span.End(trace.WithTimestamp(end))
+	tool.owner.metrics.recordTool(trace.ContextWithSpan(context.Background(), span), tool, end, errorType)
 	return span
 }
 
@@ -304,6 +309,9 @@ func tracerOf(spanCtx context.Context) trace.Tracer {
 func (s *executionSink) ModelCall(event runtime.ModelCall) {
 	event.Provider = cmp.Or(event.Provider, s.compiled.Provider)
 	event.RequestModel = cmp.Or(event.RequestModel, s.compiled.Model)
+	if event.ParentToolID == "" {
+		s.inferenceCalls++
+	}
 	if s.nestUnderTool(event.ParentToolID, func(under spanOwner) { under.chat(event) }) {
 		return
 	}
@@ -346,8 +354,9 @@ func (o spanOwner) chat(event runtime.ModelCall) {
 	if event.StopReason != "" {
 		attributes = append(attributes, conv.GenAIResponseFinishReasonsKey.StringSlice([]string{event.StopReason}))
 	}
-	errorType := cmp.Or(event.ErrorType, errorTypeModel)
+	errorType := ""
 	if failed {
+		errorType = cmp.Or(event.ErrorType, errorTypeModel)
 		attributes = append(attributes, attribute.String(tracing.AttributeErrorType, errorType))
 	}
 	if event.CacheReadTokens != 0 {
@@ -364,4 +373,5 @@ func (o spanOwner) chat(event runtime.ModelCall) {
 		span.SetStatus(codes.Error, errorType)
 	}
 	span.End(trace.WithTimestamp(event.End))
+	o.metrics.recordInference(trace.ContextWithSpan(context.Background(), span), event, errorType)
 }
