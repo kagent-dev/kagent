@@ -441,7 +441,7 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	case EventToolActivity:
 		switch event.ToolPhase {
 		case "started":
-			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata}
+			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata, ParentToolID: event.ParentToolID}
 			call.MCPServer, call.MCPTool = splitMCPName(event.ToolName)
 			return nil, sink.ToolCall(call)
 		case "completed":

@@ -28,6 +28,8 @@ func TestModelCallsFromCaptures(t *testing.T) {
 		wantStop                      string
 		wantStops                     []string
 		wantIDs                       []string // response/request ID of each call, in order
+		wantParents                   []string // parent tool ID of each call, in order
+		wantToolParents               []string // parent tool ID of each tool, in order
 		wantReasoning                 int64
 		wantErr                       string
 	}{
@@ -42,7 +44,9 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			file: "claude-subagent.jsonl", wantCalls: 4, wantPartial: 1, wantMissingOut: 90,
 			wantTools: []string{"Agent", "Read"}, wantReasoning: 38,
 			// tool_use_result carries no message or request ID for the subagent's final call.
-			wantIDs: []string{"msg_000001/req_000001", "msg_000002/req_000002", "/", "msg_000003/req_000003"},
+			wantIDs:         []string{"msg_000001/req_000001", "msg_000002/req_000002", "/", "msg_000003/req_000003"},
+			wantParents:     []string{"", "toolu_000001", "toolu_000001", ""},
+			wantToolParents: []string{"", "toolu_000001"},
 		},
 		{
 			file: "claude-cancel.jsonl", wantCalls: 1, wantPartial: 1, wantStop: "error", wantIDs: []string{"msg_000001/"},
@@ -56,7 +60,7 @@ func TestModelCallsFromCaptures(t *testing.T) {
 				t.Fatal(err)
 			}
 			var calls []runtime.ModelCall
-			var tools []string
+			var tools, toolParents []string
 			open := map[string]string{}
 			err = ParseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, func(event Event) error {
 				switch {
@@ -64,6 +68,7 @@ func TestModelCallsFromCaptures(t *testing.T) {
 					calls = append(calls, *event.ModelCall)
 				case event.ToolPhase == "started":
 					tools = append(tools, event.ToolName)
+					toolParents = append(toolParents, event.ParentToolID)
 					open[event.ToolID] = event.ToolName
 				case event.ToolPhase == "completed":
 					if open[event.ToolID] != event.ToolName {
@@ -79,15 +84,19 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			if !slices.Equal(tools, tc.wantTools) || len(open) != 0 {
 				t.Errorf("tools = %v (unfinished %v), want %v", tools, open, tc.wantTools)
 			}
+			if tc.wantToolParents != nil && !slices.Equal(toolParents, tc.wantToolParents) {
+				t.Errorf("tool parent tools = %q, want %q", toolParents, tc.wantToolParents)
+			}
 			if len(calls) != tc.wantCalls {
 				t.Fatalf("calls = %d, want %d: %+v", len(calls), tc.wantCalls, calls)
 			}
 			var partial int
 			var main, all [2]int64
-			var stops, ids []string
+			var stops, ids, parents []string
 			var reasoning int64
 			for _, call := range calls {
 				ids = append(ids, call.ResponseID+"/"+call.RequestID)
+				parents = append(parents, call.ParentToolID)
 				reasoning += call.ReasoningOutputTokens
 				all[0] += call.InputTokens
 				all[1] += call.OutputTokens
@@ -115,6 +124,9 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			}
 			if tc.wantIDs != nil && !slices.Equal(ids, tc.wantIDs) {
 				t.Errorf("call IDs = %v, want %v", ids, tc.wantIDs)
+			}
+			if tc.wantParents != nil && !slices.Equal(parents, tc.wantParents) {
+				t.Errorf("call parent tools = %v, want %v", parents, tc.wantParents)
 			}
 			if tc.wantStops != nil && !slices.Equal(stops, tc.wantStops) {
 				t.Errorf("complete call stop reasons = %v, want %v", stops, tc.wantStops)

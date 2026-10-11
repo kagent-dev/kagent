@@ -93,19 +93,47 @@ func TestApprovalToolCorrelatesActiveCall(t *testing.T) {
 		}
 	}
 
-	id, name, err := translator.approvalTool("protected", "", map[string]any{"path": "target"})
+	id, name, err := translator.approvalTool("", "protected", "", map[string]any{"path": "target"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id != "delete" || name != "protected.delete" {
 		t.Fatalf("approval tool = %q/%q, want delete/protected.delete", id, name)
 	}
-	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "target"}); err == nil {
+	if _, _, err := translator.approvalTool("thread", "protected", "", map[string]any{"path": "target"}); err == nil {
 		t.Fatal("approvalTool() accepted a duplicate approval")
 	}
-	translator.tools["copy"] = activeTool{name: "protected.copy", server: "protected", arguments: map[string]any{"path": "source"}}
-	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "source"}); err == nil {
+	translator.tools["copy"] = activeTool{name: "protected.copy", server: "protected", thread: "thread", arguments: map[string]any{"path": "source"}}
+	if _, _, err := translator.approvalTool("thread", "protected", "", map[string]any{"path": "source"}); err == nil {
 		t.Fatal("approvalTool() accepted ambiguous active calls")
+	}
+}
+
+func TestApprovalToolMatchesTheRequestThread(t *testing.T) {
+	translator := newEventTranslator("thread", "turn")
+	sink := &recordingSink{}
+	for _, raw := range []string{
+		`{"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}`,
+		`{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}`,
+		`{"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"main-write","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}`,
+		`{"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-write","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ thread, wantID string }{
+		{thread: "child", wantID: "child-write"},
+		{thread: "thread", wantID: "main-write"},
+	} {
+		id, _, err := translator.approvalTool(tc.thread, "protected", "", map[string]any{"value": float64(7)})
+		if err != nil || id != tc.wantID {
+			t.Fatalf("approval tool on %s = %q, %v, want %q", tc.thread, id, err, tc.wantID)
+		}
 	}
 }
 

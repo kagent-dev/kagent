@@ -26,13 +26,15 @@ type eventTranslator struct {
 	modelCallEnd   time.Time
 	// seenTotals holds the last running total per thread, to skip a replayed notification.
 	seenTotals map[string]codexUsage
+	// spawnedBy maps a subagent thread to the spawnAgent call that started it.
+	spawnedBy map[string]string
 }
 
 func newEventTranslator(threadID, turnID string) *eventTranslator {
 	now := time.Now
 	return &eventTranslator{
 		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool),
-		now: now, modelCallStart: now(), seenTotals: map[string]codexUsage{},
+		now: now, modelCallStart: now(), seenTotals: map[string]codexUsage{}, spawnedBy: map[string]string{},
 	}
 }
 
@@ -43,11 +45,16 @@ type codexUsage struct {
 type activeTool struct {
 	name            string
 	server          string
+	thread          string
+	parentToolID    string
 	arguments       any
 	approvalMatched bool
 }
 
 func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) (runtime.Outcome, bool, error) {
+	if subagent, err := t.subagentItem(message, sink); err != nil || subagent {
+		return runtime.Outcome{}, false, err
+	}
 	if other, err := t.isOtherThreadNotification(message); err != nil || other {
 		return runtime.Outcome{}, false, err
 	}
@@ -72,7 +79,7 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		if params.ThreadID != t.threadID || params.TurnID != t.turnID {
 			return runtime.Outcome{}, false, fmt.Errorf("codex item event has mismatched identity")
 		}
-		if err := t.translateItem(message.Method == "item/completed", params.Item, sink); err != nil {
+		if err := t.translateItem(message.Method == "item/completed", params.Item, params.ThreadID, "", sink); err != nil {
 			return runtime.Outcome{}, false, err
 		}
 		return runtime.Outcome{}, false, nil
@@ -139,6 +146,7 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 		CacheWriteTokens:      last.CacheWriteInputTokens,
 		ReasoningOutputTokens: last.ReasoningOutputTokens,
 		OutputTokens:          last.OutputTokens,
+		ParentToolID:          t.spawnedBy[params.ThreadID],
 		Start:                 end,
 		End:                   end,
 	}
@@ -150,22 +158,53 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 	return nil
 }
 
-func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sink runtime.EventSink) error {
+// subagentItem translates an item of a spawned subagent, so its tools go under the spawn call.
+// It reports false for any other notification. A subagent item that does not fit is dropped.
+func (t *eventTranslator) subagentItem(message rpcMessage, sink runtime.EventSink) (bool, error) {
+	if message.Method != "item/started" && message.Method != "item/completed" {
+		return false, nil
+	}
+	var params struct {
+		ThreadID string
+		Item     json.RawMessage
+	}
+	if err := json.Unmarshal(message.Params, &params); err != nil {
+		return false, fmt.Errorf("decode Codex item event: %w", err)
+	}
+	spawn, ok := t.spawnedBy[params.ThreadID]
+	if !ok {
+		return false, nil
+	}
+	var item struct{ ID string }
+	if err := json.Unmarshal(params.Item, &item); err != nil {
+		return true, nil
+	}
+	// The threads share one stream, so a start can come before the spawn completes, or reuse
+	// another thread's ID. Such items are dropped, so they do not fail the main turn.
+	completed := message.Method == "item/completed"
+	if started, open := t.tools[item.ID]; open != completed || (completed && started.thread != params.ThreadID) {
+		return true, nil
+	}
+	return true, t.translateItem(completed, params.Item, params.ThreadID, spawn, sink)
+}
+
+func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thread, parentToolID string, sink runtime.EventSink) error {
 	var item struct {
-		Type             string `json:"type"`
-		ID               string `json:"id"`
-		Command          string `json:"command"`
-		CWD              string `json:"cwd"`
-		AggregatedOutput string `json:"aggregatedOutput"`
-		ExitCode         *int   `json:"exitCode"`
-		Changes          any    `json:"changes"`
-		Server           string `json:"server"`
-		Tool             string `json:"tool"`
-		Arguments        any    `json:"arguments"`
-		Result           any    `json:"result"`
-		Error            any    `json:"error"`
-		Prompt           string `json:"prompt"`
-		Status           string `json:"status"`
+		Type              string   `json:"type"`
+		ID                string   `json:"id"`
+		Command           string   `json:"command"`
+		CWD               string   `json:"cwd"`
+		AggregatedOutput  string   `json:"aggregatedOutput"`
+		ExitCode          *int     `json:"exitCode"`
+		Changes           any      `json:"changes"`
+		Server            string   `json:"server"`
+		Tool              string   `json:"tool"`
+		Arguments         any      `json:"arguments"`
+		Result            any      `json:"result"`
+		Error             any      `json:"error"`
+		Prompt            string   `json:"prompt"`
+		Status            string   `json:"status"`
+		ReceiverThreadIDs []string `json:"receiverThreadIds"`
 	}
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return fmt.Errorf("decode Codex thread item: %w", err)
@@ -192,21 +231,41 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sin
 		result["result"], result["error"] = boundValue(item.Result), boundValue(item.Error)
 	case "collabAgentToolCall":
 		name, arguments = "Agent", map[string]any{"prompt": bounded(item.Prompt), "tool": item.Tool}
+		// wait and closeAgent calls also list the subagent thread. Only the spawnAgent call started it.
+		if item.Tool == "spawnAgent" {
+			for _, receiver := range item.ReceiverThreadIDs {
+				if receiver != t.threadID && receiver != thread {
+					t.spawnedBy[receiver] = item.ID
+				}
+			}
+		}
 	default:
 		return nil
 	}
 	if !completed {
-		if _, exists := t.tools[item.ID]; exists {
-			return fmt.Errorf("codex tool item %q started more than once", item.ID)
+		if existing, exists := t.tools[item.ID]; exists {
+			// A main tool wins over a subagent tool that reused its ID.
+			if parentToolID != "" || existing.parentToolID == "" {
+				return fmt.Errorf("codex tool item %q started more than once", item.ID)
+			}
+			delete(t.tools, item.ID)
+			if err := sink.ToolResult(runtime.ToolResult{
+				ID: item.ID, Name: existing.name, Result: map[string]any{"error": "Codex reused the tool ID"}, IsError: true, Status: runtime.ToolUnfinished,
+			}); err != nil {
+				return err
+			}
 		}
-		t.tools[item.ID] = activeTool{name: name, server: mcpServer, arguments: item.Arguments}
-		if t.modelCallEnd.IsZero() {
+		t.tools[item.ID] = activeTool{name: name, server: mcpServer, thread: thread, parentToolID: parentToolID, arguments: item.Arguments}
+		// A subagent's tool does not end the main agent's model call.
+		if parentToolID == "" && t.modelCallEnd.IsZero() {
 			t.modelCallEnd = t.now()
 		}
-		return sink.ToolCall(runtime.ToolCall{ID: item.ID, Name: name, Arguments: arguments, MCPServer: mcpServer, MCPTool: mcpTool})
+		return sink.ToolCall(runtime.ToolCall{
+			ID: item.ID, Name: name, Arguments: arguments, MCPServer: mcpServer, MCPTool: mcpTool, ParentToolID: parentToolID,
+		})
 	}
 	started, exists := t.tools[item.ID]
-	if !exists {
+	if !exists || started.thread != thread {
 		return fmt.Errorf("codex tool item %q completed without starting", item.ID)
 	}
 	if started.name != name {
@@ -237,10 +296,11 @@ func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {
 	return nil
 }
 
-func (t *eventTranslator) approvalTool(server, toolName string, arguments map[string]any) (string, string, error) {
+func (t *eventTranslator) approvalTool(thread, server, toolName string, arguments map[string]any) (string, string, error) {
 	matchedID := ""
 	for id, tool := range t.tools {
-		if tool.approvalMatched || tool.server != server || !reflect.DeepEqual(tool.arguments, arguments) {
+		// A subagent can make the same call as the main agent. A request without a thread matches any.
+		if tool.approvalMatched || (thread != "" && tool.thread != thread) || tool.server != server || !reflect.DeepEqual(tool.arguments, arguments) {
 			continue
 		}
 		if toolName != "" && tool.name != server+"."+toolName {
@@ -260,9 +320,8 @@ func (t *eventTranslator) approvalTool(server, toolName string, arguments map[st
 	return matchedID, matched.name, nil
 }
 
-// App Server multiplexes native Shared agents onto the parent's stream. Their
-// text, tools, and completion belong to their own threads; the parent's Agent
-// tool items already represent delegation in the public task.
+// App Server multiplexes native Shared agents onto the parent's stream. Their text and
+// completion stay on their own threads; subagentItem translates their tools.
 func (t *eventTranslator) isOtherThreadNotification(message rpcMessage) (bool, error) {
 	if len(message.ID) != 0 || (!strings.HasPrefix(message.Method, "item/") && !strings.HasPrefix(message.Method, "turn/")) {
 		return false, nil

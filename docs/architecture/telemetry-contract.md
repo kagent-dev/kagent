@@ -162,7 +162,7 @@ Kind `internal`. One execution segment of a runtime that emits its own invoke_ag
 
 ### `kagent.execute_tool.internal`
 
-Refines `gen_ai.execute_tool.internal`, kind `internal`. One tool call of a harness turn. Named `execute_tool {gen_ai.tool.name}`. A child of the invoke_agent span when one exists, otherwise a root span, from the tool call to its result. A call open across a pause belongs to the segment its result arrives in, and starts no earlier than that segment.
+Refines `gen_ai.execute_tool.internal`, kind `internal`. One tool call of a harness turn. Named `execute_tool {gen_ai.tool.name}`. The span runs from the tool call to its result. A subagent tool goes under the execute_tool span of the tool call that started the subagent. Other tools go under the invoke_agent span. A call open across a pause starts no earlier than the segment its result arrives in. The call belongs to that segment, but a subagent tool stays under its parent tool span.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -180,7 +180,7 @@ Refines `gen_ai.execute_tool.internal`, kind `internal`. One tool call of a harn
 
 ### `kagent.inference.client`
 
-Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A child of the invoke_agent span when one exists, otherwise a root span. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call's usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise.
+Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call's usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |

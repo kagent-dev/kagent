@@ -282,6 +282,7 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 		} `json:"_meta"`
 		Message    string `json:"message"`
 		ServerName string `json:"serverName"`
+		ThreadID   string `json:"threadId"`
 	}
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, false, fmt.Errorf("decode Codex MCP approval request: %w", err)
@@ -293,7 +294,7 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	if _, protected := d.config.ApprovalServers[params.ServerName]; !protected {
 		return nil, false, client.respond(message.ID, map[string]any{"action": "accept", "content": map[string]any{}})
 	}
-	callID, name, err := translator.approvalTool(params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
+	callID, name, err := translator.approvalTool(params.ThreadID, params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
 	if err != nil {
 		return nil, false, err
 	}
@@ -318,7 +319,9 @@ func decodeAskUserRequest(message rpcMessage, translator *eventTranslator) (*run
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, fmt.Errorf("decode Codex ask-user request: %w", err)
 	}
-	if params.ThreadID != translator.threadID || params.TurnID != translator.turnID {
+	// A spawned subagent asks from its own thread and turn.
+	_, subagent := translator.spawnedBy[params.ThreadID]
+	if !subagent && (params.ThreadID != translator.threadID || params.TurnID != translator.turnID) {
 		return nil, fmt.Errorf("Codex ask-user request does not match the active turn")
 	}
 	if len(params.Questions) == 0 {

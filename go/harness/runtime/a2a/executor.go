@@ -102,6 +102,7 @@ type executionSink struct {
 	owner          spanOwner
 	paused         *spanOwner
 	tools          map[string]pendingTool
+	ended          *endedTools
 	// compiled names the model when the driver reports none.
 	compiled tracing.RuntimeTelemetry
 }
@@ -138,7 +139,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			invocation = nil
 		}
 		// The native process reports producer=runtime either way, so its spans are written even untraced.
-		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx), compiled: e.telemetry}
+		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx), ended: newEndedTools(), compiled: e.telemetry}
 		result := tracing.Result{}
 		flushed := false
 		endInvocation := func() {
@@ -296,7 +297,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			decision, ok := turn.InputResponse.(*runtime.ApprovalDecision)
 			denied := ok && !decision.Approved
 			continued.open.resume(sink.owner, !denied)
-			sink.tools = continued.open.tools
+			sink.tools, sink.ended = continued.open.tools, continued.open.ended
 			sink.paused = &continued.open.owner
 			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
 		}
@@ -596,7 +597,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 
 			// Cleanup errors are telemetry, so the task is still reported canceled.
-			if err := state.pending.Cancel(ctx, &executionSink{owner: state.open.owner, compiled: e.telemetry}); err != nil {
+			if err := state.pending.Cancel(ctx, &executionSink{owner: state.open.owner, tools: state.open.tools, ended: state.open.ended, compiled: e.telemetry}); err != nil {
 				a2alog.Error(ctx, "failed to cancel the parked runtime turn", err)
 			}
 			state.open.recordUnfinished()

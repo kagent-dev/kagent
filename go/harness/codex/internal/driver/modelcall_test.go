@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 func TestModelCallsFromCaptures(t *testing.T) {
@@ -251,5 +253,176 @@ func TestCapturesUseThePinnedCodexVersion(t *testing.T) {
 		if err := json.Unmarshal(line, &start); err != nil || start.Result.Thread.Version != config.PinnedCodexVersion {
 			t.Errorf("%s cliVersion = %q (%v), want %s", file, start.Result.Thread.Version, err, config.PinnedCodexVersion)
 		}
+	}
+}
+
+func TestSubagentCallsNameTheirSpawnCall(t *testing.T) {
+	collabOn := func(thread, method, id, tool string, receivers ...string) string {
+		item, _ := json.Marshal(map[string]any{"type": "collabAgentToolCall", "id": id, "tool": tool, "receiverThreadIds": append([]string{}, receivers...), "status": "completed"})
+		return fmt.Sprintf(`{"method":%q,"params":{"threadId":%q,"turnId":"turn","item":%s}}`, method, thread, item)
+	}
+	collab := func(method, id, tool string, receivers ...string) string {
+		return collabOn("thread", method, id, tool, receivers...)
+	}
+	usage := func(thread string) string { return "usage:" + thread }
+	command := func(thread, method, id string) string {
+		return fmt.Sprintf(`{"method":%q,"params":{"threadId":%q,"turnId":"turn","item":{"type":"commandExecution","id":%q,"command":"ls","cwd":"/w","status":"completed","exitCode":0}}}`,
+			method, thread, id)
+	}
+	for _, tc := range []struct {
+		name            string
+		steps           []string
+		wantParents     []string
+		wantToolParents []string             // parent of each tool call, in order; nil skips the check
+		wantResults     []runtime.ToolStatus // status of each tool result, in order; nil skips the check
+		wantErr         bool
+	}{
+		{
+			name: "a spawned subagent",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child"),
+				collab("item/started", "wait-1", "wait", "child"), usage("child"), collab("item/completed", "wait-1", "wait", "child"),
+				usage("thread"),
+			},
+			wantParents: []string{"spawn-1", ""},
+		},
+		{
+			name: "two subagents",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child-a"),
+				collab("item/started", "spawn-2", "spawnAgent"), collab("item/completed", "spawn-2", "spawnAgent", "child-b"),
+				usage("child-b"), usage("child-a"),
+			},
+			wantParents: []string{"spawn-2", "spawn-1"},
+		},
+		{
+			// The child's own spawn call goes under the parent's spawn, and the grandchild under it.
+			name: "a subagent's own subagent",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child"),
+				collabOn("child", "item/started", "spawn-2", "spawnAgent"), collabOn("child", "item/completed", "spawn-2", "spawnAgent", "grandchild"),
+				usage("grandchild"), usage("child"),
+			},
+			wantParents:     []string{"spawn-2", "spawn-1"},
+			wantToolParents: []string{"", "spawn-1"},
+		},
+		{
+			// Threads share one stream, so a child's tool can start before its spawn completes.
+			name: "a child tool that starts before the spawn completes is dropped",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), command("child", "item/started", "cmd-1"),
+				collab("item/completed", "spawn-1", "spawnAgent", "child"), command("child", "item/completed", "cmd-1"),
+				usage("child"),
+			},
+			wantParents:     []string{"spawn-1"},
+			wantToolParents: []string{""},
+		},
+		{
+			name: "a child tool that reuses an open main tool ID is dropped",
+			steps: []string{
+				command("thread", "item/started", "cmd-1"),
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child"),
+				command("child", "item/started", "cmd-1"), command("child", "item/completed", "cmd-1"),
+				command("thread", "item/completed", "cmd-1"),
+			},
+			wantToolParents: []string{"", ""},
+		},
+		{
+			name: "a main tool wins over a child tool with its ID",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child"),
+				command("child", "item/started", "cmd-1"), command("thread", "item/started", "cmd-1"),
+				command("child", "item/completed", "cmd-1"), command("thread", "item/completed", "cmd-1"),
+			},
+			wantToolParents: []string{"", "spawn-1", ""},
+			wantResults:     []runtime.ToolStatus{runtime.ToolRan, runtime.ToolUnfinished, runtime.ToolRan},
+		},
+		{
+			name: "a subagent cannot complete another subagent's tool",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "first", "second"),
+				command("first", "item/started", "cmd-1"), command("second", "item/completed", "cmd-1"),
+			},
+			wantToolParents: []string{"", "spawn-1"},
+			wantResults:     []runtime.ToolStatus{runtime.ToolRan},
+		},
+		{
+			name: "a subagent spawn that names its own thread claims nothing",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child"),
+				collabOn("child", "item/started", "spawn-2", "spawnAgent"), collabOn("child", "item/completed", "spawn-2", "spawnAgent", "child"),
+				usage("child"),
+			},
+			wantParents: []string{"spawn-1"},
+		},
+		{
+			name: "the main thread cannot complete a subagent's tool",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "child"),
+				command("child", "item/started", "cmd-1"), command("thread", "item/completed", "cmd-1"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "a spawn that names the main thread claims nothing",
+			steps: []string{
+				collab("item/started", "spawn-1", "spawnAgent"), collab("item/completed", "spawn-1", "spawnAgent", "thread"),
+				usage("thread"),
+			},
+			wantParents: []string{""},
+		},
+		{
+			name: "wait and closeAgent do not claim a thread",
+			steps: []string{
+				collab("item/started", "wait-1", "wait", "child"), collab("item/completed", "wait-1", "wait", "child"),
+				collab("item/started", "close-1", "closeAgent", "child"), collab("item/completed", "close-1", "closeAgent", "child"),
+				usage("child"),
+			},
+			wantParents: []string{""},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			translator := newEventTranslator("thread", "turn")
+			for i, raw := range tc.steps {
+				var message rpcMessage
+				if thread, ok := strings.CutPrefix(raw, "usage:"); ok {
+					message = usageMessage(t, thread, "turn", int64(10*(i+1)), 10)
+				} else if err := json.Unmarshal([]byte(raw), &message); err != nil {
+					t.Fatal(err)
+				}
+				_, _, err := translator.translate(message, sink)
+				if err != nil && tc.wantErr && i == len(tc.steps)-1 {
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.wantErr {
+				t.Fatal("translate() accepted every step, want an error")
+			}
+			var parents []string
+			for _, call := range sink.models {
+				parents = append(parents, call.ParentToolID)
+			}
+			if !slices.Equal(parents, tc.wantParents) {
+				t.Fatalf("parent tools = %q, want %q", parents, tc.wantParents)
+			}
+			var toolParents []string
+			for _, call := range sink.calls {
+				toolParents = append(toolParents, call.ParentToolID)
+			}
+			if tc.wantToolParents != nil && !slices.Equal(toolParents, tc.wantToolParents) {
+				t.Fatalf("tool parents = %q, want %q", toolParents, tc.wantToolParents)
+			}
+			var results []runtime.ToolStatus
+			for _, result := range sink.results {
+				results = append(results, result.Status)
+			}
+			if tc.wantResults != nil && !slices.Equal(results, tc.wantResults) {
+				t.Fatalf("tool results = %q, want %q", results, tc.wantResults)
+			}
+		})
 	}
 }

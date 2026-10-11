@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -1433,4 +1434,255 @@ func TestCancelOfAParkedTaskFailsOpenOnDriverErrors(t *testing.T) {
 	if !strings.Contains(logs.String(), "drain failed") {
 		t.Errorf("logs = %q, want the driver error", logs.String())
 	}
+}
+
+func TestSubagentSpansNestUnderTheirTool(t *testing.T) {
+	agentCall := runtime.ToolCall{ID: "call-a", Name: "Agent"}
+	agentResult := runtime.ToolResult{ID: "call-a", Name: "Agent"}
+	subagentCall := runtime.ModelCall{RequestModel: "m", ParentToolID: "call-a"}
+	subagentTool := func(sink runtime.EventSink) error {
+		return sink.ToolCall(runtime.ToolCall{ID: "call-r", Name: "Read", ParentToolID: "call-a"})
+	}
+	readResult := runtime.ToolResult{ID: "call-r", Name: "Read"}
+	for _, tc := range []struct {
+		name          string
+		events        func(sink runtime.EventSink) error
+		child         string // the subagent span to check; empty means its model call
+		wantUnderTool bool
+		wantToolError string
+		wantNoTool    bool
+	}{
+		{name: "call while the tool runs", events: func(sink runtime.EventSink) error {
+			err := sink.ToolCall(agentCall)
+			sink.ModelCall(subagentCall)
+			return errors.Join(err, sink.ToolResult(agentResult))
+		}, wantUnderTool: true},
+		// A background subagent returns its result before its calls arrive.
+		{name: "call after the tool result", events: func(sink runtime.EventSink) error {
+			err := errors.Join(sink.ToolCall(agentCall), sink.ToolResult(agentResult))
+			sink.ModelCall(subagentCall)
+			return err
+		}, wantUnderTool: true},
+		{name: "tool without a result", events: func(sink runtime.EventSink) error {
+			err := sink.ToolCall(agentCall)
+			sink.ModelCall(subagentCall)
+			return err
+		}, wantUnderTool: true, wantToolError: "unfinished"},
+		{name: "declined tool", events: func(sink runtime.EventSink) error {
+			err := sink.ToolCall(agentCall)
+			sink.ModelCall(subagentCall)
+			return errors.Join(err, sink.ToolResult(runtime.ToolResult{ID: "call-a", Name: "Agent", Status: runtime.ToolDeclined}))
+		}, wantNoTool: true},
+		{name: "subagent tool while the tool runs", events: func(sink runtime.EventSink) error {
+			return errors.Join(sink.ToolCall(agentCall), subagentTool(sink), sink.ToolResult(readResult), sink.ToolResult(agentResult))
+		}, child: "execute_tool Read", wantUnderTool: true},
+		{name: "subagent tool after the tool result", events: func(sink runtime.EventSink) error {
+			return errors.Join(sink.ToolCall(agentCall), sink.ToolResult(agentResult), subagentTool(sink), sink.ToolResult(readResult))
+		}, child: "execute_tool Read", wantUnderTool: true},
+		{name: "subagent tool open when the turn ends after its tool ended", events: func(sink runtime.EventSink) error {
+			return errors.Join(sink.ToolCall(agentCall), sink.ToolResult(agentResult), subagentTool(sink))
+		}, child: "execute_tool Read", wantUnderTool: true},
+		{name: "subagent tool open when the turn ends", events: func(sink runtime.EventSink) error {
+			return errors.Join(sink.ToolCall(agentCall), subagentTool(sink))
+		}, child: "execute_tool Read", wantUnderTool: true, wantToolError: "unfinished"},
+		{name: "tool that names itself as parent", events: func(sink runtime.EventSink) error {
+			err := sink.ToolCall(runtime.ToolCall{ID: "call-a", Name: "Agent", ParentToolID: "call-a"})
+			sink.ModelCall(subagentCall)
+			return errors.Join(err, sink.ToolResult(agentResult))
+		}, wantUnderTool: true},
+		// The declined tool never ran, so its held call goes up to the tool above it.
+		{name: "declined subagent tool", events: func(sink runtime.EventSink) error {
+			err := errors.Join(sink.ToolCall(agentCall), subagentTool(sink))
+			sink.ModelCall(runtime.ModelCall{RequestModel: "m", ParentToolID: "call-r"})
+			return errors.Join(err, sink.ToolResult(runtime.ToolResult{ID: "call-r", Name: "Read", Status: runtime.ToolDeclined}), sink.ToolResult(agentResult))
+		}, wantUnderTool: true},
+		{name: "unknown tool", events: func(sink runtime.EventSink) error {
+			err := sink.ToolCall(agentCall)
+			sink.ModelCall(runtime.ModelCall{RequestModel: "m", ParentToolID: "call-x"})
+			return errors.Join(err, sink.ToolResult(agentResult))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := newTraceRecorder(t)
+			executor := newExecutor(t, func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+				return runtime.Outcome{}, tc.events(sink)
+			}, tracing.RuntimeTelemetry{})
+			for range executor.Execute(recorder.segment(t.Context()), requestContext("task-subagent", "go")) {
+			}
+
+			want := 3
+			if tc.wantNoTool {
+				want = 2
+			}
+			spans := spansByName(recorder.spans(t, want))
+			child, tool, invoke := spans[cmp.Or(tc.child, "chat m")], spans["execute_tool Agent"], spans["invoke_agent"]
+			wantParent := invoke.SpanContext.SpanID()
+			if tc.wantUnderTool {
+				wantParent = tool.SpanContext.SpanID()
+			}
+			if child.Parent.SpanID() != wantParent {
+				t.Errorf("%s parent = %s, want %s (under tool %v)", child.Name, child.Parent.SpanID(), wantParent, tc.wantUnderTool)
+			}
+			if got, _ := attributeOf(tool, "error.type"); got.AsString() != tc.wantToolError {
+				t.Errorf("tool error.type = %q, want %q", got.AsString(), tc.wantToolError)
+			}
+		})
+	}
+}
+
+// A subagent's own subagent nests one level deeper, whatever order the spans end in.
+func TestNestedSubagentSpansNestUnderTheirTool(t *testing.T) {
+	outer := runtime.ToolCall{ID: "call-a", Name: "Agent"}
+	inner := runtime.ToolCall{ID: "call-b", Name: "spawn", ParentToolID: "call-a"}
+	end := func(id, name string) runtime.ToolResult { return runtime.ToolResult{ID: id, Name: name} }
+	nestedCall := runtime.ModelCall{RequestModel: "m", ParentToolID: "call-b"}
+	for _, tc := range []struct {
+		name   string
+		events func(sink runtime.EventSink) error
+	}{
+		{name: "call while both tools run", events: func(sink runtime.EventSink) error {
+			err := errors.Join(sink.ToolCall(outer), sink.ToolCall(inner))
+			sink.ModelCall(nestedCall)
+			return errors.Join(err, sink.ToolResult(end("call-b", "spawn")), sink.ToolResult(end("call-a", "Agent")))
+		}},
+		{name: "call after the inner tool ends", events: func(sink runtime.EventSink) error {
+			err := errors.Join(sink.ToolCall(outer), sink.ToolCall(inner), sink.ToolResult(end("call-b", "spawn")))
+			sink.ModelCall(nestedCall)
+			return errors.Join(err, sink.ToolResult(end("call-a", "Agent")))
+		}},
+		{name: "call while all tools stay open", events: func(sink runtime.EventSink) error {
+			err := errors.Join(sink.ToolCall(outer), sink.ToolCall(inner))
+			sink.ModelCall(nestedCall)
+			return err
+		}},
+		{name: "call after both tools end", events: func(sink runtime.EventSink) error {
+			err := errors.Join(sink.ToolCall(outer), sink.ToolCall(inner), sink.ToolResult(end("call-b", "spawn")), sink.ToolResult(end("call-a", "Agent")))
+			sink.ModelCall(nestedCall)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := newTraceRecorder(t)
+			executor := newExecutor(t, func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+				return runtime.Outcome{}, tc.events(sink)
+			}, tracing.RuntimeTelemetry{})
+			for range executor.Execute(recorder.segment(t.Context()), requestContext("task-nested", "go")) {
+			}
+
+			spans := spansByName(recorder.spans(t, 4))
+			chat, spawn, agent := spans["chat m"], spans["execute_tool spawn"], spans["execute_tool Agent"]
+			if chat.Parent.SpanID() != spawn.SpanContext.SpanID() || spawn.Parent.SpanID() != agent.SpanContext.SpanID() {
+				t.Errorf("chat parent %s, spawn parent %s; want chat under spawn %s under Agent %s",
+					chat.Parent.SpanID(), spawn.Parent.SpanID(), spawn.SpanContext.SpanID(), agent.SpanContext.SpanID())
+			}
+		})
+	}
+}
+
+// Three levels of open tools all nest when the turn ends without their results.
+func TestUnfinishedSubagentToolsNestAtAnyDepth(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	executor := newExecutor(t, func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{}, errors.Join(
+			sink.ToolCall(runtime.ToolCall{ID: "call-a", Name: "a"}),
+			sink.ToolCall(runtime.ToolCall{ID: "call-b", Name: "b", ParentToolID: "call-a"}),
+			sink.ToolCall(runtime.ToolCall{ID: "call-c", Name: "c", ParentToolID: "call-b"}),
+		)
+	}, tracing.RuntimeTelemetry{})
+	for range executor.Execute(recorder.segment(t.Context()), requestContext("task-deep", "go")) {
+	}
+
+	spans := spansByName(recorder.spans(t, 4))
+	for child, parent := range map[string]string{"execute_tool c": "execute_tool b", "execute_tool b": "execute_tool a", "execute_tool a": "invoke_agent"} {
+		if spans[child].Parent.SpanID() != spans[parent].SpanContext.SpanID() {
+			t.Errorf("%s parent = %s, want %s", child, spans[child].Parent.SpanID(), parent)
+		}
+	}
+}
+
+// A subagent's spans go under its tool span across a pause, whether the tool is still open or ended.
+func TestSubagentSpansAcrossAPauseNestUnderTheirTool(t *testing.T) {
+	agentCall := runtime.ToolCall{ID: "call-a", Name: "Agent"}
+	agentResult := runtime.ToolResult{ID: "call-a", Name: "Agent"}
+	for _, tc := range []struct {
+		name          string
+		first, resume func(sink runtime.EventSink) error
+		wantChildren  []string
+		wantSpans     int
+	}{
+		{
+			// The tool follows its result to the resumed segment, and its spans follow the tool.
+			name: "tool open across the pause",
+			first: func(sink runtime.EventSink) error {
+				err := sink.ToolCall(agentCall)
+				sink.ModelCall(runtime.ModelCall{RequestModel: "before", ParentToolID: "call-a"})
+				return errors.Join(err, startGatedCall(sink))
+			},
+			resume: func(sink runtime.EventSink) error {
+				sink.ModelCall(runtime.ModelCall{RequestModel: "after", ParentToolID: "call-a"})
+				return sink.ToolResult(agentResult)
+			},
+			wantChildren: []string{"chat before", "chat after"},
+			wantSpans:    6,
+		},
+		{
+			// Codex ends its spawn call at once, so the subagent's work arrives after the pause.
+			name: "tool ended before the pause",
+			first: func(sink runtime.EventSink) error {
+				return errors.Join(sink.ToolCall(agentCall), sink.ToolResult(agentResult), startGatedCall(sink))
+			},
+			resume: func(sink runtime.EventSink) error {
+				sink.ModelCall(runtime.ModelCall{RequestModel: "after", ParentToolID: "call-a"})
+				return errors.Join(
+					sink.ToolCall(runtime.ToolCall{ID: "call-r", Name: "Read", ParentToolID: "call-a"}),
+					sink.ToolResult(runtime.ToolResult{ID: "call-r", Name: "Read"}),
+				)
+			},
+			wantChildren: []string{"chat after", "execute_tool Read"},
+			wantSpans:    6,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := newTraceRecorder(t)
+			parkThenResume(t, recorder, gatedTurn{first: tc.first, resume: tc.resume, approved: true})
+
+			named := spansByName(recorder.spans(t, tc.wantSpans))
+			tool := named["execute_tool Agent"]
+			for _, name := range tc.wantChildren {
+				if named[name].Parent.SpanID() != tool.SpanContext.SpanID() {
+					t.Errorf("%s parent = %s, want the Agent tool %s", name, named[name].Parent.SpanID(), tool.SpanContext.SpanID())
+				}
+			}
+		})
+	}
+}
+
+func TestSubagentCallAtCancelNestsUnderItsTool(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	pending, run := gatedPair(func(runtime.EventSink) error { return nil })
+	pending.cancel = func(_ context.Context, sink runtime.ModelCallSink) error {
+		sink.ModelCall(runtime.ModelCall{RequestModel: "m", ParentToolID: "call-a"})
+		return nil
+	}
+	executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
+
+	request := requestContext("task-subagent-cancel", "go")
+	events, errs := collect(executor.Execute(recorder.segment(t.Context()), request))
+	parkedStatus(t, events, errs)
+	if _, errs := collect(executor.Cancel(t.Context(), request)); len(errs) != 0 {
+		t.Fatalf("cancel errors = %v", errs)
+	}
+
+	spans := spansByName(recorder.spans(t, 3))
+	if chat, tool := spans["chat m"], spans["execute_tool Bash"]; chat.Parent.SpanID() != tool.SpanContext.SpanID() {
+		t.Errorf("chat parent = %s, want the unfinished tool %s", chat.Parent.SpanID(), tool.SpanContext.SpanID())
+	}
+}
+
+func spansByName(spans tracetest.SpanStubs) map[string]tracetest.SpanStub {
+	named := map[string]tracetest.SpanStub{}
+	for _, span := range spans {
+		named[span.Name] = span
+	}
+	return named
 }

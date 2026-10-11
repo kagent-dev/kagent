@@ -126,9 +126,23 @@ printf graceful > "$EXIT_CAPTURE"
 }
 
 func TestProcessDriverSharedAgentNotifications(t *testing.T) {
+	for _, tc := range []struct {
+		name, fixture string
+		wantChildTool bool
+	}{
+		{name: "spawn completes first", fixture: "app-server-shared-agent.jsonl", wantChildTool: true},
+		// The child's tool starts before the spawn names its thread, reuses the spawn's ID,
+		// and completes after the spawn.
+		{name: "child starts early with a reused ID", fixture: "app-server-shared-agent-early.jsonl"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testSharedAgentNotifications(t, tc.fixture, tc.wantChildTool) })
+	}
+}
+
+func testSharedAgentNotifications(t *testing.T, fixture string, wantChildTool bool) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "codex")
-	notifications, err := filepath.Abs("../../testdata/app-server-shared-agent.jsonl")
+	notifications, err := filepath.Abs("../../testdata/" + fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +175,16 @@ while read ignored; do :; done
 	if outcome.Failure != nil || outcome.Pending != nil || sink.text.String() != "Bonjour, mon ami." {
 		t.Fatalf("outcome = %#v, text = %q", outcome, sink.text.String())
 	}
-	if len(sink.calls) != 1 || len(sink.results) != 1 {
-		t.Fatalf("tool events = %#v, %#v, want only parent delegation", sink.calls, sink.results)
+	// The child's text stays private, but its tools go under the spawn call.
+	wantTools := 1
+	if wantChildTool {
+		wantTools = 2
+	}
+	if len(sink.calls) != wantTools || len(sink.results) != wantTools {
+		t.Fatalf("tool events = %#v, %#v, want %d", sink.calls, sink.results, wantTools)
+	}
+	if wantChildTool && (sink.calls[1].ID != "child-command" || sink.calls[1].ParentToolID != "agent-1") {
+		t.Fatalf("child tool = %#v, want child-command under agent-1", sink.calls[1])
 	}
 	if sink.calls[0].ID != "agent-1" || sink.calls[0].Name != "Agent" || sink.results[0].ID != "agent-1" || sink.results[0].Name != "Agent" || sink.results[0].IsError {
 		t.Fatalf("delegation events = %#v, %#v", sink.calls[0], sink.results[0])
@@ -253,6 +275,112 @@ sleep 5
 	}
 	if !bytes.Contains(response, []byte(`"id":7`)) || !bytes.Contains(response, []byte(`"action":"decline"`)) || bytes.Contains(response, []byte(`"rejection_reason"`)) || bytes.Contains(response, []byte(`"content"`)) {
 		t.Fatalf("approval response = %s", response)
+	}
+}
+
+// A subagent's approval matches the subagent's own tool, which goes under the spawn call.
+func TestProcessDriverParksMCPApprovalInsideASubagent(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-call","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
+printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"child","turnId":"child-turn"}}'
+read approval
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-call","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+sleep 5
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
+		Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
+		InterruptGrace: 100 * time.Millisecond, ApprovalServers: map[string]struct{}{"protected": {}},
+	})
+	sink := &recordingSink{}
+	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Pending == nil {
+		t.Fatal("Run() did not return a pending turn")
+	}
+	if request, ok := outcome.Pending.Request().(*runtime.ApprovalRequest); !ok || request.CallID != "child-call" || request.Name != "protected.write" {
+		t.Fatalf("pending request = %#v", outcome.Pending.Request())
+	}
+	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "7", Approved: true}, sink)
+	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
+		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	if len(sink.calls) != 2 || sink.calls[1].ID != "child-call" || sink.calls[1].ParentToolID != "spawn-1" {
+		t.Fatalf("tool calls = %#v, want the child's call under spawn-1", sink.calls)
+	}
+	if len(sink.results) != 2 || sink.results[1].ID != "child-call" || sink.results[1].IsError {
+		t.Fatalf("tool results = %#v", sink.results)
+	}
+}
+
+func TestProcessDriverAskUserThreads(t *testing.T) {
+	for _, tc := range []struct {
+		name, thread, turn string
+		wantErr            bool
+	}{
+		{name: "a spawned subagent", thread: "child", turn: "child-turn"},
+		{name: "an unknown thread", thread: "stranger", turn: "child-turn", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			directory := t.TempDir()
+			executable := filepath.Join(directory, "codex")
+			script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}'
+printf '%s\n' '{"id":8,"method":"item/tool/requestUserInput","params":{"threadId":"` + tc.thread + `","turnId":"` + tc.turn + `","itemId":"item-1","isBlocking":true,"questions":[{"id":"namespace","header":"Namespace","question":"Which namespace?","options":null,"isOther":true,"isSecret":false}]}}'
+read response
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+sleep 5
+`
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			driver := NewProcessDriver(ProcessConfig{
+				Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
+				Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
+			})
+			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "clean up"}, &recordingSink{})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Run() outcome = %#v, want an error for a question from %s", outcome, tc.thread)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if request, ok := outcome.Pending.Request().(*runtime.AskUserRequest); !ok || request.ID != "8" {
+				t.Fatalf("pending request = %#v", outcome.Pending.Request())
+			}
+			outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{ID: "8", Answers: [][]string{{"default"}}}, &recordingSink{})
+			if err != nil || outcome.Pending != nil || outcome.Failure != nil {
+				t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+			}
+		})
 	}
 }
 

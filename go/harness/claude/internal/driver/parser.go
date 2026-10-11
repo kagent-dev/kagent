@@ -96,7 +96,7 @@ func (p *parser) flushOpenCall(emit func(Event) error) error {
 // failCall emits a request the API rejected. An error after message_start ends that
 // streamed call, so it stays one call.
 func (p *parser) failCall(parent, errorType string, at time.Time, emit func(Event) error) error {
-	call := &runtime.ModelCall{Start: cmp.Or(p.callStart[parent], at), End: at}
+	call := &runtime.ModelCall{ParentToolID: parent, Start: cmp.Or(p.callStart[parent], at), End: at}
 	if parent == "" && p.openCall != nil {
 		call, p.openCall = p.openCall, nil
 		call.End = p.now()
@@ -432,7 +432,7 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, l
 				continue
 			}
 			p.emittedToolCalls[content.ID] = struct{}{}
-			if err := emit(Event{Kind: EventToolActivity, ToolID: content.ID, ToolName: content.Name, ToolPhase: "started", Metadata: content.Input}); err != nil {
+			if err := emit(Event{Kind: EventToolActivity, ToolID: content.ID, ToolName: content.Name, ToolPhase: "started", Metadata: content.Input, ParentToolID: parent}); err != nil {
 				return err
 			}
 		}
@@ -500,7 +500,7 @@ func (p *parser) lineTime(timestamp string) time.Time {
 // Subagent calls arrive only as assistant snapshots whose usage predates the final delta.
 func (p *parser) holdSnapshot(parent, messageID string, call runtime.ModelCall, lineTime time.Time, emit func(Event) error) error {
 	// Claude Code reports an unstreamed call only when it ends, so the call starts at its thread's previous line.
-	call.Start, call.End = cmp.Or(p.callStart[parent], lineTime), lineTime
+	call.ParentToolID, call.Start, call.End = parent, cmp.Or(p.callStart[parent], lineTime), lineTime
 	p.callStart[parent] = lineTime
 	if pending, ok := p.snapshots[parent]; ok && pending.messageID == messageID {
 		call.Start = pending.call.Start
@@ -534,7 +534,7 @@ func (p *parser) endSubagent(ctx context.Context, parent string, toolUseResult j
 		}
 		return emit(Event{Kind: EventModelCall, ModelCall: &pending.call})
 	}
-	final := runtime.ModelCall{ResponseModel: result.ResolvedModel, Start: cmp.Or(p.callStart[parent], lineTime), End: lineTime}
+	final := runtime.ModelCall{ResponseModel: result.ResolvedModel, ParentToolID: parent, Start: cmp.Or(p.callStart[parent], lineTime), End: lineTime}
 	delete(p.callStart, parent)
 	result.Usage.apply(&final)
 	if held {
