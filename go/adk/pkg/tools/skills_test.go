@@ -205,7 +205,7 @@ func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T)
 
 	for _, name := range []string{"read_file", "write_file", "edit_file", "bash"} {
 		if !got[name] {
-			t.Errorf("expected tool %q to be present even without KAGENT_ENABLE_FILE_SEARCH_TOOLS", name)
+			t.Errorf("expected tool %q to be present when file search tools are disabled", name)
 		}
 	}
 	if got["list_files"] {

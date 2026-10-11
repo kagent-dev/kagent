@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
+from opentelemetry.instrumentation._semconv import _OpenTelemetrySemanticConventionStability
 from opentelemetry.propagate import get_global_textmap, set_global_textmap
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, InMemoryMetricReader
@@ -25,6 +26,10 @@ _RESOURCE_ENV = ("OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES", "KAGENT_NAME",
 @pytest.fixture(autouse=True)
 def fresh_bootstrap(monkeypatch):
     monkeypatch.setattr(_boot, "_current", None)
+    # OTEL caches env opt-ins on first instrumentation. Reset that cache too,
+    # so these startup tests model a fresh process regardless of test order.
+    monkeypatch.setattr(_OpenTelemetrySemanticConventionStability, "_initialized", False)
+    monkeypatch.setattr(_OpenTelemetrySemanticConventionStability, "_OTEL_SEMCONV_STABILITY_SIGNAL_MAPPING", {})
     previous_environment = dict(os.environ)
     for name in tuple(os.environ):
         if not name.startswith("OTEL_") and name not in _RESOURCE_ENV:

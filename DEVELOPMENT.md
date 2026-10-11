@@ -186,8 +186,8 @@ make kagent-cli-install \
   SUBSTRATE_PODCERT_VERSION=0.5.1
 ```
 
-The corresponding CLI environment variables are documented in
-[docs/env.md](docs/env.md).
+For direct CLI use, configure `install.substrate` and `install.podCertificate`
+in the [CLI config file](docs/architecture/process-configuration.md#cli).
 
 To access the UI, port-forward to the UI port on the `kagent-ui` service:
 

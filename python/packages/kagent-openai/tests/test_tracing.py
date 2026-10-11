@@ -23,7 +23,6 @@ def _reset():
 
 @pytest.fixture(autouse=True)
 def reset_agents_tracing(monkeypatch):
-    monkeypatch.delenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", raising=False)
     monkeypatch.delenv("OPENAI_AGENTS_DISABLE_TRACING", raising=False)
     monkeypatch.setattr(_boot, "_current", None)
     _reset()
@@ -72,9 +71,7 @@ def test_spans_still_reach_opentelemetry():
     assert not isinstance(get_trace_provider().create_trace("test"), NoOpTrace)
 
 
-def test_native_exporter_kept_when_opted_in(monkeypatch):
-    monkeypatch.setenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", "false")
-
+def test_native_exporter_kept_when_opted_in():
     _instrument(keep_native=True)
 
     processors = _processors()

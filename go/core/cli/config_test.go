@@ -44,14 +44,14 @@ install:
 	require.NoError(t, err)
 	cfg := &apiv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
-	require.Equal(t, "flag-ns", cfg.Connection.GetNamespace())
-	require.Equal(t, "file-user", cfg.Connection.GetUserId())
-	require.Zero(t, cfg.Connection.Timeout.AsDuration())
-	require.False(t, cfg.Connection.Verbose)
-	require.Equal(t, filepath.Join(dir, "ca.pem"), cfg.Connection.CaFile)
-	require.Equal(t, "json", cfg.Output.GetFormat())
-	require.Equal(t, "v1.2.3", cfg.Install.PodCertificate.GetVersion())
-	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.Database.UrlFile)
+	require.Equal(t, "flag-ns", cfg.GetConnection().GetNamespace())
+	require.Equal(t, "file-user", cfg.GetConnection().GetUserId())
+	require.Zero(t, cfg.GetConnection().GetTimeout().AsDuration())
+	require.False(t, cfg.GetConnection().GetVerbose())
+	require.Equal(t, filepath.Join(dir, "ca.pem"), cfg.GetConnection().GetCaFile())
+	require.Equal(t, "json", cfg.GetOutput().GetFormat())
+	require.Equal(t, "v1.2.3", cfg.GetInstall().GetPodCertificate().GetVersion())
+	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.GetDatabase().GetUrlFile())
 	_, err = executeConfig(t, "--config", path, "config", "validate")
 	require.NoError(t, err)
 }
@@ -72,19 +72,23 @@ func TestDefaultConfigIsOptionalAndCommandTreesAreIndependent(t *testing.T) {
 	require.NoError(t, err)
 	cfg := &apiv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(first), cfg))
-	require.Equal(t, "first", cfg.Connection.GetNamespace())
+	require.Equal(t, "first", cfg.GetConnection().GetNamespace())
 	second, err := executeConfig(t, "config", "view")
 	require.NoError(t, err)
 	require.NoError(t, protojson.Unmarshal([]byte(second), cfg))
-	require.Equal(t, "kagent", cfg.Connection.GetNamespace())
+	require.Equal(t, "kagent", cfg.GetConnection().GetNamespace())
 }
 
 func TestDatabasePreRunLoadsRootConfig(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bad.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("unexpected: true"), 0600))
-	_, err := executeConfig(t, "--config", path, "db", "migrate", "status")
-	require.ErrorContains(t, err, "unknown field")
-	require.NoError(t, os.WriteFile(path, []byte("database: {urlFile: missing-url}"), 0600))
-	_, err = executeConfig(t, "--config", path, "db", "migrate", "status")
-	require.ErrorContains(t, err, "missing-url")
+	for _, command := range []string{"status", "version"} {
+		t.Run(command, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("unexpected: true"), 0600))
+			_, err := executeConfig(t, "--config", path, "db", "migrate", command)
+			require.ErrorContains(t, err, "unknown field")
+			require.NoError(t, os.WriteFile(path, []byte("database: {urlFile: missing-url}"), 0600))
+			_, err = executeConfig(t, "--config", path, "db", "migrate", command)
+			require.ErrorContains(t, err, "missing-url")
+		})
+	}
 }

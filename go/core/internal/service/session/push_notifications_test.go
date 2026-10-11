@@ -67,7 +67,6 @@ func TestEmbeddedPushConfig(t *testing.T) {
 }
 
 func TestPushRequiresHTTPSWhenHTTPDisabled(t *testing.T) {
-	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "true")
 	agent := types.NamespacedName{Namespace: "team", Name: "agent"}
 	config := &a2a.PushConfig{URL: "http://receiver/callback"}
 	_, err := validatePushConfig(agent, config, false)

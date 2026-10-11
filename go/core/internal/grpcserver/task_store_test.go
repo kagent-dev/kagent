@@ -116,7 +116,6 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
-	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "true")
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	dbtest.MigrateT(t, dsn, false)
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})

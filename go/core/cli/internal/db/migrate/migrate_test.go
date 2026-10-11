@@ -107,7 +107,6 @@ func TestResolveDSN(t *testing.T) {
 		{name: "unreadable", state: commandState{dbURLFile: path + "-absent"}, wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("KAGENT_POSTGRES_DATABASE_URL", "postgres://ignored")
 			got, err := tt.state.resolveDSN()
 			if (err != nil) != tt.wantErr || got != tt.want {
 				t.Fatalf("resolveDSN = %q, %v", got, err)
@@ -182,7 +181,6 @@ func TestArgValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("KAGENT_POSTGRES_DATABASE_URL", "")
 			_, _, err := runCLI(t, testSources(), tt.args...)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)

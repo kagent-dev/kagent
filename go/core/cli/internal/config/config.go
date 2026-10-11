@@ -30,13 +30,14 @@ func FromContext(ctx context.Context) *apiv1.CLIConfig {
 }
 
 func Register(root *cobra.Command) {
+	configCommand := newCommand()
 	root.PersistentFlags().String("config", "", "Configuration file (default: user config directory/kagent/config.yaml)")
 	root.PersistentFlags().String("log-level", "info", "Log level: debug, info, warn, error")
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
-		if cmd.Name() == "version" || cmd.Name() == "schema" {
+		if (cmd.Parent() == root && cmd.Name() == "version") || (cmd.Parent() == configCommand && cmd.Name() == "schema") {
 			return nil
 		}
-		if cmd.Parent() != nil && cmd.Parent().Name() == "config" {
+		if cmd.Parent() == configCommand {
 			component, _ := cmd.Flags().GetString("component")
 			if component != "cli" {
 				return nil
@@ -44,7 +45,7 @@ func Register(root *cobra.Command) {
 		}
 		return initialize(cmd)
 	}
-	root.AddCommand(newCommand())
+	root.AddCommand(configCommand)
 }
 
 func initialize(cmd *cobra.Command) error {
@@ -83,7 +84,7 @@ func initialize(cmd *cobra.Command) error {
 	}
 	if cmd.Flags().Changed("verbose") {
 		cfg.Connection.Verbose, _ = cmd.Flags().GetBool("verbose")
-	} else if err := cmd.Flags().Lookup("verbose").Value.Set(strconv.FormatBool(cfg.Connection.Verbose)); err != nil {
+	} else if err := cmd.Flags().Lookup("verbose").Value.Set(strconv.FormatBool(cfg.GetConnection().GetVerbose())); err != nil {
 		return err
 	}
 	if cmd.Flags().Changed("timeout") {
@@ -92,13 +93,13 @@ func initialize(cmd *cobra.Command) error {
 			return err
 		}
 		cfg.Connection.Timeout = durationpb.New(timeout)
-	} else if err := cmd.Flags().Lookup("timeout").Value.Set(cfg.Connection.Timeout.AsDuration().String()); err != nil {
+	} else if err := cmd.Flags().Lookup("timeout").Value.Set(cfg.GetConnection().GetTimeout().AsDuration().String()); err != nil {
 		return err
 	}
 	if err := shared.Validate(cfg); err != nil {
 		return err
 	}
-	logger, err := logging.New(cmd.ErrOrStderr(), cfg.Logging.GetLevel())
+	logger, err := logging.New(cmd.ErrOrStderr(), cfg.GetLogging().GetLevel())
 	if err != nil {
 		return err
 	}

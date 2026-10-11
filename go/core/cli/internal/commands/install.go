@@ -87,7 +87,7 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		return err
 	}
 
-	settings := cliconfig.FromContext(ctx).Install
+	settings := cliconfig.FromContext(ctx).GetInstall()
 	modelProvider := v1alpha3.ModelProvider(settings.GetDefaultModelProvider())
 
 	apiKeyValue := ""
@@ -98,8 +98,8 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		}
 	}
 
-	helmConfig := setupHelmConfig(settings.Kagent, modelProvider, apiKeyValue)
-	substrateHelmConfig := chartConfig(settings.Substrate)
+	helmConfig := setupHelmConfig(settings.GetKagent(), modelProvider, apiKeyValue)
+	substrateHelmConfig := chartConfig(settings.GetSubstrate())
 
 	// setup profile if provided
 	if cfg.Profile = strings.TrimSpace(cfg.Profile); cfg.Profile != "" {
@@ -111,7 +111,7 @@ func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg
 		helmConfig.inlineValues += "\n" + profiles.MinimalProfileYaml
 	}
 
-	return install(ctx, &options, helmConfig, substrateHelmConfig, chartConfig(settings.PodCertificate), modelProvider, cfg.SkipDatabaseSetup, settings.GetBundledPostgresImage())
+	return install(ctx, &options, helmConfig, substrateHelmConfig, chartConfig(settings.GetPodCertificate()), modelProvider, cfg.SkipDatabaseSetup, settings.GetBundledPostgresImage())
 }
 
 // helmConfig is the config for the kagent chart
@@ -174,7 +174,7 @@ config:
 }
 
 func chartConfig(chart *apiv1.ChartConfig) helmConfig {
-	return helmConfig{registry: strings.TrimRight(chart.GetRepository(), "/") + "/", version: chart.GetVersion(), valuesFiles: slices.Clone(chart.ValuesFiles)}
+	return helmConfig{registry: strings.TrimRight(chart.GetRepository(), "/") + "/", version: chart.GetVersion(), valuesFiles: slices.Clone(chart.GetValuesFiles())}
 }
 
 // install installs the Substrate and Kagent releases.

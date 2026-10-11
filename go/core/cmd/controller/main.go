@@ -58,7 +58,7 @@ func run(path string, check bool, level string) error {
 		return err
 	}
 	config.ResolveControllerPaths(cfg, path)
-	for _, path := range []string{cfg.Database.UrlFile, cfg.Gateway.Push.SigningPrivateKeyFile} {
+	for _, path := range []string{cfg.GetDatabase().GetUrlFile(), cfg.GetGateway().GetPush().GetSigningPrivateKeyFile()} {
 		if path == "" {
 			continue
 		}
@@ -69,12 +69,12 @@ func run(path string, check bool, level string) error {
 	if check {
 		return nil
 	}
-	if err := app.SetupLogger(cfg.Logging.GetLevel()); err != nil {
+	if err := app.SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	authenticator, err := controllerAuthenticator(cfg.Server.Auth.GetMode(), cfg.Server.Auth.UserIdClaim)
+	authenticator, err := controllerAuthenticator(cfg.GetServer().GetAuth().GetMode(), cfg.GetServer().GetAuth().GetUserIdClaim())
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func podTelemetryDefaults(cfg *apiv1.ControllerConfig, getenv func(string) strin
 		"k8s.pod.uid":         getenv("K8S_POD_UID"),
 		"service.instance.id": getenv("K8S_POD_UID"),
 		"k8s.node.name":       getenv("K8S_NODE_NAME"),
-		"k8s.namespace.name":  cfg.Kubernetes.GetNamespace(),
+		"k8s.namespace.name":  cfg.GetKubernetes().GetNamespace(),
 		"k8s.container.name":  "controller",
 	} {
 		if _, set := cfg.Telemetry.ResourceAttributes[key]; !set && value != "" {

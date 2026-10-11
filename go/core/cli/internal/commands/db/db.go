@@ -12,22 +12,22 @@ import (
 
 func NewDBCmd() *cobra.Command {
 	cmd := dbcli.NewCommandFromFunc(func(ctx context.Context) ([]migrations.Source, error) {
-		cfg := cliconfig.FromContext(ctx).Database
-		return migrations.BuiltinSourcesInSchema(cfg.VectorEnabled, cfg.GetSchema(), cfg.GetVectorSchema()), nil
+		cfg := cliconfig.FromContext(ctx).GetDatabase()
+		return migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema()), nil
 	})
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if err := cmd.Root().PersistentPreRunE(cmd, args); err != nil {
 			return err
 		}
-		cfg := cliconfig.FromContext(cmd.Context()).Database
+		cfg := cliconfig.FromContext(cmd.Context()).GetDatabase()
 		flags := cmd.Flags()
 		if flag := flags.Lookup("db-role"); flag != nil && !flag.Changed {
-			if err := flag.Value.Set(cfg.Role); err != nil {
+			if err := flag.Value.Set(cfg.GetRole()); err != nil {
 				return err
 			}
 		}
 		if flag := flags.Lookup("db-url-file"); flag != nil && !flag.Changed && !flags.Changed("db-url") {
-			if err := flag.Value.Set(cfg.UrlFile); err != nil {
+			if err := flag.Value.Set(cfg.GetUrlFile()); err != nil {
 				return err
 			}
 		}

@@ -77,7 +77,7 @@ import (
 // Options are the components a library consumer may supply in place of core's own.
 //
 // A nil field is not an error: it selects the library default. The shipped
-// controller selects its authenticator from environment settings. Supplying
+// controller selects its authenticator from server.auth settings. Supplying
 // one does not change how core uses it — the authenticator still guards the
 // gRPC server and the /mcp endpoint, and the authorizer is still consulted by
 // every service that takes one — so a library consumer cannot narrow where
@@ -157,7 +157,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
-	dbURL, err := config.ReadSecret(cfg.Database.UrlFile)
+	dbURL, err := config.ReadSecret(cfg.GetDatabase().GetUrlFile())
 	if err != nil {
 		return fmt.Errorf("database.urlFile: %w", err)
 	}
@@ -165,26 +165,26 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		return fmt.Errorf("invalid database connection configuration")
 	}
 	var pushPrivateKey string
-	if cfg.Gateway.Push.SigningPrivateKeyFile != "" {
-		pushPrivateKey, err = config.ReadSecret(cfg.Gateway.Push.SigningPrivateKeyFile)
+	if cfg.GetGateway().GetPush().GetSigningPrivateKeyFile() != "" {
+		pushPrivateKey, err = config.ReadSecret(cfg.GetGateway().GetPush().GetSigningPrivateKeyFile())
 		if err != nil {
 			return fmt.Errorf("gateway.push.signingPrivateKeyFile: %w", err)
 		}
 	}
-	if err := SetupLogger(cfg.Logging.GetLevel()); err != nil {
+	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
 		return err
 	}
-	quiescenceInterval := cfg.Sessions.QuiescenceRecoveryInterval.AsDuration()
+	quiescenceInterval := cfg.GetSessions().GetQuiescenceRecoveryInterval().AsDuration()
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
-	compilerSettings, err := translator.NewCompilerSettings(cfg.RuntimeDefaults)
+	compilerSettings, err := translator.NewCompilerSettings(cfg.GetRuntimeDefaults())
 	if err != nil {
 		return err
 	}
-	telemetryOptions := telemetry.Options{Config: config.Telemetry(cfg.Telemetry), Defaults: []attribute.KeyValue{
+	telemetryOptions := telemetry.Options{Config: config.Telemetry(cfg.GetTelemetry()), Defaults: []attribute.KeyValue{
 		semconv.ServiceName("kagent-controller"), semconv.ServiceNamespace("kagent"), semconv.ServiceVersion(version.Version),
 	}}
-	if cfg.Metrics.GetBindAddress() != "0" {
+	if cfg.GetMetrics().GetBindAddress() != "0" {
 		reader, err := otelprometheus.New(otelprometheus.WithRegisterer(crmetrics.Registry))
 		if err != nil {
 			return fmt.Errorf("create Prometheus metric reader: %w", err)
@@ -205,24 +205,24 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		}
 	}()
 
-	dbRole := cfg.Database.Role
-	sources, err := migrationSources(cfg.Database, opts.ExtraMigrations)
+	dbRole := cfg.GetDatabase().GetRole()
+	sources, err := migrationSources(cfg.GetDatabase(), opts.ExtraMigrations)
 	if err != nil {
 		return err
 	}
-	if cfg.Database.GetMigrations() == "verify" {
+	if cfg.GetDatabase().GetMigrations() == "verify" {
 		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
 	} else if err := migrations.RunUpAsRole(ctx, dbURL, dbRole, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, postgresConfig(cfg.Database, dbURL))
+	db, err := database.Connect(ctx, postgresConfig(cfg.GetDatabase(), dbURL))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db, cfg.Database.GetVectorSchema())
+	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema())
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},
@@ -239,7 +239,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
 	utilruntime.Must(kmcp.AddToScheme(managerScheme))
-	watchNamespaces := cfg.Kubernetes.WatchNamespaces
+	watchNamespaces := cfg.GetKubernetes().GetWatchNamespaces()
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
 	if len(watchNamespaces) > 0 {
@@ -249,8 +249,8 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		managerClientOptions.Cache = &client.CacheOptions{DisableFor: []client.Object{&corev1.Namespace{}}}
 	}
 	metricsOptions := metricsserver.Options{
-		BindAddress:   cfg.Metrics.GetBindAddress(),
-		SecureServing: cfg.Metrics.Secure,
+		BindAddress:   cfg.GetMetrics().GetBindAddress(),
+		SecureServing: cfg.GetMetrics().GetSecure(),
 	}
 	if metricsOptions.SecureServing {
 		// SecureServing alone only encrypts. The filter authenticates the scraper
@@ -263,9 +263,9 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		Cache:                   managerCacheOptions,
 		Client:                  managerClientOptions,
 		Metrics:                 metricsOptions,
-		LeaderElection:          cfg.Kubernetes.GetLeaderElection(),
+		LeaderElection:          cfg.GetKubernetes().GetLeaderElection(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
-		LeaderElectionNamespace: cfg.Kubernetes.GetNamespace(),
+		LeaderElectionNamespace: cfg.GetKubernetes().GetNamespace(),
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
@@ -275,9 +275,9 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: cfg.Substrate.GetApiEndpoint(),
-		CAFile:         cfg.Substrate.CaFile,
-		ClientCertFile: cfg.Substrate.ClientCertFile,
+		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
+		CAFile:         cfg.GetSubstrate().GetCaFile(),
+		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
 		CallTimeout:    30 * time.Second,
 	})
 	if err != nil {
@@ -291,7 +291,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
 	}
-	runtimeGC, err := controller.NewRuntimeRevisionGC(store, actors, cfg.RuntimeRevisions.GcInterval.AsDuration(), otel.GetMeterProvider())
+	runtimeGC, err := controller.NewRuntimeRevisionGC(store, actors, cfg.GetRuntimeRevisions().GetGcInterval().AsDuration(), otel.GetMeterProvider())
 	if err != nil {
 		return fmt.Errorf("create runtime revision GC: %w", err)
 	}
@@ -314,7 +314,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	}
 
 	authenticator, authorizer := opts.resolve()
-	resourceNamespace := cfg.Kubernetes.GetNamespace()
+	resourceNamespace := cfg.GetKubernetes().GetNamespace()
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
@@ -326,28 +326,28 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
-	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, cfg.Sessions.IdleTtl.AsDuration(), cfg.Sessions.ExpirationInterval.AsDuration())
+	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, cfg.GetSessions().GetIdleTtl().AsDuration(), cfg.GetSessions().GetExpirationInterval().AsDuration())
 	if err != nil {
 		return err
 	}
 	if err := manager.Add(expiration); err != nil {
 		return fmt.Errorf("register session expiration worker: %w", err)
 	}
-	shareMaxTTL := cfg.Sessions.ShareMaxTtl.AsDuration()
+	shareMaxTTL := cfg.GetSessions().GetShareMaxTtl().AsDuration()
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
-		cfg.Substrate.GetRouterUrl(),
+		cfg.GetSubstrate().GetRouterUrl(),
 		authenticator,
 	)
 	if err != nil {
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.Gateway.Push.GetAllowHttp())
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetGateway().GetPush().GetAllowHttp())
 	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
-		cfg.Gateway.Push.AllowHttp, cfg.Gateway.Push.AllowPrivateNetworks)
-	pushIssuer := cfg.Gateway.Push.GetIssuer()
+		cfg.GetGateway().GetPush().GetAllowHttp(), cfg.GetGateway().GetPush().GetAllowPrivateNetworks())
+	pushIssuer := cfg.GetGateway().GetPush().GetIssuer()
 	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
@@ -355,25 +355,25 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner)); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
-	gateway := a2agateway.New(interactions, gatewayDialer, cfg.Gateway.GetPublicUrl())
+	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
-	if err := manager.Add(scheduledruncontroller.NewScheduler(store, cfg.ScheduledRuns.PollInterval.AsDuration())); err != nil {
+	if err := manager.Add(scheduledruncontroller.NewScheduler(store, cfg.GetScheduledRuns().GetPollInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
 	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
-		gateway, cfg.ScheduledRuns.ExecutionInterval.AsDuration())); err != nil {
+		gateway, cfg.GetScheduledRuns().GetExecutionInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)
-	guests, err := sandboxservice.NewGuestDialer(cfg.Substrate.GetRouterUrl(), authenticator)
+	guests, err := sandboxservice.NewGuestDialer(cfg.GetSubstrate().GetRouterUrl(), authenticator)
 	if err != nil {
 		return err
 	}
 	defer guests.Close()
 	policy := substrate.SandboxPolicy{
-		GuestImage: cfg.Sandboxes.GuestImage,
-		CPU:        cfg.Sandboxes.GetCpu(),
-		Memory:     cfg.Sandboxes.GetMemory(),
+		GuestImage: cfg.GetSandboxes().GetGuestImage(),
+		CPU:        cfg.GetSandboxes().GetCpu(),
+		Memory:     cfg.GetSandboxes().GetMemory(),
 	}
 	preparation, err := controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
 	if err != nil {
@@ -383,7 +383,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		return err
 	}
 	sandboxes, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: manager.GetClient(), Authorizer: authorizer, Actors: actors, Guests: guests,
-		DefaultTTL: cfg.Sandboxes.DefaultTtl.AsDuration(), MaxTTL: cfg.Sandboxes.MaxTtl.AsDuration(), ExpirationPollInterval: cfg.Sandboxes.ExpirationInterval.AsDuration()})
+		DefaultTTL: cfg.GetSandboxes().GetDefaultTtl().AsDuration(), MaxTTL: cfg.GetSandboxes().GetMaxTtl().AsDuration(), ExpirationPollInterval: cfg.GetSandboxes().GetExpirationInterval().AsDuration()})
 	if err != nil {
 		return err
 	}
@@ -412,8 +412,8 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	server, err := grpcserver.New(grpcserver.Config{
 		MethodPolicies:        policies,
 		RegisterServices:      opts.GRPCServices,
-		BindAddress:           cfg.Server.GetBindAddress(),
-		Reflection:            cfg.Server.GrpcReflection,
+		BindAddress:           cfg.GetServer().GetBindAddress(),
+		Reflection:            cfg.GetServer().GetGrpcReflection(),
 		Authenticator:         authenticator,
 		RuntimeAuthenticator:  &taskstore.Authenticator{},
 		ShareStore:            store,
@@ -464,10 +464,10 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 }
 
 func postgresConfig(cfg *apiv1.DatabaseConfig, source string) *database.PostgresConfig {
-	return &database.PostgresConfig{URL: source, Role: cfg.Role, VectorEnabled: cfg.VectorEnabled,
+	return &database.PostgresConfig{URL: source, Role: cfg.GetRole(), VectorEnabled: cfg.GetVectorEnabled(),
 		Schema: cfg.GetSchema(), VectorSchema: cfg.GetVectorSchema(),
-		MaxConns: new(cfg.Pool.GetMaxConns()), MinConns: new(cfg.Pool.GetMinConns()),
-		MaxConnIdleTime: new(cfg.Pool.MaxConnIdleTime.AsDuration()), MaxConnLifetime: new(cfg.Pool.MaxConnLifetime.AsDuration())}
+		MaxConns: new(cfg.GetPool().GetMaxConns()), MinConns: new(cfg.GetPool().GetMinConns()),
+		MaxConnIdleTime: new(cfg.GetPool().GetMaxConnIdleTime().AsDuration()), MaxConnLifetime: new(cfg.GetPool().GetMaxConnLifetime().AsDuration())}
 }
 
 // The built-in tracks must finish before extra sources, which must explicitly
@@ -478,7 +478,7 @@ func migrationSources(cfg *apiv1.DatabaseConfig, extra []migrations.Source) ([]m
 			return nil, fmt.Errorf("extra migration source %q must set Schema", src.Name)
 		}
 	}
-	builtins := migrations.BuiltinSourcesInSchema(cfg.VectorEnabled, cfg.GetSchema(), cfg.GetVectorSchema())
+	builtins := migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema())
 	return append(builtins, extra...), nil
 }
 

@@ -27,13 +27,16 @@ func NewCompilerSettings(cfg *apiv1.RuntimeDefaultsConfig) (CompilerSettings, er
 	if err := config.Validate(cfg); err != nil {
 		return CompilerSettings{}, err
 	}
-	telemetry, err := TelemetryConfigFromSettings(cfg.Telemetry)
+	telemetry, err := TelemetryConfigFromSettings(cfg.GetTelemetry())
 	if err != nil {
 		return CompilerSettings{}, err
 	}
-	return CompilerSettings{APIURL: cfg.GetControlPlaneUrl(), GatewayURL: cfg.GetGatewayUrl(), LogLevel: cfg.Logging.GetLevel(), Telemetry: telemetry, Process: adk.RuntimeConfig{
-		MaxContentLength: cfg.MaxContentLength, FileSearchTools: cfg.FileSearchTools, BashVenvPath: cfg.BashVenvPath,
-		TokenPropagation: adk.TokenPropagationConfig{Enabled: cfg.TokenPropagation.GetEnabled(), STSWellKnownURI: cfg.TokenPropagation.GetStsWellKnownUri(), Resources: cfg.TokenPropagation.GetResources(), Audiences: cfg.TokenPropagation.GetAudiences()},
+	return CompilerSettings{APIURL: cfg.GetControlPlaneUrl(), GatewayURL: cfg.GetGatewayUrl(), LogLevel: cfg.GetLogging().GetLevel(), Telemetry: telemetry, Process: adk.RuntimeConfig{
+		// Preserve presence: nil selects the runtime default; zero disables the limit.
+		MaxContentLength: cfg.MaxContentLength,
+		FileSearchTools:  cfg.GetFileSearchTools(),
+		BashVenvPath:     cfg.GetBashVenvPath(),
+		TokenPropagation: adk.TokenPropagationConfig{Enabled: cfg.GetTokenPropagation().GetEnabled(), STSWellKnownURI: cfg.GetTokenPropagation().GetStsWellKnownUri(), Resources: cfg.GetTokenPropagation().GetResources(), Audiences: cfg.GetTokenPropagation().GetAudiences()},
 	}}, nil
 }
 
@@ -44,19 +47,19 @@ func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, e
 	}
 	exporters := config.Telemetry(cfg)
 	result.Exporters = &exporters
-	result.CaptureSensitiveContent = cfg.CaptureContent
-	result.CaptureRawAPIBodies = cfg.CaptureRawApiBodies
-	result.OpenAINativeTracing = cfg.OpenaiNativeTracing
+	result.CaptureSensitiveContent = cfg.GetCaptureContent()
+	result.CaptureRawAPIBodies = cfg.GetCaptureRawApiBodies()
+	result.OpenAINativeTracing = cfg.GetOpenaiNativeTracing()
 	result.MaxCaptureBytes = int(cfg.GetMaxCaptureBytes())
-	for signal, source := range map[Signal]*apiv1.OTLPConfig{SignalTraces: cfg.Traces, SignalMetrics: cfg.Metrics, SignalLogs: cfg.Logs} {
+	for signal, source := range map[Signal]*apiv1.OTLPConfig{SignalTraces: cfg.GetTraces(), SignalMetrics: cfg.GetMetrics(), SignalLogs: cfg.GetLogs()} {
 		if source == nil {
 			continue
 		}
-		endpoint, err := url.Parse(source.Endpoint)
+		endpoint, err := url.Parse(source.GetEndpoint())
 		if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
 			return TelemetryConfig{}, fmt.Errorf("telemetry.%s.endpoint must be an HTTP(S) URL", signal)
 		}
-		*result.signal(signal) = SignalConfig{Enabled: true, Endpoint: source.Endpoint,
+		*result.signal(signal) = SignalConfig{Enabled: true, Endpoint: source.GetEndpoint(),
 			Protocol: source.GetProtocol(), Hostname: endpoint.Hostname()}
 	}
 	return result, nil

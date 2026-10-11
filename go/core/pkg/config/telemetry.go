@@ -12,12 +12,12 @@ func Telemetry(cfg *apiv1.TelemetryConfig) telemetry.Config {
 	if cfg == nil {
 		return telemetry.Config{}
 	}
-	return telemetry.Config{Traces: otlp(cfg.Traces), Metrics: otlp(cfg.Metrics), Logs: otlp(cfg.Logs), ResourceAttributes: maps.Clone(cfg.ResourceAttributes)}
+	return telemetry.Config{Traces: otlp(cfg.GetTraces()), Metrics: otlp(cfg.GetMetrics()), Logs: otlp(cfg.GetLogs()), ResourceAttributes: maps.Clone(cfg.GetResourceAttributes())}
 }
 
 func otlp(cfg *apiv1.OTLPConfig) *telemetry.OTLPConfig {
 	if cfg == nil {
 		return nil
 	}
-	return &telemetry.OTLPConfig{Endpoint: cfg.Endpoint, Protocol: cfg.GetProtocol(), TimeoutMillis: cfg.Timeout.AsDuration().Milliseconds()}
+	return &telemetry.OTLPConfig{Endpoint: cfg.GetEndpoint(), Protocol: cfg.GetProtocol(), TimeoutMillis: cfg.GetTimeout().AsDuration().Milliseconds()}
 }

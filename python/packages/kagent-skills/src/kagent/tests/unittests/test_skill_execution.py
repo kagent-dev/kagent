@@ -162,15 +162,13 @@ async def test_execute_command_passes_command_as_one_argument(tmp_path):
 
 
 def test_get_bash_description_omits_file_search_tools_by_default():
-    with patch.dict("os.environ", {}, clear=True):
-        desc = get_bash_description()
+    desc = get_bash_description()
     assert "list_files" not in desc
     assert "grep_file" not in desc
 
 
 def test_get_bash_description_mentions_file_search_tools_when_enabled():
-    with patch.dict("os.environ", {"KAGENT_ENABLE_FILE_SEARCH_TOOLS": "true"}, clear=True):
-        desc = get_bash_description(file_search_tools=True)
+    desc = get_bash_description(file_search_tools=True)
     assert "list_files and grep_file" in desc
 
 
