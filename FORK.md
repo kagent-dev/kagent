@@ -329,11 +329,17 @@ write access.
 
 ## Contributing
 
-- **Every patch is an upstream pull request first** (kagent-dev/kagent, DCO sign-off on every commit; a
-  workflow run on a pull request from a fork waits for a maintainer's approval). The fork commit and the
-  upstream pull request are the same change and reference each other. Work on a branch of this repository
-  (`fix/…`, `feat/…`) and open the pull request here against `giantswarm` with the upstream link; the
-  upstream pull request is opened from this repository's branch too, so the same commit serves both.
+- **Every patch is prepared for upstream, and the upstream pull requests are opened in batches.** Work on
+  a branch of this repository (`fix/…`, `feat/…`) and open the pull request here against `giantswarm`: the
+  change is one upstream-ready commit, with its `fork/carried/` file. Beside it, push its upstream branch
+  `upstream/<slug>` to this repository: the commit on the mirror's `main` at the pin (or on the upstream
+  branch it depends on), DCO-signed, with no fork references, its message the upstream pull request's
+  text. The carried file's `Upstream` column records it: "to file — prepared in the fork: branch
+  `upstream/<slug>`", with what the branch is based on and the upstream search. Opening the upstream pull request (kagent-dev/kagent; a workflow run on a pull
+  request from a fork waits for a maintainer's approval) is not a step of the fork pull request: whoever
+  maintains the line's upstream relationship opens the prepared branches in batches. Once one is opened,
+  the `Upstream` column links it and the upstream pull request names the fork commit, so the two
+  reference each other.
 - **A carried commit takes a type that releases.** Pull requests here are rebase-merged, so each commit's
   own subject reaches the Auto Release workflow, and its `cliff.toml` skips `test`, `docs` and `style`: a
   push that carries only those cuts no release candidate, and the change has no published artifact to be
