@@ -103,7 +103,7 @@ func (c *Client) InterruptSessionTask(ctx context.Context, sessionID, taskID str
 			return fmt.Errorf("task %s recorded an event at %s: %w", taskID, latest.CreatedAt.Format(time.RFC3339), ErrConflict)
 		}
 		if !latest.Published && latest.Boundary {
-			if err := settleSessionTask(ctx, tx, session, taskID, latest.Sequence); err != nil {
+			if _, err := settleSessionTask(ctx, tx, session, taskID, latest.Sequence); err != nil {
 				return err
 			}
 			settled, err := readSessionTask(ctx, tx, session.HistoryID, taskID)

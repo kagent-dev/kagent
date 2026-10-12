@@ -5,11 +5,13 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,10 +29,10 @@ func (s *settlementStore) GetSessionForRuntime(_ context.Context, id, _ string) 
 	return &apiv1alpha1.Session{Id: id, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
 }
 
-func (s *settlementStore) SettleSessionTask(context.Context, string, string, int64) error {
+func (s *settlementStore) SettleSessionTaskResult(context.Context, string, string, int64) (*a2a.Task, error) {
 	<-s.commit
 	s.committed = s.err == nil
-	return s.err
+	return nil, s.err
 }
 
 func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
@@ -54,7 +56,8 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 					wakes <- struct{}{}
 				}
 				before := len(wakes)
-				service := NewService(store, wakes)
+				service, err := NewService(store, wakes, noop.NewMeterProvider())
+				require.NoError(t, err)
 				ctx, cancel := context.WithCancel(auth.AuthSessionTo(t.Context(), runtimeSession{sessionID: "session", atespace: "team-a", actorUID: "actor"}))
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)

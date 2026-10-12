@@ -9,7 +9,6 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	harnessa2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 	corev1 "k8s.io/api/core/v1"
@@ -43,7 +42,7 @@ func TestClaudeTurnStopsAtItsTurnLimit(t *testing.T) {
 	_, _, task := fixture.send(t, "Create the requested file and read it back.")
 	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "a turn stopped by its limit completes: %s", taskText(task))
 	require.NotNil(t, task.Status.Message, "a limited turn carries a status message")
-	require.Equal(t, runtime.LimitTurns, task.Status.Message.Metadata[harnessa2a.StoppedByMetadataKey], "metadata = %#v", task.Status.Message.Metadata)
+	require.Equal(t, runtime.LimitTurns, task.Status.Message.Metadata[apia2a.StoppedByMetadataKey], "metadata = %#v", task.Status.Message.Metadata)
 	usage, ok := task.Status.Message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
 	require.True(t, ok, "usage metadata = %#v", task.Status.Message.Metadata[apia2a.UsageMetadataKey])
 	require.Contains(t, usage, "numTurns")

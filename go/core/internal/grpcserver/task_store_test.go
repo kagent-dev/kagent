@@ -41,6 +41,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -126,7 +127,8 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	session := createTaskStoreSession(t, store.Client)
 	id := session.Id
 	listener := bufconn.Listen(DefaultMaxMessageSize)
-	tasks := taskstore.NewService(store, nil)
+	tasks, err := taskstore.NewService(store, nil, noop.NewMeterProvider())
+	require.NoError(t, err)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
 		Authenticator: &authimpl.InsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},

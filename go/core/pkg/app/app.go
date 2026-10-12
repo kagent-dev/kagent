@@ -323,7 +323,10 @@ func Run(ctx context.Context, opts Options) error {
 	quiescenceWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, sessionsvc.WithPausedRuntimeTTL(kagentenv.SessionPausedRuntimeTTL.Get()),
 		sessionsvc.WithDirectoryReleaser(sessionsvc.NewEventDirectoryReleaser(manager.GetClient())))
-	runtimeTasks := taskstore.NewService(store, quiescenceWake)
+	runtimeTasks, err := taskstore.NewService(store, quiescenceWake, otel.GetMeterProvider())
+	if err != nil {
+		return err
+	}
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}

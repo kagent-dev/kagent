@@ -775,9 +775,6 @@ func safeFailure(message string) string {
 var _ runtime.EventSink = (*executionSink)(nil)
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
-// StoppedByMetadataKey names the limit that ended a completed turn.
-const StoppedByMetadataKey = "stopped_by"
-
 func limitNotice(stoppedBy string) string {
 	switch stoppedBy {
 	case runtime.LimitBudget:
@@ -795,7 +792,7 @@ func limitNotice(stoppedBy string) string {
 func usageMetadata(outcome runtime.Outcome) map[string]any {
 	metadata := map[string]any{}
 	if outcome.StoppedBy != "" {
-		metadata[StoppedByMetadataKey] = outcome.StoppedBy
+		metadata[apia2a.StoppedByMetadataKey] = outcome.StoppedBy
 	}
 	if usage := outcome.Usage; usage != nil {
 		metadata[apia2a.UsageMetadataKey] = map[string]any{
