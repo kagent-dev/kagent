@@ -5,7 +5,35 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/stretchr/testify/require"
 )
+
+func TestGetModelName(t *testing.T) {
+	base := adk.BaseModel{Model: "configured-model"}
+	for _, test := range []struct {
+		name  string
+		input adk.Model
+		want  string
+	}{
+		{name: "openai", input: &adk.OpenAI{BaseModel: base}, want: base.Model},
+		{name: "azure", input: &adk.AzureOpenAI{BaseModel: base}, want: base.Model},
+		{name: "anthropic", input: &adk.Anthropic{BaseModel: base}, want: base.Model},
+		{name: "gemini", input: &adk.Gemini{BaseModel: base}, want: base.Model},
+		{name: "vertex", input: &adk.GeminiVertexAI{BaseModel: base}, want: base.Model},
+		{name: "vertex anthropic", input: &adk.GeminiAnthropic{BaseModel: base}, want: base.Model},
+		{name: "ollama", input: &adk.Ollama{BaseModel: base}, want: base.Model},
+		{name: "bedrock", input: &adk.Bedrock{BaseModel: base}, want: base.Model},
+		{name: "sap", input: &adk.SAPAICore{BaseModel: base}, want: base.Model},
+		{name: "foundry", input: &adk.Foundry{BaseModel: base}, want: base.Model},
+		{name: "generic", input: &adk.GenericModel{BaseModel: base}, want: base.Model},
+		{name: "nil", want: "unknown"},
+		{name: "empty", input: &adk.OpenAI{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, GetModelName(test.input))
+		})
+	}
+}
 
 func TestValidateAgentConfigUsage_NilConfig(t *testing.T) {
 	err := ValidateAgentConfigUsage(nil)

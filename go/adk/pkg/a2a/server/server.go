@@ -28,6 +28,7 @@ import (
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/stats"
 
+	adktelemetry "github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -90,6 +91,11 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux := http.NewServeMux()
 	registerHealthEndpoints(mux, healthPaths, healthHandler)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
+	// Serve Prometheus metrics for scraping when the metrics gate is on. This
+	// endpoint is excluded from request tracing and span flushing below.
+	if adktelemetry.MetricsEnabled() {
+		mux.Handle("/metrics", adktelemetry.MetricsHandler())
+	}
 	mux.Handle("/", jsonrpcHandler)
 
 	grpcServer := grpc.NewServer(
@@ -111,6 +117,8 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
 			return false
 		case r.URL.Path == a2asrv.WellKnownAgentCardPath, slices.Contains(healthPaths, r.URL.Path):
+			return false
+		case r.URL.Path == "/metrics":
 			return false
 		default:
 			return true
