@@ -306,12 +306,12 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			callsBefore := base.policyCalls
 			store.revision.EgressDestinations = []string{"*"}
 			_, err := workflow.Create(t.Context(), session)
-			require.ErrorContains(t, err, "invalid egress destination")
+			require.ErrorContains(t, err, "invalid egress origin")
 			require.Zero(t, actors.mutations.Load(), "validate the allowlist before issuing Actor creation")
 			require.Equal(t, callsBefore, base.policyCalls)
 
 			store.revision.EgressDestinations = []string{"https://api.example.com:443", "https://other.example.com:8443"}
-			store.revision.Credentials = []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}
+			store.revision.Credentials = []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}
 			base.policyErr = context.DeadlineExceeded
 			_, err = workflow.Create(t.Context(), session)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -349,7 +349,7 @@ func TestActorEgressPolicy(t *testing.T) {
 	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
-	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value", "http://*.example.com"} {
+	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value"} {
 		t.Run(destination, func(t *testing.T) {
 			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)
@@ -357,7 +357,7 @@ func TestActorEgressPolicy(t *testing.T) {
 	}
 	for _, destination := range []string{"http://192.0.2.1", "http://[2001:db8::1]", "http://[::ffff:192.0.2.1]"} {
 		_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
-		require.ErrorContains(t, err, "requires a DNS name")
+		require.ErrorContains(t, err, "expected a DNS name")
 	}
 	_, err = substrate.ActorEgressPolicy("team-a", []string{"http://api.example.com:8443", "https://api.example.com:8443"}, nil)
 	require.ErrorContains(t, err, "both HTTP and HTTPS on the same port")
@@ -365,15 +365,15 @@ func TestActorEgressPolicy(t *testing.T) {
 
 func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 	bindings := []egress.Credential{
-		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
-		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
+		{Origin: "https://api.example.com:8443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
+		{Origin: "https://api.example.com:8443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
 	}
 	_, err := substrate.ActorEgressPolicy("team", []string{"https://other.example.com"}, bindings)
-	require.ErrorContains(t, err, "is not allowed")
+	require.ErrorContains(t, err, "is not explicitly allowed")
 	policy, err := substrate.ActorEgressPolicy("team", []string{"http://api.example.com:8080", "https://api.example.com:8443", "https://other.example.com"}, bindings)
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 3)
-	require.Len(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders(), 2, "configured HTTP endpoints also require credential replacement")
+	require.Empty(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders(), "credentials must not cross schemes or ports")
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[1].GetHttps().GetHostnames())
 	require.Equal(t, []int32{8443}, policy.Rules[1].GetHttps().GetPorts().GetNumbers())
 	require.Len(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders(), 2)

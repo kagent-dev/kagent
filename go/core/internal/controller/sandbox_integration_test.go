@@ -42,6 +42,7 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	template := sandboxTestTemplate()
 	template.UID = ""
 	template.Generation = 0
+	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "tickets"}}
 	template, err = client.ApiV1alpha3().SandboxTemplates(template.Namespace).Create(t.Context(), template, metav1.CreateOptions{})
 	require.NoError(t, err)
 	unwatched := template.DeepCopy()
@@ -60,6 +61,8 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 		options := krt.NewOptionsBuilder(ctx.Done(), "sandbox-integration", nil)
 		pools := krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{pool}, options.WithName("WorkerPools")...)
 		runtime := &Runtime{Client: runtimeClient, Options: options, Collections: Collections{
+			EgressPolicies:   typedCollection[*kagentv1alpha3.EgressPolicy](runtimeClient, []string{"team-a"}, "EgressPolicies", options),
+			Secrets:          typedCollection[*corev1.Secret](runtimeClient, []string{"team-a"}, "Secrets", options),
 			SandboxTemplates: typedCollection[*kagentv1alpha3.SandboxTemplate](runtimeClient, []string{"team-a"}, "SandboxTemplates", options), WorkerPools: pools,
 		}}
 		reconciler, err := NewSandboxReconciler(config, runtime, store, actors, substrate.SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"})
@@ -89,6 +92,26 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 		}
 		return apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}
+	waitUnresolved := func(message string) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			current, err := client.ApiV1alpha3().SandboxTemplates(template.Namespace).Get(t.Context(), template.Name, metav1.GetOptions{})
+			if err != nil {
+				return false
+			}
+			condition := apimeta.FindStatusCondition(current.Status.Conditions, "Ready")
+			return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == kagentv1alpha3.SandboxTemplateReasonEgressPolicyResolutionFailed && strings.Contains(condition.Message, message)
+		}, 10*time.Second, 10*time.Millisecond)
+	}
+	waitUnresolved("EgressPolicy")
+	grant := &kagentv1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "tickets"}, Spec: kagentv1alpha3.EgressPolicySpec{
+		Destinations: []kagentv1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &kagentv1alpha3.EgressAuthentication{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"}}}},
+	}}
+	grant, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Create(t.Context(), grant, metav1.CreateOptions{})
+	require.NoError(t, err)
+	waitUnresolved("Secret")
+	secret, err := kube.Kube().CoreV1().Secrets(template.Namespace).Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "ticket-auth"}, Data: map[string][]byte{"token": []byte("original-token")}}, metav1.CreateOptions{})
+	require.NoError(t, err)
 	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
 	current, err := client.ApiV1alpha3().SandboxTemplates(template.Namespace).Get(t.Context(), template.Name, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -96,11 +119,45 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	store.mu.Lock()
 	revision := store.revision.Revision
 	require.True(t, store.ready)
+	require.Equal(t, []string{"https://tickets.example.com:443"}, store.revision.EgressDestinations)
+	require.Len(t, store.revision.Credentials, 1)
+	require.NotContains(t, string(store.revision.SourceSnapshot), "original-token")
 	store.mu.Unlock()
 	other, err := client.ApiV1alpha3().SandboxTemplates(unwatched.Namespace).Get(t.Context(), unwatched.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Empty(t, other.Finalizers, "namespace filters must apply to the new informer")
 	require.Empty(t, other.Status.Conditions)
+
+	// A missing key invalidates preparation; restoring it with a new value
+	// resolves the same pinned revision without serializing either value.
+	secret.Data = nil
+	secret, err = kube.Kube().CoreV1().Secrets(template.Namespace).Update(t.Context(), secret, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	waitUnresolved("missing key")
+	secret.Data = map[string][]byte{"token": []byte("rotated-token")}
+	_, err = kube.Kube().CoreV1().Secrets(template.Namespace).Update(t.Context(), secret, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
+	store.mu.Lock()
+	require.Equal(t, revision, store.revision.Revision)
+	store.mu.Unlock()
+	grant.Spec.Destinations = append(grant.Spec.Destinations, kagentv1alpha3.EgressDestination{Origin: "https://registry.npmjs.org"})
+	grant, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Update(t.Context(), grant, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		return store.ready && store.revision.Revision != revision && len(store.revision.EgressDestinations) == 2
+	}, 10*time.Second, 10*time.Millisecond)
+	store.mu.Lock()
+	revision = store.revision.Revision
+	store.mu.Unlock()
+	require.NoError(t, client.ApiV1alpha3().EgressPolicies(template.Namespace).Delete(t.Context(), grant.Name, metav1.DeleteOptions{}))
+	waitUnresolved("EgressPolicy")
+	grant.ResourceVersion, grant.UID = "", ""
+	_, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Create(t.Context(), grant, metav1.CreateOptions{})
+	require.NoError(t, err)
+	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
 
 	// A dependency update alone must change the persisted revision.
 	changedPool := pool.DeepCopy()

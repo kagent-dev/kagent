@@ -492,7 +492,7 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
-	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
+	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
@@ -508,10 +508,10 @@ func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
 	revision, err := toRuntimeRevision(runtimeRevisionRow{
 		Revision: "bad-revision",
 		Credentials: []egress.Credential{{
-			Hostname: "*", Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token",
+			Origin: "*", Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token",
 		}},
 	})
 	require.ErrorContains(t, err, "decode runtime revision bad-revision credentials")
-	require.ErrorContains(t, err, "exact DNS hostname")
+	require.ErrorContains(t, err, "exact HTTP(S) DNS origin")
 	require.Nil(t, revision)
 }

@@ -8,6 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestCompileCredentialDestinations(t *testing.T) {
@@ -40,7 +41,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			require.Nil(t, got[0].ValueFrom)
 			require.NotNil(t, environment[0].ValueFrom, "compilation must not mutate inputs")
 			require.Len(t, bindings, 1)
-			require.Equal(t, test.host, bindings[0].Hostname)
+			require.Equal(t, "https://"+test.host+":443", bindings[0].Origin)
 			require.Equal(t, test.header, bindings[0].Header)
 			require.Equal(t, test.prefix, bindings[0].Prefix)
 			require.Equal(t, "ate-secret://k8s.io/default/team/auth/"+test.spec.APIKeySecretKey, bindings[0].URI)
@@ -169,4 +170,14 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 			require.Equal(t, tt.wantEndpoint, endpoint)
 		})
 	}
+}
+
+func TestPassthroughCredentialConflictUsesCanonicalOrigin(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
+	input.Egress.Credentials = []egress.Credential{{Origin: "https://api.openai.com", Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token"}}
+	_, _, err := CompileCredentials(input, nil, nil)
+	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+	input.Root.ResolvedModelConfig.Config.Spec.OpenAI.BaseURL = "https://api.openai.com:8443/v1"
+	_, _, err = CompileCredentials(input, nil, nil)
+	require.NoError(t, err, "a different port is a distinct credential scope")
 }

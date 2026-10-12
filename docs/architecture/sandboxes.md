@@ -113,8 +113,10 @@ TTL. Helm supplies these through the controller ConfigMap. Defaults are one CPU,
 1 GiB memory, a one-hour TTL, and a 24-hour maximum TTL. Activity does not extend
 expiration.
 
-Sandboxes have no allowed egress destinations. A follow-up will add destination
-configuration to `SandboxTemplate` and pin it with each prepared revision.
+Sandboxes have no allowed egress destinations by default. Select same-namespace
+[EgressPolicy resources](egress-policies.md) through `SandboxTemplate.spec.egressPolicyRefs`
+to grant additional HTTP(S) origins and static gateway credentials. Resolved
+grants are pinned with the prepared revision; policy edits affect new sandboxes.
 
 ## Lifecycle and recovery
 

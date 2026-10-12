@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // Compiler resolves public API objects into a complete, immutable runtime
@@ -61,6 +64,7 @@ type resolvedTemplateBinding struct {
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
+	Egress egress.Access
 	// AgentName is the runnable identity, independent of inline or referenced inputs.
 	AgentName    string
 	Harness      *HarnessConfiguration
@@ -124,26 +128,32 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, fmt.Errorf("resolve Harness %q: not found", harnessKey)
 	}
 	harness := harnessConfiguration(*foundHarness)
-	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
+	result, err := c.compileConfiguration(ctx, agent, harness, template)
 	if err != nil {
 		return nil, err
 	}
 	result.AgentUID = string(agent.UID)
+	spec := agent.Spec.DeepCopy()
+	slices.SortFunc(spec.EgressPolicyRefs, func(a, b corev1.LocalObjectReference) int { return strings.Compare(a.Name, b.Name) })
 	result.Provenance, err = json.Marshal(struct {
 		AgentName string             `json:"agentName"`
 		AgentUID  string             `json:"agentUID"`
 		Spec      v1alpha3.AgentSpec `json:"spec"`
 		Inputs    json.RawMessage    `json:"inputs"`
-	}{agent.Name, string(agent.UID), agent.Spec, result.Provenance})
+	}{agent.Name, string(agent.UID), *spec, result.Provenance})
 	if err != nil {
 		return nil, fmt.Errorf("encode Agent provenance: %w", err)
 	}
 	return result, nil
 }
 
-// compileConfiguration compiles resolved configuration for the named Agent.
+// compileConfiguration resolves inputs and compiles configuration for the Agent.
 // The Agent name owns runtime identity; template and Harness names are provenance.
-func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
+func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Agent, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
+	access, err := CompileEgressPolicies(c.ctx, c.collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
+	if err != nil {
+		return nil, err
+	}
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -156,7 +166,8 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
-	input.AgentName = agentName
+	input.AgentName = agent.Name
+	input.Egress = access
 	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
@@ -165,12 +176,20 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
+	// Merge again at the shared boundary so every compiler preserves explicit
+	// grants. Built-in compilers also consume these bindings when validating
+	// model passthrough and inferred credentials.
+	combined, err := egress.CanonicalAccess(append(result.EgressDestinations, access.Destinations...), append(result.Credentials, access.Credentials...))
+	if err != nil {
+		return nil, NewValidationError("%v", err)
+	}
+	result.EgressDestinations, result.Credentials = combined.Destinations, combined.Credentials
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
-	result.AgentName = agentName
+	result.AgentName = agent.Name
 	result.Image = image
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
 	// Shared agents and plugin selections can contribute the same image.

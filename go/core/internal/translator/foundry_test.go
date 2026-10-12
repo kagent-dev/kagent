@@ -90,7 +90,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}
 				require.Contains(t, revision.Environment, corev1.EnvVar{Name: "FOUNDRY_ENDPOINT", Value: endpoint})
 				require.Len(t, revision.Credentials, 1)
-				require.Equal(t, host, revision.Credentials[0].Hostname)
+				require.Equal(t, endpoint+":443", revision.Credentials[0].Origin)
 				require.Equal(t, "api-key", revision.Credentials[0].Header)
 				require.Equal(t, "ate-secret://k8s.io/default/test/foundry-auth/token", revision.Credentials[0].URI)
 				require.Contains(t, revision.EgressDestinations, "https://"+host+":443")

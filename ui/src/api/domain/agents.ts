@@ -8,6 +8,7 @@ export type AgentTemplateSource =
 export interface AgentSpec {
   template: AgentTemplateSource;
   harnessRef: { name: string };
+  egressPolicyRefs?: { name: string }[];
 }
 /** One condition the controller recorded for an Agent. */
 export interface AgentCondition {
