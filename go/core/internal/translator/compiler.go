@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
@@ -156,6 +157,17 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
+	}
+	// Every runtime enforces the same egress policy, so the destinations of
+	// Harness credentialRef bindings are allowed here rather than per compiler.
+	destinations, err := HarnessCredentialDestinations(harness)
+	if err != nil {
+		return nil, err
+	}
+	if len(destinations) > 0 {
+		result.EgressDestinations = append(result.EgressDestinations, destinations...)
+		slices.Sort(result.EgressDestinations)
+		result.EgressDestinations = slices.Compact(result.EgressDestinations)
 	}
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))

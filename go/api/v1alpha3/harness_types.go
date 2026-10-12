@@ -148,6 +148,10 @@ type HarnessSpec struct {
 	// +required
 	Workload HarnessWorkload `json:"workload"`
 
+	// Env sets runtime environment variables. Entries with credentialRef
+	// resolve Secrets in the Harness namespace (the Agent namespace for an
+	// inline Harness) and are injected by the egress gateway, never into the
+	// ActorTemplate or its golden snapshot.
 	// +optional
 	// +kubebuilder:validation:MaxItems=100
 	// +listType=map

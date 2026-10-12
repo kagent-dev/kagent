@@ -25,9 +25,10 @@ type SandboxTemplateSpec struct {
 	// +required
 	Workload SandboxTemplateWorkload `json:"workload"`
 
-	// Env supplies runtime environment defaults.
-	// Credential references do not grant permission to read the referenced Secret.
+	// Env supplies literal runtime environment defaults. Sandboxes do not
+	// support credentialRef.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self.all(e, !has(e.credentialRef))",message="credentialRef is not supported on SandboxTemplate env"
 	// +kubebuilder:validation:MaxItems=100
 	// +listType=map
 	// +listMapKey=name

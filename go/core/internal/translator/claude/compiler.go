@@ -75,7 +75,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		if variable.Name == env.KagentAPIURL.Name() || claudeconfig.OwnsEnvironment(variable.Name) || translator.OwnsTelemetryEnvironment(variable.Name) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
-		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
+		environment = append(environment, v2translator.HarnessEnvVar(variable))
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.

@@ -373,14 +373,27 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				name       string
 				entry      map[string]any
 				wantReject string
+				// sandboxReject overrides wantReject for SandboxTemplate, whose
+				// env does not support credentialRef.
+				sandboxReject string
 			}{
 				{name: "literal", entry: map[string]any{"name": "LANG", "value": "C.UTF-8"}},
 				{name: "empty", entry: map[string]any{"name": "LANG", "value": ""}},
-				{name: "missing", entry: map[string]any{"name": "LANG"}, wantReject: "value: Required value"},
-				{name: "null", entry: map[string]any{"name": "LANG", "value": nil}, wantReject: "value: Required value"},
-				{name: "credential", entry: map[string]any{"name": "TOKEN", "credentialRef": map[string]any{"name": "auth", "key": "token"}}, wantReject: "unknown field"},
-				{name: "literal-and-credential", entry: map[string]any{"name": "TOKEN", "value": "", "credentialRef": map[string]any{"name": "auth", "key": "token"}}, wantReject: "unknown field"},
+				{name: "missing", entry: map[string]any{"name": "LANG"}, wantReject: "one of value or credentialRef must be specified"},
+				{name: "null", entry: map[string]any{"name": "LANG", "value": nil}, wantReject: "one of value or credentialRef must be specified"},
+				{name: "credential", entry: map[string]any{"name": "TOKEN", "credentialRef": validCredentialRef()}, sandboxReject: "credentialRef is not supported on SandboxTemplate env"},
+				{name: "empty-literal-and-credential", entry: map[string]any{"name": "TOKEN", "value": "", "credentialRef": validCredentialRef()}, sandboxReject: "credentialRef is not supported on SandboxTemplate env"},
+				{name: "literal-and-credential", entry: map[string]any{"name": "TOKEN", "value": "x", "credentialRef": validCredentialRef()}, wantReject: "value and credentialRef are mutually exclusive"},
+				{name: "credential-without-destination", entry: map[string]any{"name": "TOKEN", "credentialRef": map[string]any{"name": "auth", "key": "token"}}, wantReject: "url: Required value"},
+				{name: "credential-relative-url", entry: map[string]any{"name": "TOKEN", "credentialRef": credentialRefWith("url", "/v1")}, wantReject: "credentialRef.url"},
+				{name: "credential-url-userinfo", entry: map[string]any{"name": "TOKEN", "credentialRef": credentialRefWith("url", "https://user@api.example.com")}, wantReject: "credentialRef.url"},
+				{name: "credential-invalid-header", entry: map[string]any{"name": "TOKEN", "credentialRef": credentialRefWith("header", "bad header")}, wantReject: "credentialRef.header"},
+				{name: "credential-host-header", entry: map[string]any{"name": "TOKEN", "credentialRef": credentialRefWith("header", "Host")}, wantReject: "header must not be a hop-by-hop, framing, proxy or cookie header"},
+				{name: "credential-control-prefix", entry: map[string]any{"name": "TOKEN", "credentialRef": credentialRefWith("prefix", "Bearer\n")}, wantReject: "credentialRef.prefix"},
 			} {
+				if resource.kind == "SandboxTemplate" && tc.sandboxReject != "" {
+					tc.wantReject = tc.sandboxReject
+				}
 				t.Run(resource.kind+"/"+tc.name, func(t *testing.T) {
 					data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(resource.object)
 					require.NoError(t, err)
@@ -442,4 +455,14 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 
 func compactionHarness(namespace, name string, compaction KagentHarnessCompaction) *Harness {
 	return validHarness(namespace, name, HarnessSpec{Kagent: &KagentHarness{Compaction: &compaction}})
+}
+
+func validCredentialRef() map[string]any {
+	return map[string]any{"name": "auth", "key": "token", "url": "https://api.example.com/v1", "header": "authorization", "prefix": "Bearer "}
+}
+
+func credentialRefWith(field, value string) map[string]any {
+	ref := validCredentialRef()
+	ref[field] = value
+	return ref
 }
