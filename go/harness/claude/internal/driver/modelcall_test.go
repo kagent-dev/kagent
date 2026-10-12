@@ -62,9 +62,13 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			}
 			var calls []runtime.ModelCall
 			var tools, toolParents []string
+			var unreported [2]int64
 			open := map[string]string{}
 			err = ParseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, func(event Event) error {
 				switch {
+				case event.Kind == EventModelCall && event.ModelCall.UsageOnly:
+					unreported[0] += event.ModelCall.InputTokens
+					unreported[1] += event.ModelCall.OutputTokens
 				case event.Kind == EventModelCall:
 					calls = append(calls, *event.ModelCall)
 				case event.ToolPhase == "started":
@@ -145,6 +149,9 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			missing := [2]int64{models[0] - all[0], models[1] - all[1]}
 			if want := [2]int64{tc.wantMissingIn, tc.wantMissingOut}; missing != want {
 				t.Errorf("modelUsage - calls = %v, want %v", missing, want)
+			}
+			if unreported != missing {
+				t.Errorf("UsageOnly tokens = %v, want the missing %v", unreported, missing)
 			}
 		})
 	}
@@ -291,13 +298,13 @@ func TestRetriedModelCalls(t *testing.T) {
 		want      []call
 	}{
 		// A stream cut off by an error event is retried without streaming. Both attempts' input counts.
-		{file: "claude-retry-error.jsonl", startLine: `"type":"message_start"`, want: []call{{stop: "stop", retries: 1, in: 2000, out: 4}}},
+		{file: "claude-retry-error.jsonl", startLine: `"status":"requesting"`, want: []call{{stop: "stop", retries: 1, in: 2000, out: 4}}},
 		// A dropped connection ends the stream with no message_delta, then api_retry starts a new one.
-		{file: "claude-retry-drop.jsonl", startLine: `"type":"message_start"`, want: []call{{stop: "stop", retries: 1, in: 2000, out: 4}}},
-		// A request rejected before any stream adds no tokens, so the call starts with the turn.
-		{file: "claude-retry-prestream.jsonl", startLine: `"subtype":"init"`, want: []call{{stop: "stop", retries: 1, in: 1000, out: 3}}},
+		{file: "claude-retry-drop.jsonl", startLine: `"status":"requesting"`, want: []call{{stop: "stop", retries: 1, in: 2000, out: 4}}},
+		// A request rejected before any stream adds no tokens.
+		{file: "claude-retry-prestream.jsonl", startLine: `"status":"requesting"`, want: []call{{stop: "stop", retries: 1, in: 1000, out: 3}}},
 		// After a whole tool_use block, a lost connection is a failed call, not a retry.
-		{file: "claude-retry-tooldrop.jsonl", startLine: `"type":"message_start"`, want: []call{
+		{file: "claude-retry-tooldrop.jsonl", startLine: `"status":"requesting"`, want: []call{
 			{stop: "error", errorType: "server_error", in: 1000, out: 1},
 			{stop: "stop", in: 1000, out: 3},
 		}},
@@ -417,8 +424,25 @@ func TestFailedAndRetriedModelCalls(t *testing.T) {
 			},
 			want: []call{
 				{stop: "error", input: 7, partial: true, start: 100, end: 101},
-				{stop: "stop", input: 9, start: 103, end: 104},
+				{stop: "stop", input: 9, start: 102, end: 104},
 			},
+		},
+		{
+			name:  "with no line between two calls, the next starts when the previous ends",
+			lines: []string{start("msg_1", 7), delta, start("msg_2", 9), delta},
+			want: []call{
+				{stop: "stop", input: 7, start: 100, end: 101},
+				{stop: "stop", input: 9, start: 101, end: 103},
+			},
+		},
+		{
+			name: "a call starts when Claude Code sends the request, before the first token",
+			lines: []string{
+				`{"type":"user","message":{"content":[{"type":"text","text":"hello"}]}}`,
+				`{"type":"system","subtype":"status","status":"requesting"}`,
+				start("msg_1", 7), delta,
+			},
+			want: []call{{stop: "stop", input: 7, start: 101, end: 103}},
 		},
 		{
 			// A tool starts before the final usage, which still sets the end of a normal reply.
@@ -598,5 +622,138 @@ func TestParseFailureFlushesTheOpenCall(t *testing.T) {
 	}
 	if len(calls) != 1 || !calls[0].UsagePartial || calls[0].InputTokens != 7 {
 		t.Fatalf("calls = %+v, want the started call flushed as partial", calls)
+	}
+}
+
+func TestUnreportedUsageGoesToTheCounters(t *testing.T) {
+	type usage struct {
+		model                    string
+		input, cacheRead, output int64
+	}
+	// One main-thread call of model m reports 10 input tokens, 2 of them cache reads, and 5 output tokens.
+	oneCall := []string{
+		`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m","usage":{"input_tokens":8,"cache_read_input_tokens":2}}}}`,
+		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}}`,
+	}
+	for _, tc := range []struct {
+		name   string
+		base   map[string]modelUsage
+		call   []string // the calls before the result, or nil for oneCall
+		totals string
+		want   []usage
+	}{
+		{
+			name:   "a new session adds what no call reported",
+			base:   map[string]modelUsage{},
+			totals: `{"m":{"inputTokens":9,"cacheReadInputTokens":2,"outputTokens":20}}`,
+			want:   []usage{{"m", 1, 0, 15}},
+		},
+		{
+			name:   "a resumed session leaves out the earlier processes",
+			base:   map[string]modelUsage{"m": {InputTokens: 100, OutputTokens: 50}},
+			totals: `{"m":{"inputTokens":108,"cacheReadInputTokens":2,"outputTokens":70}}`,
+			want:   []usage{{"m", 0, 0, 15}},
+		},
+		{
+			name:   "a call Claude Code does not count adds nothing",
+			base:   map[string]modelUsage{},
+			totals: `{"m":{"inputTokens":0,"outputTokens":0}}`,
+		},
+		{
+			name:   "each model adds its own tokens",
+			base:   map[string]modelUsage{},
+			totals: `{"m":{"inputTokens":8,"cacheReadInputTokens":2,"outputTokens":5},"small":{"inputTokens":30,"cacheReadInputTokens":4,"outputTokens":3}}`,
+			want:   []usage{{"small", 34, 4, 3}},
+		},
+		{
+			name: "a dated response model counts under the model it was requested as",
+			base: map[string]modelUsage{},
+			call: []string{
+				`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m-20250929","usage":{"input_tokens":8,"cache_read_input_tokens":2}}}}`,
+				`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}}`,
+			},
+			totals: `{"m":{"inputTokens":8,"cacheReadInputTokens":2,"outputTokens":20}}`,
+			want:   []usage{{"m", 0, 0, 15}},
+		},
+		{
+			name:   "totals that name other models than the calls add nothing",
+			base:   map[string]modelUsage{},
+			totals: `{"us.anthropic.m-v1:0":{"inputTokens":9,"outputTokens":20}}`,
+		},
+		{
+			name:   "unknown session usage adds nothing",
+			totals: `{"m":{"inputTokens":9,"outputTokens":20}}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := tc.call
+			if calls == nil {
+				calls = oneCall
+			}
+			lines := append(slices.Clone(calls), `{"type":"result","subtype":"success","result":"","modelUsage":`+tc.totals+`}`)
+			var got []usage
+			err := parseJSONL(t.Context(), strings.NewReader(strings.Join(lines, "\n")), 4096, tc.base, func(event Event) error {
+				if c := event.ModelCall; event.Kind == EventModelCall && c.UsageOnly {
+					got = append(got, usage{c.RequestModel, c.InputTokens, c.CacheReadTokens, c.OutputTokens})
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("usage-only events = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionUsage(t *testing.T) {
+	const session = "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		name    string
+		lines   []string // the session file, or nil for none
+		id      string
+		want    map[string]modelUsage
+		wantErr bool
+	}{
+		{name: "a new session starts at zero", want: map[string]modelUsage{}},
+		{
+			name: "the last saved totals win",
+			id:   session,
+			lines: []string{
+				`{"type":"user","message":{"content":"hi"}}`,
+				`{"type":"cost-state","modelUsage":{"m":{"inputTokens":1,"outputTokens":2}}}`,
+				`{"type":"cost-state","modelUsage":{"m":{"inputTokens":3,"outputTokens":4}}}`,
+			},
+			want: map[string]modelUsage{"m": {InputTokens: 3, OutputTokens: 4}},
+		},
+		{
+			name:  "a session with no saved totals starts at zero",
+			id:    session,
+			lines: []string{`{"type":"user","message":{"content":"hi"}}`},
+			want:  map[string]modelUsage{},
+		},
+		{name: "a missing session file is unknown", id: session, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.lines != nil {
+				project := filepath.Join(dir, "projects", "-work-sandbox")
+				if err := os.MkdirAll(project, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(project, tc.id+".jsonl"), []byte(strings.Join(tc.lines, "\n")+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := sessionUsage([]string{"HOME=/data", config.ClaudeConfigDirEnvName + "=" + dir}, tc.id)
+			if (err != nil) != tc.wantErr || (got == nil) != tc.wantErr {
+				t.Fatalf("sessionUsage() = %v, %v, want error %t", got, err, tc.wantErr)
+			}
+			if !maps.Equal(got, tc.want) {
+				t.Errorf("sessionUsage() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

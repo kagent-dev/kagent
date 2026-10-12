@@ -166,7 +166,7 @@ refinements:
     - brief: The component that writes the GenAI model and tool spans of an agent.
       key: kagent.genai.producer
       note: |
-        Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans.
+        Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans.
       provenance:
         path: telemetry/registry/kagent.yaml
       requirement_level:
@@ -1256,7 +1256,7 @@ refinements:
     instrument: counter
     name: gen_ai.client.inference.usage.cache_read.input_tokens
     note: |
-      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -1527,7 +1527,7 @@ refinements:
     instrument: counter
     name: gen_ai.client.inference.usage.cache_write.input_tokens
     note: |
-      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -1798,7 +1798,7 @@ refinements:
     instrument: counter
     name: gen_ai.client.inference.usage.input_tokens
     note: |
-      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2069,7 +2069,7 @@ refinements:
     instrument: counter
     name: gen_ai.client.inference.usage.output_tokens
     note: |
-      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -2340,7 +2340,7 @@ refinements:
     instrument: counter
     name: gen_ai.client.inference.usage.reasoning.output_tokens
     note: |
-      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -5592,7 +5592,7 @@ registry:
   - brief: The component that writes the GenAI model and tool spans of an agent.
     key: kagent.genai.producer
     note: |
-      Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans.
+      Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans.
     provenance:
       path: telemetry/registry/kagent.yaml
     stability: development

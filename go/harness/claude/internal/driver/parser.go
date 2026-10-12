@@ -12,6 +12,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -42,6 +43,10 @@ type parser struct {
 	// retried holds the main thread's attempts Claude Code gave up on and retried. They join the
 	// next call, which keeps their start and adds their tokens, since the API read each attempt's input.
 	retried *runtime.ModelCall
+	// startUsage holds the session's token totals per model when this process started, and
+	// emittedUsage sums the calls emitted since. A nil startUsage is unknown, so no UsageOnly event is sent.
+	startUsage   map[string]modelUsage
+	emittedUsage map[string]modelUsage
 }
 
 const agentToolName = "Agent"
@@ -70,6 +75,30 @@ func (u claudeUsage) apply(call *runtime.ModelCall) {
 	call.ReasoningOutputTokens = u.OutputTokensDetails.ThinkingTokens
 }
 
+// modelUsage is one model's entry in Claude Code's session totals (result.modelUsage). Unlike
+// ModelCall.InputTokens, its InputTokens leaves out the cache read and cache write tokens.
+type modelUsage struct {
+	InputTokens              int64 `json:"inputTokens"`
+	OutputTokens             int64 `json:"outputTokens"`
+	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
+	ThinkingTokens           int64 `json:"thinkingTokens"`
+}
+
+func (u *modelUsage) add(call *runtime.ModelCall) {
+	u.InputTokens += call.InputTokens - call.CacheReadTokens - call.CacheWriteTokens
+	u.OutputTokens += call.OutputTokens
+	u.CacheReadInputTokens += call.CacheReadTokens
+	u.CacheCreationInputTokens += call.CacheWriteTokens
+	u.ThinkingTokens += call.ReasoningOutputTokens
+}
+
+func (u modelUsage) plus(o modelUsage) modelUsage {
+	return modelUsage{u.InputTokens + o.InputTokens, u.OutputTokens + o.OutputTokens,
+		u.CacheReadInputTokens + o.CacheReadInputTokens, u.CacheCreationInputTokens + o.CacheCreationInputTokens,
+		u.ThinkingTokens + o.ThinkingTokens}
+}
+
 // merge overlays the non-zero fields of a message_delta usage on its message_start usage.
 func (u claudeUsage) merge(delta claudeUsage) claudeUsage {
 	u.InputTokens = cmp.Or(delta.InputTokens, u.InputTokens)
@@ -85,6 +114,7 @@ func newParser(now func() time.Time) *parser {
 		emitted: map[string]string{}, tools: map[string]string{},
 		emittedToolCalls: map[string]struct{}{}, emittedResults: map[string]struct{}{},
 		now: now, streamedMessages: map[string]struct{}{}, snapshots: map[string]snapshotCall{}, callStart: map[string]time.Time{},
+		emittedUsage: map[string]modelUsage{},
 	}
 }
 
@@ -130,6 +160,7 @@ func (p *parser) retry() {
 	retried.Start = cmp.Or(retried.Start, p.openCallStart())
 	if attempt := p.openCall; attempt != nil {
 		p.openCall = nil
+		retried.ResponseModel = cmp.Or(retried.ResponseModel, attempt.ResponseModel)
 		retried.InputTokens += attempt.InputTokens
 		retried.CacheReadTokens += attempt.CacheReadTokens
 		retried.CacheWriteTokens += attempt.CacheWriteTokens
@@ -157,6 +188,7 @@ func addRetries(call, retried *runtime.ModelCall) {
 		return
 	}
 	call.Start = cmp.Or(retried.Start, call.Start)
+	call.ResponseModel = cmp.Or(call.ResponseModel, retried.ResponseModel)
 	call.Retries += retried.Retries
 	call.InputTokens += retried.InputTokens
 	call.CacheReadTokens += retried.CacheReadTokens
@@ -198,6 +230,11 @@ type contentBlockRef struct {
 // ParseJSONL parses a JSONL stream of Claude events and emits them to the
 // provided event sink.
 func ParseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, emit func(Event) error) error {
+	return parseJSONL(ctx, r, maxEventBytes, map[string]modelUsage{}, emit)
+}
+
+// parseJSONL is ParseJSONL for a process that resumes a session with startUsage.
+func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage map[string]modelUsage, emit func(Event) error) error {
 	if maxEventBytes <= 0 {
 		return fmt.Errorf("max event bytes must be positive")
 	}
@@ -205,6 +242,8 @@ func ParseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, emit func(E
 	defer close(done)
 	var arrived time.Time
 	p := newParser(func() time.Time { return arrived })
+	p.startUsage = startUsage
+	emit = p.countEmitted(emit)
 	for item := range readStamped(r, maxEventBytes, done) {
 		arrived = item.arrived
 		if len(bytes.TrimSpace(item.line)) > 0 {
@@ -279,12 +318,15 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 	var envelope struct {
 		Type      string          `json:"type"`
 		Subtype   string          `json:"subtype"`
+		Status    string          `json:"status"`
 		SessionID string          `json:"session_id"`
 		IsError   bool            `json:"is_error"`
 		Result    string          `json:"result"`
 		Event     json.RawMessage `json:"event"`
-		Message   json.RawMessage `json:"message"`
-		Origin    struct {
+		// ModelUsage is the session's totals so far, including subagents and earlier processes.
+		ModelUsage map[string]modelUsage `json:"modelUsage"`
+		Message    json.RawMessage       `json:"message"`
+		Origin     struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
 
@@ -307,6 +349,10 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 		}
 		if envelope.Subtype == "api_retry" && envelope.ParentToolUseID == "" {
 			p.retry()
+		}
+		// Claude Code prints this before each main-thread call, but not before its retries.
+		if envelope.Subtype == "status" && envelope.Status == "requesting" && envelope.ParentToolUseID == "" {
+			p.callStart[""] = p.now()
 		}
 	case "stream_event":
 		return p.parseStreamEvent(envelope.Event, envelope.ParentToolUseID != "", emit)
@@ -333,6 +379,9 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 		if err := p.flushCalls(emit); err != nil {
 			return err
 		}
+		if err := p.emitUnreportedUsage(ctx, envelope.ModelUsage, emit); err != nil {
+			return err
+		}
 		p.terminal = true
 		if envelope.IsError || envelope.Subtype != "success" {
 			message := envelope.Result
@@ -344,6 +393,72 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result})
 	}
 	return nil
+}
+
+func (p *parser) countEmitted(emit func(Event) error) func(Event) error {
+	return func(event Event) error {
+		if event.Kind == EventModelCall && !event.ModelCall.UsageOnly {
+			usage := p.emittedUsage[event.ModelCall.ResponseModel]
+			usage.add(event.ModelCall)
+			p.emittedUsage[event.ModelCall.ResponseModel] = usage
+		}
+		return emit(event)
+	}
+}
+
+// emitUnreportedUsage emits, per model, the tokens in the session totals that no call reported,
+// such as the final output of subagent calls.
+func (p *parser) emitUnreportedUsage(ctx context.Context, totals map[string]modelUsage, emit func(Event) error) error {
+	if p.startUsage == nil || len(totals) == 0 {
+		return nil
+	}
+	emittedUsage := map[string]modelUsage{}
+	for model, usage := range p.emittedUsage {
+		if usage == (modelUsage{}) {
+			continue
+		}
+		key, ok := totalsKey(model, totals)
+		// A model the totals do not name, such as a Bedrock or Vertex ID, could count twice.
+		if !ok {
+			logging.FromContext(ctx).WarnContext(ctx, "claude session totals leave out a model its calls reported, so this turn adds no tokens that only the totals show", "model", model)
+			return nil
+		}
+		emittedUsage[key] = emittedUsage[key].plus(usage)
+	}
+	for _, model := range slices.Sorted(maps.Keys(totals)) {
+		total, start, emitted := totals[model], p.startUsage[model], emittedUsage[model]
+		// A call Claude Code does not count, such as a canceled one, makes the difference negative.
+		rest := func(total, start, emitted int64) int64 { return max(total-start-emitted, 0) }
+		call := runtime.ModelCall{RequestModel: model, UsageOnly: true,
+			OutputTokens:          rest(total.OutputTokens, start.OutputTokens, emitted.OutputTokens),
+			CacheReadTokens:       rest(total.CacheReadInputTokens, start.CacheReadInputTokens, emitted.CacheReadInputTokens),
+			CacheWriteTokens:      rest(total.CacheCreationInputTokens, start.CacheCreationInputTokens, emitted.CacheCreationInputTokens),
+			ReasoningOutputTokens: rest(total.ThinkingTokens, start.ThinkingTokens, emitted.ThinkingTokens),
+		}
+		call.InputTokens = rest(total.InputTokens, start.InputTokens, emitted.InputTokens) + call.CacheReadTokens + call.CacheWriteTokens
+		if call.InputTokens+call.OutputTokens+call.ReasoningOutputTokens == 0 {
+			continue
+		}
+		if err := emit(Event{Kind: EventModelCall, ModelCall: &call}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// totalsKey finds the totals entry of a response model. The totals use the requested name, such as
+// claude-sonnet-4-5, and a response can name the dated model, such as claude-sonnet-4-5-20250929.
+func totalsKey(model string, totals map[string]modelUsage) (string, bool) {
+	if _, ok := totals[model]; ok {
+		return model, true
+	}
+	var found string
+	for key := range totals {
+		if strings.HasPrefix(model, key+"-") && len(key) > len(found) {
+			found = key
+		}
+	}
+	return found, found != ""
 }
 
 func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(Event) error) error {
@@ -392,7 +507,8 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		}
 		p.openCallDone = false
 		p.streamedMessages[event.Message.ID] = struct{}{}
-		p.openCall = &runtime.ModelCall{ResponseModel: event.Message.Model, ResponseID: event.Message.ID, Start: p.now()}
+		// message_start comes after the first token, so the call starts when the request was sent.
+		p.openCall = &runtime.ModelCall{ResponseModel: event.Message.Model, ResponseID: event.Message.ID, Start: cmp.Or(p.callStart[""], p.now())}
 		p.openUsage = event.Message.Usage
 		event.Message.Usage.apply(p.openCall)
 	case "message_delta":
@@ -404,6 +520,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		p.openUsage.merge(event.Usage).apply(call)
 		p.joinRetries(call)
 		call.StopReason, call.End = claudeFinishReason(event.Delta.StopReason), p.now()
+		p.callStart[""] = call.End
 		return emit(Event{Kind: EventModelCall, ModelCall: call})
 	case "content_block_delta":
 		if event.Delta.Type == "text_delta" && event.Delta.Text != "" {

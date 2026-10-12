@@ -130,6 +130,23 @@ func newGenAIMetrics(meter metric.Meter, agentName string) (genAIMetrics, error)
 // recordInference adds a model call to the metrics. errorType is empty unless the call failed.
 // ctx carries the chat span, so a metric can link to it.
 func (m genAIMetrics) recordInference(ctx context.Context, event runtime.ModelCall, errorType string) {
+	attributes := inferenceAttributes(event)
+	// A Codex call from a thread not known yet has no duration, so it adds only its tokens.
+	if event.End.After(event.Start) {
+		m.inferenceDuration.Record(ctx, event.End.Sub(event.Start).Seconds(), withError(attributes, errorType))
+	}
+	// A partial call's input count is exact, but its output count is only a lower bound.
+	perCall := metric.WithAttributes(attributes...)
+	if !event.UsagePartial || event.InputTokens > 0 {
+		m.inputPerCall.Record(ctx, event.InputTokens, perCall)
+	}
+	if !event.UsagePartial {
+		m.outputPerCall.Record(ctx, event.OutputTokens, perCall)
+	}
+	m.addTokens(ctx, event, attributes)
+}
+
+func inferenceAttributes(event runtime.ModelCall) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{attribute.String(tracing.AttributeOperationName, conv.GenAIOperationNameChat)}
 	for _, field := range []struct {
 		key   attribute.Key
@@ -143,18 +160,10 @@ func (m genAIMetrics) recordInference(ctx context.Context, event runtime.ModelCa
 			attributes = append(attributes, field.key.String(field.value))
 		}
 	}
-	// A Codex call from a thread not known yet has no duration, so it adds only its tokens.
-	if event.End.After(event.Start) {
-		m.inferenceDuration.Record(ctx, event.End.Sub(event.Start).Seconds(), withError(attributes, errorType))
-	}
-	// A partial call's input count is exact, but its output count is only a lower bound.
-	perCall := metric.WithAttributes(attributes...)
-	if !event.UsagePartial || event.InputTokens > 0 {
-		m.inputPerCall.Record(ctx, event.InputTokens, perCall)
-	}
-	if !event.UsagePartial {
-		m.outputPerCall.Record(ctx, event.OutputTokens, perCall)
-	}
+	return attributes
+}
+
+func (m genAIMetrics) addTokens(ctx context.Context, event runtime.ModelCall, attributes []attribute.KeyValue) {
 	modality := conv.GenAITokenModalityKey.String(conv.GenAITokenModalityUnknown)
 	usage := metric.WithAttributes(append(slices.Clip(attributes), modality)...)
 	for _, u := range []struct {

@@ -487,7 +487,9 @@ metric_refinements:
     brief: The input tokens of the model calls of harness turns.
     note: &inference_usage_note >
       Added with each chat span, with the same count. Not added when the count
-      is zero. A partial call adds its counts, which are a lower bound.
+      is zero. A partial call adds its counts, which are a lower bound. At the
+      end of a Claude turn, the runtime also adds the tokens that Claude's own
+      total shows but no chat span has, such as most of a subagent's output.
     stability: development
     attributes: &inference_usage_attributes
       - *inference_operation

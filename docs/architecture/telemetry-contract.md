@@ -15,7 +15,7 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `kagent.capture.input_truncated` | boolean |  | Whether the captured input messages or tool arguments were shortened to the capture budget. |
 | `kagent.capture.output_truncated` | boolean |  | Whether the captured output messages or tool result were shortened to the capture budget. |
 | `kagent.gc.stage` | enum | `discovery`, `collection` | The stage of a runtime revision garbage collection attempt. |
-| `kagent.genai.producer` | enum | `runtime` | The component that writes the GenAI model and tool spans of an agent. Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans. |
+| `kagent.genai.producer` | enum | `runtime` | The component that writes the GenAI model and tool spans of an agent. Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans. |
 | `kagent.inference.request_id` | string |  | The provider's request ID of a model call. Lets a backend join the call with the provider's logs. Claude only. A call canceled early can lack it. |
 | `kagent.inference.retry.count` | int |  | How many times the harness retried a model call after a transient error. Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response. |
 | `kagent.inference.usage_partial` | boolean |  | Whether the call ended without final usage, so its output tokens are a lower bound. Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
@@ -69,7 +69,7 @@ Refines `gen_ai.client.inference.operation.output_tokens` as `kagent.client.infe
 
 ### `gen_ai.client.inference.usage.cache_read.input_tokens`
 
-Refines `gen_ai.client.inference.usage.cache_read.input_tokens` as `kagent.client.inference.usage.cache_read.input_tokens`. Instrument: counter. Unit: `{token}`. The cache read input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+Refines `gen_ai.client.inference.usage.cache_read.input_tokens` as `kagent.client.inference.usage.cache_read.input_tokens`. Instrument: counter. Unit: `{token}`. The cache read input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude's own total shows but no chat span has, such as most of a subagent's output.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -83,7 +83,7 @@ Refines `gen_ai.client.inference.usage.cache_read.input_tokens` as `kagent.clien
 
 ### `gen_ai.client.inference.usage.cache_write.input_tokens`
 
-Refines `gen_ai.client.inference.usage.cache_write.input_tokens` as `kagent.client.inference.usage.cache_write.input_tokens`. Instrument: counter. Unit: `{token}`. The cache write input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+Refines `gen_ai.client.inference.usage.cache_write.input_tokens` as `kagent.client.inference.usage.cache_write.input_tokens`. Instrument: counter. Unit: `{token}`. The cache write input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude's own total shows but no chat span has, such as most of a subagent's output.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ Refines `gen_ai.client.inference.usage.cache_write.input_tokens` as `kagent.clie
 
 ### `gen_ai.client.inference.usage.input_tokens`
 
-Refines `gen_ai.client.inference.usage.input_tokens` as `kagent.client.inference.usage.input_tokens`. Instrument: counter. Unit: `{token}`. The input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+Refines `gen_ai.client.inference.usage.input_tokens` as `kagent.client.inference.usage.input_tokens`. Instrument: counter. Unit: `{token}`. The input tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude's own total shows but no chat span has, such as most of a subagent's output.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -111,7 +111,7 @@ Refines `gen_ai.client.inference.usage.input_tokens` as `kagent.client.inference
 
 ### `gen_ai.client.inference.usage.output_tokens`
 
-Refines `gen_ai.client.inference.usage.output_tokens` as `kagent.client.inference.usage.output_tokens`. Instrument: counter. Unit: `{token}`. The output tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+Refines `gen_ai.client.inference.usage.output_tokens` as `kagent.client.inference.usage.output_tokens`. Instrument: counter. Unit: `{token}`. The output tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude's own total shows but no chat span has, such as most of a subagent's output.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -125,7 +125,7 @@ Refines `gen_ai.client.inference.usage.output_tokens` as `kagent.client.inferenc
 
 ### `gen_ai.client.inference.usage.reasoning.output_tokens`
 
-Refines `gen_ai.client.inference.usage.reasoning.output_tokens` as `kagent.client.inference.usage.reasoning.output_tokens`. Instrument: counter. Unit: `{token}`. The reasoning output tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound.
+Refines `gen_ai.client.inference.usage.reasoning.output_tokens` as `kagent.client.inference.usage.reasoning.output_tokens`. Instrument: counter. Unit: `{token}`. The reasoning output tokens of the model calls of harness turns. Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude's own total shows but no chat span has, such as most of a subagent's output.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -382,7 +382,7 @@ Refines the `gen_ai.main_agent` entity. An agent runtime compiled by kagent. kag
 | `gen_ai.main_agent.name` | description | required | The compiled agent identity, `<agent>`. |
 | `gen_ai.provider.name` | description | conditionally required: The runtime is a harness compiled against one model. | The provider the agent is compiled against. |
 | `gen_ai.request.model` | description | conditionally required: The runtime is a harness compiled against one model. | The model the agent is compiled against. |
-| `kagent.genai.producer` | description | conditionally required: The runtime is a native harness. | Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans. |
+| `kagent.genai.producer` | description | conditionally required: The runtime is a native harness. | Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans. |
 | `kagent.runtime` | description | required | Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
 
 

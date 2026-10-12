@@ -683,6 +683,20 @@ func TestModelCallRecordsChatSpan(t *testing.T) {
 	}
 }
 
+func TestUsageOnlyModelCallRecordsNoSpan(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		sink.ModelCall(runtime.ModelCall{OutputTokens: 90, UsageOnly: true})
+		return runtime.Outcome{}, nil
+	}
+	executor := newExecutor(t, run, tracing.RuntimeTelemetry{})
+	for range executor.Execute(recorder.segment(t.Context()), requestContext("task-usage", "hello")) {
+	}
+	if invoke := recorder.spans(t, 1)[0]; !strings.HasPrefix(invoke.Name, "invoke_agent") {
+		t.Errorf("span = %q, want only invoke_agent", invoke.Name)
+	}
+}
+
 func TestToolCallsRecordExecuteToolSpans(t *testing.T) {
 	recorder := newTraceRecorder(t)
 	run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {

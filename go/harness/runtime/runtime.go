@@ -118,6 +118,9 @@ type ModelCall struct {
 	UsagePartial bool
 	// Canceled marks a partial call that cancellation cut short; it is not a failure.
 	Canceled bool
+	// UsageOnly marks leftover tokens of a turn, such as the missing output of partial calls, and not
+	// one model request. It has no times or finish reason, and only the token counters record it.
+	UsageOnly bool
 }
 
 // PendingTurn owns the live native process or session behind an input request.

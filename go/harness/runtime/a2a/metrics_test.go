@@ -78,6 +78,15 @@ func TestModelCallRecordsInferenceMetrics(t *testing.T) {
 			},
 			wantPerCall: map[string]int64{"gen_ai.client.inference.operation.input_tokens": 3, "gen_ai.client.inference.operation.output_tokens": 1},
 		},
+		{
+			name: "usage-only tokens add only to the token counters",
+			call: runtime.ModelCall{InputTokens: 7, OutputTokens: 90, UsageOnly: true},
+			wantUsage: map[string]int64{
+				"gen_ai.client.inference.usage.input_tokens":  7,
+				"gen_ai.client.inference.usage.output_tokens": 90,
+			},
+			wantPerCall: map[string]int64{},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := installMetricReader(t)

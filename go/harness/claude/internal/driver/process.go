@@ -3,18 +3,23 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/propagation"
 )
@@ -217,6 +222,11 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	cmd.Stderr = stderr
+	// Read before Claude starts, since the process saves its own totals when it ends.
+	startUsage, err := sessionUsage(d.config.Environment, turn.ContinuationID)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "failed to read the Claude session usage, so this turn adds no tokens that only its totals show", "error", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
 	}
@@ -225,7 +235,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	parseDone := make(chan struct{})
 	go func() {
 		defer close(items)
-		parseErr := ParseJSONL(ctx, stdout, d.config.MaxEventBytes, func(event Event) error {
+		parseErr := parseJSONL(ctx, stdout, d.config.MaxEventBytes, startUsage, func(event Event) error {
 			select {
 			case items <- parseItem{event: &event}:
 				return nil
@@ -262,6 +272,48 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
+}
+
+// sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
+// process starts its result.modelUsage from these, so they are this process's baseline.
+func sessionUsage(environment []string, sessionID string) (map[string]modelUsage, error) {
+	usage := map[string]modelUsage{}
+	if sessionID == "" {
+		return usage, nil
+	}
+	var configDir string
+	for _, entry := range environment {
+		if value, ok := strings.CutPrefix(entry, config.ClaudeConfigDirEnvName+"="); ok {
+			configDir = value
+		}
+	}
+	if configDir == "" {
+		return nil, fmt.Errorf("%s is not set", config.ClaudeConfigDirEnvName)
+	}
+	files, err := filepath.Glob(filepath.Join(configDir, "projects", "*", sessionID+".jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) != 1 {
+		return nil, fmt.Errorf("found %d files for session %s, want 1", len(files), sessionID)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		return nil, err
+	}
+	for line := range bytes.Lines(raw) {
+		if !bytes.Contains(line, []byte(`"cost-state"`)) {
+			continue
+		}
+		var state struct {
+			Type       string                `json:"type"`
+			ModelUsage map[string]modelUsage `json:"modelUsage"`
+		}
+		if json.Unmarshal(line, &state) == nil && state.Type == "cost-state" && state.ModelUsage != nil {
+			usage = state.ModelUsage
+		}
+	}
+	return usage, nil
 }
 
 // traceEnvironment injects the trace context into the environment variables.

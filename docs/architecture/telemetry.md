@@ -166,7 +166,7 @@ CI runs it in the e2e job and uploads the report with the e2e logs. It reports o
 
 - associates Kubernetes metadata by `k8s.pod.uid` only, which only the controller sets. A runtime on Substrate runs inside a worker pod, so a connection IP would name the worker;
 - deletes `gen_ai.usage.*` from the Python ADK's `call_llm` spans, so usage is counted once per model call;
-- deletes `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.finish_reasons` and `gen_ai.usage.*` from the native Claude Code and Codex spans, which carry `kagent.genai.producer=runtime`. The harness runtime writes their model and tool spans, so each model call is counted once;
+- deletes `gen_ai.operation.name`, `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.finish_reasons` and `gen_ai.usage.*` from the native Claude Code and Codex spans, which carry `kagent.genai.producer=runtime`. The harness runtime writes their model and tool spans, so each model call is counted once. A standalone Claude request keeps them, since the runtime writes no span for it;
 - deletes captured content and the Go ADK's legacy payload keys, as a backstop for an installation with capture off. Remove `transform/genai_content` from the pipelines when capture is on;
 - derives `gen_ai.invoke_agent.duration` from invoke_agent spans that kagent did not open, before any sampling;
 - exports over gzip OTLP with a `file_storage` sending queue, so a collector restart keeps what it has accepted.

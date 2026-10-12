@@ -61,8 +61,9 @@ attributes:
       Set on the resource of a native harness process. With the value `runtime`, the kagent
       harness runtime writes the model and tool spans of this process. Its native spans repeat
       the same calls, so the reference collector removes their GenAI operation, model, finish
-      reason and token usage attributes. Each call is then counted once. Absent when the image
-      writes its own native GenAI spans.
+      reason and token usage attributes. Each call is then counted once. A standalone Claude
+      request keeps them, since the runtime writes no span for it. Absent when the image writes
+      its own native GenAI spans.
     stability: development
     type:
       members:
