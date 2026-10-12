@@ -104,12 +104,17 @@ a timeout expires. It blocks new execution but never hides completed task result
 Substrate's router resumes a suspended Actor on the gateway's dial and refuses
 the request once its parking budget is spent. While another operation holds the
 Actor, such as a repoint onto a newer template, every resume in that budget is
-answered `Aborted`, and the operation may outlast it. A send the runtime refused
-without taking its input, on a runtime that is not lost, therefore makes the
-gateway resume the Actor itself, waiting while ate-api answers `Aborted` (backoff
-from 500 ms to 5 s, at most two minutes), and run the send once more. Any other
-answer, or an Actor still held at the bound, keeps the retryable refusal. The
+answered `Aborted`, and the operation may outlast it; while the worker pool
+rolls, a resume is answered `ResourceExhausted` (no free worker) or `Unavailable`
+(a departing worker cut it short, the Actor is back at its snapshot) for as long
+as the roll takes. A send the runtime refused without taking its input, on a
+runtime that is not lost, therefore makes the gateway resume the Actor itself,
+waiting while ate-api gives one of those answers (backoff from 500 ms to 5 s, at
+most two minutes), and run the send once more. Any other answer, or an Actor
+Substrate still cannot resume at the bound, keeps the retryable refusal. The
 gateway waits once per turn, and holds no dispatch reservation while it waits.
+An explicit `ResumeSession` waits the same way within its attempt (the
+[lifecycle workflow](runtime-and-lifecycle.md)).
 
 Checkpoint readiness is separate from task completion. Creating a checkpoint
 requires `expected_head_task_id`, the terminal task the caller intends to capture.

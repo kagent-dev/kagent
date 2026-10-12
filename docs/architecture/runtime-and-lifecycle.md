@@ -179,7 +179,13 @@ A stale executor cannot complete or release a newer attempt's claim.
 Lifecycle retries inspect the pinned Actor identity and continue Substrate's
 reentrant workflows, including completing egress setup for an existing creation.
 Already completed creation steps are not repeated. Fork retries must still match
-the retained source snapshot. Conflicting Session lifecycle, task, and checkpoint
+the retained source snapshot. A resume that Substrate answers it cannot perform
+yet — `ResourceExhausted` while the worker pool has no free worker, `Unavailable`
+when a departing worker or a restarting ate-api cut it short, `Aborted` while
+another operation holds the Actor — is issued again within the same attempt,
+with a backoff from 500 ms to 5 s, until it goes through or the attempt ends;
+the attempt then returns that answer, and the next request continues the
+operation. Every other answer ends the attempt at once. Conflicting Session lifecycle, task, and checkpoint
 work remains blocked until the pending operation completes. Releasing an attempt
 never clears its durable intent or makes uncertain work an unissued preparation.
 

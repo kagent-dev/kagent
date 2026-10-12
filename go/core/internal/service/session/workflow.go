@@ -66,8 +66,9 @@ type ActorWorkflow struct {
 	// claimLease is how long a claim outlives its holder's last renewal before
 	// another worker takes it over; the holder renews it every third of it.
 	claimLease time.Duration
-	// busyWait bounds how long a refused turn waits for an operation that
-	// holds its Actor; busyRetry is the first wait between resumes.
+	// busyWait bounds how long a refused turn waits for its Actor's resume
+	// while Substrate answers it later (resumeLater); busyRetry is the first
+	// wait between resumes, of the turn's and of a lifecycle attempt's.
 	busyWait  time.Duration
 	busyRetry time.Duration
 	// directories tells the owner of a deleted session's volume that the
@@ -82,8 +83,44 @@ type DirectoryReleaser interface {
 	ReleaseSessionDirectory(context.Context, *apiv1alpha1.Session) error
 }
 
-// maxBusyRetry caps the wait between resumes of an Actor another operation holds.
+// maxBusyRetry caps the wait between resumes Substrate answers later.
 const maxBusyRetry = 5 * time.Second
+
+// resumeLater reports an answer to ResumeActor that means not now, not never:
+// no free worker while the pool rolls (ResourceExhausted), a resume a
+// departing worker or a restarting ate-api cut short (Unavailable; the Actor
+// is back at its snapshot) or another operation holding the Actor (Aborted),
+// such as a repoint onto a newer template. Each clears on its own, and the
+// same resume goes through once it has. Substrate's router parks a routed
+// request on the same answers.
+func resumeLater(err error) bool {
+	switch status.Code(err) {
+	case codes.ResourceExhausted, codes.Unavailable, codes.Aborted:
+		return true
+	}
+	return false
+}
+
+// awaitResume runs resume until it succeeds, fails with an answer other than
+// resumeLater, or ctx ends, waiting between runs from busyRetry, doubling up
+// to maxBusyRetry. The answer of the last run is returned when ctx ends.
+func (w *ActorWorkflow) awaitResume(ctx context.Context, resume func() error) error {
+	start := time.Now()
+	for delay := w.busyRetry; ; delay = min(2*delay, maxBusyRetry) {
+		err := resume()
+		if !resumeLater(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(delay):
+			if ctx.Err() == nil {
+				continue
+			}
+		}
+		return fmt.Errorf("still deferred by Substrate after %s: %w", time.Since(start).Round(100*time.Millisecond), err)
+	}
+}
 
 type WorkflowOption func(*ActorWorkflow)
 
@@ -283,10 +320,11 @@ func (w *ActorWorkflow) RuntimeLost(ctx context.Context, session *apiv1alpha1.Se
 }
 
 // AwaitRuntime resumes the session's Actor, waiting while Substrate answers
-// that another operation holds it (Aborted), such as a repoint onto a newer
-// template: that operation finishes on its own, after which the resume goes
-// through. The wait is bounded by busyWait; any other answer, or an Actor
-// still held at the bound, is returned as the error it is.
+// that it cannot yet (resumeLater): the worker pool rolls, or another
+// operation holds the Actor, such as a repoint onto a newer template, and
+// finishes on its own, after which the resume goes through. The wait is
+// bounded by busyWait; any other answer, or an Actor Substrate still defers
+// at the bound, is returned as the error it is.
 func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
@@ -295,20 +333,14 @@ func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.S
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	ctx, cancel := context.WithTimeout(ctx, w.busyWait)
 	defer cancel()
-	for delay := w.busyRetry; ; delay = min(2*delay, maxBusyRetry) {
+	err = w.awaitResume(ctx, func() error {
 		_, err := w.actors.ResumeActor(ctx, atespace, name)
-		if status.Code(err) != codes.Aborted {
-			if err != nil {
-				return fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
-			}
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("resume Actor %s/%s: still held by another operation after %s: %w", atespace, name, w.busyWait, err)
-		case <-time.After(delay):
-		}
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
 	}
+	return nil
 }
 
 // Create provisions the persisted session once, using its pinned checkpoint for
@@ -477,7 +509,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 			}
 		}
 	}
-	if err := substrate.ApplyActorTransition(ctx, w.actors, transition); err != nil {
+	if err := w.applyTransition(ctx, transition, kind); err != nil {
 		if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME && status.Code(err) == codes.DataLoss {
 			// Substrate answers DataLoss when the Actor's snapshot cannot be
 			// restored, its own or the golden one it builds on: no retry can
@@ -508,6 +540,20 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		w.releaseDirectory(finishCtx, session)
 	}
 	return finished, err
+}
+
+// applyTransition issues the operation's runtime mutation. A resume Substrate
+// answers later (resumeLater) is issued again until it goes through or the
+// attempt ends: the worker pool rolling under a session is not the session's
+// failure, and the attempt has the time to wait the roll out. The answer at
+// the attempt's end is returned as it is, for the next attempt to continue
+// the operation.
+func (w *ActorWorkflow) applyTransition(ctx context.Context, transition *substrate.ActorTransition, kind apiv1alpha1.RuntimeOperation) error {
+	apply := func() error { return substrate.ApplyActorTransition(ctx, w.actors, transition) }
+	if kind != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
+		return apply()
+	}
+	return w.awaitResume(ctx, apply)
 }
 
 // releaseDirectory tells the owner of a deleted session's volume that its

@@ -109,15 +109,21 @@ func TestLifecycleClientRetriesAmbiguousMutation(t *testing.T) {
 			actors := &retryTestActors{lifecycleTestActors: base, mutationErr: status.Error(codes.Unavailable, "response lost after effect")}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			call := workflow.Create
+			ctx := t.Context()
 			switch name {
 			case "resume":
 				call = workflow.Resume
+				// A resume Substrate answers Unavailable is issued again until
+				// the attempt ends, which then returns that answer.
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancel()
 			case "suspend":
 				call = workflow.Suspend
 			case "delete":
 				call = workflow.Delete
 			}
-			_, err = call(t.Context(), session)
+			_, err = call(ctx, session)
 			require.Equal(t, codes.Unavailable, status.Code(err))
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err, "uncertainty must preserve the session and its resource pins")

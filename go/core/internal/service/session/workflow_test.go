@@ -822,7 +822,9 @@ func TestRuntimeLost(t *testing.T) {
 }
 
 // heldActors answers the resumes in answers in order, the way ate-api answers
-// while another operation holds the Actor, and resumes it after them.
+// while it cannot resume the Actor yet, and resumes it after them. A last
+// answer that asks for the resume later repeats: the condition outlasts the
+// bound.
 type heldActors struct {
 	*lifecycleTestActors
 	answers []error
@@ -831,20 +833,31 @@ type heldActors struct {
 
 func (a *heldActors) ResumeActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	a.resumes++
+	var err error
 	if len(a.answers) > 0 {
-		err := a.answers[0]
-		if len(a.answers) > 1 || status.Code(err) != codes.Aborted {
+		err = a.answers[0]
+		if len(a.answers) > 1 || !resumeLater(err) {
 			a.answers = a.answers[1:]
 		}
+	}
+	if err != nil {
 		return nil, err
 	}
-	return &ateapipb.Actor{Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}}, nil
+	return a.lifecycleTestActors.ResumeActor(ctx, atespace, name)
 }
+
+var (
+	// The answers ate-api gives a resume it cannot perform yet: the worker
+	// pool has no free worker, a departing worker cut the resume short, and
+	// another operation holds the Actor.
+	errNoFreeWorker = status.Error(codes.ResourceExhausted, "no free workers available")
+	errResumeCut    = status.Error(codes.Unavailable, "worker is draining")
+	errActorHeld    = status.Error(codes.Aborted, "another operation is in progress for this actor")
+)
 
 func TestAwaitRuntime(t *testing.T) {
 	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
 	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
-	held := status.Error(codes.Aborted, "another operation is in progress for this actor")
 	for _, test := range []struct {
 		name        string
 		answers     []error
@@ -852,13 +865,18 @@ func TestAwaitRuntime(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "free", wantResumes: 1},
-		{name: "held, then free", answers: []error{held, held, held, nil}, wantResumes: 4},
-		// The last answer repeats: the operation outlasts the bound.
-		{name: "held past the bound", answers: []error{held}, wantErr: "still held by another operation"},
-		{name: "not transient", answers: []error{held, status.Error(codes.PermissionDenied, "denied")}, wantResumes: 2, wantErr: "denied"},
+		{name: "held, then free", answers: []error{errActorHeld, errActorHeld, errActorHeld, nil}, wantResumes: 4},
+		{name: "no free worker, then one", answers: []error{errNoFreeWorker, errResumeCut, errActorHeld, nil}, wantResumes: 4},
+		// The last answer repeats: the condition outlasts the bound.
+		{name: "held past the bound", answers: []error{errActorHeld}, wantErr: "still deferred by Substrate after"},
+		{name: "no free worker past the bound", answers: []error{errNoFreeWorker}, wantErr: "no free workers available"},
+		{name: "not transient", answers: []error{errActorHeld, status.Error(codes.PermissionDenied, "denied")}, wantResumes: 2, wantErr: "denied"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, answers: test.answers}
+			key := actorKey("team-a", substrate.ActorName(session.GetId()))
+			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{
+				key: {Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}},
+			}}, answers: test.answers}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			workflow.busyWait, workflow.busyRetry = 200*time.Millisecond, time.Millisecond
 			err := workflow.AwaitRuntime(t.Context(), session)
@@ -866,12 +884,73 @@ func TestAwaitRuntime(t *testing.T) {
 				require.ErrorContains(t, err, test.wantErr)
 			} else {
 				require.NoError(t, err)
+				require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actors.actors[key].GetStatus().GetState())
 			}
 			if test.wantResumes != 0 {
 				require.Equal(t, test.wantResumes, actors.resumes)
 			} else {
-				require.Greater(t, actors.resumes, 1, "an Actor another operation holds is resumed again within the bound")
+				require.Greater(t, actors.resumes, 1, "an Actor Substrate cannot resume yet is resumed again within the bound")
 			}
+		})
+	}
+}
+
+// A resume Substrate answers later within a lifecycle attempt, with no free
+// worker while the pool rolls, a resume a departing worker cut short or
+// another operation holding the Actor, is issued again until it goes through,
+// and the session is ready without a second request. Any other answer fails
+// the attempt at once; an answer that outlasts the attempt is returned as it
+// is, and the next request continues the operation.
+func TestResumeWaitsWhileSubstrateAnswersLater(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		answers     []error
+		attempt     time.Duration
+		wantResumes int
+		wantCode    codes.Code
+	}{
+		{name: "no free worker, then one", answers: []error{errNoFreeWorker, errNoFreeWorker, errResumeCut, errActorHeld, nil}, wantResumes: 5},
+		{name: "not transient", answers: []error{errNoFreeWorker, status.Error(codes.PermissionDenied, "denied")}, wantResumes: 2, wantCode: codes.PermissionDenied},
+		{name: "no free worker past the attempt", answers: []error{errNoFreeWorker}, attempt: 200 * time.Millisecond, wantCode: codes.ResourceExhausted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			setup := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
+			session, err := setup.Create(t.Context(), session)
+			require.NoError(t, err)
+			session, err = setup.Suspend(t.Context(), session)
+			require.NoError(t, err)
+
+			actors := &heldActors{lifecycleTestActors: base, answers: test.answers}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow.busyRetry = time.Millisecond
+			ctx := t.Context()
+			if test.attempt != 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, test.attempt)
+				defer cancel()
+			}
+			resumed, err := workflow.Resume(ctx, session)
+			if test.wantCode == codes.OK {
+				require.NoError(t, err)
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, resumed.GetState())
+				require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, resumed.GetOperation())
+				require.Equal(t, test.wantResumes, actors.resumes)
+				return
+			}
+			require.Equal(t, test.wantCode, status.Code(err))
+			if test.wantResumes != 0 {
+				require.Equal(t, test.wantResumes, actors.resumes)
+			} else {
+				require.Greater(t, actors.resumes, 1, "a resume Substrate answers later is issued again within the attempt")
+			}
+			pending, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, pending.GetOperation(), "the operation stays pending for the next request")
+			ready, err := NewActorWorkflow(store, base).Resume(t.Context(), pending)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.GetState())
 		})
 	}
 }
