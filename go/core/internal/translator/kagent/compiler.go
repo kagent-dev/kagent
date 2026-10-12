@@ -2,13 +2,13 @@ package kagent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 )
@@ -33,7 +33,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	}
 	template, harness := input.Root.Template, input.Harness
 	compiled.Config.Runtime = c.settings.RuntimeConfig(input.AgentName, template.Namespace)
-	configJSON, err := json.Marshal(compiled.Config)
+	configJSON, err := adk.Marshal(compiled.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}

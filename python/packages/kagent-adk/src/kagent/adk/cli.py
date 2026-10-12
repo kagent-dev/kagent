@@ -19,6 +19,7 @@ from kagent.core.telemetry import conv
 
 from . import AgentConfig, KAgentApp
 from .tools import add_skills_tool_to_agent
+from .types import create_agent, parse_agent_config
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
@@ -30,7 +31,7 @@ def create_sts_integration(settings: TokenPropagationConfig) -> Optional[ADKToke
     if settings.sts_well_known_uri or settings.enabled:
         integration = ADKSTSIntegration(settings.sts_well_known_uri) if settings.sts_well_known_uri else None
         return ADKTokenPropagationPlugin(
-            integration, resource=settings.resources or None, audience=settings.audiences or None
+            integration, resource=list(settings.resources) or None, audience=list(settings.audiences) or None
         )
     return None
 
@@ -64,7 +65,7 @@ def static(
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)
-    agent_config = AgentConfig.model_validate(config)
+    agent_config = parse_agent_config(config)
     runtime = agent_config.runtime or RuntimeConfig()
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
@@ -84,7 +85,7 @@ def static(
         plugins.append(LLMPassthroughPlugin())
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, runtime.token_propagation.enabled)
+        root_agent = create_agent(agent_config, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
 
         maybe_add_skills_with_config(root_agent, agent_config)
 
@@ -96,7 +97,7 @@ def static(
         app_cfg.api_url,
         app_cfg.app_name,
         plugins=plugins,
-        stream=agent_config.stream if agent_config.stream is not None else False,
+        stream=agent_config.stream,
         agent_config=agent_config,
     )
 
@@ -153,7 +154,7 @@ def run(
     try:
         with open(config_path, "r") as f:
             config = json.load(f)
-        agent_config = AgentConfig.model_validate(config)
+        agent_config = parse_agent_config(config)
     except FileNotFoundError:
         logger.debug(f"No config.json found at {config_path}, using defaults")
 
@@ -198,7 +199,7 @@ def run(
         app_cfg.app_name,
         lifespan=lifespan,
         plugins=plugins,
-        stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
+        stream=agent_config.stream if agent_config else False,
         agent_config=agent_config,
     )
 
@@ -235,7 +236,7 @@ async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str
         plugins = [sts_integration]
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, runtime.token_propagation.enabled)
+        root_agent = create_agent(agent_config, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
         maybe_add_skills_with_config(root_agent, agent_config)
         return root_agent
 
@@ -257,7 +258,7 @@ def test(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = parse_agent_card(agent_card)
-    agent_config = AgentConfig.model_validate(config)
+    agent_config = parse_agent_config(config)
     asyncio.run(test_agent(agent_config, agent_card, task))
 
 

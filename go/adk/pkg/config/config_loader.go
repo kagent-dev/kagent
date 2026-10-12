@@ -19,13 +19,10 @@ func LoadAgentConfig(configPath string) (*adk.AgentConfig, error) {
 	}
 
 	var config adk.AgentConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	if err := adk.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	if err := config.ValidateRuntime(); err != nil {
-		return nil, err
-	}
 	return &config, nil
 }
 

@@ -209,8 +209,10 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 - CLI and controller settings belong in `proto/kagent/api/v1alpha1/config.proto`,
   with Protovalidate rules. Load once at startup and pass resolved values to owners.
-- Runtime settings belong in the existing typed runtime JSON structures. Runtime
-  components must not read application settings from the process environment.
+- ADK runtime settings belong in `proto/kagent/api/v1alpha1/adk.proto`; Go and
+  Python consume its generated messages using ProtoJSON. Native harnesses retain
+  their own typed configuration. Runtime components must not read application
+  settings from the process environment.
 - Standard `OTEL_*` settings override telemetry defaults for the receiving process
   only. Controller overrides never become managed-runtime defaults.
 - Provider credentials, SDK trust, `KUBECONFIG`, and test harness inputs remain

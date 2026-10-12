@@ -12,6 +12,7 @@ from kagent.adk.models._ollama import (
     _convert_tools_to_ollama,
     create_ollama_llm,
 )
+from kagent.adk.types import ModelConfig
 
 
 def test_convert_tools_uses_adk2_json_schema():
@@ -223,11 +224,7 @@ class TestCreateOllamaLlm:
         """Integration: _create_llm_from_model_config returns KAgentOllamaLlm for ollama type."""
         from kagent.adk.types import Ollama, _create_llm_from_model_config
 
-        config = Ollama(
-            type="ollama",
-            model="llama3.2:latest",
-            options={"temperature": "0.8", "top_p": "0.9"},
-        )
+        config = ModelConfig(model="llama3.2:latest", ollama=Ollama(options={"temperature": "0.8", "top_p": "0.9"}))
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentOllamaLlm)
         assert result.model == "llama3.2:latest"

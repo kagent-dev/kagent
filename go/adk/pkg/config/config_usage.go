@@ -76,7 +76,7 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 
 	summary := "AgentConfig:\n"
 	if config.Model != nil {
-		summary += fmt.Sprintf("  Model: %s (%s)\n", config.Model.GetType(), getModelName(config.Model))
+		summary += fmt.Sprintf("  Model: %s (%s)\n", adk.ModelType(config.Model), config.Model.GetModel())
 	} else {
 		summary += "  Model: (nil)\n"
 	}
@@ -89,25 +89,4 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 	summary += fmt.Sprintf("  RemoteAgents: %d\n", len(config.RemoteAgents))
 
 	return summary
-}
-
-func getModelName(m adk.Model) string {
-	switch m := m.(type) {
-	case *adk.OpenAI:
-		return m.Model
-	case *adk.AzureOpenAI:
-		return m.Model
-	case *adk.Anthropic:
-		return m.Model
-	case *adk.GeminiVertexAI:
-		return m.Model
-	case *adk.GeminiAnthropic:
-		return m.Model
-	case *adk.Ollama:
-		return m.Model
-	case *adk.Gemini:
-		return m.Model
-	default:
-		return "unknown"
-	}
 }

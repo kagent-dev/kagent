@@ -192,14 +192,14 @@ func resolveStructuredOutput(config *apiadk.OutputConfig) (*structuredOutput, er
 		return nil, nil
 	}
 	var schema jsonschema.Schema
-	if err := json.Unmarshal(config.JSONSchema, &schema); err != nil {
+	if err := json.Unmarshal(config.JsonSchema, &schema); err != nil {
 		return nil, fmt.Errorf("decode output schema: %w", err)
 	}
 	resolved, err := schema.Resolve(nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve output schema: %w", err)
 	}
-	return &structuredOutput{schema: resolved, sha256: config.SHA256}, nil
+	return &structuredOutput{schema: resolved, sha256: config.Sha256}, nil
 }
 
 // UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the

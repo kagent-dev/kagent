@@ -85,7 +85,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
 	config.ControlPlaneURL = c.settings.APIURL
-	config.MaxContentLength = c.settings.Process.MaxContentLength
+	config.MaxContentLength = c.settings.RuntimeConfig(input.AgentName, input.Root.Template.Namespace).MaxContentLength
 	config.LogLevel = c.settings.LogLevel
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources

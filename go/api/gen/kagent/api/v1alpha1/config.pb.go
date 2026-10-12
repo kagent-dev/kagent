@@ -426,7 +426,7 @@ func (x *ChartConfig) GetValuesFiles() []string {
 }
 
 // ControllerConfig configures one controller process. Runtime defaults are
-// compiled into the existing harness Go/JSON contracts, not protobuf payloads.
+// compiled into the ADK protobuf contract or native Harness configuration.
 type ControllerConfig struct {
 	state            protoimpl.MessageState  `protogen:"open.v1"`
 	Kubernetes       *KubernetesConfig       `protobuf:"bytes,1,opt,name=kubernetes,proto3" json:"kubernetes,omitempty"`

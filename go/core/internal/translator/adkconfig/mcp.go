@@ -12,19 +12,19 @@ func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, server *v1alpha3.R
 
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
-		params := adk.SseConnectionParams{Url: targetURL, Headers: headers}
+		params := &adk.SseConnectionParams{Url: targetURL, Headers: headers}
 		if server.Spec.Timeout != nil {
 			params.Timeout = new(server.Spec.Timeout.Seconds())
 		}
 		if server.Spec.SseReadTimeout != nil {
 			params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
 		}
-		params.TLSInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
-		config.SseTools = append(config.SseTools, adk.SseMcpServerConfig{
+		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
+		config.SseTools = append(config.SseTools, &adk.SseMcpServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
 		})
 	default:
-		params := adk.StreamableHTTPConnectionParams{Url: targetURL, Headers: headers}
+		params := &adk.StreamableHTTPConnectionParams{Url: targetURL, Headers: headers}
 		if server.Spec.Timeout != nil {
 			params.Timeout = new(server.Spec.Timeout.Seconds())
 		}
@@ -34,8 +34,8 @@ func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, server *v1alpha3.R
 		if server.Spec.TerminateOnClose != nil {
 			params.TerminateOnClose = server.Spec.TerminateOnClose
 		}
-		params.TLSInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
-		config.HttpTools = append(config.HttpTools, adk.HttpMcpServerConfig{
+		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
+		config.HttpTools = append(config.HttpTools, &adk.HttpMcpServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
 		})
 	}

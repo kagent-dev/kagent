@@ -7,7 +7,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -238,10 +237,11 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 			}
 			got, _, err := translateModel(resolved)
 			require.NoError(t, err)
-			anthropic, ok := got.(*adk.Anthropic)
+			anthropic := got.GetAnthropic()
+			ok := anthropic != nil
 			require.True(t, ok, "model is %T, want *adk.Anthropic", got)
 			require.Equal(t, tt.wantCaching, anthropic.PromptCaching)
-			require.Equal(t, tt.wantTTL, anthropic.CacheTTL)
+			require.Equal(t, tt.wantTTL, anthropic.CacheTtl)
 		})
 	}
 }
@@ -256,5 +256,5 @@ func TestTranslateAzureOpenAIAPIFormat(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	require.Equal(t, "responses", got.(*adk.AzureOpenAI).APIFormat)
+	require.Equal(t, "responses", got.GetAzureOpenai().ApiFormat)
 }

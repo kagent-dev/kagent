@@ -2,7 +2,6 @@ package byo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -44,10 +43,10 @@ func TestCompileOpaqueImage(t *testing.T) {
 	}, revision.Environment)
 
 	var config adk.AgentConfig
-	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+	require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
 	require.Nil(t, config.Model)
 	require.Equal(t, "be helpful", config.Instruction)
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDbUrl)
 	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }
 

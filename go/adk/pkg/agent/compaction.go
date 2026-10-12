@@ -105,7 +105,7 @@ func compactionStrategies(settings *adk.AgentCompressionConfig) (compaction.Conf
 // model or a custom prompt template. It returns nil when neither is set, which
 // leaves the runner to summarize with the agent's own model and ADK's default
 // prompt.
-func compactionSummarizer(ctx context.Context, settings *adk.AgentCompressionConfig, agentModel adk.Model) (compaction.Summarizer, error) {
+func compactionSummarizer(ctx context.Context, settings *adk.AgentCompressionConfig, agentModel *adk.Model) (compaction.Summarizer, error) {
 	modelConfig := settings.SummarizerModel
 	if modelConfig == nil {
 		if settings.PromptTemplate == "" {
@@ -145,19 +145,19 @@ func summarizerPromptTemplate(custom string) string {
 
 // summarizerModelDescription names the model that writes the summaries, for
 // the startup log.
-func summarizerModelDescription(settings *adk.AgentCompressionConfig, agentModel adk.Model) string {
+func summarizerModelDescription(settings *adk.AgentCompressionConfig, agentModel *adk.Model) string {
 	if settings.SummarizerModel != nil {
-		return settings.SummarizerModel.GetType()
+		return adk.ModelType(settings.SummarizerModel)
 	}
 	if agentModel == nil {
 		return "none"
 	}
-	return agentModel.GetType() + " (agent model)"
+	return adk.ModelType(agentModel) + " (agent model)"
 }
 
-func intValue(v *int) int {
+func intValue(v *int64) int {
 	if v == nil {
 		return 0
 	}
-	return *v
+	return int(*v)
 }

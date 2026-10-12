@@ -31,7 +31,7 @@ def make_app(address: str | None = "127.0.0.1:0", port: str = ""):
         kagent_api_url="http://unused",
         app_name="test-app",
         a2a_grpc_address=address,
-        agent_config=AgentConfig.model_construct(runtime=RuntimeConfig(port=port)),
+        agent_config=AgentConfig(runtime=RuntimeConfig(port=port)),
     )
 
 

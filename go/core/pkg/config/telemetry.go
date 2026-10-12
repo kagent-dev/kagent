@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"maps"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -19,5 +20,5 @@ func otlp(cfg *apiv1.OTLPConfig) *telemetry.OTLPConfig {
 	if cfg == nil {
 		return nil
 	}
-	return &telemetry.OTLPConfig{Endpoint: cfg.GetEndpoint(), Protocol: cfg.GetProtocol(), TimeoutMillis: cfg.GetTimeout().AsDuration().Milliseconds()}
+	return &telemetry.OTLPConfig{Endpoint: cfg.GetEndpoint(), Protocol: cmp.Or(cfg.GetProtocol(), "grpc"), TimeoutMillis: cfg.GetTimeout().AsDuration().Milliseconds()}
 }

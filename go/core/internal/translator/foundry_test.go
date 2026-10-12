@@ -1,7 +1,6 @@
 package translator_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -74,7 +73,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
 				var config adk.AgentConfig
-				require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+				require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
 				runtimeModel := config.Model
 				if location == "shared agent" {
 					require.Len(t, config.SubAgents, 1)
@@ -85,8 +84,8 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 					require.NotNil(t, config.Memory.Embedding)
 					require.Equal(t, endpoint, config.Memory.Embedding.Endpoint)
 				} else {
-					require.IsType(t, &adk.Foundry{}, runtimeModel)
-					require.Equal(t, endpoint, runtimeModel.(*adk.Foundry).Endpoint)
+					require.IsType(t, &adk.Model{Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{}}}, runtimeModel)
+					require.Equal(t, endpoint, runtimeModel.GetFoundry().Endpoint)
 				}
 				require.Contains(t, revision.Environment, corev1.EnvVar{Name: "FOUNDRY_ENDPOINT", Value: endpoint})
 				require.Len(t, revision.Credentials, 1)

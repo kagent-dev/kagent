@@ -2,7 +2,6 @@ package byo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -36,7 +36,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	}
 	template, harness := input.Root.Template, input.Harness
 	compiled.Config.Runtime = c.settings.RuntimeConfig(input.AgentName, template.Namespace)
-	configJSON, err := json.Marshal(compiled.Config)
+	configJSON, err := adk.Marshal(compiled.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}

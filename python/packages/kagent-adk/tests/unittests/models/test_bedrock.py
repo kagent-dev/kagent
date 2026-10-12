@@ -14,6 +14,7 @@ from kagent.adk.models._bedrock import (
     _get_bedrock_client,
     _sanitize_tool_name,
 )
+from kagent.adk.types import ModelConfig
 
 
 class TestSanitizeToolName:
@@ -361,7 +362,7 @@ class TestKAgentBedrockLlm:
     def test_create_llm_from_bedrock_model_config(self):
         from kagent.adk.types import Bedrock, _create_llm_from_model_config
 
-        config = Bedrock(type="bedrock", model="meta.llama3-8b-instruct-v1:0")
+        config = ModelConfig(model="meta.llama3-8b-instruct-v1:0", bedrock=Bedrock())
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentBedrockLlm)
         assert result.model == "meta.llama3-8b-instruct-v1:0"
@@ -369,11 +370,8 @@ class TestKAgentBedrockLlm:
     def test_create_llm_forwards_prompt_caching_and_ttl(self):
         from kagent.adk.types import Bedrock, _create_llm_from_model_config
 
-        config = Bedrock(
-            type="bedrock",
-            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
-            prompt_caching=True,
-            cache_ttl="1h",
+        config = ModelConfig(
+            model="us.anthropic.claude-sonnet-4-20250514-v1:0", bedrock=Bedrock(prompt_caching=True, cache_ttl="1h")
         )
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentBedrockLlm)

@@ -48,7 +48,7 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, agentConfig.ProcessConfig().TokenPropagation)
+	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, adk.ProcessConfig(agentConfig).TokenPropagation)
 	if err != nil {
 		return runner.Config{}, err
 	}
@@ -105,9 +105,9 @@ func CreateRunnerConfig(
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
-	propagateToken := config.Enabled
-	stsWellKnownURI := config.STSWellKnownURI
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config *adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
+	propagateToken := config.GetEnabled()
+	stsWellKnownURI := config.GetStsWellKnownUri()
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
 	}
@@ -134,8 +134,8 @@ func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config a
 
 	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
 	// backend. Both are repeatable; empty values are omitted from the request.
-	resource := config.Resources
-	audience := config.Audiences
+	resource := config.GetResources()
+	audience := config.GetAudiences()
 
 	log.InfoContext(ctx, "enabling STS token propagation plugin", "well_known_uri", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil

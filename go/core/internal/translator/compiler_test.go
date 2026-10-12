@@ -73,7 +73,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
 			var process adk.AgentConfig
-			require.NoError(t, json.Unmarshal(result.ConfigJSON, &process))
+			require.NoError(t, adk.Unmarshal(result.ConfigJSON, &process))
 			require.Equal(t, "80", process.Runtime.Port)
 			for _, variable := range result.Environment {
 				require.NotEqual(t, "KAGENT_A2A_GRPC_ADDRESS", variable.Name)
@@ -162,21 +162,21 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	require.Equal(t, harness.Spec.Workload.Command, spec.Command)
 	require.Equal(t, harness.Spec.Workload.Args, spec.Args)
 	var config adk.AgentConfig
-	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
+	if err := adk.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
 	}
 	// The driver is part of the assertion, not incidental. The Python runtime opens
 	// this URL with an asyncio engine and refuses a bare `sqlite:` one, so dropping
 	// the driver leaves an actor that never serves /readyz — which surfaces as a
 	// harness stuck in ResumeGoldenActor rather than as anything naming this line.
-	if config.SessionDBURL != "sqlite+aiosqlite:////data/sessions.db" {
-		t.Fatalf("session DB URL = %q", config.SessionDBURL)
+	if config.SessionDbUrl != "sqlite+aiosqlite:////data/sessions.db" {
+		t.Fatalf("session DB URL = %q", config.SessionDbUrl)
 	}
-	if config.Memory == nil || config.Memory.TTLDays != 7 || config.Memory.Embedding == nil || config.Memory.Embedding.TLSInsecureSkipVerify == nil || !*config.Memory.Embedding.TLSInsecureSkipVerify {
+	if config.Memory == nil || config.Memory.TtlDays != 7 || config.Memory.Embedding == nil || config.Memory.Embedding.TlsInsecureSkipVerify == nil || !*config.Memory.Embedding.TlsInsecureSkipVerify {
 		t.Fatalf("compiled memory config = %#v", config.Memory)
 	}
 	plugins := config.AgentPlugins
-	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
+	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.GetGit().Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", config)
 	}
 	for _, host := range []string{"https://ghcr.io:443", "https://registry-1.docker.io:443", "https://github.com:443", "https://objects.example.com:443"} {
@@ -388,17 +388,17 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	revision, err := compiler(t, modelConfig(), configMap, child, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
 	require.NoError(t, err)
 	var config adk.AgentConfig
-	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-	require.JSONEq(t, schema, string(config.Output.JSONSchema))
-	require.Len(t, config.Output.SHA256, 64)
+	require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+	require.JSONEq(t, schema, string(config.Output.JsonSchema))
+	require.Len(t, config.Output.Sha256, 64)
 	require.Len(t, config.SubAgents, 1)
 	require.Nil(t, config.SubAgents[0].Output)
-	require.Equal(t, 7, config.Memory.TTLDays)
-	require.Equal(t, 5, *config.ContextConfig.Compaction.CompactionInterval)
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+	require.Equal(t, int64(7), config.Memory.TtlDays)
+	require.Equal(t, int64(5), *config.ContextConfig.Compaction.CompactionInterval)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDbUrl)
 	require.Nil(t, config.SubAgents[0].Memory)
 	require.Nil(t, config.SubAgents[0].ContextConfig)
-	require.Empty(t, config.SubAgents[0].SessionDBURL)
+	require.Empty(t, config.SubAgents[0].SessionDbUrl)
 	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
 	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
 }
@@ -681,7 +681,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			revision, err := compiler(t, modelConfig(), child, runtimeHarness, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(runtimeHarness, root))
 			require.NoError(t, err)
 			var config adk.AgentConfig
-			require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
+			require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
 			require.Len(t, config.SubAgents, 1)
 			require.Equal(t, "web_researcher", config.SubAgents[0].Name)
 			require.Equal(t, "research the web", config.SubAgents[0].Description)
@@ -696,9 +696,9 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			require.NotNil(t, config.Model)
 			require.True(t, config.GetStream())
 			require.Equal(t, "review", config.AgentPlugins.Skills[0].Name)
-			require.Equal(t, "https://github.com/acme/plugin", config.AgentPlugins.Plugins[0].Source.Git.URL)
-			require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
-			require.Empty(t, config.SubAgents[0].SessionDBURL)
+			require.Equal(t, "https://github.com/acme/plugin", config.AgentPlugins.Plugins[0].Source.GetGit().Url)
+			require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDbUrl)
+			require.Empty(t, config.SubAgents[0].SessionDbUrl)
 			require.Nil(t, config.Memory)
 			require.Nil(t, config.ContextConfig)
 			require.Nil(t, config.Output)
@@ -948,7 +948,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 						require.NoError(t, err)
 						if kind == translator.HarnessTypeKagent || kind == translator.HarnessTypeBYO {
 							var cfg adk.AgentConfig
-							require.NoError(t, json.Unmarshal(result.ConfigJSON, &cfg))
+							require.NoError(t, adk.Unmarshal(result.ConfigJSON, &cfg))
 							require.Equal(t, name, cfg.Runtime.Name)
 							require.Equal(t, agent.Namespace, cfg.Runtime.Namespace)
 						} else {
@@ -962,7 +962,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 						require.Equal(t, strings.ReplaceAll(name, "-", "_"), result.AgentCard.Name)
 						if kind == translator.HarnessTypeKagent {
 							var config adk.AgentConfig
-							require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
+							require.NoError(t, adk.Unmarshal(result.ConfigJSON, &config))
 							require.NotNil(t, config.Memory)
 						}
 					})

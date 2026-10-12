@@ -207,7 +207,7 @@ export const ChartConfigSchema: GenMessage<ChartConfig> = /*@__PURE__*/
 
 /**
  * ControllerConfig configures one controller process. Runtime defaults are
- * compiled into the existing harness Go/JSON contracts, not protobuf payloads.
+ * compiled into the ADK protobuf contract or native Harness configuration.
  *
  * @generated from message kagent.api.v1alpha1.ControllerConfig
  */

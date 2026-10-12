@@ -16,6 +16,7 @@ from kagent.adk.models._sap_ai_core import (
     _fetch_oauth_token,
     _parse_orchestration_chunk,
 )
+from kagent.adk.types import ModelConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -754,12 +755,11 @@ class TestCreateLlmFromModelConfig:
     def test_returns_kagent_sap_ai_core_llm(self):
         from kagent.adk.types import SAPAICore, _create_llm_from_model_config
 
-        config = SAPAICore(
-            type="sap_ai_core",
+        config = ModelConfig(
             model="anthropic--claude-3.5-sonnet",
-            base_url="https://api.example.com",
-            resource_group="my-group",
-            auth_url="https://auth.example.com",
+            sap_ai_core=SAPAICore(
+                base_url="https://api.example.com", resource_group="my-group", auth_url="https://auth.example.com"
+            ),
         )
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentSAPAICoreLlm)
@@ -771,9 +771,6 @@ class TestCreateLlmFromModelConfig:
     def test_default_resource_group(self):
         from kagent.adk.types import SAPAICore, _create_llm_from_model_config
 
-        config = SAPAICore(
-            type="sap_ai_core",
-            model="anthropic--claude-3.5-sonnet",
-        )
+        config = ModelConfig(model="anthropic--claude-3.5-sonnet", sap_ai_core=SAPAICore())
         result = _create_llm_from_model_config(config)
         assert result.resource_group == "default"

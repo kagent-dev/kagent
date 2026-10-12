@@ -85,7 +85,7 @@ message ChartConfig {
 }
 
 // ControllerConfig configures one controller process. Runtime defaults are
-// compiled into the existing harness Go/JSON contracts, not protobuf payloads.
+// compiled into the ADK protobuf contract or native Harness configuration.
 message ControllerConfig {
   option (buf.validate.message).cel = {
     id: "controller.database_read_write"

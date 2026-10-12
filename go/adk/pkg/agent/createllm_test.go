@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -44,7 +43,7 @@ func loadConfig(t *testing.T, path string, baseURL string) *adk.AgentConfig {
 	raw := strings.ReplaceAll(string(data), "{{BASE_URL}}", baseURL)
 
 	var cfg adk.AgentConfig
-	require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
+	require.NoError(t, adk.Unmarshal([]byte(raw), &cfg))
 	return &cfg
 }
 

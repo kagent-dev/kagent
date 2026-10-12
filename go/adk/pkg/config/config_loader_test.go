@@ -1,11 +1,12 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 func createTempConfigFile(t *testing.T, content string) string {
@@ -27,14 +28,12 @@ func createTempConfigFile(t *testing.T, content string) string {
 
 func TestLoadAgentConfig(t *testing.T) {
 	configJSON := `{
-		"model": {
-			"type": "openai",
-			"model": "gpt-4",
-			"api_key": "test-key"
-		},
-		"instruction": "You are a helpful assistant",
-		"timeout": 1800.0
-	}`
+  "model": {
+    "model": "gpt-4",
+    "openai": {}
+  },
+  "instruction": "You are a helpful assistant"
+}`
 
 	configPath := createTempConfigFile(t, configJSON)
 	defer os.Remove(configPath)
@@ -80,8 +79,17 @@ func TestLoadAgentConfig_FileNotFound(t *testing.T) {
 func TestMaterializeFromEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	t.Setenv("KAGENT_CONFIG_JSON", `{"model":{"type":"openai","model":"gpt-4","api_key":"k"},"instruction":"hi"}`)
-	t.Setenv("KAGENT_AGENT_CARD_JSON", `{"name":"test-agent","version":"1.0.0"}`)
+	t.Setenv("KAGENT_CONFIG_JSON", `{
+  "model": {
+    "model": "gpt-4",
+    "openai": {}
+  },
+  "instruction": "hi"
+}`)
+	t.Setenv("KAGENT_AGENT_CARD_JSON", `{
+  "name": "test-agent",
+  "version": "1.0.0"
+}`)
 
 	if err := MaterializeFromEnv(tmpDir); err != nil {
 		t.Fatalf("MaterializeFromEnv() error = %v", err)
@@ -128,10 +136,10 @@ func TestMaterializeFromEnv_SkipsUnset(t *testing.T) {
 
 func TestLoadAgentCard(t *testing.T) {
 	cardJSON := `{
-		"name": "test-agent",
-		"version": "1.0.0",
-		"description": "Test agent"
-	}`
+  "name": "test-agent",
+  "version": "1.0.0",
+  "description": "Test agent"
+}`
 
 	cardPath := createTempConfigFile(t, cardJSON)
 	defer os.Remove(cardPath)
@@ -171,13 +179,12 @@ func TestLoadAgentConfigs(t *testing.T) {
 
 	// Create config.json
 	configJSON := `{
-		"model": {
-			"type": "openai",
-			"model": "gpt-4",
-			"api_key": "test-key"
-		},
-		"instruction": "You are a helpful assistant"
-	}`
+  "model": {
+    "model": "gpt-4",
+    "openai": {}
+  },
+  "instruction": "You are a helpful assistant"
+}`
 	configPath := filepath.Join(tmpDir, "config.json")
 	if err := os.WriteFile(configPath, []byte(configJSON), 0644); err != nil {
 		t.Fatalf("Failed to write config.json: %v", err)
@@ -185,9 +192,9 @@ func TestLoadAgentConfigs(t *testing.T) {
 
 	// Create agent-card.json
 	cardJSON := `{
-		"name": "test-agent",
-		"version": "1.0.0"
-	}`
+  "name": "test-agent",
+  "version": "1.0.0"
+}`
 	cardPath := filepath.Join(tmpDir, "agent-card.json")
 	if err := os.WriteFile(cardPath, []byte(cardJSON), 0644); err != nil {
 		t.Fatalf("Failed to write agent-card.json: %v", err)
@@ -239,45 +246,41 @@ func TestAgentConfig_ModelTypes(t *testing.T) {
 		{
 			name: "OpenAI model",
 			config: `{
-				"model": {
-					"type": "openai",
-					"name": "gpt-4",
-					"api_key": "test-key"
-				}
-			}`,
+  "model": {
+    "openai": {},
+    "model": "gpt-4"
+  }
+}`,
 			modelType: "openai",
 		},
 		{
 			name: "Anthropic model",
 			config: `{
-				"model": {
-					"type": "anthropic",
-					"model": "claude-3-opus",
-					"api_key": "test-key"
-				}
-			}`,
+  "model": {
+    "model": "claude-3-opus",
+    "anthropic": {}
+  }
+}`,
 			modelType: "anthropic",
 		},
 		{
 			name: "Gemini model",
 			config: `{
-				"model": {
-					"type": "gemini",
-					"model": "gemini-pro",
-					"api_key": "test-key"
-				}
-			}`,
+  "model": {
+    "model": "gemini-pro",
+    "gemini": {}
+  }
+}`,
 			modelType: "gemini",
 		},
 		{
 			name: "Ollama model",
 			config: `{
-				"model": {
-					"type": "ollama",
-					"model": "llama2",
-					"base_url": "http://localhost:11434"
-				}
-			}`,
+  "model": {
+    "model": "llama2",
+    "ollama": {}
+  }
+}`,
 			modelType: "ollama",
 		},
 	}
@@ -296,15 +299,11 @@ func TestAgentConfig_ModelTypes(t *testing.T) {
 				t.Fatal("Expected model to be loaded")
 			}
 
-			// Check model type by unmarshaling to check the type field
-			var modelMap map[string]any
-			modelJSON, _ := json.Marshal(config.Model)
-			if err := json.Unmarshal(modelJSON, &modelMap); err != nil {
-				t.Fatalf("unmarshal model: %v", err)
-			}
+			// Check the selected provider.
+			modelType := adk.ModelType(config.Model)
 
-			if modelType, ok := modelMap["type"].(string); !ok || modelType != tt.modelType {
-				t.Errorf("Expected model type = %q, got %v", tt.modelType, modelMap["type"])
+			if modelType != tt.modelType {
+				t.Errorf("Expected model type = %q, got %v", tt.modelType, modelType)
 			}
 		})
 	}
@@ -312,12 +311,11 @@ func TestAgentConfig_ModelTypes(t *testing.T) {
 
 func TestAgentConfig_Stream(t *testing.T) {
 	configJSON := `{
-		"model": {
-			"type": "openai",
-			"model": "gpt-4",
-			"api_key": "test-key"
-		}
-	}`
+  "model": {
+    "model": "gpt-4",
+    "openai": {}
+  }
+}`
 
 	configPath := createTempConfigFile(t, configJSON)
 	defer os.Remove(configPath)
@@ -335,13 +333,12 @@ func TestAgentConfig_Stream(t *testing.T) {
 
 func TestAgentConfig_CustomStream(t *testing.T) {
 	configJSON := `{
-		"model": {
-			"type": "openai",
-			"model": "gpt-4",
-			"api_key": "test-key"
-		},
-		"stream": true
-	}`
+  "model": {
+    "model": "gpt-4",
+    "openai": {}
+  },
+  "stream": true
+}`
 
 	configPath := createTempConfigFile(t, configJSON)
 	defer os.Remove(configPath)

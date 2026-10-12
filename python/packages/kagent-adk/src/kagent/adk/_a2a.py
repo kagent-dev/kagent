@@ -23,7 +23,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
-from kagent.core._runtime_config import RuntimeConfig
+from kagent.core._runtime_config import RuntimeConfig, optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentGrpcServerCallContextBuilder,
@@ -117,11 +117,11 @@ class KAgentApp:
             if session_db_url:
                 session_service = LocalSessionService(db_url=session_db_url)
 
-            if self.agent_config and self.agent_config.memory is not None:
+            if self.agent_config and self.agent_config.HasField("memory"):
                 memory_service = KagentMemoryService(
                     agent_name=self.app_name,
                     controller_client=controller_client,
-                    embedding_config=self.agent_config.memory.embedding,
+                    embedding_config=optional_field(self.agent_config.memory, "embedding"),
                     ttl_days=self.agent_config.memory.ttl_days,
                 )
 
@@ -130,7 +130,7 @@ class KAgentApp:
 
             # Build ADK context config objects from agent config
             events_compaction_config: EventsCompactionConfig | None = None
-            if self.agent_config and self.agent_config.context_config is not None:
+            if self.agent_config and self.agent_config.HasField("context_config"):
                 from .types import build_adk_context_configs
 
                 events_compaction_config, _ = build_adk_context_configs(self.agent_config.context_config)
@@ -181,7 +181,7 @@ class KAgentApp:
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
             max_content_length=get_a2a_max_content_length(
-                self.agent_config.runtime.max_content_length
+                optional_field(self.agent_config.runtime, "max_content_length")
                 if self.agent_config and self.agent_config.runtime
                 else None
             ),

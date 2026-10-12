@@ -274,7 +274,10 @@ images, and compatible worker hardware.
   Optional model, prompt, tool, skill, and plugin configuration is
   supplied in the ADK-shaped format when requested.
 
-The kagent and BYO compilers serialize the same ADK `AgentConfig` contract.
+The kagent and BYO compilers serialize the same `ADKAgentConfig` protobuf
+contract from `adk.proto` using ProtoJSON. Go and Python use generated messages;
+validation rules live in the schema. Model providers form a required `oneof`,
+while a BYO root can omit the model entirely.
 `adkconfig.Builder.Build` assembles the complete payload and its model
 dependencies, environment, and egress contributions. Harness compilers package
 that result into a revision without adding configuration fields afterward.

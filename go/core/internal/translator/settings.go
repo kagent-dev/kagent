@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"net/url"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 // CompilerSettings contains only deployment inputs needed by harness compilers.
@@ -17,7 +18,7 @@ type CompilerSettings struct {
 	GatewayURL string
 	LogLevel   string
 	Telemetry  TelemetryConfig
-	Process    adk.RuntimeConfig
+	Process    *adk.RuntimeConfig
 	Images     BuiltinImages
 }
 
@@ -32,12 +33,13 @@ func NewCompilerSettings(cfg *apiv1.RuntimeDefaultsConfig) (CompilerSettings, er
 	if err != nil {
 		return CompilerSettings{}, err
 	}
-	return CompilerSettings{APIURL: cfg.GetControlPlaneUrl(), GatewayURL: cfg.GetGatewayUrl(), LogLevel: cfg.GetLogging().GetLevel(), Telemetry: telemetry, Process: adk.RuntimeConfig{
+	return CompilerSettings{APIURL: cfg.GetControlPlaneUrl(), GatewayURL: cfg.GetGatewayUrl(), LogLevel: cfg.GetLogging().GetLevel(), Telemetry: telemetry, Process: &adk.RuntimeConfig{
 		// Preserve presence: nil selects the runtime default; zero disables the limit.
 		MaxContentLength: cfg.MaxContentLength,
 		FileSearchTools:  cfg.GetFileSearchTools(),
 		BashVenvPath:     cfg.GetBashVenvPath(),
-		TokenPropagation: adk.TokenPropagationConfig{Enabled: cfg.GetTokenPropagation().GetEnabled(), STSWellKnownURI: cfg.GetTokenPropagation().GetStsWellKnownUri(), Resources: cfg.GetTokenPropagation().GetResources(), Audiences: cfg.GetTokenPropagation().GetAudiences()},
+		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
+		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
 	}}, nil
 }
 
@@ -68,10 +70,12 @@ func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, e
 
 // RuntimeConfig supplies process settings for root ADK and BYO JSON only.
 func (s CompilerSettings) RuntimeConfig(name, namespace string) *adk.RuntimeConfig {
-	result := s.Process
-	result.ControlPlaneURL, result.GatewayURL = s.APIURL, s.GatewayURL
+	result := proto.CloneOf(s.Process)
+	if result == nil {
+		result = &adk.RuntimeConfig{}
+	}
+	result.ControlPlaneUrl, result.GatewayUrl = s.APIURL, s.GatewayURL
 	result.Name, result.Namespace = name, namespace
 	result.LogLevel, result.Port = s.LogLevel, "80"
-	result.Telemetry = tracing.RuntimeTelemetry{Exporters: s.Telemetry.Exporters, CaptureContent: s.Telemetry.CaptureSensitiveContent, MaxCaptureBytes: s.Telemetry.MaxCaptureBytes, CaptureRawAPIBodies: s.Telemetry.CaptureRawAPIBodies, OpenAINativeTracing: s.Telemetry.OpenAINativeTracing}
-	return &result
+	return result
 }

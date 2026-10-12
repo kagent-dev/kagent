@@ -97,7 +97,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	cfg.RuntimeTelemetry = runtimeTelemetry
 	cfg.ControlPlaneURL = c.settings.APIURL
-	cfg.MaxContentLength = c.settings.Process.MaxContentLength
+	cfg.MaxContentLength = c.settings.RuntimeConfig(input.AgentName, input.Root.Template.Namespace).MaxContentLength
 	cfg.LogLevel = c.settings.LogLevel
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}

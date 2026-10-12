@@ -75,10 +75,10 @@ func TestNonStreamingModelTurn(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			payload, err := json.Marshal(result.Config)
+			payload, err := adk.Marshal(result.Config)
 			require.NoError(t, err)
 			var config adk.AgentConfig
-			require.NoError(t, json.Unmarshal(payload, &config))
+			require.NoError(t, adk.Unmarshal(payload, &config))
 			agent, err := adkagent.CreateGoogleADKAgent(t.Context(), &config, "agent", nil)
 			require.NoError(t, err)
 			executor, err := adka2a.NewKAgentExecutor(adka2a.KAgentExecutorConfig{

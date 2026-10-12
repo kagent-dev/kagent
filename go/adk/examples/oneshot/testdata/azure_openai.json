@@ -1,7 +1,7 @@
 {
   "model": {
-    "type": "azure_openai",
-    "model": "gpt-4o"
+    "model": "gpt-4o",
+    "azure_openai": {}
   },
   "description": "Azure OpenAI test agent",
   "instruction": "You are a helpful assistant. Answer concisely in one sentence."
