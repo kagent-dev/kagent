@@ -76,7 +76,7 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 
 	summary := "AgentConfig:\n"
 	if config.Model != nil {
-		summary += fmt.Sprintf("  Model: %s (%s)\n", config.Model.GetType(), getModelName(config.Model))
+		summary += fmt.Sprintf("  Model: %s (%s)\n", config.Model.GetType(), GetModelName(config.Model))
 	} else {
 		summary += "  Model: (nil)\n"
 	}
@@ -91,22 +91,31 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 	return summary
 }
 
-func getModelName(m adk.Model) string {
-	switch m := m.(type) {
+// GetModelName returns the configured model identifier, or "unknown" for an unrecognized model type.
+func GetModelName(model adk.Model) string {
+	switch model := model.(type) {
 	case *adk.OpenAI:
-		return m.Model
+		return model.Model
 	case *adk.AzureOpenAI:
-		return m.Model
+		return model.Model
 	case *adk.Anthropic:
-		return m.Model
+		return model.Model
 	case *adk.GeminiVertexAI:
-		return m.Model
+		return model.Model
 	case *adk.GeminiAnthropic:
-		return m.Model
+		return model.Model
 	case *adk.Ollama:
-		return m.Model
+		return model.Model
 	case *adk.Gemini:
-		return m.Model
+		return model.Model
+	case *adk.Bedrock:
+		return model.Model
+	case *adk.SAPAICore:
+		return model.Model
+	case *adk.Foundry:
+		return model.Model
+	case *adk.GenericModel:
+		return model.Model
 	default:
 		return "unknown"
 	}

@@ -18,8 +18,10 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	adktelemetry "github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -28,6 +30,44 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 )
+
+func TestMetricsEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "disabled"},
+		{name: "enabled", input: "true", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("OTEL_METRICS_ENABLED", test.input)
+			t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
+			exporter := tracetest.NewInMemoryExporter()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+			previous := otel.GetTracerProvider()
+			otel.SetTracerProvider(provider)
+			t.Cleanup(func() {
+				otel.SetTracerProvider(previous)
+				require.NoError(t, provider.Shutdown(context.Background()))
+			})
+			testServer, _ := startTestServer(t)
+			adktelemetry.RecordTokenUsage(adktelemetry.TokenUsage{RequestModel: "test-model", Provider: "openai", InputTokens: 10})
+			response, err := testServer.Client().Get(testServer.URL + "/metrics")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, response.Body.Close()) })
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			if test.want {
+				require.Equal(t, http.StatusOK, response.StatusCode)
+				require.Contains(t, string(body), "gen_ai_client_token_usage_count")
+			} else {
+				require.NotContains(t, string(body), "gen_ai_client_token_usage")
+			}
+			require.Empty(t, exporter.GetSpans())
+		})
+	}
+}
 
 // substrateExecutor stands in for an ADK turn: it opens the invoke_agent span
 // ADK emits beneath the request span. It does not flush; exporting everything,
