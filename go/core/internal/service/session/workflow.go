@@ -296,12 +296,29 @@ func (w *ActorWorkflow) PauseNodeLost(ctx context.Context, session *apiv1alpha1.
 // never succeed: the session records the loss as FAILED and stays deletable.
 var ErrRuntimeLost = errors.New("session runtime is lost")
 
+// RuntimeLossError is ErrRuntimeLost with the cause the session records, as
+// RuntimeLost names it, and the answer that settled it.
+type RuntimeLossError struct {
+	Cause string
+	Err   error
+}
+
+func (e *RuntimeLossError) Error() string { return e.Cause + ": " + e.Err.Error() }
+
+func (e *RuntimeLossError) Is(target error) bool { return target == ErrRuntimeLost }
+
+func (e *RuntimeLossError) Unwrap() error { return e.Err }
+
 // RuntimeLost reports whether the session's runtime can no longer take a turn:
-// Substrate reports its Actor CRASHED, or the Actor is gone. Substrate crashes
-// an Actor it cannot bring back and a crashed Actor never resumes, so every
-// later message would fail the way the last one did. The cause names the Actor
-// and what became of it. An answer Substrate cannot give is returned as the
-// error it is: not knowing is not the same as lost.
+// the Actor is gone, or Substrate reports it CRASHED without a durable snapshot
+// to return it to, so every later message would fail the way the last one did.
+// A crashed Actor that holds an external snapshot is not lost: Substrate
+// returns such an Actor to that snapshot when its crash was the worker going
+// away under it (a drain, a replaced pod, an unreachable ateom), the resume
+// recovers it (AwaitRuntime), and the conversation goes on from the snapshot;
+// a crash Substrate does not recover from is settled by the resume it refuses.
+// The cause names the Actor and what became of it. An answer Substrate cannot
+// give is returned as the error it is: not knowing is not the same as lost.
 func (w *ActorWorkflow) RuntimeLost(ctx context.Context, session *apiv1alpha1.Session) (string, bool, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
@@ -315,18 +332,23 @@ func (w *ActorWorkflow) RuntimeLost(ctx context.Context, session *apiv1alpha1.Se
 	if err != nil {
 		return "", false, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
 	}
-	if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED {
-		return fmt.Sprintf("Actor %s/%s crashed", atespace, name), true, nil
+	if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED && actor.GetStatus().GetExternalSnapshot().GetSnapshotUri() == "" {
+		return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, nil
 	}
 	return "", false, nil
 }
 
 // AwaitRuntime resumes the session's Actor, waiting while Substrate answers
-// that it cannot yet (resumeLater): the worker pool rolls, or another
-// operation holds the Actor, such as a repoint onto a newer template, and
-// finishes on its own, after which the resume goes through. The wait is
-// bounded by busyWait; any other answer, or an Actor Substrate still defers
-// at the bound, is returned as the error it is.
+// that it cannot yet (resumeLater): the worker pool rolls, another operation
+// holds the Actor, such as a repoint onto a newer template, or Substrate is
+// returning the crashed Actor to its snapshot, and each finishes on its own,
+// after which the resume goes through. The wait is bounded by busyWait. A
+// crashed Actor whose resume Substrate refuses (FailedPrecondition, the Actor
+// still crashed) is lost: Substrate recovers a crash its worker's departure
+// caused and refuses the rest, a crash on a live worker for one, and the
+// answer is a RuntimeLossError with the cause for the session to record. Any
+// other answer, or an Actor Substrate still defers at the bound, is returned
+// as the error it is.
 func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
@@ -339,10 +361,21 @@ func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.S
 		_, err := w.actors.ResumeActor(ctx, atespace, name)
 		return err
 	})
-	if err != nil {
-		return fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	err = fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
+	if status.Code(err) != codes.FailedPrecondition {
+		return err
+	}
+	actor, getErr := w.actors.GetActor(ctx, atespace, name)
+	if getErr != nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_CRASHED {
+		return err
+	}
+	return &RuntimeLossError{
+		Cause: fmt.Sprintf("Actor %s/%s crashed and cannot be resumed", atespace, name),
+		Err:   fmt.Errorf("%w; crash: %s", err, actor.GetStatus().GetCrash().GetMessage()),
+	}
 }
 
 // Create provisions the persisted session once, using its pinned checkpoint for

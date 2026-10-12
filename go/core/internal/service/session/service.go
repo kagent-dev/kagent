@@ -185,10 +185,17 @@ func (s *Service) runtimeLoss(ctx context.Context, session *apiv1alpha1.Session)
 	if err != nil || !lost {
 		return nil, err
 	}
+	return runtimeLostFailure(cause), nil
+}
+
+// runtimeLostFailure is the failure a session records for its lost runtime:
+// the cause names the Actor and what became of it, and the message tells the
+// person to start a new conversation.
+func runtimeLostFailure(cause string) *apiv1alpha1.Failure {
 	return &apiv1alpha1.Failure{
 		Reason:  apia2a.FailureReasonRuntimeLost,
 		Message: apia2a.RuntimeLostMessagePrefix + cause + "; start a new conversation",
-	}, nil
+	}
 }
 
 func (s *Service) failLost(ctx context.Context, session *apiv1alpha1.Session, failure *apiv1alpha1.Failure) (*apiv1alpha1.Failure, error) {
@@ -200,9 +207,20 @@ func (s *Service) failLost(ctx context.Context, session *apiv1alpha1.Session, fa
 }
 
 // AwaitRuntime waits, bounded, until the session's runtime can take the turn
-// it refused: an operation holding its Actor, such as a repoint, finishes first.
-func (s *Service) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
-	return s.workflow.AwaitRuntime(ctx, session)
+// it refused: an operation holding its Actor, such as a repoint, finishes
+// first, or Substrate returns its crashed Actor to its snapshot and resumes it.
+// A crashed Actor Substrate refuses to resume is the runtime's loss: the
+// session records it as FailLostRuntime does and the failure is returned, so
+// that later sends are refused with it without dialing. Nil means the runtime
+// takes the turn; an answer that settles neither is the error it is.
+func (s *Service) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Failure, error) {
+	err := s.workflow.AwaitRuntime(ctx, session)
+	var loss *RuntimeLossError
+	if !errors.As(err, &loss) {
+		return nil, err
+	}
+	logging.FromContext(ctx).WarnContext(ctx, "the session's crashed Actor cannot be resumed; the runtime is lost", "session_id", session.GetId(), "error", err)
+	return s.failLost(ctx, session, runtimeLostFailure(loss.Cause))
 }
 
 // RepointQuiesced moves the session's quiesced runtime onto its agent's current

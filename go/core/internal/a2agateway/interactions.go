@@ -250,18 +250,21 @@ func (g *Gateway) finishSend(ctx context.Context, agent types.NamespacedName, me
 var errRuntimeAwaited = errors.New("session runtime awaited after a refused send")
 
 // refusedSend turns an input the runtime provably did not take into the loss
-// it is due to, when the session's runtime is gone. A crashed or missing
-// Actor makes the runtime refuse every send the same way, after Substrate's
-// parking budget; a retry would only wait it out again. The session records
-// the loss once, and this and every later send is refused with its message,
-// without a dial. A runtime whose state cannot be read keeps the retryable
-// refusal: not knowing is not the same as lost.
+// it is due to, when the session's runtime is gone. A missing Actor, or one
+// crashed without a snapshot to return to, makes the runtime refuse every send
+// the same way, after Substrate's parking budget; a retry would only wait it
+// out again. The session records the loss once, and this and every later send
+// is refused with its message, without a dial. A runtime whose state cannot
+// be read keeps the retryable refusal: not knowing is not the same as lost.
 //
 // A runtime that is not lost may have refused because another operation held
 // its Actor beyond Substrate's parking budget, such as a repoint right after
-// an upgrade. With await, the gateway waits, bounded, until the runtime can
-// take the send and answers errRuntimeAwaited for the caller to send again;
-// a runtime still unable to take it keeps the retryable refusal.
+// an upgrade, or because its Actor crashed when its worker went away and
+// Substrate is returning it to its snapshot. With await, the gateway resumes
+// the Actor and waits, bounded, until the runtime can take the send, then
+// answers errRuntimeAwaited for the caller to send again; a runtime still
+// unable to take it keeps the retryable refusal, and a crashed Actor whose
+// resume Substrate refuses is the loss above, recorded by the wait.
 func (g *Gateway) refusedSend(ctx context.Context, session *apiv1alpha1.Session, sendErr error, await bool) error {
 	if !errors.Is(sendErr, sessionsvc.ErrSendNotAccepted) || ctx.Err() != nil {
 		return sendErr
@@ -277,9 +280,13 @@ func (g *Gateway) refusedSend(ctx context.Context, session *apiv1alpha1.Session,
 	if !await {
 		return sendErr
 	}
-	if err := g.interactions.AwaitRuntime(ctx, session); err != nil {
+	failure, err = g.interactions.AwaitRuntime(ctx, session)
+	if err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "wait for session runtime after a refused send", "session_id", session.GetId(), "error", err)
 		return sendErr
+	}
+	if failure != nil {
+		return a2atype.NewError(a2atype.ErrUnsupportedOperation, failure.GetMessage())
 	}
 	return errRuntimeAwaited
 }

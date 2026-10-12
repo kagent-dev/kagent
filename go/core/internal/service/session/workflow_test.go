@@ -787,6 +787,7 @@ func TestRuntimeLost(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		state     ateapipb.ActorState
+		snapshot  bool
 		missing   bool
 		getErr    error
 		wantCause string
@@ -794,19 +795,26 @@ func TestRuntimeLost(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "missing", missing: true, wantCause: "Actor team-a/" + name + " not found", wantLost: true},
-		{name: "crashed", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCause: "Actor team-a/" + name + " crashed", wantLost: true},
+		{name: "crashed without a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCause: "Actor team-a/" + name + " crashed with no snapshot to return to", wantLost: true},
+		// Substrate returns a crashed Actor to its durable snapshot; the resume
+		// tells whether it can.
+		{name: "crashed with a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, snapshot: true},
 		{name: "paused", state: ateapipb.ActorState_ACTOR_STATE_PAUSED},
 		{name: "running", state: ateapipb.ActorState_ACTOR_STATE_RUNNING},
-		{name: "suspended", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+		{name: "suspended", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, snapshot: true},
 		{name: "unknown", getErr: status.Error(codes.Unavailable, "ate-api is rolling"), wantErr: "ate-api is rolling"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, getErr: test.getErr}
 			if !test.missing {
-				actors.actors[actorKey("team-a", name)] = &ateapipb.Actor{
+				actor := &ateapipb.Actor{
 					Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: name, Uid: "actor-uid"},
 					Status:   &ateapipb.ActorStatus{State: test.state},
 				}
+				if test.snapshot {
+					actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name + "/last", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL}
+				}
+				actors.actors[actorKey("team-a", name)] = actor
 			}
 			cause, lost, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).RuntimeLost(t.Context(), session)
 			if test.wantErr != "" {
@@ -853,16 +861,24 @@ var (
 	errNoFreeWorker = status.Error(codes.ResourceExhausted, "no free workers available")
 	errResumeCut    = status.Error(codes.Unavailable, "worker is draining")
 	errActorHeld    = status.Error(codes.Aborted, "another operation is in progress for this actor")
+	// The answers ate-api gives a resume of a crashed Actor: it is returning
+	// the Actor its worker's departure crashed to its snapshot, or it refuses
+	// to resume an Actor crashed on a live worker.
+	errCrashRecovering = status.Error(codes.Unavailable, "resume of actor team-a/session-1 was interrupted by its worker (suspend failed: atelet Checkpoint: worker unreachable while tearing down the failed actor); the actor returns to its snapshot, retry the resume")
+	errCrashedForGood  = status.Error(codes.FailedPrecondition, "AssignWorker prerequisite not met for Actor: team-a/session-1 (got: ACTOR_STATE_CRASHED, want ACTOR_STATE_SUSPENDED or ACTOR_STATE_PAUSED)")
 )
 
 func TestAwaitRuntime(t *testing.T) {
 	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
 	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
+	name := substrate.ActorName(session.GetId())
 	for _, test := range []struct {
 		name        string
+		crashed     bool
 		answers     []error
 		wantResumes int
 		wantErr     string
+		wantLost    bool
 	}{
 		{name: "free", wantResumes: 1},
 		{name: "held, then free", answers: []error{errActorHeld, errActorHeld, errActorHeld, nil}, wantResumes: 4},
@@ -871,12 +887,23 @@ func TestAwaitRuntime(t *testing.T) {
 		{name: "held past the bound", answers: []error{errActorHeld}, wantErr: "still deferred by Substrate after"},
 		{name: "no free worker past the bound", answers: []error{errNoFreeWorker}, wantErr: "no free workers available"},
 		{name: "not transient", answers: []error{errActorHeld, status.Error(codes.PermissionDenied, "denied")}, wantResumes: 2, wantErr: "denied"},
+		// A crashed Actor with a snapshot is resumed from it once Substrate
+		// has returned it there; one Substrate refuses to resume is lost.
+		{name: "crashed, returned to its snapshot", crashed: true, answers: []error{errCrashRecovering, errNoFreeWorker, nil}, wantResumes: 3},
+		{name: "crashed for good", crashed: true, answers: []error{errCrashedForGood}, wantResumes: 1, wantErr: "Actor team-a/" + name + " crashed and cannot be resumed", wantLost: true},
+		{name: "refused, not crashed", answers: []error{errCrashedForGood}, wantResumes: 1, wantErr: "AssignWorker prerequisite not met"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			key := actorKey("team-a", substrate.ActorName(session.GetId()))
-			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{
-				key: {Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}},
-			}}, answers: test.answers}
+			key := actorKey("team-a", name)
+			actor := &ateapipb.Actor{Status: &ateapipb.ActorStatus{
+				State:            ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+				ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name + "/last"},
+			}}
+			if test.crashed {
+				actor.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
+				actor.Status.Crash = &ateapipb.ActorCrash{Message: "suspend failed: atelet Checkpoint: worker unreachable while tearing down the failed actor"}
+			}
+			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{key: actor}}, answers: test.answers}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			workflow.busyWait, workflow.busyRetry = 200*time.Millisecond, time.Millisecond
 			err := workflow.AwaitRuntime(t.Context(), session)
@@ -885,6 +912,16 @@ func TestAwaitRuntime(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actors.actors[key].GetStatus().GetState())
+			}
+			if test.wantLost {
+				require.ErrorIs(t, err, ErrRuntimeLost)
+				var loss *RuntimeLossError
+				require.ErrorAs(t, err, &loss)
+				require.Equal(t, "Actor team-a/"+name+" crashed and cannot be resumed", loss.Cause)
+				require.ErrorContains(t, err, "crash: suspend failed: atelet Checkpoint", "the crash is kept for the log")
+				require.ErrorIs(t, err, errCrashedForGood)
+			} else {
+				require.NotErrorIs(t, err, ErrRuntimeLost)
 			}
 			if test.wantResumes != 0 {
 				require.Equal(t, test.wantResumes, actors.resumes)

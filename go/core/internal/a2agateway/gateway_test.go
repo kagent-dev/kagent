@@ -25,6 +25,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -1165,6 +1166,35 @@ func TestGatewayFailsSessionWhenRuntimeIsLost(t *testing.T) {
 			require.Equal(t, 1, store.reserveCalls, "a failed session reserves no dispatch")
 		})
 	}
+}
+
+// A send refused on a session whose Actor crashed with its snapshot intact is
+// not lost: the gateway resumes the Actor, Substrate returns it to the
+// snapshot, and the send runs again, the awaited case of the test above. A
+// crashed Actor Substrate refuses to resume is lost at that resume: the wait
+// records the loss, the send ends with it, and the next send is refused with
+// the same message without a dial.
+func TestGatewayFailsSessionWhenCrashedActorCannotBeResumed(t *testing.T) {
+	want := apia2a.RuntimeLostMessagePrefix + "Actor team-a/session-8bd650a8 crashed and cannot be resumed; start a new conversation"
+	loss := &sessionsvc.RuntimeLossError{Cause: "Actor team-a/session-8bd650a8 crashed and cannot be resumed", Err: errors.New("resume Actor team-a/session-8bd650a8: rpc error: code = FailedPrecondition")}
+	store := &gatewayTestStore{session: gatewayTestSession(), revoked: true, taskErr: database.ErrNotFound, awaitErr: loss}
+	runtime := &refusingRuntime{err: a2atype.NewError(a2atype.ErrInternalError, "error resuming actor team-a/session-8bd650a8")}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+	_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+	require.EqualError(t, err, want)
+	require.Equal(t, 1, store.lostCalls)
+	require.Equal(t, 1, store.awaitCalls)
+	require.Equal(t, 1, runtime.sendCalls)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, store.session.State)
+	require.Equal(t, apia2a.FailureReasonRuntimeLost, store.failed.GetReason())
+	require.Equal(t, want, store.failed.GetMessage())
+
+	_, err = gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+	require.EqualError(t, err, want)
+	require.Equal(t, 1, runtime.sendCalls, "a failed session is refused without a dial")
+	require.Equal(t, 1, store.awaitCalls, "a failed session waits for no runtime")
 }
 
 // A runtime that takes the input and then loses its stream, because its worker

@@ -190,8 +190,9 @@ func (s *InteractionService) FailLostTurn(ctx context.Context, session *apiv1alp
 }
 
 // AwaitRuntime waits, bounded, until a resolved session's runtime that refused
-// a send can take it.
-func (s *InteractionService) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
+// a send can take it, and returns the loss it records instead when the
+// runtime's crashed Actor cannot be resumed.
+func (s *InteractionService) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Failure, error) {
 	return s.sessions.AwaitRuntime(ctx, session)
 }
 

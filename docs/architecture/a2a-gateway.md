@@ -107,14 +107,22 @@ Actor, such as a repoint onto a newer template, every resume in that budget is
 answered `Aborted`, and the operation may outlast it; while the worker pool
 rolls, a resume is answered `ResourceExhausted` (no free worker) or `Unavailable`
 (a departing worker cut it short, the Actor is back at its snapshot) for as long
-as the roll takes. A send the runtime refused without taking its input, on a
-runtime that is not lost, therefore makes the gateway resume the Actor itself,
-waiting while ate-api gives one of those answers (backoff from 500 ms to 5 s, at
-most two minutes), and run the send once more. Any other answer, or an Actor
-Substrate still cannot resume at the bound, keeps the retryable refusal. The
-gateway waits once per turn, and holds no dispatch reservation while it waits.
-An explicit `ResumeSession` waits the same way within its attempt (the
-[lifecycle workflow](runtime-and-lifecycle.md)).
+as the roll takes. An Actor whose worker went away under its suspend or
+resume is `CRASHED` with its last durable snapshot intact, and Substrate
+returns it to that snapshot on the next resume, answering `Unavailable` while
+it does. A send the runtime refused without taking its input, on a runtime
+that is not lost (a missing Actor, or one crashed without a snapshot to return
+to; the [lifecycle workflow](runtime-and-lifecycle.md)), therefore makes the
+gateway resume the Actor itself, waiting while ate-api gives one of those
+answers (backoff from 500 ms to 5 s, at most two minutes), and run the send
+once more. A crashed Actor whose resume Substrate refuses (`FailedPrecondition`,
+the Actor still crashed: a crash on a live worker, which Substrate does not
+recover from) is lost at that resume: the session records the loss as it would
+for a missing Actor, the send ends with it, and later sends are refused with it
+without a dial. Any other answer, or an Actor Substrate still cannot resume at
+the bound, keeps the retryable refusal. The gateway waits once per turn, and
+holds no dispatch reservation while it waits. An explicit `ResumeSession` waits
+the same way within its attempt.
 
 Checkpoint readiness is separate from task completion. Creating a checkpoint
 requires `expected_head_task_id`, the terminal task the caller intends to capture.
@@ -180,10 +188,13 @@ task containing the input if suspension interrupts the response; ambiguous messa
 IDs and protocol errors are not recovered. Cancellation recovers only a terminal
 task. A send whose stream breaks after the runtime took its input, while the
 task is still submitted or working, first asks whether the runtime is lost: a
-crashed or missing Actor saves nothing more for the turn, so the turn ends
-`FAILED` with the loss's message, the session records the loss, and the send is
-answered with it at once rather than waiting for a boundary that never comes;
-an intact runtime, or one whose state cannot be read, keeps the turn. An
+missing Actor, or one crashed without a snapshot to return to, saves nothing
+more for the turn, so the turn ends `FAILED` with the loss's message, the
+session records the loss, and the send is answered with it at once rather than
+waiting for a boundary that never comes; an intact runtime, a crashed Actor
+Substrate returns to its snapshot, or one whose state cannot be read, keeps
+the turn, which the stalled-turn sweep ends if the runtime records nothing
+more for it. An
 interrupted request with unfinished work
 still returns an error. Clients can replace their
 projection with that current task and apply subsequent upstream A2A updates.

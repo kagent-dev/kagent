@@ -149,14 +149,15 @@ type serviceTestWorkflow struct {
 	lost      bool
 	lostCause string
 	lostErr   error
+	awaitErr  error
 }
 
 func (w serviceTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error) {
 	return w.lostCause, w.lost, w.lostErr
 }
 
-func (serviceTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
-	return nil
+func (w serviceTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
+	return w.awaitErr
 }
 
 func (w serviceTestWorkflow) RepointQuiesced(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
@@ -792,6 +793,43 @@ func TestFailLostRuntime(t *testing.T) {
 		store := &serviceTestStore{failErr: database.ErrConflict}
 		workflow := serviceTestWorkflow{lost: true, lostCause: "Actor team-a/session-session-1 not found"}
 		_, err := NewService(store, serviceTestAuthorizer{}, workflow).FailLostRuntime(t.Context(), session)
+		require.ErrorIs(t, err, database.ErrConflict)
+	})
+}
+
+// The wait for a runtime that refused a send records the loss when the
+// resume settles that the crashed Actor cannot be brought back, as
+// FailLostRuntime would; a resumed runtime and one still deferred record
+// nothing.
+func TestAwaitRuntimeRecordsTheLoss(t *testing.T) {
+	session := &apiv1alpha1.Session{Id: "session-1", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY}
+	t.Run("resumed", func(t *testing.T) {
+		store := &serviceTestStore{}
+		failure, err := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}).AwaitRuntime(t.Context(), session)
+		require.NoError(t, err)
+		require.Nil(t, failure)
+		require.Empty(t, store.failedID)
+	})
+	t.Run("lost", func(t *testing.T) {
+		store := &serviceTestStore{}
+		workflow := serviceTestWorkflow{awaitErr: &RuntimeLossError{Cause: "Actor team-a/session-session-1 crashed and cannot be resumed", Err: errors.New("rpc error: code = FailedPrecondition")}}
+		failure, err := NewService(store, serviceTestAuthorizer{}, workflow).AwaitRuntime(t.Context(), session)
+		require.NoError(t, err)
+		require.Equal(t, session.Id, store.failedID)
+		require.Equal(t, apia2a.FailureReasonRuntimeLost, failure.GetReason())
+		require.Equal(t, "runtime lost: Actor team-a/session-session-1 crashed and cannot be resumed; start a new conversation", failure.GetMessage())
+	})
+	t.Run("deferred", func(t *testing.T) {
+		store := &serviceTestStore{}
+		workflow := serviceTestWorkflow{awaitErr: errors.New("resume Actor team-a/session-session-1: still deferred by Substrate after 2m0s")}
+		_, err := NewService(store, serviceTestAuthorizer{}, workflow).AwaitRuntime(t.Context(), session)
+		require.ErrorContains(t, err, "still deferred")
+		require.Empty(t, store.failedID, "a runtime Substrate still defers is not lost")
+	})
+	t.Run("moved on", func(t *testing.T) {
+		store := &serviceTestStore{failErr: database.ErrConflict}
+		workflow := serviceTestWorkflow{awaitErr: &RuntimeLossError{Cause: "Actor team-a/session-session-1 crashed and cannot be resumed", Err: errors.New("refused")}}
+		_, err := NewService(store, serviceTestAuthorizer{}, workflow).AwaitRuntime(t.Context(), session)
 		require.ErrorIs(t, err, database.ErrConflict)
 	})
 }

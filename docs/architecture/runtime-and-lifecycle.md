@@ -195,7 +195,13 @@ operation for the next request to continue. A resume Substrate failed for a
 transient cause (a worker drained under the restore) leaves its Actor crashed
 until Substrate returns it to rest; a delete that finds such a resume held, with
 no attempt running, claims it and ends it once the Actor rests suspended where
-the operation found it, or is gone, then deletes the session. Conflicting Session lifecycle, task, and checkpoint
+the operation found it, or is gone, then deletes the session. A crashed Actor
+is not a lost runtime while it holds a durable snapshot: Substrate returns an
+Actor its worker's departure crashed (under a resume, a suspend or a turn) to
+that snapshot on the next resume, so the session stays usable and the next
+send resumes it from there (the [A2A gateway](a2a-gateway.md)); a crashed
+Actor without a snapshot, or one whose resume Substrate refuses, is lost, and
+the session records it `FAILED` with reason `RuntimeLost`. Conflicting Session lifecycle, task, and checkpoint
 work remains blocked until the pending operation completes. Releasing an attempt
 never clears its durable intent or makes uncertain work an unissued preparation.
 
