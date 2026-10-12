@@ -257,32 +257,3 @@ func newAgentTemplateReadCmd(list bool) *cobra.Command {
 	}
 	return cmd
 }
-
-// NewApplyAgentTemplateCmd constructs the AgentTemplate apply command.
-func NewApplyAgentTemplateCmd() *cobra.Command {
-	return newAgentTemplateManifestCmd("apply -f FILE", "Create or update an AgentTemplate", applyAgentTemplate)
-}
-
-func newAgentTemplateManifestCmd(use, short string, operation agentTemplateManifestOperation) *cobra.Command {
-	cfg := &AgentTemplateManifestCfg{}
-	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			options, err := connection.OptionsFromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			format, err := clioutput.FromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			cfg.OutputFormat = format
-			return runAgentTemplateManifest(cmd.Context(), options, cfg, cmd.OutOrStdout(), operation)
-		},
-	}
-	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Path to AgentTemplate manifest")
-	_ = cmd.MarkFlagRequired("file")
-	return cmd
-}

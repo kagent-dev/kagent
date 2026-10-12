@@ -226,10 +226,6 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-func (s *Server) NeedLeaderElection() bool {
-	return false
-}
-
 func loadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	if certFile == "" && keyFile == "" {
 		return nil, nil
