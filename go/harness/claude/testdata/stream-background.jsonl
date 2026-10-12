@@ -1,0 +1,16 @@
+{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","cwd":"/scrubbed/workspace","tools":["Monitor"]}
+{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"tool-1","name":"Monitor","input":{"command":"npm test","description":"test suite"}}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task-1","task_type":"local_bash","description":"test suite"}],"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"task_started","task_id":"task-1","tool_use_id":"tool-1","description":"test suite","is_backgrounded":true,"task_type":"local_bash","session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":"Monitor started (task task-1). You will be notified on each event."}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"The tests are running."}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"result","subtype":"success","is_error":false,"result":"The tests are running.","session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","cwd":"/scrubbed/workspace","tools":["Monitor"]}
+{"type":"assistant","message":{"id":"msg_3","content":[{"type":"text","text":"One test failed."}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"result","subtype":"success","is_error":false,"result":"One test failed.","origin":{"kind":"task-notification","producer":"session-task"},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"task_updated","task_id":"task-1","patch":{"status":"completed"},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"task_notification","task_id":"task-1","tool_use_id":"tool-1","status":"completed","summary":"Monitor \"test suite\" stream ended","session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","cwd":"/scrubbed/workspace","tools":["Monitor"]}
+{"type":"assistant","message":{"id":"msg_4","content":[{"type":"text","text":"Fixed it; all tests pass."}]},"session_id":"11111111-1111-4111-8111-111111111111"}
+{"type":"result","subtype":"success","is_error":false,"result":"Fixed it; all tests pass.","origin":{"kind":"task-notification","producer":"session-task","runId":"run-1"},"session_id":"11111111-1111-4111-8111-111111111111"}

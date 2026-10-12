@@ -43,7 +43,7 @@ func TestResumedEventSinkDropsOnlyInterruptedResponseWarning(t *testing.T) {
 		t.Fatalf("resumed text = %q, want continued", underlying.text.String())
 	}
 
-	if _, err := emitEvent(Event{Kind: EventTextDelta, Text: interruptedResponseWarning}, underlying, false); err != nil {
+	if _, err := emitEvent(Event{Kind: EventTextDelta, Text: interruptedResponseWarning}, underlying); err != nil {
 		t.Fatal(err)
 	}
 	if underlying.text.String() != "continued"+interruptedResponseWarning {
@@ -176,6 +176,46 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	}
 	if len(sink.sessions) != 1 || sink.sessions[0].ContinuationID != turn.ContinuationID {
 		t.Errorf("session events = %#v", sink.sessions)
+	}
+}
+
+func TestProcessDriverBackgroundTaskResults(t *testing.T) {
+	stream, err := filepath.Abs("../../testdata/stream-background.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name        string
+		lastResult  string
+		wantFailure bool
+	}{
+		{name: "last result succeeds"},
+		{name: "last result fails", lastResult: `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"fix failed","origin":{"kind":"task-notification"}}`, wantFailure: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			executable := filepath.Join(dir, "claude")
+			script := "#!/bin/sh\ncat \"$STREAM\"\n"
+			if test.lastResult != "" {
+				script += "printf '%s\\n' '" + test.lastResult + "'\n"
+			}
+			script += "cat >/dev/null\n"
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: dir, Environment: []string{"STREAM=" + stream}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+			sink := &recordingSink{}
+			outcome, err := d.Run(t.Context(), runtime.Turn{Prompt: "fix the tests"}, sink)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if (outcome.Failure != nil) != test.wantFailure {
+				t.Fatalf("Run() outcome = %#v, want failure %v", outcome, test.wantFailure)
+			}
+			if want := "The tests are running.\n\nOne test failed.\n\nFixed it; all tests pass."; sink.text.String() != want {
+				t.Errorf("text = %q, want %q", sink.text.String(), want)
+			}
+		})
 	}
 }
 

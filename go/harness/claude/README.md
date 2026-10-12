@@ -29,6 +29,7 @@ harness.
 - [x] Standalone skills and plugin-provided skills
 - [x] Direct HTTP and SSE MCP servers with whole-server tool access
 - [x] Human-in-the-loop MCP tool approval
+- [x] Background tasks and monitors: the task runs until Claude exits, and its last result decides the outcome
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 AWS IAM keys and Vertex service-account keys require local signing and are rejected

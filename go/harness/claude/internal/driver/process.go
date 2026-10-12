@@ -55,14 +55,19 @@ type parseItem struct {
 }
 
 type processSession struct {
-	command   *exec.Cmd
-	items     <-chan parseItem
-	stopEmit  chan struct{}
-	wait      <-chan error
-	stderr    *utils.BoundedBuffer
-	terminal  *runtime.Outcome
-	sessionID string
-	stopOnce  sync.Once
+	command  *exec.Cmd
+	items    <-chan parseItem
+	stopEmit chan struct{}
+	wait     <-chan error
+	stderr   *utils.BoundedBuffer
+	// result is the outcome of Claude's latest result. A background task can
+	// wake Claude after a result, so only process exit ends the turn.
+	result *runtime.Outcome
+	// separateText marks a result with no output since, so the next reply
+	// does not run on from the previous one.
+	separateText bool
+	sessionID    string
+	stopOnce     sync.Once
 }
 
 // pendingTurn owns a Claude process blocked in the permission MCP hook. Resume
@@ -319,29 +324,34 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 		}
 		select {
 		case request := <-approvals:
-			if session.terminal != nil {
-				return runtime.Outcome{}, fmt.Errorf("Claude requested approval after its terminal result")
-			}
 			approvalPending = request
 		case item, ok := <-session.items:
 			if !ok {
 				return runtime.Outcome{}, fmt.Errorf("claude parser stopped without a result")
 			}
 			if item.event != nil {
-				outcome, err := emitEvent(*item.event, sink, session.terminal != nil)
-				if err == nil {
-					if item.event.Kind == EventSessionStarted {
-						if session.sessionID != "" && session.sessionID != item.event.SessionID {
-							return runtime.Outcome{}, fmt.Errorf("Claude changed session ID during an active process")
-						}
-						session.sessionID = item.event.SessionID
-					}
-					if outcome != nil {
-						session.terminal = outcome
-					}
-					continue
+				event := *item.event
+				if event.Kind == EventTextDelta && session.separateText {
+					event.Text = "\n\n" + event.Text
 				}
-				return runtime.Outcome{}, err
+				outcome, err := emitEvent(event, sink)
+				if err != nil {
+					return runtime.Outcome{}, err
+				}
+				switch {
+				case event.Kind == EventSessionStarted:
+					if session.sessionID != "" && session.sessionID != event.SessionID {
+						return runtime.Outcome{}, fmt.Errorf("Claude changed session ID during an active process")
+					}
+					session.sessionID = event.SessionID
+				case outcome != nil:
+					session.result = outcome
+					session.separateText = true
+				case event.Kind == EventTextDelta, event.Kind == EventToolActivity:
+					// Tool activity closes the text artifact, so later text starts its own.
+					session.separateText = false
+				}
+				continue
 			}
 			if item.err != nil {
 				// A process that exits before its result can explain the failure
@@ -356,10 +366,10 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			if waitErr := <-session.wait; waitErr != nil {
 				return runtime.Outcome{}, fmt.Errorf("claude exited with an error: %w: %s", waitErr, session.stderr.String())
 			}
-			if session.terminal == nil {
+			if session.result == nil {
 				return runtime.Outcome{}, fmt.Errorf("claude process exited without a terminal result")
 			}
-			return *session.terminal, nil
+			return *session.result, nil
 		case <-ctx.Done():
 			return runtime.Outcome{}, ctx.Err()
 		}
@@ -412,10 +422,7 @@ func (d *ProcessDriver) Close() error {
 
 // emitEvent translates a Claude event to a runtime event and emits it to the
 // provided event sink, which is then consumed by the shared A2A executor.
-func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Outcome, error) {
-	if terminal {
-		return nil, fmt.Errorf("claude emitted activity after its terminal result")
-	}
+func emitEvent(event Event, sink runtime.EventSink) (*runtime.Outcome, error) {
 	switch event.Kind {
 	case EventSessionStarted:
 		return nil, sink.SessionStarted(runtime.SessionStarted{ContinuationID: event.SessionID})

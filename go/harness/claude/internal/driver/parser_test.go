@@ -127,23 +127,23 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 	}
 }
 
-func TestParseJSONLIgnoresSubagentTaskNotificationResult(t *testing.T) {
+func TestParseJSONLEmitsTaskNotificationResults(t *testing.T) {
 	input := strings.Join([]string{
 		`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}`,
 		`{"type":"result","subtype":"success","is_error":false,"result":"parent done"}`,
 		`{"type":"result","subtype":"success","is_error":false,"result":"child done","origin":{"kind":"task-notification"}}`,
 	}, "\n") + "\n"
-	var terminal []Event
+	var results []string
 	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
-		if event.Kind == EventCompleted || event.Kind == EventFailed {
-			terminal = append(terminal, event)
+		if event.Kind == EventCompleted {
+			results = append(results, event.Result)
 		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(terminal) != 1 || terminal[0].Result != "parent done" {
-		t.Fatalf("terminal events = %#v, want only the parent result", terminal)
+	if strings.Join(results, ",") != "parent done,child done" {
+		t.Fatalf("results = %q, want every result in order", results)
 	}
 }
 
