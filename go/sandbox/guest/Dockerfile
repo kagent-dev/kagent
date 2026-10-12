@@ -17,7 +17,12 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
 
 FROM alpine:3.22
 
-RUN apk add --no-cache bash ca-certificates git && \
+# apk retries a transient mirror error; a missing package still fails on the third attempt.
+RUN for attempt in 1 2 3; do \
+        apk add --no-cache bash ca-certificates git && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done && \
     mkdir -p /data/workspace /data/guest-logs && \
     chown -R 65532:65532 /data
 
