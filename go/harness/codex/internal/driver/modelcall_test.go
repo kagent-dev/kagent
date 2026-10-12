@@ -26,9 +26,10 @@ func TestModelCallsFromCaptures(t *testing.T) {
 	}{
 		{file: "codex-normal.jsonl", wantCalls: 1, wantTerminal: 1},
 		{file: "codex-tools.jsonl", wantCalls: 4, wantTools: 3, wantTerminal: 1},
-		// No usage is reported for an interrupted or rejected request; the killed process sent no terminal event.
+		// No usage is reported for an interrupted request; the killed process sent no terminal event.
 		{file: "codex-cancel.jsonl"},
-		{file: "codex-fail.jsonl", wantTerminal: 1},
+		// The failed request is a failed call with no usage.
+		{file: "codex-fail.jsonl", wantCalls: 1, wantTerminal: 1},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			file, err := os.Open("testdata/modelcall/" + tc.file)
@@ -96,7 +97,8 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			var sum codexUsage
 			for _, call := range sink.models {
 				// thread/start echoes the configured model, so it is not a response model.
-				if call.ResponseModel != "" || call.UsagePartial || call.End.Before(call.Start) {
+				// Only a failed call lacks usage.
+				if call.ResponseModel != "" || call.UsagePartial != (call.StopReason == "error") || call.End.Before(call.Start) {
 					t.Errorf("unexpected call %+v", call)
 				}
 				sum.InputTokens += call.InputTokens
@@ -164,6 +166,101 @@ func TestModelCallsFromUsage(t *testing.T) {
 			}
 			if !slices.Equal(got, tc.wantInputs) {
 				t.Fatalf("input tokens = %v, want %v", got, tc.wantInputs)
+			}
+		})
+	}
+}
+
+func TestErrorNotificationsAreRetriesOrFailedModelCalls(t *testing.T) {
+	codexErrorOn := func(thread, turn, info string, willRetry bool) string {
+		return fmt.Sprintf(`{"method":"error","params":{"error":{"message":"boom","codexErrorInfo":%s},"willRetry":%t,"threadId":%q,"turnId":%q}}`,
+			info, willRetry, thread, turn)
+	}
+	codexError := func(thread, info string, willRetry bool) string { return codexErrorOn(thread, "turn", info, willRetry) }
+	type call struct {
+		errorType  string
+		failed     bool
+		retries    int
+		start, end int64
+	}
+	for _, tc := range []struct {
+		name  string
+		steps []string // "" sends the next usage report; each step is one second later
+		want  []call
+	}{
+		{
+			name:  "a retry, then success",
+			steps: []string{codexError("thread", `"serverOverloaded"`, true), ""},
+			want:  []call{{retries: 1, start: 100, end: 102}},
+		},
+		{
+			name: "retries, then giving up",
+			steps: []string{
+				codexError("thread", `{"responseStreamDisconnected":{"httpStatusCode":null}}`, true),
+				codexError("thread", `{"responseTooManyFailedAttempts":{"httpStatusCode":500}}`, false),
+				"",
+			},
+			want: []call{
+				{errorType: "response_too_many_failed_attempts", failed: true, retries: 1, start: 100, end: 102},
+				{start: 102, end: 103},
+			},
+		},
+		{
+			name:  "an error from another turn of the main thread is ignored",
+			steps: []string{codexErrorOn("thread", "old-turn", `"serverOverloaded"`, true), ""},
+			want:  []call{{start: 100, end: 102}},
+		},
+		{
+			name:  "an uncategorized error falls back",
+			steps: []string{codexError("thread", `"other"`, false)},
+			want:  []call{{failed: true, start: 100, end: 101}},
+		},
+		{
+			name:  "an error that is not a model request is neither a call nor a retry",
+			steps: []string{codexError("thread", `"sandboxError"`, true), codexError("thread", `"sandboxError"`, false), ""},
+			want:  []call{{start: 100, end: 103}},
+		},
+		{
+			name:  "a session budget error after a call is not another call",
+			steps: []string{"", codexError("thread", `"sessionBudgetExceeded"`, false)},
+			want:  []call{{start: 100, end: 101}},
+		},
+		{
+			// Like usage, a call of a thread not known yet has no start time, so its span is zero-length.
+			name:  "another thread counts its own retries",
+			steps: []string{codexError("subagent", `"serverOverloaded"`, true), "", codexError("subagent", `"unauthorized"`, false)},
+			want: []call{
+				{start: 100, end: 102},
+				{errorType: "unauthorized", failed: true, retries: 1, start: 103, end: 103},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := time.Unix(100, 0)
+			sink := &recordingSink{}
+			translator := newEventTranslator("thread", "turn")
+			translator.now = func() time.Time { return clock }
+			translator.modelCalls[translator.threadID] = callTime{start: clock}
+			reports := int64(0)
+			for _, raw := range tc.steps {
+				clock = clock.Add(time.Second)
+				message := rpcMessage{}
+				if raw == "" {
+					reports++
+					message = usageMessage(t, "thread", "turn", 10*reports, 10)
+				} else if err := json.Unmarshal([]byte(raw), &message); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := translator.translate(message, sink); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var got []call
+			for _, c := range sink.models {
+				got = append(got, call{errorType: c.ErrorType, failed: c.StopReason == "error", retries: c.Retries, start: c.Start.Unix(), end: c.End.Unix()})
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("calls = %+v, want %+v", got, tc.want)
 			}
 		})
 	}

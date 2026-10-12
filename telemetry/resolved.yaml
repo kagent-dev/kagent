@@ -3653,7 +3653,8 @@ refinements:
         - length
         - error
       key: gen_ai.response.finish_reasons
-      note: Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none.
+      note: |
+        Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`. Codex calls have only `error`, set for a failed call.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level:
@@ -3959,6 +3960,16 @@ refinements:
         recommended: The runtime reported it.
       stability: development
       type: string
+    - brief: How many times the harness retried a model call after a transient error.
+      key: kagent.inference.retry.count
+      note: |
+        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The harness retried the call.
+      stability: development
+      type: int
     - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
       key: kagent.inference.usage_partial
       note: |
@@ -4007,7 +4018,7 @@ refinements:
         Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format
         and MUST follow the overall [guidelines for span names](https://github.com/open-telemetry/opentelemetry-specification/blob/v1.56.0/specification/trace/api.md#span).
     note: |
-      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call\u0027s usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
+      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. One span covers a call and all its automatic retries, and only a final failure gives it an error status. A Claude call\u0027s token counts add up every attempt that the provider started. Codex reports usage only for the attempt that succeeded. Codex errors of the `other` and `badRequest` categories can also come from outside a model request, and they still give a failed call. Codex reports no call times, so a Codex call starts at the previous call\u0027s usage report or final error. It ends when its first tool starts or the turn pauses for input, or else at its own usage report or final error. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -4917,7 +4928,8 @@ registry:
         - length
         - error
       key: gen_ai.response.finish_reasons
-      note: Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none.
+      note: |
+        Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`. Codex calls have only `error`, set for a failed call.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
       requirement_level:
@@ -5012,6 +5024,16 @@ registry:
         recommended: The runtime reported it.
       stability: development
       type: string
+    - brief: How many times the harness retried a model call after a transient error.
+      key: kagent.inference.retry.count
+      note: |
+        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The harness retried the call.
+      stability: development
+      type: int
     - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
       key: kagent.inference.usage_partial
       note: |
@@ -5588,6 +5610,14 @@ registry:
       path: telemetry/registry/kagent.yaml
     stability: development
     type: string
+  - brief: How many times the harness retried a model call after a transient error.
+    key: kagent.inference.retry.count
+    note: |
+      Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: int
   - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
     key: kagent.inference.usage_partial
     note: |

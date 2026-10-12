@@ -17,6 +17,7 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `kagent.gc.stage` | enum | `discovery`, `collection` | The stage of a runtime revision garbage collection attempt. |
 | `kagent.genai.producer` | enum | `runtime` | The component that writes the GenAI model and tool spans of an agent. Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. Absent when the image writes its own native GenAI spans. |
 | `kagent.inference.request_id` | string |  | The provider's request ID of a model call. Lets a backend join the call with the provider's logs. Claude only. A call canceled early can lack it. |
+| `kagent.inference.retry.count` | int |  | How many times the harness retried a model call after a transient error. Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. |
 | `kagent.inference.usage_partial` | boolean |  | Whether the call ended without final usage, so its output tokens are a lower bound. Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
 | `kagent.invocation.disposition` | enum | `canceled`, `abandoned`, `interrupted` | How a segment stopped, when the task state does not say it. |
 | `kagent.invocation.relationship` | enum | `resume_origin` | Why a segment links to another span. A link attribute. A link states a relationship. It does not reparent spans and it does not move the token usage recorded under the linked span. |
@@ -217,7 +218,7 @@ What one model request returned.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
-| `gen_ai.response.finish_reasons` | recommended: The runtime reported it. | Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none. |
+| `gen_ai.response.finish_reasons` | recommended: The runtime reported it. | Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`. Codex calls have only `error`, set for a failed call. |
 | `gen_ai.response.id` | recommended: The runtime reported it. | The Claude message ID. Codex reports none. |
 | `gen_ai.response.model` | recommended: The runtime reported it. | The model the harness reported. |
 | `gen_ai.usage.cache_read.input_tokens` | recommended: The runtime reported a non-zero count. | The value SHOULD be included in `gen_ai.usage.input_tokens`. |
@@ -226,6 +227,7 @@ What one model request returned.
 | `gen_ai.usage.output_tokens` | recommended | Absent when the runtime reported no usage. |
 | `gen_ai.usage.reasoning.output_tokens` | recommended: The runtime reported a non-zero count. | Included in gen_ai.usage.output_tokens. |
 | `kagent.inference.request_id` | recommended: The runtime reported it. | The Claude request ID. Codex reports none. |
+| `kagent.inference.retry.count` | conditionally required: The harness retried the call. | Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. |
 | `kagent.inference.usage_partial` | conditionally required: The call ended without final usage. | Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
 
 ### `kagent.outcome`
@@ -317,7 +319,7 @@ Refines `gen_ai.execute_tool.internal`, kind `internal`. One tool call of a harn
 
 ### `kagent.inference.client`
 
-Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. Codex reports no finish reason, so its calls never have an error status. Codex also reports no call times, so a Codex call starts at the previous call's usage report and ends when its first tool starts or the turn pauses for input, or at its own usage report otherwise. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
+Refines `gen_ai.client.inference`, kind `client`. One model request of a harness turn. Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. One span covers a call and all its automatic retries, and only a final failure gives it an error status. A Claude call's token counts add up every attempt that the provider started. Codex reports usage only for the attempt that succeeded. Codex errors of the `other` and `badRequest` categories can also come from outside a model request, and they still give a failed call. Codex reports no call times, so a Codex call starts at the previous call's usage report or final error. It ends when its first tool starts or the turn pauses for input, or else at its own usage report or final error. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -328,7 +330,7 @@ Refines `gen_ai.client.inference`, kind `client`. One model request of a harness
 | `gen_ai.output.messages` | opt in | Never set here. With content capture on, the turn content is on the invoke_agent span. |
 | `gen_ai.provider.name` | conditionally required: The runtime is a harness compiled against one model. | The provider the agent is compiled against. |
 | `gen_ai.request.model` | conditionally required: The runtime is a harness compiled against one model. | The model the agent is compiled against. |
-| `gen_ai.response.finish_reasons` | recommended: The runtime reported it. | Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none. |
+| `gen_ai.response.finish_reasons` | recommended: The runtime reported it. | Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`. Codex calls have only `error`, set for a failed call. |
 | `gen_ai.response.id` | recommended: The runtime reported it. | The Claude message ID. Codex reports none. |
 | `gen_ai.response.model` | recommended: The runtime reported it. | The model the harness reported. |
 | `gen_ai.usage.cache_read.input_tokens` | recommended: The runtime reported a non-zero count. | The value SHOULD be included in `gen_ai.usage.input_tokens`. |
@@ -337,6 +339,7 @@ Refines `gen_ai.client.inference`, kind `client`. One model request of a harness
 | `gen_ai.usage.output_tokens` | recommended | Absent when the runtime reported no usage. |
 | `gen_ai.usage.reasoning.output_tokens` | recommended: The runtime reported a non-zero count. | Included in gen_ai.usage.output_tokens. |
 | `kagent.inference.request_id` | recommended: The runtime reported it. | The Claude request ID. Codex reports none. |
+| `kagent.inference.retry.count` | conditionally required: The harness retried the call. | Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. |
 | `kagent.inference.usage_partial` | conditionally required: The call ended without final usage. | Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it. |
 
 ### `kagent.invoke_agent.internal`

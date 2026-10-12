@@ -72,6 +72,8 @@ const (
 	KagentGenaiProducerKey = attribute.Key("kagent.genai.producer")
 	// KagentInferenceRequestIDKey is "kagent.inference.request_id". The provider's request ID of a model call.
 	KagentInferenceRequestIDKey = attribute.Key("kagent.inference.request_id")
+	// KagentInferenceRetryCountKey is "kagent.inference.retry.count". How many times the harness retried a model call after a transient error.
+	KagentInferenceRetryCountKey = attribute.Key("kagent.inference.retry.count")
 	// KagentInferenceUsagePartialKey is "kagent.inference.usage_partial". Whether the call ended without final usage, so its output tokens are a lower bound.
 	KagentInferenceUsagePartialKey = attribute.Key("kagent.inference.usage_partial")
 	// KagentInvocationDispositionKey is "kagent.invocation.disposition". How a segment stopped, when the task state does not say it.

@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 // eventTranslator validates one turn's native identities and normalizes the
@@ -26,6 +28,8 @@ type eventTranslator struct {
 	seenTotals map[string]codexUsage
 	// spawnedBy maps a subagent thread to the spawnAgent call that started it.
 	spawnedBy map[string]string
+	// retries counts each thread's retries of its open model call.
+	retries map[string]int
 }
 
 // callTime estimates a model call. It starts at the previous call's usage, or when its thread
@@ -37,7 +41,7 @@ func newEventTranslator(threadID, turnID string) *eventTranslator {
 	return &eventTranslator{
 		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool), now: now,
 		modelCalls: map[string]callTime{threadID: {start: now()}},
-		seenTotals: map[string]codexUsage{}, spawnedBy: map[string]string{},
+		seenTotals: map[string]codexUsage{}, spawnedBy: map[string]string{}, retries: map[string]int{},
 	}
 }
 
@@ -86,6 +90,8 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 			return runtime.Outcome{}, false, err
 		}
 		return runtime.Outcome{}, false, nil
+	case "error":
+		return runtime.Outcome{}, false, t.codexError(message.Params, sink)
 	case "thread/tokenUsage/updated":
 		return runtime.Outcome{}, false, t.usage(message.Params, sink)
 	case "turn/completed":
@@ -141,24 +147,86 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 		}
 		t.seenTotals[params.ThreadID] = total
 	}
-	// A thread not known yet has no start time, so its call is zero-length at arrival.
-	last, end := params.TokenUsage.Last, t.now()
+	last := params.TokenUsage.Last
 	call := runtime.ModelCall{
 		InputTokens:           last.InputTokens,
 		CacheReadTokens:       last.CachedInputTokens,
 		CacheWriteTokens:      last.CacheWriteInputTokens,
 		ReasoningOutputTokens: last.ReasoningOutputTokens,
 		OutputTokens:          last.OutputTokens,
-		ParentToolID:          t.spawnedBy[params.ThreadID],
-		Start:                 end,
-		End:                   end,
 	}
-	if timing, known := t.modelCalls[params.ThreadID]; known {
-		call.Start, call.End = timing.start, cmp.Or(timing.end, end)
-		t.modelCalls[params.ThreadID] = callTime{start: end}
-	}
+	t.closeCall(&call, params.ThreadID)
 	sink.ModelCall(call)
 	return nil
+}
+
+// codexError counts a retried Codex error toward the thread's open model call, and records the
+// final error as a failed call. Codex reports no usage for a failed call.
+func (t *eventTranslator) codexError(raw json.RawMessage, sink runtime.ModelCallSink) error {
+	var params struct {
+		ThreadID, TurnID string
+		Error            struct{ CodexErrorInfo json.RawMessage }
+		WillRetry        bool
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return fmt.Errorf("decode Codex error: %w", err)
+	}
+	errorType, modelRequest := codexErrorType(params.Error.CodexErrorInfo)
+	if (params.ThreadID == t.threadID && params.TurnID != t.turnID) || !modelRequest {
+		return nil
+	}
+	if params.WillRetry {
+		t.retries[params.ThreadID]++
+		return nil
+	}
+	call := runtime.ModelCall{StopReason: tracing.FinishReasonError, ErrorType: errorType, UsagePartial: true}
+	t.closeCall(&call, params.ThreadID)
+	sink.ModelCall(call)
+	return nil
+}
+
+// closeCall gives a call its thread, retries and estimated times; the thread's next call starts now.
+// A thread not known yet has no start time, so its call is zero-length at arrival.
+func (t *eventTranslator) closeCall(call *runtime.ModelCall, threadID string) {
+	end := t.now()
+	call.ParentToolID, call.Start, call.End = t.spawnedBy[threadID], end, end
+	call.Retries = t.retries[threadID]
+	delete(t.retries, threadID)
+	if timing, known := t.modelCalls[threadID]; known {
+		call.Start, call.End = timing.start, cmp.Or(timing.end, end)
+		t.modelCalls[threadID] = callTime{start: end}
+	}
+}
+
+// codexErrorType turns Codex's error category into a snake_case error.type, or "" for an
+// uncategorized error. It reports false for errors that are not about a model request.
+func codexErrorType(raw json.RawMessage) (string, bool) {
+	var name string
+	if json.Unmarshal(raw, &name) != nil {
+		// A category with details, such as {"responseStreamDisconnected":{"httpStatusCode":null}}.
+		var variant map[string]json.RawMessage
+		if json.Unmarshal(raw, &variant) != nil || len(variant) != 1 {
+			return "", true
+		}
+		for key := range variant {
+			name = key
+		}
+	}
+	switch name {
+	// A sandbox error comes from a command, and a session budget error follows a call that succeeded.
+	case "sandboxError", "sessionBudgetExceeded":
+		return "", false
+	case "", "other":
+		return "", true
+	}
+	var snake strings.Builder
+	for _, r := range name {
+		if unicode.IsUpper(r) {
+			snake.WriteByte('_')
+		}
+		snake.WriteRune(unicode.ToLower(r))
+	}
+	return snake.String(), true
 }
 
 // endOpenCalls ends the open call of every thread at a pause, so no call counts the wait.

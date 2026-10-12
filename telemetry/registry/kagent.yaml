@@ -141,6 +141,15 @@ attributes:
     stability: development
     type: boolean
 
+  - key: kagent.inference.retry.count
+    brief: How many times the harness retried a model call after a transient error.
+    note: >
+      Set only when the call was retried. The chat span covers all attempts.
+      Codex counts its reported retries, not the HTTP retries inside each one.
+      Over a WebSocket, Codex does not report its first retry.
+    stability: development
+    type: int
+
   - key: kagent.mcp.server.name
     brief: The name of the MCP server that serves a tool call.
     note: >

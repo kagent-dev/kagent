@@ -141,7 +141,9 @@ attribute_groups:
       - ref: gen_ai.response.finish_reasons
         requirement_level:
           recommended: The runtime reported it.
-        note: Claude only, mapped to `stop`, `tool_call`, `length` or `content_filter`. Codex reports none.
+        note: >
+          Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`.
+          Codex calls have only `error`, set for a failed call.
       - ref: gen_ai.usage.input_tokens
         requirement_level: recommended
         note: Includes cached tokens. Absent when the runtime reported no usage.
@@ -161,6 +163,9 @@ attribute_groups:
       - ref: kagent.inference.usage_partial
         requirement_level:
           conditionally_required: The call ended without final usage.
+      - ref: kagent.inference.retry.count
+        requirement_level:
+          conditionally_required: The harness retried the call.
 
   - id: kagent.tool_call
     visibility: public
@@ -282,10 +287,15 @@ span_refinements:
       start after that span ends. After a pause, the tool span starts in the later
       segment, so earlier subagent model calls start before it. A call
       that ended with finish reason `error` has an error status, unless it was
-      canceled. Codex reports no finish reason, so its calls never have an
-      error status. Codex also reports no call times, so a Codex call starts at
-      the previous call's usage report and ends when its first tool starts or the
-      turn pauses for input, or at its own usage report otherwise. The first call
+      canceled. One span covers a call and all its automatic retries, and only a
+      final failure gives it an error status. A Claude call's token counts add up
+      every attempt that the provider started. Codex reports usage only for the
+      attempt that succeeded. Codex errors of the `other` and `badRequest`
+      categories can also come from outside a model request, and they still
+      give a failed call. Codex reports no call times, so a Codex
+      call starts at the previous call's usage report or final error. It ends
+      when its first tool starts or the turn pauses for input, or else at its own
+      usage report or final error. The first call
       of a Codex subagent starts when its `spawnAgent` call first names its thread.
     stability: development
     attributes:

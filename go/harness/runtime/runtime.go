@@ -110,6 +110,8 @@ type ModelCall struct {
 	// ErrorType is the harness's own error category for a failed call, such as
 	// Claude Code's rate_limit. Empty means the harness gave none.
 	ErrorType string
+	// Retries is how many times the harness retried the call after a transient error.
+	Retries int
 	// ParentToolID is the ID of the tool call that started this call's subagent, such as an Agent call.
 	ParentToolID string
 	Start, End   time.Time

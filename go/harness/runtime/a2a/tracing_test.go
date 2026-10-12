@@ -1179,6 +1179,7 @@ func TestModelCallUsageAndStatus(t *testing.T) {
 		{name: "canceled", call: runtime.ModelCall{InputTokens: 5, UsagePartial: true, StopReason: "error", Canceled: true}, wantUsage: true},
 		{name: "response and request IDs", call: runtime.ModelCall{StopReason: "stop", ResponseID: "msg_1", RequestID: "req_1"}, wantUsage: true},
 		{name: "reasoning tokens", call: runtime.ModelCall{StopReason: "stop", OutputTokens: 9, ReasoningOutputTokens: 7}, wantUsage: true},
+		{name: "retried", call: runtime.ModelCall{StopReason: "stop", Retries: 2}, wantUsage: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := newTraceRecorder(t)
@@ -1203,6 +1204,9 @@ func TestModelCallUsageAndStatus(t *testing.T) {
 			}
 			if got, ok := attributeOf(chat, "gen_ai.usage.reasoning.output_tokens"); ok != (tc.call.ReasoningOutputTokens != 0) || got.AsInt64() != tc.call.ReasoningOutputTokens {
 				t.Errorf("reasoning tokens = %d (present %v), want %d", got.AsInt64(), ok, tc.call.ReasoningOutputTokens)
+			}
+			if got, ok := attributeOf(chat, "kagent.inference.retry.count"); ok != (tc.call.Retries != 0) || got.AsInt64() != int64(tc.call.Retries) {
+				t.Errorf("retry count = %d (present %v), want %d", got.AsInt64(), ok, tc.call.Retries)
 			}
 			for key, want := range map[string]string{"gen_ai.response.id": tc.call.ResponseID, "kagent.inference.request_id": tc.call.RequestID} {
 				if got, ok := attributeOf(chat, key); ok != (want != "") || got.AsString() != want {

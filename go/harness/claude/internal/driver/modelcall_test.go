@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -278,13 +279,82 @@ func TestUnstreamedModelCalls(t *testing.T) {
 	}
 }
 
-func TestFailedModelCalls(t *testing.T) {
+func TestRetriedModelCalls(t *testing.T) {
+	type call struct {
+		stop, errorType string
+		retries         int
+		in, out         int64
+	}
+	for _, tc := range []struct {
+		file      string
+		startLine string // the first line of the first call's first attempt
+		want      []call
+	}{
+		// A stream cut off by an error event is retried without streaming. Both attempts' input counts.
+		{file: "claude-retry-error.jsonl", startLine: `"type":"message_start"`, want: []call{{stop: "stop", retries: 1, in: 2000, out: 4}}},
+		// A dropped connection ends the stream with no message_delta, then api_retry starts a new one.
+		{file: "claude-retry-drop.jsonl", startLine: `"type":"message_start"`, want: []call{{stop: "stop", retries: 1, in: 2000, out: 4}}},
+		// A request rejected before any stream adds no tokens, so the call starts with the turn.
+		{file: "claude-retry-prestream.jsonl", startLine: `"subtype":"init"`, want: []call{{stop: "stop", retries: 1, in: 1000, out: 3}}},
+		// After a whole tool_use block, a lost connection is a failed call, not a retry.
+		{file: "claude-retry-tooldrop.jsonl", startLine: `"type":"message_start"`, want: []call{
+			{stop: "error", errorType: "server_error", in: 1000, out: 1},
+			{stop: "stop", in: 1000, out: 3},
+		}},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			raw, err := os.ReadFile("testdata/modelcall/" + tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			clock := time.Unix(100, 0)
+			p := newParser(func() time.Time { return clock })
+			var calls []runtime.ModelCall
+			emit := collectCalls(&calls)
+			var wantStart time.Time
+			for line := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
+				if wantStart.IsZero() && strings.Contains(line, tc.startLine) {
+					wantStart = clock
+				}
+				if err := p.parseLine(t.Context(), []byte(line), emit); err != nil {
+					t.Fatal(err)
+				}
+				clock = clock.Add(time.Second)
+			}
+			if err := p.flushCalls(emit); err != nil {
+				t.Fatal(err)
+			}
+			var got []call
+			for _, c := range calls {
+				got = append(got, call{c.StopReason, c.ErrorType, c.Retries, c.InputTokens, c.OutputTokens})
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("calls = %+v, want %+v", got, tc.want)
+			}
+			if !calls[0].Start.Equal(wantStart) {
+				t.Errorf("first call starts at %v, want %v", calls[0].Start, wantStart)
+			}
+		})
+	}
+}
+
+func TestFailedAndRetriedModelCalls(t *testing.T) {
 	type call struct {
 		errorType, stop string
 		input           int64
 		partial         bool
+		retries         int
 		start, end      int64
 	}
+	start := func(id string, input int) string {
+		return fmt.Sprintf(`{"type":"stream_event","event":{"type":"message_start","message":{"id":%q,"model":"m","usage":{"input_tokens":%d}}}}`, id, input)
+	}
+	const (
+		stop     = `{"type":"stream_event","event":{"type":"message_stop"}}`
+		delta    = `{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}}`
+		apiRetry = `{"type":"system","subtype":"api_retry","attempt":1,"error_status":null,"error":"unknown"}`
+		init     = `{"type":"system","subtype":"init","session_id":"s1"}`
+	)
 	apiError := func(parent, errorType string) string {
 		return `{"type":"assistant","parent_tool_use_id":"` + parent + `","is_api_error_message":true,"error":"` + errorType +
 			`","message":{"id":"msg_err","model":"<synthetic>","content":[{"type":"text","text":"API Error"}],"usage":{"input_tokens":0,"output_tokens":0}}}`
@@ -339,6 +409,91 @@ func TestFailedModelCalls(t *testing.T) {
 			},
 		},
 		{
+			// A tool can run before the next call, but the stopped reply ended at message_stop.
+			name: "a reply that stops without final usage ends at message_stop",
+			lines: []string{
+				start("msg_1", 7), stop, `{"type":"user","message":{"content":[{"type":"text","text":"tool ran"}]}}`,
+				start("msg_2", 9), delta,
+			},
+			want: []call{
+				{stop: "error", input: 7, partial: true, start: 100, end: 101},
+				{stop: "stop", input: 9, start: 103, end: 104},
+			},
+		},
+		{
+			// A tool starts before the final usage, which still sets the end of a normal reply.
+			name:  "a normal reply with a tool ends at message_delta",
+			tools: map[string]string{"toolu_1": "Bash"},
+			lines: []string{
+				start("msg_1", 7),
+				`{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}]}}`,
+				delta,
+			},
+			want: []call{{stop: "stop", input: 7, start: 100, end: 102}},
+		},
+		{
+			// The tool runs while the connection hangs, so the failed reply ends when its tool starts.
+			name:  "a reply cut off after a whole tool request ends at the tool start",
+			tools: map[string]string{"toolu_1": "Bash"},
+			lines: []string{
+				start("msg_1", 7),
+				`{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}]}}`,
+				`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}}`,
+				apiError("", "server_error"),
+			},
+			want: []call{{errorType: "server_error", stop: "error", input: 7, partial: true, start: 100, end: 101}},
+		},
+		{
+			name:  "an API error after a stopped reply keeps the reply's end",
+			lines: []string{start("msg_1", 7), stop, apiError("", "server_error")},
+			want:  []call{{errorType: "server_error", stop: "error", input: 7, partial: true, start: 100, end: 101}},
+		},
+		{
+			name:  "retries that end in a failure are one failed call",
+			lines: []string{init, apiRetry, apiRetry, apiError("", "overloaded_error")},
+			want:  []call{{errorType: "overloaded_error", stop: "error", partial: true, retries: 2, start: 100, end: 103}},
+		},
+		{
+			name:  "a call retried twice starts at its first attempt",
+			lines: []string{start("msg_1", 7), stop, apiRetry, start("msg_2", 9), stop, apiRetry, start("msg_3", 11), delta},
+			want:  []call{{stop: "stop", input: 27, retries: 2, start: 100, end: 107}},
+		},
+		{
+			name:  "a retry left at the end of the stream is a failed call",
+			lines: []string{start("msg_1", 7), stop, apiRetry},
+			want:  []call{{stop: "error", input: 7, partial: true, retries: 1, start: 100, end: 103}},
+		},
+		{
+			name:  "a retried call cut off by a new call keeps its retries",
+			lines: []string{init, apiRetry, start("msg_1", 7), start("msg_2", 9), delta},
+			want: []call{
+				{stop: "error", input: 7, partial: true, retries: 1, start: 100, end: 103},
+				{stop: "stop", input: 9, start: 103, end: 104},
+			},
+		},
+		{
+			// A reply sent without streaming can arrive as one line per content block.
+			name: "repeated lines of an unstreamed reply keep its retries",
+			lines: []string{
+				start("msg_1", 1000), stop, apiRetry,
+				`{"type":"assistant","message":{"id":"msg_u","model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":1000,"output_tokens":3}}}`,
+				`{"type":"assistant","message":{"id":"msg_u","model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"hi there"}],"usage":{"input_tokens":1000,"output_tokens":3}}}`,
+			},
+			want: []call{{stop: "stop", input: 2000, retries: 1, start: 100, end: 104}},
+		},
+		{
+			name: "a held unstreamed reply keeps its retries when the next reply replaces it",
+			lines: []string{
+				start("msg_1", 1000), stop, apiRetry,
+				`{"type":"assistant","message":{"id":"msg_u1","model":"m","stop_reason":"tool_use","usage":{"input_tokens":1000,"output_tokens":3}}}`,
+				`{"type":"assistant","message":{"id":"msg_u2","model":"m","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":2}}}`,
+			},
+			want: []call{
+				{stop: "tool_call", input: 2000, retries: 1, start: 100, end: 103},
+				{stop: "stop", input: 1200, start: 103, end: 104},
+			},
+		},
+		{
 			name:  "a synthetic message without the API error flag is not a call",
 			lines: []string{`{"type":"assistant","message":{"id":"msg_x","model":"<synthetic>","content":[{"type":"text","text":"No response requested."}]}}`},
 		},
@@ -355,10 +510,13 @@ func TestFailedModelCalls(t *testing.T) {
 				}
 				clock = clock.Add(time.Second)
 			}
+			if err := p.flushCalls(emit); err != nil {
+				t.Fatal(err)
+			}
 			var got []call
 			for _, c := range calls {
 				got = append(got, call{errorType: c.ErrorType, stop: c.StopReason, input: c.InputTokens, partial: c.UsagePartial,
-					start: c.Start.Unix(), end: c.End.Unix()})
+					retries: c.Retries, start: c.Start.Unix(), end: c.End.Unix()})
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("calls = %+v, want %+v", got, tc.want)

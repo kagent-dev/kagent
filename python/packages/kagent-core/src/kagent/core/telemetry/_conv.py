@@ -97,6 +97,9 @@ KAGENT_GENAI_PRODUCER: Final = "kagent.genai.producer"
 KAGENT_INFERENCE_REQUEST_ID: Final = "kagent.inference.request_id"
 """The provider's request ID of a model call."""
 
+KAGENT_INFERENCE_RETRY_COUNT: Final = "kagent.inference.retry.count"
+"""How many times the harness retried a model call after a transient error."""
+
 KAGENT_INFERENCE_USAGE_PARTIAL: Final = "kagent.inference.usage_partial"
 """Whether the call ended without final usage, so its output tokens are a lower bound."""
 

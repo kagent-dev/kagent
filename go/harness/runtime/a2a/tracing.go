@@ -330,6 +330,9 @@ func (o spanOwner) chat(event runtime.ModelCall) {
 	if event.UsagePartial {
 		attributes = append(attributes, conv.KagentInferenceUsagePartialKey.Bool(true))
 	}
+	if event.Retries != 0 {
+		attributes = append(attributes, conv.KagentInferenceRetryCountKey.Int(event.Retries))
+	}
 	if hasUsage {
 		attributes = append(attributes,
 			conv.GenAIUsageInputTokensKey.Int64(event.InputTokens),

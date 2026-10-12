@@ -36,6 +36,9 @@ type parser struct {
 	// callStart holds when each thread's next model call starts, keyed by parent_tool_use_id
 	// ("" is the main thread).
 	callStart map[string]time.Time
+	// retried holds the main thread's attempts Claude Code gave up on and retried. They join the
+	// next call, which keeps their start and adds their tokens, since the API read each attempt's input.
+	retried *runtime.ModelCall
 }
 
 const agentToolName = "Agent"
@@ -43,6 +46,8 @@ const agentToolName = "Agent"
 type snapshotCall struct {
 	messageID string
 	call      runtime.ModelCall
+	// retried holds the attempts the call retried, joined when the call is emitted.
+	retried *runtime.ModelCall
 }
 
 type claudeUsage struct {
@@ -87,7 +92,8 @@ func (p *parser) flushOpenCall(emit func(Event) error) error {
 	}
 	call := p.openCall
 	p.openCall = nil
-	call.End, call.UsagePartial = p.now(), true
+	p.joinRetries(call)
+	call.End, call.UsagePartial = cmp.Or(call.End, p.now()), true
 	// The conventions report a generation that ended without a finish reason as "error".
 	call.StopReason = tracing.FinishReasonError
 	return emit(Event{Kind: EventModelCall, ModelCall: call})
@@ -99,15 +105,69 @@ func (p *parser) failCall(parent, errorType string, at time.Time, emit func(Even
 	call := &runtime.ModelCall{ParentToolID: parent, Start: cmp.Or(p.callStart[parent], at), End: at}
 	if parent == "" && p.openCall != nil {
 		call, p.openCall = p.openCall, nil
-		call.End = p.now()
+		call.End = cmp.Or(call.End, p.now())
+	}
+	if parent == "" {
+		p.joinRetries(call)
 	}
 	p.callStart[parent] = at
 	call.StopReason, call.ErrorType, call.UsagePartial = tracing.FinishReasonError, errorType, true
 	return emit(Event{Kind: EventModelCall, ModelCall: call})
 }
 
+// retry counts a retry of the main thread's call. The attempt still open was given up on, so it
+// joins the retried attempts.
+func (p *parser) retry() {
+	if p.retried == nil {
+		p.retried = &runtime.ModelCall{}
+	}
+	retried := p.retried
+	retried.Retries++
+	// A request rejected before any stream takes the thread's call start.
+	retried.Start = cmp.Or(retried.Start, p.openCallStart())
+	if attempt := p.openCall; attempt != nil {
+		p.openCall = nil
+		retried.InputTokens += attempt.InputTokens
+		retried.CacheReadTokens += attempt.CacheReadTokens
+		retried.CacheWriteTokens += attempt.CacheWriteTokens
+		retried.OutputTokens += attempt.OutputTokens
+		retried.ReasoningOutputTokens += attempt.ReasoningOutputTokens
+	}
+}
+
+// openCallStart is when the main thread's current attempt started.
+func (p *parser) openCallStart() time.Time {
+	if p.openCall != nil {
+		return p.openCall.Start
+	}
+	return p.callStart[""]
+}
+
+// joinRetries gives the main thread's call the start, tokens and count of its retried attempts.
+func (p *parser) joinRetries(call *runtime.ModelCall) {
+	addRetries(call, p.retried)
+	p.retried = nil
+}
+
+func addRetries(call, retried *runtime.ModelCall) {
+	if retried == nil {
+		return
+	}
+	call.Start = cmp.Or(retried.Start, call.Start)
+	call.Retries += retried.Retries
+	call.InputTokens += retried.InputTokens
+	call.CacheReadTokens += retried.CacheReadTokens
+	call.CacheWriteTokens += retried.CacheWriteTokens
+	call.OutputTokens += retried.OutputTokens
+	call.ReasoningOutputTokens += retried.ReasoningOutputTokens
+}
+
 // flushCalls emits every model call still held when the stream ends.
 func (p *parser) flushCalls(emit func(Event) error) error {
+	// Attempts retried with no attempt after them still made a call.
+	if p.retried != nil && p.openCall == nil {
+		p.openCall = &runtime.ModelCall{Start: p.now()}
+	}
 	if err := p.flushOpenCall(emit); err != nil {
 		return err
 	}
@@ -119,6 +179,7 @@ func (p *parser) flushSnapshots(emit func(Event) error) error {
 	for _, parent := range slices.Sorted(maps.Keys(p.snapshots)) {
 		pending := p.snapshots[parent]
 		delete(p.snapshots, parent)
+		addRetries(&pending.call, pending.retried)
 		if err := emit(Event{Kind: EventModelCall, ModelCall: &pending.call}); err != nil {
 			return err
 		}
@@ -241,6 +302,9 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 			p.callStart[""] = p.now()
 			return emit(Event{Kind: EventSessionStarted, SessionID: envelope.SessionID})
 		}
+		if envelope.Subtype == "api_retry" && envelope.ParentToolUseID == "" {
+			p.retry()
+		}
 	case "stream_event":
 		return p.parseStreamEvent(envelope.Event, envelope.ParentToolUseID != "", emit)
 	case "assistant":
@@ -327,6 +391,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		call := p.openCall
 		p.openCall = nil
 		p.openUsage.merge(event.Usage).apply(call)
+		p.joinRetries(call)
 		call.StopReason, call.End = claudeFinishReason(event.Delta.StopReason), p.now()
 		return emit(Event{Kind: EventModelCall, ModelCall: call})
 	case "content_block_delta":
@@ -352,6 +417,10 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		}
 	case "message_stop":
 		p.activeBlock = nil
+		// A stream that stops without final usage ended here, even if a tool runs before the next call.
+		if !subagent && p.openCall != nil && p.openCall.End.IsZero() {
+			p.openCall.End = p.now()
+		}
 	}
 	return nil
 }
@@ -390,8 +459,17 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, l
 		call := runtime.ModelCall{ResponseModel: message.Model, ResponseID: message.ID, RequestID: requestID,
 			StopReason: claudeFinishReason(message.StopReason), UsagePartial: parent != ""}
 		message.Usage.apply(&call)
+		// A main-thread stream cut off without an end is retried without streaming.
+		if parent == "" && p.openCall != nil {
+			p.retry()
+		}
 		if err := p.holdSnapshot(parent, message.ID, call, lineTime, emit); err != nil {
 			return err
+		}
+		if parent == "" && p.retried != nil {
+			held := p.snapshots[parent]
+			held.retried, p.retried = p.retried, nil
+			p.snapshots[parent] = held
 		}
 	}
 	for i, content := range message.Content {
@@ -432,6 +510,10 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, l
 				continue
 			}
 			p.emittedToolCalls[content.ID] = struct{}{}
+			// A tool runs once its block is whole, so a reply that never gets final usage ends here.
+			if parent == "" && p.openCall != nil && p.openCall.End.IsZero() {
+				p.openCall.End = p.now()
+			}
 			if err := emit(Event{Kind: EventToolActivity, ToolID: content.ID, ToolName: content.Name, ToolPhase: "started", Metadata: content.Input, ParentToolID: parent}); err != nil {
 				return err
 			}
@@ -502,14 +584,16 @@ func (p *parser) holdSnapshot(parent, messageID string, call runtime.ModelCall, 
 	// Claude Code reports an unstreamed call only when it ends, so the call starts at its thread's previous line.
 	call.ParentToolID, call.Start, call.End = parent, cmp.Or(p.callStart[parent], lineTime), lineTime
 	p.callStart[parent] = lineTime
+	var retried *runtime.ModelCall
 	if pending, ok := p.snapshots[parent]; ok && pending.messageID == messageID {
-		call.Start = pending.call.Start
+		call.Start, retried = pending.call.Start, pending.retried
 	} else if ok {
+		addRetries(&pending.call, pending.retried)
 		if err := emit(Event{Kind: EventModelCall, ModelCall: &pending.call}); err != nil {
 			return err
 		}
 	}
-	p.snapshots[parent] = snapshotCall{messageID: messageID, call: call}
+	p.snapshots[parent] = snapshotCall{messageID: messageID, call: call, retried: retried}
 	return nil
 }
 
