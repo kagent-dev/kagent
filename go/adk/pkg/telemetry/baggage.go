@@ -30,5 +30,23 @@ func WithBaggage(ctx context.Context, attributes ...attribute.KeyValue) context.
 		// in the error case the original baggage is returned unmodified
 		bag, _ = bag.SetMember(member)
 	}
+
+	if len(bag.String()) > 8192 {
+		var err error
+		bag, err = baggage.New()
+		if err != nil {
+			return baggage.ContextWithoutBaggage(ctx)
+		}
+
+		for _, attr := range attributes {
+			member, err := baggage.NewMemberRaw(string(attr.Key), attr.Value.AsString())
+			if err != nil {
+				continue
+			}
+
+			bag, _ = bag.SetMember(member)
+		}
+	}
+
 	return baggage.ContextWithBaggage(ctx, bag)
 }

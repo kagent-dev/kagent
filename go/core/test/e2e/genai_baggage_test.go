@@ -100,7 +100,6 @@ func TestRuntimeGenAIBaggage(t *testing.T) {
 				toolCall = true
 				require.Contains(t, request.Headers.Get("traceparent"), callerTraceID, "MCP tool call does not continue the caller's trace")
 				toolIdentity := maps.Clone(identity)
-				toolIdentity[string(conv.GenAIToolNameKey)] = "add_numbers"
 				toolIdentity[string(conv.GenAIToolCallIDKey)] = "call_1"
 				assertBaggage(t, request.Headers.Get("baggage"), toolIdentity)
 			}
