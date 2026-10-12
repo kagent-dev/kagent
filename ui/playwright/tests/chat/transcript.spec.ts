@@ -1,4 +1,5 @@
 import { test, expect } from "../../fixtures/test";
+import { LIFECYCLE_TIMEOUT } from "../../helpers/resource";
 import {
   SIBLING_OF_READY,
   agentChat,
@@ -73,6 +74,8 @@ const replyTo = (question: string) =>
   ].join("\n");
 
 test("chat: history, sending, streaming, and tool rendering", async ({ page }) => {
+  // Thirteen steps share one budget; see `LIFECYCLE_TIMEOUT`.
+  test.setTimeout(LIFECYCLE_TIMEOUT);
   const messages = page.getByTestId("chat-message");
   // Scoped by role: the agent quotes the question back in its reply, so a plain
   // text filter matches the answer as well as the question that prompted it.
@@ -226,6 +229,14 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
     await expect(userMessages.filter({ hasText: FIRST_QUESTION })).toHaveCount(1);
     await expect(userMessages.filter({ hasText: SECOND_QUESTION })).toHaveCount(1);
   });
+});
+
+/* Its own test, so the journey above fits the default budget under parallel load. */
+test("chat: the composer clears the transcript, and switching conversations leaks nothing", async ({
+  page,
+}) => {
+  await loadPage(page, AGENT_CHAT);
+  await expect(page.getByTestId("chat-message").first()).toBeVisible();
 
   await test.step("14. and the composer does not sit on top of the conversation", async () => {
     /*
