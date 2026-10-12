@@ -464,12 +464,15 @@ func TestFailedAndRetriedModelCalls(t *testing.T) {
 			want:  []call{{stop: "error", input: 7, partial: true, retries: 1, start: 100, end: 103}},
 		},
 		{
-			name:  "a retried call cut off by a new call keeps its retries",
+			// A mid-stream overload is retried with a new stream and no api_retry line.
+			name:  "a new stream after an unfinished attempt is a retry",
+			lines: []string{start("msg_1", 7), stop, start("msg_2", 9), delta},
+			want:  []call{{stop: "stop", input: 16, retries: 1, start: 100, end: 103}},
+		},
+		{
+			name:  "a retried call cut off by a new stream adds that retry",
 			lines: []string{init, apiRetry, start("msg_1", 7), start("msg_2", 9), delta},
-			want: []call{
-				{stop: "error", input: 7, partial: true, retries: 1, start: 100, end: 103},
-				{stop: "stop", input: 9, start: 103, end: 104},
-			},
+			want:  []call{{stop: "stop", input: 16, retries: 2, start: 100, end: 104}},
 		},
 		{
 			// A reply sent without streaming can arrive as one line per content block.

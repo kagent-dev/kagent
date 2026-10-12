@@ -30,6 +30,8 @@ type eventTranslator struct {
 	spawnedBy map[string]string
 	// retries counts each thread's retries of its open model call.
 	retries map[string]int
+	// completed is set when the turn finished before a cancel took effect, so no call is open.
+	completed bool
 }
 
 // callTime estimates a model call. It starts at the previous call's usage, or when its thread
@@ -236,6 +238,17 @@ func (t *eventTranslator) endOpenCalls() {
 			t.modelCalls[thread] = callTime{start: call.start, end: t.now()}
 		}
 	}
+}
+
+// flushOpenCall records the main thread's call still streaming at a cancel. Codex reports no usage
+// for an interrupted response; a call it reported after the interrupt is no longer open.
+func (t *eventTranslator) flushOpenCall(before time.Time, sink runtime.ModelCallSink) {
+	if open, known := t.modelCalls[t.threadID]; t.completed || !known || !open.end.IsZero() || !open.start.Before(before) {
+		return
+	}
+	call := runtime.ModelCall{StopReason: tracing.FinishReasonError, UsagePartial: true, Canceled: true}
+	t.closeCall(&call, t.threadID)
+	sink.ModelCall(call)
 }
 
 // subagentItem translates an item of a spawned subagent, so its tools go under the spawn call.

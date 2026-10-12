@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -241,6 +242,52 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-
 	}
 	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) {
 		t.Fatalf("model calls = %+v, want one that ended before the resume at %v", sink.models, resumed)
+	}
+}
+
+// Claude Code stops reading a stream that the approval wait holds open, then reports it as a lost
+// connection on resume. The call asked for a tool before the pause, so it is not a failure.
+func TestModelCallCutByAnApprovalPauseIsNotAFailure(t *testing.T) {
+	dir := t.TempDir()
+	decision := filepath.Join(dir, "decision")
+	executable := filepath.Join(dir, "claude")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m","usage":{"input_tokens":7}}}}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
+while [ ! -f "$DECISION" ]; do sleep 0.01; done
+printf '%s\n' '{"type":"assistant","message":{"id":"err_1","model":"<synthetic>","content":[{"type":"text","text":"API Error: Connection lost mid-response. The response above may be incomplete."}]},"error":"server_error","is_api_error_message":true}'
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"ok"}]}}'
+printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
+		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
+		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"),
+	})
+	pending := newTestPending("approval-1", "call-1")
+	broker.requests <- pending
+	bridgeDecisionToFile(t, pending, decision)
+
+	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
+	if err != nil || outcome.Pending == nil {
+		t.Fatalf("Run() = %#v, %v", outcome, err)
+	}
+	resumed := time.Now()
+	sink := &recordingSink{}
+	if _, err := outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.models) != 1 {
+		t.Fatalf("model calls = %+v, want one", sink.models)
+	}
+	call := sink.models[0]
+	if call.StopReason != tracing.FinishReasonToolCall || call.ErrorType != "" || !call.UsagePartial || !call.End.Before(resumed) {
+		t.Fatalf("model call = %+v, want a partial tool_call that ended before the resume at %v", call, resumed)
 	}
 }
 

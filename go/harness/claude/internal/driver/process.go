@@ -15,6 +15,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -86,7 +87,8 @@ type resumedEventSink struct {
 	runtime.EventSink
 	// declined is the call the user denied. Its result looks like a tool error,
 	// so this is the only way to mark it as never run.
-	declined string
+	declined  string
+	resumedAt time.Time
 }
 
 func (s resumedEventSink) ToolResult(event runtime.ToolResult) error {
@@ -94,6 +96,15 @@ func (s resumedEventSink) ToolResult(event runtime.ToolResult) error {
 		event.Status = runtime.ToolDeclined
 	}
 	return s.EventSink.ToolResult(event)
+}
+
+// ModelCall keeps a call that asked for a tool before the pause from counting as failed: Claude
+// reports the stream the wait held open as a lost connection.
+func (s resumedEventSink) ModelCall(call runtime.ModelCall) {
+	if call.ParentToolID == "" && call.ErrorType == "server_error" && !call.End.IsZero() && call.End.Before(s.resumedAt) {
+		call.StopReason, call.ErrorType = tracing.FinishReasonToolCall, ""
+	}
+	s.EventSink.ModelCall(call)
 }
 
 func (s resumedEventSink) TextDelta(event runtime.TextDelta) error {
@@ -396,10 +407,11 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if decision.ID != p.pending.request.ID {
 		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, p.pending.request.ID)
 	}
+	resumedAt := time.Now()
 	if err := p.pending.resolve(*decision); err != nil {
 		return runtime.Outcome{}, err
 	}
-	resumed := resumedEventSink{EventSink: sink}
+	resumed := resumedEventSink{EventSink: sink, resumedAt: resumedAt}
 	if !decision.Approved {
 		resumed.declined = p.pending.request.CallID
 	}

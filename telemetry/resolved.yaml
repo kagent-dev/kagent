@@ -12,6 +12,8 @@ imports:
   - gen_ai.client.inference.usage.reasoning.output_tokens
   - gen_ai.execute_tool.duration
   - gen_ai.invoke_agent.duration
+  - gen_ai.invoke_agent.inference_calls
+  - gen_ai.invoke_agent.tool_calls
   - gen_ai.invoke_workflow.duration
   - http.client.active_requests
   - http.client.connection.duration
@@ -3963,7 +3965,7 @@ refinements:
     - brief: How many times the harness retried a model call after a transient error.
       key: kagent.inference.retry.count
       note: |
-        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry.
+        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response.
       provenance:
         path: telemetry/registry/kagent.yaml
       requirement_level:
@@ -4018,7 +4020,7 @@ refinements:
         Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format
         and MUST follow the overall [guidelines for span names](https://github.com/open-telemetry/opentelemetry-specification/blob/v1.56.0/specification/trace/api.md#span).
     note: |
-      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. One span covers a call and all its automatic retries, and only a final failure gives it an error status. A Claude call\u0027s token counts add up every attempt that the provider started. Codex reports usage only for the attempt that succeeded. Codex errors of the `other` and `badRequest` categories can also come from outside a model request, and they still give a failed call. Codex reports no call times, so a Codex call starts at the previous call\u0027s usage report or final error. It ends when its first tool starts or the turn pauses for input, or else at its own usage report or final error. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
+      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. One span covers a call and all its automatic retries, and only a final failure gives it an error status. A Claude call\u0027s token counts add up every attempt that the provider started. Codex reports usage only for the attempt that succeeded, and none for a call canceled mid-response. Codex errors of the `other` and `badRequest` categories can also come from outside a model request, and they still give a failed call. Codex reports no call times, so a Codex call starts at the previous call\u0027s usage report or final error. It ends when its first tool starts or the turn pauses for input, or else at its own usage report or final error. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -5027,7 +5029,7 @@ registry:
     - brief: How many times the harness retried a model call after a transient error.
       key: kagent.inference.retry.count
       note: |
-        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry.
+        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response.
       provenance:
         path: telemetry/registry/kagent.yaml
       requirement_level:
@@ -5613,7 +5615,7 @@ registry:
   - brief: How many times the harness retried a model call after a transient error.
     key: kagent.inference.retry.count
     note: |
-      Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry.
+      Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response.
     provenance:
       path: telemetry/registry/kagent.yaml
     stability: development

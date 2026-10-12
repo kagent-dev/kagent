@@ -30,6 +30,9 @@ type parser struct {
 	now              func() time.Time
 	openCall         *runtime.ModelCall
 	openUsage        claudeUsage
+	// openCallDone is set once a user line follows the open call. A new stream after that is
+	// the next call; before it, the stream retries the open call.
+	openCallDone     bool
 	streamedMessages map[string]struct{}
 	// snapshots holds each thread's latest unstreamed call, keyed by parent_tool_use_id.
 	snapshots map[string]snapshotCall
@@ -319,6 +322,9 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 		lineTime := p.lineTime(envelope.Timestamp)
 		// A prompt or tool result: that thread's next model call starts here.
 		p.callStart[envelope.ParentToolUseID] = lineTime
+		if envelope.ParentToolUseID == "" && p.openCall != nil {
+			p.openCallDone = true
+		}
 		return p.parseUser(ctx, envelope.Message, envelope.ToolUseResult, lineTime, emit)
 	case "result":
 		if envelope.Origin.Kind == "task-notification" {
@@ -377,9 +383,14 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		if subagent {
 			return nil
 		}
+		// Claude Code retries a stream cut off mid-response with a new one and no api_retry line.
+		if p.openCall != nil && !p.openCallDone {
+			p.retry()
+		}
 		if err := p.flushOpenCall(emit); err != nil {
 			return err
 		}
+		p.openCallDone = false
 		p.streamedMessages[event.Message.ID] = struct{}{}
 		p.openCall = &runtime.ModelCall{ResponseModel: event.Message.Model, ResponseID: event.Message.ID, Start: p.now()}
 		p.openUsage = event.Message.Usage

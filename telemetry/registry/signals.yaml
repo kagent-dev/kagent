@@ -290,8 +290,9 @@ span_refinements:
       canceled. One span covers a call and all its automatic retries, and only a
       final failure gives it an error status. A Claude call's token counts add up
       every attempt that the provider started. Codex reports usage only for the
-      attempt that succeeded. Codex errors of the `other` and `badRequest`
-      categories can also come from outside a model request, and they still
+      attempt that succeeded, and none for a call canceled mid-response. Codex
+      errors of the `other` and `badRequest` categories can also come from
+      outside a model request, and they still
       give a failed call. Codex reports no call times, so a Codex
       call starts at the previous call's usage report or final error. It ends
       when its first tool starts or the turn pauses for input, or else at its own

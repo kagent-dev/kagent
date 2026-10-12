@@ -146,7 +146,8 @@ attributes:
     note: >
       Set only when the call was retried. The chat span covers all attempts.
       Codex counts its reported retries, not the HTTP retries inside each one.
-      Over a WebSocket, Codex does not report its first retry.
+      Over a WebSocket, Codex does not report its first retry. Claude also
+      counts a new stream that replaces one cut off mid-response.
     stability: development
     type: int
 

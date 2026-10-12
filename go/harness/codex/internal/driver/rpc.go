@@ -112,7 +112,7 @@ func (c *rpcClient) call(ctx context.Context, id int, method string, params any,
 					return nil, fmt.Errorf("unsupported Codex server request %q", message.Method)
 				}
 				// Notifications can arrive before the response. Setup calls drop them;
-				// turn/interrupt records the usage among them.
+				// turn/interrupt records the usage, errors and completion among them.
 				if onNotification != nil {
 					onNotification(message)
 				}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestProcessDriverRunsPinnedProtocol(t *testing.T) {
@@ -590,6 +591,95 @@ printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"threa
 	// Codex reports usage while it answers the interrupt and after it.
 	if len(sink.models) != 2 {
 		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
+	}
+}
+
+func TestProcessDriverCancellationRecordsTheCallCodexNeverReported(t *testing.T) {
+	directory := t.TempDir()
+	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+: > "$STARTED"
+read interrupt
+printf '%s\n' '{"id":4,"result":{}}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	sink := &recordingSink{}
+	if _, err := driver.Run(ctx, runtime.Turn{Prompt: "work"}, sink); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	if len(sink.models) != 1 {
+		t.Fatalf("model calls = %+v, want the 1 call the cancel cut short", sink.models)
+	}
+	call := sink.models[0]
+	if call.StopReason != tracing.FinishReasonError || !call.UsagePartial || !call.Canceled || call.InputTokens != 0 {
+		t.Fatalf("model call = %+v, want a canceled partial call with no counts", call)
+	}
+}
+
+func TestProcessDriverCancellationAfterTheTurnCompletedRecordsNoCall(t *testing.T) {
+	directory := t.TempDir()
+	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+: > "$STARTED"
+read interrupt
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+printf '%s\n' '{"id":4,"result":{}}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	sink := &recordingSink{}
+	if _, err := driver.Run(ctx, runtime.Turn{Prompt: "work"}, sink); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	if len(sink.models) != 0 {
+		t.Fatalf("model calls = %+v, want none: the turn completed before the cancel", sink.models)
 	}
 }
 

@@ -198,6 +198,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 	for {
 		select {
 		case <-ctx.Done():
+			interrupted := time.Now()
 			err := d.interrupt(session, sink)
 			drained := session.drainUsage(sink)
 			if err != nil {
@@ -212,6 +213,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				<-wait
 			}
 			<-drained
+			translator.flushOpenCall(interrupted, sink)
 			return runtime.Outcome{}, ctx.Err()
 		case waitErr := <-wait:
 			if waitErr != nil {
@@ -409,8 +411,8 @@ func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) erro
 	return nil
 }
 
-// interrupt asks Codex to stop the turn. Usage Codex reports until it answers, including
-// usage already buffered, still reaches sink; drainUsage records what arrives after.
+// interrupt asks Codex to stop the turn. Usage and final errors Codex reports until it answers,
+// including buffered ones, still reach sink; drainUsage records what arrives after.
 func (d *ProcessDriver) interrupt(session *processSession, sink runtime.ModelCallSink) error {
 	ctx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
 	defer cancel()
@@ -433,8 +435,20 @@ func (s *processSession) drainUsage(sink runtime.ModelCallSink) <-chan struct{} 
 }
 
 func (s *processSession) recordUsage(message rpcMessage, sink runtime.ModelCallSink) {
-	if message.Method == "thread/tokenUsage/updated" {
+	switch message.Method {
+	case "thread/tokenUsage/updated":
 		_ = s.translator.usage(message.Params, sink)
+	case "error":
+		_ = s.translator.codexError(message.Params, sink)
+	case "turn/completed":
+		var params struct {
+			ThreadID string
+			Turn     struct{ ID, Status string }
+		}
+		if json.Unmarshal(message.Params, &params) == nil && params.ThreadID == s.translator.threadID &&
+			params.Turn.ID == s.translator.turnID && params.Turn.Status == "completed" {
+			s.translator.completed = true
+		}
 	}
 }
 
