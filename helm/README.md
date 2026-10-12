@@ -66,7 +66,7 @@ database:
     # Schema where pgvector is installed. Used only when vectorEnabled is true.
     vectorSchema: extensions
     vectorEnabled: false
-    # Project the kagent_owner_user and kagent_readwrite_user Pod Certificates at /run/postgres.podcert.ate.dev.
+    # Project the kagent_readwrite_user Pod Certificate, and kagent_owner_user unless skipMigrations is true, at /run/postgres.podcert.ate.dev.
     # Only for databases that trust the Substrate postgres CA.
     clientCertificate:
       enabled: false
@@ -83,19 +83,22 @@ Run [`go/core/pkg/postgressetup/setup.sql`](../go/core/pkg/postgressetup/setup.s
 
 The script also revokes `CREATE` on the `public` schema from `PUBLIC` in the whole database. It fails rather than change an existing role with different attributes or a schema owned by another role, and running it again is safe.
 
-Every variable is required, and the script must run in one transaction:
+Every variable is required, and the script must run in one transaction. Pass the passwords through environment variables, which `\getenv` (psql 15 or later) reads, so they stay out of the process list:
 
 ```bash
+export KAGENT_OWNER_PASSWORD=... KAGENT_READWRITE_PASSWORD=...
 psql "$ADMIN_CONNECTION_STRING" --no-psqlrc --set=ON_ERROR_STOP=1 --single-transaction \
   --set=kagent_schema=kagent \
   --set=kagent_owner_role=kagent_owner \
   --set=kagent_owner_user=kagent_owner_user \
-  --set=kagent_owner_password="$KAGENT_OWNER_PASSWORD" \
   --set=kagent_readwrite_role=kagent_readwrite \
   --set=kagent_readwrite_user=kagent_readwrite_user \
-  --set=kagent_readwrite_password="$KAGENT_READWRITE_PASSWORD" \
+  --command='\getenv kagent_owner_password KAGENT_OWNER_PASSWORD' \
+  --command='\getenv kagent_readwrite_password KAGENT_READWRITE_PASSWORD' \
   --file=go/core/pkg/postgressetup/setup.sql
 ```
+
+The script doesn't print the passwords, but they reach the server as statement text, so a server that logs every statement (`log_statement = all`) records them. To avoid that, pass a SCRAM-SHA-256 verifier instead of the plain password; PostgreSQL stores it as given.
 
 | Variable | `kagent install` value |
 | --- | --- |
@@ -107,7 +110,7 @@ psql "$ADMIN_CONNECTION_STRING" --no-psqlrc --set=ON_ERROR_STOP=1 --single-trans
 | `kagent_readwrite_user` | `kagent_readwrite_user` |
 | `kagent_readwrite_password` | Empty (certificate authentication) |
 
-Each run sets each login's password to its variable. An empty value removes the password, so pass the current passwords every time.
+Each run sets each login's password to its variable. An empty value removes the password, so pass the current passwords every time. An unset variable stops the script before it changes anything.
 
 Set `ownerRole`, `readWriteRole` and `schema` to the values you used, and put a connection string for each login in the Secrets that `ownerConnectionStringSecretRef` and `readWriteConnectionStringSecretRef` name. Leave role settings out of the connection strings: Kagent assumes each role after it connects. With `skipMigrations: true`, only the read/write Secret and role are needed.
 

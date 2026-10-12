@@ -550,6 +550,7 @@ func TestMigrationFileValidation(t *testing.T) {
 		{name: "down text in SQL", body: "-- +goose Up\nSELECT '-- +goose Down';", want: "no Goose Down"},
 		{name: "legacy up file", file: "000001_test.up.sql", body: "-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "invalid migration file"},
 		{name: "legacy down file", file: "000001_test.down.sql", body: "-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "invalid migration file"},
+		{name: "no migrations", file: "README.md", want: "has no migrations"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

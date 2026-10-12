@@ -114,7 +114,7 @@ func TestReconcileUnchangedCatalogWithoutDatabaseConnection(t *testing.T) {
 	t.Cleanup(cancel)
 	dsn := dbtest.StartT(ctx, t)
 	dbtest.MigrateT(t, dsn, false)
-	pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn, Role: dbtest.Role})
+	pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	store := database.NewClient(pool, "public")

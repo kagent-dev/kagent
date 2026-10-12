@@ -48,12 +48,14 @@ spec:
       - name: postgres-client-certificate
         projected:
           sources:
+          {{- if not .Values.database.postgres.skipMigrations }}
           - podCertificate:
               signerName: postgres.podcert.ate.dev/identity
               keyType: ECDSAP256
               credentialBundlePath: kagent_owner_user.pem
               userAnnotations:
                 postgres.podcert.ate.dev/username: kagent_owner_user
+          {{- end }}
           - podCertificate:
               signerName: postgres.podcert.ate.dev/identity
               keyType: ECDSAP256

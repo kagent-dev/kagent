@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	testcontainers "github.com/testcontainers/testcontainers-go"
@@ -80,11 +81,17 @@ func Migrate(connStr string, vectorEnabled bool) error {
 			return err
 		}
 	}
+	return migrations.RunUp(context.Background(), PoolConfig(connStr), migrations.BuiltinSourcesInSchema(vectorEnabled, "public", "public"))
+}
+
+// PoolConfig returns the pool configuration for connStr that assumes Role. It
+// panics on a malformed connection string, which only a broken test can produce.
+func PoolConfig(connStr string) *pgxpool.Config {
 	config, err := postgres.PoolConfig(connStr, Role)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	return migrations.RunUp(context.Background(), config, migrations.BuiltinSourcesInSchema(vectorEnabled, "public", "public"))
+	return config
 }
 
 // MigrateT runs the embedded migrations against connStr and calls t.Fatal on error.

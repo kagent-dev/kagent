@@ -734,6 +734,34 @@ tests:
             mountPath: /run/postgres.podcert.ate.dev
             readOnly: true
 
+  - it: should project only the read/write client certificate when migrations are skipped
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          skipMigrations: true
+          clientCertificate:
+            enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-client-certificate
+            projected:
+              sources:
+                - podCertificate:
+                    signerName: postgres.podcert.ate.dev/identity
+                    keyType: ECDSAP256
+                    credentialBundlePath: kagent_readwrite_user.pem
+                    userAnnotations:
+                      postgres.podcert.ate.dev/username: kagent_readwrite_user
+                - clusterTrustBundle:
+                    signerName: servicedns.podcert.ate.dev/identity
+                    labelSelector:
+                      matchLabels:
+                        podcert.ate.dev/canarying: live
+                    path: trust-bundle.pem
+
   - it: should set KAGENT_DATABASE_VECTOR_ENABLED to false by default
     template: controller-configmap.yaml
     asserts:

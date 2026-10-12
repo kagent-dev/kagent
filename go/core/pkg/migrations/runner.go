@@ -352,7 +352,7 @@ func validateSources(sources []Source) error {
 }
 
 // Versions returns the source's migration versions in ascending order. It
-// rejects files Goose would misread or that disable transactions.
+// rejects an empty source and files Goose would misread or that disable transactions.
 func Versions(src Source) ([]int64, error) {
 	entries, err := fs.ReadDir(src.FS, src.Dir)
 	if err != nil {
@@ -404,6 +404,9 @@ func Versions(src Source) ([]int64, error) {
 	}
 	if len(versions) == 0 {
 		return nil, fmt.Errorf("directory %s has no migrations", src.Dir)
+	}
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("migration directory %s has no migrations", src.Dir)
 	}
 	slices.Sort(versions)
 	return versions, nil

@@ -9,21 +9,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
-	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.
-// URL is a PostgreSQL connection string.
+// Pool is the login's base configuration from postgres.PoolConfig; Connect
+// copies it and never modifies it.
 // Pool fields are optional: nil leaves the corresponding pgxpool.Config value
 // from ParseConfig unchanged (pgx library defaults).
-// Role is required and is assumed on every connection after authentication;
-// see postgres.PoolConfig.
 // Schema is required when vectors are enabled; VectorSchema defaults to extensions.
 type PostgresConfig struct {
-	URL             string
-	Role            string
+	Pool            *pgxpool.Config
 	Schema          string
 	VectorSchema    string
 	VectorEnabled   bool
@@ -71,10 +68,7 @@ func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) error {
 }
 
 func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
-	config, err := postgres.PoolConfig(cfg.URL, cfg.Role)
-	if err != nil {
-		return nil, err
-	}
+	config := cfg.Pool.Copy()
 	if err := applyPoolConfig(config, cfg); err != nil {
 		return nil, err
 	}

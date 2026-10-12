@@ -117,7 +117,7 @@ database:
       key: readWriteConnectionString
     # -- Role the read/write login assumes after connecting. Required. Set distinct roles for each install sharing a database.
     readWriteRole: kagent_readwrite
-    # -- Project the bundled PostgreSQL client certificates for kagent_owner_user and kagent_readwrite_user.
+    # -- Project the bundled PostgreSQL client certificates for kagent_readwrite_user and, unless skipMigrations is true, kagent_owner_user.
     # The connection strings must reference the files under /run/postgres.podcert.ate.dev.
     clientCertificate:
       enabled: false

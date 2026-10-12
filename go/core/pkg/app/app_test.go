@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -194,16 +195,12 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MIN_CONNS", "1")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME", "1m")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME", "10m")
-	t.Setenv("KAGENT_POSTGRES_READWRITE_DATABASE_URL", "postgres://user:password@database/app")
-	t.Setenv("KAGENT_POSTGRES_READWRITE_ROLE", "kagent_app")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_SCHEMA", "kagent_test")
 
-	config := postgresConfigFromEnv(true)
-	if config.URL != "postgres://user:password@database/app" || !config.VectorEnabled {
-		t.Fatalf("postgres config lost connection URL or vector setting: %#v", config)
-	}
-	if config.Role != "kagent_app" {
-		t.Fatalf("Role = %q, want kagent_app", config.Role)
+	pool := &pgxpool.Config{}
+	config := postgresConfigFromEnv(pool, true)
+	if config.Pool != pool || !config.VectorEnabled {
+		t.Fatalf("postgres config lost pool or vector setting: %#v", config)
 	}
 	if config.Schema != "kagent_test" {
 		t.Fatalf("Schema = %q, want kagent_test", config.Schema)

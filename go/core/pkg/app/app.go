@@ -220,7 +220,7 @@ func Run(ctx context.Context, opts Options) error {
 	} else if err := migrations.RunUp(ctx, ownerConfig, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, postgresConfigFromEnv(vectorEnabled))
+	db, err := database.Connect(ctx, postgresConfigFromEnv(readWriteConfig, vectorEnabled))
 	if err != nil {
 		return err
 	}
@@ -499,10 +499,9 @@ func databasePoolConfig(url, role kagentenv.StringVar) (*pgxpool.Config, error) 
 	return config, nil
 }
 
-func postgresConfigFromEnv(vectorEnabled bool) *database.PostgresConfig {
+func postgresConfigFromEnv(pool *pgxpool.Config, vectorEnabled bool) *database.PostgresConfig {
 	return &database.PostgresConfig{
-		URL:             kagentenv.PostgresReadWriteDatabaseURL.Get(),
-		Role:            kagentenv.PostgresReadWriteRole.Get(),
+		Pool:            pool,
 		Schema:          kagentenv.DatabaseSchema.Get(),
 		VectorSchema:    kagentenv.DatabaseVectorSchema.Get(),
 		VectorEnabled:   vectorEnabled,
