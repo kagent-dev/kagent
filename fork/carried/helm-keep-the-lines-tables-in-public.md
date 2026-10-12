@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `fix(helm): keep an installation's tables and pgvector in the public schema` | upstream moved kagent's tables to a `kagent` schema and pgvector to `extensions` with no migration of existing tables (clean installs only); every installation of the line holds its tables in `public` and its pgvector there, so the chart's defaults stay `public` and an upgrade keeps its sessions; `kagent install` sets upstream's schemas for the database it creates. Retired by the move to the `kagent` schema with an automatic migration | fork-only, until that migration exists |

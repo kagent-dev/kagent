@@ -93,6 +93,8 @@ database:
 
 Kagent 1.x also stores its tables in the `kagent` schema instead of `public`, so an upgraded installation starts with empty tables. Only clean installs are supported.
 
+The Giant Swarm line's chart defaults `schema` and `vectorSchema` to `public`, where its installations from before this change hold their tables and pgvector, so an upgrade keeps them. `kagent install` sets `kagent` and `extensions` for the database it creates.
+
 #### OIDC authentication
 
 Set `controller.auth.mode: trusted-proxy` together with
