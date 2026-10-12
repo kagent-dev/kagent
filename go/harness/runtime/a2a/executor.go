@@ -34,6 +34,12 @@ type PendingRestorer interface {
 	RestorePending() (taskID, contextID string, pending runtime.PendingTurn, err error)
 }
 
+// pendingTraceOrigin supplies optional correlation metadata from the same
+// durable record as task ownership. Records written without tracing need none.
+type pendingTraceOrigin interface {
+	TraceOrigin() runtime.TraceOrigin
+}
+
 // ContinuationStore persists the one native conversation owned by an Actor.
 // A2A contexts identify controller history; they do not select native sessions.
 type ContinuationStore interface {
@@ -75,7 +81,7 @@ type activeTask struct {
 }
 
 // parkedTask owns the PendingTurn while its A2A task is waiting for input.
-// origin is the invocation that started the native turn, so every later
+// origin is the invocation that started the task, so every later
 // segment can record where the work it continues began.
 type parkedTask struct {
 	taskRef
@@ -244,7 +250,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			fail("actor_unavailable", err)
 			return
 		}
-		if continued != nil {
+		if continued != nil && continued.origin.IsValid() {
 			// A link states that this segment continues work another invocation
 			// started. It does not reparent spans or transfer ownership of the
 			// token usage recorded under the originating segment.
@@ -253,9 +259,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 				Attributes:  []attribute.KeyValue{attribute.String(tracing.AttributeLinkRelationship, tracing.RelationshipResumeOrigin)},
 			})
 		}
-		// The native process, and the trace it emits under, belong to the
-		// segment that started the turn. A later pause keeps pointing at that
-		// origin rather than at whichever segment paused most recently.
+		// Keep the task's initial invocation as the origin across repeated pauses.
+		// New native turns retain the current invocation's execution context.
 		origin := invocation.SpanContext()
 		if continued != nil && continued.origin.IsValid() {
 			origin = continued.origin
@@ -311,6 +316,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		}
 		turn.ContinuationID = continuationID
 		turn.TaskID, turn.ContextID = string(reqCtx.TaskID), reqCtx.ContextID
+		turn.Origin = runtime.NewTraceOrigin(origin)
 		var outcome runtime.Outcome
 		var runErr error
 		// activate returns a handle only when this request continues the task
@@ -769,7 +775,11 @@ func (e *Executor) restorePending() error {
 	if taskID == "" || contextID == "" {
 		return fmt.Errorf("restored runtime pending turn has no task identity")
 	}
-	e.state = &parkedTask{taskRef: taskRef{taskID: a2atype.TaskID(taskID), contextID: contextID}, pending: pending}
+	var origin trace.SpanContext
+	if traced, ok := pending.(pendingTraceOrigin); ok {
+		origin = traced.TraceOrigin().SpanContext()
+	}
+	e.state = &parkedTask{taskRef: taskRef{taskID: a2atype.TaskID(taskID), contextID: contextID}, pending: pending, origin: origin}
 	return nil
 }
 

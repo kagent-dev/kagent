@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"reflect"
 	"slices"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -554,9 +555,8 @@ func parkedStatus(t *testing.T, events []a2atype.Event, errs []error) *a2atype.T
 	return update
 }
 
-// A turn that pauses twice keeps one native process, so both resumed segments
-// link to the segment that started it rather than forming a chain.
-func TestResumedSegmentsLinkToTheNativeOriginAcrossPauses(t *testing.T) {
+// Both resumed segments link to the initial task invocation across pauses.
+func TestResumedSegmentsLinkToTheTaskOriginAcrossPauses(t *testing.T) {
 	recorder := newTraceRecorder(t)
 	second := &fakePendingTurn{
 		request: &runtime.ApprovalRequest{ID: "2", CallID: "call-2", Name: "tools.write", Hint: "Allow tools.write?"},
@@ -1704,4 +1704,131 @@ func spansByName(spans tracetest.SpanStubs) map[string]tracetest.SpanStub {
 		named[span.Name] = span
 	}
 	return named
+}
+type tracedPendingTurn struct {
+	*fakePendingTurn
+	origin runtime.TraceOrigin
+}
+
+func (p *tracedPendingTurn) TraceOrigin() runtime.TraceOrigin { return p.origin }
+
+func TestRestoredLegacyPendingHasNoOriginLink(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	request := requestContext("task-legacy-trace", "write")
+	message, err := inputRequiredMessage(request, &runtime.ApprovalRequest{ID: "1", CallID: "call-1", Name: "tools.write"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parked := &a2atype.TaskStatusUpdateEvent{Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: message}}
+	for _, metadata := range []bool{false, true} {
+		var pending runtime.PendingTurn = &fakePendingTurn{
+			request: &runtime.ApprovalRequest{ID: "1", CallID: "call-1", Name: "tools.write"},
+			resume: func(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error) {
+				return runtime.Outcome{}, nil
+			},
+		}
+		if metadata {
+			pending = &tracedPendingTurn{fakePendingTurn: pending.(*fakePendingTurn)}
+		}
+		executor, err := New(&restoringRunner{taskID: string(request.TaskID), contextID: request.ContextID, pending: pending}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, errs := collect(executor.Execute(recorder.segment(t.Context()), approvalDecision(t, request, parked, "1")))
+		if len(errs) != 0 {
+			t.Fatal(errs)
+		}
+	}
+	for _, span := range recorder.spans(t, 2) {
+		if len(span.Links) != 0 {
+			t.Fatalf("legacy journal invented an origin link: %#v", span.Links)
+		}
+	}
+}
+
+func TestNewTaskGetsFreshTraceOrigin(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	var origins []runtime.TraceOrigin
+	executor, err := New(fakeRunner{run: func(_ context.Context, turn runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+		origins = append(origins, turn.Origin)
+		return runtime.Outcome{}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"task-1", "task-2"} {
+		_, errs := collect(executor.Execute(recorder.segment(t.Context()), requestContext(id, "hello")))
+		if len(errs) != 0 {
+			t.Fatal(errs)
+		}
+	}
+	spans := recorder.spans(t, 2)
+	for i, origin := range origins {
+		if !origin.SpanContext().Equal(spans[i].SpanContext) || len(spans[i].Links) != 0 {
+			t.Fatalf("new task %d inherited an earlier origin", i)
+		}
+	}
+	if origins[0].SpanContext().TraceID() == origins[1].SpanContext().TraceID() {
+		t.Fatal("independent invocations share an origin")
+	}
+}
+
+func TestRestoredSegmentsKeepTaskOriginAcrossPauses(t *testing.T) {
+	recorder := newTraceRecorder(t)
+	var saved runtime.TraceOrigin
+	request := requestContext("task-restored-trace", "read then write")
+	makePending := func(id string, again bool) *tracedPendingTurn {
+		return &tracedPendingTurn{origin: saved, fakePendingTurn: &fakePendingTurn{
+			request: &runtime.ApprovalRequest{ID: id, CallID: "call-" + id, Name: "tools.write"},
+			resume: func(ctx context.Context, _ runtime.InputResponse, _ runtime.EventSink) (runtime.Outcome, error) {
+				if trace.SpanContextFromContext(ctx).TraceID() == saved.SpanContext().TraceID() {
+					t.Fatal("resume was reparented to the persisted origin")
+				}
+				if again {
+					return runtime.Outcome{Pending: &fakePendingTurn{request: &runtime.ApprovalRequest{ID: "2", CallID: "call-2", Name: "tools.write"}}}, nil
+				}
+				return runtime.Outcome{}, nil
+			},
+		}}
+	}
+	executor, err := New(fakeRunner{run: func(_ context.Context, turn runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+		saved = turn.Origin
+		return runtime.Outcome{Pending: makePending("1", true)}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, errs := collect(executor.Execute(recorder.segment(t.Context()), request))
+	parked := parkedStatus(t, events, errs)
+	for index, id := range []string{"1", "2"} {
+		// DATA restores only serialized metadata, into a fresh executor and handle.
+		data, err := json.Marshal(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &saved); err != nil {
+			t.Fatal(err)
+		}
+		runner := &restoringRunner{taskID: string(request.TaskID), contextID: request.ContextID, pending: makePending(id, index == 0)}
+		executor, err = New(runner, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		events, errs = collect(executor.Execute(recorder.segment(t.Context()), approvalDecision(t, request, parked, id)))
+		if index == 0 {
+			parked = parkedStatus(t, events, errs)
+		} else if len(errs) != 0 {
+			t.Fatalf("resume errors: %v", errs)
+		}
+	}
+	spans := recorder.spans(t, 3)
+	for _, span := range spans[1:] {
+		if span.SpanContext.TraceID() == spans[0].SpanContext.TraceID() || len(span.Links) != 1 {
+			t.Fatalf("expected separate trace with one origin link: %#v", span)
+		}
+		linked := span.Links[0].SpanContext
+		if linked.TraceID() != spans[0].SpanContext.TraceID() || linked.SpanID() != spans[0].SpanContext.SpanID() {
+			t.Fatalf("link does not point to initial invocation: %#v", span.Links)
+		}
+	}
 }

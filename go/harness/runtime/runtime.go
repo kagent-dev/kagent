@@ -20,6 +20,7 @@ func (e *CancellationError) Unwrap() error { return e.Err }
 type Turn struct {
 	TaskID         string
 	ContextID      string
+	Origin         TraceOrigin
 	Prompt         string
 	ContinuationID string
 	InputResponse  InputResponse

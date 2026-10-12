@@ -29,6 +29,7 @@ type deferredRecord struct {
 	Version   int                       `json:"version"`
 	TaskID    string                    `json:"taskId"`
 	ContextID string                    `json:"contextId"`
+	Origin    runtime.TraceOrigin       `json:"origin,omitzero"`
 	SessionID string                    `json:"sessionId"`
 	RequestID string                    `json:"requestId"`
 	Canceling bool                      `json:"canceling,omitempty"`
@@ -240,7 +241,7 @@ func (d *ProcessDriver) parkDeferred(turn runtime.Turn, session string, tool *De
 	if b == nil || !b.protects(tool.Name) {
 		return runtime.Outcome{}, fmt.Errorf("unsupported Claude deferred tool")
 	}
-	r := deferredRecord{Version: 1, TaskID: turn.TaskID, ContextID: turn.ContextID, SessionID: session, RequestID: uuid.NewString(), Phase: "waiting", Tool: *tool}
+	r := deferredRecord{Version: 1, TaskID: turn.TaskID, ContextID: turn.ContextID, SessionID: session, RequestID: uuid.NewString(), Origin: turn.Origin, Phase: "waiting", Tool: *tool}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := saveDeferred(b.directory, d.config.MaxEventBytes, &r); err != nil {
@@ -260,6 +261,8 @@ type deferredTurn struct {
 }
 
 func (p *deferredTurn) Request() runtime.InputRequest { return p.request }
+
+func (p *deferredTurn) TraceOrigin() runtime.TraceOrigin { return p.record.Origin }
 
 // current requires the broker mutex. Disk is authoritative after DATA restore.
 func (p *deferredTurn) current() (*deferredRecord, error) {
@@ -326,7 +329,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
-	outcome, err = p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID}, sink, &r.Tool)
+	outcome, err = p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, sink, &r.Tool)
 	var startErr *processStartError
 	if errors.As(err, &startErr) {
 		b.mu.Lock()
@@ -399,7 +402,7 @@ func (p *deferredTurn) Cancel(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	outcome, err := p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID}, discardSink{}, &r.Tool)
+	outcome, err := p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, discardSink{}, &r.Tool)
 	var startErr *processStartError
 	if errors.As(err, &startErr) {
 		// No cleanup process ran, so even cancellation remains retryable.

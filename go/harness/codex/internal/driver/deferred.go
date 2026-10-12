@@ -35,6 +35,7 @@ type pendingRecord struct {
 	Version   int                       `json:"version"`
 	TaskID    string                    `json:"task_id"`
 	ContextID string                    `json:"context_id"`
+	Origin    runtime.TraceOrigin       `json:"origin,omitzero"`
 	ThreadID  string                    `json:"thread_id"`
 	Phase     pendingPhase              `json:"phase"`
 	Server    string                    `json:"server,omitempty"`
@@ -100,6 +101,8 @@ type deferredTurn struct {
 }
 
 func (p *deferredTurn) Request() runtime.InputRequest { return p.record.request() }
+
+func (p *deferredTurn) TraceOrigin() runtime.TraceOrigin { return p.record.Origin }
 
 // RestorePending is a local read, including after data is restored into an
 // already-constructed golden process. The A2A executor owns task admission.
@@ -167,7 +170,7 @@ func (d *ProcessDriver) savePending(r *pendingRecord) error {
 
 func (d *ProcessDriver) deferInput(ctx context.Context, session *processSession, request runtime.InputRequest, sink runtime.EventSink) (runtime.Outcome, error) {
 	r := pendingRecord{Version: 1, TaskID: session.turn.TaskID, ContextID: session.turn.ContextID,
-		ThreadID: session.translator.threadID, Phase: phaseWaiting}
+		ThreadID: session.translator.threadID, Origin: session.turn.Origin, Phase: phaseWaiting}
 	callID := ""
 	switch request := request.(type) {
 	case *runtime.ApprovalRequest:
@@ -346,7 +349,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 			return runtime.Outcome{}, err
 		}
 	}
-	turn := runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.ThreadID}
+	turn := runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.ThreadID, Origin: r.Origin}
 	var tool *toolContinuation
 	if r.Approval != nil {
 		data, err := json.Marshal(r.Result)

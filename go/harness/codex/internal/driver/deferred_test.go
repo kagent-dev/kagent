@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type fakeToolCaller struct {
@@ -29,6 +30,27 @@ func (f fakeToolCaller) Call(ctx context.Context, server, tool string, args map[
 func waitingRecord() pendingRecord {
 	return pendingRecord{Version: 1, TaskID: "task-1", ContextID: "context-1", ThreadID: "thread-1", Phase: phaseWaiting,
 		Server: "protected", Tool: "write", Approval: &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write", Args: map[string]any{"value": float64(7)}}}
+}
+
+func TestPendingTraceOriginSurvivesRestoreAndRepark(t *testing.T) {
+	r := waitingRecord()
+	r.Origin = runtime.NewTraceOrigin(trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled}))
+	d := NewProcessDriver(ProcessConfig{PendingDir: t.TempDir(), MaxFrameBytes: 4096})
+	d.config.Tools = fakeToolCaller{call: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+		return nil, &toolNotExecutedError{err: errors.New("connection unavailable")}
+	}}
+	require.NoError(t, d.savePending(&r))
+	_, _, pending, err := d.RestorePending()
+	require.NoError(t, err)
+	_, err = pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}, &recordingSink{})
+	require.NoError(t, err)
+	restored := NewProcessDriver(ProcessConfig{PendingDir: d.config.PendingDir, MaxFrameBytes: 4096})
+	_, _, pending, err = restored.RestorePending()
+	require.NoError(t, err)
+	got := pending.(*deferredTurn).TraceOrigin().SpanContext()
+	require.Equal(t, r.Origin.SpanContext().TraceID(), got.TraceID())
+	require.Equal(t, r.Origin.SpanContext().SpanID(), got.SpanID())
+	require.Equal(t, r.Origin.SpanContext().TraceFlags(), got.TraceFlags())
 }
 
 func TestRestorePendingValidatesDurableData(t *testing.T) {

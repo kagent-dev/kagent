@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestProcessDriverRunsPinnedProtocol(t *testing.T) {
@@ -793,7 +794,8 @@ printf graceful > "$EXIT_CAPTURE"
 			return nil, errors.New("must use cached result")
 		}}}
 	driver := NewProcessDriver(cfg)
-	outcome, err := driver.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "write"}, &recordingSink{})
+	origin := runtime.NewTraceOrigin(trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled}))
+	outcome, err := driver.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "write", Origin: origin}, &recordingSink{})
 	if err != nil || outcome.Pending == nil {
 		t.Fatalf("defer = %#v %v", outcome, err)
 	}
@@ -806,6 +808,8 @@ printf graceful > "$EXIT_CAPTURE"
 		t.Fatal(err)
 	}
 	r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+	require.Equal(t, origin.SpanContext().TraceID(), r.Origin.SpanContext().TraceID())
+	require.Equal(t, origin.SpanContext().SpanID(), r.Origin.SpanContext().SpanID())
 	r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "saved successful result"}}}
 	r.Phase = phaseResult
 	if err := driver.savePending(r); err != nil {
@@ -827,6 +831,7 @@ printf graceful > "$EXIT_CAPTURE"
 		saved, err := failed.loadPending()
 		require.NoError(t, err)
 		require.Equal(t, phaseResult, saved.Phase)
+		require.Equal(t, origin.SpanContext().SpanID(), saved.Origin.SpanContext().SpanID())
 		retry = outcome.Pending
 	}
 	fresh := NewProcessDriver(cfg)

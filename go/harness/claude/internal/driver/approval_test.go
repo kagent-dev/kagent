@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func newTestBroker(t *testing.T) *ApprovalBroker {
@@ -28,6 +29,25 @@ func newTestBroker(t *testing.T) *ApprovalBroker {
 
 func testRecord() deferredRecord {
 	return deferredRecord{Version: 1, TaskID: "task", ContextID: "context", SessionID: "session", RequestID: "request", Phase: "waiting", Tool: DeferredTool{ID: "call", Name: "mcp__protected__write", Input: map[string]any{"value": 7}}}
+}
+
+func TestDeferredTraceOriginSurvivesRestoreAndAnotherPause(t *testing.T) {
+	b := newTestBroker(t)
+	d := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+	origin := runtime.NewTraceOrigin(trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled}))
+	turn := runtime.Turn{TaskID: "task", ContextID: "context", Origin: origin}
+	for _, id := range []string{"call-1", "call-2"} {
+		_, err := d.parkDeferred(turn, "session", &DeferredTool{ID: id, Name: "mcp__protected__write", Input: map[string]any{"value": 7}})
+		require.NoError(t, err)
+		// A new driver reads the record instead of retaining the pending handle.
+		restored := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+		_, _, pending, err := restored.RestorePending()
+		require.NoError(t, err)
+		require.NotNil(t, pending)
+		turn.Origin = pending.(*deferredTurn).TraceOrigin()
+		require.Equal(t, origin.SpanContext().TraceID(), turn.Origin.SpanContext().TraceID())
+		require.Equal(t, origin.SpanContext().SpanID(), turn.Origin.SpanContext().SpanID())
+	}
 }
 
 func postHook(t *testing.T, b *ApprovalBroker, input hookInput) hookOutput {
