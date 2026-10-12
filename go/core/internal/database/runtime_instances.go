@@ -190,6 +190,26 @@ func completeRuntimeOperation(row runtimeInstanceRow, operationID, executorID uu
 	return row, nil
 }
 
+// cancelRuntimeOperation ends the claiming executor's resume or suspend whose
+// runtime is observed where the operation found it: nothing was issued that
+// could still take effect. The state stays, the generation and claim are cleared.
+func cancelRuntimeOperation(row runtimeInstanceRow, operationID, executorID uuid.UUID) (runtimeInstanceRow, error) {
+	_, operation, err := row.lifecycle()
+	if err != nil {
+		return row, err
+	}
+	if operationID == uuid.Nil || executorID == uuid.Nil || row.OperationID == nil || *row.OperationID != operationID ||
+		row.ExecutorID == nil || *row.ExecutorID != executorID {
+		return row, ErrConflict
+	}
+	if operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME && operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND {
+		return row, ErrConflict
+	}
+	row.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
+	row.OperationID, row.ExecutorID = nil, nil
+	return row, nil
+}
+
 // saveRuntimeLifecycle updates only common lifecycle fields. Extension writes
 // and resource payloads are written under the same row lock and transaction,
 // including deletion cleanup.

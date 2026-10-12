@@ -900,7 +900,8 @@ func TestAwaitRuntime(t *testing.T) {
 // another operation holding the Actor, is issued again until it goes through,
 // and the session is ready without a second request. Any other answer fails
 // the attempt at once; an answer that outlasts the attempt is returned as it
-// is, and the next request continues the operation.
+// is. The Actor is still suspended, so the operation ends: the session takes
+// a delete, and the next request resumes it.
 func TestResumeWaitsWhileSubstrateAnswersLater(t *testing.T) {
 	for _, test := range []struct {
 		name        string
@@ -945,12 +946,187 @@ func TestResumeWaitsWhileSubstrateAnswersLater(t *testing.T) {
 			} else {
 				require.Greater(t, actors.resumes, 1, "a resume Substrate answers later is issued again within the attempt")
 			}
-			pending, err := store.GetSessionByID(t.Context(), session.Id)
+			ended, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, pending.GetOperation(), "the operation stays pending for the next request")
-			ready, err := NewActorWorkflow(store, base).Resume(t.Context(), pending)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, ended.GetOperation(), "a resume that left the Actor suspended holds no operation")
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, ended.GetState())
+			ready, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second).Resume(t.Context(), ended)
 			require.NoError(t, err)
 			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.GetState())
+		})
+	}
+}
+
+// rollingActors answers its first unavailable ate-api calls, reads and
+// repoints alike, Unavailable: the controller's connection to an ate-api whose
+// pods are replaced fails every call until it reaches a new pod.
+type rollingActors struct {
+	*lifecycleTestActors
+	unavailable int
+	calls       int
+}
+
+func (a *rollingActors) rolling() error {
+	a.calls++
+	if a.calls <= a.unavailable {
+		return status.Error(codes.Unavailable, "connection error: desc = \"transport: Error while dialing: dial tcp 10.96.0.20:443: connect: connection refused\"")
+	}
+	return nil
+}
+
+func (a *rollingActors) GetActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	if err := a.rolling(); err != nil {
+		return nil, err
+	}
+	return a.lifecycleTestActors.GetActor(ctx, atespace, name)
+}
+
+func (a *rollingActors) RepointActor(ctx context.Context, atespace, name, templateAtespace, templateName string) (*ateapipb.Actor, error) {
+	if err := a.rolling(); err != nil {
+		return nil, err
+	}
+	return a.lifecycleTestActors.RepointActor(ctx, atespace, name, templateAtespace, templateName)
+}
+
+func (a *rollingActors) ResumeActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	if err := a.rolling(); err != nil {
+		return nil, err
+	}
+	return a.lifecycleTestActors.ResumeActor(ctx, atespace, name)
+}
+
+// A resume issued while ate-api rolls waits until the controller reaches the
+// new control plane, the reads and the repoint onto the agent's current
+// revision before the resume as much as the resume, and the session is ready
+// without a second request.
+func TestResumeWaitsOutAnAteAPIRoll(t *testing.T) {
+	for _, unavailable := range []int{1, 2, 3, 5} {
+		t.Run(fmt.Sprintf("%d calls unavailable", unavailable), func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			setup := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
+			session, err := setup.Create(t.Context(), session)
+			require.NoError(t, err)
+			session, err = setup.Suspend(t.Context(), session)
+			require.NoError(t, err)
+			current := supersedingRevision(t, store)
+
+			actors := &rollingActors{lifecycleTestActors: base, unavailable: unavailable}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow.busyRetry = time.Millisecond
+			resumed, err := workflow.Resume(t.Context(), session)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, resumed.GetState())
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, resumed.GetOperation())
+			require.Equal(t, current.Revision, resumed.GetPreparedRevision())
+			require.Greater(t, actors.calls, unavailable)
+		})
+	}
+}
+
+// A resume whose repoint ate-api answers Unavailable past the attempt fails,
+// and the Actor is still suspended: the operation ends instead of holding the
+// session, so its delete is not refused, and a later resume goes through.
+func TestResumeFailedBeforeTheResumeHoldsNoOperation(t *testing.T) {
+	for _, next := range []string{"delete", "resume"} {
+		t.Run(next, func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			setup := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
+			session, err := setup.Create(t.Context(), session)
+			require.NoError(t, err)
+			session, err = setup.Suspend(t.Context(), session)
+			require.NoError(t, err)
+			supersedingRevision(t, store)
+
+			base.repointErr = status.Error(codes.Unavailable, "connection error")
+			workflow := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
+			workflow.busyRetry = time.Millisecond
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			_, err = workflow.Resume(ctx, session)
+			require.Equal(t, codes.Unavailable, status.Code(err))
+			require.ErrorContains(t, err, "the Actor is still suspended")
+
+			ended, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, ended.GetState())
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, ended.GetOperation())
+
+			base.repointErr = nil
+			switch next {
+			case "delete":
+				deleted, err := setup.Delete(t.Context(), ended)
+				require.NoError(t, err, "a failed resume must not refuse the session's delete")
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, deleted.GetState())
+			case "resume":
+				resumed, err := setup.Resume(t.Context(), ended)
+				require.NoError(t, err)
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, resumed.GetState())
+			}
+		})
+	}
+}
+
+// transientCrashActors answers a resume the way Substrate does when a drained
+// worker cuts its restore short: Internal, the Actor crashed until Substrate
+// returns it to rest.
+type transientCrashActors struct {
+	*lifecycleTestActors
+}
+
+func (a *transientCrashActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.actors[actorKey(atespace, name)].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
+	return nil, status.Error(codes.Internal, "while calling ateom.RestoreWorkload: wakeup probe cancelled: context canceled")
+}
+
+func (a *transientCrashActors) rest(atespace, name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.actors[actorKey(atespace, name)].Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+}
+
+// A resume whose Actor crashed for a transient cause keeps its operation while
+// the Actor is crashed; once Substrate returns the Actor to rest, or the Actor
+// is gone, a delete ends the held resume and deletes the session instead of
+// being refused.
+func TestDeleteEndsAHeldResumeOnceTheActorRests(t *testing.T) {
+	for _, then := range []string{"rests", "gone"} {
+		t.Run(then, func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+			setup := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Second)
+			session, err := setup.Create(t.Context(), session)
+			require.NoError(t, err)
+			session, err = setup.Suspend(t.Context(), session)
+			require.NoError(t, err)
+
+			actors := &transientCrashActors{lifecycleTestActors: base}
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			_, err = workflow.Resume(t.Context(), session)
+			require.Equal(t, codes.Internal, status.Code(err))
+			held, err := store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, held.GetOperation(), "a crashed Actor leaves the outcome open")
+
+			_, err = workflow.Delete(t.Context(), held)
+			require.ErrorIs(t, err, database.ErrConflict, "a delete waits while the Actor is crashed")
+			held, err = store.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, held.GetOperation(), "the refused delete leaves the resume held")
+
+			name := substrate.ActorName(session.Id)
+			switch then {
+			case "rests":
+				actors.rest("team-a", name)
+			case "gone":
+				require.NoError(t, base.DeleteActor(t.Context(), "team-a", name, true))
+			}
+			deleted, err := workflow.Delete(t.Context(), held)
+			require.NoError(t, err)
+			require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, deleted.GetState())
 		})
 	}
 }

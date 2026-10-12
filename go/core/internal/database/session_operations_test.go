@@ -172,6 +172,69 @@ func TestDeleteSupersedesOnlyUnissuedCreation(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 }
 
+// A claimed resume whose Actor its executor finds still suspended holds the
+// session until it ends: only the claiming executor ends it, the session stays
+// suspended, and a delete is admitted afterwards.
+func TestCancelSessionOperationEndsAnUnappliedResume(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+	require.NoError(t, err)
+	session, err = markSessionReady(t.Context(), client, session.Id, "runtime.example")
+	require.NoError(t, err)
+	suspend, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	require.NoError(t, err)
+	suspender := uuid.New()
+	claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, suspend.ID, suspender)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	_, err = client.FinishSessionOperation(t.Context(), session.Id, suspend.ID, suspender, "", "", "")
+	require.NoError(t, err)
+
+	resume, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	require.NoError(t, err)
+	resumer := uuid.New()
+	claimed, err = client.ClaimSessionOperation(t.Context(), session.Id, resume.ID, resumer)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	require.NoError(t, client.ReleaseRuntimeOperation(t.Context(), session.Id, resume.ID, resumer))
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.ErrorIs(t, err, ErrConflict, "a released attempt keeps its possibly issued work")
+
+	current, err := client.GetCurrentSessionOperation(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, resume.ID, current.ID)
+	require.Equal(t, resumer, current.ExecutorID)
+	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, current.Instance.Operation)
+	_, err = client.GetCurrentSessionOperation(t.Context(), uuid.NewString())
+	require.ErrorIs(t, err, ErrNotFound)
+
+	_, err = client.CancelSessionOperation(t.Context(), session.Id, resume.ID, uuid.New())
+	require.ErrorIs(t, err, ErrConflict, "only the claiming executor ends the operation")
+	_, err = client.CancelSessionOperation(t.Context(), session.Id, suspend.ID, resumer)
+	require.ErrorIs(t, err, ErrConflict, "a superseded generation cannot end the current one")
+	ended, err := client.CancelSessionOperation(t.Context(), session.Id, resume.ID, resumer)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, ended.State)
+	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, ended.Operation)
+	stored, err := client.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, stored.State)
+	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, stored.Operation)
+	_, err = client.CancelSessionOperation(t.Context(), session.Id, resume.ID, resumer)
+	require.ErrorIs(t, err, ErrConflict, "an ended operation cannot end again")
+
+	deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.NoError(t, err)
+	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
+	deleter := uuid.New()
+	claimed, err = client.ClaimSessionOperation(t.Context(), session.Id, deletion.ID, deleter)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	_, err = client.CancelSessionOperation(t.Context(), session.Id, deletion.ID, deleter)
+	require.ErrorIs(t, err, ErrConflict, "a delete is never ended as unapplied")
+}
+
 func TestLifecycleABARejectsOldClaimAndCompletion(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")

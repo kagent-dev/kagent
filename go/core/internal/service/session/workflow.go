@@ -36,9 +36,11 @@ type workflowStore interface {
 	BeginSessionOperation(context.Context, string, apiv1alpha1.RuntimeOperation) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
+	CancelSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (*apiv1alpha1.Session, error)
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1alpha1.Session, error)
 	FailSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, *apiv1alpha1.Failure) (*apiv1alpha1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
+	GetCurrentSessionOperation(context.Context, string) (*database.SessionOperation, error)
 }
 
 type actorClient interface {
@@ -371,6 +373,9 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancelAttempt()
 	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
+	if errors.Is(err, database.ErrConflict) && requestedKind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE && w.endHeldResume(ctx, sessionID) {
+		operation, err = w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -382,10 +387,47 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 	return result, err
 }
 
+// endHeldResume ends the session's resume that an earlier attempt left
+// pending and no attempt runs now, when its Actor rests suspended where the
+// operation found it (resumeUnapplied), and reports whether it did. A resume
+// Substrate failed for a transient cause, such as a worker drained under the
+// restore, crashes the Actor only until Substrate returns it to rest; its
+// attempt finds the Actor crashed and keeps the operation, which would refuse
+// the session's delete until another resume settled it.
+func (w *ActorWorkflow) endHeldResume(ctx context.Context, sessionID string) bool {
+	held, err := w.store.GetCurrentSessionOperation(ctx, sessionID)
+	if err != nil || held.Instance.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
+		return false
+	}
+	revision, err := w.store.GetRuntimeRevision(ctx, held.Instance.GetPreparedRevision())
+	if err != nil {
+		return false
+	}
+	executorID := uuid.New()
+	claimed, err := w.store.ClaimSessionOperation(ctx, sessionID, held.ID, executorID)
+	if err != nil || !claimed {
+		return false
+	}
+	if w.resumeUnapplied(ctx, sessionID, revision) {
+		if _, err := w.store.CancelSessionOperation(ctx, sessionID, held.ID, executorID); err == nil {
+			return true
+		}
+	}
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := w.store.ReleaseRuntimeOperation(finishCtx, sessionID, held.ID, executorID); err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "the delete's claim on a held resume was not released; it expires",
+			"session_id", sessionID, "operation_id", held.ID, "error", err)
+	}
+	return false
+}
+
 // execute keeps lifecycle preparation separate from the durable issue boundary.
 // Multiple callers may prepare using read-only calls; exactly one can authorize
 // runtime mutations for a bounded attempt. Errors retain the operation and its
-// resource pins so a client retry can continue it. Session admission still
+// resource pins so a client retry can continue it, except a failed resume whose
+// Actor is found still suspended (resumeUnapplied): its outcome is known, so the
+// operation ends and the session takes any next operation. Session admission still
 // serializes lifecycle against runtime writes, idle work, and checkpoints.
 func (w *ActorWorkflow) execute(ctx context.Context, operation *database.SessionOperation) (_ *apiv1alpha1.Session, err error) {
 	sessionID := operation.Instance.Id
@@ -444,7 +486,11 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		}
 	}
 	if current != nil {
-		actor, err := w.actors.GetActor(ctx, binding.Atespace, binding.Name)
+		var actor *ateapipb.Actor
+		err := w.untilSettled(ctx, kind, func() (err error) {
+			actor, err = w.actors.GetActor(ctx, binding.Atespace, binding.Name)
+			return err
+		})
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err))
 		}
@@ -459,7 +505,11 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	if operation.ExecutorID != uuid.Nil {
 		prepare = substrate.PrepareActorRetry
 	}
-	transition, err := prepare(ctx, w.actors, binding, kind, creation)
+	var transition *substrate.ActorTransition
+	err = w.untilSettled(ctx, kind, func() (err error) {
+		transition, err = prepare(ctx, w.actors, binding, kind, creation)
+		return err
+	})
 	if err != nil {
 		return w.failPreparation(ctx, operation, err)
 	}
@@ -483,33 +533,54 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		}
 		return operationOutcome(current)
 	}
+	// recorded is the revision the session records for this operation; the
+	// Actor of an unapplied resume is found suspended on its template.
+	recorded := revision
 	defer func() {
-		if err == nil {
-			return // Completion already cleared the claim.
+		if err == nil || errors.Is(err, ErrRuntimeLost) {
+			return // Completion or the recorded failure already cleared the claim.
 		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		err = errors.Join(err, w.store.ReleaseRuntimeOperation(finishCtx, sessionID, operation.ID, executorID))
+		if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME && w.resumeUnapplied(finishCtx, sessionID, recorded) {
+			_, cancelErr := w.store.CancelSessionOperation(finishCtx, sessionID, operation.ID, executorID)
+			if cancelErr == nil {
+				err = fmt.Errorf("lifecycle operation %s ended, the Actor is still suspended: %w", operation.ID, err)
+				return
+			}
+			logging.FromContext(ctx).WarnContext(ctx, "the failed resume keeps its operation: it could not be ended",
+				"session_id", sessionID, "operation_id", operation.ID, "error", cancelErr)
+		}
+		err = errors.Join(fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err),
+			w.store.ReleaseRuntimeOperation(finishCtx, sessionID, operation.ID, executorID))
 	}()
 	if current != nil {
-		repointed, err := w.repointActor(ctx, session.Id, current, currentPolicy)
+		var repointed *ateapipb.Actor
+		err := w.untilSettled(ctx, kind, func() (err error) {
+			repointed, err = w.repointActor(ctx, session.Id, current, currentPolicy)
+			return err
+		})
 		if err != nil {
-			return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+			return nil, err
 		}
 		if repointed != nil {
 			if err := w.store.RepointSessionOperation(ctx, sessionID, operation.ID, executorID, current.Revision); err != nil {
-				return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+				return nil, err
 			}
+			recorded = current
 			if moved := actorBinding(session.Id, current); moved != binding {
 				binding = moved
-				transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
+				err = w.untilSettled(ctx, kind, func() (err error) {
+					transition, err = substrate.PrepareActorRetry(ctx, w.actors, binding, kind, creation)
+					return err
+				})
 				if err != nil {
-					return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+					return nil, err
 				}
 			}
 		}
 	}
-	if err := w.applyTransition(ctx, transition, kind); err != nil {
+	if err := w.untilSettled(ctx, kind, func() error { return substrate.ApplyActorTransition(ctx, w.actors, transition) }); err != nil {
 		if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME && status.Code(err) == codes.DataLoss {
 			// Substrate answers DataLoss when the Actor's snapshot cannot be
 			// restored, its own or the golden one it builds on: no retry can
@@ -525,7 +596,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 			}
 			return failed, fmt.Errorf("%s: %w", message, ErrRuntimeLost)
 		}
-		return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
+		return nil, err
 	}
 	var authority string
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
@@ -542,18 +613,42 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	return finished, err
 }
 
-// applyTransition issues the operation's runtime mutation. A resume Substrate
-// answers later (resumeLater) is issued again until it goes through or the
-// attempt ends: the worker pool rolling under a session is not the session's
-// failure, and the attempt has the time to wait the roll out. The answer at
-// the attempt's end is returned as it is, for the next attempt to continue
-// the operation.
-func (w *ActorWorkflow) applyTransition(ctx context.Context, transition *substrate.ActorTransition, kind apiv1alpha1.RuntimeOperation) error {
-	apply := func() error { return substrate.ApplyActorTransition(ctx, w.actors, transition) }
+// untilSettled runs call, one of the operation's ate-api calls, once; a
+// resume's call Substrate answers later (resumeLater) is issued again until
+// it goes through or the attempt ends. The worker pool or the control plane
+// rolling under a session is not the session's failure, and the attempt has
+// the time to wait the roll out: while ate-api's pods are replaced, the
+// controller's connection answers every call Unavailable until it reaches a
+// new one, the reads and the repoint before the resume as much as the resume.
+func (w *ActorWorkflow) untilSettled(ctx context.Context, kind apiv1alpha1.RuntimeOperation, call func() error) error {
 	if kind != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
-		return apply()
+		return call()
 	}
-	return w.awaitResume(ctx, apply)
+	return w.awaitResume(ctx, call)
+}
+
+// resumeUnapplied reports whether a failed resume left the session's Actor as
+// the operation found it: suspended, the session's own, on the template of the
+// revision the session records, or gone, so that no resume can take effect.
+// The outcome is then known and the operation can end; holding it would refuse
+// the session's delete until another resume. An Actor that cannot be read, is
+// no longer suspended or has moved keeps the operation for the next attempt to
+// settle.
+func (w *ActorWorkflow) resumeUnapplied(ctx context.Context, sessionID string, revision *database.RuntimeRevision) bool {
+	name := substrate.ActorName(sessionID)
+	var actor *ateapipb.Actor
+	err := w.awaitResume(ctx, func() (err error) {
+		actor, err = w.actors.GetActor(ctx, revision.ActorTemplateAtespace, name)
+		return err
+	})
+	if status.Code(err) == codes.NotFound {
+		return true
+	}
+	if err != nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || !validActorIdentity(actor, revision, name) {
+		return false
+	}
+	_, err = w.store.GetSessionForRuntime(ctx, sessionID, actor.GetMetadata().GetUid())
+	return err == nil
 }
 
 // releaseDirectory tells the owner of a deleted session's volume that its

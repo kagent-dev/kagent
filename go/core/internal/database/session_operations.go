@@ -248,6 +248,50 @@ func (c *Client) FailSessionOperation(ctx context.Context, sessionID string, id,
 	return result, nil
 }
 
+// CancelSessionOperation ends the claiming executor's resume or suspend whose
+// runtime the executor observed where the operation found it, such as a
+// resume whose Actor is still suspended after ate-api failed it: the outcome
+// is known, so nothing is left for a later attempt to settle. The session
+// keeps its state and takes new lifecycle work, a delete included. Stale
+// cancellation returns ErrConflict.
+func (c *Client) CancelSessionOperation(ctx context.Context, sessionID string, id, executorID uuid.UUID) (*apiv1alpha1.Session, error) {
+	var result *apiv1alpha1.Session
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, sessionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		next, err := cancelRuntimeOperation(row.runtimeInstanceRow, id, executorID)
+		if err != nil {
+			return err
+		}
+		result, err = toSession(row)
+		if err != nil {
+			return err
+		}
+		result.State, result.Operation, err = next.lifecycle()
+		if err != nil {
+			return err
+		}
+		result.UpdatedAt = timestamppb.Now()
+		row.Data, err = marshalSession(result)
+		if err != nil {
+			return err
+		}
+		if err := saveRuntimeLifecycle(ctx, tx, next, runtimeKindAgent); err != nil {
+			return err
+		}
+		return execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, row.Data)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cancel Session operation: %w", err)
+	}
+	return result, nil
+}
+
 // GetSessionOperation observes this generation only while it remains current,
 // including its deletion tombstone. A superseded or missing generation returns
 // ErrConflict. Callers must have authorized the session at admission. It never
@@ -263,6 +307,21 @@ func (c *Client) GetSessionOperation(ctx context.Context, sessionID string, id u
 	}
 	if err != nil {
 		return nil, err
+	}
+	return toSessionOperation(row)
+}
+
+// GetCurrentSessionOperation observes the session's current generation, the
+// one a claim would name. It grants nothing: work on it still requires Claim.
+// A missing session returns ErrNotFound.
+func (c *Client) GetCurrentSessionOperation(ctx context.Context, sessionID string) (*SessionOperation, error) {
+	row, err := queryOne(ctx, c.db, `
+		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
+		    source_checkpoint_id, history_id, operation_id, executor_id FROM session_record
+		WHERE id = $1
+	`, pgx.RowToStructByName[sessionRow], sessionID)
+	if err != nil {
+		return nil, notFoundOr(err)
 	}
 	return toSessionOperation(row)
 }

@@ -184,8 +184,18 @@ yet — `ResourceExhausted` while the worker pool has no free worker, `Unavailab
 when a departing worker or a restarting ate-api cut it short, `Aborted` while
 another operation holds the Actor — is issued again within the same attempt,
 with a backoff from 500 ms to 5 s, until it goes through or the attempt ends;
-the attempt then returns that answer, and the next request continues the
-operation. Every other answer ends the attempt at once. Conflicting Session lifecycle, task, and checkpoint
+the attempt then returns that answer. Every other answer ends the attempt at
+once. The reads and the repoint before a resume wait the same way: while
+ate-api's pods are replaced, the controller's connection answers every call
+`Unavailable` until it reaches a new pod. A resume that fails while its Actor is
+still suspended on the template the session records has a known outcome: the
+operation ends, the session stays SUSPENDED and takes any next operation, a
+delete included. A resume whose Actor moved or cannot be read keeps the
+operation for the next request to continue. A resume Substrate failed for a
+transient cause (a worker drained under the restore) leaves its Actor crashed
+until Substrate returns it to rest; a delete that finds such a resume held, with
+no attempt running, claims it and ends it once the Actor rests suspended where
+the operation found it, or is gone, then deletes the session. Conflicting Session lifecycle, task, and checkpoint
 work remains blocked until the pending operation completes. Releasing an attempt
 never clears its durable intent or makes uncertain work an unissued preparation.
 

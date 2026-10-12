@@ -19,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
@@ -460,6 +461,8 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, 
 		return nil, serviceerrors.NewAborted(err.Error(), err)
 	}
 	if err != nil {
+		// The answer carries no cause; the log names it for the operator.
+		logging.FromContext(ctx).WarnContext(ctx, "resume Session failed; the client may resume again", "session_id", id, "error", err)
 		return nil, serviceerrors.NewUnavailable("Failed to resume Session", err)
 	}
 	return session, nil
