@@ -69,7 +69,16 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
+var errBundledPostgresOnTheLine = errors.New("the Giant Swarm Substrate line signs no postgres.podcert.ate.dev certificates for the bundled PostgreSQL: pass --skip-database-setup with a database you prepared (scripts/fork/dev-postgres.sh on kind)")
+
 func runInstall(ctx context.Context, options connection.Options, cfg *InstallCfg) error {
+	// The bundled PostgreSQL authenticates with postgres.podcert.ate.dev
+	// certificates, which only the standalone substrate-podcert chart signs. The
+	// Giant Swarm Substrate line runs the pod certificate controller in its
+	// substrate chart, with the servicedns and podidentity signers only.
+	if !cfg.SkipDatabaseSetup {
+		return errBundledPostgresOnTheLine
+	}
 	if version.Version == "dev" {
 		return errors.New("installation requires a released version of kagent")
 	}
@@ -129,20 +138,6 @@ func crdChartValues(values []string) []string {
 	return result
 }
 
-func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
-	result := make([]string, 0, len(values)+1)
-	for _, value := range values {
-		key, _, _ := strings.Cut(value, "=")
-		if strings.HasPrefix(key, "image.") || strings.HasPrefix(key, "global.") || strings.HasPrefix(key, "imagePullSecrets") {
-			result = append(result, value)
-		}
-	}
-	if includeBundledPostgresClient {
-		result = append(result, fmt.Sprintf("postgresClients[0]=%s/kagent-controller=kagent_user", namespace))
-	}
-	return result
-}
-
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
 func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
@@ -198,23 +193,8 @@ func setupSubstrateHelmConfig() helmConfig {
 	}
 }
 
-func setupPodCertificateHelmConfig(substrateConfig helmConfig) helmConfig {
-	config := helmConfig{
-		registry: substrateConfig.registry,
-		version:  substrateConfig.version,
-	}
-	if registry, ok := env.KagentSubstratePodCertificateHelmRepo.Lookup(); ok {
-		config.registry = registry
-	}
-	if version, ok := env.KagentSubstratePodCertificateHelmVersion.Lookup(); ok {
-		config.version = version
-	}
-	return config
-}
-
 // install installs the Substrate and Kagent releases.
 func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool) error {
-	podCertificateHelmConfig := setupPodCertificateHelmConfig(substrateHelmConfig)
 	substrateHelmConfig.values = append([]string{
 		fmt.Sprintf("credentialProvider.namespacePolicies[0].atespace=%s", cfg.Namespace),
 		fmt.Sprintf("credentialProvider.namespacePolicies[0].allowedNamespaces[0]=%s", cfg.Namespace),
@@ -248,11 +228,6 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	s.Suffix = " Preparing Substrate prerequisites"
 	if err := prepareSubstrate(ctx); err != nil {
 		return fmt.Errorf("prepare Substrate prerequisites: %w", err)
-	}
-
-	s.Suffix = " Installing substrate-podcert from " + podCertificateHelmConfig.registry
-	if output, err := installChart(ctx, "substrate-podcert", podCertificateNamespace, podCertificateHelmConfig.registry, podCertificateHelmConfig.version, podCertificateChartValues(substrateHelmConfig.values, cfg.Namespace, !skipDatabaseSetup), ""); err != nil {
-		return fmt.Errorf("install substrate-podcert: %s", strings.TrimSpace(output))
 	}
 
 	if !skipDatabaseSetup {

@@ -30,6 +30,8 @@ The Kagent chart does not deploy or initialize PostgreSQL, and it does not insta
 
 To run `kagent install` against a database you prepared yourself, pass `--skip-database-setup` and point each chart at your Secrets through `KAGENT_HELM_EXTRA_ARGS` and `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS`.
 
+On the Giant Swarm line, `kagent install` requires `--skip-database-setup`: the line's Substrate runs the pod certificate controller inside its `substrate` chart, which signs no `postgres.podcert.ate.dev` certificates, and the line publishes no `substrate-podcert` chart. `scripts/fork/dev-postgres.sh` prepares a development database on kind (install with `--set database.postgres.role=`).
+
 `kagent install` creates Substrate's certificate authorities once, and they expire one year later. Nothing renews them, and re-running `kagent install` keeps the existing ones. To replace them, delete the CA Secrets, re-run `kagent install`, and restart the Substrate and Kagent workloads:
 
 ```bash

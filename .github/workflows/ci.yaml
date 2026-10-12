@@ -167,6 +167,7 @@ jobs:
             --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
             --set controller.env[0].name=KAGENT_SESSION_EXPIRATION_POLL_INTERVAL
             --set controller.env[0].value=1s
+            --set database.postgres.role=
           KAGENT_SUBSTRATE_HELM_EXTRA_ARGS: >-
             --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000
             --set ateApi.extraArgs[0]=--template-resync-interval=250ms
@@ -192,9 +193,11 @@ jobs:
           test -n "$GUEST_DIGEST"
           export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
           make build-cli-local helm-version
+          # The line's Substrate signs no certificates for the CLI's bundled PostgreSQL.
+          scripts/fork/dev-postgres.sh kagent
           # The Substrate of the line's pin (the "Resolve the Substrate pin" step), not the CLI's upstream default.
           KAGENT_SUBSTRATE_HELM_REPO="${SUBSTRATE_REPO}/" KAGENT_SUBSTRATE_HELM_VERSION="${SUBSTRATE_VERSION}" \
-            KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
+            KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent --skip-database-setup
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
           # The egress gateway dials upstream HTTPS itself and trusts this CA

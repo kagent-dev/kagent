@@ -263,8 +263,6 @@ SUBSTRATE_REPO ?= oci://gsoci.azurecr.io/giantswarm/substrate/helm # Override fo
 # The module pin: the go.mod replace target's version, the ate-api contract
 # the controller is compiled against.
 SUBSTRATE_MODULE_VERSION ?= $(shell $(AWK) '/^replace github\.com\/agent-substrate\/substrate / { print $$NF }' go/go.mod)
-SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
-SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 
 .PHONY: substrate-pin
 substrate-pin: ## Print the Substrate pin as KEY=VALUE lines (ci.yaml reads them, so the e2e cluster runs the same Substrate the charts depend on)
@@ -665,16 +663,15 @@ kagent-cli-install: kagent-cli-deploy
 .PHONY: kagent-cli-deploy
 kagent-cli-deploy: ## Build CLI locally and install kagent with Substrate and the development database
 kagent-cli-deploy: use-kind-cluster build-cli-local helm-version
+	KUBECONFIG=$(KIND_KUBECONFIG) scripts/fork/dev-postgres.sh kagent
 	KUBECONFIG=$(KIND_KUBECONFIG) \
 	KAGENT_HELM_REPO=./helm/ \
 	KAGENT_HELM_VERSION=$(VERSION) \
 	KAGENT_SUBSTRATE_HELM_REPO=$(SUBSTRATE_REPO)/ \
 	KAGENT_SUBSTRATE_HELM_VERSION=$(SUBSTRATE_VERSION) \
-	KAGENT_SUBSTRATE_PODCERT_HELM_REPO=$(SUBSTRATE_PODCERT_REPO)/ \
-	KAGENT_SUBSTRATE_PODCERT_HELM_VERSION=$(SUBSTRATE_PODCERT_VERSION) \
 	KAGENT_SUBSTRATE_HELM_EXTRA_ARGS="$(KIND_SUBSTRATE_HELM_ARGS) $(KAGENT_SUBSTRATE_HELM_EXTRA_ARGS)" \
-	KAGENT_HELM_EXTRA_ARGS="--set registry=$(DOCKER_REGISTRY) --set tag=$(VERSION) --set imagePullPolicy=Always --set controller.image.pullPolicy=Always --set ui.image.pullPolicy=Always $(KAGENT_HELM_EXTRA_ARGS)" \
-	./go/core/bin/kagent-local install
+	KAGENT_HELM_EXTRA_ARGS="--set registry=$(DOCKER_REGISTRY) --set tag=$(VERSION) --set imagePullPolicy=Always --set controller.image.pullPolicy=Always --set ui.image.pullPolicy=Always --set database.postgres.role= $(KAGENT_HELM_EXTRA_ARGS)" \
+	./go/core/bin/kagent-local install --skip-database-setup
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083

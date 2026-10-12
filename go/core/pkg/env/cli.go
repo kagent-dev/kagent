@@ -58,20 +58,6 @@ var (
 		ComponentCLI,
 	)
 
-	KagentSubstratePodCertificateHelmRepo = RegisterStringVar(
-		"KAGENT_SUBSTRATE_PODCERT_HELM_REPO",
-		"",
-		"Helm repository URL for the Substrate PodCertificate chart. When unset, the CLI uses KAGENT_SUBSTRATE_HELM_REPO.",
-		ComponentCLI,
-	)
-
-	KagentSubstratePodCertificateHelmVersion = RegisterStringVar(
-		"KAGENT_SUBSTRATE_PODCERT_HELM_VERSION",
-		"",
-		"Substrate PodCertificate Helm chart version to deploy. When unset, the CLI uses KAGENT_SUBSTRATE_HELM_VERSION or its pinned Substrate version.",
-		ComponentCLI,
-	)
-
 	KagentToken = RegisterStringVar(
 		"KAGENT_TOKEN",
 		"",

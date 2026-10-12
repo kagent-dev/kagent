@@ -38,7 +38,7 @@ import (
 
 const (
 	podCertificateNamespace = "podcertificate-controller-system"
-	podCertificateRelease   = "substrate-podcert"
+	podCertificateRelease   = "substrate" // the Giant Swarm line's substrate chart renders the namespace and the controller
 	poolKeyID               = "1"
 	inClusterIssuer         = "https://kubernetes.default.svc"
 	caValidity              = 365 * 24 * time.Hour
@@ -91,7 +91,7 @@ func ensureSubstratePrerequisites(ctx context.Context, client kubernetes.Interfa
 	if err := ensureNamespace(ctx, client, substrateNamespace, "", ""); err != nil {
 		return err
 	}
-	if err := ensureNamespace(ctx, client, podCertificateNamespace, podCertificateRelease, podCertificateNamespace); err != nil {
+	if err := ensureNamespace(ctx, client, podCertificateNamespace, podCertificateRelease, substrateNamespace); err != nil {
 		return err
 	}
 	if err := ensureJWTPool(ctx, client, substrateNamespace, "actor-id-jwt-pool"); err != nil {

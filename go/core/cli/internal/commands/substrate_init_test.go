@@ -42,7 +42,7 @@ func TestEnsureSubstratePrerequisites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Helm", podCertificateNS.Labels["app.kubernetes.io/managed-by"])
 	require.Equal(t, podCertificateRelease, podCertificateNS.Annotations["meta.helm.sh/release-name"])
-	require.Equal(t, podCertificateNamespace, podCertificateNS.Annotations["meta.helm.sh/release-namespace"])
+	require.Equal(t, substrateNamespace, podCertificateNS.Annotations["meta.helm.sh/release-namespace"])
 
 	secretNames := map[string][]string{
 		substrateNamespace: {

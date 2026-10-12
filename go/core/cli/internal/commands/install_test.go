@@ -121,7 +121,6 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	require.Contains(t, config.values, "controller.substrate.enabled=true")
 	require.Contains(t, config.values, "ui.replicas=0")
 	require.Empty(t, crdChartValues(config.values))
-	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
 
 	t.Setenv("KAGENT_SUBSTRATE_HELM_REPO", "./substrate-charts/")
 	t.Setenv("KAGENT_SUBSTRATE_HELM_VERSION", "v1.2.3")
@@ -130,12 +129,11 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	require.Equal(t, "./substrate-charts/", substrateConfig.registry)
 	require.Equal(t, "v1.2.3", substrateConfig.version)
 	require.Equal(t, []string{"rustfs.enabled=false"}, substrateConfig.values)
+}
 
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_REPO", "./podcert-charts/")
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_VERSION", "v4.5.6")
-	podCertificateConfig := setupPodCertificateHelmConfig(substrateConfig)
-	require.Equal(t, "./podcert-charts/", podCertificateConfig.registry)
-	require.Equal(t, "v4.5.6", podCertificateConfig.version)
+func TestInstallRefusesTheBundledPostgresOnTheLine(t *testing.T) {
+	err := runInstall(t.Context(), connection.DefaultOptions(), &InstallCfg{})
+	require.ErrorIs(t, err, errBundledPostgresOnTheLine)
 }
 
 func TestInstallUsesSeparateSubstrateReleases(t *testing.T) {
@@ -156,8 +154,6 @@ cat >/dev/null
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kubectl"), []byte(kubectl), 0o700))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("KAGENT_TEST_HELM_LOG", logPath)
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_REPO", "./podcert/")
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_VERSION", "v3")
 
 	cfg := connection.DefaultOptions()
 	// The fake kubectl fails port-forward, so only the API check after the releases fails.
@@ -173,7 +169,6 @@ cat >/dev/null
 	require.Equal(t, []string{
 		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
-		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_user",
 		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set credentialProvider.namespacePolicies[0].atespace=kagent --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent --set postgres.clientCertificates.enabled=true",
 		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set substrateWorkerPool.create=true --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v2 --set database.postgres.clientCertificate.enabled=true --set database.postgres.schema=kagent --set database.postgres.vectorSchema=extensions",
 	}, strings.Split(strings.TrimSpace(string(commands)), "\n"))
