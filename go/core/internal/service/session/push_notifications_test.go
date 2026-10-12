@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -135,7 +134,7 @@ func (p *pushTestSender) SendPush(context.Context, *a2a.PushConfig, a2a.Event) e
 
 func testPushSigner(t *testing.T) *PushJWTSigner {
 	t.Helper()
-	signer, err := NewPushJWTSigner(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))), "https://kagent.example")
+	signer, err := NewPushJWTSigner(testPushPrivateKeyPEM, "https://kagent.example")
 	require.NoError(t, err)
 	return signer
 }
@@ -164,50 +163,66 @@ func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
 }
 
 func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
-	store, session := lifecycleFixture(t)
-	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
-	require.NoError(t, err)
-	events := make(chan json.RawMessage, 4)
-	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		require.Empty(t, r.Header.Get("A2A-Notification-Token"))
-		require.True(t, strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "))
-		var event json.RawMessage
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&event))
-		events <- event
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer receiver.Close()
-	config := &a2a.PushConfig{ID: "callback", URL: receiver.URL}
-	require.NoError(t, store.RegisterSessionPushNotification(t.Context(), session.Id, "input", "", config))
-	task := &a2a.Task{ID: "task", ContextID: session.ContextId, Status: a2a.TaskStatus{State: a2a.TaskStateWorking}, History: []*a2a.Message{{ID: "input", Role: a2a.MessageRoleUser}}}
-	digest := sha256.Sum256([]byte("create"))
-	version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
-	require.NoError(t, err)
-	sender := NewHTTPPushSender(time.Second, true, true)
-	_, err = NewPushWorker(store, sender, testPushSigner(t)).poll(t.Context())
-	require.NoError(t, err)
-	require.Empty(t, events)
-	task.Status.State = a2a.TaskStateCompleted
-	digest = sha256.Sum256([]byte("complete"))
-	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
-	require.NoError(t, err)
-	_, err = NewPushWorker(store, sender, testPushSigner(t)).poll(t.Context())
-	require.NoError(t, err)
-	require.Empty(t, events, "staged completion must not be notified")
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-	_, err = NewPushWorker(store, sender, testPushSigner(t)).poll(t.Context())
-	require.NoError(t, err)
-	require.Len(t, events, 1)
-	var envelope struct {
-		StatusUpdate *a2a.TaskStatusUpdateEvent `json:"statusUpdate"`
+	for _, signed := range []bool{false, true} {
+		name := "unsigned"
+		if signed {
+			name = "signed"
+		}
+		t.Run(name, func(t *testing.T) {
+			var signer *PushJWTSigner
+			if signed {
+				signer = testPushSigner(t)
+			}
+			store, session := lifecycleFixture(t)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			require.NoError(t, err)
+			events := make(chan json.RawMessage, 4)
+			receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPost, r.Method)
+				require.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				require.Empty(t, r.Header.Get("A2A-Notification-Token"))
+				if signed {
+					require.True(t, strings.HasPrefix(r.Header.Get("Authorization"), "Bearer "))
+				} else {
+					require.Empty(t, r.Header.Get("Authorization"))
+				}
+				var event json.RawMessage
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&event))
+				events <- event
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer receiver.Close()
+			config := &a2a.PushConfig{ID: "callback", URL: receiver.URL}
+			require.NoError(t, store.RegisterSessionPushNotification(t.Context(), session.Id, "input", "", config))
+			task := &a2a.Task{ID: "task", ContextID: session.ContextId, Status: a2a.TaskStatus{State: a2a.TaskStateWorking}, History: []*a2a.Message{{ID: "input", Role: a2a.MessageRoleUser}}}
+			digest := sha256.Sum256([]byte("create"))
+			version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
+			require.NoError(t, err)
+			sender := NewHTTPPushSender(time.Second, true, true)
+			_, err = NewPushWorker(store, sender, signer).poll(t.Context())
+			require.NoError(t, err)
+			require.Empty(t, events)
+			task.Status.State = a2a.TaskStateCompleted
+			digest = sha256.Sum256([]byte("complete"))
+			version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
+			require.NoError(t, err)
+			_, err = NewPushWorker(store, sender, signer).poll(t.Context())
+			require.NoError(t, err)
+			require.Empty(t, events, "staged completion must not be notified")
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			_, err = NewPushWorker(store, sender, signer).poll(t.Context())
+			require.NoError(t, err)
+			require.Len(t, events, 1)
+			var envelope struct {
+				StatusUpdate *a2a.TaskStatusUpdateEvent `json:"statusUpdate"`
+			}
+			require.NoError(t, json.Unmarshal(<-events, &envelope))
+			require.NotNil(t, envelope.StatusUpdate)
+			require.Equal(t, a2a.TaskStateCompleted, envelope.StatusUpdate.Status.State)
+			require.Empty(t, envelope.StatusUpdate.Metadata)
+			_, err = NewPushWorker(store, sender, signer).poll(t.Context())
+			require.NoError(t, err)
+			require.Empty(t, events, "failed attempt must wait for retry delay")
+		})
 	}
-	require.NoError(t, json.Unmarshal(<-events, &envelope))
-	require.NotNil(t, envelope.StatusUpdate)
-	require.Equal(t, a2a.TaskStateCompleted, envelope.StatusUpdate.Status.State)
-	require.Empty(t, envelope.StatusUpdate.Metadata)
-	_, err = NewPushWorker(store, sender, testPushSigner(t)).poll(t.Context())
-	require.NoError(t, err)
-	require.Empty(t, events, "failed attempt must wait for retry delay")
 }

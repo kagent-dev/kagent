@@ -67,7 +67,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 ## Component boundaries
 
 - API types describe agent behavior without exposing backend mechanics.
-- The v2 translator resolves references and compiles explicit runtime inputs.
+- The translator resolves references and compiles explicit runtime inputs.
 - The controller reconciles compiled revisions to ate-api ActorTemplates.
 - Session and Sandbox services own their respective lifecycle orchestration.
 - The apiserver handles sandbox lifecycle and guest operations through one

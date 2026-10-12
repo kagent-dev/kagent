@@ -36,10 +36,8 @@ func (s *Server) WebHandler() *grpcweb.WrappedGrpcServer {
 
 // HandlerOr routes native gRPC and gRPC-Web requests to the services and everything else to next.
 //
-// This is the one statement of the rule, because there is more than one binary
-// serving HTTP beside this gRPC server and a second copy would drift. Both the
-// v1 controller's HTTP server and the v2 controller's compose their handler
-// through here.
+// This is the one statement of the rule so callers do not duplicate routing
+// behavior. The controller composes its HTTP handler through here.
 //
 // Two things it settles that are easy to get wrong:
 //

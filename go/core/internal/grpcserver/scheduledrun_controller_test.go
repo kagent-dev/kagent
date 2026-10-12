@@ -130,6 +130,7 @@ type scheduledControllerRuntime struct {
 	subscriptions   atomic.Int32
 	cancellations   atomic.Int32
 	failFirstCancel bool
+	clockOffset     time.Duration
 }
 
 func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessageRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
@@ -284,7 +285,7 @@ func (r *scheduledControllerRuntime) CancelTask(ctx context.Context, req *a2apb.
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	now := time.Now().Add(r.clockOffset)
 	task.Status = a2atype.TaskStatus{State: a2atype.TaskStateCanceled, Timestamp: &now}
 	if err := r.persistTask(ctx, sessionID, task); err != nil {
 		return nil, err
@@ -306,20 +307,22 @@ func (r *scheduledControllerRuntime) SubscribeToTask(req *a2apb.SubscribeToTaskR
 
 func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		state   a2atype.TaskState
-		timeout time.Duration
-		want    apiv1alpha1.ScheduledRunExecutionState
-		stream  bool
+		name        string
+		state       a2atype.TaskState
+		timeout     time.Duration
+		want        apiv1alpha1.ScheduledRunExecutionState
+		stream      bool
+		clockOffset time.Duration
 	}{
-		{"stream outlives reconciliation", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true},
-		{"lost dispatch response", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false},
-		{"timeout retries cleanup", a2atype.TaskStateWorking, 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
-		{"auth required retains task", a2atype.TaskStateAuthRequired, 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false},
+		{"stream outlives reconciliation", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true, 0},
+		{"lost dispatch response", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false, 0},
+		{"timeout retries cleanup", a2atype.TaskStateWorking, 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
+		{"timeout with slow runtime clock", a2atype.TaskStateWorking, 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, -time.Minute},
+		{"auth required retains task", a2atype.TaskStateAuthRequired, 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
-			runtime := &scheduledControllerRuntime{store: store, runCtx: t.Context(), tasks: map[string]*a2apb.Task{}, state: tc.state, failFirstCancel: tc.state == a2atype.TaskStateWorking}
+			runtime := &scheduledControllerRuntime{store: store, runCtx: t.Context(), tasks: map[string]*a2apb.Task{}, state: tc.state, failFirstCancel: tc.state == a2atype.TaskStateWorking, clockOffset: tc.clockOffset}
 			release := make(chan struct{})
 			if tc.stream {
 				runtime.streamRelease = release

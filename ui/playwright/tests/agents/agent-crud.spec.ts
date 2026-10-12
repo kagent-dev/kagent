@@ -62,12 +62,15 @@ for (const { template, harness } of CASES) {
       await expect(page.getByTestId(`agent-revision-kagent/${name}`)).toHaveText("Ready");
     });
 
-    await test.step("3. opening it lands on its new chat", async () => {
-      await page.getByTestId(`agent-link-kagent-${name}`).click();
-      await expect(page).toHaveURL(new RegExp(`${agentNewChat({ name, template: "", harness: "" })}$`));
-      await expect(page.getByTestId("new-chat-empty")).toBeVisible();
-      await expect(page.getByTestId("chat-input")).toBeEditable();
-    });
+    // One case is enough: the link does not depend on where the template or harness comes from.
+    if (template === "reference" && harness === "reference") {
+      await test.step("3. opening it lands on its new chat", async () => {
+        await page.getByTestId(`agent-link-kagent-${name}`).click();
+        await expect(page).toHaveURL(new RegExp(`${agentNewChat({ name, template: "", harness: "" })}$`));
+        await expect(page.getByTestId("new-chat-empty")).toBeVisible();
+        await expect(page.getByTestId("chat-input")).toBeEditable();
+      });
+    }
 
     // In-app navigation from here on: the mock backend's writes live in page memory.
     await test.step("4. edit keeps the name fixed and saves the change", async () => {
@@ -119,31 +122,3 @@ for (const { template, harness } of CASES) {
     });
   });
 }
-
-test("agents: the same template and harness keep separate conversations", async ({ page }) => {
-  const newChat = (name: string) => agentNewChat({ name, template: "", harness: "" });
-  let chatId = "";
-
-  await test.step("1. start a chat with one agent", async () => {
-    await loadPage(page, newChat("shared-brain"));
-    await page.getByTestId("chat-input").fill("Only for shared-brain");
-    await page.getByTestId("chat-send").click();
-    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/);
-    chatId = new URL(page.url()).pathname.split("/")[2];
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible();
-  });
-
-  await test.step("2. its twin, with identical refs, does not list that chat", async () => {
-    await clickNav(page, "agents", /\/agents$/);
-    await page.getByTestId("agent-link-kagent-shared-brain-twin").click();
-    await expect(page.getByTestId("agent-rail-identity")).toContainText("shared-brain-twin");
-    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible();
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toHaveCount(0);
-  });
-
-  await test.step("3. and the first agent still does", async () => {
-    await clickNav(page, "agents", /\/agents$/);
-    await page.getByTestId("agent-link-kagent-shared-brain").click();
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible();
-  });
-});

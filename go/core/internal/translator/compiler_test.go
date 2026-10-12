@@ -12,7 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
 	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
@@ -188,15 +188,15 @@ func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
 	}}
 }
 
-func compiler(t *testing.T, objects ...any) *v2translator.Compiler {
+func compiler(t *testing.T, objects ...any) *translator.Compiler {
 	t.Helper()
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
-	return v2translator.NewCompiler(ctx, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
-		v2translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
-		v2translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
-		v2translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
+	return translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
 	})
 }
 
@@ -204,10 +204,10 @@ func defaultWorkerPool() *atev1alpha1.WorkerPool {
 	return &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "default"}}
 }
 
-func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
+func mockCollections(t *testing.T, objects ...any) translator.Collections {
 	t.Helper()
 	mock := krttest.NewMock(t, objects)
-	collections := v2translator.Collections{
+	collections := translator.Collections{
 		AgentTemplates:   krttest.GetMockCollection[*v1alpha3.AgentTemplate](mock),
 		Harnesses:        krttest.GetMockCollection[*v1alpha3.Harness](mock),
 		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
@@ -218,18 +218,18 @@ func mockCollections(t *testing.T, objects ...any) v2translator.Collections {
 	models := krttest.GetMockCollection[*v1alpha3.ModelConfig](mock)
 	resolved := make([]any, 0, len(models.List()))
 	for _, model := range models.List() {
-		value, err := v2translator.ResolveModelConfig(krt.TestingDummyContext{}, collections, model)
+		value, err := translator.ResolveModelConfig(krt.TestingDummyContext{}, collections, model)
 		require.NoError(t, err)
 		resolved = append(resolved, *value)
 	}
 	resolvedMock := krttest.NewMock(t, resolved)
-	collections.ResolvedModelConfigs = krttest.GetMockCollection[v2translator.ResolvedModelConfig](resolvedMock)
+	collections.ResolvedModelConfigs = krttest.GetMockCollection[translator.ResolvedModelConfig](resolvedMock)
 	return collections
 }
 
 func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
-	for _, harnessType := range []v2translator.HarnessType{
-		v2translator.HarnessTypeKagent, v2translator.HarnessTypeCodex, v2translator.HarnessTypeClaude, v2translator.HarnessTypeBYO,
+	for _, harnessType := range []translator.HarnessType{
+		translator.HarnessTypeKagent, translator.HarnessTypeCodex, translator.HarnessTypeClaude, translator.HarnessTypeBYO,
 	} {
 		t.Run(string(harnessType), func(t *testing.T) {
 			harness := &v1alpha3.Harness{
@@ -249,24 +249,24 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 			model := modelConfig()
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
 			switch harnessType {
-			case v2translator.HarnessTypeKagent:
+			case translator.HarnessTypeKagent:
 				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
-			case v2translator.HarnessTypeCodex:
+			case translator.HarnessTypeCodex:
 				harness.Spec.Codex = &v1alpha3.CodexHarness{}
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
 				responses := v1alpha3.OpenAIAPIFormatResponses
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: &responses}
-			case v2translator.HarnessTypeClaude:
+			case translator.HarnessTypeClaude:
 				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
 				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
-			case v2translator.HarnessTypeBYO:
+			case translator.HarnessTypeBYO:
 				harness.Spec.BYO = &v1alpha3.BYOHarness{}
 				harness.Spec.Workload.Command = []string{"/agent"}
 				template.Spec.ModelConfig = nil
 			}
 			originalHarness, originalTemplate := harness.DeepCopy(), template.DeepCopy()
-			var baseline *v2translator.CompileResult
-			var defaultDigest v2translator.RevisionID
+			var baseline *translator.CompileResult
+			var defaultDigest translator.RevisionID
 			for _, tt := range []struct {
 				name    string
 				class   atev1alpha1.SandboxClass
@@ -299,7 +299,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 					require.Equal(t, originalTemplate, template)
 					require.Equal(t, originalPool, pool)
 					if tt.missing {
-						var missing *v2translator.WorkerPoolNotFoundError
+						var missing *translator.WorkerPoolNotFoundError
 						require.ErrorAs(t, err, &missing)
 						require.Equal(t, types.NamespacedName{Namespace: "test", Name: "selected"}, missing.WorkerPool)
 						require.EqualError(t, err, `WorkerPool "test/selected" not found`)
@@ -428,7 +428,7 @@ func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
 				require.Equal(t, tt.failure, resolved.Failure().Reason)
 			}
 			if tt.reference {
-				require.Equal(t, []v2translator.ModelConfigReference{{
+				require.Equal(t, []translator.ModelConfigReference{{
 					NamespacedName: types.NamespacedName{Namespace: "test", Name: ref.Name}, Kind: "ConfigMap", Key: ref.Key,
 				}}, resolved.References)
 			} else {
@@ -438,11 +438,11 @@ func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
 	}
 }
 
-type testHarnessCompiler struct{ input *v2translator.HarnessInput }
+type testHarnessCompiler struct{ input *translator.HarnessInput }
 
-func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
+func (c *testHarnessCompiler) Compile(_ context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
 	c.input = input
-	return &v2translator.CompileResult{Revision: v2translator.Revision{AgentName: input.AgentName}}, nil
+	return &translator.CompileResult{Revision: translator.Revision{AgentName: input.AgentName}}, nil
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
@@ -457,8 +457,8 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
 
-	revision, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeCodex: adapter,
+	revision, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeCodex: adapter,
 	}).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Equal(t, "runnable-agent", revision.AgentName)
@@ -481,8 +481,8 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 		},
 	}
 
-	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeCodex: adapter,
+	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeCodex: adapter,
 	}).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.ErrorContains(t, err, `Harness runtime "codex" does not support structured output`)
 	require.Nil(t, adapter.input)
@@ -500,8 +500,8 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}}}
 
-	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, collections, map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeCodex: adapter,
+	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeCodex: adapter,
 	}).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
 	require.Nil(t, adapter.input)
@@ -515,8 +515,8 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
-	_, err := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeBYO: adapter,
+	_, err := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool()), map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeBYO: adapter,
 	}).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
@@ -595,15 +595,15 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	if foundSecretValues[string(secret.Data["token"])] || foundSecretValues[string(secondSecret.Data["token"])] {
 		t.Fatal("credential leaked into runtime environment")
 	}
-	require.True(t, foundSecretValues[v2translator.CredentialPlaceholder])
+	require.True(t, foundSecretValues[translator.CredentialPlaceholder])
 	require.Len(t, spec.Credentials, 2)
 	firstDigest, err := spec.Digest()
 	require.NoError(t, err)
 	rotated := secret.DeepCopy()
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
-	rotatedCompiler := v2translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool()), map[v2translator.HarnessType]v2translator.HarnessCompiler{
-		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
+	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool()), map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
 	})
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
@@ -805,7 +805,7 @@ func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
 			}}
 			_, err := compiler(t).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.ErrorContains(t, err, tt.wantError)
-			var validationError *v2translator.ValidationError
+			var validationError *translator.ValidationError
 			require.ErrorAs(t, err, &validationError)
 		})
 	}
@@ -884,9 +884,9 @@ func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 func TestCompileAgentRuntimeIdentity(t *testing.T) {
 	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-	for _, kind := range []v2translator.HarnessType{
-		v2translator.HarnessTypeKagent, v2translator.HarnessTypeCodex,
-		v2translator.HarnessTypeClaude, v2translator.HarnessTypeBYO,
+	for _, kind := range []translator.HarnessType{
+		translator.HarnessTypeKagent, translator.HarnessTypeCodex,
+		translator.HarnessTypeClaude, translator.HarnessTypeBYO,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			model := modelConfig()
@@ -904,15 +904,15 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 				},
 			}
 			switch kind {
-			case v2translator.HarnessTypeKagent:
+			case translator.HarnessTypeKagent:
 				harness.Spec.Kagent = &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}}
-			case v2translator.HarnessTypeCodex:
+			case translator.HarnessTypeCodex:
 				harness.Spec.Codex = &v1alpha3.CodexHarness{}
 				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)}
-			case v2translator.HarnessTypeClaude:
+			case translator.HarnessTypeClaude:
 				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
 				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
-			case v2translator.HarnessTypeBYO:
+			case translator.HarnessTypeBYO:
 				harness.Spec.BYO = &v1alpha3.BYOHarness{}
 			}
 			c := compiler(t, model, template, harness, secret)
@@ -940,14 +940,14 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 						for _, variable := range result.Environment {
 							environment[variable.Name] = variable.Value
 						}
-						if kind != v2translator.HarnessTypeBYO {
+						if kind != translator.HarnessTypeBYO {
 							require.Equal(t, name, environment["KAGENT_NAME"])
 							require.Equal(t, agent.Namespace, environment["KAGENT_NAMESPACE"])
 						}
 						require.Equal(t, name, environment["OTEL_SERVICE_NAME"])
 						require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.id=test/"+name)
 						require.Equal(t, strings.ReplaceAll(name, "-", "_"), result.AgentCard.Name)
-						if kind == v2translator.HarnessTypeKagent {
+						if kind == translator.HarnessTypeKagent {
 							var config adk.AgentConfig
 							require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
 							require.NotNil(t, config.Memory)

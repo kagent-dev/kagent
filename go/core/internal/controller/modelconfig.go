@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,9 +18,9 @@ func newModelConfigReconciliations(
 	configMaps krt.Collection[*corev1.ConfigMap],
 	secrets krt.Collection[*corev1.Secret],
 	opts krt.OptionsBuilder,
-) (krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus], krt.Collection[v2translator.ResolvedModelConfig]) {
-	statuses, reconciliations := krt.NewStatusCollection(modelConfigs, func(ctx krt.HandlerContext, modelConfig *kagentv1alpha3.ModelConfig) (*kagentv1alpha3.ModelConfigStatus, *v2translator.ResolvedModelConfig) {
-		translation, err := v2translator.ResolveModelConfig(ctx, v2translator.Collections{ConfigMaps: configMaps, Secrets: secrets}, modelConfig)
+) (krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus], krt.Collection[translator.ResolvedModelConfig]) {
+	statuses, reconciliations := krt.NewStatusCollection(modelConfigs, func(ctx krt.HandlerContext, modelConfig *kagentv1alpha3.ModelConfig) (*kagentv1alpha3.ModelConfigStatus, *translator.ResolvedModelConfig) {
+		translation, err := translator.ResolveModelConfig(ctx, translator.Collections{ConfigMaps: configMaps, Secrets: secrets}, modelConfig)
 		if err != nil {
 			return nil, nil
 		}

@@ -166,6 +166,9 @@ prevent old results from overwriting newer database state.
 Creation must finish before suspend/resume; deletion can supersede creation or
 other operations and cannot be canceled into a live sandbox. Resume preserves
 durable files; process handles last only as long as the guest's in-memory registry.
+Sandboxes take Full snapshots until Substrate's lifecycle v2 (see
+[Runtime and lifecycle](runtime-and-lifecycle.md)), so that registry survives
+suspend and resume as well.
 Expiration immediately rejects new guest requests and lets the worker supersede
 unfinished lifecycle work with deletion. Deletion finishes after backend cleanup,
 releases runtime-artifact pins, and retains a tombstone and creation receipt so
@@ -238,8 +241,12 @@ The existing `/mcp` endpoint exposes template discovery, sandbox lifecycle,
 process execution, output reads, and file transfer. All sandbox tools call the
 same sandbox service as the gRPC handlers.
 There is no separate lifecycle or guest tool server. gRPC file transfers are
-bounded at 64 MiB. MCP file transfers and output reads are bounded at 1 MiB,
-use base64 for bytes, and expose continuation offsets for output reads.
+bounded at 64 MiB. MCP writes and output reads are bounded at 1 MiB and use
+base64; output reads expose continuation offsets. MCP file reads return content
+a model can read directly: text files as numbered pages of lines, and images
+up to 10 MiB unchanged, matching the chat attachment limit. Claude Code and
+Codex resize images for their models; larger images ask the agent to write a
+smaller copy.
 
 Helm installs a `RemoteMCPServer` named `<fullname>-api` (`kagent-api` for the
 standard release) in the controller namespace. It points at the controller's

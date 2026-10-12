@@ -144,7 +144,9 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 		if err != nil {
 			return err
 		}
-		if stopped != nil && stopped.Status.State.Terminal() && stopped.Status.Timestamp != nil && !stopped.Status.Timestamp.After(execution.GetDeadline().AsTime()) {
+		// Cancellation requested for this deadline is a timeout even if the
+		// runtime clock trails ours. Preserve other outcomes that won the race.
+		if stopped != nil && stopped.Status.State.Terminal() && stopped.Status.State != a2atype.TaskStateCanceled && stopped.Status.Timestamp != nil && !stopped.Status.Timestamp.After(execution.GetDeadline().AsTime()) {
 			observeTask(execution, stopped)
 			return nil
 		}

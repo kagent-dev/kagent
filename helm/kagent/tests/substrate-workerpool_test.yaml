@@ -130,3 +130,20 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true
+  - it: should run the workers as the chart worker ServiceAccount
+    asserts:
+      - equal:
+          path: spec.template.serviceAccountName
+          value: selected-pool
+  - it: should use a user ServiceAccount and keep the rest of the template
+    set:
+      substrateWorkerPool.serviceAccount.create: false
+      substrateWorkerPool.serviceAccount.name: my-worker-sa
+      substrateWorkerPool.template.priorityClassName: high
+    asserts:
+      - equal:
+          path: spec.template.serviceAccountName
+          value: my-worker-sa
+      - equal:
+          path: spec.template.priorityClassName
+          value: high

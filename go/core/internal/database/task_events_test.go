@@ -16,7 +16,7 @@ import (
 
 func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	pool := setupTestDB(t)
-	client, q, ctx := NewClient(pool), pool, t.Context()
+	client, q, ctx := NewClient(pool, "public"), pool, t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
 	require.NoError(t, err)

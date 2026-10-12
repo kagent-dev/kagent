@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,12 @@ const (
 
 	postgresContainer   = "postgresql"
 	controllerContainer = "controller"
+
+	// kagent install's database: psql runs as the superuser over the pod's local
+	// socket, the only place that account may log in, against Kagent's schema.
+	postgresSuperuser = "postgres"
+	postgresDatabase  = "kagent"
+	kagentSchema      = consts.DefaultPostgresTableSchema
 
 	controllerServiceName = "kagent-controller"
 	controllerAPIPort     = 8083
@@ -69,9 +76,6 @@ func TestUpgrade(t *testing.T) {
 		env.upgradeFromVersion, env.version, env.dockerRegistry, env.kubeContext)
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
 	waitForPostgresSchema(t, env, 3*time.Minute)
-	if !hasGooseMigrationTable(t, env) {
-		t.Skip("the baseline release does not use Goose")
-	}
 
 	var pgBaselineState postgresMigrationState
 	var baselineVectorVersion int
@@ -80,7 +84,7 @@ func TestUpgrade(t *testing.T) {
 	if !t.Run("seed baseline data before upgrade", func(t *testing.T) {
 		pgBaselineState = pgMigrationState(t, env)
 		baselineVectorVersion = pgTrackVersion(t, env, "vector_schema_migrations")
-		cleanPreviousSchema = pgSchemaDump(t, env, "kagent")
+		cleanPreviousSchema = pgSchemaDump(t, env, kagentSchema)
 		t.Logf("baseline Postgres schema_migrations version: %d vector=%d (target=%d)",
 			pgBaselineState.version, baselineVectorVersion, targetCoreVersion)
 
@@ -105,7 +109,7 @@ func TestUpgrade(t *testing.T) {
 	previousGoDir := checkoutPreviousRelease(t, env)
 	vectorEnabled := baselineVectorVersion > 0
 	if !t.Run("apply target migrations", func(t *testing.T) {
-		applyEmbeddedMigrations(t, env, "kagent", vectorEnabled)
+		applyEmbeddedMigrations(t, env, kagentSchema, vectorEnabled)
 		pgPostState := pgMigrationState(t, env)
 		require.Equal(t, targetCoreVersion, pgPostState.version,
 			"Postgres migrations did not reach the target embedded migration version")
@@ -137,13 +141,13 @@ func TestUpgrade(t *testing.T) {
 		return
 	}
 
-	if !t.Run("upgrade with helm", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+	if !t.Run("upgrade to current build", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 		defer cancel()
 
-		cmd := helmUpgradeCommand(ctx, env)
+		cmd := upgradeCommand(ctx, env)
 		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "helm upgrade to current build failed:\n%s", string(out))
+		require.NoError(t, err, "upgrade to current build failed:\n%s", string(out))
 	}) {
 		return
 	}
@@ -157,7 +161,7 @@ func TestUpgrade(t *testing.T) {
 
 		// Wait for Postgres to be fully ready before rolling out a fresh controller pod.
 		// The controller can crash on startup if Postgres isn't accepting connections yet
-		// (e.g. due to a concurrent Postgres restart during the helm upgrade), which
+		// (e.g. due to a concurrent Postgres restart during the upgrade), which
 		// would leave a non-zero restart count on the upgraded pod.
 		waitForReadyPods(t, env, postgresSelector, 2*time.Minute)
 
@@ -212,7 +216,7 @@ func TestUpgrade(t *testing.T) {
 		// and require the upgraded database to be structurally identical. This
 		// catches upgrade paths that leave residue a fresh install would not.
 		cleanHeadSchema := buildCleanInstallSchema(t, env, "clean_head_"+seed, vectorEnabled)
-		upgradedSchema := pgSchemaDump(t, env, "kagent")
+		upgradedSchema := pgSchemaDump(t, env, kagentSchema)
 		require.Equal(t, cleanHeadSchema, upgradedSchema,
 			"upgraded schema diverged from a clean install of the current build")
 	}) {
@@ -263,7 +267,7 @@ func TestUpgrade(t *testing.T) {
 			"core migrations did not return to the previous-release version")
 		require.Equal(t, baselineVectorVersion, pgTrackVersion(t, env, "vector_schema_migrations"),
 			"vector migrations did not return to the previous-release version")
-		require.Equal(t, cleanPreviousSchema, pgSchemaDump(t, env, "kagent"),
+		require.Equal(t, cleanPreviousSchema, pgSchemaDump(t, env, kagentSchema),
 			"reversed schema diverged from a clean previous-release install")
 		for table, before := range seedCanaryCounts {
 			require.GreaterOrEqual(t, pgQueryInt(t, env, seedCanaryQueries[table]), before,
@@ -279,13 +283,13 @@ func TestUpgrade(t *testing.T) {
 	})
 }
 
-// helmUpgradeCommand returns the command that upgrades the cluster from the
+// upgradeCommand returns the command that upgrades the cluster from the
 // previously-installed release to the current local build. It reuses the repo's
-// helm-install-provider target, which packages the local charts and runs
-// `helm upgrade --install` of kagent-crds and kagent against the locally-built
-// images (registry=DOCKER_REGISTRY, tag=VERSION).
-func helmUpgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "make", "-C", env.repoRoot, "helm-install-provider")
+// kagent-cli-deploy target, which builds the local CLI and runs `kagent install`
+// against the local charts and locally-built images (registry=DOCKER_REGISTRY,
+// tag=VERSION), the same path a user upgrading with a newer CLI takes.
+func upgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "make", "-C", env.repoRoot, "kagent-cli-deploy")
 	cmd.Dir = env.repoRoot
 	cmd.Env = append(os.Environ(),
 		"VERSION="+env.version,
@@ -370,7 +374,7 @@ func waitForPostgresSchema(t *testing.T, env upgradeEnv, timeout time.Duration) 
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		out, err := pgQueryE(t, env, "SELECT to_regclass('public.tool') IS NOT NULL")
+		out, err := pgQueryE(t, env, "SELECT to_regclass('"+kagentSchema+".tool') IS NOT NULL")
 		return err == nil && out == "t"
 	}, timeout, 5*time.Second, "baseline Postgres schema did not appear")
 }
@@ -405,7 +409,8 @@ func pgQueryE(t *testing.T, env upgradeEnv, query string) (string, error) {
 	}
 	out, err := kubectlOutput(t, env, time.Minute,
 		"exec", "-n", env.namespace, pod, "-c", postgresContainer, "--",
-		"psql", "-v", "ON_ERROR_STOP=1", "-U", "kagent", "-d", "kagent", "-tAc", query,
+		"env", "PGOPTIONS=-c search_path="+kagentSchema,
+		"psql", "-v", "ON_ERROR_STOP=1", "-U", postgresSuperuser, "-d", postgresDatabase, "-tAc", query,
 	)
 	if err != nil {
 		return "", err
@@ -424,7 +429,7 @@ func pgMigrationState(t *testing.T, env upgradeEnv) postgresMigrationState {
 // pgMigrationStateE is the error-returning core of pgMigrationState, for use
 // inside require.Eventually conditions (see pgQueryE).
 func pgMigrationStateE(t *testing.T, env upgradeEnv) (postgresMigrationState, error) {
-	raw, err := pgQueryE(t, env, "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version_id), 0) FROM public.schema_migrations WHERE is_applied) END")
+	raw, err := pgQueryE(t, env, fmt.Sprintf("SELECT CASE WHEN to_regclass('%[1]s.schema_migrations') IS NULL THEN 0 ELSE (SELECT COALESCE(MAX(version_id), 0) FROM %[1]s.schema_migrations WHERE is_applied) END", kagentSchema))
 	if err != nil {
 		return postgresMigrationState{}, err
 	}
@@ -435,17 +440,12 @@ func pgMigrationStateE(t *testing.T, env upgradeEnv) (postgresMigrationState, er
 	return postgresMigrationState{version: version}, nil
 }
 
-func hasGooseMigrationTable(t *testing.T, env upgradeEnv) bool {
-	t.Helper()
-	return pgQuery(t, env, "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'schema_migrations' AND column_name = 'version_id')") == "t"
-}
-
 func requirePostgresTablesExist(t *testing.T, env upgradeEnv, tables ...string) {
 	t.Helper()
 
 	for _, table := range tables {
-		exists := pgQuery(t, env, fmt.Sprintf("SELECT to_regclass(%s) IS NOT NULL", pgQuote("public."+table)))
-		require.Equal(t, "t", exists, "expected public.%s to exist after upgrade", table)
+		exists := pgQuery(t, env, fmt.Sprintf("SELECT to_regclass(%s) IS NOT NULL", pgQuote(kagentSchema+"."+table)))
+		require.Equal(t, "t", exists, "expected %s.%s to exist after upgrade", kagentSchema, table)
 	}
 }
 

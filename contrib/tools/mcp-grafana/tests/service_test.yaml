@@ -22,7 +22,7 @@ tests:
           value: 8000
       - equal:
           path: spec.ports[0].targetPort
-          value: http
+          value: 8000
       - equal:
           path: spec.ports[0].protocol
           value: TCP

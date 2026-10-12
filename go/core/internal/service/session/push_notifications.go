@@ -84,6 +84,7 @@ var _ manager.LeaderElectionRunnable = (*PushWorker)(nil)
 var _ manager.Runnable = (*PushWorker)(nil)
 var _ pushStore = (*database.Client)(nil)
 
+// NewPushWorker sends unsigned notifications when signer is nil.
 func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner) *PushWorker {
 	return &PushWorker{store: store, sender: sender, signer: signer}
 }
@@ -144,11 +145,13 @@ func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) e
 		return fmt.Errorf("convert durable notification: %w", err)
 	}
 	config := &a2a.PushConfig{URL: delivery.URL}
-	credential, err := p.signer.Sign(delivery.TaskID, delivery.URL)
-	if err != nil {
-		return fmt.Errorf("sign push notification: %w", err)
+	if p.signer != nil {
+		credential, err := p.signer.Sign(delivery.TaskID, delivery.URL)
+		if err != nil {
+			return fmt.Errorf("sign push notification: %w", err)
+		}
+		config.Auth = &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
 	}
-	config.Auth = &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
 	sendErr := p.sender.SendPush(ctx, config, event)
 	// A failed HTTP attempt remains durable for the store's retry schedule.
 	if err := p.store.FinishPushDelivery(ctx, delivery, sendErr == nil); err != nil {

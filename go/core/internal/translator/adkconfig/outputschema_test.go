@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 )
 
 func TestApplyOutputSchema(t *testing.T) {
 	config := &adk.AgentConfig{}
-	output := &v2translator.ResolvedOutputSchema{
+	output := &translator.ResolvedOutputSchema{
 		Schema: []byte(`{"type":"object","$defs":{"status":{"type":"string"}},"properties":{"status":{"$ref":"#/$defs/status"}}}`),
 		SHA256: "digest",
 	}
@@ -22,7 +22,7 @@ func TestApplyOutputSchema(t *testing.T) {
 
 func TestApplyOutputSchemaRejectsRecursiveADKConversion(t *testing.T) {
 	config := &adk.AgentConfig{}
-	output := &v2translator.ResolvedOutputSchema{Schema: []byte(`{
+	output := &translator.ResolvedOutputSchema{Schema: []byte(`{
 		"type":"object",
 		"$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},
 		"properties":{"node":{"$ref":"#/$defs/node"}}

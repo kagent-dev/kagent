@@ -268,9 +268,10 @@ export function ChatTranscript({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.messages, chat.turnPhase]);
 
+  // Both fill the panel like the transcript does, or the composer jumps up while they show.
   if (chat.isLoadingHistory) {
     return (
-      <div data-testid="chat-loading">
+      <div data-testid="chat-loading" css={{ flex: 1, minHeight: 0 }}>
         <Skeleton active paragraph={{ rows: 4 }} />
       </div>
     );
@@ -278,13 +279,15 @@ export function ChatTranscript({
 
   if (chat.historyError) {
     return (
-      <Alert
-        type="error"
-        showIcon
-        data-testid="chat-history-error"
-        title="Could not load this conversation"
-        description={chat.historyError.message}
-      />
+      <div css={{ flex: 1, minHeight: 0 }}>
+        <Alert
+          type="error"
+          showIcon
+          data-testid="chat-history-error"
+          title="Could not load this conversation"
+          description={chat.historyError.message}
+        />
+      </div>
     );
   }
 

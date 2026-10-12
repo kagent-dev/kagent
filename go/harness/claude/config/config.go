@@ -101,12 +101,16 @@ type Agent struct {
 	Model       string `json:"model,omitempty"`
 }
 
+// Bounds the memory one stream-json line can take. Tool results carrying
+// images run to a few megabytes.
+const maxEventBytes = 16 << 20
+
 func Production(model, instruction string) Config {
 	return Config{
 		Version: Version, ClaudeExecutable: "claude",
 		ExpectedClaudeVersion: PinnedClaudeVersion, StrictVersion: true,
 		Model: model, AppendSystemPrompt: instruction,
-		MaxEventBytes: 1 << 20, MaxStderrBytes: 64 << 10,
+		MaxEventBytes: maxEventBytes, MaxStderrBytes: 64 << 10,
 		InterruptGraceMillis: 2000,
 	}
 }

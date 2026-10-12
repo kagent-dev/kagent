@@ -5,7 +5,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,17 +16,17 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	secret := types.NamespacedName{Namespace: "test", Name: "credentials"}
 	tests := []struct {
 		name       string
-		references []v2translator.ModelConfigReference
+		references []translator.ModelConfigReference
 		want       []string
 	}{
 		{
 			name:       "bearer",
-			references: []v2translator.ModelConfigReference{{NamespacedName: secret, Kind: "Secret", Key: env.AWSBearerTokenBedrock.Name()}},
+			references: []translator.ModelConfigReference{{NamespacedName: secret, Kind: "Secret", Key: env.AWSBearerTokenBedrock.Name()}},
 			want:       []string{env.AWSRegion.Name(), env.AWSBearerTokenBedrock.Name()},
 		},
 		{
 			name: "IAM with session token",
-			references: []v2translator.ModelConfigReference{
+			references: []translator.ModelConfigReference{
 				{NamespacedName: secret, Kind: "Secret", Key: env.AWSAccessKeyID.Name()},
 				{NamespacedName: secret, Kind: "Secret", Key: env.AWSSecretAccessKey.Name()},
 				{NamespacedName: secret, Kind: "Secret", Key: env.AWSSessionToken.Name()},
@@ -36,7 +36,7 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolved := &v2translator.ResolvedModelConfig{
+			resolved := &translator.ResolvedModelConfig{
 				Config: &v1alpha3.ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Namespace: secret.Namespace},
 					Spec: v1alpha3.ModelConfigSpec{
@@ -165,7 +165,7 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolved := &v2translator.ResolvedModelConfig{
+			resolved := &translator.ResolvedModelConfig{
 				Config: &v1alpha3.ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
 					Spec:       tt.spec,
@@ -226,7 +226,7 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resolved := &v2translator.ResolvedModelConfig{
+			resolved := &translator.ResolvedModelConfig{
 				Config: &v1alpha3.ModelConfig{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
 					Spec: v1alpha3.ModelConfigSpec{

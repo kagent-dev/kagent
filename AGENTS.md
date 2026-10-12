@@ -68,7 +68,7 @@ Every component has a single responsibility. If code reaches into another compon
 | [go/core/internal/grpcserver](go/core/internal/grpcserver/AGENTS.md) | gRPC transport |
 | `go/core/internal/service` | Control-plane services and workflows |
 | [go/core/internal/database](go/core/internal/database/AGENTS.md) | PostgreSQL queries and persistence |
-| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | API v2 execution and A2A gateway |
+| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | Control-plane execution and A2A gateway |
 | `go/adk` | Go agent development kit |
 | `python/packages` | Python agent packages and ADK |
 | [proto](proto/AGENTS.md) | gRPC API definitions |
@@ -112,7 +112,7 @@ Common commands:
 | Go lint | `make -C go lint` |
 | Generate Go artifacts | `make -C go generate` |
 | Create a Kind cluster | `make create-kind-cluster` |
-| Install into Kind | `make helm-install` |
+| Install into Kind | `make kagent-cli-install` |
 
 ## 8. Contribution Requirements
 
