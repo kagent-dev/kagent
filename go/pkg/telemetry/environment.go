@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
@@ -37,10 +38,30 @@ func Environment(environment []string, cfg Config) []string {
 	addDefault(env.OTELPropagators.Name(), "tracecontext")
 	addDefault(env.OTELExporterOTLPCompression.Name(), "gzip")
 	addDefault(env.OTELMetricsDefaultHistogramAggregation.Name(), "base2_exponential_bucket_histogram")
-	for _, signal := range []struct {
+	signals := []struct {
 		vars   env.OTELSignalVars
 		config *OTLPConfig
-	}{{env.OTELTraces, cfg.Traces}, {env.OTELMetrics, cfg.Metrics}, {env.OTELLogs, cfg.Logs}} {
+	}{{env.OTELTraces, cfg.Traces}, {env.OTELMetrics, cfg.Metrics}, {env.OTELLogs, cfg.Logs}}
+	connectionOverridden := func(vars env.OTELSignalVars) bool {
+		return supplied(vars.Endpoint.Name()) || supplied(vars.Protocol.Name()) ||
+			supplied(env.OTELExporterOTLPEndpoint.Name()) || supplied(env.OTELExporterOTLPProtocol.Name())
+	}
+	// A shared gRPC destination needs only two variables. HTTP file endpoints
+	// include signal paths, so keep those signal-specific. Never promote defaults
+	// across a signal with an explicit connection override.
+	shared := cfg.Traces
+	for _, signal := range signals {
+		if shared == nil || signal.config == nil || shared.Protocol != "grpc" ||
+			signal.config.Protocol != shared.Protocol || signal.config.Endpoint != shared.Endpoint || connectionOverridden(signal.vars) {
+			shared = nil
+			break
+		}
+	}
+	if shared != nil {
+		addDefault(env.OTELExporterOTLPEndpoint.Name(), shared.Endpoint)
+		addDefault(env.OTELExporterOTLPProtocol.Name(), shared.Protocol)
+	}
+	for _, signal := range signals {
 		exporter := "none"
 		if signal.config != nil || supplied(signal.vars.Endpoint.Name()) || supplied(env.OTELExporterOTLPEndpoint.Name()) {
 			exporter = "otlp"
@@ -49,17 +70,14 @@ func Environment(environment []string, cfg Config) []string {
 		if signal.config == nil {
 			continue
 		}
-		for _, option := range []struct {
-			specific, generic env.StringVar
-			value             string
-		}{
-			{signal.vars.Endpoint, env.OTELExporterOTLPEndpoint, signal.config.Endpoint},
-			{signal.vars.Protocol, env.OTELExporterOTLPProtocol, signal.config.Protocol},
-			{signal.vars.Timeout, env.OTELExporterOTLPTimeout, strconv.FormatInt(signal.config.timeout().Milliseconds(), 10)},
-		} {
-			if !supplied(option.generic.Name()) {
-				addDefault(option.specific.Name(), option.value)
-			}
+		// Endpoint and protocol form one connection. An env override of either
+		// replaces the file pair; the SDK defaults any missing counterpart.
+		if shared == nil && !connectionOverridden(signal.vars) {
+			addDefault(signal.vars.Endpoint.Name(), signal.config.Endpoint)
+			addDefault(signal.vars.Protocol.Name(), signal.config.Protocol)
+		}
+		if timeout := signal.config.timeout(); timeout != 10*time.Second && !supplied(env.OTELExporterOTLPTimeout.Name()) {
+			addDefault(signal.vars.Timeout.Name(), strconv.FormatInt(timeout.Milliseconds(), 10))
 		}
 	}
 	attributes := make([]string, 0, len(cfg.ResourceAttributes))

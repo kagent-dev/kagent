@@ -3,10 +3,12 @@ package byo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/stretchr/testify/require"
@@ -81,4 +83,41 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 
 func testCompilerSettings() translator.CompilerSettings {
 	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
+}
+
+func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
+	settings := testCompilerSettings()
+	settings.Telemetry = translator.TelemetryConfig{
+		Traces: translator.SignalConfig{Enabled: true},
+		Exporters: &telemetry.Config{
+			Traces:  &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
+			Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
+			Logs:    &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
+		},
+	}
+	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		BYO:       &v1alpha3.BYOHarness{},
+		Workload:  v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+	}}
+	// All three signals must leave room for fourteen user settings. The final
+	// ActorTemplate also includes credentials/trust and bootstrap variables.
+	for i := range 14 {
+		harness.Spec.Env = append(harness.Spec.Env, v1alpha3.RuntimeEnvVar{Name: fmt.Sprintf("CUSTOM_%d", i), Value: "value"})
+	}
+	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings).Compile(t.Context(), &translator.HarnessInput{
+		AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{Template: template},
+	})
+	require.NoError(t, err)
+	id, err := revision.Digest()
+	require.NoError(t, err)
+	actor, err := substrate.ActorTemplateForRevision(&revision.Revision, id)
+	require.NoError(t, err)
+	require.Len(t, actor.GetContainers()[0].GetEnv(), 32)
+	require.Contains(t, revision.EgressDestinations, "http://collector:4317")
+	// Keep the actual Substrate boundary enforced after compaction.
+	revision.Environment = append(revision.Environment, corev1.EnvVar{Name: "ONE_MORE", Value: "value"})
+	_, err = substrate.ActorTemplateForRevision(&revision.Revision, id)
+	require.ErrorContains(t, err, "Substrate supports at most 32")
 }

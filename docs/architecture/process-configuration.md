@@ -142,6 +142,8 @@ File settings provide telemetry defaults; a process's standard `OTEL_*` inputs
 override them. Signal-specific env values win over generic OTLP env values, and
 both win over file defaults. An absent exporter stays off unless env explicitly
 enables it. `OTEL_SDK_DISABLED=true` disables all SDK export.
+An endpoint or protocol override replaces the file's entire connection pair;
+provide both to avoid using an SDK default for the missing counterpart.
 
 Controller overrides apply only to the controller. Managed runtimes use
 `runtimeDefaults.telemetry` plus their own `Harness.spec.env` overrides. Helm

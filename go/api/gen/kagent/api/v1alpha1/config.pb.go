@@ -1913,13 +1913,14 @@ const file_kagent_api_v1alpha1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\xcf\x04\n" +
+	"\t_protocol\"\xd1\x06\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
 	"gatewayUrl\x88\x01\x01\x12<\n" +
-	"\alogging\x18\x03 \x01(\v2\".kagent.api.v1alpha1.LoggingConfigR\alogging\x12B\n" +
-	"\ttelemetry\x18\x04 \x01(\v2$.kagent.api.v1alpha1.TelemetryConfigR\ttelemetry\x12:\n" +
+	"\alogging\x18\x03 \x01(\v2\".kagent.api.v1alpha1.LoggingConfigR\alogging\x12\xc3\x02\n" +
+	"\ttelemetry\x18\x04 \x01(\v2$.kagent.api.v1alpha1.TelemetryConfigB\xfe\x01\xbaH\xfa\x01\xba\x01\xf6\x01\n" +
+	"+runtime_defaults.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12:\n" +
 	"\x12max_content_length\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x02R\x10maxContentLength\x88\x01\x01\x12X\n" +
 	"\x11token_propagation\x18\x06 \x01(\v2+.kagent.api.v1alpha1.TokenPropagationConfigR\x10tokenPropagation\x12*\n" +
 	"\x11file_search_tools\x18\a \x01(\bR\x0ffileSearchTools\x12$\n" +

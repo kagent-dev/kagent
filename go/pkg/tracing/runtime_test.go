@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -20,6 +22,9 @@ func TestRuntimeTelemetryValidate(t *testing.T) {
 		{name: "adk go", telemetry: RuntimeTelemetry{Runtime: RuntimeADKGo, AgentName: "a-h", AgentNamespace: "kagent"}},
 		{name: "model identity", telemetry: RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "a-h", AgentNamespace: "kagent", Provider: "openai", Model: "gpt-5.2-codex"}},
 		{name: "capture without identity", telemetry: RuntimeTelemetry{CaptureContent: true, MaxCaptureBytes: 1024}},
+		{name: "resource attributes", telemetry: RuntimeTelemetry{Exporters: &telemetry.Config{ResourceAttributes: map[string]string{"deployment.environment.name": "production"}}}},
+		{name: "service name in file", telemetry: RuntimeTelemetry{Exporters: &telemetry.Config{ResourceAttributes: map[string]string{"service.name": "shared"}}}, wantError: true},
+		{name: "service namespace in file", telemetry: RuntimeTelemetry{Exporters: &telemetry.Config{ResourceAttributes: map[string]string{"service.namespace": "shared"}}}, wantError: true},
 		{name: "unknown runtime", telemetry: RuntimeTelemetry{Runtime: "gemini", AgentName: "a-h", AgentNamespace: "kagent"}, wantError: true},
 		{name: "identity without runtime", telemetry: RuntimeTelemetry{AgentName: "a-h", AgentNamespace: "kagent"}, wantError: true},
 		{name: "identity without name", telemetry: RuntimeTelemetry{Runtime: RuntimeCodex, AgentNamespace: "kagent"}, wantError: true},

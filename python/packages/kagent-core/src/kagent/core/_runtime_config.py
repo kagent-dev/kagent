@@ -45,6 +45,10 @@ class RuntimeTelemetry(Settings):
 
     @model_validator(mode="after")
     def complete_identity(self):
+        if self.exporters is not None:
+            for key in ("service.name", "service.namespace"):
+                if key in self.exporters.resource_attributes:
+                    raise ValueError(f"runtime telemetry resource_attributes must not override compiled {key}")
         present = sum(bool(value) for value in (self.runtime, self.agent_name, self.agent_namespace))
         if present not in (0, 3):
             raise ValueError("telemetry identity requires a runtime, agent name, and namespace together")

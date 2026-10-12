@@ -9,6 +9,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -58,5 +60,37 @@ func TestCompilerSettingsRejectInvalidCaptureAndEndpoints(t *testing.T) {
 		config.DefaultController(cfg)
 		_, err := translator.NewCompilerSettings(cfg.RuntimeDefaults)
 		require.Error(t, err)
+	}
+}
+
+func TestBYOTelemetryServiceNameDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name, serviceName, attributes, want string
+	}{
+		{name: "agent default", want: "assistant"},
+		{name: "resource override", attributes: "service.name=custom", want: "custom"},
+		{name: "image service override", serviceName: "image-service", attributes: "service.name=custom", want: "image-service"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_SERVICE_NAME", tc.serviceName)
+			cfg := &apiv1.ControllerConfig{}
+			config.DefaultController(cfg)
+			cfg.RuntimeDefaults.Telemetry.ResourceAttributes = map[string]string{"deployment.environment.name": "production"}
+			settings, err := translator.NewCompilerSettings(cfg.RuntimeDefaults)
+			require.NoError(t, err)
+			environment := settings.Telemetry.TelemetryEnvironment(tracing.RuntimeTelemetry{AgentName: "assistant", AgentNamespace: "team"}, []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: tc.attributes}})
+			for _, variable := range environment {
+				if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+					t.Setenv(variable.Name, variable.Value)
+				}
+			}
+			// An ordinary SDK must recover the identity without kagent's JSON loader.
+			res, err := resource.New(t.Context(), resource.WithFromEnv())
+			require.NoError(t, err)
+			name, ok := res.Set().Value(semconv.ServiceNameKey)
+			require.True(t, ok)
+			require.Equal(t, tc.want, name.AsString())
+			require.Equal(t, map[string]string{"deployment.environment.name": "production"}, settings.Telemetry.Exporters.ResourceAttributes)
+		})
 	}
 }

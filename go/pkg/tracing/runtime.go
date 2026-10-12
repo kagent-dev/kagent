@@ -184,6 +184,11 @@ func (t RuntimeTelemetry) Validate() error {
 		if err := t.Exporters.Validate(); err != nil {
 			return err
 		}
+		for _, key := range []attribute.Key{semconv.ServiceNameKey, semconv.ServiceNamespaceKey} {
+			if _, ok := t.Exporters.ResourceAttributes[string(key)]; ok {
+				return fmt.Errorf("runtime telemetry resource_attributes must not override compiled %s", key)
+			}
+		}
 	}
 	switch t.Runtime {
 	case "", RuntimeADKGo, RuntimeClaude, RuntimeCodex:

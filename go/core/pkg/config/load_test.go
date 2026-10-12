@@ -30,6 +30,10 @@ func TestControllerConfig(t *testing.T) {
 		{"ttl bounds", "sandboxes: {defaultTtl: 7200s, maxTtl: 3600s}", true},
 		{"interval", "sessions: {expirationInterval: 0s}", true},
 		{"log level", "logging: {level: verbose}", true},
+		{"runtime service name", "runtimeDefaults: {telemetry: {resourceAttributes: {service.name: shared}}}", true},
+		{"runtime service namespace", "runtimeDefaults: {telemetry: {resourceAttributes: {service.namespace: shared}}}", true},
+		{"runtime resource attributes", "runtimeDefaults: {telemetry: {resourceAttributes: {deployment.environment.name: production}}}", false},
+		{"controller service labels", "telemetry: {resourceAttributes: {service.name: controller, service.namespace: control-plane}}", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &apiv1.ControllerConfig{}

@@ -1,6 +1,7 @@
 package translator
 
 import (
+	"maps"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -114,6 +115,15 @@ func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry,
 	cfg := telemetry.Config{}
 	if c.Exporters != nil {
 		cfg = *c.Exporters
+	}
+	// Opaque SDKs do not read the runtime JSON. Supply a service-name default
+	// through resource attributes so their own OTEL_SERVICE_NAME still wins.
+	cfg.ResourceAttributes = maps.Clone(cfg.ResourceAttributes)
+	if cfg.ResourceAttributes == nil {
+		cfg.ResourceAttributes = make(map[string]string)
+	}
+	if identity.AgentName != "" {
+		cfg.ResourceAttributes[string(semconv.ServiceNameKey)] = identity.AgentName
 	}
 	raw := make([]string, 0, len(environment))
 	provided := make(map[string]corev1.EnvVar, len(environment))

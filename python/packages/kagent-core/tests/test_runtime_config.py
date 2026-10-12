@@ -33,6 +33,8 @@ def test_runtime_defaults():
         {"control_plane_url": "file:///private"},
         {"token_propagation": {"resources": [""]}},
         {"telemetry": {"agent_name": "partial"}},
+        {"telemetry": {"exporters": {"resource_attributes": {"service.name": "shared"}}}},
+        {"telemetry": {"exporters": {"resource_attributes": {"service.namespace": "shared"}}}},
         {"log_level": "verbose"},
         {"file_search_tools": "false"},
         {"unknown": True},

@@ -88,13 +88,16 @@ def test_absent_exporters_disable_instrumentation(monkeypatch, configurator):
     assert providers.profile == PROFILES[KagentRuntimeValues.CREWAI]
 
 
-def test_configuration_errors_stop_startup(monkeypatch):
-    def boom(*args):
-        raise RuntimeError("bad exporter")
-
-    monkeypatch.setattr(_boot, "_install_providers", boom)
-    with pytest.raises(RuntimeError, match="bad exporter"):
-        _boot.bootstrap(KagentRuntimeValues.ADK_PYTHON, config=exporting_config())
+def test_invalid_exporter_logs_and_continues(monkeypatch, caplog):
+    monkeypatch.setenv("OTEL_TRACES_EXPORTER", "jaeger")
+    instrumented = []
+    monkeypatch.setattr(_boot, "_instrument", lambda names, options: instrumented.extend(names))
+    providers = _boot.bootstrap(KagentRuntimeValues.ADK_PYTHON, config=exporting_config(name="agent"))
+    assert providers.identity.agent_name == "agent"
+    assert _boot.current() is providers
+    assert instrumented
+    assert "Failed to configure OpenTelemetry providers" in caplog.text
+    assert "jaeger" in caplog.text
 
 
 def test_bootstrap_runs_once(configurator):
@@ -278,3 +281,51 @@ def test_environment_can_enable_and_disable_export(monkeypatch, configurator):
     assert not _boot.signal_enabled("METRICS")
     monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
     assert not _boot.signal_enabled("TRACES")
+
+
+@pytest.mark.parametrize("prefix", ["OTEL_EXPORTER_OTLP_", "OTEL_EXPORTER_OTLP_TRACES_"])
+@pytest.mark.parametrize("option,value", [("ENDPOINT", "http://override:4317"), ("PROTOCOL", "http/protobuf")])
+def test_partial_connection_override_replaces_file_pair(monkeypatch, prefix, option, value):
+    monkeypatch.setenv(prefix + option, value)
+    _defaults.apply(exporting_config().telemetry)
+    assert os.environ[prefix + option] == value
+    missing = "PROTOCOL" if option == "ENDPOINT" else "ENDPOINT"
+    assert "OTEL_EXPORTER_OTLP_TRACES_" + missing not in os.environ
+    if option == "PROTOCOL":
+        # Exercise the SDK's default endpoint and HTTP path handling, without
+        # connecting to a collector or installing global providers.
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+        exporter = OTLPSpanExporter()
+        try:
+            assert exporter._endpoint == "http://localhost:4318/v1/traces"
+        finally:
+            exporter.shutdown()
+
+
+def test_specific_connection_overrides_generic(monkeypatch):
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://generic:4317")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://specific:4318/custom")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "http/protobuf")
+    _defaults.apply(exporting_config().telemetry)
+    exporter = OTLPSpanExporter()
+    try:
+        assert exporter._endpoint == "http://specific:4318/custom"
+        assert os.environ["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] == "http/protobuf"
+    finally:
+        exporter.shutdown()
+
+
+@pytest.mark.parametrize("timeout", [0, 10000, 1234])
+def test_timeout_omits_only_sdk_default(timeout):
+    config = exporting_config().telemetry
+    config.exporters.traces.timeout_ms = timeout
+    _defaults.apply(config)
+    if timeout in (0, 10000):
+        assert "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT" not in os.environ
+        assert _boot._resolve_otlp_timeout_seconds("TRACES") == 10
+    else:
+        assert _boot._resolve_otlp_timeout_seconds("TRACES") == 1.234

@@ -19,13 +19,21 @@ def apply(config: RuntimeTelemetry) -> None:
         )
         os.environ.setdefault(f"OTEL_{signal}_EXPORTER", "otlp" if enabled else "none")
         if settings is not None:
-            for name, value in (
-                ("ENDPOINT", settings.endpoint),
-                ("PROTOCOL", settings.protocol),
-                ("TIMEOUT", str(settings.timeout_ms or 10000)),
+            # An explicit connection setting replaces the file's entire pair.
+            # Let the SDK default a missing endpoint or protocol.
+            if not any(
+                key in os.environ
+                for key in (
+                    prefix + "ENDPOINT",
+                    prefix + "PROTOCOL",
+                    "OTEL_EXPORTER_OTLP_ENDPOINT",
+                    "OTEL_EXPORTER_OTLP_PROTOCOL",
+                )
             ):
-                if f"OTEL_EXPORTER_OTLP_{name}" not in os.environ:
-                    os.environ.setdefault(prefix + name, value)
+                os.environ[prefix + "ENDPOINT"] = settings.endpoint
+                os.environ[prefix + "PROTOCOL"] = settings.protocol
+            if settings.timeout_ms not in (0, 10000) and "OTEL_EXPORTER_OTLP_TIMEOUT" not in os.environ:
+                os.environ.setdefault(prefix + "TIMEOUT", str(settings.timeout_ms))
     attributes = [f"{key}={quote(value, safe='')}" for key, value in sorted(exporters.resource_attributes.items())]
     if attributes:
         attributes.append(os.environ.get("OTEL_RESOURCE_ATTRIBUTES", ""))

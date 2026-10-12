@@ -18,14 +18,23 @@ message CLIConfig {
 }
 
 message ConnectionConfig {
-  optional string api_url = 1 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
-  optional string gateway_url = 2 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
+  optional string api_url = 1 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
+  optional string gateway_url = 2 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
   optional string namespace = 3 [(buf.validate.field).string.min_len = 1];
   optional string user_id = 4 [(buf.validate.field).string = {
     min_len: 1
     pattern: "^\\S+$"
   }];
-  google.protobuf.Duration timeout = 5 [(buf.validate.field).duration = {gte: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration timeout = 5 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 9223372036}
+  }];
   string ca_file = 6;
   string server_name = 7;
   bool verbose = 8;
@@ -133,8 +142,14 @@ message DatabaseConfig {
     ]
   }];
   PostgresPoolConfig pool = 5;
-  optional string schema = 6 [(buf.validate.field).string = {pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$", max_len: 63}];
-  optional string vector_schema = 7 [(buf.validate.field).string = {pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$", max_len: 63}];
+  optional string schema = 6 [(buf.validate.field).string = {
+    pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
+    max_len: 63
+  }];
+  optional string vector_schema = 7 [(buf.validate.field).string = {
+    pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
+    max_len: 63
+  }];
 }
 
 message PostgresPoolConfig {
@@ -145,35 +160,62 @@ message PostgresPoolConfig {
   };
   optional int32 min_conns = 1 [(buf.validate.field).int32.gte = 0];
   optional int32 max_conns = 2 [(buf.validate.field).int32.gt = 0];
-  google.protobuf.Duration max_conn_idle_time = 3 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
-  google.protobuf.Duration max_conn_lifetime = 4 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration max_conn_idle_time = 3 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration max_conn_lifetime = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message SubstrateConfig {
   optional string api_endpoint = 1 [(buf.validate.field).string.min_len = 1];
   string ca_file = 2;
   string client_cert_file = 3;
-  optional string router_url = 4 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
+  optional string router_url = 4 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
 }
 
 message SessionsConfig {
   // Zero disables idle expiration.
-  google.protobuf.Duration idle_ttl = 1 [(buf.validate.field).duration = {gte: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration idle_ttl = 1 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 9223372036}
+  }];
   // Zero leaves session shares unbounded.
-  google.protobuf.Duration share_max_ttl = 2 [(buf.validate.field).duration = {gte: {}, lte: {seconds: 9223372036}}];
-  google.protobuf.Duration expiration_interval = 3 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
-  google.protobuf.Duration quiescence_recovery_interval = 4 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration share_max_ttl = 2 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration expiration_interval = 3 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration quiescence_recovery_interval = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message GatewayConfig {
-  optional string public_url = 1 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
+  optional string public_url = 1 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
   PushConfig push = 2;
 }
 
 message PushConfig {
   // Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
   string signing_private_key_file = 1;
-  optional string issuer = 2 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
+  optional string issuer = 2 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
   bool allow_http = 3;
   bool allow_private_networks = 4;
 }
@@ -187,21 +229,36 @@ message SandboxConfig {
   string guest_image = 1;
   optional string cpu = 2 [(buf.validate.field).string.min_len = 1];
   optional string memory = 3 [(buf.validate.field).string.min_len = 1];
-  google.protobuf.Duration default_ttl = 4 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration default_ttl = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
   google.protobuf.Duration max_ttl = 5 [(buf.validate.field).duration = {
     gt: {}
     lte: {seconds: 86400}
   }];
-  google.protobuf.Duration expiration_interval = 6 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration expiration_interval = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message ScheduledRunsConfig {
-  google.protobuf.Duration poll_interval = 1 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
-  google.protobuf.Duration execution_interval = 2 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration poll_interval = 1 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration execution_interval = 2 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message RuntimeRevisionsConfig {
-  google.protobuf.Duration gc_interval = 1 [(buf.validate.field).duration = {gt: {}, lte: {seconds: 9223372036}}];
+  google.protobuf.Duration gc_interval = 1 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message MetricsConfig {
@@ -228,21 +285,37 @@ message TelemetryConfig {
 }
 
 message OTLPConfig {
-  string endpoint = 1 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
+  string endpoint = 1 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
   optional string protocol = 2 [(buf.validate.field).string = {
     in: [
       "grpc",
       "http/protobuf"
     ]
   }];
-  google.protobuf.Duration timeout = 3 [(buf.validate.field).duration = {gte: {nanos: 1000000}, lte: {seconds: 86400}}];
+  google.protobuf.Duration timeout = 3 [(buf.validate.field).duration = {
+    gte: {nanos: 1000000}
+    lte: {seconds: 86400}
+  }];
 }
 
 message RuntimeDefaultsConfig {
-  optional string control_plane_url = 1 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
-  optional string gateway_url = 2 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
+  optional string control_plane_url = 1 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
+  optional string gateway_url = 2 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
   LoggingConfig logging = 3;
-  TelemetryConfig telemetry = 4;
+  TelemetryConfig telemetry = 4 [(buf.validate.field).cel = {
+    id: "runtime_defaults.telemetry.service_identity"
+    message: "runtime telemetry resource_attributes must not override compiled service.name or service.namespace"
+    expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
+  }];
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
   bool file_search_tools = 7;
@@ -251,7 +324,16 @@ message RuntimeDefaultsConfig {
 
 message TokenPropagationConfig {
   bool enabled = 1;
-  optional string sts_well_known_uri = 2 [(buf.validate.field).string = {uri: true, pattern: "^https?://[^/?#]+"}];
-  repeated string resources = 3 [(buf.validate.field).repeated.items.string = {min_len: 1, pattern: "^\\S(?:.*\\S)?$"}];
-  repeated string audiences = 4 [(buf.validate.field).repeated.items.string = {min_len: 1, pattern: "^\\S(?:.*\\S)?$"}];
+  optional string sts_well_known_uri = 2 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https?://[^/?#]+"
+  }];
+  repeated string resources = 3 [(buf.validate.field).repeated.items.string = {
+    min_len: 1
+    pattern: "^\\S(?:.*\\S)?$"
+  }];
+  repeated string audiences = 4 [(buf.validate.field).repeated.items.string = {
+    min_len: 1
+    pattern: "^\\S(?:.*\\S)?$"
+  }];
 }

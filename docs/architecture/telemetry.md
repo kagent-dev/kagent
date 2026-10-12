@@ -63,10 +63,20 @@ config:
 
 Each process resolves defaults, file settings, then its own `OTEL_*` overrides.
 A signal-specific environment setting takes precedence over its generic OTLP
-equivalent, and either takes precedence over the file. `OTEL_SDK_DISABLED=true`
+equivalent, and either takes precedence over the file. Endpoint and protocol
+form one connection: overriding either replaces the file's pair, with an omitted
+counterpart taking the SDK default. Set both when changing transport or collector
+address. Generic HTTP endpoints are base URLs; signal-specific endpoints include
+the signal path. `OTEL_SDK_DISABLED=true`
 and `OTEL_<SIGNAL>_EXPORTER=none` disable export. Sampling, batching, headers, and
 trust settings use the upstream SDK's environment interface. File validation
 runs at startup; invalid file settings fail validation.
+
+Keep SDK sampling parent-based AlwaysOn and perform sampling in the collector.
+Independent sampler settings on individual Harnesses can produce incomplete
+distributed traces. SDK sampler overrides remain supported for operators who
+intentionally need them. Exporter setup errors are logged without stopping the
+agent process; malformed file configuration still fails validation.
 
 Controller overrides never change managed runtimes. Use `controller.env` or
 `controller.envFrom` for the controller and `Harness.spec.env` for a runtime.
@@ -74,9 +84,17 @@ Compilers include a runtime's OTLP endpoint overrides in its egress destinations
 The controller compiles file defaults into the existing runtime JSON contracts;
 opaque BYO SDKs receive corresponding OTEL defaults. Environment entries retain
 Substrate's limit of 32 variables, with at most 32,768 characters per value.
+The BYO environment omits the SDK's default timeout and shares a generic gRPC
+connection when all three signals use the same destination. HTTP endpoints keep
+their signal-specific paths.
 
 `resourceAttributes` supplies resource defaults. `OTEL_RESOURCE_ATTRIBUTES`
 overrides them per key and `OTEL_SERVICE_NAME` overrides the service name.
+Runtime file attributes cannot contain `service.name` or `service.namespace`:
+these default to the compiled agent name and namespace. Use `OTEL_SERVICE_NAME`
+for an explicit service-name override. Opaque BYO images receive the
+agent's service name as a resource default, so an image's own
+`OTEL_SERVICE_NAME` remains authoritative.
 Compiler-owned agent and runtime identity remains authoritative. The controller
 reports `kagent-controller`, its version, and pod identity from the downward API.
 

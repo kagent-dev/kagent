@@ -151,11 +151,14 @@ def _resource_attributes(identity: Identity, config: ExporterConfig) -> dict[str
 def _install_providers(identity: Identity, config: ExporterConfig) -> None:
     if os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true":
         return
-    OpenTelemetryConfigurator().configure(
-        resource_attributes=_resource_attributes(identity, config),
-        span_processors=[KagentAttributesSpanProcessor()],
-        exporter_args_map=_exporter_args(),
-    )
+    try:
+        OpenTelemetryConfigurator().configure(
+            resource_attributes=_resource_attributes(identity, config),
+            span_processors=[KagentAttributesSpanProcessor()],
+            exporter_args_map=_exporter_args(),
+        )
+    except Exception:
+        logger.warning("Failed to configure OpenTelemetry providers", exc_info=True)
 
 
 def _instrument(names: tuple[str, ...], options: dict[str, dict[str, Any]]) -> None:
