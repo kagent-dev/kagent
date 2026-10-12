@@ -507,8 +507,8 @@ func (s *processSession) recordUsage(message rpcMessage, sink runtime.ModelCallS
 // codexInputResponse maps the runtime-neutral input request onto Codex's input response,
 // which is either a MCP elicitation response or ask-user response.
 // For MCP elicitation, Codex accepts only the decision here: the public A2A and
-// runtime models retain a rejection reason for harnesses that support one, but
-// this adapter deliberately drops it rather than sending undocumented metadata.
+// runtime models retain a rejection reason. The live callback omits that reason;
+// durable continuation includes it in the saved denial result instead.
 func codexInputResponse(request runtime.InputRequest, response runtime.InputResponse) (map[string]any, error) {
 	switch request := request.(type) {
 	case *runtime.ApprovalRequest:

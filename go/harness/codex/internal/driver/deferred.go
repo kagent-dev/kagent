@@ -27,6 +27,7 @@ const (
 	phaseContinuing pendingPhase = "continuing"
 	phaseComplete   pendingPhase = "complete"
 	phaseCanceled   pendingPhase = "canceled"
+	phaseAbandoned  pendingPhase = "abandoned"
 )
 
 // pendingRecord contains no credentials or process identities. A call whose
@@ -78,7 +79,7 @@ func (r *pendingRecord) validate() error {
 		if r.Approval != nil && (r.Decision == nil || r.Result == nil) || r.Question != nil && r.Answer == nil {
 			return fmt.Errorf("resolved Codex continuation has no response")
 		}
-	case phaseCanceled:
+	case phaseCanceled, phaseAbandoned:
 	default:
 		return fmt.Errorf("unknown Codex pending continuation phase %q", r.Phase)
 	}
@@ -113,6 +114,9 @@ func (d *ProcessDriver) RestorePending() (string, string, runtime.PendingTurn, e
 	}
 	if r.Phase == phaseComplete || r.Phase == phaseCanceled {
 		return "", "", nil, nil
+	}
+	if r.Phase == phaseAbandoned || r.Phase == phaseExecuting || r.Phase == phaseContinuing {
+		return "", "", nil, runtime.ErrSessionAbandoned
 	}
 	return r.TaskID, r.ContextID, &deferredTurn{driver: d, record: *r}, nil
 }
@@ -293,7 +297,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		}
 		if err := pending.Cancel(context.WithoutCancel(ctx)); err != nil {
 			outcome = runtime.Outcome{}
-			returnErr = &runtime.CancellationError{Err: errors.Join(returnErr, err)}
+			returnErr = &runtime.CancellationError{Err: p.abandon(errors.Join(returnErr, err))}
 			return
 		}
 		outcome, returnErr = runtime.Outcome{}, context.Canceled
@@ -318,7 +322,13 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		if answer, ok := response.(*runtime.AskUserResponse); ok && !reflect.DeepEqual(r.Answer, answer) {
 			return runtime.Outcome{}, fmt.Errorf("Codex answer changed after resolution")
 		}
-	} else {
+	}
+	defer func() {
+		if returnErr != nil && ctx.Err() == nil {
+			returnErr = p.abandon(returnErr)
+		}
+	}()
+	if r.Phase != phaseResult {
 		switch response := response.(type) {
 		case *runtime.ApprovalDecision:
 			r.Decision = response
@@ -407,10 +417,26 @@ func (p *deferredTurn) repark(ctx context.Context, r *pendingRecord, phase pendi
 	return runtime.Outcome{Pending: &deferredTurn{driver: p.driver, record: *r}}, nil
 }
 
+// abandon prevents a failed task from being restored as pending input.
+func (p *deferredTurn) abandon(cause error) error {
+	r, err := p.current()
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	r.Phase = phaseAbandoned
+	if err := p.driver.savePending(r); err != nil {
+		return errors.Join(cause, err)
+	}
+	return errors.Join(runtime.ErrSessionAbandoned, cause)
+}
+
 func (p *deferredTurn) Cancel(_ context.Context) error {
 	r, err := p.current()
 	if err != nil {
 		return err
+	}
+	if r.Phase == phaseAbandoned {
+		return runtime.ErrSessionAbandoned
 	}
 	r.Phase = phaseCanceled
 	return p.driver.savePending(r)

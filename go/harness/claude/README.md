@@ -56,6 +56,9 @@ for the fetch after 30 seconds, so in a turn that runs past then, spans started
 after its telemetry initializes become roots of new traces rather than being
 absent.
 
+The gate delays new stdin prompts only. Deferred replay starts automatically on
+`--resume`, so the gate cannot ensure telemetry is initialized before replay.
+
 ## Human-in-the-loop approval flow
 
 Claude runs in print mode with compiler-owned `PreToolUse` hooks. Protected MCP
@@ -71,12 +74,16 @@ permission host; it returns only that matching saved decision. Ask-user answers
 are supplied through `updatedInput`.
 
 Cancellation resolves the native deferred call with a stop decision before
-writing a tombstone. Uncertain execution phases refuse automatic replay. Parallel
-calls that cannot be deferred are denied through the permission fallback; the
-native runtime can still defer a remaining single call.
+writing a tombstone.
 
 The native [defer documentation](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later)
 describes the transcript-based continuation.
+
+## Key limitations
+
+- **Parallel approvals are not supported.** Protected calls that Claude cannot
+  defer in a parallel batch are denied through the permission fallback. A
+  remaining single call can still be deferred and approved.
 
 ## Planned / not yet supported
 

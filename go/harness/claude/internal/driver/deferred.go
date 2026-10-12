@@ -118,7 +118,7 @@ func (r *deferredRecord) validate() error {
 		if r.Decision == nil && r.Answer == nil && !r.Canceling {
 			return fmt.Errorf("Claude continuation has no response")
 		}
-	case "canceled":
+	case "canceled", "abandoned":
 	default:
 		return fmt.Errorf("unknown Claude deferred phase %q", r.Phase)
 	}
@@ -226,6 +226,9 @@ func (d *ProcessDriver) RestorePending() (string, string, runtime.PendingTurn, e
 	if r.Phase == "complete" || r.Phase == "canceled" {
 		return "", "", nil, nil
 	}
+	if r.Phase == "abandoned" || r.Phase == "resuming" || r.Phase == "executing" || r.Phase == "released" {
+		return "", "", nil, runtime.ErrSessionAbandoned
+	}
 	if !b.protects(r.Tool.Name) {
 		return "", "", nil, fmt.Errorf("Claude deferred tool is no longer protected")
 	}
@@ -329,6 +332,11 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
+	defer func() {
+		if returnErr != nil && returnErr != context.Canceled {
+			returnErr = p.abandon(returnErr)
+		}
+	}()
 	outcome, err = p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, sink, &r.Tool)
 	var startErr *processStartError
 	if errors.As(err, &startErr) {
@@ -382,12 +390,12 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 
 // Cancel resolves the native deferred call with a stop decision before writing
 // the tombstone, so the next task cannot revive the canceled call on --resume.
-func (p *deferredTurn) Cancel(ctx context.Context) error {
+func (p *deferredTurn) Cancel(ctx context.Context) (returnErr error) {
 	b := p.driver.config.ApprovalBroker
 	b.mu.Lock()
 	r, err := p.current()
 	var previous deferredRecord
-	if err == nil && (r.Phase == "complete" || r.Phase == "canceled") {
+	if err == nil && (r.Phase == "complete" || r.Phase == "canceled" || r.Phase == "abandoned") {
 		err = fmt.Errorf("Claude continuation is already resolved")
 	}
 	if err == nil {
@@ -413,6 +421,11 @@ func (p *deferredTurn) Cancel(ctx context.Context) error {
 		}
 		return errors.Join(err, saveDeferred(b.directory, p.driver.config.MaxEventBytes, &previous))
 	}
+	defer func() {
+		if returnErr != nil {
+			returnErr = p.abandon(returnErr)
+		}
+	}()
 	if err != nil {
 		return err
 	}
@@ -430,6 +443,22 @@ func (p *deferredTurn) Cancel(ctx context.Context) error {
 	}
 	current.Phase = "canceled"
 	return saveDeferred(b.directory, p.driver.config.MaxEventBytes, current)
+}
+
+// abandon prevents a failed task from being restored as pending input.
+func (p *deferredTurn) abandon(cause error) error {
+	b := p.driver.config.ApprovalBroker
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, err := p.current()
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	r.Phase = "abandoned"
+	if err := saveDeferred(b.directory, p.driver.config.MaxEventBytes, r); err != nil {
+		return errors.Join(cause, err)
+	}
+	return errors.Join(runtime.ErrSessionAbandoned, cause)
 }
 
 type discardSink struct{}

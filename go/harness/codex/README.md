@@ -89,10 +89,17 @@ sequenceDiagram
     Codex-->>Executor: More events or completion
 ```
 
-Approval handling preserves one protected MCP request at a time through DATA
-restore using App Server JSON-RPC. Concurrent requests are canceled with the
-interrupted native turn. Batched approvals are follow-up work. The harness does
-not intercept model-provider traffic.
+## Key limitations
+
+- **One pending input at a time.** Only one approval or ask-user request survives
+  DATA restore. Concurrent requests are canceled with the interrupted native
+  turn; batch approval is not supported.
+- **Approval resumes in a new native turn.** The interrupted call stays in Codex
+  history, and the harness supplies its result as a standalone named tool output.
+  The model may request the operation again after seeing the earlier interruption.
+  Journal replay protection does not prevent a newly requested duplicate call.
+- **Protected MCP results are serialized as JSON text.** Image and audio results
+  are not delivered as equivalent native multimodal tool output.
 
 ## Development
 
@@ -135,13 +142,12 @@ metadata:
   namespace: kagent
 spec:
   template:
-<<<<<<< HEAD
     inline:
       description: test
       modelConfig:
         name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
       systemPrompt: |
-          Follow the selected skill and use the configured MCP tool.
+        Follow the selected skill and use the configured MCP tool.
       tools:
         - mcp:
             server:
@@ -156,32 +162,4 @@ spec:
             - migrate-agent-plugin
   harnessRef:
     name: codex
-=======
-    description: test
-    modelConfig:
-      name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
-    systemPrompt: |
-      Follow the selected skill and use the configured MCP tool.
-    tools:
-      - mcp:
-          server:
-            kind: RemoteMCPServer
-            name: kagent-tool-server
-    plugins:
-      - source:
-          git:
-            url: https://github.com/agentplugins/agent-plugins-example.git
-            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
-        skills:
-          - migrate-agent-plugin
-  harness:
-    codex: {}
-    workload:
-      image: ${KAGENT_CODEX_IMAGE_DIGEST}
-    substrate:
-      workerPoolRef:
-        name: kagent-default
-      snapshotPolicy:
-        location: gs://ate-snapshots/kagent/
->>>>>>> 9f8e28a20 (initial commit)
 ```

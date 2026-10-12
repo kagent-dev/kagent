@@ -221,6 +221,13 @@ approvals and user input from their durable state; sandbox guests start with a
 fresh process registry. Agent checkpoints can be forked without carrying the
 source session's process memory or runtime identity into the new session.
 
+Codex and Claude record failed deferred continuations as `abandoned` in their
+existing input journals. Admission rejects abandoned or restored unfinished
+execution phases with an error requiring a new session, instead of restoring a
+pending interaction for a failed task. Failures known to precede execution keep
+the existing retry behavior. This rule is limited to durable deferred input;
+general crash recovery and remote tool outcome reconciliation are follow-up work.
+
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest
 memory while rematerializing `/data`, so a connection opened before the snapshot

@@ -75,7 +75,7 @@ func TestRestorePendingValidatesDurableData(t *testing.T) {
 }
 
 func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
-	for _, phase := range []pendingPhase{phaseWaiting, phaseExecuting, phaseResult, phaseContinuing, phaseComplete, phaseCanceled} {
+	for _, phase := range []pendingPhase{phaseWaiting, phaseExecuting, phaseResult, phaseContinuing, phaseComplete, phaseCanceled, phaseAbandoned} {
 		t.Run(string(phase), func(t *testing.T) {
 			r := waitingRecord()
 			r.Phase = phase
@@ -93,6 +93,13 @@ func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
 			}}})
 			if err := driver.savePending(&r); err != nil {
 				t.Fatal(err)
+			}
+			if phase == phaseExecuting || phase == phaseContinuing || phase == phaseAbandoned {
+				taskID, contextID, restored, err := driver.RestorePending()
+				require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+				require.Empty(t, taskID)
+				require.Empty(t, contextID)
+				require.Nil(t, restored)
 			}
 			pending := &deferredTurn{driver: driver, record: r}
 			response := decision
@@ -129,22 +136,19 @@ func TestDeferredTurnPersistsExecutingBeforeToolAndDoesNotRetry(t *testing.T) {
 	}
 	pending := &deferredTurn{driver: driver, record: r}
 	decision := &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
-	if _, err := pending.Resume(t.Context(), decision, &recordingSink{}); err == nil {
-		t.Fatal("uncertain execution succeeded")
-	}
-	_, _, restored, err := driver.RestorePending()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := restored.Resume(t.Context(), decision, &recordingSink{}); err == nil || !strings.Contains(err.Error(), "uncertain") || calls != 1 {
-		t.Fatalf("uncertain operation replayed: %d %v", calls, err)
-	}
-	if err := restored.Cancel(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, pending, err := driver.RestorePending(); err != nil || pending != nil {
-		t.Fatalf("canceled task recovered: %T %v", pending, err)
-	}
+	_, err := pending.Resume(t.Context(), decision, &recordingSink{})
+	require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+	saved, err := driver.loadPending()
+	require.NoError(t, err)
+	require.Equal(t, phaseAbandoned, saved.Phase)
+	restored := NewProcessDriver(ProcessConfig{PendingDir: driver.config.PendingDir, MaxFrameBytes: 4096})
+	taskID, contextID, pendingTurn, err := restored.RestorePending()
+	require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+	require.Empty(t, taskID)
+	require.Empty(t, contextID)
+	require.Nil(t, pendingTurn)
+	require.ErrorIs(t, pending.Cancel(t.Context()), runtime.ErrSessionAbandoned)
+	require.Equal(t, 1, calls)
 }
 
 var _ ToolCaller = fakeToolCaller{}

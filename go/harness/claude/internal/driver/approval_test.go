@@ -125,19 +125,22 @@ func TestApprovalHookRejectsChangedToolAndCorruptData(t *testing.T) {
 	require.Nil(t, pending)
 }
 
-func TestDeferredRecoveryRefusesUncertainReplay(t *testing.T) {
-	b := newTestBroker(t)
-	r := testRecord()
-	r.Phase = "executing"
-	r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
-	require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
-	driver := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
-	task, contextID, pending, err := driver.RestorePending()
-	require.NoError(t, err)
-	require.Equal(t, r.TaskID, task)
-	require.Equal(t, r.ContextID, contextID)
-	_, err = pending.Resume(t.Context(), r.Decision, &recordingSink{})
-	require.ErrorContains(t, err, "uncertain")
+func TestDeferredRecoveryRefusesUnfinishedReplay(t *testing.T) {
+	for _, phase := range []string{"resuming", "executing", "released", "abandoned"} {
+		t.Run(phase, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Phase = phase
+			r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			driver := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+			task, contextID, pending, err := driver.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Empty(t, task)
+			require.Empty(t, contextID)
+			require.Nil(t, pending)
+		})
+	}
 }
 
 func TestPermissionHostDeniesWithoutWaiting(t *testing.T) {
@@ -307,4 +310,39 @@ func TestDeferredLaunchFailureKeepsOriginalInputWaiting(t *testing.T) {
 	saved, err := loadDeferred(b.directory, 1<<20)
 	require.NoError(t, err)
 	require.Equal(t, expected, saved)
+}
+
+func TestDeferredFailureAbandonsSession(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		name := "resume"
+		if cancel {
+			name = "cancel"
+		}
+		t.Run(name, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			directory := t.TempDir()
+			executable := filepath.Join(directory, "claude")
+			require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nexit 17\n"), 0o700))
+			driver := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: directory, ApprovalBroker: b, MaxEventBytes: 1 << 20, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+			_, _, pending, err := driver.RestorePending()
+			require.NoError(t, err)
+			if cancel {
+				err = pending.Cancel(t.Context())
+			} else {
+				_, err = pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}, &recordingSink{})
+			}
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			saved, err := loadDeferred(b.directory, 1<<20)
+			require.NoError(t, err)
+			require.Equal(t, "abandoned", saved.Phase)
+			restored := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+			taskID, contextID, pending, err := restored.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Empty(t, taskID)
+			require.Empty(t, contextID)
+			require.Nil(t, pending)
+		})
+	}
 }
