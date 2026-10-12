@@ -134,11 +134,21 @@ func (o Options) resolve() (auth.AuthProvider, auth.CollectionAuthorizer) {
 	return authenticator, authorizer
 }
 
-// SetupLogger installs the explicitly configured controller logger.
+// SetupLogger installs the explicitly configured controller logger without
+// bridging it to OTLP.
 func SetupLogger(level string) error {
+	return SetupLoggerWithTelemetry(level, false)
+}
+
+// SetupLoggerWithTelemetry installs the explicitly configured controller logger
+// and, when logsEnabled is true, mirrors its records to the OTLP logger provider.
+func SetupLoggerWithTelemetry(level string, logsEnabled bool) error {
 	logger, err := logging.New(os.Stderr, level)
 	if err != nil {
 		return fmt.Errorf("invalid logging level: %w", err)
+	}
+	if logsEnabled {
+		logger = slog.New(telemetry.ControllerLogHandler(logger.Handler()))
 	}
 	slog.SetDefault(logger)
 	ctrl.SetLogger(logging.AsLogr(logger))
@@ -179,7 +189,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 			return fmt.Errorf("push.signingPrivateKeyFile: %w", err)
 		}
 	}
-	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
+	if err := SetupLoggerWithTelemetry(cfg.GetLogging().GetLevel(), cfg.GetTelemetry().GetLogs() != nil); err != nil {
 		return err
 	}
 	quiescenceInterval := cfg.GetSessions().GetQuiescenceRecoveryInterval().AsDuration()
@@ -306,7 +316,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		}
 	}
 	mcpClient := toolservice.NewRuntimeMCPClient(manager.GetClient())
-	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
+	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store, manager.GetEventRecorder("remotemcpserver"))
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
