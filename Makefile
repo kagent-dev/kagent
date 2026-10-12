@@ -88,7 +88,8 @@ AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 GO_MODULE ?= $(shell $(AWK) '/^module / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
-SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod)
+# Fork: the Giant Swarm line's chart version ("# Substrate" below), set before LDFLAGS reads it.
+SUBSTRATE_VERSION ?= 1.9.0
 
 # Version information for the build (the -X targets follow the Go module path, not the image repository)
 LDFLAGS := -X $(GO_MODULE)/core/internal/version.Version=$(VERSION) \
@@ -255,10 +256,9 @@ SUBSTRATE_ENABLED ?= false
 # release go/go.mod pins plus cherry-picked fixes, published to
 # gsoci.azurecr.io/giantswarm/substrate from CircleCI; its FORK.md is the ledger). The Go module pin
 # in go/go.mod stays upstream's release — the ate-api contract is versioned by
-# it — so the chart version is set here, not derived from go.mod, and the two
+# it — so the chart version is set above LDFLAGS, not derived from go.mod, and the two
 # move together at a re-pin. Upstream: SUBSTRATE_VERSION from the go.mod
 # replace target, SUBSTRATE_REPO oci://ghcr.io/kagent-dev/substrate/helm.
-SUBSTRATE_VERSION ?= 1.7.0
 SUBSTRATE_REPO ?= oci://gsoci.azurecr.io/giantswarm/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
 # The module pin: the go.mod replace target's version, the ate-api contract
 # the controller is compiled against.
