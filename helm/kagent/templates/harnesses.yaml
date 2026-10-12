@@ -78,4 +78,7 @@ spec:
       name: {{ $entry.workerPoolRef | default $root.Values.substrateWorkerPool.name | quote }}
     snapshotPolicy:
       location: {{ $entry.snapshotLocation | quote }}
+  {{- if $entry.runsSenderCode }}
+  runsSenderCode: true
+  {{- end }}
 {{- end }}

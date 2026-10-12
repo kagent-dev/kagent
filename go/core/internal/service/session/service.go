@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -111,6 +112,7 @@ type Service struct {
 	workflow        sessionWorkflow
 	shareMaxTTL     time.Duration
 	volumeAdmission VolumeAdmission
+	agents          ctrlclient.Reader
 }
 
 type Option func(*Service)
@@ -129,6 +131,15 @@ func WithShareMaxTTL(maxTTL time.Duration) Option {
 func WithVolumeAdmission(admission VolumeAdmission) Option {
 	return func(service *Service) {
 		service.volumeAdmission = admission
+	}
+}
+
+// WithAgentReader lets the service read a Session's Agent and its Harness, so
+// a share of a Session whose Harness runs code of the sender's turn is
+// refused. Without one, shares are not checked against the Harness.
+func WithAgentReader(agents ctrlclient.Reader) Option {
+	return func(service *Service) {
+		service.agents = agents
 	}
 }
 
@@ -509,6 +520,9 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, permission 
 	}
 	userID, err := s.authorize(ctx, auth.VerbCreate, sessionID+"/shares")
 	if err != nil {
+		return nil, "", err
+	}
+	if err := s.refuseShareOfSenderCode(ctx, sessionID, userID); err != nil {
 		return nil, "", err
 	}
 	token, tokenHash, err := generateShareToken()
