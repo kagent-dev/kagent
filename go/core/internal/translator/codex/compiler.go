@@ -299,10 +299,9 @@ type provenanceEntry struct {
 
 func (c *Compiler) buildProvenance(ctx context.Context, input *translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if input.Harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
-	}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
 	seenObjects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, value any) {
 		identity := kind + "\x00" + name

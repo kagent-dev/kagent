@@ -91,35 +91,35 @@ func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompile
 	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
 }
 
-// CompileAgent resolves either inline or referenced configuration through the
-// same compiler. Inline values are in-memory inputs, never Kubernetes objects.
+// CompileAgent resolves inline or referenced behavior with its referenced
+// platform-managed Harness.
 func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*CompileResult, error) {
-	if (agent.Spec.Template == nil) == (agent.Spec.TemplateRef == nil) ||
-		(agent.Spec.Harness == nil) == (agent.Spec.HarnessRef == nil) {
-		return nil, NewValidationError("Agent requires exactly one of template/templateRef and harness/harnessRef")
+	if (agent.Spec.Template.Inline == nil) == (agent.Spec.Template.Ref == nil) {
+		return nil, NewValidationError("Agent template requires exactly one of inline or ref")
+	}
+	if agent.Spec.Template.Ref != nil && agent.Spec.Template.Ref.Name == "" {
+		return nil, NewValidationError("Agent template ref.name must not be empty")
+	}
+	if agent.Spec.HarnessRef.Name == "" {
+		return nil, NewValidationError("Agent harnessRef.name must not be empty")
 	}
 	var template *TemplateConfiguration
-	if agent.Spec.Template != nil {
-		template = &TemplateConfiguration{Name: agent.Name, Namespace: agent.Namespace, Spec: *agent.Spec.Template.DeepCopy()}
+	if agent.Spec.Template.Inline != nil {
+		template = &TemplateConfiguration{Name: agent.Name, Namespace: agent.Namespace, Spec: *agent.Spec.Template.Inline.DeepCopy()}
 	} else {
-		key := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.TemplateRef.Name}
+		key := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.Template.Ref.Name}
 		found := krt.FetchOne(c.ctx, c.collections.AgentTemplates, krt.FilterObjectName(key))
 		if found == nil {
 			return nil, fmt.Errorf("resolve AgentTemplate %q: not found", key)
 		}
 		template = templateConfiguration(*found)
 	}
-	var harness *HarnessConfiguration
-	if agent.Spec.Harness != nil {
-		harness = &HarnessConfiguration{Name: agent.Name, Namespace: agent.Namespace, Spec: *agent.Spec.Harness.DeepCopy()}
-	} else {
-		key := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.HarnessRef.Name}
-		found := krt.FetchOne(c.ctx, c.collections.Harnesses, krt.FilterObjectName(key))
-		if found == nil {
-			return nil, fmt.Errorf("resolve Harness %q: not found", key)
-		}
-		harness = harnessConfiguration(*found)
+	harnessKey := types.NamespacedName{Namespace: agent.Namespace, Name: agent.Spec.HarnessRef.Name}
+	foundHarness := krt.FetchOne(c.ctx, c.collections.Harnesses, krt.FilterObjectName(harnessKey))
+	if foundHarness == nil {
+		return nil, fmt.Errorf("resolve Harness %q: not found", harnessKey)
 	}
+	harness := harnessConfiguration(*foundHarness)
 	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
 	if err != nil {
 		return nil, err

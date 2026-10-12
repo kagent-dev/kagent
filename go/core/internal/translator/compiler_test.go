@@ -66,7 +66,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
 			}
 			original := harness.DeepCopy()
-			result, err := compiler(t, modelConfig()).CompileAgent(t.Context(), inlineAgent(harness, template))
+			result, err := compiler(t, modelConfig(), harness).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.NoError(t, err)
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
@@ -151,7 +151,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 			},
 		},
 	}
-	spec, err := compiler(t, modelConfig(), embeddingModel).CompileAgent(context.Background(), inlineAgent(harness, template))
+	spec, err := compiler(t, modelConfig(), embeddingModel, harness).CompileAgent(context.Background(), inlineAgent(harness, template))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,6 +287,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 					originalPool := pool.DeepCopy()
 					objects := []any{
 						model,
+						harness,
 						&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
 						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "selected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
 						&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "unselected"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
@@ -369,7 +370,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 		},
 	}
 
-	revision, err := compiler(t, modelConfig(), configMap, child).CompileAgent(t.Context(), inlineAgent(harness, root))
+	revision, err := compiler(t, modelConfig(), configMap, child, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
 	require.NoError(t, err)
 	var config adk.AgentConfig
 	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
@@ -446,7 +447,6 @@ func (c *testHarnessCompiler) Compile(_ context.Context, input *translator.Harne
 }
 
 func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
-	collections := mockCollections(t, modelConfig(), defaultWorkerPool())
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
@@ -456,6 +456,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 		},
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}}}
+	collections := mockCollections(t, modelConfig(), defaultWorkerPool(), harness)
 
 	revision, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
@@ -467,12 +468,12 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 }
 
 func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
-	collections := mockCollections(t, modelConfig())
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}},
 	}
+	collections := mockCollections(t, modelConfig(), harness)
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
@@ -492,13 +493,13 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 	model := modelConfig()
 	model.Spec.APIKeySecret = "missing"
 	model.Spec.APIKeySecretKey = "key"
-	collections := mockCollections(t, model)
 	adapter := &testHarnessCompiler{}
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec:       v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}},
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}}}
+	collections := mockCollections(t, model, harness)
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
@@ -515,7 +516,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
-	_, err := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool()), map[translator.HarnessType]translator.HarnessCompiler{
+	_, err := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeBYO: adapter,
 	}).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
@@ -571,7 +572,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 			}}},
 		},
 	}
-	compiler := compiler(t, modelConfig(), server, secondServer, secret, secondSecret)
+	compiler := compiler(t, modelConfig(), server, secondServer, secret, secondSecret, harness)
 	spec, err := compiler.CompileAgent(context.Background(), inlineAgent(harness, template))
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +603,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	rotated := secret.DeepCopy()
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
-	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool()), map[translator.HarnessType]translator.HarnessCompiler{
+	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
 	})
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
@@ -643,7 +644,7 @@ func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
 			SystemPrompt: "help",
 		},
 	}
-	spec, err := compiler(t, modelConfig()).CompileAgent(context.Background(), inlineAgent(harness, template))
+	spec, err := compiler(t, modelConfig(), harness).CompileAgent(context.Background(), inlineAgent(harness, template))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +717,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 				runtimeHarness.Spec.BYO = &v1alpha3.BYOHarness{}
 				runtimeHarness.Spec.Workload.Command = []string{"/app"}
 			}
-			revision, err := compiler(t, modelConfig(), child, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(runtimeHarness, root))
+			revision, err := compiler(t, modelConfig(), child, runtimeHarness, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(runtimeHarness, root))
 			require.NoError(t, err)
 			var config adk.AgentConfig
 			require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
@@ -763,26 +764,32 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 	t.Run("shared DAG", func(t *testing.T) {
 		child := template("child")
 		root := template("root", binding("first", child.Name), binding("second", child.Name))
-		_, err := compiler(t, child).CompileAgent(context.Background(), inlineAgent(harness, root))
+		_, err := compiler(t, child, harness).CompileAgent(context.Background(), inlineAgent(harness, root))
 		require.ErrorContains(t, err, "referenced more than once")
 	})
 	t.Run("cycle", func(t *testing.T) {
 		root := template("root", binding("child", "child"))
 		child := template("child", binding("root", root.Name))
-		_, err := compiler(t, root, child, harness).CompileAgent(t.Context(), &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: "test"}, Spec: v1alpha3.AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: root.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name}}})
+		_, err := compiler(t, root, child, harness).CompileAgent(t.Context(), &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: "test"}, Spec: v1alpha3.AgentSpec{
+			Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: root.Name}},
+			HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
+		}})
 		require.ErrorContains(t, err, "cycle")
 	})
 	t.Run("consecutive shared depth", func(t *testing.T) {
 		root := template("root", binding("child", "child"))
 		child := template("child", binding("grandchild", "grandchild"))
 		grandchild := template("grandchild")
-		_, err := compiler(t, child, grandchild).CompileAgent(context.Background(), inlineAgent(harness, root))
+		_, err := compiler(t, child, grandchild, harness).CompileAgent(context.Background(), inlineAgent(harness, root))
 		require.ErrorContains(t, err, "consecutive Shared")
 	})
 }
 
 func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
-	harness := &v1alpha3.Harness{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"},
+		Spec:       v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}},
+	}
 	for _, tt := range []struct {
 		name      string
 		binding   v1alpha3.SubAgentToolBinding
@@ -800,10 +807,10 @@ func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.binding.Name, tt.binding.Description = "review", "Review code"
-			template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{
+			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "behavior", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
 				Tools: []v1alpha3.ToolBinding{{SubAgent: &tt.binding}},
 			}}
-			_, err := compiler(t).CompileAgent(t.Context(), inlineAgent(harness, template))
+			_, err := compiler(t, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.ErrorContains(t, err, tt.wantError)
 			var validationError *translator.ValidationError
 			require.ErrorAs(t, err, &validationError)
@@ -811,7 +818,53 @@ func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
 	}
 }
 
-func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
+func TestCompileAgentRejectsInvalidSources(t *testing.T) {
+	template := &v1alpha3.AgentTemplateSpec{}
+	ref := &corev1.LocalObjectReference{Name: "shared"}
+	for _, tt := range []struct {
+		name      string
+		spec      v1alpha3.AgentSpec
+		wantError string
+	}{
+		{
+			name:      "template has no source",
+			spec:      v1alpha3.AgentSpec{HarnessRef: corev1.LocalObjectReference{Name: "runtime"}},
+			wantError: "template requires exactly one of inline or ref",
+		},
+		{
+			name: "template has two sources",
+			spec: v1alpha3.AgentSpec{
+				Template:   v1alpha3.AgentTemplateSource{Inline: template, Ref: ref},
+				HarnessRef: corev1.LocalObjectReference{Name: "runtime"},
+			},
+			wantError: "template requires exactly one of inline or ref",
+		},
+		{
+			name: "template ref has no name",
+			spec: v1alpha3.AgentSpec{
+				Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{}},
+				HarnessRef: corev1.LocalObjectReference{Name: "runtime"},
+			},
+			wantError: "template ref.name must not be empty",
+		},
+		{
+			name: "harness ref has no name",
+			spec: v1alpha3.AgentSpec{
+				Template: v1alpha3.AgentTemplateSource{Inline: template},
+			},
+			wantError: "harnessRef.name must not be empty",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := compiler(t).CompileAgent(t.Context(), &v1alpha3.Agent{Spec: tt.spec})
+			require.ErrorContains(t, err, tt.wantError)
+			var validationError *translator.ValidationError
+			require.ErrorAs(t, err, &validationError)
+		})
+	}
+}
+
+func TestCompileAgentInlineAndReferencedTemplates(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "review code",
 		Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{Name: "reviewer", Description: "delegate review", TemplateRef: &corev1.LocalObjectReference{Name: "child"}}}},
@@ -822,22 +875,19 @@ func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	for _, tt := range []struct {
-		name                          string
-		inlineTemplate, inlineHarness bool
+		name           string
+		inlineTemplate bool
 	}{
-		{"references", false, false}, {"inline template", true, false}, {"inline harness", false, true}, {"inline both", true, true},
+		{"reference", false}, {"inline", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "agent-uid"}}
+			agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant", UID: "agent-uid"}, Spec: v1alpha3.AgentSpec{
+				HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
+			}}
 			if tt.inlineTemplate {
-				agent.Spec.Template = template.Spec.DeepCopy()
+				agent.Spec.Template.Inline = template.Spec.DeepCopy()
 			} else {
-				agent.Spec.TemplateRef = &corev1.LocalObjectReference{Name: template.Name}
-			}
-			if tt.inlineHarness {
-				agent.Spec.Harness = harness.Spec.DeepCopy()
-			} else {
-				agent.Spec.HarnessRef = &corev1.LocalObjectReference{Name: harness.Name}
+				agent.Spec.Template.Ref = &corev1.LocalObjectReference{Name: template.Name}
 			}
 			original := agent.DeepCopy()
 			c := compiler(t, modelConfig(), template, harness, child)
@@ -860,20 +910,22 @@ func TestCompileAgentInlineAndReferencedConfiguration(t *testing.T) {
 	t.Run("inline root can reference a template with the same name", func(t *testing.T) {
 		agent := inlineAgent(harness, template)
 		agent.Name = child.Name
-		result, err := compiler(t, modelConfig(), child).CompileAgent(t.Context(), agent)
+		result, err := compiler(t, modelConfig(), child, harness).CompileAgent(t.Context(), agent)
 		require.NoError(t, err)
 		require.Contains(t, string(result.ConfigJSON), "review security")
 		var provenance struct{ Inputs []struct{ Kind, Name string } }
 		require.NoError(t, json.Unmarshal(result.Provenance, &provenance))
 		for _, input := range provenance.Inputs {
-			require.NotEqual(t, "Harness", input.Kind, "inline Harness has no standalone resource")
 			if input.Kind == "AgentTemplate" {
 				require.Equal(t, child.Name, input.Name, "only the referenced child is a standalone template")
 			}
 		}
 	})
 	t.Run("missing local reference", func(t *testing.T) {
-		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "elsewhere", Name: "assistant"}, Spec: v1alpha3.AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name}}}
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "elsewhere", Name: "assistant"}, Spec: v1alpha3.AgentSpec{
+			Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+			HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
+		}}
 		_, err := compiler(t, template, harness).CompileAgent(t.Context(), agent)
 		require.ErrorContains(t, err, "not found")
 	})
@@ -918,21 +970,18 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 			c := compiler(t, model, template, harness, secret)
 			for _, name := range []string{"finance-reviewer", "support-reviewer"} {
 				for _, source := range []struct {
-					name              string
-					template, harness bool
+					name     string
+					template bool
 				}{
-					{"references", false, false}, {"inline-template", true, false},
-					{"inline-harness", false, true}, {"inline-both", true, true},
+					{"reference", false}, {"inline-template", true},
 				} {
 					t.Run(name+"/"+source.name, func(t *testing.T) {
 						agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: name}, Spec: v1alpha3.AgentSpec{
-							TemplateRef: &corev1.LocalObjectReference{Name: template.Name}, HarnessRef: &corev1.LocalObjectReference{Name: harness.Name},
+							Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+							HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
 						}}
 						if source.template {
-							agent.Spec.TemplateRef, agent.Spec.Template = nil, template.Spec.DeepCopy()
-						}
-						if source.harness {
-							agent.Spec.HarnessRef, agent.Spec.Harness = nil, harness.Spec.DeepCopy()
+							agent.Spec.Template = v1alpha3.AgentTemplateSource{Inline: template.Spec.DeepCopy()}
 						}
 						result, err := c.CompileAgent(t.Context(), agent)
 						require.NoError(t, err)
@@ -959,10 +1008,14 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 	}
 }
 
-// inlineAgent supplies complete specs through the same public entry point as users.
+// inlineAgent supplies inline behavior with a referenced Harness through the
+// same public entry point as users.
 func inlineAgent(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) *v1alpha3.Agent {
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "runnable-agent", Namespace: harness.Namespace},
-		Spec: v1alpha3.AgentSpec{Template: &template.Spec, Harness: &harness.Spec}}
+		Spec: v1alpha3.AgentSpec{
+			Template:   v1alpha3.AgentTemplateSource{Inline: &template.Spec},
+			HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
+		}}
 }
 
 func TestResolveModelConfigMistral(t *testing.T) {
