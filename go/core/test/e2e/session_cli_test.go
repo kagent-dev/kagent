@@ -17,18 +17,21 @@ import (
 //go:embed mocks/invoke_cli_versions.json
 var sessionCLIMocks embed.FS
 
-// A coding agent works in its clone with git and the GitHub CLI, so both run
-// through the model's shell tool in a Session's sandbox on every Harness that
-// gives the model one. The kagent Harness registers its bash tool only with a
-// skill, so the template carries the git fixture's skill.
-func TestSessionShellRunsGitAndGitHubCLI(t *testing.T) {
+// A coding agent works in its clone with git and its forge's CLI, so git and
+// the GitHub CLI run through the model's shell tool in a Session's sandbox on
+// every Harness that gives the model one, and the GitLab CLI on the Claude
+// Harness, which gives Claude's user a writable home for glab's config. The
+// kagent Harness registers its bash tool only with a skill, so the template
+// carries the git fixture's skill.
+func TestSessionShellRunsGitAndForgeCLIs(t *testing.T) {
 	t.Parallel()
 	for _, harness := range []struct {
 		testHarness
 		shellTool string
+		glab      bool
 	}{
-		{testHarness{name: "kagent", runtimeLabel: "kagent"}, "bash"},
-		{testHarness{name: claudeE2EHarness, runtimeLabel: "claude"}, "Bash"},
+		{testHarness{name: "kagent", runtimeLabel: "kagent"}, "bash", false},
+		{testHarness{name: claudeE2EHarness, runtimeLabel: "claude"}, "Bash", true},
 	} {
 		t.Run(harness.runtimeLabel, func(t *testing.T) {
 			t.Parallel()
@@ -62,6 +65,9 @@ func TestSessionShellRunsGitAndGitHubCLI(t *testing.T) {
 			require.Contains(t, streamed.text, "CLI_VERSIONS_DONE")
 			output := toolResponseText(t, getTask(t, fixture, streamed.taskID), harness.shellTool)
 			require.Contains(t, output, "gh version")
+			if harness.glab {
+				require.Regexp(t, `glab \d+\.\d+\.\d+`, output)
+			}
 			require.Contains(t, output, "git version")
 		})
 	}

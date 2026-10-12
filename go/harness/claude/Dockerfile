@@ -28,10 +28,13 @@ ARG VERSION
 
 ENV USE_BUILTIN_RIPGREP=0
 # The GitHub CLI at the version go/Dockerfile installs (github-cli.version);
-# the two images share an Alpine release so the pin resolves in both.
+# the two images share an Alpine release so the pin resolves in both. The
+# GitLab CLI at gitlab-cli.version, in this image only: glab needs a writable
+# home for its config, and the harness gives Claude's user one.
 RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
+    --mount=type=bind,source=gitlab-cli.version,target=/tmp/gitlab-cli.version \
     apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
-        "github-cli~$(cat /tmp/github-cli.version)" \
+        "github-cli~$(cat /tmp/github-cli.version)" "glab~$(cat /tmp/gitlab-cli.version)" \
     && case "${TARGETARCH}" in \
         amd64) platform="linux-x64-musl"; checksum="${CLAUDE_CODE_AMD64_SHA256}" ;; \
         arm64) platform="linux-arm64-musl"; checksum="${CLAUDE_CODE_ARM64_SHA256}" ;; \

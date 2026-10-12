@@ -6,13 +6,14 @@
 // is re-pinned; see FORK.md.
 //
 // The one exception is what a carried patch pins itself: the GitHub CLI in
-// the Go runtime and Claude harness images (go/github-cli.version). Only the
-// regex manager below runs, so no other manager opens a pull request.
+// the Go runtime and Claude harness images (go/github-cli.version) and the
+// GitLab CLI in the Claude harness image (go/gitlab-cli.version). Only the
+// regex managers below run, so no other manager opens a pull request.
 //
 // This repository is a GitHub fork, which Renovate skips unless its default
 // config file, renovate.json (never renovate.json5), sets forkProcessing to
-// enabled; hence this file's name. The Dependency Dashboard is on: with one
-// tracked dependency that is usually current, it is the only visible trace
+// enabled; hence this file's name. The Dependency Dashboard is on: with two
+// tracked dependencies that are usually current, it is the only visible trace
 // that Renovate scans this line and what it tracks.
 {
   "reviewers": ["teemow"],
@@ -31,6 +32,17 @@
       "depNameTemplate": "github-cli",
       "datasourceTemplate": "repology",
       "packageNameTemplate": "alpine_3_24/github-cli",
+      "versioningTemplate": "loose"
+    },
+    {
+      // Alpine's glab package, from the Alpine release of
+      // go/harness/claude/Dockerfile.
+      "customType": "regex",
+      "managerFilePatterns": ["/^go/gitlab-cli\\.version$/"],
+      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "depNameTemplate": "glab",
+      "datasourceTemplate": "repology",
+      "packageNameTemplate": "alpine_3_24/glab",
       "versioningTemplate": "loose"
     }
   ]

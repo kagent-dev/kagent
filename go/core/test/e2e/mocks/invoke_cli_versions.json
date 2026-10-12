@@ -79,7 +79,7 @@
         "id": "msg_cli_versions_bash",
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "tool_use", "id": "toolu_cli_versions", "name": "Bash", "input": {"command": "gh --version && git --version"}}],
+        "content": [{"type": "tool_use", "id": "toolu_cli_versions", "name": "Bash", "input": {"command": "gh --version && GLAB_CHECK_UPDATE=false glab --version && git --version"}}],
         "model": "claude-sonnet-4-5",
         "stop_reason": "tool_use",
         "usage": {"input_tokens": 10, "output_tokens": 4}
