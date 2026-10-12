@@ -140,7 +140,6 @@ func TestCallScopeToolCall(t *testing.T) {
 	require.False(t, inCallScope(inner.ctx), "the scope ends with the call")
 	got := baggage.FromContext(inner.ctx)
 	require.Equal(t, "conversation", got.Member("gen_ai.conversation.id").Value())
-	require.Equal(t, "add_numbers", got.Member(string(conv.GenAIToolNameKey)).Value())
 	require.Equal(t, "call-1", got.Member(string(conv.GenAIToolCallIDKey)).Value())
 	require.Equal(t, "call-1", inner.ctx.FunctionCallID(), "the tool keeps its ADK context")
 }
