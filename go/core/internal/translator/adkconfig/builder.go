@@ -320,9 +320,13 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	}
 	switch modelConfig.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		destinations = append(destinations, "https://api.openai.com:443")
+		if openAI := modelConfig.Spec.OpenAI; openAI == nil || openAI.BaseURL == "" {
+			destinations = appendURLOrigin(destinations, translator.DefaultOpenAIBaseURL)
+		}
 	case v1alpha3.ModelProviderAnthropic:
-		destinations = append(destinations, "https://api.anthropic.com:443")
+		if anthropic := modelConfig.Spec.Anthropic; anthropic == nil || anthropic.BaseURL == "" {
+			destinations = appendURLOrigin(destinations, translator.DefaultAnthropicBaseURL)
+		}
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
 	case v1alpha3.ModelProviderMistral:

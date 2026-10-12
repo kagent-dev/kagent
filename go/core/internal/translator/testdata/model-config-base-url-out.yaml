@@ -9,12 +9,6 @@ rules:
       numbers:
       - 8083
 - https:
-    hostnames:
-    - api.openai.com
-    ports:
-      numbers:
-      - 443
-- https:
     effects:
       replace_headers:
       - credential_uri: ate-secret://k8s.io/default/test/model-auth/api-key

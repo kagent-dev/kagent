@@ -11,6 +11,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+const (
+	// DefaultOpenAIBaseURL is the OpenAI endpoint used when ModelConfig omits baseUrl.
+	DefaultOpenAIBaseURL = "https://api.openai.com"
+	// DefaultAnthropicBaseURL is the Anthropic endpoint used when ModelConfig omits baseUrl.
+	DefaultAnthropicBaseURL = "https://api.anthropic.com"
+)
+
 // ModelConfigReference records an object consulted while resolving a ModelConfig.
 // It intentionally contains object identity only; secret values remain in Kubernetes.
 type ModelConfigReference struct {
