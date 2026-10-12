@@ -102,7 +102,6 @@ func (t scopedTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) 
 
 func (t scopedTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
 	values, end := startCallScope(telemetry.WithBaggage(ctx,
-		conv.GenAIToolNameKey.String(t.Name()),
 		conv.GenAIToolCallIDKey.String(ctx.FunctionCallID()),
 	))
 	defer end()

@@ -8,21 +8,27 @@ import (
 )
 
 // WithBaggage adds string attributes to the W3C baggage of ctx, replacing
-// members with the same key and keeping the others. Empty values are skipped.
+// members with the same key and keeping the others.
 // Baggage leaves the process only when OTEL_PROPAGATORS includes baggage.
 func WithBaggage(ctx context.Context, attributes ...attribute.KeyValue) context.Context {
 	bag := baggage.FromContext(ctx)
+
+	// otel baggage does not allow duplicates, baggage.Baggage is a map[string]Item
+	// setting a member overwrites a previous member with the same key.
 	for _, attr := range attributes {
-		// Remove existing baggage entries for provided attributes
-		bag.DeleteMember(string(attr.Key))
+		bag = bag.DeleteMember(string(attr.Key))
+
+		if len(attr.Value.AsString()) == 0 {
+			continue
+		}
 
 		member, err := baggage.NewMemberRaw(string(attr.Key), attr.Value.AsString())
 		if err != nil {
 			continue
 		}
-		if next, err := bag.SetMember(member); err == nil {
-			bag = next
-		}
+
+		// in the error case the original baggage is returned unmodified
+		bag, _ = bag.SetMember(member)
 	}
 	return baggage.ContextWithBaggage(ctx, bag)
 }
