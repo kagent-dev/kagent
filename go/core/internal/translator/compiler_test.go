@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -18,12 +21,21 @@ import (
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiserverschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
+	structuraldefaulting "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/defaulting"
+	structuralpruning "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/pruning"
+	apiextensionsvalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 func modelConfig() *v1alpha3.ModelConfig {
@@ -1030,4 +1042,122 @@ func TestResolveModelConfigMistral(t *testing.T) {
 
 	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
 	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
+}
+
+type egressPolicyGoldenInput struct {
+	modelConfig *v1alpha3.ModelConfig
+	secret      *corev1.Secret
+	harness     *v1alpha3.Harness
+	agent       *v1alpha3.Agent
+}
+
+func TestCompileAgentEgressPolicyGolden(t *testing.T) {
+	schemas := loadConfigurationSchemas(t)
+	for _, name := range []string{"model-config-default", "model-config-secret", "model-config-base-url"} {
+		t.Run(name, func(t *testing.T) {
+			casePath := filepath.Join("testdata", name)
+			input := loadEgressPolicyGoldenInput(t, filepath.Join(casePath, "input.yaml"), schemas)
+			objects := []any{input.modelConfig, input.harness}
+			if input.secret != nil {
+				objects = append(objects, input.secret)
+			}
+			revision, err := compiler(t, objects...).CompileAgent(t.Context(), input.agent)
+			require.NoError(t, err)
+			policy, err := substrate.ActorEgressPolicy("test", revision.EgressDestinations, revision.Credentials)
+			require.NoError(t, err)
+
+			raw, err := (protojson.MarshalOptions{UseProtoNames: true, Indent: "  "}).Marshal(policy)
+			require.NoError(t, err)
+			actual, err := yaml.JSONToYAML(raw)
+			require.NoError(t, err)
+			path := filepath.Join(casePath, "expected.yaml")
+			if os.Getenv("KAGENT_TEST_UPDATE_GOLDEN") == "true" {
+				require.NoError(t, os.WriteFile(path, actual, 0o644))
+			}
+			expected, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, string(expected), string(actual))
+		})
+	}
+}
+
+func loadEgressPolicyGoldenInput(t *testing.T, path string, schemas map[schema.GroupVersionKind]*apiserverschema.Structural) egressPolicyGoldenInput {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	decoder := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(raw), 4096)
+	input := egressPolicyGoldenInput{}
+	for {
+		var object map[string]any
+		err := decoder.Decode(&object)
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		if len(object) == 0 {
+			continue
+		}
+		apiVersion, ok := object["apiVersion"].(string)
+		require.True(t, ok, "input document requires string apiVersion")
+		kind, ok := object["kind"].(string)
+		require.True(t, ok, "input document requires string kind")
+		gvk := schema.FromAPIVersionAndKind(apiVersion, kind)
+		if structural := schemas[gvk]; structural != nil {
+			unknown := structuralpruning.PruneWithOptions(object, structural, true, apiserverschema.UnknownFieldPathOptions{TrackUnknownFieldPaths: true})
+			require.Empty(t, unknown, "%s contains fields unknown to the shipped CRD", gvk)
+			structuraldefaulting.PruneNonNullableNullsWithoutDefaults(object, structural)
+			structuraldefaulting.Default(object, structural)
+			validator := apiextensionsvalidation.NewSchemaValidatorFromOpenAPI(structural.ToKubeOpenAPI())
+			validationErrs := apiextensionsvalidation.ValidateCustomResource(nil, object, validator)
+			require.Empty(t, validationErrs, "input does not satisfy the shipped %s schema", gvk)
+		}
+		encoded, err := yaml.Marshal(object)
+		require.NoError(t, err)
+		switch kind {
+		case "ModelConfig":
+			input.modelConfig = &v1alpha3.ModelConfig{}
+			require.NoError(t, yaml.Unmarshal(encoded, input.modelConfig))
+		case "Harness":
+			input.harness = &v1alpha3.Harness{}
+			require.NoError(t, yaml.Unmarshal(encoded, input.harness))
+		case "Agent":
+			input.agent = &v1alpha3.Agent{}
+			require.NoError(t, yaml.Unmarshal(encoded, input.agent))
+		case "Secret":
+			input.secret = &corev1.Secret{}
+			require.NoError(t, yaml.Unmarshal(encoded, input.secret))
+		default:
+			t.Fatalf("unsupported input kind %q", kind)
+		}
+	}
+	require.NotNil(t, input.modelConfig)
+	require.NotNil(t, input.harness)
+	require.NotNil(t, input.agent)
+	return input
+}
+
+func loadConfigurationSchemas(t *testing.T) map[schema.GroupVersionKind]*apiserverschema.Structural {
+	t.Helper()
+	result := map[schema.GroupVersionKind]*apiserverschema.Structural{}
+	for _, resource := range []string{"modelconfigs", "harnesses", "agents"} {
+		path := filepath.Join("..", "..", "..", "api", "config", "crd", "bases", "api.kagent.dev_"+resource+".yaml")
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		crdV1 := &apiextensionsv1.CustomResourceDefinition{}
+		require.NoError(t, yaml.Unmarshal(raw, crdV1))
+		crd := &apiextensions.CustomResourceDefinition{}
+		require.NoError(t, apiextensionsv1.Convert_v1_CustomResourceDefinition_To_apiextensions_CustomResourceDefinition(crdV1, crd, nil))
+		for _, version := range crd.Spec.Versions {
+			validation, err := apiextensions.GetSchemaForVersion(crd, version.Name)
+			require.NoError(t, err)
+			structural, err := apiserverschema.NewStructural(validation.OpenAPIV3Schema)
+			require.NoError(t, err)
+			gvk := schema.GroupVersionKind{Group: crd.Spec.Group, Version: version.Name, Kind: crd.Spec.Names.Kind}
+			_, found := result[gvk]
+			require.False(t, found, "duplicate schema for %s", gvk)
+			result[gvk] = structural
+		}
+	}
+	require.Len(t, result, 3)
+	return result
 }

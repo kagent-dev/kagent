@@ -1,0 +1,37 @@
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: support-model
+  namespace: test
+spec:
+  model: support-gpt
+  provider: OpenAI
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: kagent
+  namespace: test
+spec:
+  kagent: {}
+  workload:
+    image: example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  substrate:
+    workerPoolRef:
+      name: default
+    snapshotPolicy:
+      location: snapshots
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: support-agent
+  namespace: test
+spec:
+  harnessRef:
+    name: kagent
+  template:
+    inline:
+      modelConfig:
+        name: support-model
+      systemPrompt: Help with support requests.

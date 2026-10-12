@@ -1,0 +1,16 @@
+metadata:
+  atespace: test
+  name: default
+rules:
+- http:
+    hostnames:
+    - kagent-controller.kagent
+    ports:
+      numbers:
+      - 8083
+- https:
+    hostnames:
+    - api.openai.com
+    ports:
+      numbers:
+      - 443

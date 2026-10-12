@@ -1,0 +1,27 @@
+metadata:
+  atespace: test
+  name: default
+rules:
+- http:
+    hostnames:
+    - kagent-controller.kagent
+    ports:
+      numbers:
+      - 8083
+- https:
+    hostnames:
+    - api.openai.com
+    ports:
+      numbers:
+      - 443
+- https:
+    effects:
+      replace_headers:
+      - credential_uri: ate-secret://k8s.io/default/test/model-auth/api-key
+        header: authorization
+        prefix: 'Bearer '
+    hostnames:
+    - models.example.com
+    ports:
+      numbers:
+      - 443
