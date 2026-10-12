@@ -6,7 +6,15 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
+
+var signalEnvironment = map[string]env.OTELSignalVars{
+	"TRACES":  env.OTELTraces,
+	"METRICS": env.OTELMetrics,
+	"LOGS":    env.OTELLogs,
+}
 
 // Environment adapts file settings for the SDK and native child processes.
 // Explicit process settings win, including a generic OTLP override over a
@@ -26,29 +34,31 @@ func Environment(environment []string, cfg Config) []string {
 			result = append(result, name+"="+value)
 		}
 	}
-	addDefault("OTEL_PROPAGATORS", "tracecontext")
-	addDefault("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
-	addDefault("OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION", "base2_exponential_bucket_histogram")
+	addDefault(env.OTELPropagators.Name(), "tracecontext")
+	addDefault(env.OTELExporterOTLPCompression.Name(), "gzip")
+	addDefault(env.OTELMetricsDefaultHistogramAggregation.Name(), "base2_exponential_bucket_histogram")
 	for _, signal := range []struct {
-		name   string
+		vars   env.OTELSignalVars
 		config *OTLPConfig
-	}{{"TRACES", cfg.Traces}, {"METRICS", cfg.Metrics}, {"LOGS", cfg.Logs}} {
-		prefix := "OTEL_EXPORTER_OTLP_" + signal.name + "_"
+	}{{env.OTELTraces, cfg.Traces}, {env.OTELMetrics, cfg.Metrics}, {env.OTELLogs, cfg.Logs}} {
 		exporter := "none"
-		if signal.config != nil || supplied(prefix+"ENDPOINT") || supplied("OTEL_EXPORTER_OTLP_ENDPOINT") {
+		if signal.config != nil || supplied(signal.vars.Endpoint.Name()) || supplied(env.OTELExporterOTLPEndpoint.Name()) {
 			exporter = "otlp"
 		}
-		addDefault("OTEL_"+signal.name+"_EXPORTER", exporter)
+		addDefault(signal.vars.Exporter.Name(), exporter)
 		if signal.config == nil {
 			continue
 		}
-		for _, option := range []struct{ name, value string }{
-			{"ENDPOINT", signal.config.Endpoint},
-			{"PROTOCOL", signal.config.Protocol},
-			{"TIMEOUT", strconv.FormatInt(signal.config.timeout().Milliseconds(), 10)},
+		for _, option := range []struct {
+			specific, generic env.StringVar
+			value             string
+		}{
+			{signal.vars.Endpoint, env.OTELExporterOTLPEndpoint, signal.config.Endpoint},
+			{signal.vars.Protocol, env.OTELExporterOTLPProtocol, signal.config.Protocol},
+			{signal.vars.Timeout, env.OTELExporterOTLPTimeout, strconv.FormatInt(signal.config.timeout().Milliseconds(), 10)},
 		} {
-			if !supplied("OTEL_EXPORTER_OTLP_" + option.name) {
-				addDefault(prefix+option.name, option.value)
+			if !supplied(option.generic.Name()) {
+				addDefault(option.specific.Name(), option.value)
 			}
 		}
 	}
@@ -59,11 +69,12 @@ func Environment(environment []string, cfg Config) []string {
 	slices.Sort(attributes)
 	if len(attributes) > 0 {
 		// The SDK resolves duplicate attributes in order, so env wins per key.
-		if value := values["OTEL_RESOURCE_ATTRIBUTES"]; value != "" {
+		if value := values[env.OTELResourceAttributes.Name()]; value != "" {
 			attributes = append(attributes, value)
 		}
-		result = slices.DeleteFunc(result, func(entry string) bool { return strings.HasPrefix(entry, "OTEL_RESOURCE_ATTRIBUTES=") })
-		result = append(result, "OTEL_RESOURCE_ATTRIBUTES="+strings.Join(attributes, ","))
+		prefix := env.OTELResourceAttributes.Name() + "="
+		result = slices.DeleteFunc(result, func(entry string) bool { return strings.HasPrefix(entry, prefix) })
+		result = append(result, prefix+strings.Join(attributes, ","))
 	}
 	return result
 }
@@ -71,16 +82,20 @@ func Environment(environment []string, cfg Config) []string {
 // SignalEnabled reports native SDK signal selection after Environment has
 // applied file defaults. Upstream SDKs handle exporter-specific validation.
 func SignalEnabled(environment []string, signal string) bool {
+	names, ok := signalEnvironment[signal]
+	if !ok {
+		return false
+	}
 	values := map[string]string{}
 	for _, entry := range environment {
 		if name, value, ok := strings.Cut(entry, "="); ok {
 			values[name] = value
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(values["OTEL_SDK_DISABLED"]), "true") {
+	if strings.EqualFold(strings.TrimSpace(values[env.OTELSDKDisabled.Name()]), "true") {
 		return false
 	}
-	value := strings.TrimSpace(values["OTEL_"+signal+"_EXPORTER"])
+	value := strings.TrimSpace(values[names.Exporter.Name()])
 	return value != "none"
 }
 
@@ -96,15 +111,15 @@ func OTLPExporter(environment []string, signal string) *OTLPConfig {
 			values[name] = value
 		}
 	}
-	exporter := cmp.Or(values["OTEL_"+signal+"_EXPORTER"], "otlp")
+	names := signalEnvironment[signal]
+	exporter := cmp.Or(values[names.Exporter.Name()], "otlp")
 	if !slices.Contains(strings.Split(exporter, ","), "otlp") {
 		return nil
 	}
-	prefix := "OTEL_EXPORTER_OTLP_" + signal + "_"
-	protocol := cmp.Or(values[prefix+"PROTOCOL"], values["OTEL_EXPORTER_OTLP_PROTOCOL"], "grpc")
-	endpoint := values[prefix+"ENDPOINT"]
+	protocol := cmp.Or(values[names.Protocol.Name()], values[env.OTELExporterOTLPProtocol.Name()], "grpc")
+	endpoint := values[names.Endpoint.Name()]
 	if endpoint == "" {
-		endpoint = values["OTEL_EXPORTER_OTLP_ENDPOINT"]
+		endpoint = values[env.OTELExporterOTLPEndpoint.Name()]
 		if endpoint == "" {
 			if protocol == "grpc" {
 				endpoint = "http://localhost:4317"

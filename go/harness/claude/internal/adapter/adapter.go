@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
@@ -195,29 +196,26 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 // controller exports, and its content flags when capture is on. It reports
 // whether telemetry is on.
 func nativeTelemetryEnvironment(environment []string, telemetry tracing.RuntimeTelemetry) ([]string, bool) {
-	exported := func(name string) bool {
-		return otel.SignalEnabled(environment, strings.TrimSuffix(strings.TrimPrefix(name, "OTEL_"), "_EXPORTER"))
-	}
 	telemetry = telemetry.WithEnvironment(environment)
-	traces, logs := exported("OTEL_TRACES_EXPORTER"), exported("OTEL_LOGS_EXPORTER")
+	traces, logs := otel.SignalEnabled(environment, "TRACES"), otel.SignalEnabled(environment, "LOGS")
 	environment = setEnvironment(environment, "CLAUDE_CODE_ENABLE_TELEMETRY", "0")
 	environment = setEnvironment(environment, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "0")
 	if telemetry.CaptureRawAPIBodies && logs {
-		environment = defaultEnvironment(environment, "OTEL_LOG_RAW_API_BODIES", "1")
+		environment = defaultEnvironment(environment, env.OTELLogRawAPIBodies.Name(), "1")
 	}
-	if !traces && !logs && !exported("OTEL_METRICS_EXPORTER") {
+	if !traces && !logs && !otel.SignalEnabled(environment, "METRICS") {
 		return environment, false
 	}
 	environment = setEnvironment(environment, "CLAUDE_CODE_ENABLE_TELEMETRY", "1")
 	environment = setEnvironment(environment, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
 	var flags []string
 	if telemetry.CaptureContent {
-		flags = append(flags, "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS")
+		flags = append(flags, env.OTELLogUserPrompts.Name(), env.OTELLogToolDetails.Name())
 		if traces {
-			flags = append(flags, "OTEL_LOG_TOOL_CONTENT")
+			flags = append(flags, env.OTELLogToolContent.Name())
 		}
 		if logs {
-			flags = append(flags, "OTEL_LOG_ASSISTANT_RESPONSES")
+			flags = append(flags, env.OTELLogAssistantResponses.Name())
 		}
 	}
 	for _, flag := range flags {

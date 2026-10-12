@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/propagators/autoprop"
 	"go.opentelemetry.io/otel"
@@ -66,7 +67,7 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		}
 	}
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_SDK_DISABLED")), "true") { //nolint:forbidigo // Standard SDK environment override at startup.
+	if disabled, _ := env.OTELSDKDisabled.Lookup(); strings.EqualFold(strings.TrimSpace(disabled), "true") {
 		return providers, nil
 	}
 	var errs []error

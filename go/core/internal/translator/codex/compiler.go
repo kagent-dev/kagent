@@ -36,7 +36,6 @@ const (
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
 }
 
 type Compiler struct {
@@ -83,7 +82,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	environment := append(providerEnvironment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
 		_, reserved := ownedEnvironment[variable.Name]
-		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || translator.OwnsRuntimeEnvironment(variable.Name) {
+		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})

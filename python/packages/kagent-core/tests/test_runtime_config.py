@@ -51,7 +51,6 @@ def test_load_generated_root_settings(tmp_path, monkeypatch):
         "namespace": "team",
     }
     monkeypatch.setenv("KAGENT_CONFIG_JSON", json.dumps({"runtime": runtime}))
-    monkeypatch.setenv("KAGENT_API_URL", "http://retired-env")
     cfg = KAgentConfig.from_file(tmp_path / "config.json")
     assert cfg.api_url == runtime["control_plane_url"]
     assert cfg.app_name == "team__NS__test"

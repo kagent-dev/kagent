@@ -109,18 +109,6 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 	}
 }
 
-// OwnsRuntimeEnvironment prevents managed Harness env from overriding typed settings.
-func OwnsRuntimeEnvironment(name string) bool {
-	if strings.HasPrefix(name, "KAGENT_OTEL_") {
-		return true
-	}
-	switch name {
-	case "KAGENT_NAME", "KAGENT_NAMESPACE", "KAGENT_API_URL", "KAGENT_GATEWAY_URL", "KAGENT_PORT", "KAGENT_LOG_LEVEL", "KAGENT_SKILLS_FOLDER", "KAGENT_PROPAGATE_TOKEN", "KAGENT_STS_WELL_KNOWN_URI", "KAGENT_STS_RESOURCE", "KAGENT_STS_AUDIENCE", "KAGENT_ENABLE_FILE_SEARCH_TOOLS", "KAGENT_A2A_MAX_CONTENT_LENGTH", "KAGENT_CONFIG_DIR", "KAGENT_BASH_VENV_PATH", "KAGENT_OPENAI_AGENTS_NATIVE_TRACING":
-		return true
-	}
-	return false
-}
-
 // TelemetryEnvironment adapts settings for opaque BYO images.
 func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry, environment []corev1.EnvVar) []corev1.EnvVar {
 	cfg := telemetry.Config{}

@@ -20,7 +20,7 @@ from kagent.core.telemetry._conv import KagentRuntimeValues
 from kagent.core.telemetry._profiles import PROFILES, profile_for
 from kagent.core.telemetry._span_processor import KagentAttributesSpanProcessor
 
-_RESOURCE_ENV = ("OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES", "KAGENT_NAME", "KAGENT_NAMESPACE")
+_RESOURCE_ENV = ("OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES")
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,6 @@ def exporting_config(**kwargs):
 
 
 def test_bootstrap_uses_config_identity_and_environment_telemetry(monkeypatch, configurator):
-    monkeypatch.setenv("KAGENT_NAME", "ignored")
     monkeypatch.setenv("OTEL_SERVICE_NAME", "ignored")
     monkeypatch.setenv("OTEL_TRACES_EXPORTER", "otlp")
     config = exporting_config(name="researcher-kagent", namespace="team-a")

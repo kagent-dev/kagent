@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
@@ -18,10 +19,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-const (
-	codexHomeEnv       = "CODEX_HOME"
-	otelCompressionEnv = "OTEL_EXPORTER_OTLP_COMPRESSION"
-)
+const codexHomeEnv = "CODEX_HOME"
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Codex driver.
@@ -315,7 +313,7 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 func nativeEnvironment(environment []string, codexHome string, telemetry tracing.RuntimeTelemetry) []string {
 	environment = tracing.ResourceEnvironment(setEnvironment(sharedtelemetry.Environment(environment, telemetry.ExporterConfig()), codexHomeEnv, codexHome), telemetry.ChildResource())
 	return slices.DeleteFunc(environment, func(item string) bool {
-		return strings.HasPrefix(item, otelCompressionEnv+"=")
+		return strings.HasPrefix(item, env.OTELExporterOTLPCompression.Name()+"=")
 	})
 }
 

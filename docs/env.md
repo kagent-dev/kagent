@@ -73,8 +73,15 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
 | `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_PROMETHEUS_HOST` | String | `(none)` | Claude Code telemetry readiness listener host, managed by the harness. |
+| `OTEL_EXPORTER_PROMETHEUS_PORT` | String | `(none)` | Claude Code telemetry readiness listener port, managed by the harness. |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `(none)` | Override runtime content capture: SPAN_ONLY enables prompts and responses; NO_CONTENT disables capture. |
 | `OTEL_LOGS_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_LOG_ASSISTANT_RESPONSES` | String | `(none)` | Claude Code response capture flag, managed by the harness content-capture configuration. |
+| `OTEL_LOG_RAW_API_BODIES` | String | `(none)` | Claude Code raw API body capture flag, managed by the harness captureRawAPIBodies configuration. |
+| `OTEL_LOG_TOOL_CONTENT` | String | `(none)` | Claude Code tool-content capture flag, managed by the harness content-capture configuration. |
+| `OTEL_LOG_TOOL_DETAILS` | String | `(none)` | Claude Code tool-detail capture flag, managed by the harness content-capture configuration. |
+| `OTEL_LOG_USER_PROMPTS` | String | `(none)` | Claude Code prompt capture flag, managed by the harness content-capture configuration. |
 | `OTEL_METRICS_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
 | `OTEL_PROPAGATORS` | String | `(none)` | SDK propagator selection; defaults to tracecontext without baggage. |
 | `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` | String | `(none)` | Python instrumentation entry point names to skip, such as httpx or openai. |

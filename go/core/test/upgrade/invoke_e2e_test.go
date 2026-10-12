@@ -75,9 +75,8 @@ func upgradeE2EEnv(t *testing.T, env upgradeEnv, port int) []string {
 	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(kubeconfig), 0o600))
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 	return append(os.Environ(),
-		"KAGENT_E2E_API_URL="+endpoint,
-		"KAGENT_GATEWAY_URL="+endpoint,
-		"KUBECONFIG="+kubeconfigPath,
+		kagentenv.E2EAPIURL.Name()+"="+endpoint,
+		kagentenv.Kubeconfig.Name()+"="+kubeconfigPath,
 	)
 }
 

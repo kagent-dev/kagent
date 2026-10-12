@@ -42,11 +42,6 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	}
 
 	harnessEnvironment := adkconfig.HarnessEnvironment(harness)
-	for _, variable := range harnessEnvironment {
-		if translator.OwnsRuntimeEnvironment(variable.Name) {
-			return nil, translator.NewValidationError("Harness env %q conflicts with runtime configuration", variable.Name)
-		}
-	}
 	environment := append(compiled.Environment, harnessEnvironment...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)

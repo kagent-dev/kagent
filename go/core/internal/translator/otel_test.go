@@ -19,8 +19,6 @@ func TestCompilerSettingsIgnoreProcessEnvironment(t *testing.T) {
 	cfg.RuntimeDefaults.Telemetry.Traces = &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc"), Timeout: durationpb.New(time.Second)}
 	first, err := translator.NewCompilerSettings(cfg.RuntimeDefaults)
 	require.NoError(t, err)
-	t.Setenv("KAGENT_NAMESPACE", "unrelated")
-	t.Setenv("KAGENT_CONTROLLER_NAME", "other")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://other:4317")
 	t.Setenv("OTEL_SDK_DISABLED", "true")
 	second, err := translator.NewCompilerSettings(cfg.RuntimeDefaults)

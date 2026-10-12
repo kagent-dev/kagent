@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
@@ -374,16 +375,13 @@ func encodeResourceValue(value string) string {
 	return builder.String()
 }
 
-// ResourceEnvironmentVariable is the standard OTEL resource attribute carrier.
-const ResourceEnvironmentVariable = "OTEL_RESOURCE_ATTRIBUTES"
-
 // ResourceEnvironment merges owned attributes into the OTEL_RESOURCE_ATTRIBUTES
 // entry of a child process environment, so a native runtime reports the same
 // identity as the Go wrapper that supervises it. User-supplied attributes
 // survive; owned keys are replaced. The variable is dropped when the merge
 // leaves nothing to set.
 func ResourceEnvironment(environment []string, owned []attribute.KeyValue) []string {
-	prefix := ResourceEnvironmentVariable + "="
+	prefix := env.OTELResourceAttributes.Name() + "="
 	existing := ""
 	result := make([]string, 0, len(environment)+1)
 	for _, variable := range environment {
@@ -413,7 +411,7 @@ func (t RuntimeTelemetry) ExporterConfig() telemetry.Config {
 func (t RuntimeTelemetry) WithEnvironment(environment []string) RuntimeTelemetry {
 	for _, entry := range environment {
 		name, value, ok := strings.Cut(entry, "=")
-		if !ok || name != "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT" {
+		if !ok || name != env.OTELGenAICaptureMessageContent.Name() {
 			continue
 		}
 		switch strings.ToUpper(strings.TrimSpace(value)) {

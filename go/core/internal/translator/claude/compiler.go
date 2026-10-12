@@ -66,7 +66,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
 	for _, variable := range input.Harness.Spec.Env {
-		if variable.Name == "KAGENT_API_URL" || claudeconfig.OwnsEnvironment(variable.Name) || translator.OwnsRuntimeEnvironment(variable.Name) {
+		if claudeconfig.OwnsEnvironment(variable.Name) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
