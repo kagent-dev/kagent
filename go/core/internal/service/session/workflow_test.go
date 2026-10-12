@@ -702,6 +702,50 @@ func TestSessionEgressPolicyLeavesOutTheGoldenBootsCredentials(t *testing.T) {
 	requireSessionPolicy(t, actors.policy)
 }
 
+// The hosts a session was admitted with for its workspace volume are allowed
+// on that session's Actor alone: on create and on a repoint, once each even
+// when the Agent lists one, and never on a session without them or on the
+// template's default the Actor starts with.
+func TestSessionEgressPolicyAllowsTheSessionsProviders(t *testing.T) {
+	httpsHosts := func(policy *ateapipb.EgressPolicy) []string {
+		var hosts []string
+		for _, rule := range policy.GetRules() {
+			require.Equal(t, []int32{443}, rule.GetHttps().GetPorts().GetNumbers())
+			hosts = append(hosts, rule.GetHttps().GetHostnames()...)
+		}
+		return hosts
+	}
+	store, plain := lifecycleFixtureWith(t, testVolumeSource())
+	store.revision.EgressDestinations = []string{"https://api.example.com", "https://github.com"}
+	session, _, err := store.CreateSession(t.Context(), &apiv1alpha1.Session{
+		Id: uuid.NewString(), Creator: "alice", Agent: plain.GetAgent(), VolumeSource: testVolumeSource(),
+		Providers: []*apiv1alpha1.SessionProvider{
+			{Hostname: "github.com", Audience: "github", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"},
+			{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"},
+		},
+	}, uuid.NewString())
+	require.NoError(t, err)
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+
+	session, err = workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, actorKey("team-a", substrate.ActorName(session.GetId())), actors.policyActor)
+	require.Equal(t, []string{"api.example.com", "github.com", "gitlab.example.com"}, httpsHosts(actors.policy), "the providers join the Agent's origins, github.com once")
+	require.Equal(t, []string{"api.example.com", "github.com"}, httpsHosts(actors.inherited), "the template's default stays the revision's")
+
+	_, err = workflow.Create(t.Context(), plain)
+	require.NoError(t, err)
+	require.Equal(t, []string{"api.example.com", "github.com"}, httpsHosts(actors.policy), "a session admitted without providers gets the revision's allowlist")
+
+	current := supersedingRevision(t, store)
+	moved, err := workflow.RepointQuiesced(t.Context(), session)
+	require.NoError(t, err)
+	require.Equal(t, current.Revision, moved.GetPreparedRevision())
+	require.Equal(t, actorKey("team-a", substrate.ActorName(session.GetId())), actors.policyActor)
+	require.Equal(t, []string{"api.example", "github.com", "gitlab.example.com"}, httpsHosts(actors.policy), "the repointed Actor keeps its providers on the current revision's allowlist")
+}
+
 func TestActorEgressPolicy(t *testing.T) {
 	policy, err := substrate.ActorEgressPolicy("team-a", []string{"https://API.Example.com.", "https://api.example.com:443", "https://api.example.com:0443", "http://api.example.com:8080"}, nil)
 	require.NoError(t, err)

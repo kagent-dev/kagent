@@ -131,7 +131,11 @@ directory, whose origin moved since the volume's last sync; each provider is a
 host whose credential the session gets, with the `Bearer` or `Basic` scheme (a
 user name for Basic only) and the broker that exchanges the person's token for
 its audience. Both are stored on the session as `providers` and `changed` and
-shown on get and list; the token itself is stored and shown nowhere.
+shown on get and list; the token itself is stored and shown nowhere. Each
+provider's host is allowed over HTTPS on the session's own Actor, beside its
+revision's origins, on create and on every repoint: the session's directory
+setup and its git and API calls reach the provider without the Agent listing
+it, and the Agent's other sessions and its revision are unchanged.
 
 Every refusal is `PermissionDenied` with its reason (no grant, expired, not yet
 valid, another person's, another volume, a mount it does not allow, an unknown

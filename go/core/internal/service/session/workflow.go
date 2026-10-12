@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -489,7 +490,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	binding := actorBinding(session.Id, revision)
 	var creation *substrate.ActorCreation
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := sessionEgressPolicy(binding.Atespace, revision)
+		policy, err := sessionEgressPolicy(binding.Atespace, revision, session.GetProviders())
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
@@ -513,7 +514,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	var current *database.RuntimeRevision
 	var currentPolicy *ateapipb.EgressPolicy
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
-		current, currentPolicy, err = w.repointTarget(ctx, revision)
+		current, currentPolicy, err = w.repointTarget(ctx, revision, session.GetProviders())
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
@@ -705,12 +706,13 @@ func actorBinding(sessionID string, revision *database.RuntimeRevision) substrat
 }
 
 // repointTarget returns the revision an Actor of revision moves to when it
-// resumes, with that revision's egress allowlist, or nil when it stays: a
+// resumes, with that revision's egress allowlist plus the session's admitted
+// providers, or nil when it stays: a
 // revision rendered by an older release lacks configuration the platform needs
 // now, and once no session references it the runtime revision GC collects it.
 // The target is the agent's current revision in the same atespace; an Actor
 // never moves between atespaces.
-func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.RuntimeRevision) (*database.RuntimeRevision, *ateapipb.EgressPolicy, error) {
+func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.RuntimeRevision, providers []*apiv1alpha1.SessionProvider) (*database.RuntimeRevision, *ateapipb.EgressPolicy, error) {
 	current, err := w.store.GetCurrentRuntimeRevision(ctx, revision.Revision)
 	switch {
 	case errors.Is(err, database.ErrNotFound):
@@ -720,7 +722,7 @@ func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.Ru
 	case current.Revision == revision.Revision || current.ActorTemplateAtespace != revision.ActorTemplateAtespace:
 		return nil, nil, nil
 	}
-	policy, err := sessionEgressPolicy(current.ActorTemplateAtespace, current)
+	policy, err := sessionEgressPolicy(current.ActorTemplateAtespace, current, providers)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build egress policy of revision %s: %w", current.Revision, err)
 	}
@@ -730,9 +732,17 @@ func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.Ru
 // sessionEgressPolicy compiles the egress allowlist of a session's Actor on
 // revision. A binding scoped to the golden boot, such as a private skill
 // source's git credential, stays off it: the sandbox reaches that host
-// without the header.
-func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision) (*ateapipb.EgressPolicy, error) {
-	return substrate.ActorEgressPolicy(atespace, revision.EgressDestinations, egress.ForActors(revision.Credentials))
+// without the header. The hosts the session was admitted with for its volume
+// source (its providers) are allowed over HTTPS on this Actor alone, so the
+// session's directory setup and its git and API calls reach them without the
+// Agent listing them; the revision and the Agent's other sessions are
+// unchanged.
+func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision, providers []*apiv1alpha1.SessionProvider) (*ateapipb.EgressPolicy, error) {
+	destinations := slices.Clone(revision.EgressDestinations)
+	for _, provider := range providers {
+		destinations = append(destinations, "https://"+provider.GetHostname())
+	}
+	return substrate.ActorEgressPolicy(atespace, destinations, egress.ForActors(revision.Credentials))
 }
 
 // repointActor moves a suspended Actor onto the ActorTemplate of current and
@@ -780,7 +790,7 @@ func (w *ActorWorkflow) RepointQuiesced(ctx context.Context, session *apiv1alpha
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
 	}
-	current, policy, err := w.repointTarget(ctx, revision)
+	current, policy, err := w.repointTarget(ctx, revision, session.GetProviders())
 	if err != nil || current == nil {
 		return session, err
 	}
@@ -804,7 +814,7 @@ func (w *ActorWorkflow) RepointQuiesced(ctx context.Context, session *apiv1alpha
 	}
 	updated, err := w.store.RepointSession(ctx, session.GetId(), revision.Revision, current.Revision)
 	if errors.Is(err, database.ErrConflict) && updated.GetPreparedRevision() == revision.Revision {
-		previous, policyErr := sessionEgressPolicy(atespace, revision)
+		previous, policyErr := sessionEgressPolicy(atespace, revision, session.GetProviders())
 		if policyErr == nil {
 			_, policyErr = w.repointActor(ctx, session.GetId(), revision, previous)
 		}
