@@ -86,7 +86,8 @@ func TestCompactionStrategies(t *testing.T) {
 			wantErr:  "must not be negative",
 		},
 	}
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			got, ignored, err := compactionStrategies(&tt.settings)
 			if tt.wantErr != "" {

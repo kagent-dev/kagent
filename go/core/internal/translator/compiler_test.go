@@ -177,7 +177,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	}
 	plugins := config.AgentPlugins
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.GetGit().Commit != "cccccccccccccccccccccccccccccccccccccccc" {
-		t.Fatalf("compiled Agent Plugins config = %#v", config)
+		t.Fatalf("compiled Agent Plugins config = %#v", plugins)
 	}
 	for _, host := range []string{"https://ghcr.io:443", "https://registry-1.docker.io:443", "https://github.com:443", "https://objects.example.com:443"} {
 		if !slices.Contains(spec.EgressDestinations, host) {

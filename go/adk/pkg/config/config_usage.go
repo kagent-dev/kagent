@@ -28,7 +28,7 @@ import (
 // Agent.Spec.Tools -> AgentConfig.HttpTools, SseTools, RemoteAgents
 //   - Tools with McpServer -> HttpTools or SseTools (based on protocol)
 //   - Tools with Agent -> RemoteAgents
-//   - Used in AgentConfig.to_agent() to add tools to the agent
+//   - Used in create_agent() to add tools to the agent
 //
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
 //   - Skills are added via SkillsPlugin in Python
