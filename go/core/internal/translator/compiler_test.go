@@ -1045,23 +1045,21 @@ func TestResolveModelConfigMistral(t *testing.T) {
 }
 
 type egressPolicyGoldenInput struct {
-	modelConfig *v1alpha3.ModelConfig
-	secret      *corev1.Secret
-	harness     *v1alpha3.Harness
-	agent       *v1alpha3.Agent
+	objects []any
+	agent   *v1alpha3.Agent
 }
 
 func TestCompileAgentEgressPolicyGolden(t *testing.T) {
+	t.Setenv("OTEL_SDK_DISABLED", "true")
 	schemas := loadConfigurationSchemas(t)
-	for _, name := range []string{"model-config-default", "model-config-secret", "model-config-base-url"} {
+	inputs, err := filepath.Glob(filepath.Join("testdata", "*-in.yaml"))
+	require.NoError(t, err)
+	require.NotEmpty(t, inputs)
+	for _, inputPath := range inputs {
+		name := strings.TrimSuffix(filepath.Base(inputPath), "-in.yaml")
 		t.Run(name, func(t *testing.T) {
-			casePath := filepath.Join("testdata", name)
-			input := loadEgressPolicyGoldenInput(t, filepath.Join(casePath, "input.yaml"), schemas)
-			objects := []any{input.modelConfig, input.harness}
-			if input.secret != nil {
-				objects = append(objects, input.secret)
-			}
-			revision, err := compiler(t, objects...).CompileAgent(t.Context(), input.agent)
+			input := loadEgressPolicyGoldenInput(t, inputPath, schemas)
+			revision, err := compiler(t, input.objects...).CompileAgent(t.Context(), input.agent)
 			require.NoError(t, err)
 			policy, err := substrate.ActorEgressPolicy("test", revision.EgressDestinations, revision.Credentials)
 			require.NoError(t, err)
@@ -1070,7 +1068,7 @@ func TestCompileAgentEgressPolicyGolden(t *testing.T) {
 			require.NoError(t, err)
 			actual, err := yaml.JSONToYAML(raw)
 			require.NoError(t, err)
-			path := filepath.Join(casePath, "expected.yaml")
+			path := filepath.Join("testdata", name+"-out.yaml")
 			if os.Getenv("KAGENT_TEST_UPDATE_GOLDEN") == "true" {
 				require.NoError(t, os.WriteFile(path, actual, 0o644))
 			}
@@ -1115,23 +1113,29 @@ func loadEgressPolicyGoldenInput(t *testing.T, path string, schemas map[schema.G
 		require.NoError(t, err)
 		switch kind {
 		case "ModelConfig":
-			input.modelConfig = &v1alpha3.ModelConfig{}
-			require.NoError(t, yaml.Unmarshal(encoded, input.modelConfig))
+			value := &v1alpha3.ModelConfig{}
+			require.NoError(t, yaml.Unmarshal(encoded, value))
+			input.objects = append(input.objects, value)
 		case "Harness":
-			input.harness = &v1alpha3.Harness{}
-			require.NoError(t, yaml.Unmarshal(encoded, input.harness))
+			value := &v1alpha3.Harness{}
+			require.NoError(t, yaml.Unmarshal(encoded, value))
+			input.objects = append(input.objects, value)
 		case "Agent":
+			require.Nil(t, input.agent, "input contains more than one Agent")
 			input.agent = &v1alpha3.Agent{}
 			require.NoError(t, yaml.Unmarshal(encoded, input.agent))
+		case "RemoteMCPServer":
+			value := &v1alpha3.RemoteMCPServer{}
+			require.NoError(t, yaml.Unmarshal(encoded, value))
+			input.objects = append(input.objects, value)
 		case "Secret":
-			input.secret = &corev1.Secret{}
-			require.NoError(t, yaml.Unmarshal(encoded, input.secret))
+			value := &corev1.Secret{}
+			require.NoError(t, yaml.Unmarshal(encoded, value))
+			input.objects = append(input.objects, value)
 		default:
 			t.Fatalf("unsupported input kind %q", kind)
 		}
 	}
-	require.NotNil(t, input.modelConfig)
-	require.NotNil(t, input.harness)
 	require.NotNil(t, input.agent)
 	return input
 }
@@ -1139,7 +1143,7 @@ func loadEgressPolicyGoldenInput(t *testing.T, path string, schemas map[schema.G
 func loadConfigurationSchemas(t *testing.T) map[schema.GroupVersionKind]*apiserverschema.Structural {
 	t.Helper()
 	result := map[schema.GroupVersionKind]*apiserverschema.Structural{}
-	for _, resource := range []string{"modelconfigs", "harnesses", "agents"} {
+	for _, resource := range []string{"modelconfigs", "harnesses", "agents", "remotemcpservers"} {
 		path := filepath.Join("..", "..", "..", "api", "config", "crd", "bases", "api.kagent.dev_"+resource+".yaml")
 		raw, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -1158,6 +1162,6 @@ func loadConfigurationSchemas(t *testing.T) map[schema.GroupVersionKind]*apiserv
 			result[gvk] = structural
 		}
 	}
-	require.Len(t, result, 3)
+	require.Len(t, result, 4)
 	return result
 }
