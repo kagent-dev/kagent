@@ -8,6 +8,13 @@ name: Sync with upstream
 # commit conflicts or a check fails it opens a pull request against the
 # consumed branch that names the cause, and pushes nothing else.
 #
+# A re-pin a carried commit blocks is rebased by hand onto a `sync/**` branch
+# (FORK.md, "Manual re-pin") and landed by dispatching this workflow with that
+# branch as `candidate` and the upstream commit it sits on as `upstream_ref`:
+# scripts/fork/take-candidate.sh checks it in place of the rebase, and the same
+# wait for ci-ok and scan-ok and the same force-with-lease land it, so nobody
+# needs a bypass of the consumed branch's ruleset.
+#
 # Who pushes matters. The ledger is pushed with GITHUB_TOKEN (no workflow
 # reacts). Everything else — the mirror, the candidate, the consumed branch —
 # is pushed with a token of the org's heraldbot GitHub App (contents +
@@ -32,6 +39,9 @@ on:
         description: 'Fast-forward the mirror (main, release branches, tags) and stop'
         type: boolean
         default: false
+      candidate:
+        description: 'A sync/** branch rebased by hand onto upstream_ref (a ref or a full commit SHA) to land instead of rebasing (FORK.md, "Manual re-pin")'
+        default: ''
 
 permissions:
   contents: write
@@ -47,6 +57,7 @@ env:
   UPSTREAM_REF: ${{ inputs.upstream_ref || 'main' }}
   DRY_RUN: ${{ inputs.dry_run == true }}
   MIRROR_ONLY: ${{ inputs.mirror_only == true }}
+  TAKE_CANDIDATE: ${{ inputs.candidate }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
@@ -93,12 +104,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/fork/mirror-quiet.sh "$(cat mirror-started-at)" mirror-pushed.txt
 
-      - name: Rebase the carried commits
+      - name: Rebase the carried commits, or take the candidate
         id: repin
         if: env.MIRROR_ONLY != 'true'
         run: |
           set +e
-          UPSTREAM_REMOTE=upstream REPORT=repin-report.md REPORT_ENV=repin-report.env scripts/fork/repin.sh
+          if [ -n "$TAKE_CANDIDATE" ]; then
+            CANDIDATE="$TAKE_CANDIDATE" UPSTREAM_REMOTE=upstream REPORT=repin-report.md REPORT_ENV=repin-report.env scripts/fork/take-candidate.sh
+          else
+            UPSTREAM_REMOTE=upstream REPORT=repin-report.md REPORT_ENV=repin-report.env scripts/fork/repin.sh
+          fi
           rc=$?
           set -e
           cat repin-report.md >> "$GITHUB_STEP_SUMMARY"
@@ -142,7 +157,7 @@ jobs:
           exit 1
 
       - name: Push the candidate
-        if: env.DRY_RUN != 'true' && steps.repin.outputs.status == 'rebased'
+        if: env.DRY_RUN != 'true' && env.TAKE_CANDIDATE == '' && steps.repin.outputs.status == 'rebased'
         env:
           BOT_TOKEN: ${{ steps.app.outputs.token }}
         run: scripts/fork/git-push-as.sh "$BOT_TOKEN" origin "${{ steps.repin.outputs.candidate }}"
@@ -208,7 +223,7 @@ jobs:
             echo
             cat repin-report.md
             echo
-            echo "Finish by hand (FORK.md, \"Manual re-pin\"): fix on this branch, let the checks pass, force-push it onto \`${CONSUMED}\`, then close this pull request — do not merge it. Run: ${RUN_URL}"
+            echo "Finish by hand (FORK.md, \"Manual re-pin\"): fix on this branch, let the checks pass, dispatch this workflow with it as \`candidate\`, then close this pull request — do not merge it. Run: ${RUN_URL}"
           } > pr-body.md
           # --repo: in a checkout of a fork, gh otherwise targets the parent repository.
           gh pr create --repo "$GITHUB_REPOSITORY" --base "$CONSUMED" --head "$CANDIDATE" \

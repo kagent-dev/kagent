@@ -286,16 +286,16 @@ CANDIDATE=sync/upstream-$(date -u +%Y%m%d)-manual scripts/fork/repin.sh   # exit
 # on a conflict: git rebase --onto upstream/main "$(git merge-base origin/giantswarm upstream/main)" ; fix ; git rebase --continue
 sed -i "s|upstream.version=main@[0-9a-f]*|upstream.version=main@$(git merge-base HEAD upstream/main | cut -c1-7)|" .circleci/config.yml && git commit -qsam 'chore(fork): upstream pin annotation'   # the pin annotation moves with the pin (step 6); fold it into the ci(fork) commit if you rebase interactively
 git push origin "$CANDIDATE"                      # ci.yaml + image-scan.yaml run on sync/** ; wait for ci-ok and scan-ok
-git push --force-with-lease=refs/heads/giantswarm origin "$CANDIDATE":giantswarm
-git push origin --delete "$CANDIDATE"
-scripts/fork/mirror.sh "$(gh auth token)" && scripts/fork/mirror-quiet.sh "<ISO time before the push>" mirror-pushed.txt   # or: gh workflow run sync-upstream.yaml -f mirror_only=true
-scripts/fork/ledger-append.sh re-pins.md '| <date> | <old pin> | <new pin> | <old head> → <new head> | <replayed> | <dropped> | manual |'
+gh workflow run sync-upstream.yaml --repo giantswarm/kagent-upstream --ref giantswarm \
+  -f candidate="$CANDIDATE" -f upstream_ref="$(git merge-base HEAD upstream/main)"
 ```
 
-The force-push needs a bypass of the consumed branch's ruleset, which only the automation (the `heraldbot`
-App) has: an administrator adds themselves to the bypass list for the duration and removes themselves right
-after (the same discipline as lifting `enforce_admins` for a guarded merge). Never `--force` without
-`--force-with-lease`.
+The dispatch lands the candidate the way the weekly sync lands its own: `scripts/fork/take-candidate.sh`
+refuses a candidate that is not a `sync/**` branch, does not sit on `upstream_ref`, still contains the consumed
+head (a merge, not a rebase) or whose ledger `scripts/fork/carried.sh --check` rejects; the workflow then waits
+for `ci-ok` and `scan-ok` on its head, force-pushes it onto `giantswarm` with a lease on the head it read,
+deletes the branch, fast-forwards the mirror and appends the `re-pins.md` row. Nobody needs a bypass of the
+consumed branch's ruleset, and nobody force-pushes by hand.
 
 The 2026-10-05 re-pin (`main@dd3b2405` to `main@bf8afa56`) was done by hand, from the 2026-09-29 probe (`probe/all` on `main@e4516302`, PROBE-LOG.md in the probe worktree): `git rebase --onto` of the probe onto `main@bf8afa56`, the drops named under the table, the pull requests merged to `giantswarm` since the probe replayed in order and ported to the Session model and to egress destinations as HTTP(S) origins (`https://host:443`), the CRDs regenerated inside each API commit (`make controller-manifests`, drift-free at the head), the pin annotation moved in its own commit, and the ledger's 72 `docs(fork)` commits folded into the one ledger commit at the top of the stack (the convention from this re-pin on: a re-pin folds the ledger commits; between re-pins they accumulate as pull requests). Gates before the push: `go build`, `go vet`, `go test ./...` (the database tests over a podman socket, the controller's envtest with `setup-envtest`), `golangci-lint` with the kube-api-linter plugin, `helm unittest` of `helm/kagent` (423 tests), `make controller-manifests`. HeraldBot's blocked-sync pull request #159 is the hand-over for this re-pin: its branch `sync/upstream-20261005-bf8afa5` takes the candidate, CI runs there, and the pull request is closed after the force-push, never merged.
 
