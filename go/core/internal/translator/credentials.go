@@ -21,7 +21,8 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
 func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
-	var bindings []egress.Credential
+	bindings := make([]egress.Credential, 0, len(input.Egress.Credentials))
+	bindings = append(bindings, input.Egress.Credentials...)
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
 	bind := func(rawURL, header, prefix, namespace, name, key string) error {
@@ -30,7 +31,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			return NewValidationError("credential destination must be an absolute HTTP(S) URL without user information or fragment")
 		}
 		uri := "ate-secret://k8s.io/default/" + namespace + "/" + name + "/" + key
-		bindings = append(bindings, egress.Credential{Hostname: u.Hostname(), Header: header, Prefix: prefix, URI: uri})
+		bindings = append(bindings, egress.Credential{Origin: egress.Origin(u), Header: header, Prefix: prefix, URI: uri})
 		return nil
 	}
 	models := append([]*ResolvedModelConfig(nil), extraModels...)
@@ -99,10 +100,13 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		if err != nil {
 			return nil, nil, NewValidationError("invalid passthrough credential destination")
 		}
-		hostname := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+		origin, err := egress.ParseOrigin(egress.Origin(u))
+		if err != nil {
+			return nil, nil, NewValidationError("invalid passthrough credential destination: %v", err)
+		}
 		for _, binding := range bindings {
-			if binding.Hostname == hostname {
-				return nil, nil, NewValidationError("destination %q cannot combine caller-token passthrough with gateway credentials", hostname)
+			if binding.Origin == origin.String() {
+				return nil, nil, NewValidationError("destination %q cannot combine caller-token passthrough with gateway credentials", origin.String())
 			}
 		}
 	}

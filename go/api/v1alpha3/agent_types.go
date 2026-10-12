@@ -52,6 +52,16 @@ type AgentSpec struct {
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="harnessRef.name must not be empty"
 	// +required
 	HarnessRef corev1.LocalObjectReference `json:"harnessRef"`
+
+	// EgressPolicyRefs grants additional access to the whole runtime, including
+	// shared subagents. Policies resolve in this Agent's namespace. Integration
+	// access inferred from models and tools is always included.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(ref, has(ref.name) && ref.name != '')",message="egressPolicyRefs requires non-empty names"
+	// +listType=map
+	// +listMapKey=name
+	EgressPolicyRefs []corev1.LocalObjectReference `json:"egressPolicyRefs,omitempty"`
 }
 
 // AgentTemplateSource selects portable behavior inline or by local reference.

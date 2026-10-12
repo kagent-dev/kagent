@@ -1,8 +1,8 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.4.0-alpha1**. The compiler turns ModelConfig API
-keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
-bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
+Kagent requires Substrate **v0.5.0-alpha2**. The compiler turns ModelConfig API
+keys, Secret-backed RemoteMCPServer headers, and explicit EgressPolicy
+authentication into destination-scoped egress bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 replaces the outgoing HTTP header when the request carries a placeholder. SDKs
 receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
@@ -58,22 +58,25 @@ overrides of these variables are rejected.
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
-match its scheme, DNS name, and port; credential bindings remain scoped to the
-hostname and header. Different credentials for the same hostname and header
-are rejected, including conflicts between models, memory embeddings, and MCP
-servers. Use distinct DNS names for
-origins requiring different credentials. IP-address destinations are unsupported
-by Substrate egress policies.
+and credential bindings both match its scheme, DNS name, and port. Different
+credentials for the same origin and header are rejected, including conflicts
+between models, memory embeddings, MCP servers, and explicit policies. Distinct
+ports on the same DNS name can use different credentials. IP-address destinations
+are unsupported by Substrate egress policies.
+
+The v1alpha3 revision format stores full origins. It assumes a clean installation;
+previously persisted hostname-only credential bindings are rejected rather than
+reinterpreted across every port on that host.
 
 Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on
-ModelConfig or RemoteMCPServer for gateway injection.
+ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway injection.
 
 AWS IAM signing keys, Google service-account keys, and OAuth client credentials
 require mechanisms beyond static header injection and are rejected rather than
 serialized into runtimes.
 Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share a hostname with static gateway credentials, which would override
+cannot share an origin with static gateway credentials, which would override
 the caller's authentication.
 
 ## Deferred API fields

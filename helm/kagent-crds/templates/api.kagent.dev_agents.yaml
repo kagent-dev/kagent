@@ -52,6 +52,35 @@ spec:
               are local to the Agent's namespace, including references nested in inline
               template specs.
             properties:
+              egressPolicyRefs:
+                description: |-
+                  EgressPolicyRefs grants additional access to the whole runtime, including
+                  shared subagents. Policies resolve in this Agent's namespace. Integration
+                  access inferred from models and tools is always included.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: egressPolicyRefs requires non-empty names
+                  rule: self.all(ref, has(ref.name) && ref.name != '')
               harnessRef:
                 description: |-
                   HarnessRef selects the platform-managed runtime configuration that executes

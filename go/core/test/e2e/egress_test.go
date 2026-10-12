@@ -6,16 +6,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
+func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
@@ -28,7 +33,7 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		denied, err := url.Parse(reachableModelURL(t, origin.URL))
 		require.NoError(t, err)
 		// Give the destination a distinct hostname even when host mocks use
-		// host.docker.internal. The gateway allowlist is keyed by hostname.
+		// host.docker.internal. Keep the redirect visibly distinct from the model origin.
 		kube := interactionKubeClient(t)
 		alias := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "denied-origin-", Namespace: "kagent"},
@@ -71,5 +76,36 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		}
 		require.Equal(t, a2atype.TaskStateFailed, task.Status.State, "redirect task text = %q", taskText(task))
 		require.False(t, reachedDenied.Load(), "redirect reached an unconfigured destination")
+
+		grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "redirect-access-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{
+			Destinations: []v1alpha3.EgressDestination{{Origin: denied.Scheme + "://" + denied.Host}},
+		}}
+		require.NoError(t, kube.Create(t.Context(), grant))
+		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), grant)) })
+		agent := &v1alpha3.Agent{}
+		name := strings.TrimPrefix(fixture.tenant, "kagent/")
+		key := ctrlclient.ObjectKey{Namespace: "kagent", Name: name}
+		require.NoError(t, kube.Get(t.Context(), key, agent))
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: grant.Name}}
+		require.NoError(t, kube.Update(t.Context(), agent))
+		require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+			if err := kube.Get(ctx, key, agent); err != nil {
+				return false, err
+			}
+			for _, condition := range agent.Status.Conditions {
+				if condition.Type == v1alpha3.AgentConditionReady && condition.ObservedGeneration == agent.Generation {
+					return condition.Status == metav1.ConditionTrue, nil
+				}
+			}
+			return false, nil
+		}))
+		allowed := newInteractionFixtureForTemplate(t, harness, target, name)
+		_, _, task = allowed.send(t, "What is 2+2?")
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "policy-granted redirect text = %q", taskText(task))
+		require.True(t, reachedDenied.Load())
+		reachedDenied.Store(false)
+		_, _, task = fixture.send(t, "What is 2+2?")
+		require.Equal(t, a2atype.TaskStateFailed, task.Status.State)
+		require.False(t, reachedDenied.Load(), "existing session must retain its earlier grant")
 	})
 }
