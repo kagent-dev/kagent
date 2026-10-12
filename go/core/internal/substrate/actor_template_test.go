@@ -96,7 +96,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, template.GetSnapshotConfig().GetOnCommit())
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, template.GetSnapshotConfig().GetOnCommit())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
