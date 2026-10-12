@@ -83,6 +83,43 @@ can issue lifecycle calls without session-local execution claims. PostgreSQL tes
 Actor responses verify claim ordering, delayed callers, and lost responses; live
 Substrate settlement and the complete multi-replica rollout remain acceptance work.
 
+## Session directory setup
+
+A turn's dispatch may name the directory the turn works in
+(`x-kagent-working-directory`), a read-only directory of bare git mirrors
+`<owner>/<repository>.git` (`x-kagent-mirrors-directory`) and the repositories
+whose origin moved since the mirrors' last sync, comma-separated
+(`x-kagent-changed-repositories`). A runtime reads them per turn, never at
+boot, since a runtime restored from a snapshot predates the session's mounts.
+A turn without a working directory works where it always did
+(`/data/workspace` for `claude`). The headers describe a session whose actor
+mounts a directory of a shared volume; the gateway sets them once the
+session's volume source is mounted.
+
+Before the first turn in a working directory with mirrors, the `claude`
+runtime sets the directory up with the shared `go/harness/workspace` package:
+every mirror gets a clone with alternates at `<owner>/<repository>` (`git
+clone --shared --no-checkout`, a few KiB of refs; the objects stay the
+mirror's), its `origin` the mirror's own origin URL without any user
+information, no working tree and no local branch, with `checkout.workers`,
+`core.untrackedCache` and `feature.manyFiles` set for a network filesystem.
+The agent's first `git switch <default branch>` checks a repository out from
+origin's branch. Then exactly the changed repositories are fetched from
+origin, each under a timeout and all under one budget, inside the dispatched
+turn, so the fetch leaves through the egress gateway with whatever credential
+it sets for the turn; the sandbox holds none. A `CLAUDE.md` in the directory
+tells the agent how it is laid out, and `.kagent/workspace.json` records the
+setup, so a later turn neither clones nor fetches again, and a resumed turn
+continues its process without setup. A clone or fetch that fails, such as a
+fetch the origin refuses, is the turn's first status message (a working status
+of the A2A task), naming the repository and the reason, and the turn runs.
+
+Claude Code is spawned in the turn's working directory. Its environment tells
+git to trust the mirrors directory (`safe.directory=<mirrors>/*` through
+`GIT_CONFIG_COUNT`, nothing written to a file), since the mirrors belong to the
+volume's owner and git refuses another user's repository; nothing else is
+trusted.
+
 ## Idle expiration
 
 Sessions expire after seven days without task activity by default, using the same

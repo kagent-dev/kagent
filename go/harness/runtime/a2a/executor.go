@@ -401,6 +401,21 @@ func (s *executionSink) SessionStarted(event runtime.SessionStarted) error {
 	return nil
 }
 
+// Notice reports a status message of the working task. It closes the current
+// text run like tool activity does.
+func (s *executionSink) Notice(event runtime.Notice) error {
+	if event.Text == "" {
+		return nil
+	}
+	s.textArtifactID = ""
+	message := taskMessage(s.reqCtx, event.Text)
+	apia2a.SetTimelinePosition(message, s.nextTimelinePosition())
+	if !s.yield(a2atype.NewStatusUpdateEvent(s.reqCtx, a2atype.TaskStateWorking, message), nil) {
+		return errYieldStopped
+	}
+	return nil
+}
+
 func (s *executionSink) TextDelta(event runtime.TextDelta) error {
 	if event.Text == "" {
 		return nil
