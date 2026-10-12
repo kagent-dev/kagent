@@ -213,7 +213,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
-	environment := traceEnvironment(ctx, d.config.Environment)
+	// Claude's own git clones and fetches from the mirrors, which belong to
+	// the volume's owner, not to Claude's user.
+	environment := traceEnvironment(ctx, workspace.TrustMirrors(workspace.DispatchFrom(ctx), d.config.Environment))
 	var gate *tracingGate
 	if d.config.AwaitTelemetry {
 		if gate, err = newTracingGate(); err != nil {

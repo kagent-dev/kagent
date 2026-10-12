@@ -19,6 +19,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -205,6 +206,31 @@ func Prepare(ctx context.Context, dispatch Dispatch, options Options) (Report, e
 		return report, fmt.Errorf("record the workspace state: %w", err)
 	}
 	return report, nil
+}
+
+// TrustMirrors returns environment with git told, through GIT_CONFIG_COUNT,
+// to trust every repository under the dispatch's mirrors directory: the
+// mirrors belong to the volume's owner, and the agent's own git refuses
+// another user's repository. Nothing else is trusted. A dispatch without an
+// absolute mirrors directory leaves the environment as it is.
+func TrustMirrors(dispatch Dispatch, environment []string) []string {
+	if !filepath.IsAbs(dispatch.Mirrors) {
+		return environment
+	}
+	count := 0
+	result := make([]string, 0, len(environment)+3)
+	for _, variable := range environment {
+		if value, ok := strings.CutPrefix(variable, "GIT_CONFIG_COUNT="); ok {
+			count, _ = strconv.Atoi(value)
+			continue
+		}
+		result = append(result, variable)
+	}
+	// A trailing /* trusts every repository below the directory.
+	return append(result,
+		"GIT_CONFIG_COUNT="+strconv.Itoa(count+1),
+		fmt.Sprintf("GIT_CONFIG_KEY_%d=safe.directory", count),
+		fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", count, filepath.Join(dispatch.Mirrors, "*")))
 }
 
 // PrepareSubcommand is the argument a harness binary takes to run

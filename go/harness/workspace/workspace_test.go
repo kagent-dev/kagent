@@ -257,6 +257,38 @@ func TestPrepareWithoutMirrors(t *testing.T) {
 	require.True(t, errors.Is(err, os.ErrNotExist))
 }
 
+// The agent's own git clones a mirror that belongs to another user once its
+// environment trusts the mirrors, and still refuses another user's
+// repository outside them; a dispatch without mirrors trusts nothing.
+func TestTrustMirrors(t *testing.T) {
+	require.Equal(t, []string{"A=1"}, TrustMirrors(Dispatch{Directory: "/workspace"}, []string{"A=1"}))
+	require.Equal(t, []string{"A=1", "GIT_CONFIG_KEY_0=x.y", "GIT_CONFIG_VALUE_0=z",
+		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_1=safe.directory", "GIT_CONFIG_VALUE_1=/mirrors/*"},
+		TrustMirrors(Dispatch{Mirrors: "/mirrors"}, []string{"A=1", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=x.y", "GIT_CONFIG_VALUE_0=z"}),
+		"an entry already configured stays")
+
+	f := newForge(t, "o/r")
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.git")
+	gitIn(t, "", "clone", "--quiet", "--bare", f.origin("o/r"), elsewhere)
+	// git's own switch for a repository that belongs to another user, and
+	// its messages untranslated.
+	environment := append(os.Environ(), "GIT_TEST_ASSUME_DIFFERENT_OWNER=1", "LC_ALL=C")
+	clone := func(environment []string, source string) error {
+		command := exec.CommandContext(t.Context(), "git", "clone", "--quiet", source, filepath.Join(t.TempDir(), "clone"))
+		command.Env = environment
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, output)
+		}
+		return nil
+	}
+	mirror := filepath.Join(f.mirrors, "o", "r.git")
+	require.ErrorContains(t, clone(environment, mirror), "dubious ownership", "an untrusted mirror")
+	trusted := TrustMirrors(f.dispatch(), environment)
+	require.NoError(t, clone(trusted, mirror))
+	require.ErrorContains(t, clone(trusted, elsewhere), "dubious ownership", "a repository outside the mirrors")
+}
+
 func TestMirrors(t *testing.T) {
 	dir := t.TempDir()
 	for _, path := range []string{"o/b.git", "o/a.git", "p/c.git", "o/not-a-mirror", ".hidden/x.git"} {
