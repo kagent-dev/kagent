@@ -215,11 +215,11 @@ remains in PostgreSQL.
 
 Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
 both the node-local snapshot taken on pause and the one uploaded on suspend.
-Templates use Full, so paused and suspended Actors keep their process memory, and
-their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
-scopes again. A Data snapshot resumes by starting fresh containers from the OCI
-image with the saved durable directories; Substrate still restores one as Data when
-the Actor's template changed after the snapshot was taken.
+Agent and standalone sandbox templates use DATA. Resume starts fresh containers
+from the OCI image with the saved durable directories. Harnesses recover pending
+approvals and user input from their durable state; sandbox guests start with a
+fresh process registry. Agent checkpoints can be forked without carrying the
+source session's process memory or runtime identity into the new session.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest

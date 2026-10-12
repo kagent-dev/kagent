@@ -208,7 +208,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.processes.KillProcess(f.guestContext(id), &guestpb.KillProcessRequest{ProcessId: long.ProcessId})
 	require.NoError(t, err)
-	_, err = f.processes.StartProcess(f.guestContext(id), &guestpb.StartProcessRequest{Command: []string{"sleep", "300"}})
+	active, err := f.processes.StartProcess(f.guestContext(id), &guestpb.StartProcessRequest{Command: []string{"sleep", "300"}})
 	require.NoError(t, err)
 	_, err = f.client.SuspendSandbox(f.ctx, &apiv1.SuspendSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
@@ -217,11 +217,19 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	f.wait(t, id, apiv1.RuntimeState_RUNTIME_STATE_READY)
 	require.Equal(t, data, f.read(t, id, "binary.dat"))
-	// Sandboxes take FULL snapshots until Substrate's lifecycle v2, so the guest's
-	// in-memory process registry survives suspend and resume.
-	restored, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+	// DATA restores restart the guest with durable files and a fresh process registry.
+	for _, processID := range []string{process.ProcessId, active.ProcessId} {
+		_, err = f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: processID})
+		require.Equal(t, codes.NotFound, status.Code(err))
+	}
+	require.Equal(t, "onceonce", string(f.read(t, id, "count")))
+	resumed, err := f.processes.StartProcess(f.guestContext(id), start)
 	require.NoError(t, err)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, restored.Status)
+	require.Eventually(t, func() bool {
+		current, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: resumed.ProcessId})
+		return err == nil && current.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+	}, 10*time.Second, 100*time.Millisecond)
+	require.Equal(t, "onceonceonce", string(f.read(t, id, "count")))
 	_, err = f.client.DeleteSandbox(f.ctx, &apiv1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
 	f.wait(t, id, apiv1.RuntimeState_RUNTIME_STATE_DELETED)

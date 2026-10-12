@@ -164,9 +164,11 @@ prevent old results from overwriting newer database state.
 Creation must finish before suspend/resume; deletion can supersede creation or
 other operations and cannot be canceled into a live sandbox. Resume preserves
 durable files; process handles last only as long as the guest's in-memory registry.
-Sandboxes take Full snapshots until Substrate's lifecycle v2 (see
-[Runtime and lifecycle](runtime-and-lifecycle.md)), so that registry survives
-suspend and resume as well.
+Sandboxes take DATA snapshots (see
+[Runtime and lifecycle](runtime-and-lifecycle.md)). Resume starts a fresh guest
+with the saved durable directories. Running processes stop during suspension,
+and old process handles become unavailable after resume. Commands are not replayed;
+callers can start new processes against the restored files.
 Expiration immediately rejects new guest requests and lets the worker supersede
 unfinished lifecycle work with deletion. Deletion finishes after backend cleanup,
 releases runtime-artifact pins, and retains a tombstone and creation receipt so
