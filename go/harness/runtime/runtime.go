@@ -4,8 +4,12 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrSessionAbandoned means a deferred continuation cannot safely be resumed.
+var ErrSessionAbandoned = errors.New("deferred continuation cannot be resumed; start a new session")
 
 // CancellationError reports that a runtime could not reach a safe cancellation
 // boundary. The executor must not acknowledge cancellation as successful.
@@ -135,10 +139,10 @@ type ModelCall struct {
 	UsageOnly bool
 }
 
-// PendingTurn owns the live or durable continuation behind an input request.
+// PendingTurn identifies the durable continuation behind an input request.
 // The executor retains this handle while the A2A task is waiting for input and
-// must call either Resume or Cancel. Resume continues the same native turn and
-// may return a new PendingTurn when the runtime asks for more input.
+// must call either Resume or Cancel. Resume continues the task and may return a
+// new PendingTurn when the runtime asks for more input.
 type PendingTurn interface {
 	Request() InputRequest
 	Resume(context.Context, InputResponse, EventSink) (Outcome, error)
@@ -148,7 +152,7 @@ type PendingTurn interface {
 }
 
 // Outcome describes why a runtime operation stopped producing events. Failure
-// ends the turn, Pending transfers its live resources to the caller, and an
+// ends the turn, Pending returns a durable continuation awaiting input, and an
 // empty Outcome is successful completion. Failure and Pending are exclusive.
 type Outcome struct {
 	Failure *Failure
@@ -170,7 +174,7 @@ type ApprovalRequest struct {
 
 func (*ApprovalRequest) isInputRequest() {}
 
-// AskUserRequest asks one or more questions while retaining the native turn.
+// AskUserRequest asks one or more questions before the task can continue.
 type AskUserRequest struct {
 	ID        string
 	Questions []AskUserQuestion

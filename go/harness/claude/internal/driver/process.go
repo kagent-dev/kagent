@@ -506,7 +506,6 @@ func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelC
 	})
 }
 
-
 // splitMCPName splits Claude's mcp__<server>__<tool> name at the first "__". Agent server
 // names come from Kubernetes names, which never contain "__"; plugin servers are best effort.
 func splitMCPName(name string) (server, tool string) {

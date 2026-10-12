@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"reflect"
 	"slices"
@@ -453,7 +454,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := requestContext("task-approval", "write")
-	if executor.ReservedTaskID() != "" {
+	if reservedTaskID(t, executor) != "" {
 		t.Fatal("idle session is reserved")
 	}
 	events, errs := collect(executor.Execute(t.Context(), first))
@@ -465,7 +466,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatalf("input-required event = %#v", events[1])
 	}
 	decisionMessage := a2atype.NewMessage(a2atype.MessageRoleUser)
-	if executor.ReservedTaskID() != first.TaskID {
+	if reservedTaskID(t, executor) != first.TaskID {
 		t.Fatal("pending approval did not reserve its native session")
 	}
 	decisionMessage.TaskID, decisionMessage.ContextID = first.TaskID, first.ContextID
@@ -486,7 +487,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		"id": "call-1", "name": "tools.write", "response": map[string]any{"isError": true,
 			"result": map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "denied"}}, "structuredContent": map[string]any{"count": float64(7), "items": []any{"pod-1"}}}},
 	})
-	if executor.ReservedTaskID() != "" {
+	if reservedTaskID(t, executor) != "" {
 		t.Fatal("completed approval kept its native session reserved")
 	}
 }
@@ -577,7 +578,7 @@ func TestExecutorRecoversTaskOwnershipAfterConstruction(t *testing.T) {
 	runner := &restoringRunner{}
 	executor, err := New(runner, &fakeContinuation{data: testSessionID}, tracing.RuntimeTelemetry{})
 	require.NoError(t, err)
-	require.Empty(t, executor.ReservedTaskID())
+	require.Empty(t, reservedTaskID(t, executor))
 	request := &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write", Args: map[string]any{}}
 	runner.taskID, runner.contextID = "task-1", testContextID
 	runner.pending = &fakePendingTurn{request: request, resume: func(_ context.Context, response runtime.InputResponse, _ runtime.EventSink) (runtime.Outcome, error) {
@@ -588,7 +589,7 @@ func TestExecutorRecoversTaskOwnershipAfterConstruction(t *testing.T) {
 		runner.taskID, runner.contextID, runner.pending = "", "", nil
 		return runtime.Outcome{}, nil
 	}}
-	require.Equal(t, a2atype.TaskID("task-1"), executor.ReservedTaskID())
+	require.Equal(t, a2atype.TaskID("task-1"), reservedTaskID(t, executor))
 	_, errs := collect(executor.Execute(t.Context(), requestContext("unrelated-task", "hello")))
 	require.NotEmpty(t, errs)
 	status, err := inputRequiredMessage(requestContext("task-1", "write"), request)
@@ -601,14 +602,16 @@ func TestExecutorRecoversTaskOwnershipAfterConstruction(t *testing.T) {
 	require.True(t, resumed)
 	require.NotEmpty(t, events)
 	require.Equal(t, a2atype.TaskStateCompleted, events[len(events)-1].(*a2atype.TaskStatusUpdateEvent).Status.State)
-	require.Empty(t, executor.ReservedTaskID())
+	require.Empty(t, reservedTaskID(t, executor))
 }
 
 func TestExecutorRejectsCorruptRestoration(t *testing.T) {
 	runner := &restoringRunner{err: errors.New("corrupt durable data")}
 	executor, err := New(runner, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	require.NoError(t, err)
-	require.NotEmpty(t, executor.ReservedTaskID())
+	id, restoreErr := executor.ReservedTaskID()
+	require.Empty(t, id)
+	require.ErrorContains(t, restoreErr, "corrupt durable data")
 	_, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
 	require.Len(t, errs, 1)
 	require.ErrorContains(t, errs[0], "corrupt durable data")
@@ -633,4 +636,37 @@ func TestToolResultPartRejectsUnserializableResult(t *testing.T) {
 	part, err := toolResultPart(runtime.ToolResult{ID: "call", Name: "lookup", Result: map[string]any{"invalid": make(chan int)}})
 	require.Error(t, err)
 	require.Nil(t, part)
+}
+
+func reservedTaskID(t *testing.T, executor *Executor) a2atype.TaskID {
+	t.Helper()
+	id, err := executor.ReservedTaskID()
+	require.NoError(t, err)
+	return id
+}
+
+func TestDependencyCancellationReportsTaskFailure(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		err     error
+		message string
+	}{
+		{name: "checkpoint timeout", err: fmt.Errorf("interrupt Codex before checkpoint: %w", context.DeadlineExceeded), message: "Harness runtime execution failed"},
+		{name: "dependency canceled", err: fmt.Errorf("dependency: %w", context.Canceled), message: "Harness runtime execution failed"},
+		{name: "abandoned tool timeout", err: errors.Join(runtime.ErrSessionAbandoned, context.DeadlineExceeded), message: "start a new session"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			executor, err := New(fakeRunner{run: func(ctx context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+				require.NoError(t, ctx.Err())
+				return runtime.Outcome{}, test.err
+			}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+			require.NoError(t, err)
+			events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+			require.Empty(t, errs)
+			require.NotEmpty(t, events)
+			last := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
+			require.Equal(t, a2atype.TaskStateFailed, last.Status.State)
+			require.Contains(t, last.Status.Message.Parts[0].Text(), test.message)
+		})
+	}
 }

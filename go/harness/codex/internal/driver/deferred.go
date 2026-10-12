@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -84,12 +83,12 @@ func (r *pendingRecord) validate() error {
 		return fmt.Errorf("unknown Codex pending continuation phase %q", r.Phase)
 	}
 	if r.Decision != nil {
-		if _, err := codexInputResponse(r.request(), r.Decision); err != nil {
+		if err := validateInputResponse(r.request(), r.Decision); err != nil {
 			return err
 		}
 	}
 	if r.Answer != nil {
-		if _, err := codexInputResponse(r.request(), r.Answer); err != nil {
+		if err := validateInputResponse(r.request(), r.Answer); err != nil {
 			return err
 		}
 	}
@@ -173,6 +172,9 @@ func (d *ProcessDriver) savePending(r *pendingRecord) error {
 }
 
 func (d *ProcessDriver) deferInput(ctx context.Context, session *processSession, request runtime.InputRequest, sink runtime.EventSink) (runtime.Outcome, error) {
+	if d.config.PendingDir == "" {
+		return runtime.Outcome{}, fmt.Errorf("Codex pending input requires a durable directory")
+	}
 	r := pendingRecord{Version: 1, TaskID: session.turn.TaskID, ContextID: session.turn.ContextID,
 		ThreadID: session.translator.threadID, Origin: session.turn.Origin, Phase: phaseWaiting}
 	callID := ""
@@ -182,11 +184,9 @@ func (d *ProcessDriver) deferInput(ctx context.Context, session *processSession,
 		if tool.server == "" || tool.tool == "" || d.config.Tools == nil {
 			return runtime.Outcome{}, fmt.Errorf("Codex approval has no configured tool execution boundary")
 		}
-		request.ID = uuid.NewString()
 		r.Approval, r.Server, r.Tool = request, tool.server, tool.tool
 		callID = request.CallID
 	case *runtime.AskUserRequest:
-		request.ID = uuid.NewString()
 		r.Question = request
 	default:
 		return runtime.Outcome{}, fmt.Errorf("unsupported durable Codex input %T", request)
@@ -306,7 +306,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
-	if _, err := codexInputResponse(r.request(), response); err != nil {
+	if err := validateInputResponse(r.request(), response); err != nil {
 		return runtime.Outcome{}, err
 	}
 	if r.Phase == phaseExecuting || r.Phase == phaseContinuing {
@@ -443,3 +443,30 @@ func (p *deferredTurn) Cancel(_ context.Context) error {
 }
 
 var _ runtime.PendingTurn = (*deferredTurn)(nil)
+
+func validateInputResponse(request runtime.InputRequest, response runtime.InputResponse) error {
+	switch request := request.(type) {
+	case *runtime.ApprovalRequest:
+		decision, ok := response.(*runtime.ApprovalDecision)
+		if !ok {
+			return fmt.Errorf("Codex is waiting for a structured tool approval response")
+		}
+		if decision.ID != request.ID {
+			return fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, request.ID)
+		}
+	case *runtime.AskUserRequest:
+		answer, ok := response.(*runtime.AskUserResponse)
+		if !ok {
+			return fmt.Errorf("Codex is waiting for a structured ask-user response")
+		}
+		if answer.ID != request.ID {
+			return fmt.Errorf("ask-user response ID %q does not match pending ID %q", answer.ID, request.ID)
+		}
+		if len(answer.Answers) != len(request.Questions) {
+			return fmt.Errorf("ask-user response must answer every pending question")
+		}
+	default:
+		return fmt.Errorf("Codex has an unsupported pending input request %T", request)
+	}
+	return nil
+}

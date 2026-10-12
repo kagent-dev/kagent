@@ -29,9 +29,7 @@ type Event struct {
 	ToolResult   any
 	ToolError    bool
 	Metadata     map[string]any
-	Category     string
 	SafeMessage  string
 	Deferred     *DeferredTool
-	Result       string
 	ModelCall    *runtime.ModelCall
 }

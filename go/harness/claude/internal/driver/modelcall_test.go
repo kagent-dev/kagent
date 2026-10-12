@@ -64,7 +64,7 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			var tools, toolParents []string
 			var unreported [2]int64
 			open := map[string]string{}
-			err = ParseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, func(event Event) error {
+			err = parseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, nil, nil, func(event Event) error {
 				switch {
 				case event.Kind == EventModelCall && event.ModelCall.UsageOnly:
 					unreported[0] += event.ModelCall.InputTokens

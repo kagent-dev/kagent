@@ -343,7 +343,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result.Disposition = tracing.DispositionAbandoned
 			return
 		}
-		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+		if runCtx.Err() != nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) && !errors.Is(runErr, runtime.ErrSessionAbandoned) {
+			// A dependency timeout alone is a runtime failure.
 			// Cancel yields the canceled event from its own request, so complete
 			// the invocation here rather than waiting for an event that this
 			// execution never produces.
@@ -360,7 +361,11 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_error"}
 			endInvocation()
-			message := taskMessage(reqCtx, "Harness runtime execution failed")
+			failureMessage := "Harness runtime execution failed"
+			if errors.Is(runErr, runtime.ErrSessionAbandoned) {
+				failureMessage = runtime.ErrSessionAbandoned.Error()
+			}
+			message := taskMessage(reqCtx, failureMessage)
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
@@ -709,18 +714,16 @@ func (r taskRef) matches(other taskRef) bool {
 // ReservedTaskID identifies the approval that holds this native session. The
 // runtime TaskStore uses it to reject unrelated input before committing history.
 // Active work is independently serialized by durable admission and activate.
-func (e *Executor) ReservedTaskID() a2atype.TaskID {
+func (e *Executor) ReservedTaskID() (a2atype.TaskID, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err := e.restorePending(); err != nil {
-		// Admission must fail closed even though this legacy capability cannot
-		// return an error. Execute and Cancel report the underlying read error.
-		return a2atype.TaskID("invalid-durable-continuation")
+		return "", err
 	}
 	if task, ok := e.state.(*parkedTask); ok {
-		return task.taskID
+		return task.taskID, nil
 	}
-	return ""
+	return "", nil
 }
 
 // activate claims the Actor for task. It returns a continued turn only when

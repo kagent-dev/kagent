@@ -235,13 +235,6 @@ type contentBlockRef struct {
 	index     int
 }
 
-// ParseJSONL parses a JSONL stream of Claude events and emits them to the
-// provided event sink.
-func ParseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, emit func(Event) error) error {
-	return parseJSONL(ctx, r, maxEventBytes, map[string]modelUsage{}, nil, emit)
-}
-
-// parseJSONL is ParseJSONL for a process that resumes a session with startUsage.
 func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage map[string]modelUsage, seed *DeferredTool, emit func(Event) error) error {
 	if maxEventBytes <= 0 {
 		return fmt.Errorf("max event bytes must be positive")
@@ -251,7 +244,10 @@ func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage 
 	var arrived time.Time
 	p := newParser(func() time.Time { return arrived })
 	p.startUsage = startUsage
-	if seed != nil { p.tools[seed.ID] = seed.Name; p.emittedToolCalls[seed.ID] = struct{}{} }
+	if seed != nil {
+		p.tools[seed.ID] = seed.Name
+		p.emittedToolCalls[seed.ID] = struct{}{}
+	}
 	emit = p.countEmitted(emit)
 	for item := range readStamped(r, maxEventBytes, done) {
 		arrived = item.arrived
@@ -335,8 +331,8 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 		// ModelUsage is the session's totals so far, including subagents and earlier processes.
 		ModelUsage map[string]modelUsage `json:"modelUsage"`
 		Message    json.RawMessage       `json:"message"`
-		StopReason string `json:"stop_reason"`
-		Deferred *DeferredTool `json:"deferred_tool_use"`
+		StopReason string                `json:"stop_reason"`
+		Deferred   *DeferredTool         `json:"deferred_tool_use"`
 		Origin     struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
@@ -405,9 +401,9 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 			if message == "" {
 				message = "Claude execution failed"
 			}
-			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message})
+			return emit(Event{Kind: EventFailed, SafeMessage: message})
 		}
-		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result})
+		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID})
 	}
 	return nil
 }
