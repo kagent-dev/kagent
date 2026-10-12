@@ -37,16 +37,21 @@ ARG TARGETPLATFORM
 
 # The GitHub CLI for an agent's work in its clone. github-cli.version pins it
 # once for this image and the Claude harness image; apk's ~ takes any Alpine
-# rebuild (-rN) of that version.
+# rebuild (-rN) of that version. The runtime user gets a passwd entry and a
+# home it owns: commands an agent runs (git config --global, CLIs that keep a
+# config under $HOME/.config) write there.
 RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
     apk upgrade --no-cache && \
     apk add --no-cache bash ca-certificates git "github-cli~$(cat /tmp/github-cli.version)" && \
+    addgroup -S -g 65532 kagent && \
+    adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
     mkdir -p /config /skills /plugins /data/plugins && \
     chown -R 65532:65532 /config /skills /plugins /data
 
 WORKDIR /
 COPY --from=builder /app /app
 USER 65532:65532
+ENV HOME=/home/kagent
 ARG VERSION
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
