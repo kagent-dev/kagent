@@ -18,6 +18,40 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].image
           pattern: "^mirror\\.example/kagent-dev/kagent/controller:"
+  - it: should mirror the sandbox guest image while preserving its digest
+    set:
+      global.imageRegistry: mirror.example
+      config.sandboxes.guestImage: ghcr.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: mirror\.example/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+  - it: should leave the sandbox guest image alone when the global is unset
+    set:
+      config.sandboxes.guestImage: ghcr.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: ghcr\.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+  - it: should normalize the mirror registry for the sandbox guest image
+    set:
+      global.imageRegistry: "mirror.example/"
+      config.sandboxes.guestImage: ghcr.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: mirror\.example/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+  - it: should leave an unconfigured sandbox guest image empty under the global
+    set:
+      global.imageRegistry: mirror.example
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: ""$'
   - it: should rewrite the worker pool image onto global.imageRegistry
     set:
       global.imageRegistry: mirror.example
