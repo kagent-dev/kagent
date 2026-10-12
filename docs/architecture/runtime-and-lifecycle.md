@@ -114,6 +114,15 @@ continues its process without setup. A clone or fetch that fails, such as a
 fetch the origin refuses, is the turn's first status message (a working status
 of the A2A task), naming the repository and the reason, and the turn runs.
 
+The Go ADK runtime (`kagent` Harness) sets the directory up the same way
+before the first turn, with an `AGENTS.md` as the notes, and reports a failed
+clone or fetch as the turn's first working status. Its `bash` tool runs in the
+turn's working directory and its file tools resolve relative paths there; the
+scratch directory `/tmp/kagent/<session>` stays reachable by its absolute path,
+and a path outside both is refused. A resumed turn (an answer or an approval)
+sets up nothing, and a session with earlier turns whose directory is set up
+again is told so.
+
 Claude Code is spawned in the turn's working directory. Its environment tells
 git to trust the mirrors directory (`safe.directory=<mirrors>/*` through
 `GIT_CONFIG_COUNT`, nothing written to a file), since the mirrors belong to the

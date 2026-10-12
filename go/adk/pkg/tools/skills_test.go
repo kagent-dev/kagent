@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
@@ -65,7 +67,7 @@ func runTool(t *testing.T, tl tool.Tool, ctx adkagent.Context, args map[string]a
 // agent edit read-only skill files -- with nothing failing.
 func TestResolvePathContainment(t *testing.T) {
 	resolvers := map[string]struct {
-		fn              func(sessionID, skillsDirectory, requestedPath string) (string, error)
+		fn              func(ctx context.Context, sessionID, skillsDirectory, requestedPath string) (string, error)
 		allowsSkillsDir bool
 		allowsNewLeaf   bool
 		// deniedContains is the boundary each policy names when it rejects a
@@ -74,8 +76,8 @@ func TestResolvePathContainment(t *testing.T) {
 		deniedContains string
 	}{
 		"read":  {resolveReadPath, true, false, "outside the allowed roots"},
-		"edit":  {resolveEditPath, false, false, "outside the writable session directory"},
-		"write": {resolveWritePath, false, true, "outside the writable session directory"},
+		"edit":  {resolveEditPath, false, false, "outside the working and scratch directories"},
+		"write": {resolveWritePath, false, true, "outside the working and scratch directories"},
 	}
 
 	for name, r := range resolvers {
@@ -98,13 +100,13 @@ func TestResolvePathContainment(t *testing.T) {
 			}
 
 			t.Run("allows a path inside the session directory", func(t *testing.T) {
-				if _, err := r.fn(sessionID, skillsDir, "notes.txt"); err != nil {
+				if _, err := r.fn(t.Context(), sessionID, skillsDir, "notes.txt"); err != nil {
 					t.Errorf("expected session-dir path to be allowed, got %v", err)
 				}
 			})
 
 			t.Run("rejects a path outside every root", func(t *testing.T) {
-				_, err := r.fn(sessionID, skillsDir, "/etc/passwd")
+				_, err := r.fn(t.Context(), sessionID, skillsDir, "/etc/passwd")
 				if err == nil {
 					t.Fatal("expected a path outside the allowed roots to be rejected")
 				}
@@ -114,7 +116,7 @@ func TestResolvePathContainment(t *testing.T) {
 			})
 
 			t.Run("skills directory", func(t *testing.T) {
-				resolved, err := r.fn(sessionID, skillsDir, "skills/script.py")
+				resolved, err := r.fn(t.Context(), sessionID, skillsDir, "skills/script.py")
 				if r.allowsSkillsDir {
 					if err != nil {
 						t.Fatalf("expected the skills dir to be readable, got %v", err)
@@ -141,7 +143,7 @@ func TestResolvePathContainment(t *testing.T) {
 			})
 
 			t.Run("not-yet-existing leaf", func(t *testing.T) {
-				_, err := r.fn(sessionID, skillsDir, "brand-new-file.txt")
+				_, err := r.fn(t.Context(), sessionID, skillsDir, "brand-new-file.txt")
 				if r.allowsNewLeaf && err != nil {
 					t.Errorf("expected a new file in the session dir to be allowed, got %v", err)
 				}
@@ -151,7 +153,7 @@ func TestResolvePathContainment(t *testing.T) {
 			})
 
 			t.Run("rejects traversal escaping the session directory", func(t *testing.T) {
-				if _, err := r.fn(sessionID, skillsDir, "../../../etc/passwd"); err == nil {
+				if _, err := r.fn(t.Context(), sessionID, skillsDir, "../../../etc/passwd"); err == nil {
 					t.Error("expected ../ traversal out of the session dir to be rejected")
 				}
 			})
@@ -301,7 +303,7 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 		t.Fatalf("failed to create session subdir: %v", err)
 	}
 
-	ctx := &fakeToolContext{sessionID: sessionID}
+	ctx := &fakeToolContext{StrictContextMock: adkagent.StrictContextMock{Ctx: t.Context()}, sessionID: sessionID}
 
 	t.Run("list_files defaults to the working directory", func(t *testing.T) {
 		result := runTool(t, listFilesTool, ctx, map[string]any{})
@@ -397,4 +399,54 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 			t.Errorf("list_files result = %q, want file-link sized by its target (5000)", result)
 		}
 	})
+}
+
+// In a turn whose dispatch names a working directory, bash runs there and the
+// file tools resolve relative paths there; the scratch directory stays
+// reachable by its absolute path, and a path outside both is refused.
+func TestExecutionToolsWorkInTheTurnsDirectory(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	workingDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillsDir := t.TempDir()
+	tools, err := NewSkillExecutionTools(skillsDir)
+	if err != nil {
+		t.Fatalf("NewSkillExecutionTools() error = %v", err)
+	}
+	byName := map[string]tool.Tool{}
+	for _, tl := range tools {
+		byName[tl.Name()] = tl
+	}
+	sessionID := t.Name() + "-session"
+	ctx := &fakeToolContext{StrictContextMock: adkagent.StrictContextMock{Ctx: turn.WithDirectory(t.Context(), workingDir)}, sessionID: sessionID}
+
+	if result := runTool(t, byName["bash"], ctx, map[string]any{"command": "pwd"}); strings.TrimSpace(result) != workingDir {
+		t.Errorf("bash ran in %q, want %q", result, workingDir)
+	}
+	if result := runTool(t, byName["write_file"], ctx, map[string]any{"file_path": "e2e/alpha/NOTES.md", "content": "notes\n"}); !strings.Contains(result, "Successfully wrote") {
+		t.Fatalf("write_file = %q", result)
+	}
+	if _, err := os.Stat(filepath.Join(workingDir, "e2e", "alpha", "NOTES.md")); err != nil {
+		t.Errorf("write_file did not write into the working directory: %v", err)
+	}
+	if result := runTool(t, byName["read_file"], ctx, map[string]any{"file_path": "e2e/alpha/NOTES.md"}); !strings.Contains(result, "notes") {
+		t.Errorf("read_file = %q", result)
+	}
+
+	scratch, err := GetSessionPath(sessionID, skillsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(scratch, "outputs", "report.txt")
+	if result := runTool(t, byName["write_file"], ctx, map[string]any{"file_path": output, "content": "report\n"}); !strings.Contains(result, "Successfully wrote") {
+		t.Errorf("write_file to the scratch directory = %q", result)
+	}
+	if result := runTool(t, byName["read_file"], ctx, map[string]any{"file_path": "/etc/passwd"}); !strings.Contains(result, "outside the allowed roots") {
+		t.Errorf("read_file outside both directories = %q", result)
+	}
+	if result := runTool(t, byName["write_file"], ctx, map[string]any{"file_path": "../escape.txt", "content": "x"}); !strings.Contains(result, "outside the working and scratch directories") {
+		t.Errorf("write_file escaping the working directory = %q", result)
+	}
 }
