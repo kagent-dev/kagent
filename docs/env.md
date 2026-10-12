@@ -103,9 +103,9 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
 | `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
 | `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
 | `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_OWNER_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL for the owner login, which creates the schema and runs migrations. Required by the controller unless KAGENT_SKIP_MIGRATIONS is set; kagent db migrate reads it when --db-url is empty. Helm sets it from database.postgres.ownerConnectionStringSecretRef. |
+| `KAGENT_POSTGRES_OWNER_ROLE` | String | `(none)` | PostgreSQL role the owner login assumes after authentication. Required with KAGENT_POSTGRES_OWNER_DATABASE_URL; kagent db migrate reads it when --db-role is empty. |
 | `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Substrate chart. |
 | `KAGENT_SUBSTRATE_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/substrate/helm/` | Helm repository URL for Substrate charts. |
@@ -143,9 +143,11 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
-| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
 | `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_OWNER_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL for the owner login, which creates the schema and runs migrations. Required by the controller unless KAGENT_SKIP_MIGRATIONS is set; kagent db migrate reads it when --db-url is empty. Helm sets it from database.postgres.ownerConnectionStringSecretRef. |
+| `KAGENT_POSTGRES_OWNER_ROLE` | String | `(none)` | PostgreSQL role the owner login assumes after authentication. Required with KAGENT_POSTGRES_OWNER_DATABASE_URL; kagent db migrate reads it when --db-role is empty. |
+| `KAGENT_POSTGRES_READWRITE_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL for the read/write login that serves runtime queries. Required by the controller. Helm sets it from database.postgres.readWriteConnectionStringSecretRef. |
+| `KAGENT_POSTGRES_READWRITE_ROLE` | String | `(none)` | PostgreSQL role the read/write login assumes after authentication. Required by the controller. |
 | `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | Duration | `1m0s` | Interval between unreferenced runtime revision cleanup sweeps. Must be positive. |
 | `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
@@ -199,9 +201,11 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
 | `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
-| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
 | `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
+| `KAGENT_POSTGRES_OWNER_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL for the owner login, which creates the schema and runs migrations. Required by the controller unless KAGENT_SKIP_MIGRATIONS is set; kagent db migrate reads it when --db-url is empty. Helm sets it from database.postgres.ownerConnectionStringSecretRef. |
+| `KAGENT_POSTGRES_OWNER_ROLE` | String | `(none)` | PostgreSQL role the owner login assumes after authentication. Required with KAGENT_POSTGRES_OWNER_DATABASE_URL; kagent db migrate reads it when --db-role is empty. |
+| `KAGENT_POSTGRES_READWRITE_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL for the read/write login that serves runtime queries. Required by the controller. Helm sets it from database.postgres.readWriteConnectionStringSecretRef. |
+| `KAGENT_POSTGRES_READWRITE_ROLE` | String | `(none)` | PostgreSQL role the read/write login assumes after authentication. Required by the controller. |
 | `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
 | `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
 

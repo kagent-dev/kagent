@@ -6,9 +6,21 @@ import (
 )
 
 var (
-	PostgresDatabaseURL = RegisterStringVar(
-		"KAGENT_POSTGRES_DATABASE_URL", "",
-		"PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef.", ComponentDatabase, ComponentController, ComponentCLI,
+	PostgresOwnerDatabaseURL = RegisterStringVar(
+		"KAGENT_POSTGRES_OWNER_DATABASE_URL", "",
+		"PostgreSQL connection URL for the owner login, which creates the schema and runs migrations. Required by the controller unless KAGENT_SKIP_MIGRATIONS is set; kagent db migrate reads it when --db-url is empty. Helm sets it from database.postgres.ownerConnectionStringSecretRef.", ComponentDatabase, ComponentController, ComponentCLI,
+	)
+	PostgresOwnerRole = RegisterStringVar(
+		"KAGENT_POSTGRES_OWNER_ROLE", "",
+		"PostgreSQL role the owner login assumes after authentication. Required with KAGENT_POSTGRES_OWNER_DATABASE_URL; kagent db migrate reads it when --db-role is empty.", ComponentDatabase, ComponentController, ComponentCLI,
+	)
+	PostgresReadWriteDatabaseURL = RegisterStringVar(
+		"KAGENT_POSTGRES_READWRITE_DATABASE_URL", "",
+		"PostgreSQL connection URL for the read/write login that serves runtime queries. Required by the controller. Helm sets it from database.postgres.readWriteConnectionStringSecretRef.", ComponentDatabase, ComponentController,
+	)
+	PostgresReadWriteRole = RegisterStringVar(
+		"KAGENT_POSTGRES_READWRITE_ROLE", "",
+		"PostgreSQL role the read/write login assumes after authentication. Required by the controller.", ComponentDatabase, ComponentController,
 	)
 	PostgresDatabaseMaxConns        = registerPostgresDatabaseMaxConns()
 	PostgresDatabaseMinConns        = RegisterIntVar("KAGENT_POSTGRES_DATABASE_MIN_CONNS", 0, "Minimum size of the PostgreSQL connection pool", ComponentDatabase, ComponentController)

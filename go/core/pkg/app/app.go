@@ -21,6 +21,7 @@ import (
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/jackc/pgx/v5/pgxpool"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
@@ -48,6 +49,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -166,12 +168,18 @@ func Run(ctx context.Context, opts Options) error {
 	if quiescenceInterval <= 0 {
 		return fmt.Errorf("%s must be positive", kagentenv.SessionQuiescencePollInterval.Name())
 	}
-	dbURL := kagentenv.PostgresDatabaseURL.Get()
-	if dbURL == "" {
-		return fmt.Errorf("%s is required", kagentenv.PostgresDatabaseURL.Name())
+	skipMigrations := kagentenv.SkipMigrations.Get()
+	// The read/write login serves every runtime query and verifies migrations
+	// when they are skipped. The owner login only creates the schema and migrates.
+	readWriteConfig, err := databasePoolConfig(kagentenv.PostgresReadWriteDatabaseURL, kagentenv.PostgresReadWriteRole)
+	if err != nil {
+		return err
 	}
-	if err := database.ValidateURL(dbURL); err != nil {
-		return fmt.Errorf("validate database connection: %w", err)
+	var ownerConfig *pgxpool.Config
+	if !skipMigrations {
+		if ownerConfig, err = databasePoolConfig(kagentenv.PostgresOwnerDatabaseURL, kagentenv.PostgresOwnerRole); err != nil {
+			return err
+		}
 	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
@@ -204,19 +212,15 @@ func Run(ctx context.Context, opts Options) error {
 	}()
 
 	vectorEnabled := kagentenv.DatabaseVectorEnabled.Get()
-	dbRole := kagentenv.DatabaseRole.Get()
-	sources, err := migrationSources(vectorEnabled, opts.ExtraMigrations)
-	if err != nil {
-		return err
-	}
-	if kagentenv.SkipMigrations.Get() {
-		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
+	sources := migrationSources(vectorEnabled, opts.ExtraMigrations)
+	if skipMigrations {
+		if err := migrations.VerifyMigrated(ctx, readWriteConfig, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
-	} else if err := migrations.RunUpAsRole(ctx, dbURL, dbRole, sources); err != nil {
+	} else if err := migrations.RunUp(ctx, ownerConfig, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, postgresConfigFromEnv(dbURL, vectorEnabled))
+	db, err := database.Connect(ctx, postgresConfigFromEnv(vectorEnabled))
 	if err != nil {
 		return err
 	}
@@ -475,22 +479,30 @@ func env(variable kagentenv.StringVar) string {
 
 // migrationSources appends extra after the built-in tracks: the built-ins must reach
 // their final version before a library consumer's tables, which may reference them.
-// An extra source without a schema would resolve to the connection's default schema
-// rather than Kagent's, so it is rejected.
-func migrationSources(vectorEnabled bool, extra []migrations.Source) ([]migrations.Source, error) {
-	for _, src := range extra {
-		if src.Schema == "" {
-			return nil, fmt.Errorf("extra migration source %q must set Schema", src.Name)
-		}
-	}
+func migrationSources(vectorEnabled bool, extra []migrations.Source) []migrations.Source {
 	builtins := migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get())
-	return append(builtins, extra...), nil
+	return append(builtins, extra...)
 }
 
-func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
+// databasePoolConfig validates one login's connection URL and role.
+func databasePoolConfig(url, role kagentenv.StringVar) (*pgxpool.Config, error) {
+	if url.Get() == "" {
+		return nil, fmt.Errorf("%s is required", url.Name())
+	}
+	if role.Get() == "" {
+		return nil, fmt.Errorf("%s is required", role.Name())
+	}
+	config, err := postgres.PoolConfig(url.Get(), role.Get())
+	if err != nil {
+		return nil, fmt.Errorf("validate %s: %w", url.Name(), err)
+	}
+	return config, nil
+}
+
+func postgresConfigFromEnv(vectorEnabled bool) *database.PostgresConfig {
 	return &database.PostgresConfig{
-		URL:             source,
-		Role:            kagentenv.DatabaseRole.Get(),
+		URL:             kagentenv.PostgresReadWriteDatabaseURL.Get(),
+		Role:            kagentenv.PostgresReadWriteRole.Get(),
 		Schema:          kagentenv.DatabaseSchema.Get(),
 		VectorSchema:    kagentenv.DatabaseVectorSchema.Get(),
 		VectorEnabled:   vectorEnabled,

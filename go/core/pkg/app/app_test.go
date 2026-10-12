@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,10 +194,11 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MIN_CONNS", "1")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME", "1m")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME", "10m")
-	t.Setenv("KAGENT_POSTGRES_DATABASE_ROLE", "kagent_app")
+	t.Setenv("KAGENT_POSTGRES_READWRITE_DATABASE_URL", "postgres://user:password@database/app")
+	t.Setenv("KAGENT_POSTGRES_READWRITE_ROLE", "kagent_app")
 	t.Setenv("KAGENT_POSTGRES_DATABASE_SCHEMA", "kagent_test")
 
-	config := postgresConfigFromEnv("postgres://user:password@database/app", true)
+	config := postgresConfigFromEnv(true)
 	if config.URL != "postgres://user:password@database/app" || !config.VectorEnabled {
 		t.Fatalf("postgres config lost connection URL or vector setting: %#v", config)
 	}
@@ -224,10 +226,7 @@ func TestPostgresConfigFromEnv(t *testing.T) {
 // which may reference them, so order is the contract here -- not membership.
 func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
 	extra := []migrations.Source{{Name: "custom-track", Schema: "custom"}}
-	sources, err := migrationSources(false, extra)
-	if err != nil {
-		t.Fatal(err)
-	}
+	sources := migrationSources(false, extra)
 
 	if len(sources) != len(migrations.BuiltinSources(false))+len(extra) {
 		t.Fatalf("sources = %d entries, want builtins + %d", len(sources), len(extra))
@@ -240,13 +239,6 @@ func TestExtraMigrationsAppendAfterBuiltins(t *testing.T) {
 	}
 }
 
-func TestExtraMigrationsRequireSchema(t *testing.T) {
-	_, err := migrationSources(false, []migrations.Source{{Name: "custom-track"}})
-	if err == nil || err.Error() != `extra migration source "custom-track" must set Schema` {
-		t.Fatalf("migrationSources error = %v", err)
-	}
-}
-
 // SetupLogger rejects a bad level before it touches the global logger, so this
 // case does not disturb whatever logger the rest of the suite runs under.
 func TestSetupLoggerRejectsBadLevel(t *testing.T) {
@@ -256,12 +248,42 @@ func TestSetupLoggerRejectsBadLevel(t *testing.T) {
 	}
 }
 
-func TestRunRequiresDatabaseURL(t *testing.T) {
+func TestRunRequiresDatabaseLogins(t *testing.T) {
+	const url = "postgres://user@database/app"
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{name: "read/write URL", env: map[string]string{}, want: "KAGENT_POSTGRES_READWRITE_DATABASE_URL is required"},
+		{name: "read/write role", env: map[string]string{"KAGENT_POSTGRES_READWRITE_DATABASE_URL": url}, want: "KAGENT_POSTGRES_READWRITE_ROLE is required"},
+		{name: "owner URL", env: map[string]string{"KAGENT_POSTGRES_READWRITE_DATABASE_URL": url, "KAGENT_POSTGRES_READWRITE_ROLE": "kagent_readwrite"}, want: "KAGENT_POSTGRES_OWNER_DATABASE_URL is required"},
+		{name: "owner role", env: map[string]string{"KAGENT_POSTGRES_READWRITE_DATABASE_URL": url, "KAGENT_POSTGRES_READWRITE_ROLE": "kagent_readwrite", "KAGENT_POSTGRES_OWNER_DATABASE_URL": url}, want: "KAGENT_POSTGRES_OWNER_ROLE is required"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("KAGENT_LOG_LEVEL", "info")
+			for _, name := range []string{"KAGENT_POSTGRES_READWRITE_DATABASE_URL", "KAGENT_POSTGRES_READWRITE_ROLE", "KAGENT_POSTGRES_OWNER_DATABASE_URL", "KAGENT_POSTGRES_OWNER_ROLE", "KAGENT_SKIP_MIGRATIONS"} {
+				t.Setenv(name, tt.env[name])
+			}
+			if err := Run(t.Context(), Options{}); err == nil || err.Error() != tt.want {
+				t.Fatalf("Run() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// With migrations skipped the owner login is never used, so Run must get past
+// validation without it and fail only when the read/write login cannot connect.
+func TestRunSkippingMigrationsNeedsNoOwner(t *testing.T) {
 	t.Setenv("KAGENT_LOG_LEVEL", "info")
-	t.Setenv(kagentenv.PostgresDatabaseURL.Name(), "")
+	t.Setenv("KAGENT_SKIP_MIGRATIONS", "true")
+	t.Setenv("KAGENT_POSTGRES_READWRITE_DATABASE_URL", "postgres://user@127.0.0.1:1/app?sslmode=disable&connect_timeout=1")
+	t.Setenv("KAGENT_POSTGRES_READWRITE_ROLE", "kagent_readwrite")
+	t.Setenv("KAGENT_POSTGRES_OWNER_DATABASE_URL", "")
+	t.Setenv("KAGENT_POSTGRES_OWNER_ROLE", "")
 	err := Run(t.Context(), Options{})
-	if want := "KAGENT_POSTGRES_DATABASE_URL is required"; err == nil || err.Error() != want {
-		t.Fatalf("Run() error = %v, want %q", err, want)
+	if err == nil || !strings.HasPrefix(err.Error(), "verify database migrations:") {
+		t.Fatalf("Run() error = %v, want a read/write connection failure from verification", err)
 	}
 }
 

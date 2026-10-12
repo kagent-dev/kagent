@@ -244,8 +244,10 @@ This installs the following components into your cluster:
 
 `make kagent-cli-install` deploys PostgreSQL as development infrastructure before
 installing Kagent and Substrate. PostgreSQL is not part of the Kagent Helm chart.
-A direct Helm installation requires a prepared database, a `kagent-postgres`
-connection Secret in the Kagent namespace, and a separately installed Substrate.
+A direct Helm installation requires a prepared database (see
+[Preparing your own database](helm/README.md#preparing-your-own-database)), the
+`kagent-postgres-owner` and `kagent-postgres-readwrite` connection Secrets in the
+Kagent namespace, and a separately installed Substrate.
 The optional addons above provide observability components.
 
 > **pgvector:** The PostgreSQL image `kagent install` deploys does not include the pgvector

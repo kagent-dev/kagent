@@ -42,7 +42,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			ctx := t.Context()
 			dsn := dbtest.StartT(ctx, t)
 			dbtest.MigrateT(t, dsn, false)
-			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn, Role: dbtest.Role})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
 			store := database.NewClient(pool, "public")

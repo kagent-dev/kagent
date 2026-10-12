@@ -57,8 +57,9 @@ KIND_KUBECONFIG ?= /tmp/kind-config
 # registry container, and templates reconcile at the minimum interval.
 KIND_SUBSTRATE_HELM_ARGS = --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000 --set ateApi.extraArgs[0]=--template-resync-interval=250ms
 # A file only releases whose `kagent install` deploys the database contain.
-CLI_DATABASE_SENTINEL = go/core/cli/internal/commands/bundled_postgres.sql
-KAGENT_POSTGRES_SECRET ?= kagent-postgres
+CLI_DATABASE_SENTINEL = go/core/cli/internal/commands/bundled_postgres.yaml
+KAGENT_POSTGRES_OWNER_SECRET ?= kagent-postgres-owner
+KAGENT_POSTGRES_READWRITE_SECRET ?= kagent-postgres-readwrite
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
@@ -489,10 +490,12 @@ helm-install-provider: ## Install or upgrade with Helm; requires a prepared Post
 helm-install-provider: helm-version check-api-key
 	@case "$(HELM_ACTION)" in \
 		*--dry-run*) ;; \
-		*) kubectl --context kind-$(KIND_CLUSTER_NAME) --namespace kagent get secret $(KAGENT_POSTGRES_SECRET) >/dev/null 2>&1 || { \
-			echo "Missing PostgreSQL Secret kagent/$(KAGENT_POSTGRES_SECRET). Use 'make kagent-cli-install' for the bundled development database, or create the Secret before a direct Helm install." >&2; \
-			exit 1; \
-		} ;; \
+		*) for secret in $(KAGENT_POSTGRES_OWNER_SECRET) $(KAGENT_POSTGRES_READWRITE_SECRET); do \
+			kubectl --context kind-$(KIND_CLUSTER_NAME) --namespace kagent get secret $$secret >/dev/null 2>&1 || { \
+				echo "Missing PostgreSQL Secret kagent/$$secret. Use 'make kagent-cli-install' for the bundled development database, or create the owner and read/write Secrets before a direct Helm install." >&2; \
+				exit 1; \
+			}; \
+		done ;; \
 	esac
 	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
 		--namespace kagent \
@@ -522,7 +525,8 @@ helm-install-provider: helm-version check-api-key
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
-		--set database.postgres.connectionStringSecretRef.name=$(KAGENT_POSTGRES_SECRET) \
+		--set database.postgres.ownerConnectionStringSecretRef.name=$(KAGENT_POSTGRES_OWNER_SECRET) \
+		--set database.postgres.readWriteConnectionStringSecretRef.name=$(KAGENT_POSTGRES_READWRITE_SECRET) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
 		$(KAGENT_HELM_EXTRA_ARGS)

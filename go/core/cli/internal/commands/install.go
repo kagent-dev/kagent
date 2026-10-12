@@ -18,6 +18,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
+	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
 
 type InstallCfg struct {
@@ -129,7 +130,7 @@ func crdChartValues(values []string) []string {
 }
 
 func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
-	result := make([]string, 0, len(values)+1)
+	result := make([]string, 0, len(values)+2)
 	for _, value := range values {
 		key, _, _ := strings.Cut(value, "=")
 		if strings.HasPrefix(key, "image.") || strings.HasPrefix(key, "global.") || strings.HasPrefix(key, "imagePullSecrets") {
@@ -137,7 +138,11 @@ func podCertificateChartValues(values []string, namespace string, includeBundled
 		}
 	}
 	if includeBundledPostgresClient {
-		result = append(result, fmt.Sprintf("postgresClients[0]=%s/kagent-controller=kagent_user", namespace))
+		// One entry per login: Helm's --set would split a comma-separated username list.
+		result = append(result,
+			fmt.Sprintf("postgresClients[0]=%s/kagent-controller=%s", namespace, kagentsetup.OwnerUser),
+			fmt.Sprintf("postgresClients[1]=%s/kagent-controller=%s", namespace, kagentsetup.ReadWriteUser),
+		)
 	}
 	return result
 }

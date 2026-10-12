@@ -1,6 +1,10 @@
-{{- $databaseConnectionStringSecretRef := .Values.database.postgres.connectionStringSecretRef | default dict -}}
-{{- if not (get $databaseConnectionStringSecretRef "name") -}}
-{{- fail "database.postgres.connectionStringSecretRef.name is required" -}}
+{{- $readWriteSecretRef := .Values.database.postgres.readWriteConnectionStringSecretRef | default dict -}}
+{{- if not (get $readWriteSecretRef "name") -}}
+{{- fail "database.postgres.readWriteConnectionStringSecretRef.name is required" -}}
+{{- end -}}
+{{- $ownerSecretRef := .Values.database.postgres.ownerConnectionStringSecretRef | default dict -}}
+{{- if and (not .Values.database.postgres.skipMigrations) (not (get $ownerSecretRef "name")) -}}
+{{- fail "database.postgres.ownerConnectionStringSecretRef.name is required unless database.postgres.skipMigrations is true" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -47,9 +51,15 @@ spec:
           - podCertificate:
               signerName: postgres.podcert.ate.dev/identity
               keyType: ECDSAP256
-              credentialBundlePath: credential-bundle.pem
+              credentialBundlePath: kagent_owner_user.pem
               userAnnotations:
-                postgres.podcert.ate.dev/username: kagent_user
+                postgres.podcert.ate.dev/username: kagent_owner_user
+          - podCertificate:
+              signerName: postgres.podcert.ate.dev/identity
+              keyType: ECDSAP256
+              credentialBundlePath: kagent_readwrite_user.pem
+              userAnnotations:
+                postgres.podcert.ate.dev/username: kagent_readwrite_user
           - clusterTrustBundle:
               signerName: servicedns.podcert.ate.dev/identity
               labelSelector:
@@ -126,11 +136,18 @@ spec:
             {{- /* Kubelet expands pod identity here; envFrom values are not expanded. */}}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
-            - name: KAGENT_POSTGRES_DATABASE_URL
+            - name: KAGENT_POSTGRES_READWRITE_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "kagent.postgres.connectionStringSecretName" . }}
-                  key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
+                  name: {{ get $readWriteSecretRef "name" }}
+                  key: {{ get $readWriteSecretRef "key" | default "readWriteConnectionString" }}
+            {{- if not .Values.database.postgres.skipMigrations }}
+            - name: KAGENT_POSTGRES_OWNER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ get $ownerSecretRef "name" }}
+                  key: {{ get $ownerSecretRef "key" | default "ownerConnectionString" }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -16,9 +16,9 @@ tests:
               name: RELEASE-NAME-controller
       - matchRegex:
           path: spec.template.spec.containers[0].env[*].name
-          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL|KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY)$"
+          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_READWRITE_DATABASE_URL|KAGENT_POSTGRES_OWNER_DATABASE_URL|KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY)$"
       - notExists:
-          path: data.KAGENT_POSTGRES_DATABASE_URL
+          path: data.KAGENT_POSTGRES_READWRITE_DATABASE_URL
         template: controller-configmap.yaml
       - notExists:
           path: data.POSTGRES_PASSWORD
@@ -174,7 +174,7 @@ tests:
     set:
       database:
         postgres:
-          connectionStringSecretRef:
+          readWriteConnectionStringSecretRef:
             name: external-postgres
       controller:
         substrate:
@@ -608,57 +608,94 @@ tests:
   # Database Configuration Tests
   # =============================================================================
 
-  - it: should require an application Secret
+  - it: should require a read/write Secret
     template: controller-deployment.yaml
     set:
-      database.postgres.connectionStringSecretRef.name: ""
+      database.postgres.readWriteConnectionStringSecretRef.name: ""
     asserts:
       - failedTemplate:
-          errorMessage: database.postgres.connectionStringSecretRef.name is required
+          errorMessage: database.postgres.readWriteConnectionStringSecretRef.name is required
 
-  - it: should use the managed Kagent Secret by default
+  - it: should require an owner Secret when migrations run
+    template: controller-deployment.yaml
+    set:
+      database.postgres.ownerConnectionStringSecretRef.name: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.ownerConnectionStringSecretRef.name is required unless database.postgres.skipMigrations is true
+
+  - it: should use the managed Kagent Secrets by default
     template: controller-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: KAGENT_POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_READWRITE_DATABASE_URL
             valueFrom:
               secretKeyRef:
-                name: kagent-postgres
-                key: connectionString
+                name: kagent-postgres-readwrite
+                key: readWriteConnectionString
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_POSTGRES_OWNER_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: kagent-postgres-owner
+                key: ownerConnectionString
       - notExists:
           path: spec.template.spec.initContainers
       - notExists:
           path: spec.template.spec.volumes
-      - notExists:
-          path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
 
-  - it: should inject an external database Secret
+  - it: should inject external database Secrets
     template: controller-deployment.yaml
     set:
       database:
         postgres:
-          connectionStringSecretRef:
-            name: external-postgres
+          readWriteConnectionStringSecretRef:
+            name: external-readwrite
+            key: url
+          ownerConnectionStringSecretRef:
+            name: external-owner
             key: url
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: KAGENT_POSTGRES_DATABASE_URL
+            name: KAGENT_POSTGRES_READWRITE_DATABASE_URL
             valueFrom:
               secretKeyRef:
-                name: external-postgres
+                name: external-readwrite
                 key: url
-      - notExists:
-          path: spec.template.spec.volumes
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_POSTGRES_OWNER_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: external-owner
+                key: url
+
+  - it: should not need owner credentials when migrations are skipped
+    template: controller-deployment.yaml
+    set:
+      database.postgres.skipMigrations: true
+      database.postgres.ownerConnectionStringSecretRef: null
+      database.postgres.ownerRole: ""
+    asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_PASSWORD
+            name: KAGENT_POSTGRES_OWNER_DATABASE_URL
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_POSTGRES_READWRITE_DATABASE_URL
+          any: true
 
-  - it: should project a PostgreSQL client certificate when enabled
+  - it: should project both PostgreSQL client certificates when enabled
     template: controller-deployment.yaml
     set:
       database:
@@ -675,9 +712,15 @@ tests:
                 - podCertificate:
                     signerName: postgres.podcert.ate.dev/identity
                     keyType: ECDSAP256
-                    credentialBundlePath: credential-bundle.pem
+                    credentialBundlePath: kagent_owner_user.pem
                     userAnnotations:
-                      postgres.podcert.ate.dev/username: kagent_user
+                      postgres.podcert.ate.dev/username: kagent_owner_user
+                - podCertificate:
+                    signerName: postgres.podcert.ate.dev/identity
+                    keyType: ECDSAP256
+                    credentialBundlePath: kagent_readwrite_user.pem
+                    userAnnotations:
+                      postgres.podcert.ate.dev/username: kagent_readwrite_user
                 - clusterTrustBundle:
                     signerName: servicedns.podcert.ate.dev/identity
                     labelSelector:
@@ -690,24 +733,6 @@ tests:
             name: postgres-client-certificate
             mountPath: /run/postgres.podcert.ate.dev
             readOnly: true
-
-  - it: should keep Kagent separate from Substrate database Secrets
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          connectionStringSecretRef:
-            name: kagent-db
-            key: kagent-url
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_POSTGRES_DATABASE_URL
-            valueFrom:
-              secretKeyRef:
-                name: kagent-db
-                key: kagent-url
 
   - it: should set KAGENT_DATABASE_VECTOR_ENABLED to false by default
     template: controller-configmap.yaml
@@ -727,22 +752,53 @@ tests:
           path: data.KAGENT_DATABASE_VECTOR_ENABLED
           value: "true"
 
-  - it: should set the default PostgreSQL role
+  - it: should set the default PostgreSQL roles
     template: controller-configmap.yaml
     asserts:
       - equal:
-          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          path: data.KAGENT_POSTGRES_READWRITE_ROLE
+          value: kagent_readwrite
+      - equal:
+          path: data.KAGENT_POSTGRES_OWNER_ROLE
           value: kagent_owner
 
-  - it: should set a BYO PostgreSQL role
+  - it: should set BYO PostgreSQL roles
     template: controller-configmap.yaml
     set:
-      database.postgres.connectionStringSecretRef.name: tenant-postgres
-      database.postgres.role: tenant_owner
+      database.postgres.readWriteRole: tenant_readwrite
+      database.postgres.ownerRole: tenant_owner
     asserts:
       - equal:
-          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          path: data.KAGENT_POSTGRES_READWRITE_ROLE
+          value: tenant_readwrite
+      - equal:
+          path: data.KAGENT_POSTGRES_OWNER_ROLE
           value: tenant_owner
+
+  - it: should omit the owner role when migrations are skipped
+    template: controller-configmap.yaml
+    set:
+      database.postgres.skipMigrations: true
+      database.postgres.ownerRole: ""
+    asserts:
+      - notExists:
+          path: data.KAGENT_POSTGRES_OWNER_ROLE
+
+  - it: should require a read/write role
+    template: controller-deployment.yaml
+    set:
+      database.postgres.readWriteRole: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.readWriteRole is required
+
+  - it: should require an owner role when migrations run
+    template: controller-deployment.yaml
+    set:
+      database.postgres.ownerRole: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.ownerRole is required unless database.postgres.skipMigrations is true
 
   - it: should use the kagent PostgreSQL schema by default
     template: controller-configmap.yaml
@@ -812,11 +868,13 @@ tests:
           path: data.KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME
           value: "10m"
 
-  - it: should not set KAGENT_POSTGRES_DATABASE_URL in configmap
+  - it: should not set PostgreSQL connection strings in configmap
     template: controller-configmap.yaml
     asserts:
       - notExists:
-          path: data.KAGENT_POSTGRES_DATABASE_URL
+          path: data.KAGENT_POSTGRES_READWRITE_DATABASE_URL
+      - notExists:
+          path: data.KAGENT_POSTGRES_OWNER_DATABASE_URL
 
   - it: should use default httpGet startup probe
     template: controller-deployment.yaml

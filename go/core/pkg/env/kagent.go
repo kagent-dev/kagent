@@ -149,13 +149,6 @@ var (
 		ComponentDatabase, ComponentController,
 	)
 
-	DatabaseRole = RegisterStringVar(
-		"KAGENT_POSTGRES_DATABASE_ROLE",
-		"",
-		"Stable PostgreSQL role assumed after authentication.",
-		ComponentDatabase, ComponentController, ComponentCLI,
-	)
-
 	DatabaseSchema = RegisterStringVar(
 		"KAGENT_POSTGRES_DATABASE_SCHEMA",
 		consts.DefaultPostgresTableSchema,

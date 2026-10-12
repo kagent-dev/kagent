@@ -283,11 +283,6 @@ Controller gRPC observability Grafana dashboard ConfigMap name.
 {{- printf "%s-controller-grpc-dashboard" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/* PostgreSQL connection Secret. */}}
-{{- define "kagent.postgres.connectionStringSecretName" -}}
-{{- .Values.database.postgres.connectionStringSecretRef.name -}}
-{{- end -}}
-
 {{/* Public A2A endpoint advertised by Session Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}

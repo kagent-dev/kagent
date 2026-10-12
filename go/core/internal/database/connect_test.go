@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,8 @@ func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
 	defer cancel()
 
 	_, err := retryDBConnection(ctx, &PostgresConfig{
-		URL: "postgres://user:pass@localhost:1/nodb?connect_timeout=1",
+		URL:  "postgres://user:pass@localhost:1/nodb?connect_timeout=1",
+		Role: "kagent_owner",
 	})
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
@@ -53,19 +55,10 @@ func TestApplyPoolConfig(t *testing.T) {
 	})
 }
 
-func TestValidateURL(t *testing.T) {
-	const valid = "postgres://user:password@localhost:5432/database?sslmode=disable"
-	require.NoError(t, ValidateURL(valid))
-
-	err := ValidateURL("postgres://user:do-not-disclose@[invalid")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, errInvalidDatabaseURL)
-	assert.NotContains(t, err.Error(), "do-not-disclose")
-}
-
 func TestPoolConfigSetsSchema(t *testing.T) {
 	config, err := poolConfig(&PostgresConfig{
 		URL:    "postgres://user:password@database:5432/app?sslmode=disable",
+		Role:   "kagent_owner",
 		Schema: "kagent",
 	})
 	require.NoError(t, err)
@@ -77,7 +70,7 @@ func TestPoolConfigRejectsMissingRuntimeSchema(t *testing.T) {
 		t.Skip("skip the PostgreSQL test in short mode")
 	}
 	const schema = "missing_kagent_schema_for_connect_test"
-	config, err := poolConfig(&PostgresConfig{URL: sharedConnStr, Schema: schema})
+	config, err := poolConfig(&PostgresConfig{URL: sharedConnStr, Role: dbtest.Role, Schema: schema})
 	require.NoError(t, err)
 	conn, err := pgx.ConnectConfig(t.Context(), config.ConnConfig.Copy())
 	require.NoError(t, err)
@@ -87,22 +80,6 @@ func TestPoolConfigRejectsMissingRuntimeSchema(t *testing.T) {
 	require.ErrorContains(t, err, `PostgreSQL schema "`+schema+`" is not accessible`)
 }
 
-func TestPoolConfigRefreshesTLSForLiteralURL(t *testing.T) {
-	config, err := poolConfig(&PostgresConfig{
-		URL: "postgres://user:static-password@database:5432/app?sslmode=require",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, config.BeforeConnect)
-
-	connConfig := config.ConnConfig.Copy()
-	initialTLS := connConfig.TLSConfig
-	connConfig.Password = "unchanged-password"
-	require.NoError(t, config.BeforeConnect(context.Background(), connConfig))
-
-	assert.Equal(t, "unchanged-password", connConfig.Password)
-	assert.NotSame(t, initialTLS, connConfig.TLSConfig)
-}
-
 func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 	maxConns := int32(8)
 	minConns := int32(1)
@@ -110,6 +87,7 @@ func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 	lifetime := 10 * time.Minute
 	config, err := poolConfig(&PostgresConfig{
 		URL:             "postgres://user:password@database:5432/app?sslmode=disable",
+		Role:            "kagent_owner",
 		VectorEnabled:   true,
 		Schema:          "public",
 		VectorSchema:    "public",
@@ -131,6 +109,7 @@ func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
 func TestPoolConfigRequiresTableSchemaForVectors(t *testing.T) {
 	_, err := poolConfig(&PostgresConfig{
 		URL:           "postgres://user:password@database:5432/app?sslmode=disable",
+		Role:          "kagent_owner",
 		VectorEnabled: true,
 		VectorSchema:  "public",
 	})

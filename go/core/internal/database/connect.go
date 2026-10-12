@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
@@ -19,7 +18,8 @@ import (
 // URL is a PostgreSQL connection string.
 // Pool fields are optional: nil leaves the corresponding pgxpool.Config value
 // from ParseConfig unchanged (pgx library defaults).
-// Role, when set, is assumed on every connection after authentication.
+// Role is required and is assumed on every connection after authentication;
+// see postgres.PoolConfig.
 // Schema is required when vectors are enabled; VectorSchema defaults to extensions.
 type PostgresConfig struct {
 	URL             string
@@ -38,8 +38,6 @@ const (
 	defaultInitialDelay = 500 * time.Millisecond
 	defaultMaxDelay     = 5 * time.Second
 )
-
-var errInvalidDatabaseURL = errors.New("invalid PostgreSQL connection string")
 
 // Connect returns a PostgreSQL pool after a successful ping, retrying until the
 // context is canceled or two minutes elapse. Invalid configuration fails immediately.
@@ -72,24 +70,8 @@ func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) error {
 	return nil
 }
 
-// ValidateURL validates a PostgreSQL connection string without disclosing it in errors.
-func ValidateURL(url string) error {
-	_, err := parsePoolConfig(url)
-	return err
-}
-
-func parsePoolConfig(url string) (*pgxpool.Config, error) {
-	config, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		// pgx parse errors retain the input string, so wrapping err here could
-		// disclose the password read from a Secret.
-		return nil, fmt.Errorf("parse database connection source: %w", errInvalidDatabaseURL)
-	}
-	return config, nil
-}
-
 func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
-	config, err := parsePoolConfig(cfg.URL)
+	config, err := postgres.PoolConfig(cfg.URL, cfg.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -109,27 +91,11 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 		config.ConnConfig.RuntimeParams["search_path"] = searchPath
 	}
 
-	if usesTLS(config.ConnConfig) {
-		// pgx reads TLS files once at parse time. Reparse before each new physical
-		// connection so rotated client certificates take effect without a restart.
-		config.BeforeConnect = func(_ context.Context, connConfig *pgx.ConnConfig) error {
-			fresh, err := parsePoolConfig(cfg.URL)
-			if err != nil {
-				return err
-			}
-			refreshed := fresh.ConnConfig.Config.Copy()
-			connConfig.TLSConfig = refreshed.TLSConfig
-			connConfig.Fallbacks = refreshed.Fallbacks
-			return nil
-		}
-	}
-
-	if cfg.Role != "" || cfg.VectorEnabled || cfg.Schema != "" {
+	if cfg.VectorEnabled || cfg.Schema != "" {
+		assumeRole := config.AfterConnect
 		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-			if cfg.Role != "" {
-				if _, err := conn.Exec(ctx, "SELECT set_config('role', $1, false)", cfg.Role); err != nil {
-					return fmt.Errorf("assuming PostgreSQL role %q: %w", cfg.Role, err)
-				}
+			if err := assumeRole(ctx, conn); err != nil {
+				return err
 			}
 			if cfg.Schema != "" {
 				var currentSchema string
@@ -160,15 +126,6 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 		}
 	}
 	return config, nil
-}
-
-func usesTLS(config *pgx.ConnConfig) bool {
-	if config.TLSConfig != nil {
-		return true
-	}
-	return slices.ContainsFunc(config.Fallbacks, func(fallback *pgconn.FallbackConfig) bool {
-		return fallback.TLSConfig != nil
-	})
 }
 
 // retryDBConnection opens and verifies a pool, registering vector types when enabled.
