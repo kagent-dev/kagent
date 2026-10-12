@@ -14,9 +14,14 @@ WORKDIR /workspace
 COPY go.mod go.sum .
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
+# go mod download retries a transient proxy error; a missing module still fails on the third attempt.
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw      \
     --mount=type=cache,target=/root/.cache/go-build,rw \
-     go mod download
+    for attempt in 1 2 3; do \
+        go mod download && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "go mod download failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done
 # Copy all source
 COPY api/ api/
 COPY core/ core/
