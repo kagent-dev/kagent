@@ -14,6 +14,8 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProcessDriverRunsPinnedProtocol(t *testing.T) {
@@ -750,4 +752,164 @@ func TestApprovalResponseAcceptsWithEmptyRequestedContent(t *testing.T) {
 	if content, ok := response["content"].(map[string]any); !ok || len(content) != 0 {
 		t.Fatalf("approval content = %#v", response["content"])
 	}
+}
+
+func TestDeferredTurnExitsBeforePublishingPendingAndReusesSavedResult(t *testing.T) {
+	directory := t.TempDir()
+	executable, capture := filepath.Join(directory, "codex"), filepath.Join(directory, "requests")
+	exitCapture := filepath.Join(directory, "exit")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' "$thread" >> "$CAPTURE"
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' "$turn" >> "$CAPTURE"
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+case "$turn" in
+  *toolOutput*)
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
+  *)
+    printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
+    printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Approve?","serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
+    read interrupt
+    printf '%s\n' "$interrupt" >> "$CAPTURE"
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}'
+    printf '%s\n' '{"id":4,"result":{}}' ;;
+esac
+while read ignored; do :; done
+printf graceful > "$EXIT_CAPTURE"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	cfg := ProcessConfig{Executable: executable, Workspace: directory, Model: "model", Provider: "provider", PendingDir: directory,
+		Environment: append(os.Environ(), "CAPTURE="+capture, "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096, MaxStderrBytes: 4096,
+		InterruptGrace: time.Second, ApprovalServers: map[string]struct{}{"protected": {}}, Tools: fakeToolCaller{call: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+			calls++
+			return nil, errors.New("must use cached result")
+		}}}
+	driver := NewProcessDriver(cfg)
+	outcome, err := driver.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "write"}, &recordingSink{})
+	if err != nil || outcome.Pending == nil {
+		t.Fatalf("defer = %#v %v", outcome, err)
+	}
+	exit, err := os.ReadFile(exitCapture)
+	if err != nil || string(exit) != "graceful" {
+		t.Fatalf("native process still running at input-required: %q %v", exit, err)
+	}
+	r, err := driver.loadPending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+	r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "saved successful result"}}}
+	r.Phase = phaseResult
+	if err := driver.savePending(r); err != nil {
+		t.Fatal(err)
+	}
+	// A known pre-launch failure must keep the saved result retryable and must
+	// not publish it before a native turn can consume it.
+	missing := cfg
+	missing.Executable = filepath.Join(directory, "missing-codex")
+	failed := NewProcessDriver(missing)
+	_, _, retry, err := failed.RestorePending()
+	require.NoError(t, err)
+	sink := &recordingSink{}
+	for range 2 {
+		outcome, err := retry.Resume(t.Context(), r.Decision, sink)
+		require.NoError(t, err)
+		require.NotNil(t, outcome.Pending)
+		require.Empty(t, sink.results)
+		saved, err := failed.loadPending()
+		require.NoError(t, err)
+		require.Equal(t, phaseResult, saved.Phase)
+		retry = outcome.Pending
+	}
+	fresh := NewProcessDriver(cfg)
+	_, _, pending, err := fresh.RestorePending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pending.Resume(t.Context(), r.Decision, sink); err != nil || calls != 0 {
+		t.Fatalf("cached result replayed tool: calls=%d err=%v", calls, err)
+	}
+	require.Len(t, sink.results, 1)
+	requests, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(requests), `"method":"turn/interrupt"`) || !strings.Contains(string(requests), `"toolOutput"`) || !strings.Contains(string(requests), "saved successful result") {
+		t.Fatalf("missing durable handoff: %s", requests)
+	}
+}
+
+type cancelingResultSink struct {
+	recordingSink
+	cancel context.CancelFunc
+}
+
+func (s *cancelingResultSink) ToolResult(result runtime.ToolResult) error {
+	if err := s.recordingSink.ToolResult(result); err != nil {
+		return err
+	}
+	s.cancel()
+	return nil
+}
+
+func TestDeferredTurnCancellationDuringNativeContinuationAdmitsNextTurn(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	exitCapture := filepath.Join(directory, "exit")
+	script := `#!/bin/sh
+trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' TERM
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+case "$turn" in
+  *toolOutput*)
+    read interrupt
+    printf '%s\n' '{"id":4,"result":{}}'
+    while read ignored; do :; done ;;
+  *)
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+    while read ignored; do :; done ;;
+esac
+`
+	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: directory, PendingDir: directory,
+		Environment: append(os.Environ(), "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
+		InterruptGrace: 100 * time.Millisecond})
+	r := waitingRecord()
+	r.Phase = phaseResult
+	r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+	r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "already committed"}}}
+	require.NoError(t, d.savePending(&r))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	_, _, pending, err := d.RestorePending()
+	require.NoError(t, err)
+	sink := &cancelingResultSink{cancel: cancel}
+	outcome, err := pending.Resume(ctx, r.Decision, sink)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, outcome.Pending)
+	require.Len(t, sink.results, 1)
+	_, err = os.Stat(exitCapture)
+	require.NoError(t, err, "cancellation returned before the native process terminated")
+	_, _, recovered, err := d.RestorePending()
+	require.NoError(t, err)
+	require.Nil(t, recovered)
+	// A fresh driver reusing the DATA directory must not reserve the old task.
+	fresh := NewProcessDriver(d.config)
+	next, err := fresh.Run(t.Context(), runtime.Turn{TaskID: "next-task", ContextID: r.ContextID, ContinuationID: r.ThreadID, Prompt: "next task"}, &recordingSink{})
+	require.NoError(t, err)
+	require.Nil(t, next.Pending)
+	require.Nil(t, next.Failure)
 }

@@ -7,8 +7,19 @@ import (
 	"time"
 )
 
+// CancellationError reports that a runtime could not reach a safe cancellation
+// boundary. The executor must not acknowledge cancellation as successful.
+type CancellationError struct{ Err error }
+
+func (e *CancellationError) Error() string {
+	return "runtime cancellation cleanup failed: " + e.Err.Error()
+}
+func (e *CancellationError) Unwrap() error { return e.Err }
+
 // Turn is one invocation of an Actor's root conversation.
 type Turn struct {
+	TaskID         string
+	ContextID      string
 	Prompt         string
 	ContinuationID string
 	InputResponse  InputResponse
@@ -123,7 +134,7 @@ type ModelCall struct {
 	UsageOnly bool
 }
 
-// PendingTurn owns the live native process or session behind an input request.
+// PendingTurn owns the live or durable continuation behind an input request.
 // The executor retains this handle while the A2A task is waiting for input and
 // must call either Resume or Cancel. Resume continues the same native turn and
 // may return a new PendingTurn when the runtime asks for more input.

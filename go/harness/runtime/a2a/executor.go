@@ -4,6 +4,7 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -25,6 +26,12 @@ import (
 // Runner is the execution capability consumed by the A2A supervisor.
 type Runner interface {
 	Run(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error)
+}
+
+// PendingRestorer recovers the Actor's private continuation after a DATA restore.
+// It performs local reads only; runtime-specific recovery belongs to the runner.
+type PendingRestorer interface {
+	RestorePending() (taskID, contextID string, pending runtime.PendingTurn, err error)
 }
 
 // ContinuationStore persists the one native conversation owned by an Actor.
@@ -64,6 +71,7 @@ type activeTask struct {
 	cancel          context.CancelFunc
 	done            chan struct{}
 	cancelRequested bool
+	cancelErr       error // published to Cancel by closing done
 }
 
 // parkedTask owns the PendingTurn while its A2A task is waiting for input.
@@ -261,6 +269,9 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{
 				TaskState: string(a2atype.TaskStateCanceled), Disposition: tracing.DispositionCanceled,
 			}
+			if active.cancelErr != nil {
+				result = tracing.Result{Error: "cancellation_cleanup_failed", Disposition: tracing.DispositionInterrupted}
+			}
 			endInvocation()
 		}
 		// Exactly one exit path either releases the Actor or parks the native
@@ -282,11 +293,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 				cancel()
 				parked = e.park(active, pending, origin, open)
 				if !parked {
-					// Restore before releaseCanceled so its flush covers the unfinished spans.
 					sink.tools = open.tools
-					if err := pending.Cancel(context.Background(), sink); err != nil {
-						a2alog.Error(ctx, "failed to cancel the runtime turn", err)
-					}
+					active.cancelErr = pending.Cancel(context.Background(), sink)
 					if e.deactivate(active) {
 						releaseCanceled()
 					}
@@ -302,6 +310,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		turn.ContinuationID = continuationID
+		turn.TaskID, turn.ContextID = string(reqCtx.TaskID), reqCtx.ContextID
 		var outcome runtime.Outcome
 		var runErr error
 		// activate returns a handle only when this request continues the task
@@ -316,6 +325,10 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			sink.tools, sink.ended = continued.open.tools, continued.open.ended
 			sink.paused = &continued.open.owner
 			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
+		}
+		var cancellationErr *runtime.CancellationError
+		if errors.As(runErr, &cancellationErr) {
+			active.cancelErr = cancellationErr
 		}
 		if errors.Is(runErr, errYieldStopped) {
 			// The A2A event consumer stopped accepting events before execution
@@ -526,7 +539,17 @@ func toolResultPart(event runtime.ToolResult) (*a2atype.Part, error) {
 	if event.ID == "" || event.Name == "" {
 		return nil, fmt.Errorf("runtime tool result requires an ID and name")
 	}
-	response := map[string]any{"result": event.Result}
+	// Runtime results may be SDK structs. A2A persistence and artifact copies
+	// require JSON values rather than concrete Go types inside interface fields.
+	data, err := json.Marshal(event.Result)
+	if err != nil {
+		return nil, fmt.Errorf("encode runtime tool result: %w", err)
+	}
+	var result any
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("decode runtime tool result: %w", err)
+	}
+	response := map[string]any{"result": result}
 	if event.IsError {
 		response["isError"] = true
 	}
@@ -589,6 +612,11 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 		}
 		ref := taskRef{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID}
 		e.mu.Lock()
+		if err := e.restorePending(); err != nil {
+			e.mu.Unlock()
+			yield(nil, err)
+			return
+		}
 		switch state := e.state.(type) {
 		case *activeTask:
 			if !state.matches(ref) {
@@ -600,7 +628,12 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			state.cancel()
 			done := state.done
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, done, yield)
+			select {
+			case <-done:
+				yieldCancellation(ctx, reqCtx, done, state.cancelErr, yield)
+			case <-ctx.Done():
+				yield(nil, ctx.Err())
+			}
 			return
 		case *parkedTask:
 			if !state.matches(ref) {
@@ -673,6 +706,11 @@ func (r taskRef) matches(other taskRef) bool {
 func (e *Executor) ReservedTaskID() a2atype.TaskID {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.restorePending(); err != nil {
+		// Admission must fail closed even though this legacy capability cannot
+		// return an error. Execute and Cancel report the underlying read error.
+		return a2atype.TaskID("invalid-durable-continuation")
+	}
 	if task, ok := e.state.(*parkedTask); ok {
 		return task.taskID
 	}
@@ -684,6 +722,9 @@ func (e *Executor) ReservedTaskID() a2atype.TaskID {
 func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := e.restorePending(); err != nil {
+		return nil, err
+	}
 	switch state := e.state.(type) {
 	case nil:
 		if resuming {
@@ -703,6 +744,33 @@ func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, er
 	default:
 		return nil, errBusy
 	}
+}
+
+// restorePending runs under mu before admission. Reloading an idle executor is
+// intentional: Substrate may replace its data directory after construction.
+func (e *Executor) restorePending() error {
+	if e.state != nil {
+		return nil
+	}
+	restorer, ok := e.runner.(PendingRestorer)
+	if !ok {
+		return nil
+	}
+	taskID, contextID, pending, err := restorer.RestorePending()
+	if err != nil {
+		return fmt.Errorf("restore runtime pending turn: %w", err)
+	}
+	if pending == nil {
+		if taskID != "" || contextID != "" {
+			return fmt.Errorf("restored runtime task has no pending turn")
+		}
+		return nil
+	}
+	if taskID == "" || contextID == "" {
+		return fmt.Errorf("restored runtime pending turn has no task identity")
+	}
+	e.state = &parkedTask{taskRef: taskRef{taskID: a2atype.TaskID(taskID), contextID: contextID}, pending: pending}
+	return nil
 }
 
 func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin trace.SpanContext, open openTools) bool {
@@ -751,6 +819,9 @@ func validateRequest(reqCtx *a2asrv.ExecutorContext) (runtime.Turn, error) {
 			}
 			if err := apia2a.ValidateToolApprovalResponse(approvalRequest, response); err != nil {
 				return runtime.Turn{}, err
+			}
+			if len(response.Approvals) != 1 {
+				return runtime.Turn{}, fmt.Errorf("runtime requires a single tool approval decision")
 			}
 			decision := response.Approvals[0]
 			return runtime.Turn{InputResponse: &runtime.ApprovalDecision{

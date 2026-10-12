@@ -101,6 +101,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
 		ApprovalServers: approvalServers,
+		PendingDir:      filepath.Join(input.DurableDir, "adapter"),
+		Tools:           driver.NewMCPCaller(cfg.MCPServers, environment),
 	}), nil
 }
 

@@ -277,3 +277,34 @@ func TestParseJSONLToolResultWithImage(t *testing.T) {
 		t.Fatal("the tool result carrying an image was not emitted")
 	}
 }
+
+func TestParseDeferredResultAndResumedToolResult(t *testing.T) {
+	deferred := `{"type":"result","subtype":"success","session_id":"session","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"mcp__protected__write","input":{"value":7}}}`
+	var events []Event
+	if err := ParseJSONL(strings.NewReader(deferred), 4096, func(event Event) error { events = append(events, event); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Kind != EventDeferred || events[0].Deferred.ID != "call" {
+		t.Fatalf("invalid deferred events: %#v", events)
+	}
+	resumed := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call","content":"ok"}]}}` + "\n" + `{"type":"result","subtype":"success","session_id":"session","result":"done"}`
+	var results []Event
+	if err := parseJSONL(strings.NewReader(resumed), 4096, events[0].Deferred, func(event Event) error { results = append(results, event); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].ToolName != "mcp__protected__write" || results[0].ToolID != "call" || results[1].Kind != EventCompleted {
+		t.Fatalf("invalid resumed events: %#v", results)
+	}
+}
+
+func TestParseRejectsMalformedDeferredResult(t *testing.T) {
+	for _, line := range []string{
+		`{"type":"result","subtype":"success","session_id":"session","stop_reason":"tool_deferred"}`,
+		`{"type":"result","subtype":"success","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"write"}}`,
+		`{"type":"result","subtype":"success","is_error":true,"session_id":"session","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"write"}}`,
+	} {
+		if err := ParseJSONL(strings.NewReader(line), 4096, func(Event) error { return nil }); err == nil {
+			t.Fatalf("malformed deferred result accepted: %s", line)
+		}
+	}
+}

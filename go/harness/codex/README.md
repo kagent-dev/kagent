@@ -1,8 +1,8 @@
 # Codex Harness
 
 The Codex Harness compiles an `api.kagent.dev/v1alpha3` `AgentTemplate` into a
-compiler-owned Codex configuration and runs one Codex App Server `0.148.0`
-process for each public A2A Task. Its native thread and workspace are retained
+compiler-owned Codex configuration and runs one Codex App Server `0.161.0`
+process for each native turn within a public A2A Task. Its native thread and workspace are retained
 in the Actor's `DurableDir`.
 
 ## Code structure
@@ -11,14 +11,14 @@ The controller and Actor share only the versioned config contract. Kubernetes
 resolution stays in the controller; Codex App Server behavior stays in this
 harness.
 
-| Path | Look here for |
-| --- | --- |
-| [`../../core/internal/translator/codex`](../../core/internal/translator/codex) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision |
-| [`config/config.go`](config/config.go) | The versioned JSON contract shared by the compiler and runtime, including defaults and validation |
-| [`cmd/main.go`](cmd/main.go) | Actor startup, environment inputs, Codex version validation, continuation-store wiring, and private A2A startup |
-| [`internal/adapter`](internal/adapter) | Materializing `CODEX_HOME`, native TOML, shared agents, skills, and MCP configuration |
-| [`internal/driver`](internal/driver) | App Server lifecycle, JSON-RPC framing, event translation, thread resume, cancellation, and process supervision |
-| [`protocol/schema`](protocol/schema) | Generated App Server schema used as a development reference; regenerate it from the pinned CLI rather than hand-editing it |
+| Path                                                                           | Look here for                                                                                                              |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| [`../../core/internal/translator/codex`](../../core/internal/translator/codex) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision                      |
+| [`config/config.go`](config/config.go)                                         | The versioned JSON contract shared by the compiler and runtime, including defaults and validation                          |
+| [`cmd/main.go`](cmd/main.go)                                                   | Actor startup, environment inputs, Codex version validation, continuation-store wiring, and private A2A startup            |
+| [`internal/adapter`](internal/adapter)                                         | Materializing `CODEX_HOME`, native TOML, shared agents, skills, and MCP configuration                                      |
+| [`internal/driver`](internal/driver)                                           | App Server lifecycle, JSON-RPC framing, event translation, thread resume, cancellation, and process supervision            |
+| [`protocol/schema`](protocol/schema)                                           | Generated App Server schema used as a development reference; regenerate it from the pinned CLI rather than hand-editing it |
 
 ## Implemented support
 
@@ -27,11 +27,11 @@ harness.
 - Amazon Bedrock through `AWS_BEARER_TOKEN_BEDROCK` in a Secret.
 - Streaming text, command and file activity, direct Streamable HTTP MCP (with
   allowed-tools selection), and native Shared agents.
-- Per-server MCP tool approval with live App Server pause, resume, and cancel.
+- Per-server MCP tool approval with durable DATA-only restart and cancellation.
 - Native ask-user questions in default mode
 - Standalone and plugin-selected skills without plugin hooks, commands,
   executables, or implicit plugin MCP servers.
-- Exact native thread resume and bounded cancellation through `turn/interrupt`.
+- Native thread resume and bounded cancellation through `turn/interrupt`.
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 AWS IAM keys are rejected because they cannot be injected as outbound HTTP
@@ -57,43 +57,42 @@ The driver exposes only approval requests for the configured protected servers.
 Although Codex transports these requests using the `mcpServer/elicitation/request`
 App Server method, the external MCP server is not performing MCP elicitation.
 
+The harness interrupts the unanswered native turn, saves the pending operation,
+and exits App Server before returning `input-required`. The shared executor
+recovers task ownership from this record after DATA restore. Approval executes
+the saved MCP call through the harness; denial executes no tool. The harness
+resumes the native thread and starts a new turn with `turn/start.toolOutput`.
+Ask-user answers similarly start a new turn with the saved questions and answers.
+
 ```mermaid
 sequenceDiagram
     participant User
-    participant Gateway
     participant Executor as A2A executor
     participant Driver as Codex driver
     participant Codex as Codex App Server
     participant MCP as Remote MCP server
-
-    User->>Gateway: Send message
-    Gateway->>Executor: Execute task
-    Executor->>Driver: Run turn
+    Executor->>Driver: Run task
     Driver->>Codex: turn/start
-    Codex-->>Driver: MCP tool approval request
-    Driver-->>Executor: Outcome{Pending: PendingTurn}
-    Executor-->>Gateway: input-required
-    Gateway-->>User: Show tool approval
-
-    alt approve or reject
-        User->>Gateway: Submit decision
-        Gateway->>Executor: Continue task
-        Executor->>Driver: PendingTurn.Resume(decision)
-        Driver->>Codex: Reply to approval request
-        opt approved
-            Codex->>MCP: Call tool
-            MCP-->>Codex: Tool result
-        end
-        Codex-->>Driver: More events or completion
-    else cancel
-        User->>Gateway: Cancel task
-        Gateway->>Executor: Cancel
-        Executor->>Driver: PendingTurn.Cancel
-        Driver->>Codex: Cancel response and turn/interrupt
-        Driver->>Driver: Reap App Server process
-        Executor-->>Gateway: canceled
+    Codex-->>Driver: Protected MCP approval
+    Driver->>Codex: turn/interrupt, await completion
+    Driver->>Driver: Persist pending operation, exit App Server
+    Driver-->>Executor: input-required
+    Note over Executor,Driver: Shutdown, DATA snapshot, restore into fresh harness
+    User->>Executor: Approve or deny
+    Executor->>Driver: Restore ownership, resume saved request
+    opt approved
+        Driver->>MCP: Execute exact saved tool and arguments
+        MCP-->>Driver: Result
     end
+    Driver->>Driver: Persist result or denial
+    Driver->>Codex: Restart, thread/resume, turn/start.toolOutput
+    Codex-->>Executor: More events or completion
 ```
+
+Approval handling preserves one protected MCP request at a time through DATA
+restore using App Server JSON-RPC. Concurrent requests are canceled with the
+interrupted native turn. Batched approvals are follow-up work. The harness does
+not intercept model-provider traffic.
 
 ## Development
 
@@ -136,6 +135,7 @@ metadata:
   namespace: kagent
 spec:
   template:
+<<<<<<< HEAD
     inline:
       description: test
       modelConfig:
@@ -156,4 +156,32 @@ spec:
             - migrate-agent-plugin
   harnessRef:
     name: codex
+=======
+    description: test
+    modelConfig:
+      name: default-model-config # This modelconfig must have openAI.apiFormat set to "responses"
+    systemPrompt: |
+      Follow the selected skill and use the configured MCP tool.
+    tools:
+      - mcp:
+          server:
+            kind: RemoteMCPServer
+            name: kagent-tool-server
+    plugins:
+      - source:
+          git:
+            url: https://github.com/agentplugins/agent-plugins-example.git
+            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
+        skills:
+          - migrate-agent-plugin
+  harness:
+    codex: {}
+    workload:
+      image: ${KAGENT_CODEX_IMAGE_DIGEST}
+    substrate:
+      workerPoolRef:
+        name: kagent-default
+      snapshotPolicy:
+        location: gs://ate-snapshots/kagent/
+>>>>>>> 9f8e28a20 (initial commit)
 ```

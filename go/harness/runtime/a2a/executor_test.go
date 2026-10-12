@@ -12,11 +12,15 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -438,9 +442,10 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
 		return runtime.Outcome{Pending: &fakePendingTurn{
 			request: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write", Args: map[string]any{"value": 7}, Hint: "Allow tools.write?"},
-			resume: func(_ context.Context, response runtime.InputResponse, _ runtime.EventSink) (runtime.Outcome, error) {
+			resume: func(_ context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
 				decision, _ = response.(*runtime.ApprovalDecision)
-				return runtime.Outcome{}, nil
+				return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", IsError: true,
+					Result: &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "denied"}}, StructuredContent: map[string]any{"count": 7, "items": []string{"pod-1"}}}})
 			},
 		}}, nil
 	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
@@ -468,10 +473,19 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := &a2asrv.ExecutorContext{TaskID: first.TaskID, ContextID: first.ContextID, Message: decisionMessage, StoredTask: &a2atype.Task{ID: first.TaskID, ContextID: first.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: update.Status.Message}}}
-	_, errs = collect(executor.Execute(t.Context(), second))
+	resumedEvents, errs := collect(executor.Execute(t.Context(), second))
 	if len(errs) != 0 || decision == nil || decision.ID != "7" || decision.Approved || decision.RejectionReason != "production is still serving traffic" {
 		t.Fatalf("approval decision = %#v, errors = %v", decision, errs)
 	}
+	for _, event := range resumedEvents {
+		if update, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok {
+			assertArtifactPersistence(t, update.Artifact)
+		}
+	}
+	assertToolActivity(t, resumedEvents, "function_response", map[string]any{
+		"id": "call-1", "name": "tools.write", "response": map[string]any{"isError": true,
+			"result": map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "denied"}}, "structuredContent": map[string]any{"count": float64(7), "items": []any{"pod-1"}}}},
+	})
 	if executor.ReservedTaskID() != "" {
 		t.Fatal("completed approval kept its native session reserved")
 	}
@@ -544,4 +558,79 @@ func collect(seq iter.Seq2[a2atype.Event, error]) ([]a2atype.Event, []error) {
 		}
 	}
 	return events, errs
+}
+
+// DATA can be restored into an executor that has already been constructed.
+type restoringRunner struct {
+	fakeRunner
+	taskID, contextID string
+	pending           runtime.PendingTurn
+	err               error
+}
+
+func (r *restoringRunner) RestorePending() (string, string, runtime.PendingTurn, error) {
+	return r.taskID, r.contextID, r.pending, r.err
+}
+
+func TestExecutorRecoversTaskOwnershipAfterConstruction(t *testing.T) {
+	resumed := false
+	runner := &restoringRunner{}
+	executor, err := New(runner, &fakeContinuation{data: testSessionID}, tracing.RuntimeTelemetry{})
+	require.NoError(t, err)
+	require.Empty(t, executor.ReservedTaskID())
+	request := &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write", Args: map[string]any{}}
+	runner.taskID, runner.contextID = "task-1", testContextID
+	runner.pending = &fakePendingTurn{request: request, resume: func(_ context.Context, response runtime.InputResponse, _ runtime.EventSink) (runtime.Outcome, error) {
+		decision := response.(*runtime.ApprovalDecision)
+		require.Equal(t, request.ID, decision.ID)
+		require.True(t, decision.Approved)
+		resumed = true
+		runner.taskID, runner.contextID, runner.pending = "", "", nil
+		return runtime.Outcome{}, nil
+	}}
+	require.Equal(t, a2atype.TaskID("task-1"), executor.ReservedTaskID())
+	_, errs := collect(executor.Execute(t.Context(), requestContext("unrelated-task", "hello")))
+	require.NotEmpty(t, errs)
+	status, err := inputRequiredMessage(requestContext("task-1", "write"), request)
+	require.NoError(t, err)
+	message := a2atype.NewMessage(a2atype.MessageRoleUser)
+	require.NoError(t, apia2a.AttachHITL(message, apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: request.ID, Approved: true}}}))
+	ctx := &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: testContextID, Message: message, StoredTask: &a2atype.Task{ID: "task-1", ContextID: testContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: status}}}
+	events, errs := collect(executor.Execute(t.Context(), ctx))
+	require.Empty(t, errs)
+	require.True(t, resumed)
+	require.NotEmpty(t, events)
+	require.Equal(t, a2atype.TaskStateCompleted, events[len(events)-1].(*a2atype.TaskStatusUpdateEvent).Status.State)
+	require.Empty(t, executor.ReservedTaskID())
+}
+
+func TestExecutorRejectsCorruptRestoration(t *testing.T) {
+	runner := &restoringRunner{err: errors.New("corrupt durable data")}
+	executor, err := New(runner, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	require.NoError(t, err)
+	require.NotEmpty(t, executor.ReservedTaskID())
+	_, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	require.Len(t, errs, 1)
+	require.ErrorContains(t, errs[0], "corrupt durable data")
+}
+
+// Covers both failure boundaries seen with SDK values in interface fields:
+// protobuf persistence and gob-based artifact copying.
+func assertArtifactPersistence(t *testing.T, artifact *a2atype.Artifact) {
+	t.Helper()
+	task := &a2atype.Task{ID: "task-result", ContextID: testContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}, Artifacts: []*a2atype.Artifact{artifact}}
+	_, err := pbconv.ToProtoTask(task)
+	require.NoError(t, err)
+	store := taskstore.NewInMemory(nil)
+	_, err = store.Create(t.Context(), task)
+	require.NoError(t, err)
+	stored, err := store.Get(t.Context(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, task, stored.Task)
+}
+
+func TestToolResultPartRejectsUnserializableResult(t *testing.T) {
+	part, err := toolResultPart(runtime.ToolResult{ID: "call", Name: "lookup", Result: map[string]any{"invalid": make(chan int)}})
+	require.Error(t, err)
+	require.Nil(t, part)
 }
