@@ -1757,7 +1757,7 @@ func TestNewTaskGetsFreshTraceOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"task-1", "task-2"} {
-		_, errs := collect(executor.Execute(recorder.segment(t.Context()), requestContext(id, "hello")))
+		_, errs := collect(executor.Execute(recorder.segment(t.Context()), requestContext(a2atype.TaskID(id), "hello")))
 		if len(errs) != 0 {
 			t.Fatal(errs)
 		}
