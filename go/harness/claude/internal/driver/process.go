@@ -9,21 +9,25 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel/propagation"
 )
 
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
 // process. Actor-owned paths and environment are supplied by the adapter.
 type ProcessConfig struct {
-	Executable           string
-	ExpectedVersion      string
-	StrictVersion        bool
+	Executable      string
+	ExpectedVersion string
+	StrictVersion   bool
+	// Workspace is the working directory of a turn whose dispatch names none.
 	Workspace            string
 	Model                string
 	AppendSystemPrompt   string
@@ -172,7 +176,13 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
-	environment := traceEnvironment(ctx, d.config.Environment)
+	directory, err := d.prepareWorkspace(ctx, sink)
+	if err != nil {
+		return runtime.Outcome{}, err
+	}
+	// Claude's own git clones and fetches from the mirrors, which belong to
+	// the volume's owner, not to the user Claude Code runs as.
+	environment := traceEnvironment(ctx, workspace.TrustMirrors(workspace.DispatchFrom(ctx), d.config.Environment))
 	var gate *tracingGate
 	if d.config.AwaitTelemetry {
 		if gate, err = newTracingGate(); err != nil {
@@ -183,7 +193,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	cmd := exec.Command(d.config.Executable, d.Args(turn)...)
 	utils.ConfigureProcessGroup(cmd)
-	cmd.Dir = d.config.Workspace
+	cmd.Dir = directory
 	cmd.Env = environment
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -246,6 +256,41 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 // Claude reads it once at startup, so a turn that is resumed after an approval
 // keeps emitting under the trace of the request that started the process. The
 // resumed A2A segment records a link to that origin rather than reparenting it.
+// workspaceNotes is the file the workspace setup explains the session
+// directory in: Claude Code reads it from its working directory on start.
+const workspaceNotes = "CLAUDE.md"
+
+// prepareWorkspace returns the directory the turn works in, the one its
+// dispatch names, read per turn because a runtime restored from a snapshot
+// predates the session's mounts. A session directory with mirrors is set up
+// before its first turn; what could not be cloned or fetched, or a setup that
+// failed, is the turn's first status message and the turn runs. A resumed
+// turn continues its process and never comes here.
+func (d *ProcessDriver) prepareWorkspace(ctx context.Context, sink runtime.EventSink) (string, error) {
+	dispatch := workspace.DispatchFrom(ctx)
+	if !filepath.IsAbs(dispatch.Directory) {
+		return d.config.Workspace, nil
+	}
+	report, err := workspace.Prepare(ctx, dispatch, workspace.Options{Notes: workspaceNotes, Environment: d.config.Environment})
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if report.SetUp {
+		logging.FromContext(ctx).DebugContext(ctx, "session directory set up", "directory", dispatch.Directory,
+			"cloned", report.Cloned, "fetched", report.Fetched, "problems", len(report.Problems))
+	}
+	notice := report.Notice()
+	if err != nil {
+		notice = strings.TrimSpace("Workspace setup failed: " + err.Error() + "\n" + notice)
+	}
+	if notice != "" {
+		if err := sink.Notice(runtime.Notice{Text: notice}); err != nil {
+			return "", err
+		}
+	}
+	return dispatch.Directory, nil
+}
+
 func traceEnvironment(ctx context.Context, environment []string) []string {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
