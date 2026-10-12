@@ -11,6 +11,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/executor"
@@ -64,6 +65,9 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	}
 	providers, err := telemetry.Init(ctx, telemetry.Options{
 		Runtime: string(cfg.RuntimeTelemetry.Runtime), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
+		// Substrate restores every session from one snapshot taken after Init, so metrics started
+		// here would give all sessions one identity and their totals would overwrite each other.
+		DeferMetrics: true,
 	})
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to initialize harness telemetry", "error", err)
@@ -87,6 +91,7 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	application, err := app.New(app.AppConfig{
 		AgentCard: card, Port: privatePort, AppName: card.Name,
 		Logger: logging.FromContext(ctx), Telemetry: cfg.RuntimeTelemetry, Flush: providers.ForceFlush,
+		HandlerOpts: []a2asrv.RequestHandlerOption{a2asrv.WithExecutorContextInterceptor(startMetrics(providers.StartMetrics))},
 	}, exec)
 	if err != nil {
 		return fmt.Errorf("construct private A2A app: %w", err)
@@ -100,4 +105,12 @@ func requiredEnvironment(getenv func(string) string, name string) ([]byte, error
 		return nil, fmt.Errorf("%s is required", name)
 	}
 	return []byte(value), nil
+}
+
+// startMetrics starts metrics on the first execution, which runs after the snapshot restore.
+type startMetrics func()
+
+func (start startMetrics) Intercept(ctx context.Context, _ *a2asrv.ExecutorContext) (context.Context, error) {
+	start()
+	return ctx, nil
 }
