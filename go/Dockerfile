@@ -35,13 +35,19 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
 FROM alpine:3.24
 ARG TARGETPLATFORM
 
+# The runtime user gets a passwd entry and a home it owns: commands an agent
+# runs (git config --global, CLIs that keep a config under $HOME/.config)
+# write there.
 RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && \
+    addgroup -S -g 65532 kagent && \
+    adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
     mkdir -p /skills /plugins /data/plugins && \
     chown -R 65532:65532 /skills /plugins /data
 
 WORKDIR /
 COPY --from=builder /app /app
 USER 65532:65532
+ENV HOME=/home/kagent
 ARG VERSION
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
