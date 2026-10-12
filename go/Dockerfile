@@ -40,9 +40,14 @@ ARG TARGETPLATFORM
 # rebuild (-rN) of that version. The runtime user gets a passwd entry and a
 # home it owns: commands an agent runs (git config --global, CLIs that keep a
 # config under $HOME/.config) write there.
+# apk retries a transient mirror error; a missing package still fails on the third attempt.
 RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
-    apk upgrade --no-cache && \
-    apk add --no-cache bash ca-certificates git "github-cli~$(cat /tmp/github-cli.version)" && \
+    for attempt in 1 2 3; do \
+        apk upgrade --no-cache && \
+        apk add --no-cache bash ca-certificates git "github-cli~$(cat /tmp/github-cli.version)" && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done && \
     addgroup -S -g 65532 kagent && \
     adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
     mkdir -p /config /skills /plugins /data/plugins && \

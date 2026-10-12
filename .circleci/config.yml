@@ -122,7 +122,12 @@ jobs:
           command: |
             set -euo pipefail
             # envsubst renders the Chart-template.yaml files (make helm-version).
-            apk add --no-cache gettext >/dev/null
+            # apk retries a transient mirror error; a missing package still fails on the third attempt.
+            for attempt in 1 2 3; do
+              apk add --no-cache gettext >/dev/null && break
+              status=$?; [ "$attempt" -lt 3 ] || exit "$status"
+              echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5
+            done
             # The version the image jobs published under (.build_version, persisted
             # by the controller's push job — the value is the same for every image).
             VERSION=$(cat .build_version)

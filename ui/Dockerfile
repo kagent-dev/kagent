@@ -11,16 +11,21 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 # Tools hold a major version so the bundle always builds with Node 24, and old revisions can't break the build.
+# apk retries a transient mirror error; a missing package still fails on the third attempt.
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache \
-        "curl~8" \
-        "bash~5" \
-        "openssl~3" \
-        "unzip~6" \
-        ca-certificates \
-        "nodejs-${TOOLS_NODE_VERSION}" \
-        npm-12 \
-        "node-gyp~13" \
+    && for attempt in 1 2 3; do \
+        apk add --no-cache \
+            "curl~8" \
+            "bash~5" \
+            "openssl~3" \
+            "unzip~6" \
+            ca-certificates \
+            "nodejs-${TOOLS_NODE_VERSION}" \
+            npm-12 \
+            "node-gyp~13" && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
@@ -67,12 +72,17 @@ ARG BUILDPLATFORM
 
 # Shipped packages are pinned to a major version only, so security fixes land on rebuild.
 # No openssl CLI: nothing here runs it. curl stays for exec-based probes on IPv6 clusters.
+# apk retries a transient mirror error; a missing package still fails on the third attempt.
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache \
-        "bash~5" \
-        ca-certificates \
-        "curl~8" \
-        "nginx-mainline~1" \
+    && for attempt in 1 2 3; do \
+        apk add --no-cache \
+            "bash~5" \
+            ca-certificates \
+            "curl~8" \
+            "nginx-mainline~1" && break; \
+        status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
+        echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
+    done \
     && update-ca-certificates
 
 # `kagent` owns both the static root and the writable runtime dirs. /tmp/kagent
