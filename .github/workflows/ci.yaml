@@ -65,10 +65,6 @@ jobs:
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
-      # The upstream release whose kubectl-ate performs the CA/JWT bootstrap
-      # below; the Giant Swarm line of Substrate publishes no CLI. Same pin as
-      # the Makefile's SUBSTRATE_VERSION is built from.
-      KUBECTL_ATE_VERSION: 0.0.29
     runs-on: ubuntu-latest
     # The setup before the tests takes up to 16 minutes on hosted runners and
     # the tests up to 15: go test's own -timeout (20m) must fire before this one, so
@@ -143,15 +139,6 @@ jobs:
       - name: Create Kind cluster
         run: make create-kind-cluster
 
-      - name: Install read-write-many NFS storage
-        # The workspace fixture claims its shared volume from the NFS class, and
-        # Substrate mounts its directories into Session actors through the NFS
-        # CSI driver's CSIDriverConfig (core/test/e2e/README.md).
-        run: |
-          sudo modprobe nfs
-          sudo modprobe nfsd
-          bash scripts/kind/setup-csi-nfs.sh
-
       - name: Install Kagent
         id: install-kagent
         env:
@@ -170,21 +157,23 @@ jobs:
             --set controller.push.allowPrivateNetworks=true
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=4
-            --set-string substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
-            --set-string substrateWorkerPool.workerImage=${{ env.SUBSTRATE_IMAGE_REGISTRY }}/ateom-${{ matrix.sandbox_class }}:${{ env.SUBSTRATE_VERSION }}
-            --set-string controller.session.admission.jwt.jwksURL=http://e2e-grant-jwks.kagent.svc.cluster.local/.well-known/jwks.json
-            --set-string controller.session.admission.jwt.issuer=https://grant-issuer.e2e.kagent.dev
-            --set-string controller.session.admission.jwt.audience=kagent-e2e
+            --set substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
+            --set substrateWorkerPool.workerImage=${{ env.SUBSTRATE_IMAGE_REGISTRY }}/ateom-${{ matrix.sandbox_class }}:${{ env.SUBSTRATE_VERSION }}
+            --set controller.session.admission.jwt.jwksURL=http://e2e-grant-jwks.kagent.svc.cluster.local/.well-known/jwks.json
+            --set controller.session.admission.jwt.issuer=https://grant-issuer.e2e.kagent.dev
+            --set controller.session.admission.jwt.audience=kagent-e2e
             --set otel.traces.enabled=true
             --set otel.metrics.enabled=true
             --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
             --set controller.env[0].name=KAGENT_SESSION_EXPIRATION_POLL_INTERVAL
-            --set-string controller.env[0].value=1s
+            --set controller.env[0].value=1s
           KAGENT_SUBSTRATE_HELM_EXTRA_ARGS: >-
             --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000
             --set ateApi.extraArgs[0]=--template-resync-interval=250ms
             --set credentialProvider.namespacePolicies[0].atespace=kagent
             --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent
+            --set credentialProvider.namespacePolicies[1].atespace=ate-golden
+            --set credentialProvider.namespacePolicies[1].allowedNamespaces[0]=kagent
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -203,9 +192,28 @@ jobs:
           test -n "$GUEST_DIGEST"
           export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
           make build-cli-local helm-version
-          KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
+          # The Substrate of the line's pin (the "Resolve the Substrate pin" step), not the CLI's upstream default.
+          KAGENT_SUBSTRATE_HELM_REPO="${SUBSTRATE_REPO}/" KAGENT_SUBSTRATE_HELM_VERSION="${SUBSTRATE_VERSION}" \
+            KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
+          # The egress gateway dials upstream HTTPS itself and trusts this CA
+          # there; the egress credential tests sign their HTTPS upstreams with it.
+          # kagent install passes --set values only, so the bundle follows as an upgrade.
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj "/CN=kagent e2e egress upstream" \
+            -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" \
+            -keyout "$RUNNER_TEMP/egress-ca.key" -out "$RUNNER_TEMP/egress-ca.crt"
+          helm upgrade substrate "${SUBSTRATE_REPO}/substrate" --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values \
+            --set-file "atenetEgress.upstreamTrust.caBundle=$RUNNER_TEMP/egress-ca.crt" --wait --timeout 5m
+
+      - name: Install read-write-many NFS storage
+        # The workspace fixture claims its shared volume from the NFS class, and
+        # Substrate mounts its directories into Session actors through the NFS
+        # CSI driver's CSIDriverConfig (core/test/e2e/README.md).
+        run: |
+          sudo modprobe nfs
+          sudo modprobe nfsd
+          bash scripts/kind/setup-csi-nfs.sh
 
       - name: Cache Cloud Hypervisor assets
         if: matrix.sandbox_class == 'microvm'
