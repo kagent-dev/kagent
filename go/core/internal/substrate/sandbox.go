@@ -68,7 +68,9 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	if len(environment) > 32 {
 		return nil, "", nil, fmt.Errorf("sandbox exceeds Substrate's 32 environment variables")
 	}
-	inputs := sandboxInputs{Kind: "sandbox", Version: 1, Namespace: template.Namespace, Name: template.Name, UID: string(template.UID), Spec: template.Spec, Class: class, Policy: policy}
+	// Namespace-scoped placement changes immutable template contents, so it
+	// needs a new revision even when the operator's inputs stay the same.
+	inputs := sandboxInputs{Kind: "sandbox", Version: 2, Namespace: template.Namespace, Name: template.Name, UID: string(template.UID), Spec: template.Spec, Class: class, Policy: policy}
 	snapshot, err := json.Marshal(inputs)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("encode sandbox inputs: %w", err)

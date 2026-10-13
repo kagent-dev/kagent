@@ -76,5 +76,5 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	require.Equal(t, "my-langgraph", environment["OTEL_SERVICE_NAME"])
 	require.Equal(t, "https://otlp.example.com", environment["OTEL_EXPORTER_OTLP_ENDPOINT"])
 	require.Equal(t, "otlp", environment["OTEL_TRACES_EXPORTER"])
-	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.agent.name=runnable-agent")
+	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.name=runnable-agent")
 }

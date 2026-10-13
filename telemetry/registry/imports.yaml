@@ -1,0 +1,22 @@
+file_format: definition/2
+# Upstream signals kagent runtimes emit through their instrumentations. Core
+# spans are named by their v1 group id.
+imports:
+  spans:
+    - gen_ai.client.inference
+    - gen_ai.invoke_agent.internal
+    - gen_ai.execute_tool.internal
+    - gen_ai.invoke_workflow.internal
+    - span.http.server
+    - span.http.client
+    - span.rpc.call.server
+    - span.rpc.call.client
+  metrics:
+    - gen_ai.client.inference.*
+    - gen_ai.invoke_agent.duration
+    - gen_ai.invoke_workflow.duration
+    - gen_ai.execute_tool.duration
+    - http.server.*
+    - http.client.*
+    - rpc.server.*
+    - rpc.client.*

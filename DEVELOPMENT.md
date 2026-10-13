@@ -261,6 +261,11 @@ These targets need either Docker or a local `weaver` of exactly the version in
 on a laptop means the same as in CI. See
 [docs/architecture/telemetry.md](docs/architecture/telemetry.md) for the contract.
 
+`telemetry/live-check.sh start` and `stop` run Weaver live-check around an e2e
+run; see the Conformance section of that document.
+
 To look at traces locally, `make otel-local` starts Jaeger with an OTLP receiver
 on ports 4317 and 4318 and its UI on http://localhost:16686. Point an install
 at it with `--set otel.traces.enabled=true --set otel.exporter.otlp.endpoint=http://<host>:4317`.
+`make otel-collector-kind` installs the reference collector from
+`examples/observability` into the kind cluster and prints what it receives.

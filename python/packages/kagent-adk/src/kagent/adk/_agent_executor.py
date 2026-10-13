@@ -52,7 +52,6 @@ from kagent.core.a2a import (
     hitl_activated,
     now_timestamp,
 )
-from kagent.core.tracing._span_processor import clear_kagent_span_attributes, set_kagent_span_attributes
 from pydantic import BaseModel
 
 from ._bearer_token import bearer_token, extract_bearer_token
@@ -241,7 +240,6 @@ class A2aAgentExecutor(AgentExecutor):
             raise ValueError("A2A request must have a message")
 
         runner: Runner | None = None
-        context_token = None
         execution_state = _ExecutionState(request_context=context)
         # Resumed tasks (HITL cycles, follow-up messages) carry the previously
         # persisted total, so the usage total stays a task-lifetime sum.
@@ -263,15 +261,6 @@ class A2aAgentExecutor(AgentExecutor):
             caller = context.call_context.user if context.call_context else None
             user_token = request_user_id.set(caller.user_name if caller else "")
             await self._prepare_session(context, run_request, runner)
-
-            span_attributes = {
-                "kagent.user_id": run_request.user_id,
-                "gen_ai.task.id": context.task_id,
-                "gen_ai.conversation.id": context.context_id,
-            }
-            context_token = set_kagent_span_attributes(
-                {key: value for key, value in span_attributes.items() if value is not None}
-            )
 
             upstream_config = UpstreamA2aAgentExecutorConfig(
                 a2a_part_converter=_convert_public_a2a_part_to_genai_part,
@@ -316,8 +305,6 @@ class A2aAgentExecutor(AgentExecutor):
             public_context_id.reset(identity_token)
             if user_token is not None:
                 request_user_id.reset(user_token)
-            if context_token is not None:
-                clear_kagent_span_attributes(context_token)
             try:
                 if runner is not None:
                     await self._safe_close_runner(runner)

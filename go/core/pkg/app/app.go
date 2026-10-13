@@ -161,6 +161,10 @@ func Run(ctx context.Context, opts Options) error {
 	if err := SetupLogger(); err != nil {
 		return err
 	}
+	quiescenceInterval := kagentenv.SessionQuiescencePollInterval.Get()
+	if quiescenceInterval <= 0 {
+		return fmt.Errorf("%s must be positive", kagentenv.SessionQuiescencePollInterval.Name())
+	}
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
 	_, telemetryWarnings := v2translator.TelemetryConfigFromProcess()
@@ -316,8 +320,9 @@ func Run(ctx context.Context, opts Options) error {
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors)
-	runtimeTasks := taskstore.NewService(store)
+	quiescenceWake := make(chan struct{}, 1)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
+	runtimeTasks := taskstore.NewService(store, quiescenceWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}

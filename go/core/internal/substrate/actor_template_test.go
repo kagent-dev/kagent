@@ -52,9 +52,19 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
 			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
-			require.Equal(t, map[string]string{workerPoolLabelKey: "pool"}, template.GetWorkerSelector().GetMatchLabels())
+			testWorkerPoolSelection(t, template, "agents", "pool")
 		})
 	}
+}
+
+// The keys are literals because the Helm chart and externally managed pools
+// set them by name; changing a key constant must fail here.
+func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, namespace, pool string) {
+	t.Helper()
+	require.Equal(t, map[string]string{
+		"kagent.dev/worker-pool-name":      pool,
+		"kagent.dev/worker-pool-namespace": namespace,
+	}, template.GetWorkerSelector().GetMatchLabels())
 }
 
 func TestActorTemplateForRevision(t *testing.T) {

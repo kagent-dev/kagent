@@ -121,7 +121,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	session := createTaskStoreSession(t, store.Client)
 	id := session.Id
 	listener := bufconn.Listen(DefaultMaxMessageSize)
-	tasks := taskstore.NewService(store)
+	tasks := taskstore.NewService(store, nil)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
 		Authenticator: &authimpl.InsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},

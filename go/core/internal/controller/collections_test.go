@@ -265,7 +265,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-default"}
 					}
 					require.True(t, proto.Equal(expected, state.Target.ActorTemplate), "sandbox selection must preserve the rest of the ActorTemplate")
-					require.Equal(t, map[string]string{"kagent.dev/worker-pool": "selected"}, state.Target.ActorTemplate.GetWorkerSelector().GetMatchLabels())
+					require.Equal(t, map[string]string{"kagent.dev/worker-pool-name": "selected", "kagent.dev/worker-pool-namespace": "team-a"}, state.Target.ActorTemplate.GetWorkerSelector().GetMatchLabels())
 				})
 			}
 		})

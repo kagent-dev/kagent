@@ -18,28 +18,52 @@ var _ manager.LeaderElectionRunnable = (*ActorWorkflow)(nil)
 // Every API replica can process idle work; PostgreSQL grants each claim once.
 func (*ActorWorkflow) NeedLeaderElection() bool { return false }
 
+// wakeQuiescence is a bounded, nonblocking hint. A buffered signal survives a
+// settlement racing with a worker's empty scan or a burst while all workers are
+// busy. PostgreSQL, rather than the channel, holds the work to drain.
+func (w *ActorWorkflow) wakeQuiescence() {
+	select {
+	case w.quiescenceWake <- struct{}{}:
+	default:
+	}
+}
+
 // Start pauses or suspends idle sessions independently of task publication.
-// A periodic scan discovers settled work across API replicas and restarts.
-// Workers are bounded; task reads never wait for them.
+// Startup and periodic recovery scans discover work missed by local signals.
+// Workers drain claims with bounded concurrency; task reads never wait for them.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
 	for range 4 {
 		workers.Go(func() {
-			timer := time.NewTicker(time.Second)
+			timer := time.NewTimer(w.recoveryInterval)
 			defer timer.Stop()
 			for ctx.Err() == nil {
 				work, err := w.store.ClaimSessionQuiescence(ctx)
 				if err == nil {
+					// Hand off a hint before runtime I/O so a single settlement
+					// burst can enlist all workers, even if this actor is slow.
+					w.wakeQuiescence()
 					w.quiesceIdleSession(ctx, work)
 					continue
+				}
+				delay := min(time.Second, w.recoveryInterval)
+				if errors.Is(err, database.ErrNotFound) {
+					pending, pendingErr := w.store.HasPendingSessionQuiescence(ctx)
+					if pendingErr != nil {
+						err = pendingErr
+					} else if !pending {
+						delay = w.recoveryInterval
+					}
 				}
 				if !errors.Is(err, database.ErrNotFound) && ctx.Err() == nil {
 					logging.FromContext(ctx).ErrorContext(ctx, "claim runtime boundary", "error", err)
 				}
+				timer.Reset(delay)
 				select {
 				case <-ctx.Done():
 					return
 				case <-timer.C:
+				case <-w.quiescenceWake:
 				}
 			}
 		})

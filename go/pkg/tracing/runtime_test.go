@@ -64,7 +64,6 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 	}
 	got := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}.Identity()
 	want := []attribute.KeyValue{
-		attribute.String(AttributeRuntime, "codex"),
 		attribute.String(AttributeAgentName, "reporter-codex"),
 		attribute.String(AttributeAgentID, "team/reporter-codex"),
 	}
@@ -79,7 +78,6 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 		Runtime: RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-4-5",
 	}.Identity()
 	wantModel := []attribute.KeyValue{
-		attribute.String(AttributeRuntime, "claude"),
 		attribute.String(AttributeAgentName, "reporter-claude"),
 		attribute.String(AttributeAgentID, "team/reporter-claude"),
 		attribute.String(AttributeProviderName, "anthropic"),
@@ -90,9 +88,28 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 	}
 }
 
+func TestResourceIdentityUsesTheMainAgentKeys(t *testing.T) {
+	got := RuntimeTelemetry{
+		Runtime: RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-4-5",
+	}.ResourceIdentity()
+	want := []attribute.KeyValue{
+		attribute.String(AttributeRuntime, "claude"),
+		attribute.String(AttributeMainAgentName, "reporter-claude"),
+		attribute.String(AttributeMainAgentID, "team/reporter-claude"),
+		attribute.String(AttributeProviderName, "anthropic"),
+		attribute.String(AttributeRequestModel, "claude-sonnet-4-5"),
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ResourceIdentity() = %v, want %v", got, want)
+	}
+	if got := (RuntimeTelemetry{}).ResourceIdentity(); len(got) != 0 {
+		t.Fatalf("ResourceIdentity() = %v, want none", got)
+	}
+}
+
 func TestChildResourceAddsTheCompiledNamespace(t *testing.T) {
 	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}
-	want := append(telemetry.Identity(), attribute.String("service.namespace", "team"))
+	want := append(telemetry.ResourceIdentity(), attribute.String("service.namespace", "team"))
 	if got := telemetry.ChildResource(); !slices.Equal(got, want) {
 		t.Fatalf("ChildResource() = %v, want %v", got, want)
 	}
@@ -118,21 +135,21 @@ func TestRequestIdentity(t *testing.T) {
 }
 
 func TestMergeResourceAttributes(t *testing.T) {
-	owned := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude"}.Identity()
+	owned := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude"}.ResourceIdentity()
 	for _, test := range []struct {
 		name     string
 		existing string
 		owned    []attribute.KeyValue
 		want     string
 	}{
-		{name: "empty existing", owned: owned, want: "gen_ai.agent.name=reporter-claude,kagent.runtime=claude"},
+		{name: "empty existing", owned: owned, want: "gen_ai.main_agent.name=reporter-claude,kagent.runtime=claude"},
 		{
 			name: "user attributes preserved", existing: "deployment.environment=prod,team=sre", owned: owned,
-			want: "deployment.environment=prod,team=sre,gen_ai.agent.name=reporter-claude,kagent.runtime=claude",
+			want: "deployment.environment=prod,team=sre,gen_ai.main_agent.name=reporter-claude,kagent.runtime=claude",
 		},
 		{
 			name: "owned key replaces user value", existing: "kagent.runtime=codex,team=sre", owned: owned,
-			want: "team=sre,gen_ai.agent.name=reporter-claude,kagent.runtime=claude",
+			want: "team=sre,gen_ai.main_agent.name=reporter-claude,kagent.runtime=claude",
 		},
 		{
 			// The OpenTelemetry SDK resolves the same string to the last value, so
@@ -162,7 +179,7 @@ func TestMergeResourceAttributes(t *testing.T) {
 
 func TestResourceEnvironmentReplacesOnlyTheResourceVariable(t *testing.T) {
 	environment := []string{"PATH=/usr/bin", "OTEL_RESOURCE_ATTRIBUTES=team=sre,kagent.runtime=stale", "HOME=/data"}
-	got := ResourceEnvironment(environment, RuntimeTelemetry{Runtime: RuntimeCodex}.Identity())
+	got := ResourceEnvironment(environment, RuntimeTelemetry{Runtime: RuntimeCodex}.ResourceIdentity())
 	want := []string{"PATH=/usr/bin", "HOME=/data", "OTEL_RESOURCE_ATTRIBUTES=team=sre,kagent.runtime=codex"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ResourceEnvironment() = %v, want %v", got, want)
@@ -186,7 +203,8 @@ func TestResourceEnvironmentDropsTheVariableWhenNothingRemains(t *testing.T) {
 func TestAttributeNamesAreNotNamespaces(t *testing.T) {
 	names := []string{
 		AttributeOperationName, AttributeRuntime, AttributeAgentName, AttributeAgentID, AttributeProviderName,
-		AttributeRequestModel, AttributeConversationID, AttributeTaskID, AttributeUserID, AttributeMethod,
+		AttributeMainAgentName, AttributeMainAgentID, AttributeRequestModel, AttributeConversationID, AttributeTaskID,
+		AttributeUserID, AttributeMethod,
 		AttributeTaskState, AttributeSegment, AttributeDisposition, AttributeInputMessages, AttributeInputTruncated,
 		AttributeOutputMessages, AttributeOutputTruncated, AttributeErrorType, AttributeLinkRelationship,
 	}

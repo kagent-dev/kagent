@@ -402,8 +402,8 @@ func DefaultsEnvironment() []corev1.EnvVar {
 func resourceIdentity(identity tracing.RuntimeTelemetry) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
 		semconv.ServiceNamespaceKey.String(identity.AgentNamespace),
-		conv.GenAIAgentNameKey.String(identity.AgentName),
-		conv.GenAIAgentIDKey.String(identity.AgentID()),
+		conv.GenAIMainAgentNameKey.String(identity.AgentName),
+		conv.GenAIMainAgentIDKey.String(identity.AgentID()),
 	}
 	if identity.Provider != "" {
 		attributes = append(attributes, conv.GenAIProviderNameKey.String(identity.Provider))

@@ -12,7 +12,7 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -22,6 +22,7 @@ from kagent.core.a2a import (
 
 # --- Configure Logging ---
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+from kagent.core.telemetry import conv, shutdown_lifespan
 
 from langgraph.graph.state import CompiledStateGraph
 
@@ -68,7 +69,7 @@ class KAgentApp:
             agent_card: Agent card configuration for A2A protocol
             config: KAgent configuration
             executor_config: Optional executor configuration
-            tracing: Enable OpenTelemetry tracing/logging via kagent.core.tracing
+            tracing: Enable OpenTelemetry via kagent.core.telemetry
 
         """
         self._graph = graph
@@ -112,7 +113,7 @@ class KAgentApp:
 
         # Create FastAPI application
         app = FastAPI(
-            lifespan=controller.lifespan(),
+            lifespan=shutdown_lifespan(controller.lifespan()),
             title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
@@ -122,13 +123,9 @@ class KAgentApp:
             max_content_length=get_a2a_max_content_length(),
         )
 
-        # Configure tracing/instrumentation if enabled
         if self._enable_tracing:
-            try:
-                configure_tracing(self.config.name, self.config.namespace, app)
-                logger.info("Tracing configured for KAgent LangGraph app")
-            except Exception:
-                logger.exception("Failed to configure tracing")
+            bootstrap(conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name)
+            instrument_app(app)
 
         # Add health check and debugging routes
         app.add_route("/health", methods=["GET"], route=health_check)

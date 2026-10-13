@@ -214,6 +214,19 @@ func TestSetupLoggerRejectsBadLevel(t *testing.T) {
 	}
 }
 
+func TestRunRejectsNonpositiveQuiescenceInterval(t *testing.T) {
+	t.Setenv("KAGENT_LOG_LEVEL", "info")
+	for _, input := range []string{"0s", "-1m"} {
+		t.Run(input, func(t *testing.T) {
+			t.Setenv(kagentenv.SessionQuiescencePollInterval.Name(), input)
+			err := Run(t.Context(), Options{})
+			if want := "KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL must be positive"; err == nil || err.Error() != want {
+				t.Fatalf("Run() error = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
 func TestMergePolicies(t *testing.T) {
 	defaults := grpcserver.MethodPolicies{"/core.Svc/Get": auth.AccessRead}
 

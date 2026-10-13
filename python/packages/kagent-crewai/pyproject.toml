@@ -15,8 +15,7 @@ dependencies = [
   "typing-extensions>=4.16.0",
   "uvicorn>=0.20.0",
   "a2a-sdk[http-server]>=1.1.5",
-  "kagent-core>=0.1.0",
-  "opentelemetry-instrumentation-crewai>=0.47.3",
+  "kagent-core[crewai]>=0.1.0",
   "google-genai>=2.27.0,<3"
 ]
 

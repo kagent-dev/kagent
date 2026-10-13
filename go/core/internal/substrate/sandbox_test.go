@@ -20,6 +20,9 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	policy := SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}
 	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy)
 	require.NoError(t, err)
+	require.NotEqual(t, "5bf14bc98818a54bf4e59e5aca83de9bde5df22e9efa206b65e1389069a188c3", digest,
+		"namespace-scoped placement must create a fresh immutable ActorTemplate")
+	testWorkerPoolSelection(t, actor, template.Namespace, template.Spec.Substrate.WorkerPoolRef.Name)
 	require.Contains(t, string(snapshot), policy.GuestImage)
 	require.Equal(t, []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"}, actor.Containers[0].Command)
 	require.Equal(t, policy.GuestImage, actor.Volumes[1].Image.Reference)
