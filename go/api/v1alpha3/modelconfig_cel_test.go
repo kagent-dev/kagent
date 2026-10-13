@@ -251,6 +251,34 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			},
 			wantReject: "maxTokens",
 		},
+		{
+			name: "azure apiVersion omitted on chat completions rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-azure-no-version", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:       "gpt-4.1-mini",
+						Provider:    ModelProviderAzureOpenAI,
+						AzureOpenAI: &AzureOpenAIConfig{Endpoint: "https://team.openai.azure.com"},
+					},
+				}
+			},
+			wantReject: "apiVersion is required unless apiFormat is responses",
+		},
+		{
+			name: "azure apiVersion omitted on responses accepted",
+			build: func() ctrl_client.Object {
+				responses := OpenAIAPIFormatResponses
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-azure-responses", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:       "gpt-4.1-mini",
+						Provider:    ModelProviderAzureOpenAI,
+						AzureOpenAI: &AzureOpenAIConfig{Endpoint: "https://team.openai.azure.com", APIFormat: &responses},
+					},
+				}
+			},
+		},
 	}
 
 	for _, c := range cases {
@@ -262,6 +290,27 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			}
 			require.Error(t, err)
 			require.Contains(t, err.Error(), c.wantReject)
+		})
+	}
+
+	for _, tc := range []struct {
+		name   string
+		stream *bool
+		want   bool
+	}{
+		{name: "default", want: true},
+		{name: "enabled", stream: new(true), want: true},
+		{name: "disabled", stream: new(false), want: false},
+	} {
+		t.Run("stream "+tc.name, func(t *testing.T) {
+			model := &ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "mc-stream-" + tc.name, Namespace: ns},
+				Spec:       ModelConfigSpec{Model: "gpt-4", Provider: ModelProviderOpenAI, Stream: tc.stream},
+			}
+			require.NoError(t, cl.Create(ctx, model))
+			stored := &ModelConfig{}
+			require.NoError(t, cl.Get(ctx, ctrl_client.ObjectKeyFromObject(model), stored))
+			require.Equal(t, new(tc.want), stored.Spec.Stream)
 		})
 	}
 }

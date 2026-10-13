@@ -440,7 +440,7 @@ describe("the cluster", () => {
                 workerNamespace: "kagent",
                 workerPod: "worker-0",
                 workerPool: "pool",
-                workerPodIp: "10.0.0.1",
+                workerPodIps: ["10.0.0.1", "fd00::1"],
               },
               externalSnapshot: { snapshotUri: "s3://snapshot" },
               inProgressLocalSnapshotName: "next-snapshot",
@@ -671,6 +671,23 @@ describe("the cluster", () => {
     expect(page.actors[0].version).toBe(3);
     expect(page.actors[0].ateomPodName).toBeUndefined();
     expect(page.nextPageToken).toBe("cursor-2");
+  });
+
+  it.each([
+    { ips: ["10.0.0.1", "fd00::1"], primary: "10.0.0.1" },
+    { ips: ["fd00::1", "10.0.0.1"], primary: "fd00::1" },
+    { ips: [], primary: undefined },
+  ])("reads the worker's primary IP from $ips", async ({ ips, primary }) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateWorkers: () => ({
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0", ips }],
+        }),
+      });
+    });
+
+    const page = await apiClient.substrate.workers({});
+    expect(page.workers[0].ip).toBe(primary);
   });
 
   // Absent rather than empty, so "there is more" is a question about presence: an

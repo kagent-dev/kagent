@@ -8,6 +8,7 @@ import (
 	"iter"
 	"os"
 	"strings"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -28,6 +29,8 @@ type InvokeCfg struct {
 	Session      string
 	Stream       bool
 	Token        string
+	PushURL      string
+	PushID       string
 }
 
 func runInvoke(
@@ -52,6 +55,17 @@ func runInvoke(
 	if strings.ContainsAny(cfg.Token, " \t\r\n") {
 		return errors.New("model API key must not contain whitespace")
 	}
+	if cfg.PushID != "" && cfg.PushURL == "" {
+		return errors.New("--push-id requires --push-url")
+	}
+	if cfg.PushURL != "" {
+		if err := validatePushURL(cfg.PushURL); err != nil {
+			return err
+		}
+		if cfg.Stream {
+			return errors.New("--push-url cannot be combined with --stream; push invocation returns the task immediately")
+		}
+	}
 
 	session, err := connection.OpenGateway(ctx, options)
 	if err != nil {
@@ -66,12 +80,49 @@ func runInvoke(
 	}
 
 	request := newInvokeRequest(task)
+	if cfg.PushURL != "" {
+		return invokeWithPush(ctx, a2aClient, request, cfg, format, out)
+	}
 	ctx = withModelToken(ctx, cfg.Token)
 
 	if cfg.Stream {
 		return invokeStreaming(ctx, a2aClient, request, format, out)
 	}
 	return invokeNonStreaming(ctx, a2aClient, request, format, out)
+}
+
+type pushInvokeClient interface {
+	SendMessage(context.Context, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error)
+}
+
+// Embed the callback in the initial send so it is stored before dispatch.
+func invokeWithPush(ctx context.Context, client pushInvokeClient, request *a2atype.SendMessageRequest, cfg *InvokeCfg, format clioutput.Format, out io.Writer) error {
+	callbackID := cfg.PushID
+	if callbackID == "" {
+		callbackID = uuid.NewString()
+	}
+	request.Config = &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{
+		ID: callbackID, URL: cfg.PushURL,
+	}}
+	result, err := retryUnacceptedSend(ctx, func() (a2atype.SendMessageResult, error) {
+		return client.SendMessage(withModelToken(ctx, cfg.Token), request)
+	})
+	if err != nil {
+		return fmt.Errorf("invoke Session: %w", err)
+	}
+	task, ok := result.(*a2atype.Task)
+	if !ok || task.ID == "" {
+		return errors.New("invocation returned no task ID")
+	}
+	config := &a2atype.PushConfig{TaskID: task.ID, ID: callbackID, URL: cfg.PushURL}
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteJSON(out, struct {
+			Task       *a2atype.Task       `json:"task"`
+			PushConfig *a2atype.PushConfig `json:"pushConfig"`
+		}{Task: task, PushConfig: config})
+	}
+	_, err = fmt.Fprintf(out, "Task ID: %s\nState: %s\nCallback ID: %s\nURL: %s\n", task.ID, task.Status.State, config.ID, config.URL)
+	return err
 }
 
 func newInvokeRequest(task string) *a2atype.SendMessageRequest {
@@ -122,7 +173,9 @@ func invokeNonStreaming(
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	result, err := client.SendMessage(ctx, request)
+	result, err := retryUnacceptedSend(ctx, func() (a2atype.SendMessageResult, error) {
+		return client.SendMessage(ctx, request)
+	})
 	if err != nil {
 		return fmt.Errorf("invoke Session: %w", err)
 	}
@@ -150,8 +203,42 @@ func invokeStreaming(
 		onEvent = tableWriter.Write
 	}
 
-	result, streamErr := consumeA2AStream(client.SendStreamingMessage(ctx, request), onEvent)
+	result, streamErr := retryUnacceptedSend(ctx, func() (a2atype.SendMessageResult, error) {
+		return consumeA2AStream(client.SendStreamingMessage(ctx, request), onEvent)
+	})
 	return finishInvokeStream(tableWriter, result, streamErr)
+}
+
+// Retry only the gateway's proof that this message was never accepted. A
+// partial result or an ambiguous transport error must never restart execution.
+// The window limits retries, not the duration of an accepted invocation.
+func retryUnacceptedSend(ctx context.Context, send func() (a2atype.SendMessageResult, error)) (a2atype.SendMessageResult, error) {
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		result, err := send()
+		var protocolError *a2atype.Error
+		if result != nil || !errors.Is(err, a2atype.ErrUnsupportedOperation) || !errors.As(err, &protocolError) || !time.Now().Before(deadline) {
+			return result, err
+		}
+		info := protocolError.ErrorInfo().Value
+		metadata, _ := info["metadata"].(map[string]string)
+		if info["domain"] != a2atype.ProtocolDomain || metadata["reason"] != "KAGENT_SEND_NOT_ACCEPTED" {
+			return result, err
+		}
+		timer := time.NewTimer(min(100*time.Millisecond, time.Until(deadline)))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, errors.Join(ctx.Err(), err)
+		case <-timer.C:
+			if !time.Now().Before(deadline) {
+				return result, err
+			}
+		}
+	}
 }
 
 func finishInvokeStream(tableWriter *tableStreamWriter, result a2atype.SendMessageResult, streamErr error) error {
@@ -369,6 +456,8 @@ func NewInvokeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
 	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
+	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register a callback before task dispatch; return the task immediately")
+	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
 	_ = cmd.MarkFlagRequired("session")
 	cmd.MarkFlagsOneRequired("task", "file")
 	cmd.MarkFlagsMutuallyExclusive("task", "file")

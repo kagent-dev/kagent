@@ -67,9 +67,10 @@ export interface ValueRef {
 
 export interface TLSConfig {
   disableVerify?: boolean;
-  caCertSecretRef?: string;
-  caCertSecretKey?: string;
-  disableSystemCAs?: boolean;
+  // Deferred until runtime custom CA support is available.
+  // caCertSecretRef?: string;
+  // caCertSecretKey?: string;
+  // disableSystemCAs?: boolean;
 }
 
 /** `namespace/name`, the ref format the API uses for path segments. */

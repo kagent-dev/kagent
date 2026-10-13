@@ -35,7 +35,11 @@ method names for the operations older clients called `message/send`,
 `message/stream`, `tasks/get`, `tasks/list`, `tasks/cancel`, and
 `tasks/resubscribe`.
 
-Set `controller.a2aGatewayUrl` in Helm (the controller's `KAGENT_GATEWAY_URL`) to
+The card advertises `capabilities.pushNotifications: true`. See
+[A2A push notifications](a2a-push-notifications.md) for registration, callbacks,
+and delivery guarantees.
+
+Set `config.gateway.publicUrl` in Helm (the controller’s `gateway.publicUrl`) to
 the externally reachable gateway base URL when exposing agents outside the
 cluster. Its default is the controller's cluster Service URL. HTTP interfaces
 append `/agents/{namespace}/{name}` to this base, preserving any deployment prefix.

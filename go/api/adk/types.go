@@ -151,6 +151,7 @@ type AzureOpenAI struct {
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty"`
+	APIFormat   string   `json:"api_format,omitempty"`
 }
 
 func (a *AzureOpenAI) GetType() string {
@@ -176,6 +177,15 @@ type Anthropic struct {
 	TopP        *float64 `json:"top_p,omitempty"`
 	TopK        *int     `json:"top_k,omitempty"`
 	Timeout     *int     `json:"timeout,omitempty"`
+	// PromptCaching enables Anthropic prompt caching by marking the last tool
+	// definition, the last system prompt block and the last block of the latest
+	// conversation turn with a cache_control breakpoint. See the
+	// v1alpha3.AnthropicConfig CRD doc for context.
+	PromptCaching bool `json:"prompt_caching,omitempty"`
+	// CacheTTL selects the cache retention window when PromptCaching is on:
+	// "5m" (default) or "1h". See the v1alpha3.AnthropicConfig CRD doc for the
+	// cost trade-offs of "1h".
+	CacheTTL string `json:"cache_ttl,omitempty"`
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
@@ -670,6 +680,7 @@ type OutputConfig struct {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
+	Runtime         *RuntimeConfig         `json:"runtime,omitempty"`
 	Name            string                 `json:"name,omitempty"`
 	Model           Model                  `json:"model"`
 	Description     string                 `json:"description"`

@@ -76,6 +76,10 @@ import {
 
 const { Text } = Typography;
 
+// Click-through, since a row's title tooltip opens over that row's menu button.
+// Module-level: an inline object re-renders the ellipsis Text without end.
+const TITLE_TOOLTIP_STYLES = { root: { pointerEvents: "none" as const } };
+
 /** Where the rail's collapsed state is remembered, per reader. */
 const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
 
@@ -391,7 +395,10 @@ export function AgentRail({
    * list very nearly unusable: the one row a reader could identify was the one they
    * were already looking at.
    */
-  const derivedTitles = useConversationTitles(chats);
+  const derivedTitles = useConversationTitles(
+    chats,
+    ref.id ? { id: ref.id, title: autoTitle } : undefined,
+  );
 
   /*
    * Bringing the list into line is the caller's job, not this one's.
@@ -1534,7 +1541,11 @@ function ChatEntry({
           // row, and what the ellipsis hides is the name. To the right, so it opens
           // into the page rather than back over the list it is explaining one of.
           ellipsis={{
-            tooltip: { title: conversationTitle(instance, autoTitle), placement: "right" },
+            tooltip: {
+              title: conversationTitle(instance, autoTitle),
+              placement: "right",
+              styles: TITLE_TOOLTIP_STYLES,
+            },
           }}
           css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
         >

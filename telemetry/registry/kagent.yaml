@@ -1,7 +1,21 @@
 file_format: definition/2
 attributes:
+  - key: kagent.gc.stage
+    brief: The stage of a runtime revision garbage collection attempt.
+    stability: development
+    type:
+      members:
+        - id: discovery
+          value: discovery
+          brief: Discovering cleanup-eligible persisted revisions.
+          stability: development
+        - id: collection
+          value: collection
+          brief: Claiming, deleting compute for, or finalizing a revision.
+          stability: development
+
   - key: kagent.runtime
-    brief: The runtime that produces the model and tool spans of an agent.
+    brief: The framework or harness that runs an agent.
     note: >
       Every runtime declares it on its resource. The name of a Harness object is
       not its runtime.
@@ -39,6 +53,23 @@ attributes:
         - id: byo
           value: byo
           brief: A bring-your-own image built on kagent-core.
+          stability: development
+
+  - key: kagent.genai.producer
+    brief: The component that writes the GenAI model and tool spans of an agent.
+    note: >
+      Set on the resource of a native harness process. With the value `runtime`, the kagent
+      harness runtime writes the model and tool spans of this process. Its native spans repeat
+      the same calls, so the reference collector removes their GenAI operation, model, finish
+      reason and token usage attributes. Each call is then counted once. A standalone Claude
+      request keeps them, since the runtime writes no span for it. Absent when the image writes
+      its own native GenAI spans.
+    stability: development
+    type:
+      members:
+        - id: runtime
+          value: runtime
+          brief: The kagent harness runtime writes the model and tool spans.
           stability: development
 
   - key: kagent.invocation.segment
@@ -90,11 +121,48 @@ attributes:
           stability: development
 
   - key: kagent.capture.input_truncated
-    brief: Whether the captured input messages were shortened to the capture budget.
+    brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
     stability: development
     type: boolean
 
+  - key: kagent.inference.request_id
+    brief: The provider's request ID of a model call.
+    note: >
+      Lets a backend join the call with the provider's logs. Claude only. A call
+      canceled early can lack it.
+    stability: development
+    type: string
+    examples: ['req_011CUa1b2c3d4e5f6g7h8i9j']
+
+  - key: kagent.inference.usage_partial
+    brief: Whether the call ended without final usage, so its output tokens are a lower bound.
+    note: >
+      Set only when true. Input tokens, when present, stay exact. Calls cut short
+      and Claude subagent calls can set it.
+    stability: development
+    type: boolean
+
+  - key: kagent.inference.retry.count
+    brief: How many times the harness retried a model call after a transient error.
+    note: >
+      Set only when the call was retried. The chat span covers all attempts.
+      Codex counts its reported retries, not the HTTP retries inside each one.
+      Over a WebSocket, Codex does not report its first retry. Claude also
+      counts a new stream that replaces one cut off mid-response.
+    stability: development
+    type: int
+
+  - key: kagent.mcp.server.name
+    brief: The name of the MCP server that serves a tool call.
+    note: >
+      The value is the server name in the runtime's MCP configuration. A `.` in a
+      RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds
+      the tool name without the server, so the same tool groups together in all runtimes.
+    stability: development
+    type: string
+    examples: ['kagent-tool-server']
+
   - key: kagent.capture.output_truncated
-    brief: Whether the captured output messages were shortened to the capture budget.
+    brief: Whether the captured output messages or tool result were shortened to the capture budget.
     stability: development
     type: boolean

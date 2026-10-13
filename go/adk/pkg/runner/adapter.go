@@ -12,7 +12,6 @@ import (
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkmemory "google.golang.org/adk/v2/memory"
 	adkplugin "google.golang.org/adk/v2/plugin"
@@ -49,7 +48,7 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
+	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, agentConfig.ProcessConfig().TokenPropagation)
 	if err != nil {
 		return runner.Config{}, err
 	}
@@ -106,9 +105,9 @@ func CreateRunnerConfig(
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.TokenPropagationPlugin, error) {
-	propagateToken := strings.EqualFold(strings.TrimSpace(env.KagentPropagateToken.Get()), "true")
-	stsWellKnownURI := strings.TrimSpace(env.StsWellKnownURI.Get())
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
+	propagateToken := config.Enabled
+	stsWellKnownURI := config.STSWellKnownURI
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
 	}
@@ -135,21 +134,9 @@ func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.To
 
 	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
 	// backend. Both are repeatable; empty values are omitted from the request.
-	resource := splitCSV(env.KagentSTSResource.Get())
-	audience := splitCSV(env.KagentSTSAudience.Get())
+	resource := config.Resources
+	audience := config.Audiences
 
 	log.InfoContext(ctx, "enabling STS token propagation plugin", "well_known_uri", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
-}
-
-// splitCSV parses a comma-separated value into trimmed, non-empty entries,
-// returning nil when none are present so the exchange target stays unset.
-func splitCSV(v string) []string {
-	var out []string
-	for p := range strings.SplitSeq(v, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

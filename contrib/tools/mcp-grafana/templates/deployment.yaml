@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "mcp-grafana.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicas }}
+  replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "mcp-grafana.selectorLabels" . | nindent 6 }}

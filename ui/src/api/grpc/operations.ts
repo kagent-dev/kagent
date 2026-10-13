@@ -1307,7 +1307,7 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
     actorTemplateName: orUndefined(actor.actorTemplate?.name),
     ateomPodNamespace: orUndefined(assignment?.workerNamespace),
     ateomPodName: orUndefined(assignment?.workerPod),
-    ateomPodIp: orUndefined(assignment?.workerPodIp),
+    ateomPodIp: orUndefined(assignment?.workerPodIps[0]),
     latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
     workerPoolName: orUndefined(assignment?.workerPool),
     inProgressSnapshot: orUndefined(actor.status?.inProgressLocalSnapshotName),
@@ -1320,7 +1320,7 @@ function toWorkerEntry(worker: PbWorker): SubstrateWorkerEntry {
     workerNamespace: worker.workerNamespace,
     workerPool: worker.workerPool,
     workerPod: worker.workerPod,
-    ip: orUndefined(worker.ip),
+    ip: orUndefined(worker.ips[0]),
     version: toNumber(worker.metadata?.version),
   };
 }

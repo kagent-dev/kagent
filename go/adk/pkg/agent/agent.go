@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"log/slog"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
@@ -31,8 +31,8 @@ import (
 
 // Default model names used when not specified in configuration
 const (
-	DefaultGeminiModel    = "gemini-2.5-flash"
-	DefaultAnthropicModel = "claude-sonnet-4-20250514"
+	DefaultGeminiModel    = "gemini-3.5-flash"
+	DefaultAnthropicModel = "claude-sonnet-4-6"
 	DefaultOllamaModel    = "llama3.2"
 )
 
@@ -42,28 +42,29 @@ const (
 // Optional stsPlugin can be provided for token propagation to MCP tools; pass
 // nil if token propagation is not needed.
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
-	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, true, extraTools...)
+	if agentConfig == nil {
+		return nil, fmt.Errorf("agent config is required")
+	}
+	if err := agentConfig.ValidateRuntime(); err != nil {
+		return nil, err
+	}
+	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, agentConfig.ProcessConfig(), extraTools...)
 }
 
-func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, legacySkillsEnv bool, extraTools ...tool.Tool) (agent.Agent, error) {
+func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime adk.RuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logging.FromContext(ctx)
 
 	if agentConfig == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
 
-	propagateToken := strings.EqualFold(strings.TrimSpace(env.KagentPropagateToken.Get()), "true")
+	propagateToken := runtime.TokenPropagation.Enabled
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
-	if skillsDirectory == "" && legacySkillsEnv {
-		if folder, set := env.KagentSkillsFolder.Lookup(); set {
-			skillsDirectory = strings.TrimSpace(folder)
-		}
-	}
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
 		skills, err := skillsSource.ListFrontmatters(ctx)
@@ -71,7 +72,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
 		if len(skills) > 0 {
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory)
+			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, runtime.FileSearchTools)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
 			}
@@ -114,13 +115,14 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
+	llmModel = fileextract.WithFileText(llmModel)
 
 	if agentName == "" {
 		agentName = "agent"
 	}
 	var subAgents []agent.Agent
 	for _, childConfig := range agentConfig.SubAgents {
-		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, false)
+		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, runtime)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create sub-agent %q: %w", childConfig.Name, err)
 		}
@@ -281,6 +283,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Endpoint:        m.Endpoint,
 			Deployment:      m.Deployment,
 			APIVersion:      m.APIVersion,
+			APIFormat:       m.APIFormat,
 		}
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
@@ -337,6 +340,8 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Temperature:     m.Temperature,
 			TopP:            m.TopP,
 			TopK:            m.TopK,
+			PromptCaching:   m.PromptCaching,
+			CacheTTL:        m.CacheTTL,
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 
@@ -383,7 +388,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		}
 		modelName := m.Model
 		if modelName == "" {
-			return nil, fmt.Errorf("bedrock requires a model name (e.g. anthropic.claude-3-sonnet-20240229-v1:0)")
+			return nil, fmt.Errorf("bedrock requires a model name (e.g. global.anthropic.claude-sonnet-4-6)")
 		}
 		// Use Bedrock Converse API for ALL models (including Anthropic).
 		// ReadTimeout maps to the overall HTTP client timeout (whole Converse

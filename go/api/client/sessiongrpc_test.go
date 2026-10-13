@@ -77,6 +77,19 @@ func (s *recordingA2AService) SubscribeToTask(req *a2apb.SubscribeToTaskRequest,
 	return stream.Send(response)
 }
 
+func (s *recordingA2AService) ListTaskPushNotificationConfigs(ctx context.Context, req *a2apb.ListTaskPushNotificationConfigsRequest) (*a2apb.ListTaskPushNotificationConfigsResponse, error) {
+	s.observe(ctx, req.Tenant, "")
+	return &a2apb.ListTaskPushNotificationConfigsResponse{
+		Configs:       []*a2apb.TaskPushNotificationConfig{{Id: "callback", TaskId: req.TaskId, Url: "https://receiver.example/callback"}},
+		NextPageToken: "next",
+	}, nil
+}
+
+func (s *recordingA2AService) CreateTaskPushNotificationConfig(ctx context.Context, req *a2apb.TaskPushNotificationConfig) (*a2apb.TaskPushNotificationConfig, error) {
+	s.observe(ctx, req.Tenant, "")
+	return req, nil
+}
+
 func (s *recordingA2AService) observe(ctx context.Context, tenant, contextID string) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
@@ -156,6 +169,21 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	a2aService.mu.Lock()
 	require.Equal(t, sessionClientTestID, a2aService.observations[3].contextID)
 	require.Equal(t, "team-a/assistant", a2aService.observations[3].id)
+	a2aService.mu.Unlock()
+	created, err := sessionClient.CreateTaskPushConfig(context.Background(), &a2atype.PushConfig{
+		TaskID: "task-id", ID: "callback", URL: "https://receiver.example/callback",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "callback", created.ID)
+	a2aService.mu.Lock()
+	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[4])
+	a2aService.mu.Unlock()
+	page, err := gatewayClient.A2A.ListTaskPushConfigsPage(context.Background(), sessionClientTestID, "task-id", 1, "previous")
+	require.NoError(t, err)
+	require.Equal(t, "next", page.GetNextPageToken())
+	require.Equal(t, "callback", page.GetConfigs()[0].GetId())
+	a2aService.mu.Lock()
+	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[5])
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(2), dialCount.Load())
 }

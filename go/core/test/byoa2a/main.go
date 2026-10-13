@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"iter"
@@ -9,6 +10,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -30,14 +32,24 @@ func (executor) Cancel(context.Context, *a2asrv.ExecutorContext) iter.Seq2[a2aty
 }
 
 func main() {
-	logger, err := logging.NewFromEnv(os.Stderr)
+	if err := config.MaterializeFromEnv("/config"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	compiled, err := config.LoadAgentConfig("/config/config.json")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	application, err := app.New(app.AppConfig{
+	runtime := compiled.ProcessConfig()
+	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	application, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneURL, MaxContentLength: runtime.MaxContentLength,
 		AgentCard: a2atype.AgentCard{Name: "opaque-byo", Version: "v1", Capabilities: a2atype.AgentCapabilities{Streaming: true}},
-		Port:      "80", AppName: "opaque-byo", Logger: logger,
+		Port:      cmp.Or(runtime.Port, "80"), AppName: cmp.Or(runtime.Name, "opaque-byo"), Logger: logger,
 	}, executor{})
 	if err != nil {
 		logger.Error("failed to create A2A application", "error", err)

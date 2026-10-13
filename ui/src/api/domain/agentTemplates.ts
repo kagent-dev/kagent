@@ -24,14 +24,14 @@ export interface McpToolBinding {
   requireApproval?: boolean;
 }
 
-/**
- * Another AgentTemplate or Agent exposed as a tool; exactly one ref is set.
- * `templateRef` runs in this runtime, `agentRef` in its own Session (not compiled yet).
- */
-export type SubAgentToolBinding = { name: string; description: string } & (
-  | { templateRef: AgentTemplateLocalRef; agentRef?: never }
-  | { agentRef: AgentTemplateLocalRef; templateRef?: never }
-);
+/** Another AgentTemplate exposed as a tool in the parent's runtime. */
+export interface SubAgentToolBinding {
+  name: string;
+  description: string;
+  templateRef: AgentTemplateLocalRef;
+  // Deferred until Dedicated subagent execution is available.
+  // agentRef?: AgentTemplateLocalRef;
+}
 
 /** Exactly one of `mcp` or `subAgent` — the CRD rejects both and neither. */
 export interface ToolBinding {

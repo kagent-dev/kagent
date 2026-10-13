@@ -61,7 +61,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 				ctx: ctx, client: a2apb.NewA2AServiceClient(conn), sessionID: id, contextID: id, tenant: ref.GetNamespace() + "/" + ref.GetName(),
 			}
 			_, _, task := fixture.send(t, "What is 2+2?")
-			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task response: %s", taskText(task))
 			require.True(t, strings.Contains(taskText(task), "The answer is 4."))
 			return string(task.ID)
 		}
@@ -144,12 +144,16 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			deleteSession(response.GetSession().GetId())
 			return false, nil
 		}))
-		forked, err := checkpoints.ForkSession(ctx, &apiv1alpha1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
-		require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
-		forkID := forked.GetSession().GetId()
-		t.Cleanup(func() { deleteSession(forkID) })
-		send(forkID)
-		deleteSession(forkID)
+		if checkpointForksSupported {
+			forked, err := checkpoints.ForkSession(ctx, &apiv1alpha1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
+			require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
+			forkID := forked.GetSession().GetId()
+			t.Cleanup(func() { deleteSession(forkID) })
+			send(forkID)
+			deleteSession(forkID)
+		} else {
+			requireForkRejected(ctx, t, checkpoints, checkpointID)
+		}
 		_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 		require.NoError(t, err)
 

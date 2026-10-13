@@ -5,6 +5,7 @@ ARG TARGETARCH
 
 WORKDIR /workspace
 COPY go.mod go.sum ./
+COPY core/pkg/consts/ core/pkg/consts/
 COPY core/pkg/env/ core/pkg/env/
 COPY pkg/logging/ pkg/logging/
 COPY sandbox/guest/cmd/ sandbox/guest/cmd/

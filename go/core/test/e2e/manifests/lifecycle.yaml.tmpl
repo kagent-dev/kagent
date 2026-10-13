@@ -54,9 +54,6 @@ spec:
   workload:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
     command: ["/app"]
-  env:
-  - name: KAGENT_PORT
-    value: "80"
   substrate:
     workerPoolRef:
       name: kagent-default
@@ -107,8 +104,9 @@ metadata:
   name: smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: smoke
+  template:
+    ref:
+      name: smoke
   harnessRef:
     name: kagent
 ---
@@ -118,7 +116,8 @@ metadata:
   name: byo-smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: byo-smoke
+  template:
+    ref:
+      name: byo-smoke
   harnessRef:
     name: byo-e2e

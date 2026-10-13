@@ -24,6 +24,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc"
@@ -171,7 +173,6 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 	for key, want := range map[string]string{
 		tracing.AttributeOperationName: tracing.OperationInvokeAgent,
 		tracing.AttributeMethod:        "SendMessage",
-		tracing.AttributeRuntime:       "codex",
 		tracing.AttributeAgentName:     "reporter-codex",
 		tracing.AttributeAgentID:       "team/reporter-codex",
 		tracing.AttributeProviderName:  "openai",
@@ -182,6 +183,75 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 		if got := spanAttribute(span, key); got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
+	}
+}
+
+func TestInvocationDurationOnlyForNativeHarnesses(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		telemetry tracing.RuntimeTelemetry
+		want      []attribute.KeyValue
+	}{
+		{
+			name: "harness",
+			telemetry: tracing.RuntimeTelemetry{
+				Runtime: tracing.RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team",
+				Provider: "openai", Model: "gpt-5.2-codex",
+			},
+			want: []attribute.KeyValue{
+				attribute.String(tracing.AttributeAgentName, "reporter-codex"),
+				attribute.String(tracing.AttributeRequestModel, "gpt-5.2-codex"),
+			},
+		},
+		{
+			name:      "adk",
+			telemetry: tracing.RuntimeTelemetry{Runtime: tracing.RuntimeADKGo, AgentName: "assistant-kagent", AgentNamespace: "team"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			syncExporter(t)
+			reader := sdkmetric.NewManualReader()
+			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			previous := otel.GetMeterProvider()
+			otel.SetMeterProvider(provider)
+			t.Cleanup(func() {
+				otel.SetMeterProvider(previous)
+				_ = provider.Shutdown(context.Background())
+			})
+			server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
+				ServerConfig{Port: "0", Telemetry: test.telemetry})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sendMessage(t, server, &a2atype.SendMessageRequest{
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+			})
+
+			var collected metricdata.ResourceMetrics
+			if err := reader.Collect(t.Context(), &collected); err != nil {
+				t.Fatal(err)
+			}
+			var points []metricdata.HistogramDataPoint[float64]
+			for _, scope := range collected.ScopeMetrics {
+				for _, metric := range scope.Metrics {
+					if metric.Name == "gen_ai.invoke_agent.duration" {
+						points = append(points, metric.Data.(metricdata.Histogram[float64]).DataPoints...)
+					}
+				}
+			}
+			if test.want == nil {
+				if len(points) != 0 {
+					t.Fatalf("recorded %d invoke_agent durations for a runtime that emits its own invoke_agent", len(points))
+				}
+				return
+			}
+			if len(points) != 1 {
+				t.Fatalf("recorded %d invoke_agent durations, want one", len(points))
+			}
+			if want := attribute.NewSet(test.want...); !points[0].Attributes.Equals(&want) {
+				t.Errorf("attributes = %v, want %v", points[0].Attributes.ToSlice(), test.want)
+			}
+		})
 	}
 }
 
@@ -209,7 +279,6 @@ func TestRequestSpanStaysATransportSpanForTheADK(t *testing.T) {
 		t.Errorf("%s = %q, want none on an ADK request span", tracing.AttributeOperationName, got)
 	}
 	for key, want := range map[string]string{
-		tracing.AttributeRuntime:   "adk-go",
 		tracing.AttributeAgentName: "assistant-kagent",
 		tracing.AttributeAgentID:   "team/assistant-kagent",
 	} {
@@ -339,8 +408,8 @@ func TestRequestSpanRecordsEarlyFailure(t *testing.T) {
 	if got := spanAttribute(span, tracing.AttributeErrorType); got != "transport_error" {
 		t.Errorf("%s = %q, want %q", tracing.AttributeErrorType, got, "transport_error")
 	}
-	if got := spanAttribute(span, tracing.AttributeRuntime); got != "claude" {
-		t.Errorf("a rejected request lost its runtime identity: %s = %q", tracing.AttributeRuntime, got)
+	if got := spanAttribute(span, tracing.AttributeAgentName); got != "reporter-claude" {
+		t.Errorf("a rejected request lost its agent identity: %s = %q", tracing.AttributeAgentName, got)
 	}
 }
 

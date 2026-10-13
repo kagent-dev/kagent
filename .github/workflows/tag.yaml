@@ -1,17 +1,18 @@
-name: Tag and Push
+name: Release
 
 on:
-  push:
-    tags:
-    - "v*.*.*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version number'
+        description: 'Release tag to create (v prefix required, e.g. v0.1.0)'
+        required: true
+        type: string
 
-# https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#release
-# GITHUB_SHA = Last commit in the tagged release
-# GITHUB_REF = Tag ref of release refs/tags/<tag_name>
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Build the selected workflow ref's commit; create its tag only when publishing the release.
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -19,12 +20,28 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        persist-credentials: false
     - name: Resolve version
       id: version
       env:
-        VERSION: ${{ inputs.version || github.ref_name }}
-      run: echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+        TAG: ${{ inputs.version }}
+      run: |
+        if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          echo '::error::Expected a release tag with a v prefix, such as v0.1.0 or v0.1.0-rc.1.'
+          exit 1
+        fi
+        git check-ref-format "refs/tags/$TAG"
+        if git show-ref --verify --quiet "refs/tags/$TAG"; then
+          echo "::error::Tag $TAG already exists. Choose a new release version."
+          exit 1
+        fi
+        echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
   push-images:
     needs: setup
@@ -134,8 +151,9 @@ jobs:
         if-no-files-found: error
 
   release:
-    # Publish after all packages and release artifacts are ready.
+    # Create the tag and publish after all packages and release artifacts are ready.
     needs:
+    - setup
     - build-release-artifacts
     - push-helm-chart
     - release-python-packages
@@ -148,8 +166,9 @@ jobs:
         name: release-artifacts
     - name: Release
       uses: softprops/action-gh-release@v3
-      if: startsWith(github.ref, 'refs/tags/')
       with:
+        tag_name: ${{ needs.setup.outputs.tag }}
+        target_commitish: ${{ github.sha }}
         generate_release_notes: true
         files: |
           go/core/bin/kagent-*

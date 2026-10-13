@@ -12,6 +12,7 @@ from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
+from kagent.core._runtime_config import RuntimeConfig
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from kagent.adk._approval import make_approval_callback
@@ -305,6 +306,16 @@ class Foundry(BaseLLM):
 
 class Anthropic(BaseLLM):
     base_url: str | None = None
+    # prompt_caching enables Anthropic prompt caching: cache_control breakpoints
+    # are set on the last tool definition, the last system prompt block and the
+    # last block of the latest conversation turn, so the stable prefix of an
+    # agent loop is billed as a cache read instead of fresh input on every call.
+    prompt_caching: bool = False
+    # cache_ttl selects the cache retention window when prompt_caching is on:
+    # "5m" (default) for the standard 5-minute cache, or "1h" for the 1-hour
+    # cache. 1-hour cache writes are billed at a higher rate, so "1h" only pays
+    # off when the calls sharing a prefix are more than 5 minutes apart.
+    cache_ttl: Literal["5m", "1h"] | None = None
 
     type: Literal["anthropic"]
 
@@ -427,6 +438,23 @@ class NetworkConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def root_runtime_only(cls, values):
+        def check_children(document):
+            for child in document.get("sub_agents", []) or []:
+                if not isinstance(child, dict):
+                    raise ValueError("subagent must be an object")
+                if "runtime" in child:
+                    raise ValueError("runtime settings are only allowed on the root agent")
+                check_children(child)
+
+        if isinstance(values, dict):
+            check_children(values)
+        return values
+
+    runtime: RuntimeConfig | None = None
+    skills_directory: str = ""
     model: ModelUnion = Field(discriminator="type")
     description: str
     instruction: str
@@ -725,6 +753,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
+            prompt_caching=model_config.prompt_caching,
+            cache_ttl=model_config.cache_ttl,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":

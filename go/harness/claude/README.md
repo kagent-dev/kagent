@@ -32,7 +32,7 @@ harness.
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
-by the compiler. Arbitrary Harness `credentialRef` environment values are also unsupported.
+by the compiler. Harness environment entries accept only literal values.
 
 With `KAGENT_PROPAGATE_TOKEN=true` in the Harness environment, the caller's `authorization`
 of each A2A turn is forwarded on MCP calls, as the Go ADK does. The adapter points every
@@ -54,7 +54,7 @@ metrics, and ignores `TRACEPARENT`. The driver therefore adds a loopback
 Prometheus metrics reader and sends the prompt once `claude_code.session.count`
 appears there, which Claude Code increments only after its providers are
 registered. That ordering is a Claude Code implementation detail, verified on
-2.1.260 and 2.1.282.
+2.1.260, 2.1.282 and 2.1.285.
 
 The wait is bounded at 10 seconds, so a stalled settings fetch delays a turn by
 at most that much. The driver then sends the prompt and records a
@@ -123,11 +123,28 @@ the unresolved requests are denied, not approved.
 
 ## Example usage
 
-One `Agent` holds both the template and Harness inline. The referenced ModelConfig
-and RemoteMCPServer must already exist in `kagent`. Replace `${KAGENT_CLAUDE_IMAGE}`
-with the full harness image reference, including its `@sha256:` digest.
+The platform-managed `Harness` selects the Claude runtime, and the `Agent`
+references it while defining behavior inline. The referenced ModelConfig and
+RemoteMCPServer must already exist in `kagent`. Replace
+`${KAGENT_CLAUDE_IMAGE}` with the full harness image reference, including its
+`@sha256:` digest.
 
 ```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: claude
+  namespace: kagent
+spec:
+  claude: {}
+  workload:
+    image: ${KAGENT_CLAUDE_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
 metadata:
@@ -135,30 +152,24 @@ metadata:
   namespace: kagent
 spec:
   template:
-    description: test
-    modelConfig:
-      name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
-    systemPrompt: |
-        Follow the selected skill and use the configured MCP tool.
-    tools:
-      - mcp:
-          server:
-            kind: RemoteMCPServer
-            name: kagent-tool-server
-    plugins:
-      - source:
-          git:
-            url: https://github.com/agentplugins/agent-plugins-example.git
-            commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
-        skills:
-          - migrate-agent-plugin
-  harness:
-    claude: {}
-    workload:
-      image: ${KAGENT_CLAUDE_IMAGE}
-    substrate:
-      workerPoolRef:
-        name: kagent-default
-      snapshotPolicy:
-        location: gs://ate-snapshots/kagent/
+    inline:
+      description: test
+      modelConfig:
+        name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
+      systemPrompt: |
+          Follow the selected skill and use the configured MCP tool.
+      tools:
+        - mcp:
+            server:
+              kind: RemoteMCPServer
+              name: kagent-tool-server
+      plugins:
+        - source:
+            git:
+              url: https://github.com/agentplugins/agent-plugins-example.git
+              commit: 5f3f5084a821aefa792e79500dd8f0462ab83473
+          skills:
+            - migrate-agent-plugin
+  harnessRef:
+    name: claude
 ```

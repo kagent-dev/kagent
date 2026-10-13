@@ -12,6 +12,18 @@ This page lists what the [registry](../../telemetry/registry) defines.
 {% for a in ctx.attributes -%}
 | `{{ a.key }}` | {{ a.type }} | {% for v in a.values %}`{{ v }}`{% if not loop.last %}, {% endif %}{% endfor %} | {{ a.brief }}{% if a.note %} {{ a.note }}{% endif %} |
 {% endfor %}
+## Metrics
+{% for m in ctx.metrics %}
+### `{{ m.name }}`
+
+{% if m.id != m.name %}Refines `{{ m.name }}` as `{{ m.id }}`. {% endif %}Instrument: {{ m.instrument }}. Unit: `{{ m.unit }}`. {{ m.brief }}{% if m.note %} {{ m.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in m.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
 ## Attribute groups
 {% for g in ctx.groups %}
 ### `{{ g.id }}`
@@ -28,7 +40,7 @@ This page lists what the [registry](../../telemetry/registry) defines.
 {% for s in ctx.spans %}
 ### `{{ s.id }}`
 
-Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.note }}{% endif %}
+{% if s.id != s.type %}Refines `{{ s.type }}`, kind{% else %}Kind{% endif %} `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.note }}{% endif %}
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
@@ -38,9 +50,9 @@ Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.n
 {%- endfor %}
 ## Resource
 {% for e in ctx.entities %}
-### `{{ e.type }}`
+### `{{ e.id }}`
 
-{{ e.brief }}{% if e.note %} {{ e.note }}{% endif %}
+{% if e.id != e.type %}Refines the `{{ e.type }}` entity. {% endif %}{{ e.brief }}{% if e.note %} {{ e.note }}{% endif %}
 
 | Attribute | Role | Requirement | Note |
 | --- | --- | --- | --- |
@@ -51,3 +63,11 @@ Refines `{{ s.type }}`, kind `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.n
 | `{{ a.key }}` | description | {{ a.req }} | {{ a.note }} |
 {% endfor %}
 {%- endfor %}
+
+## Imported signals
+
+The registry imports these upstream signals, so live-check compares the runtimes' own instrumentation with them.
+
+Spans: {% for s in ctx.imported_spans %}`{{ s }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+
+Metrics: {% for m in ctx.imported_metrics %}`{{ m }}`{% if not loop.last %}, {% endif %}{% endfor %}.

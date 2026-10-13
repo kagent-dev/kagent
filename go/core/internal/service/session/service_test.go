@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -265,7 +266,7 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	sessionID := "11111111-1111-4111-8111-111111111111"
 
-	share, token, err := service.CreateShare(serviceTestContext("alice"), sessionID, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY)
+	share, token, err := service.CreateShare(serviceTestContext("alice"), sessionID, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,6 +282,51 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	}
 	if store.shareUserID != "alice" || store.getCreator != "" {
 		t.Fatalf("share owner = %q, preparatory lookup owner = %q", store.shareUserID, store.getCreator)
+	}
+	if share.GetExpiresAt() != nil {
+		t.Fatalf("a share without a ttl expires at %v, want never", share.GetExpiresAt().AsTime())
+	}
+}
+
+func TestServiceCreateShareTTL(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		maxTTL  time.Duration
+		ttl     time.Duration
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "ttl without a maximum is kept", ttl: time.Hour, want: time.Hour},
+		{name: "unset ttl takes the maximum", maxTTL: 24 * time.Hour, want: 24 * time.Hour},
+		{name: "shorter ttl is kept", maxTTL: 24 * time.Hour, ttl: time.Hour, want: time.Hour},
+		{name: "ttl equal to the maximum is kept", maxTTL: 24 * time.Hour, ttl: 24 * time.Hour, want: 24 * time.Hour},
+		{name: "ttl above the maximum is refused", maxTTL: 24 * time.Hour, ttl: 25 * time.Hour, wantErr: true},
+		{name: "negative ttl is refused", ttl: -time.Second, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &serviceTestStore{}
+			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithShareMaxTTL(test.maxTTL))
+			before := time.Now()
+
+			share, _, err := service.CreateShare(serviceTestContext("alice"), "11111111-1111-4111-8111-111111111111",
+				apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, test.ttl)
+			if test.wantErr {
+				if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
+					t.Fatalf("CreateShare error = %v, want InvalidArgument", err)
+				}
+				if store.share != nil {
+					t.Fatal("a refused share reached the store")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			expires := share.GetExpiresAt().AsTime()
+			if expires.Before(before.Add(test.want)) || expires.After(time.Now().Add(test.want)) {
+				t.Fatalf("share expires at %v, want %v after its creation", expires, test.want)
+			}
+		})
 	}
 }
 
@@ -467,7 +513,7 @@ func TestServiceCreateShareMapsMissingOwnerToNotFound(t *testing.T) {
 	store := &serviceTestStore{shareErr: database.ErrNotFound}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 	share, token, err := service.CreateShare(serviceTestContext("alice"), uuid.NewString(),
-		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY)
+		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, 0)
 	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
 		t.Fatalf("CreateShare error = %v, want NotFound", err)
 	}
@@ -569,7 +615,7 @@ func TestServiceRejectsReadOnlyShareMutationsWithoutTransport(t *testing.T) {
 		{name: "delete", call: func() error { _, err := service.Delete(ctx, id); return err }},
 		{name: "rename", call: func() error { _, err := service.Rename(ctx, id, "title"); return err }},
 		{name: "share creation", call: func() error {
-			_, _, err := service.CreateShare(ctx, id, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE)
+			_, _, err := service.CreateShare(ctx, id, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, 0)
 			return err
 		}},
 	} {

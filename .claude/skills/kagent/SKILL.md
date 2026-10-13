@@ -66,7 +66,7 @@ CLI commands, exact MCP inputs, a worked example, recovery, and agent setup.
 
 ## Target API
 
-- `Agent` is an `api.kagent.dev/v1alpha3` CRD pairing a template and Harness, each inline or referenced. It owns readiness and revision selection.
+- `Agent` is an `api.kagent.dev/v1alpha3` CRD pairing inline or referenced template behavior with a referenced Harness. It owns readiness and revision selection.
 - `Harness` is an `api.kagent.dev/v1alpha3` CRD describing a supported runtime adapter. The release-blocking adapters are kagent, Codex, and Claude.
 - `AgentTemplate` is an `api.kagent.dev/v1alpha3` CRD describing prompts, models, skills, plugins, MCP tools, and template-backed subagent tools (`tools[].subAgent`).
 - `Session` is a PostgreSQL-backed gRPC resource representing a conversation and its runtime lifecycle. Use the returned `context_id` for A2A interactions.

@@ -4,24 +4,27 @@
 
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-environment and credential references, WorkerPool configuration, snapshot
-location.
+literal environment values, WorkerPool configuration, and snapshot location.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
-description and prompt, MCP tool bindings, skills, plugins, and Shared or
-Dedicated subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
+description and prompt, MCP tool bindings, skills, plugins, and Shared
+subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
 Agent compilation rejects managed harness combinations without one.
 
-`Agent` pairs one template and one Harness. Each side independently selects either
-an inline spec (`template`, `harness`) or a local reference (`templateRef`,
-`harnessRef`), with exactly one choice required per side. Inline specs are complete
-values, not overrides. References, including those inside inline specs, resolve in
-the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
+`Agent` pairs one template and one Harness. The required `template` field selects
+either `inline` for a complete embedded spec or `ref` for a local AgentTemplate.
+The required `harnessRef` selects a Harness in the Agent's namespace; Harness
+configuration cannot be embedded in an Agent. This boundary lets platform owners
+manage runtime policy independently from Agent authors. Inline template specs are
+complete values, not overrides. References, including those inside inline specs,
+resolve in the Agent's namespace. The reusable resources have no binding to each other. Child templates are selected
 with `tools[].subAgent.templateRef` and compile under the parent Agent's Harness.
-Each subagent selects exactly one of `templateRef` (Shared) or `agentRef`
-(Dedicated); there is no separate `isolation` field. An `agentRef` selects an
-Agent with its own Harness and conversation. Dedicated execution remains
-unsupported and is rejected during compilation.
+Each subagent requires `templateRef` and shares the parent's runtime and Harness.
+Dedicated `agentRef` bindings are deferred and are not part of the served API.
+
+The resource boundary does not grant authorization by itself. Kubernetes RBAC
+controls who may create or update Harnesses; admission policy is required when
+Agent authors must also be restricted to an allowlist of Harness references.
 
 All three are `api.kagent.dev/v1alpha3` Kubernetes resources. Infrastructure-derived
 values such as runtime addresses and inferred egress do not belong in the public
@@ -33,6 +36,32 @@ The `api.kagent.dev` group keeps these definitions separate from legacy
 `MCPServer` retains `kagent.dev/v1alpha1`. Examples assume a fresh installation
 and use `kubectl get agent`. If both agent APIs are installed, use a qualified
 resource name such as `kubectl get agents.api.kagent.dev` to select this API.
+
+### Model streaming
+
+For model endpoints that do not support streaming, set `spec.stream: false` on
+the root agent's `ModelConfig`:
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: non-streaming
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: example-model
+  stream: false
+  openAI:
+    baseUrl: https://models.example.com/v1
+```
+
+The kagent harness uses this setting for LLM calls, including OpenAI Chat
+Completions and Responses. Omitted or `true` keeps streaming enabled. The root
+runner's streaming mode also applies to its shared subagents. Changes prepare a
+new revision; create a new Session to use it. A2A task events remain streamable
+when model streaming is disabled. This setting does not configure
+the Codex or Claude harnesses.
 
 ### kagent workload overrides
 
@@ -62,8 +91,8 @@ The controller compiles each Agent through one pipeline:
 
 ```mermaid
 flowchart TD
-    A[Agent] --> T[template or templateRef]
-    A --> H[harness or harnessRef]
+    A[Agent] --> T[template: inline or ref]
+    A --> H[harnessRef]
     T --> RESOLVE[resolve template tree and references]
     H --> RESOLVE
     RESOLVE --> INPUTS[build explicit inputs]
@@ -135,7 +164,7 @@ the ActorTemplate's sandbox configuration:
 | Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
 | `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
 
-These names follow Substrate v0.3.0-alpha1's standard gVisor installation and
+These names follow Substrate v0.4.0-alpha1's standard gVisor installation and
 MicroVM setup/E2E convention. They are not API-level defaults or discovery:
 Substrate requires an explicit name and rejects a missing SandboxConfig or a
 class mismatch. Operators must install the corresponding cluster-scoped
@@ -144,12 +173,19 @@ SandboxConfig and provision compatible workers and runtime assets. Selecting
 RuntimeClass.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
-`RevisionInvalid`. Neither produces a desired ActorTemplate. The worker-pool
-selector is unchanged. WorkerPool updates are tracked through KRT and recompute
-the desired revision. Empty and explicit `gvisor` hash the explicit `gvisor`
+`RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
+are tracked through KRT and recompute the desired revision.
+Empty and explicit `gvisor` hash the explicit `gvisor`
 class; both sandbox classes participate in the digest, so a prepared MicroVM runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
 original digest. Existing Sessions remain pinned to their revisions.
+
+Generated ActorTemplates select workers with both `kagent.dev/worker-pool-name`
+and `kagent.dev/worker-pool-namespace`. The labels identify the referenced pool's
+name and namespace. The Helm chart sets both labels on the pool it creates, and
+externally managed pools must carry both. Substrate matches worker labels without
+checking them against the pool's namespace. Placement therefore stays within a
+namespace only while every pool's labels name the pool's own namespace.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
@@ -188,7 +224,7 @@ images, and compatible worker hardware.
 - **Claude** emits Anthropic, Bedrock, or Vertex model setup, HTTP/SSE MCP
   servers, Shared agents, and skills.
 - **BYO** runs a digest-pinned user image that implements private A2A gRPC and
-  `/readyz`, and uses the private TaskStore at `KAGENT_API_URL` for task creation,
+  `/readyz`, and uses the private TaskStore at `runtime.control_plane_url` for task creation,
   persistence and settlement. The shared Go app and Python runtime builders
   provide this integration. Other images must implement the same TaskStore
   contract; an upstream A2A server with only an in-memory store is insufficient.
@@ -213,7 +249,7 @@ Dedicated agent bindings are not compiled yet.
 The Python ADK image's default entrypoint runs a named Python agent module. To
 consume the kagent compiler's configuration, set `spec.workload.command` to
 `["/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "8080"]`.
-The compiler sets `KAGENT_PORT=80` for private A2A traffic in both ADKs. Go uses
+The compiler sets `runtime.port="80"` for private A2A traffic in both ADKs. Go uses
 that port for its shared HTTP/gRPC listener; Python uses it for gRPC and keeps
 the HTTP port separate.
 
@@ -236,36 +272,29 @@ metadata:
   namespace: kagent
 spec:
   template:
-    modelConfig:
-      name: default-model-config
-    systemPrompt: You are a helpful assistant.
-  harness:
-    kagent: {}
-    workload:
-      image: example.com/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
-    substrate:
-      workerPoolRef:
-        name: kagent-default
-      snapshotPolicy:
-        location: s3://snapshots/kagent/
-```
-
-Use a real runtime image digest and snapshot location in place of the examples.
-The referenced ModelConfig and WorkerPool must already exist.
-
-To reuse existing configuration, replace either inline spec with its reference:
-
-```yaml
-spec:
-  templateRef:
-    name: shared-context
+    inline:
+      modelConfig:
+        name: default-model-config
+      systemPrompt: You are a helpful assistant.
   harnessRef:
     name: kagent
 ```
 
-These choices are independent: both inline, either side referenced, or both
-referenced are supported. No synthetic Kubernetes objects are created for inline
-specs.
+The referenced ModelConfig and Harness must already exist.
+
+To reuse an existing AgentTemplate, replace the inline template with its reference:
+
+```yaml
+spec:
+  template:
+    ref:
+      name: shared-context
+  harnessRef:
+    name: kagent
+```
+
+Template behavior may be inline or referenced. The Harness is always referenced;
+no synthetic Kubernetes object is created for an inline template.
 
 Create a session with `kagent agent session create --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.

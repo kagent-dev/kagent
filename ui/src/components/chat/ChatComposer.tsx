@@ -2,8 +2,20 @@ import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Button, Input, Space, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { useTheme } from "@emotion/react";
-import { Save, Send, Square } from "lucide-react";
+import { Paperclip, Save, Send, Square } from "lucide-react";
 import type { ChatController } from "@/api";
+import { ACCEPTED_FILES, mediaTypeOf, stageFiles } from "@/api/chat/attachments";
+import { randomId } from "@/api/randomId";
+import { AttachmentChip } from "./AttachmentChip";
+import { WindowFileDrop } from "./WindowFileDrop";
+
+// Stable React keys for staged files, which have no id of their own.
+const fileKeys = new WeakMap<File, string>();
+function fileKey(file: File): string {
+  let key = fileKeys.get(file);
+  if (!key) fileKeys.set(file, (key = randomId()));
+  return key;
+}
 
 /** What a page can ask of the box from outside it: put the caret back in it. */
 export type ChatComposerHandle = { focus: () => void };
@@ -33,9 +45,10 @@ export function ChatComposer({
   disabled = false,
   variant = "docked",
   autoFocus = false,
+  canAttach,
   ref,
 }: {
-  send: (text: string) => Promise<void>;
+  send: (text: string, files: File[]) => Promise<void>;
   isStreaming?: boolean;
   /** Absent before a conversation exists — there is no stream to stop. */
   onCancel?: ChatController["cancel"];
@@ -85,6 +98,8 @@ export function ChatComposer({
    * asked to say twice that they came here to talk.
    */
   autoFocus?: boolean;
+  /** Whether the harness takes files; undefined while unknown. Only kagent does. */
+  canAttach?: boolean;
   /**
    * A way back to the caret for whatever took it.
    *
@@ -97,111 +112,194 @@ export function ChatComposer({
 }) {
   const theme = useTheme();
   const [draft, setDraft] = useState("");
+  // One state so a staging pass sets the files and its error together.
+  const [staged, setStaged] = useState<{ files: File[]; error?: string }>({ files: [] });
+  const files = canAttach ? staged.files : [];
+  const fileError = staged.error;
   const inputRef = useRef<TextAreaRef>(null);
+  const stagedRef = useRef<HTMLDivElement>(null);
+  // Keep keyboard focus in place: the next chip, else the message box.
+  const removeFile = (file: File, index: number) => {
+    setStaged((current) => ({ files: current.files.filter((f) => f !== file) }));
+    requestAnimationFrame(() => {
+      const chips = stagedRef.current?.querySelectorAll<HTMLElement>('[data-testid="attachment-chip"]');
+      const next = chips?.[Math.min(index, chips.length - 1)];
+      if (next) next.focus();
+      else inputRef.current?.focus();
+    });
+  };
+  const pickerRef = useRef<HTMLInputElement>(null);
+
+  function addFiles(incoming: readonly File[]) {
+    if (!incoming.length || disabled || !canAttach) return;
+    setStaged((current) => stageFiles(current.files, incoming));
+  }
 
   useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
   async function submit() {
     const text = draft.trim();
-    if (!text || isStreaming || disabled) return;
+    if ((!text && !files.length) || isStreaming || disabled) return;
     // Cleared before awaiting so the box is ready for the next message
     // immediately, rather than holding text that has already been sent.
     setDraft("");
-    await send(text);
+    setStaged({ files: [] });
+    await send(text, files);
   }
 
   return (
     <div
       data-testid="chat-composer"
-      css={{
-        display: "flex",
-        gap: theme.space(2),
-        alignItems: "flex-end",
-      }}
+      data-can-attach={canAttach}
+      css={{ display: "grid", gap: theme.space(2) }}
     >
-      <Input.TextArea
-        ref={inputRef}
-        autoFocus={autoFocus}
-        data-testid="chat-input"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onPressEnter={(event) => {
-          // Enter sends, Shift+Enter breaks the line — the convention every
-          // other chat box uses, so doing otherwise is its own bug report.
-          if (event.shiftKey) return;
-          event.preventDefault();
-          void submit();
-        }}
-        disabled={disabled}
-        placeholder="Ask the agent something…"
-        /* One line to begin with, wherever it is. The inviting variant opened three
-           rows deep, which on an empty page made the box look like a form to fill in
-           rather than a question to ask; it grows as soon as there is anything to
-           grow for. */
-        autoSize={{ minRows: 1, maxRows: 6 }}
-        css={{
-          flex: 1,
-          // Bigger type when the box *is* the page, but no extra padding: the panel
-          // around it supplies that, and doubling it left the text floating.
-          ...(variant === "inviting" ? { fontSize: 15 } : {}),
-          /*
-           * Opaque while disabled, not faded.
-           *
-           * antd fades a disabled control, which over a dark page makes the composer
-           * look like it is still loading rather than deliberately unavailable — and
-           * the message above it explaining why is then competing with something that
-           * looks broken. It keeps its own surface and says its state through the
-           * muted text and the cursor instead.
-           */
-          "&:disabled, &.ant-input-disabled": {
-            opacity: 1,
-            background: theme.color.bgElevated,
-            color: theme.color.textMuted,
-            cursor: "not-allowed",
-          },
-        }}
-      />
-
-      <Space size={8}>
-        {onCheckpoint ? (
-          <Tooltip title="Take a snapshot. You can fork the chat from one later.">
-            {/* Icon only: the box beside it is the point of this row, and a second
-                labelled button took enough width from it to wrap the placeholder and
-                grow the whole composer by a line. */}
-            <Button
-              data-testid="chat-checkpoint"
-              aria-label="Take a snapshot. You can fork the chat from one later."
-              icon={<Save size={14} />}
-              loading={isCheckpointing}
-              disabled={disabled || isStreaming || !canCheckpoint}
-              onClick={onCheckpoint}
-              css={{ "&:disabled": { opacity: 1 } }}
+      <WindowFileDrop enabled={!!canAttach && !disabled} onFiles={addFiles} />
+      {files.length ? (
+        <div
+          ref={stagedRef}
+          role="group"
+          aria-label="Attached files"
+          data-testid="chat-staged-files"
+          css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2) }}
+        >
+          {files.map((file, index) => (
+            <AttachmentChip
+              key={fileKey(file)}
+              file={{ name: file.name, mediaType: mediaTypeOf(file), size: file.size }}
+              onRemove={() => removeFile(file, index)}
             />
-          </Tooltip>
+          ))}
+        </div>
+      ) : null}
+      {fileError ? (
+        <div
+          role="alert"
+          data-testid="chat-file-error"
+          css={{ color: theme.color.dangerText, fontSize: 13 }}
+        >
+          {fileError}
+        </div>
+      ) : null}
+      <div css={{ display: "flex", gap: theme.space(2), alignItems: "flex-end" }}>
+        {canAttach ? (
+          <>
+            <input
+              ref={pickerRef}
+              type="file"
+              multiple
+              hidden
+              disabled={disabled}
+              accept={ACCEPTED_FILES}
+              data-testid="chat-file-input"
+              onChange={(event) => {
+                addFiles([...(event.target.files ?? [])]);
+                // Cleared so choosing the same file again still fires a change.
+                event.target.value = "";
+              }}
+            />
+            <Tooltip title="Attach files">
+              <Button
+                data-testid="chat-attach"
+                aria-label="Attach files"
+                icon={<Paperclip size={14} />}
+                disabled={disabled}
+                onClick={() => pickerRef.current?.click()}
+                css={{ "&:disabled": { opacity: 1 } }}
+              />
+            </Tooltip>
+          </>
         ) : null}
-        {isStreaming && onCancel ? (
-          <Button
-            data-testid="chat-cancel"
-            icon={<Square size={14} />}
-            onClick={() => void onCancel()}
-          >
-            Stop
-          </Button>
-        ) : (
-          <Button
-            type="primary"
-            data-testid="chat-send"
-            icon={<Send size={14} />}
-            disabled={disabled || draft.trim() === ""}
-            // Opaque for the same reason as the box: a faded primary button reads as a
-            // page still settling rather than a control waiting for input.
-            css={{ "&:disabled": { opacity: 1 } }}
-            onClick={() => void submit()}
-          >
-            Send
-          </Button>
-        )}
-      </Space>
+        <Input.TextArea
+          ref={inputRef}
+          autoFocus={autoFocus}
+          data-testid="chat-input"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onPaste={(event) => {
+            // Office pastes carry text plus an image rendering of it; keep the text.
+            const { files: pasted, types } = event.clipboardData;
+            if (!canAttach || !pasted.length || types.includes("text/plain")) return;
+            event.preventDefault();
+            addFiles([...pasted]);
+          }}
+          onPressEnter={(event) => {
+            // Enter sends, Shift+Enter breaks the line — the convention every
+            // other chat box uses, so doing otherwise is its own bug report.
+            if (event.shiftKey) return;
+            event.preventDefault();
+            void submit();
+          }}
+          disabled={disabled}
+          placeholder="Ask the agent something…"
+          /* One line to begin with, wherever it is. The inviting variant opened three
+             rows deep, which on an empty page made the box look like a form to fill in
+             rather than a question to ask; it grows as soon as there is anything to
+             grow for. */
+          autoSize={{ minRows: 1, maxRows: 6 }}
+          css={{
+            flex: 1,
+            // Bigger type when the box *is* the page, but no extra padding: the panel
+            // around it supplies that, and doubling it left the text floating.
+            ...(variant === "inviting" ? { fontSize: 15 } : {}),
+            /*
+             * Opaque while disabled, not faded.
+             *
+             * antd fades a disabled control, which over a dark page makes the composer
+             * look like it is still loading rather than deliberately unavailable — and
+             * the message above it explaining why is then competing with something that
+             * looks broken. It keeps its own surface and says its state through the
+             * muted text and the cursor instead.
+             */
+            "&:disabled, &.ant-input-disabled": {
+              opacity: 1,
+              background: theme.color.bgElevated,
+              color: theme.color.textMuted,
+              cursor: "not-allowed",
+            },
+          }}
+        />
+
+        <Space size={8}>
+          {onCheckpoint ? (
+            <Tooltip title="Take a snapshot. You can fork the chat from one later.">
+              {/* Icon only: the box beside it is the point of this row, and a second
+                  labelled button took enough width from it to wrap the placeholder and
+                  grow the whole composer by a line. */}
+              <Button
+                data-testid="chat-checkpoint"
+                aria-label="Take a snapshot. You can fork the chat from one later."
+                icon={<Save size={14} />}
+                loading={isCheckpointing}
+                disabled={disabled || isStreaming || !canCheckpoint}
+                onClick={onCheckpoint}
+                css={{ "&:disabled": { opacity: 1 } }}
+              />
+            </Tooltip>
+          ) : null}
+          {isStreaming && onCancel ? (
+            <Button
+              data-testid="chat-cancel"
+              icon={<Square size={14} />}
+              onClick={() => void onCancel()}
+            >
+              Stop
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              data-testid="chat-send"
+              icon={<Send size={14} />}
+              disabled={disabled || (draft.trim() === "" && files.length === 0)}
+              // Opaque for the same reason as the box: a faded primary button reads as a
+              // page still settling rather than a control waiting for input.
+              css={{ "&:disabled": { opacity: 1 } }}
+              onClick={() => void submit()}
+            >
+              Send
+            </Button>
+          )}
+        </Space>
+      </div>
     </div>
   );
 }
