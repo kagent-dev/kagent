@@ -25,9 +25,6 @@ deletes its Harness on the next upgrade.
 {{- if not (has $runtime (list "claude" "kagent")) }}
 {{- fail (printf "%s.runtime %q: claude or kagent" $key $runtime) }}
 {{- end }}
-{{- if hasKey $entry "limits" }}
-{{- fail (printf "%s.limits: the Harness API has no turn limits; remove the key" $key) }}
-{{- end }}
 {{- if and (eq $runtime "claude") $entry.compaction }}
 {{- fail (printf "%s.compaction: the claude runtime has no compaction setting (Harness.spec.kagent.compaction is the Go ADK's)" $key) }}
 {{- end }}

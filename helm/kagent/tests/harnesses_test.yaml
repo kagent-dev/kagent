@@ -165,7 +165,7 @@ tests:
       - failedTemplate:
           errorPattern: 'harnesses\[0\].snapshotLocation is required'
 
-  - it: should fail on limits, which the Harness API no longer has
+  - it: should ignore limits, which the Harness API no longer has
     set:
       harnesses:
         - name: claude
@@ -173,8 +173,9 @@ tests:
           limits:
             maxTurns: 40
     asserts:
-      - failedTemplate:
-          errorPattern: 'harnesses\[0\].limits: the Harness API has no turn limits'
+      - equal:
+          path: spec.claude
+          value: {}
 
   - it: should fail on compaction for a claude entry
     set:

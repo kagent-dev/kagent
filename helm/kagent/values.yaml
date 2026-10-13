@@ -557,8 +557,10 @@ harness:
 # the chart's Go ADK image). The digest rules of harness.* apply per entry. An
 # Agent names the Harness it runs on (spec.harnessRef.name), so every name must
 # differ from the chart's own Harness and from the other entries; the render
-# fails on a repeat. compaction on a claude entry fails the render, and so
-# does `limits` on any entry. Each entry's image is listed in the `<fullname>-images` ConfigMap.
+# fails on a repeat. compaction on a claude entry fails the render. `limits`
+# on an entry is ignored: the Harness API has no turn limits, and the key
+# can leave a release's values after the release runs this chart. Each
+# entry's image is listed in the `<fullname>-images` ConfigMap.
 #
 # On the Claude harness, KAGENT_PROPAGATE_TOKEN forwards the turn caller's
 # credential on MCP calls. Keep each entry's snapshotLocation apart from the
