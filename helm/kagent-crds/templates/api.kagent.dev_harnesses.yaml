@@ -248,6 +248,40 @@ spec:
                       When set, it must be an OCI image reference pinned by sha256 digest.
                     pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                     type: string
+                  toolImages:
+                    description: |-
+                      ToolImages lists digest-pinned OCI images the controller mounts read-only
+                      at /opt/kagent/tools/<name> in every runtime. KAGENT_TOOL_PATHS carries
+                      the colon-joined /opt/kagent/tools/<name>/bin directories in list order;
+                      each runtime appends them to PATH after the image's own binaries.
+                    items:
+                      description: HarnessToolImage is one read-only image volume
+                        added to the runtime container.
+                      properties:
+                        name:
+                          description: |-
+                            Name selects the mount directory /opt/kagent/tools/<name>. It must be a
+                            DNS label of at most 58 characters: the controller prefixes it with
+                            "tool-" to form the volume name, which is itself limited to 63.
+                          maxLength: 58
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        oci:
+                          description: OCI is the image reference pinned by sha256
+                            digest. Tags are not resolved.
+                          maxLength: 512
+                          pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
+                          type: string
+                      required:
+                      - name
+                      - oci
+                      type: object
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                 type: object
             required:
             - substrate

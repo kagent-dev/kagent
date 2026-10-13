@@ -4,7 +4,8 @@
 
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-literal environment values, WorkerPool configuration, and snapshot location.
+tool images, literal environment values, WorkerPool configuration, and snapshot
+location.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared
@@ -127,6 +128,58 @@ spec:
 
 Command and argument changes participate in revision identity. They affect newly
 prepared revisions, not existing Sessions pinned to an older revision.
+
+### Tool images
+
+`spec.workload.toolImages` lists digest-pinned OCI images whose contents the
+controller mounts read-only next to the runtime image, for every runtime
+variant. Each entry is one Substrate image volume mounted at
+`/opt/kagent/tools/<name>`:
+
+```yaml
+spec:
+  claude: {}
+  workload:
+    image: registry.example.com/claude-harness@sha256:...
+    toolImages:
+      - name: go
+        oci: registry.example.com/tools/go@sha256:...
+      - name: kubectl
+        oci: registry.example.com/tools/kubectl@sha256:...
+```
+
+The controller sets `KAGENT_TOOL_PATHS` to the colon-joined
+`/opt/kagent/tools/<name>/bin` directories in list order. It never sets `PATH`,
+because a template `PATH` would replace the image's. Each managed runtime
+appends the listed directories to its own `PATH` at start, so the image's
+binaries always win: the Claude and Codex harnesses extend the environment of
+the CLI they spawn, the Go ADK extends its process environment before the
+`bash` tool and stdio MCP servers inherit it, and the Python ADK extends
+`os.environ` when `kagent-adk` starts (its `bash` tool still puts the venv
+first). `KAGENT_TOOL_PATHS` is reserved; a Harness `spec.env` entry of that
+name is rejected.
+
+An image may ship any number of binaries in its `bin/`. `PATH` resolves
+conflicts: a binary the runtime image already ships is never shadowed by a
+tool image, and when two tool images ship the same binary the earlier entry
+wins. Nothing reports a shadowed binary.
+
+Tool images follow the same rules as every other image in the API: the
+reference carries a sha256 digest and the controller resolves no tags. Keeping
+a digest current is the job of whatever writes the Harness. A change prepares a
+new revision; running Sessions keep theirs. Each entry costs one of Substrate's
+32 volume and 32 mount slots, and a non-empty list costs one of its 32
+environment entries. Substrate pulls tool images with the node's image
+credential provider, the same path as the runtime image.
+
+A tool image is a plain filesystem: it ships its files under one prefix with
+the executables in `bin/`, its entrypoint is never run, and the mount is
+read-only. Binaries must be static or self-contained for the runtime image
+they are mounted into: the built-in Claude, Codex, and Go ADK images are
+Alpine (musl), the Python ADK image is Debian (glibc).
+
+Tool images reach the runtime container only. A sandbox guest runs in its own
+tools image and does not see them.
 
 ## Prepared revision pipeline
 
@@ -318,7 +371,9 @@ load these skills; the Go ADK BYO fixture does so.
   provide this integration. Other images must implement the same TaskStore
   contract; an upstream A2A server with only an in-memory store is insufficient.
   Optional model, prompt, tool, skill, and plugin configuration is
-  supplied in the ADK-shaped format when requested.
+  supplied in the ADK-shaped format when requested. Tool images are mounted
+  under `/opt/kagent/tools` and listed in `KAGENT_TOOL_PATHS`; a BYO image
+  extends its own `PATH` from that variable.
 
 The kagent and BYO compilers serialize the same `ADKConfig` protobuf
 contract from `adk.proto` using ProtoJSON. Go and Python use generated messages;

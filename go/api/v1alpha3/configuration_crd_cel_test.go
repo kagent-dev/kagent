@@ -223,6 +223,43 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "spec.workload.image",
 		},
 		{
+			name: "Harness rejects tag-only tool image",
+			object: validHarness(namespace, "harness-tagged-tool-image", HarnessSpec{
+				Kagent:   &KagentHarness{},
+				Workload: HarnessWorkload{ToolImages: []HarnessToolImage{{Name: "kubectl", OCI: "registry.example.com/kubectl:latest"}}},
+			}),
+			wantReject: "spec.workload.toolImages[0].oci",
+		},
+		{
+			name: "Harness rejects tool image name that is not a DNS label",
+			object: validHarness(namespace, "harness-tool-image-name", HarnessSpec{
+				Kagent:   &KagentHarness{},
+				Workload: HarnessWorkload{ToolImages: []HarnessToolImage{{Name: "Kube_ctl", OCI: "registry.example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
+			}),
+			wantReject: "spec.workload.toolImages[0].name",
+		},
+		{
+			name: "Harness rejects duplicate tool image names",
+			object: validHarness(namespace, "harness-duplicate-tool-image", HarnessSpec{
+				Kagent: &KagentHarness{},
+				Workload: HarnessWorkload{ToolImages: []HarnessToolImage{
+					{Name: "kubectl", OCI: "registry.example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+					{Name: "kubectl", OCI: "registry.example.com/kubectl@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+				}},
+			}),
+			wantReject: "Duplicate value",
+		},
+		{
+			name: "Harness accepts digest-pinned tool images",
+			object: validHarness(namespace, "harness-tool-images", HarnessSpec{
+				Kagent: &KagentHarness{},
+				Workload: HarnessWorkload{ToolImages: []HarnessToolImage{
+					{Name: "kubectl", OCI: "registry.example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+					{Name: "helm", OCI: "registry.example.com/helm@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+				}},
+			}),
+		},
+		{
 			name: "Harness memory requires a model reference",
 			object: validHarness(namespace, "harness-empty-memory-model", HarnessSpec{
 				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{}},
