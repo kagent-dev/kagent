@@ -358,12 +358,28 @@ write access.
   (`feat`, `fix`, `refactor`, `perf`, `chore`, `build`, `ci`, `security`) cuts the next `-rc.N`. The
   upstream pull request keeps the title upstream expects (`test(e2e): …`). The `fork/carried/` file commits
   stay `docs(fork):`: the ledger is no change to prove, and it ships with the next candidate.
-- **Keep the base at `giantswarm`, a stacked pull request included.** `ci.yaml` runs on pull requests to
-  `main`, `release/**` and `giantswarm` only, so one based on another pull request's branch gets the
-  CircleCI image validations and nothing else: no `go-unit-tests`, no `go-lint`, no `ui-tests`, no
-  `test-e2e`, and no `ci-ok` — 8 checks where the same branch against `giantswarm` runs 41 (2026-09-26,
-  #112). Stack in commits instead: the diff shows the commits of the pull request below until that one
-  merges, and the suite runs on the code that will land.
+- **Queued changes are a stack of commits; every pull request keeps the base `giantswarm`.** `ci.yaml`
+  runs on pull requests to `main`, `release/**` and `giantswarm` only, so one based on another pull
+  request's branch gets the CircleCI image validations and nothing else: no `go-unit-tests`, no `go-lint`,
+  no `ui-tests`, no `test-e2e`, and no `ci-ok` — 8 checks where the same branch against `giantswarm` runs
+  41 (2026-09-26, #112). A change that depends on a queued one therefore branches from the head of the pull
+  request below it and is opened against `giantswarm`: the diff shows the commits below until they land,
+  and the suite runs on the code that will land. Each pull request carries its own commit and its
+  `fork/carried/` file, one ledger row per carried commit.
+  - **Merge the top of the stack once, with `--rebase`.** Its branch contains every commit below, so the
+    one merge lands the whole stack, each commit on its own, and the one CI run on the top's head is the
+    run that counts.
+  - **Close each lower pull request as carried**, with one line naming the merge (`Carried by #<n>,
+    merged as <sha>`), never merged: its commits are already on `giantswarm`.
+  - **No replacement pull request per base move.** The ruleset requires an up-to-date branch, so every
+    merge to `giantswarm` outdates the open pull requests. Bring a stack current by merging
+    `origin/giantswarm` into the top branch and pushing: the rebase merge drops the merge commit and lands
+    the stack's own commits, and nothing is re-filed. A change filed on its own that falls behind is
+    brought current the same way; a replacement is the last resort, for a branch a re-pin has stranded
+    (below).
+  - **Never a force push on the line**, not with a lease: the ruleset forbids it on `giantswarm`, and on a
+    branch it rewrites the commits a review and a green run were given for, so what merges is no longer
+    what ran. A branch behind `giantswarm` merges it and pushes.
 - **A personal fork** is for exploration that may never be proposed; the moment a change is meant for the
   platform it moves here.
 - **A patch lives here until upstream merges it**; the next re-pin drops it. A patch upstream rejects is
