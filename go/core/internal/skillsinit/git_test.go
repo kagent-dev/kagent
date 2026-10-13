@@ -116,19 +116,50 @@ func TestCloneGitCommitFailsAtOnceOnAPermanentFailure(t *testing.T) {
 // TestTransientGitFailure pins the classification on git's own error lines.
 func TestTransientGitFailure(t *testing.T) {
 	for line, transient := range map[string]bool{
-		"fatal: unable to access 'https://origin/skill.git/': The requested URL returned error: 503":                    true,
-		"fatal: unable to access 'https://origin/skill.git/': Could not resolve host: origin":                           true,
-		"fatal: unable to access 'https://origin/skill.git/': Failed to connect to origin port 443: Connection refused": true,
-		"fatal: unable to access 'https://origin/skill.git/': Connection timed out after 10001 milliseconds":            true,
-		"error: RPC failed; HTTP 502 curl 22 The requested URL returned error: 502":                                     true,
-		"fatal: unable to access 'https://origin/skill.git/': The requested URL returned error: 401":                    false,
-		"fatal: unable to access 'https://origin/skill.git/': The requested URL returned error: 403":                    false,
-		"remote: Repository not found.\nfatal: repository 'https://origin/skill.git/' not found":                        false,
-		"fatal: remote error: upload-pack: not our ref aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":                        false,
-		"fatal: could not read Username for 'https://origin': terminal prompts disabled":                                false,
+		"fatal: unable to access 'https://origin/skill.git/': The requested URL returned error: 503":                          true,
+		"fatal: unable to access 'https://origin/skill.git/': Could not resolve host: origin":                                 true,
+		"fatal: unable to access 'https://origin/skill.git/': Failed to connect to origin port 443: Connection refused":       true,
+		"fatal: unable to access 'https://origin/skill.git/': Connection timed out after 10001 milliseconds":                  true,
+		"error: RPC failed; HTTP 502 curl 22 The requested URL returned error: 502":                                           true,
+		"fatal: unable to access 'https://origin/skill.git/': HTTP/2 stream 1 was not closed cleanly: REFUSED_STREAM (err 7)": true,
+		"fatal: unable to access 'https://origin/skill.git/': HTTP/2 stream 3 was reset":                                      true,
+		"error: RPC failed; curl 18 transfer closed with outstanding read data remaining":                                     true,
+		"fatal: unable to access 'https://origin/skill.git/': Recv failure: Connection reset by peer":                         true,
+		"fatal: early EOF":                           true,
+		"fatal: the remote end hung up unexpectedly": true,
+		"fatal: unable to access 'https://origin/skill.git/': The requested URL returned error: 401": false,
+		"fatal: unable to access 'https://origin/skill.git/': The requested URL returned error: 403": false,
+		"remote: Repository not found.\nfatal: repository 'https://origin/skill.git/' not found":     false,
+		"fatal: remote error: upload-pack: not our ref aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":     false,
+		"fatal: could not read Username for 'https://origin': terminal prompts disabled":             false,
 	} {
 		assert.Equal(t, transient, transientGitFailure.MatchString(line), line)
 	}
+}
+
+// TestCloneGitCommitStopsRetryingOnceTheBudgetIsSpent keeps the retries
+// inside a runtime's readiness probe: a source that keeps failing is given up
+// once the next attempt would start after the budget, even with attempts left.
+func TestCloneGitCommitStopsRetryingOnceTheBudgetIsSpent(t *testing.T) {
+	setFetchBackoff(t, 400*time.Millisecond)
+	previous := fetchBudget
+	fetchBudget = time.Second
+	t.Cleanup(func() { fetchBudget = previous })
+
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/info/refs") {
+			attempts.Add(1)
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	err := CloneGitCommit(server.URL+"/skill.git", strings.Repeat("a", 40), filepath.Join(t.TempDir(), "dest"), false)
+	require.Error(t, err)
+	// Attempt 1, wait 400 ms, attempt 2; the 800 ms wait before attempt 3
+	// ends past the 1 s budget.
+	assert.Equal(t, int32(2), attempts.Load())
 }
 
 func setFetchBackoff(t *testing.T, backoff time.Duration) {
