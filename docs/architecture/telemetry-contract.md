@@ -199,7 +199,7 @@ Tool identity propagated to an outbound request as W3C baggage.
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 | `gen_ai.tool.call.id` | required |  |
-| `gen_ai.tool.name` | required |  |
+| `gen_ai.tool.name` | required | For an MCP tool, the MCP tool name without the server. |
 
 ### `kagent.capture`
 
