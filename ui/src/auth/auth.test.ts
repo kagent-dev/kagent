@@ -35,7 +35,7 @@ describe("classifyUserInfoResponse", () => {
     expect(result.status).toBe("authenticated");
     expect(result.user).toEqual({
       id: "alice",
-      displayName: "alice",
+      displayName: "alice@example.test",
       email: "alice@example.test",
       groups: ["platform"],
     });
@@ -102,6 +102,17 @@ describe("toAuthUser", () => {
     expect(
       toAuthUser({ sub: "abc-123", preferred_username: "alice" }),
     ).toMatchObject({ displayName: "alice" });
+  });
+
+  it("names a Dex user by the email, not the encoded subject", () => {
+    const subject = "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs";
+    expect(
+      toAuthUser({ user: subject, email: "alice@example.com", groups: ["ops"] }),
+    ).toMatchObject({
+      id: subject,
+      displayName: "alice@example.com",
+      email: "alice@example.com",
+    });
   });
 
   it("falls back to the identifier when there is no label", () => {

@@ -39,12 +39,14 @@ export function toAuthUser(payload: unknown): AuthUser | null {
 
   const id = firstString(payload, ["user", "sub", "userID", "id", "email"]);
   const email = firstString(payload, ["email"]);
+  // `user` comes last: an OIDC issuer such as Dex fills it with an opaque
+  // encoded subject, so the email is the more readable label.
   const displayName = firstString(payload, [
     "preferredUsername",
     "preferred_username",
     "name",
-    "user",
     "email",
+    "user",
   ]);
 
   if (id === undefined) return null;
