@@ -66,34 +66,17 @@ helm upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
 Each workflow run includes a changelog in its summary and an artifact containing
 CLI binaries, checksums, and commit-specific chart archives.
 
-## Dependencies
+## Prerequisites
 
-Before you can run kagent in Kubernetes, you need to have the following tools installed:
-
-### Required Dependencies
-
+- **Docker** with **Docker Buildx** (v0.23.0+)
+- **Git**
+- **Go** (v1.27.0+)
+- **Helm**
 - **Kind** (v0.27.0+)
 - **kubectl** (v1.33.4+)
-- **Helm**
-- **Go** (v1.27.0+)
-- **Docker**
-- **Docker Buildx** (v0.23.0+)
 - **Make**
-
-### Installation Verification
-
-You can verify your installation by running:
-
-```shell
-# Check core dependencies
-kind version
-kubectl version
-helm version
-go version
-docker version
-docker buildx version
-make --version
-```
+- **Node.js** (v24.13.0+) with **Corepack/Yarn**
+- **uv** (v0.10.4+)
 
 ## How to run everything in Kubernetes
 
