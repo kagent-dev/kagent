@@ -1,6 +1,6 @@
 import type { Agent, AgentResource } from "./domain/agents";
 import type { Client } from "@connectrpc/connect";
-import type { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import type { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * Every call the UI knows how to make, behind a stable id.
  *

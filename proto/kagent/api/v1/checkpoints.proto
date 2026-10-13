@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1/common.proto";
+import "kagent/api/v1/sessions.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+service CheckpointService {
+  rpc CreateCheckpoint(CreateCheckpointRequest) returns (CreateCheckpointResponse);
+  rpc GetCheckpoint(GetCheckpointRequest) returns (GetCheckpointResponse);
+  rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
+  rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (DeleteCheckpointResponse);
+  rpc ForkSession(ForkSessionRequest) returns (ForkSessionResponse);
+  rpc UpdateCheckpointName(UpdateCheckpointNameRequest) returns (UpdateCheckpointNameResponse);
+}
+
+enum CheckpointState {
+  CHECKPOINT_STATE_UNSPECIFIED = 0;
+  CHECKPOINT_STATE_CREATING = 1;
+  CHECKPOINT_STATE_READY = 2;
+  CHECKPOINT_STATE_FAILED = 3;
+  CHECKPOINT_STATE_DELETING = 4;
+}
+
+message Checkpoint {
+  string id = 1;
+  string session_id = 2;
+  string head_task_id = 3;
+  uint64 history_sequence = 4;
+  CheckpointState state = 5;
+  google.protobuf.Timestamp created_at = 6;
+  Failure failure = 7;
+  // Display name for the checkpoint, and the name a fork taken from it is given.
+  // Defaulted at creation from the source session and the turn the boundary sits
+  // at, because both are what a reader has to tell two boundaries apart by.
+  string name = 8;
+}
+
+message CreateCheckpointRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  string request_id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
+  // The terminal turn the caller intends to save. Creation fails if a newer
+  // turn has started; retrying while its snapshot is pending keeps this value.
+  string expected_head_task_id = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message CreateCheckpointResponse {
+  Checkpoint checkpoint = 1;
+}
+
+message GetCheckpointRequest {
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetCheckpointResponse {
+  Checkpoint checkpoint = 1;
+}
+
+message ListCheckpointsRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  PageRequest page = 2;
+}
+
+message ListCheckpointsResponse {
+  repeated Checkpoint checkpoints = 1;
+  PageResponse page = 2;
+}
+
+message DeleteCheckpointRequest {
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeleteCheckpointResponse {}
+
+message ForkSessionRequest {
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
+  string request_id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
+}
+
+message ForkSessionResponse {
+  Session session = 1;
+}
+
+message UpdateCheckpointNameRequest {
+  string checkpoint_id = 1 [(buf.validate.field).string.uuid = true];
+  // The new display name. Empty restores the generated default rather than leaving
+  // the checkpoint nameless, so a fork always has something to be called.
+  string name = 2 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+}
+
+message UpdateCheckpointNameResponse {
+  Checkpoint checkpoint = 1;
+}

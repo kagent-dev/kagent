@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 )
 
@@ -90,12 +90,12 @@ type blockedExecutionStore struct {
 }
 
 func (s *blockedExecutionStore) LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error) {
-	return []database.LeasedScheduledRunExecution{{Execution: &apiv1alpha1.ScheduledRunExecution{
+	return []database.LeasedScheduledRunExecution{{Execution: &apiv1.ScheduledRunExecution{
 		Id: "execution", SessionId: "session", Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}}}, nil
 }
 
-func (s *blockedExecutionStore) GetSession(ctx context.Context, _, _ string) (*apiv1alpha1.Session, error) {
+func (s *blockedExecutionStore) GetSession(ctx context.Context, _, _ string) (*apiv1.Session, error) {
 	select {
 	case s.started <- struct{}{}:
 	case <-ctx.Done():

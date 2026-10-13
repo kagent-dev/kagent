@@ -1,7 +1,7 @@
 # Process configuration
 
 The CLI and controller read YAML or JSON documents described by
-[`config.proto`](../../proto/kagent/api/v1alpha1/config.proto). Protovalidate
+[`config.proto`](../../proto/kagent/config/v1/config.proto). Protovalidate
 annotations define valid values and cross-field constraints. Files have no
 `apiVersion` or `kind`: the executable selects its schema.
 
@@ -150,7 +150,7 @@ Configuration changes require a process restart.
 ## Runtimes
 
 ADK and BYO configuration uses `ADKConfig` from
-[`adk.proto`](../../proto/kagent/api/v1alpha1/adk.proto), serialized as ProtoJSON
+[`adk.proto`](../../proto/kagent/config/v1/adk.proto) in `kagent.config.v1`, serialized as ProtoJSON
 in `config.json`. Go and Python consume generated messages and enforce the
 same Protovalidate rules. Agent, model, tool, memory, compaction, plugin, and
 process settings have one schema. Process settings live in the root `runtime`

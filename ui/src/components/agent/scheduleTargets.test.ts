@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { ScheduledRunSchema } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { ScheduledRunSchema } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 import { schedulesFor } from "./scheduleTargets";
 
 describe("schedulesFor", () => {

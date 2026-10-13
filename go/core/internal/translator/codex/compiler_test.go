@@ -16,7 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
@@ -274,7 +274,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	input.Harness.Name = "fast"
 
 	settings := testRuntimeDefaults()
-	settings.Telemetry = &apiv1.TelemetryConfig{Traces: &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
+	settings.Telemetry = &configv1.TelemetryConfig{Traces: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
 	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -331,6 +331,6 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 }
 
-func testRuntimeDefaults() *apiv1.RuntimeDefaultsConfig {
-	return &apiv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &apiv1.LoggingConfig{Level: new("info")}}
+func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
+	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }

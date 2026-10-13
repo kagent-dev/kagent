@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
@@ -38,12 +38,12 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		conn := newControllerConn(t, target)
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
 		t.Cleanup(cancel)
-		sessions := apiv1alpha1.NewSessionServiceClient(conn)
-		checkpoints := apiv1alpha1.NewCheckpointServiceClient(conn)
-		system := apiv1alpha1.NewSystemServiceClient(conn)
-		request := func(name string) *apiv1alpha1.CreateSessionRequest {
-			return &apiv1alpha1.CreateSessionRequest{
-				Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: name},
+		sessions := apiv1.NewSessionServiceClient(conn)
+		checkpoints := apiv1.NewCheckpointServiceClient(conn)
+		system := apiv1.NewSystemServiceClient(conn)
+		request := func(name string) *apiv1.CreateSessionRequest {
+			return &apiv1.CreateSessionRequest{
+				Agent:     &apiv1.ResourceReference{Namespace: "kagent", Name: name},
 				RequestId: uuid.NewString(),
 			}
 		}
@@ -55,7 +55,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		}
 		send := func(id string) string {
 			t.Helper()
-			session, err := sessions.GetSession(ctx, &apiv1alpha1.GetSessionRequest{SessionId: id})
+			session, err := sessions.GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 			require.NoError(t, err)
 			ref := session.GetSession().GetAgent()
 			fixture := &interactionFixture{
@@ -82,7 +82,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		runtimeName := actor.GetActorTemplate().GetName()
 		runtimeNamespace := actor.GetActorTemplate().GetAtespace()
 		require.NotEmpty(t, runtimeName)
-		backend, err := system.GetSubstrateSummary(ctx, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
+		backend, err := system.GetSubstrateSummary(ctx, &apiv1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
 		require.NoError(t, err)
 		require.Empty(t, backend.GetAteApiError())
 		var goldenActorID string
@@ -117,12 +117,12 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		send(fallback.GetSession().GetId())
 		deleteSession(fallback.GetSession().GetId())
 
-		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1alpha1.CreateCheckpointRequest{SessionId: source.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: sourceTaskID})
+		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1.CreateCheckpointRequest{SessionId: source.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: sourceTaskID})
 		checkpointID := checkpointResponse.GetCheckpoint().GetId()
 		t.Cleanup(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cleanupCancel()
-			_, err := checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
+			_, err := checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 			if status.Code(err) != codes.NotFound {
 				require.NoError(t, err)
 			}
@@ -146,7 +146,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			return false, nil
 		}))
 		if checkpointForksSupported {
-			forked, err := checkpoints.ForkSession(ctx, &apiv1alpha1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
+			forked, err := checkpoints.ForkSession(ctx, &apiv1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
 			require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
 			forkID := forked.GetSession().GetId()
 			t.Cleanup(func() { deleteSession(forkID) })
@@ -155,13 +155,13 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		} else {
 			requireForkRejected(ctx, t, checkpoints, checkpointID)
 		}
-		_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
+		_, err = checkpoints.DeleteCheckpoint(ctx, &apiv1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 		require.NoError(t, err)
 
 		// GC must remove the template after the final
 		// checkpoint disappears, without another template event to drive cleanup.
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-			backend, err := system.GetSubstrateSummary(ctx, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
+			backend, err := system.GetSubstrateSummary(ctx, &apiv1.GetSubstrateSummaryRequest{Namespace: "kagent", Atespace: runtimeNamespace})
 			if err != nil {
 				return false, err
 			}
@@ -189,11 +189,11 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 	})
 }
 
-func findSubstrateActor(ctx context.Context, system apiv1alpha1.SystemServiceClient, atespace, name string) (*ateapipb.Actor, error) {
+func findSubstrateActor(ctx context.Context, system apiv1.SystemServiceClient, atespace, name string) (*ateapipb.Actor, error) {
 	for token := ""; ; {
-		page, err := system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
+		page, err := system.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{
 			Atespace: atespace,
-			Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
+			Page:     &apiv1.PageRequest{Limit: 100, PageToken: token},
 		})
 		if err != nil {
 			return nil, err

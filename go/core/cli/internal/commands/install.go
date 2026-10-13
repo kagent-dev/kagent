@@ -14,7 +14,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
@@ -157,7 +157,7 @@ func podCertificateChartValues(values []string, namespace string, includeBundled
 
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
-func setupHelmConfig(chart *apiv1.ChartConfig, modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
+func setupHelmConfig(chart *configv1.ChartConfig, modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
 	// Build Helm values
 	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
 	values := []string{
@@ -178,7 +178,7 @@ config:
 	return result
 }
 
-func chartConfig(chart *apiv1.ChartConfig) helmConfig {
+func chartConfig(chart *configv1.ChartConfig) helmConfig {
 	return helmConfig{registry: strings.TrimRight(chart.GetRepository(), "/") + "/", version: chart.GetVersion(), valuesFiles: slices.Clone(chart.GetValuesFiles())}
 }
 

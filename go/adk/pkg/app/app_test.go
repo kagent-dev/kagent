@@ -27,7 +27,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -175,9 +175,9 @@ func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
 // admissionServer sends the next message during settlement: the first moment the
 // gateway can report the previous task as terminal.
 type admissionServer struct {
-	apiv1alpha1.UnimplementedTaskStoreServiceServer
+	runtimev1.UnimplementedTaskStoreServiceServer
 	mu      sync.Mutex
-	tasks   map[string]*apiv1alpha1.StoredTask
+	tasks   map[string]*runtimev1.StoredTask
 	next    func() error
 	nextErr chan error
 }
@@ -186,40 +186,40 @@ func (s *admissionServer) save(task *a2apb.Task) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	version := s.tasks[task.GetId()].GetVersion() + 1
-	s.tasks[task.GetId()] = &apiv1alpha1.StoredTask{Task: task, Version: version}
+	s.tasks[task.GetId()] = &runtimev1.StoredTask{Task: task, Version: version}
 	return version
 }
 
-func (s *admissionServer) GetTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
+func (s *admissionServer) GetTask(_ context.Context, request *runtimev1.TaskStoreServiceGetTaskRequest) (*runtimev1.TaskStoreServiceGetTaskResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if stored, ok := s.tasks[request.TaskId]; ok {
-		return &apiv1alpha1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
+		return &runtimev1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
 	}
 	return nil, status.Error(codes.NotFound, "task not found")
 }
 
-func (s *admissionServer) CreateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
-	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
+func (s *admissionServer) CreateTask(_ context.Context, request *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
 }
 
-func (s *admissionServer) UpdateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
-	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
+func (s *admissionServer) UpdateTask(_ context.Context, request *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
 }
 
-func (s *admissionServer) SettleTask(context.Context, *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
+func (s *admissionServer) SettleTask(context.Context, *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
 	if next := s.next; next != nil {
 		s.next = nil
 		s.nextErr <- next()
 	}
-	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 
 func TestSettledTaskAdmitsNextSend(t *testing.T) {
-	api := &admissionServer{tasks: map[string]*apiv1alpha1.StoredTask{}, nextErr: make(chan error, 1)}
+	api := &admissionServer{tasks: map[string]*runtimev1.StoredTask{}, nextErr: make(chan error, 1)}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	apiv1alpha1.RegisterTaskStoreServiceServer(server, api)
+	runtimev1.RegisterTaskStoreServiceServer(server, api)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	client, err := controllerclient.New(controllerclient.Config{

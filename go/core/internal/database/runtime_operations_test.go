@@ -10,14 +10,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type lifecycleResource interface {
-	GetState() apiv1alpha1.RuntimeState
-	GetOperation() apiv1alpha1.RuntimeOperation
+	GetState() apiv1.RuntimeState
+	GetOperation() apiv1.RuntimeOperation
 	GetName() string
-	GetFailure() *apiv1alpha1.Failure
+	GetFailure() *apiv1.Failure
 	GetCreatedAt() *timestamppb.Timestamp
 	GetUpdatedAt() *timestamppb.Timestamp
 }
@@ -30,7 +30,7 @@ func TestRuntimeLifecycleContract(t *testing.T) {
 		sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 		instance, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", "conversation"), "create")
 		require.NoError(t, err)
-		testRuntimeLifecycle(t, func(ctx context.Context, kind apiv1alpha1.RuntimeOperation) (*RuntimeOperation[*apiv1alpha1.Session], error) {
+		testRuntimeLifecycle(t, func(ctx context.Context, kind apiv1.RuntimeOperation) (*RuntimeOperation[*apiv1.Session], error) {
 			operation, err := client.BeginSessionOperation(ctx, instance.Id, kind)
 			if err != nil {
 				return nil, err
@@ -38,7 +38,7 @@ func TestRuntimeLifecycleContract(t *testing.T) {
 			return &operation.RuntimeOperation, nil
 		}, func(ctx context.Context, operation, executor uuid.UUID) (bool, error) {
 			return client.ClaimSessionOperation(ctx, instance.Id, operation, executor)
-		}, func(ctx context.Context, operation, executor uuid.UUID, failure string) (*apiv1alpha1.Session, error) {
+		}, func(ctx context.Context, operation, executor uuid.UUID, failure string) (*apiv1.Session, error) {
 			actorUID := ""
 			if failure == "" {
 				actorUID = "actor-uid"
@@ -53,11 +53,11 @@ func TestRuntimeLifecycleContract(t *testing.T) {
 		input, options := sandboxFixture(t, client, "revision")
 		instance, _, err := client.CreateSandbox(t.Context(), input, "create", options)
 		require.NoError(t, err)
-		testRuntimeLifecycle(t, func(ctx context.Context, kind apiv1alpha1.RuntimeOperation) (*RuntimeOperation[*apiv1alpha1.Sandbox], error) {
+		testRuntimeLifecycle(t, func(ctx context.Context, kind apiv1.RuntimeOperation) (*RuntimeOperation[*apiv1.Sandbox], error) {
 			return client.BeginSandboxOperation(ctx, instance.Id, kind)
 		}, func(ctx context.Context, operation, executor uuid.UUID) (bool, error) {
 			return client.ClaimSandboxOperation(ctx, instance.Id, operation, executor)
-		}, func(ctx context.Context, operation, executor uuid.UUID, failure string) (*apiv1alpha1.Sandbox, error) {
+		}, func(ctx context.Context, operation, executor uuid.UUID, failure string) (*apiv1.Sandbox, error) {
 			return client.FinishSandboxOperation(ctx, instance.Id, operation, executor, failure)
 		}, func(ctx context.Context, operation, executor uuid.UUID) error {
 			return client.ReleaseRuntimeOperation(ctx, instance.Id, operation, executor)
@@ -66,14 +66,14 @@ func TestRuntimeLifecycleContract(t *testing.T) {
 }
 
 func testRuntimeLifecycle[T lifecycleResource](t *testing.T,
-	begin func(context.Context, apiv1alpha1.RuntimeOperation) (*RuntimeOperation[T], error),
+	begin func(context.Context, apiv1.RuntimeOperation) (*RuntimeOperation[T], error),
 	claim func(context.Context, uuid.UUID, uuid.UUID) (bool, error),
 	finish func(context.Context, uuid.UUID, uuid.UUID, string) (T, error),
 	release func(context.Context, uuid.UUID, uuid.UUID) error,
 ) {
 	t.Helper()
 	ctx := t.Context()
-	first, err := begin(ctx, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	first, err := begin(ctx, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.Instance.GetName())
 	require.True(t, first.Instance.GetCreatedAt().IsValid())
@@ -83,7 +83,7 @@ func testRuntimeLifecycle[T lifecycleResource](t *testing.T,
 	require.NoError(t, err)
 	require.Equal(t, "PreparationFailed", failed.GetFailure().GetReason())
 	require.Equal(t, "backend temporarily unavailable", failed.GetFailure().GetMessage())
-	retry, err := begin(ctx, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+	retry, err := begin(ctx, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(failed.GetFailure(), retry.Instance.GetFailure()), "failure details must survive a read and retry")
 	require.Equal(t, first.Instance.GetName(), retry.Instance.GetName())
@@ -137,9 +137,9 @@ func testRuntimeLifecycle[T lifecycleResource](t *testing.T,
 	winner = replacement
 	ready, err := finish(ctx, retry.ID, winner, "")
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ready.GetState())
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, ready.GetState())
 	require.Nil(t, ready.GetFailure())
-	for _, kind := range []apiv1alpha1.RuntimeOperation{apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE} {
+	for _, kind := range []apiv1.RuntimeOperation{apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE} {
 		op, err := begin(ctx, kind)
 		require.NoError(t, err)
 		_, err = finish(ctx, retry.ID, winner, "")
@@ -154,7 +154,7 @@ func testRuntimeLifecycle[T lifecycleResource](t *testing.T,
 		require.NoError(t, err)
 		require.Equal(t, op.ID, observed.ID, "completion retains the observed generation")
 		require.Equal(t, result.GetState(), observed.Instance.GetState())
-		require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, observed.Instance.GetOperation())
+		require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, observed.Instance.GetOperation())
 		require.Equal(t, first.Instance.GetName(), observed.Instance.GetName())
 		require.True(t, proto.Equal(first.Instance.GetCreatedAt(), observed.Instance.GetCreatedAt()))
 		require.True(t, proto.Equal(result.GetUpdatedAt(), observed.Instance.GetUpdatedAt()), "observing a completed operation must not change its timestamp")

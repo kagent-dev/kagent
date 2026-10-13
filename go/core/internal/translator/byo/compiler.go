@@ -14,7 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -23,12 +23,12 @@ import (
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
 type Compiler struct {
 	config   *adkconfig.Builder
-	settings *apiv1.RuntimeDefaultsConfig
+	settings *configv1.RuntimeDefaultsConfig
 }
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *apiv1.RuntimeDefaultsConfig) *Compiler {
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
 	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
 }
 

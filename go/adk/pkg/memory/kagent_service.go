@@ -16,7 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -130,7 +130,7 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, content string, v
 	if err != nil {
 		return err
 	}
-	memoryInput := &apiv1alpha1.SessionMemoryInput{
+	memoryInput := &runtimev1.SessionMemoryInput{
 		AgentName: s.agentName,
 		UserId:    userID,
 		Content:   content,
@@ -142,7 +142,7 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, content string, v
 
 	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
 	defer cancel()
-	_, err = s.controllerClient.MemoryService().AddSession(callContext, &apiv1alpha1.MemoryServiceAddSessionRequest{Memory: memoryInput})
+	_, err = s.controllerClient.MemoryService().AddSession(callContext, &runtimev1.MemoryServiceAddSessionRequest{Memory: memoryInput})
 	if err != nil {
 		return fmt.Errorf("add session memory: %w", err)
 	}
@@ -180,7 +180,7 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 	}
 
 	// Prepare API request
-	searchRequest := &apiv1alpha1.MemoryServiceSearchRequest{
+	searchRequest := &runtimev1.MemoryServiceSearchRequest{
 		AgentName: s.agentName,
 		UserId:    userID,
 		Vector:    vector,

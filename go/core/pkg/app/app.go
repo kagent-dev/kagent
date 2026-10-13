@@ -44,7 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
@@ -150,11 +150,11 @@ func SetupLogger(level string) error {
 // Run boots the controller and blocks until ctx is cancelled or a component
 // fails. It returns the first error rather than exiting, so a library consumer
 // keeps control of how the process ends.
-func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error {
+func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) error {
 	if input == nil {
 		return fmt.Errorf("controller configuration is required")
 	}
-	cfg := proto.Clone(input).(*apiv1.ControllerConfig)
+	cfg := proto.Clone(input).(*configv1.ControllerConfig)
 	config.DefaultController(cfg)
 	if err := config.Validate(cfg); err != nil {
 		return err
@@ -468,7 +468,7 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 	return merged, nil
 }
 
-func postgresConfig(cfg *apiv1.DatabaseConfig, pool *pgxpool.Config) *database.PostgresConfig {
+func postgresConfig(cfg *configv1.DatabaseConfig, pool *pgxpool.Config) *database.PostgresConfig {
 	return &database.PostgresConfig{Pool: pool, VectorEnabled: cfg.GetVectorEnabled(),
 		Schema: cfg.GetSchema(), VectorSchema: cfg.GetVectorSchema(),
 		MaxConns: new(cfg.GetPool().GetMaxConns()), MinConns: new(cfg.GetPool().GetMinConns()),
@@ -477,14 +477,14 @@ func postgresConfig(cfg *apiv1.DatabaseConfig, pool *pgxpool.Config) *database.P
 
 // migrationSources appends extra after the built-in tracks: the built-ins must reach
 // their final version before a library consumer's tables, which may reference them.
-func migrationSources(cfg *apiv1.DatabaseConfig, extra []migrations.Source) []migrations.Source {
+func migrationSources(cfg *configv1.DatabaseConfig, extra []migrations.Source) []migrations.Source {
 	builtins := migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema())
 	return append(builtins, extra...)
 }
 
 // databasePoolConfig reads one login's connection string and builds its pool
 // configuration. field names the login in errors.
-func databasePoolConfig(field string, login *apiv1.DatabaseLoginConfig) (*pgxpool.Config, error) {
+func databasePoolConfig(field string, login *configv1.DatabaseLoginConfig) (*pgxpool.Config, error) {
 	url, err := config.ReadSecret(login.GetUrlFile())
 	if err != nil {
 		return nil, fmt.Errorf("%s.urlFile: %w", field, err)

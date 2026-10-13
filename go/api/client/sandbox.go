@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 )
 
@@ -39,67 +39,67 @@ func (c *SandboxClient) guestCall(ctx context.Context, sandboxID string) (*grpc.
 	return c.call(metadata.NewOutgoingContext(ctx, md))
 }
 
-func (c *SandboxClient) ListSandboxTemplates(ctx context.Context, request *apiv1alpha1.ListSandboxTemplatesRequest) (*apiv1alpha1.ListSandboxTemplatesResponse, error) {
+func (c *SandboxClient) ListSandboxTemplates(ctx context.Context, request *apiv1.ListSandboxTemplatesRequest) (*apiv1.ListSandboxTemplatesResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxTemplateServiceClient(conn).ListSandboxTemplates(ctx, request)
+	return apiv1.NewSandboxTemplateServiceClient(conn).ListSandboxTemplates(ctx, request)
 }
 
-func (c *SandboxClient) CreateSandbox(ctx context.Context, request *apiv1alpha1.CreateSandboxRequest) (*apiv1alpha1.CreateSandboxResponse, error) {
+func (c *SandboxClient) CreateSandbox(ctx context.Context, request *apiv1.CreateSandboxRequest) (*apiv1.CreateSandboxResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxServiceClient(conn).CreateSandbox(ctx, request)
+	return apiv1.NewSandboxServiceClient(conn).CreateSandbox(ctx, request)
 }
 
-func (c *SandboxClient) GetSandbox(ctx context.Context, request *apiv1alpha1.GetSandboxRequest) (*apiv1alpha1.GetSandboxResponse, error) {
+func (c *SandboxClient) GetSandbox(ctx context.Context, request *apiv1.GetSandboxRequest) (*apiv1.GetSandboxResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxServiceClient(conn).GetSandbox(ctx, request)
+	return apiv1.NewSandboxServiceClient(conn).GetSandbox(ctx, request)
 }
 
-func (c *SandboxClient) ListSandboxes(ctx context.Context, request *apiv1alpha1.ListSandboxesRequest) (*apiv1alpha1.ListSandboxesResponse, error) {
+func (c *SandboxClient) ListSandboxes(ctx context.Context, request *apiv1.ListSandboxesRequest) (*apiv1.ListSandboxesResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxServiceClient(conn).ListSandboxes(ctx, request)
+	return apiv1.NewSandboxServiceClient(conn).ListSandboxes(ctx, request)
 }
 
-func (c *SandboxClient) SuspendSandbox(ctx context.Context, request *apiv1alpha1.SuspendSandboxRequest) (*apiv1alpha1.SuspendSandboxResponse, error) {
+func (c *SandboxClient) SuspendSandbox(ctx context.Context, request *apiv1.SuspendSandboxRequest) (*apiv1.SuspendSandboxResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxServiceClient(conn).SuspendSandbox(ctx, request)
+	return apiv1.NewSandboxServiceClient(conn).SuspendSandbox(ctx, request)
 }
 
-func (c *SandboxClient) ResumeSandbox(ctx context.Context, request *apiv1alpha1.ResumeSandboxRequest) (*apiv1alpha1.ResumeSandboxResponse, error) {
+func (c *SandboxClient) ResumeSandbox(ctx context.Context, request *apiv1.ResumeSandboxRequest) (*apiv1.ResumeSandboxResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxServiceClient(conn).ResumeSandbox(ctx, request)
+	return apiv1.NewSandboxServiceClient(conn).ResumeSandbox(ctx, request)
 }
 
-func (c *SandboxClient) DeleteSandbox(ctx context.Context, request *apiv1alpha1.DeleteSandboxRequest) (*apiv1alpha1.DeleteSandboxResponse, error) {
+func (c *SandboxClient) DeleteSandbox(ctx context.Context, request *apiv1.DeleteSandboxRequest) (*apiv1.DeleteSandboxResponse, error) {
 	conn, ctx, cancel, err := c.call(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return apiv1alpha1.NewSandboxServiceClient(conn).DeleteSandbox(ctx, request)
+	return apiv1.NewSandboxServiceClient(conn).DeleteSandbox(ctx, request)
 }
 
 func (c *SandboxClient) StartProcess(ctx context.Context, sandboxID string, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {

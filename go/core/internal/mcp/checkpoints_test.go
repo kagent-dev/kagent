@@ -9,16 +9,16 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestCheckpointSummary(t *testing.T) {
 	created := time.Date(2026, time.August, 26, 10, 0, 0, 123, time.UTC)
-	got := checkpointSummary(&apiv1alpha1.Checkpoint{
+	got := checkpointSummary(&apiv1.Checkpoint{
 		Id:        "22222222-2222-4222-8222-222222222222",
 		SessionId: testSessionID, HeadTaskId: testTaskID, HistorySequence: 7,
-		State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, CreatedAt: timestamppb.New(created),
-		Failure: &apiv1alpha1.Failure{Message: "failed"},
+		State: apiv1.CheckpointState_CHECKPOINT_STATE_READY, CreatedAt: timestamppb.New(created),
+		Failure: &apiv1.Failure{Message: "failed"},
 	})
 	if got.ID != "22222222-2222-4222-8222-222222222222" || got.SessionID != testSessionID ||
 		got.HistorySequence != 7 || got.State != "CHECKPOINT_STATE_READY" || got.CreatedAt != created.Format(time.RFC3339Nano) || got.Failure.Message != "failed" {

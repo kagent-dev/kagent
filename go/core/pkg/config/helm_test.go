@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
@@ -28,13 +28,13 @@ func TestHelmControllerConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(chart, file), data, 0o600))
 	}
-	render := func(values string) (*apiv1.ControllerConfig, string, error) {
+	render := func(values string) (*configv1.ControllerConfig, string, error) {
 		cmd := exec.CommandContext(t.Context(), "helm", "template", "demo", chart, "--namespace", "team", "-f", "-")
 		cmd.Stdin = strings.NewReader(values)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(output))
 		decoder := yaml.NewDecoder(strings.NewReader(string(output)))
-		cfg := &apiv1.ControllerConfig{}
+		cfg := &configv1.ControllerConfig{}
 		checksum := ""
 		for {
 			var object struct {

@@ -1,11 +1,11 @@
 package translator
 
 import (
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/image"
 )
 
-func harnessImage(harness *HarnessConfiguration, images *apiv1.HarnessImagesConfig) (string, error) {
+func harnessImage(harness *HarnessConfiguration, images *configv1.HarnessImagesConfig) (string, error) {
 	var selected string
 	if override := harness.Spec.Workload.Image; override != nil {
 		selected = *override

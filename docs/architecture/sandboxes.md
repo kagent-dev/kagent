@@ -195,7 +195,7 @@ The apiserver registers three services on the same listener:
 
 | Service | Operations |
 | --- | --- |
-| `kagent.api.v1alpha1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
+| `kagent.api.v1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
 | `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, KillProcess, StreamProcessOutputs |
 | `ateenv.v1alpha.FileSystemService` | ReadFile, WriteFile |
 
@@ -334,8 +334,8 @@ resource applies its policy in the same transaction as its lifecycle transition.
 
 ## Implementation boundaries
 
-- [API contracts](../../proto/kagent/api/v1alpha1/sandboxes.proto) and
-  [template catalog](../../proto/kagent/api/v1alpha1/sandbox_templates.proto)
+- [API contracts](../../proto/kagent/api/v1/sandboxes.proto) and
+  [template catalog](../../proto/kagent/api/v1/sandbox_templates.proto)
   define lifecycle/catalog shapes and request-intrinsic validation. Execution
   uses the upstream [env contract](../../proto/ateenv/v1alpha/guest.proto) and
   [sandbox routing metadata](../../go/api/sandbox/metadata.go).

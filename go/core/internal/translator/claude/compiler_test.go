@@ -16,7 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -551,7 +551,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	settings.Telemetry = &apiv1.TelemetryConfig{CaptureContent: true, MaxCaptureBytes: new(int32(4096))}
+	settings.Telemetry = &configv1.TelemetryConfig{CaptureContent: true, MaxCaptureBytes: new(int32(4096))}
 	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -584,8 +584,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	settings := testRuntimeDefaults()
-	settings.Telemetry = &apiv1.TelemetryConfig{CaptureContent: true, CaptureRawApiBodies: true, MaxCaptureBytes: new(int32(4096)),
-		Traces: &apiv1.OTLPConfig{Endpoint: "http://traces:4317", Protocol: new("grpc")}, Metrics: &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}, Logs: &apiv1.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: new("http/protobuf")}}
+	settings.Telemetry = &configv1.TelemetryConfig{CaptureContent: true, CaptureRawApiBodies: true, MaxCaptureBytes: new(int32(4096)),
+		Traces: &configv1.OTLPConfig{Endpoint: "http://traces:4317", Protocol: new("grpc")}, Metrics: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}, Logs: &configv1.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: new("http/protobuf")}}
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -619,6 +619,6 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	t.Logf("worst-case Claude actor uses %d of 32 environment variables", len(template.GetContainers()[0].GetEnv()))
 }
 
-func testRuntimeDefaults() *apiv1.RuntimeDefaultsConfig {
-	return &apiv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &apiv1.LoggingConfig{Level: new("info")}}
+func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
+	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }

@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
@@ -46,8 +46,8 @@ func TestCreateSessionExplicitReplayIDAndOutput(t *testing.T) {
 			var output bytes.Buffer
 
 			require.NoError(t, create(t.Context(), client, "kagent", cfg, tt.format, &output))
-			assert.Equal(t, &apiv1alpha1.CreateSessionRequest{
-				Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"}, RequestId: "replay-1",
+			assert.Equal(t, &apiv1.CreateSessionRequest{
+				Agent: &apiv1.ResourceReference{Namespace: "kagent", Name: "smoke"}, RequestId: "replay-1",
 			}, client.createRequest)
 			assert.Contains(t, output.String(), testSessionID)
 			if tt.format == clioutput.FormatJSON {
@@ -60,14 +60,14 @@ func TestCreateSessionExplicitReplayIDAndOutput(t *testing.T) {
 }
 
 func TestDeleteSession(t *testing.T) {
-	client := &lifecycleSessionClient{deleteSession: &apiv1alpha1.Session{
-		Id: testSessionID, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED,
+	client := &lifecycleSessionClient{deleteSession: &apiv1.Session{
+		Id: testSessionID, State: apiv1.RuntimeState_RUNTIME_STATE_DELETED,
 	}}
 	cfg := &DeleteCfg{SessionID: testSessionID}
 	var output bytes.Buffer
 
 	require.NoError(t, deleteSession(t.Context(), client, cfg, clioutput.FormatTable, &output))
-	assert.Equal(t, &apiv1alpha1.DeleteSessionRequest{
+	assert.Equal(t, &apiv1.DeleteSessionRequest{
 		SessionId: testSessionID,
 	}, client.deleteRequest)
 	assert.Contains(t, output.String(), testSessionID)
@@ -84,32 +84,32 @@ func TestDeleteSessionAborted(t *testing.T) {
 }
 
 type lifecycleSessionClient struct {
-	createSession *apiv1alpha1.Session
-	deleteSession *apiv1alpha1.Session
-	createRequest *apiv1alpha1.CreateSessionRequest
-	deleteRequest *apiv1alpha1.DeleteSessionRequest
+	createSession *apiv1.Session
+	deleteSession *apiv1.Session
+	createRequest *apiv1.CreateSessionRequest
+	deleteRequest *apiv1.DeleteSessionRequest
 	createErr     error
 	deleteErr     error
 }
 
 func (c *lifecycleSessionClient) CreateSession(
 	_ context.Context,
-	request *apiv1alpha1.CreateSessionRequest,
-) (*apiv1alpha1.CreateSessionResponse, error) {
+	request *apiv1.CreateSessionRequest,
+) (*apiv1.CreateSessionResponse, error) {
 	c.createRequest = request
 	if c.createErr != nil {
 		return nil, c.createErr
 	}
-	return &apiv1alpha1.CreateSessionResponse{Session: c.createSession}, nil
+	return &apiv1.CreateSessionResponse{Session: c.createSession}, nil
 }
 
 func (c *lifecycleSessionClient) DeleteSession(
 	_ context.Context,
-	request *apiv1alpha1.DeleteSessionRequest,
-) (*apiv1alpha1.DeleteSessionResponse, error) {
+	request *apiv1.DeleteSessionRequest,
+) (*apiv1.DeleteSessionResponse, error) {
 	c.deleteRequest = request
 	if c.deleteErr != nil {
 		return nil, c.deleteErr
 	}
-	return &apiv1alpha1.DeleteSessionResponse{Session: c.deleteSession}, nil
+	return &apiv1.DeleteSessionResponse{Session: c.deleteSession}, nil
 }

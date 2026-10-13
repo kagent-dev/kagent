@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestTaskViewsRebuildFromEvents(t *testing.T) {
@@ -79,7 +79,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question}
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	assertReplay()
-	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
+	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	// Both a user reply and an immediate message result must persist their status.
@@ -97,7 +97,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, message, snapshot))
 		assertReplay()
 	}
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
 	require.NoError(t, err)
 	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
 	require.NoError(t, err)

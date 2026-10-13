@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type LifecycleClient interface {
@@ -47,7 +47,7 @@ type ActorCreation struct {
 
 type ActorTransition struct {
 	binding   ActorBinding
-	operation apiv1alpha1.RuntimeOperation
+	operation apiv1.RuntimeOperation
 	actor     *ateapipb.Actor
 	creation  *ActorCreation
 }
@@ -59,22 +59,22 @@ func (t *ActorTransition) ActorUID() string {
 
 // PrepareActorTransition performs read-only checks before the store's durable
 // claim. It never adopts an existing Actor for an unissued creation.
-func PrepareActorTransition(ctx context.Context, actors LifecycleClient, binding ActorBinding, operation apiv1alpha1.RuntimeOperation, creation *ActorCreation) (*ActorTransition, error) {
+func PrepareActorTransition(ctx context.Context, actors LifecycleClient, binding ActorBinding, operation apiv1.RuntimeOperation, creation *ActorCreation) (*ActorTransition, error) {
 	return prepareActorTransition(ctx, actors, binding, operation, creation, false)
 }
 
 // PrepareActorRetry resumes previously issued intent. Substrate serializes
 // lifecycle mutations with its Actor lease and resumes incomplete workflows.
 // The immutable runtime name and pinned template identify an existing creation.
-func PrepareActorRetry(ctx context.Context, actors LifecycleClient, binding ActorBinding, operation apiv1alpha1.RuntimeOperation, creation *ActorCreation) (*ActorTransition, error) {
+func PrepareActorRetry(ctx context.Context, actors LifecycleClient, binding ActorBinding, operation apiv1.RuntimeOperation, creation *ActorCreation) (*ActorTransition, error) {
 	return prepareActorTransition(ctx, actors, binding, operation, creation, true)
 }
 
-func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding ActorBinding, operation apiv1alpha1.RuntimeOperation, creation *ActorCreation, reconcile bool) (*ActorTransition, error) {
-	if operation < apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE || operation > apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding ActorBinding, operation apiv1.RuntimeOperation, creation *ActorCreation, reconcile bool) (*ActorTransition, error) {
+	if operation < apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE || operation > apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 		return nil, fmt.Errorf("invalid actor lifecycle operation %s", operation)
 	}
-	if operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		if creation == nil || creation.EgressPolicy == nil {
 			return nil, fmt.Errorf("actor creation requires an egress policy")
 		}
@@ -84,7 +84,7 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 	}
 	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if status.Code(err) == codes.NotFound {
-		if operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE && operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+		if operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE && operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 			return nil, err
 		}
 		actor, err = nil, nil
@@ -93,13 +93,13 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 		return nil, fmt.Errorf("get Actor %s/%s: %w", binding.Atespace, binding.Name, err)
 	}
 	if actor != nil {
-		if operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE && !reconcile {
+		if operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE && !reconcile {
 			return nil, fmt.Errorf("refuse to adopt existing Actor %s/%s while creation is still pending", binding.Atespace, binding.Name)
 		}
 		if !binding.matches(actor) {
 			return nil, fmt.Errorf("actor %s/%s identity or template changed", binding.Atespace, binding.Name)
 		}
-		if operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME || operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND {
+		if operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME || operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND {
 			switch actor.GetStatus().GetState() {
 			case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
 				ateapipb.ActorState_ACTOR_STATE_PAUSED, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
@@ -120,7 +120,7 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 	binding, actor := transition.binding, transition.actor
 	var err error
 	switch transition.operation {
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
 		creation := transition.creation
 		if actor == nil {
 			if creation.Snapshot == nil {
@@ -152,17 +152,17 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 				err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_RUNNING)
 			}
 		}
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
 		actor, err = actors.ResumeActor(ctx, binding.Atespace, binding.Name)
 		if err == nil {
 			err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_RUNNING)
 		}
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
 		actor, err = actors.SuspendActor(ctx, binding.Atespace, binding.Name)
 		if err == nil {
 			err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
 		}
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		if actor != nil {
 			switch actor.GetStatus().GetState() {
 			case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:

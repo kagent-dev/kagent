@@ -6,13 +6,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestHarnessImage(t *testing.T) {
 	const digest = "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	images := &apiv1.HarnessImagesConfig{Kagent: "registry/kagent" + digest, Claude: "registry/claude" + digest, Codex: "registry/codex" + digest}
+	images := &configv1.HarnessImagesConfig{Kagent: "registry/kagent" + digest, Claude: "registry/claude" + digest, Codex: "registry/codex" + digest}
 	for _, tt := range []struct {
 		name string
 		spec v1alpha3.HarnessSpec
@@ -51,7 +51,7 @@ func TestHarnessImage(t *testing.T) {
 		require.Equal(t, *harness.Spec.Workload.Image, got)
 	})
 	t.Run("only the selected default is needed", func(t *testing.T) {
-		partial := &apiv1.HarnessImagesConfig{Kagent: images.GetKagent(), Claude: "invalid"}
+		partial := &configv1.HarnessImagesConfig{Kagent: images.GetKagent(), Claude: "invalid"}
 		_, err := harnessImage(&HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}, partial)
 		require.NoError(t, err)
 		_, err = harnessImage(&HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Claude: &v1alpha3.ClaudeHarness{}}}, partial)

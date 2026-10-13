@@ -15,7 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -67,7 +68,7 @@ func (a *gatedQuiescenceActors) GetActor(ctx context.Context, atespace, name str
 	}
 }
 
-func settlementContext(t *testing.T, session *apiv1alpha1.Session) context.Context {
+func settlementContext(t *testing.T, session *apiv1.Session) context.Context {
 	t.Helper()
 	headers := http.Header{}
 	headers.Set(apia2a.InsecureRuntimeIdentityHeader, "team-a/"+substrate.ActorName(session.Id)+"/actor-uid")
@@ -76,7 +77,7 @@ func settlementContext(t *testing.T, session *apiv1alpha1.Session) context.Conte
 	return auth.AuthSessionTo(t.Context(), identity)
 }
 
-func stageQuiescenceTask(t *testing.T, store *database.Client, session *apiv1alpha1.Session, state a2a.TaskState) *apiv1alpha1.TaskStoreServiceSettleTaskRequest {
+func stageQuiescenceTask(t *testing.T, store *database.Client, session *apiv1.Session, state a2a.TaskState) *runtimev1.TaskStoreServiceSettleTaskRequest {
 	t.Helper()
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("hello"))
 	message.ContextID = session.ContextId
@@ -85,7 +86,7 @@ func stageQuiescenceTask(t *testing.T, store *database.Client, session *apiv1alp
 	hash := sha256.Sum256([]byte(task.ID))
 	version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
 	require.NoError(t, err)
-	return &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: session.Id, TaskId: string(task.ID), Version: version}
+	return &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: session.Id, TaskId: string(task.ID), Version: version}
 }
 
 func startQuiescenceWorker(t *testing.T, workflow *ActorWorkflow) {
@@ -102,14 +103,14 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	store, first := lifecycleFixture(t)
 	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	creator := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour)
-	var sessions []*apiv1alpha1.Session
-	var requests []*apiv1alpha1.TaskStoreServiceSettleTaskRequest
+	var sessions []*apiv1.Session
+	var requests []*runtimev1.TaskStoreServiceSettleTaskRequest
 	states := []a2a.TaskState{a2a.TaskStateCompleted, a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired}
 	for i := range 36 {
 		session := first
 		if i != 0 {
 			var err error
-			session, _, err = store.CreateSession(t.Context(), &apiv1alpha1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.Agent}, uuid.NewString())
+			session, _, err = store.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: first.Agent}, uuid.NewString())
 			require.NoError(t, err)
 		}
 		session, err := creator.Create(t.Context(), session)
@@ -134,7 +135,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 8 }, 5*time.Second, 10*time.Millisecond)
 	// Failed settlement leaves the task unpublished and no eligible work.
-	invalid := &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: requests[0].SessionId, TaskId: requests[0].TaskId, Version: requests[0].Version + 1}
+	invalid := &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: requests[0].SessionId, TaskId: requests[0].TaskId, Version: requests[0].Version + 1}
 	_, err := services[0].SettleTask(settlementContext(t, sessions[0]), invalid)
 	require.Error(t, err)
 	pending, err := store.HasPendingSessionQuiescence(t.Context())
@@ -184,7 +185,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		require.NoError(t, err)
 		if states[i%len(states)].Terminal() {
 			require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, actor.Status.State)
-			_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: requests[i].TaskId}, "alice", uuid.NewString())
+			_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: requests[i].TaskId}, "alice", uuid.NewString())
 			require.NoError(t, err)
 			require.Equal(t, "s3://snapshots/snapshot-1", snapshot.URI)
 		} else {
@@ -227,7 +228,7 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 					require.True(t, revoked)
 				}
 			} else {
-				operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+				operation, err := store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 				require.NoError(t, err)
 				unblock = func() {
 					_, err := store.FinishSessionOperation(t.Context(), session.Id, operation.ID, uuid.Nil, "", "", "preparation failed before runtime I/O")

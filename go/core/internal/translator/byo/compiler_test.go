@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -52,7 +52,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 
 func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	settings := testRuntimeDefaults()
-	settings.Telemetry = &apiv1.TelemetryConfig{Traces: &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
+	settings.Telemetry = &configv1.TelemetryConfig{Traces: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
@@ -81,16 +81,16 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.name=runnable-agent")
 }
 
-func testRuntimeDefaults() *apiv1.RuntimeDefaultsConfig {
-	return &apiv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &apiv1.LoggingConfig{Level: new("info")}}
+func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
+	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
 
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	settings := testRuntimeDefaults()
-	settings.Telemetry = &apiv1.TelemetryConfig{
-		Traces:  &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
-		Metrics: &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
-		Logs:    &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+	settings.Telemetry = &configv1.TelemetryConfig{
+		Traces:  &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+		Metrics: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+		Logs:    &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
 	}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},

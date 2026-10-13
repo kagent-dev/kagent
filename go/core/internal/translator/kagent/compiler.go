@@ -11,20 +11,20 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 )
 
 // Compiler translates resolved inputs into a kagent runtime revision.
 type Compiler struct {
-	settings *apiv1.RuntimeDefaultsConfig
+	settings *configv1.RuntimeDefaultsConfig
 	config   *adkconfig.Builder
 }
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *apiv1.RuntimeDefaultsConfig) *Compiler {
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
 	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
 }
 

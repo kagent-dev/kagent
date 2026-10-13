@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
@@ -48,7 +48,7 @@ func TestControllerConfig(t *testing.T) {
 		{"controller service labels", "telemetry: {resourceAttributes: {service.name: controller, service.namespace: control-plane}}", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &apiv1.ControllerConfig{}
+			cfg := &configv1.ControllerConfig{}
 			err := config.Decode([]byte(tc.input), cfg)
 			if err == nil {
 				config.DefaultController(cfg)
@@ -74,7 +74,7 @@ func TestDatabaseSkipMigrations(t *testing.T) {
 		{"verify", "database: {skipMigrations: true}", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &apiv1.ControllerConfig{}
+			cfg := &configv1.ControllerConfig{}
 			require.NoError(t, config.Decode([]byte(tc.input), cfg))
 			config.DefaultController(cfg)
 			setLogins(cfg)
@@ -85,7 +85,7 @@ func TestDatabaseSkipMigrations(t *testing.T) {
 }
 
 func TestDefaultingPreservesPresence(t *testing.T) {
-	cfg := &apiv1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, config.Decode([]byte("kubernetes: {leaderElection: false}\nsessions: {idleTtl: 0s}\ndatabase: {pool: {minConns: 0}}"), cfg))
 	config.DefaultController(cfg)
 	setLogins(cfg)
@@ -100,15 +100,15 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 }
 
 func TestExplicitEmptyStringFailsSchemaValidation(t *testing.T) {
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, config.Decode([]byte("connection: {userId: ''}"), cfg))
 	config.DefaultCLI(cfg)
 	require.Error(t, config.Validate(cfg))
 }
 
-func setLogins(cfg *apiv1.ControllerConfig) {
-	cfg.Database.Owner = &apiv1.DatabaseLoginConfig{UrlFile: "owner-url", Role: "kagent_owner"}
-	cfg.Database.ReadWrite = &apiv1.DatabaseLoginConfig{UrlFile: "readwrite-url", Role: "kagent_readwrite"}
+func setLogins(cfg *configv1.ControllerConfig) {
+	cfg.Database.Owner = &configv1.DatabaseLoginConfig{UrlFile: "owner-url", Role: "kagent_owner"}
+	cfg.Database.ReadWrite = &configv1.DatabaseLoginConfig{UrlFile: "readwrite-url", Role: "kagent_readwrite"}
 }
 
 func TestDatabaseLogins(t *testing.T) {
@@ -123,7 +123,7 @@ func TestDatabaseLogins(t *testing.T) {
 		{"no owner when skipping migrations", "database: {skipMigrations: true, readWrite: {urlFile: rw, role: kagent_readwrite}}", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &apiv1.ControllerConfig{}
+			cfg := &configv1.ControllerConfig{}
 			require.NoError(t, config.Decode([]byte(tc.input), cfg))
 			config.DefaultController(cfg)
 			err := config.Validate(cfg)
@@ -148,7 +148,7 @@ func TestDefaultingUsesProtoPresence(t *testing.T) {
 		{name: "explicit zero", input: "kubernetes: {leaderElection: false}\nsessions: {idleTtl: 0s}\nruntimeDefaults: {maxContentLength: 0}\ndatabase: {pool: {minConns: 0}}", limit: new(int64(0))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &apiv1.ControllerConfig{}
+			cfg := &configv1.ControllerConfig{}
 			require.NoError(t, config.Decode([]byte(tc.input), cfg))
 			config.DefaultController(cfg)
 			setLogins(cfg)
@@ -163,7 +163,7 @@ func TestDefaultingUsesProtoPresence(t *testing.T) {
 }
 
 func TestYAMLConfigUsesLibraryScalarAndAliasSemantics(t *testing.T) {
-	cfg := &apiv1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, config.Decode([]byte(`
 logging: &logging
   level: debug
@@ -188,7 +188,7 @@ telemetry:
 }
 
 func TestYAMLConfigReadsOnlyFirstDocument(t *testing.T) {
-	cfg := &apiv1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, config.Decode([]byte("logging: {level: debug}\n---\n["), cfg))
 	require.Equal(t, "debug", cfg.GetLogging().GetLevel())
 }

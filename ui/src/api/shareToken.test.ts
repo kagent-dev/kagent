@@ -5,7 +5,7 @@ import type { ApiCallId, ApiRequestContext } from "./extensionPoints";
 const context = (endpoint: ApiCallId, message?: unknown): ApiRequestContext => ({
   endpoint,
   method: "POST",
-  url: "/api/kagent.api.v1alpha1.SessionService/GetSession",
+  url: "/api/kagent.api.v1.SessionService/GetSession",
   headers: { Accept: "application/grpc-web+proto" },
   message,
 });

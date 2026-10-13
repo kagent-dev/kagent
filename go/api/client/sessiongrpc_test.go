@@ -18,26 +18,26 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const sessionClientTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 
 type recordingSessionService struct {
-	apiv1alpha1.UnimplementedSessionServiceServer
+	apiv1.UnimplementedSessionServiceServer
 	observation callObservation
 }
 
-func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error) {
+func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1.CreateSessionRequest) (*apiv1.CreateSessionResponse, error) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
 	s.observation = callObservation{userID: first(values.Get(userIDHeader)), hasDeadline: hasDeadline}
-	return &apiv1alpha1.CreateSessionResponse{}, nil
+	return &apiv1.CreateSessionResponse{}, nil
 }
 
-func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1alpha1.GetSessionRequest) (*apiv1alpha1.GetSessionResponse, error) {
-	return &apiv1alpha1.GetSessionResponse{Session: &apiv1alpha1.Session{
-		Id: request.SessionId, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error) {
+	return &apiv1.GetSessionResponse{Session: &apiv1.Session{
+		Id: request.SessionId, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}}, nil
 }
 
@@ -110,7 +110,7 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	sessionService := &recordingSessionService{}
 	a2aService := &recordingA2AService{}
 	server := grpc.NewServer()
-	apiv1alpha1.RegisterSessionServiceServer(server, sessionService)
+	apiv1.RegisterSessionServiceServer(server, sessionService)
 	a2apb.RegisterA2AServiceServer(server, a2aService)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
@@ -137,11 +137,11 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, gatewayClient.Close()) })
 
-	_, err = apiClient.Session.CreateSession(context.Background(), &apiv1alpha1.CreateSessionRequest{})
+	_, err = apiClient.Session.CreateSession(context.Background(), &apiv1.CreateSessionRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, sessionService.observation)
 
-	a2aClient, err := gatewayClient.A2A.ForAgent(context.Background(), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"})
+	a2aClient, err := gatewayClient.A2A.ForAgent(context.Background(), &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"})
 	require.NoError(t, err)
 	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
 		"authorization": {"Bearer model-key"},

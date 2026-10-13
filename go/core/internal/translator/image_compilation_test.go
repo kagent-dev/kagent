@@ -7,7 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -40,7 +40,7 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 				model.Spec.APIKeySecretKey = "key"
 			}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth", Namespace: "test"}, Data: map[string][]byte{"key": []byte("secret")}}
-			compile := func(images *apiv1.HarnessImagesConfig) *translator.CompileResult {
+			compile := func(images *configv1.HarnessImagesConfig) *translator.CompileResult {
 				t.Helper()
 				result, err := compilerWithImages(t, images, model, secret, harness).CompileAgent(t.Context(), agent)
 				require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, harness.Spec.Workload.Image, "compilation must not mutate source resources")
 			changed := "mirror/runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-			images := &apiv1.HarnessImagesConfig{Kagent: changed, Claude: changed, Codex: changed}
+			images := &configv1.HarnessImagesConfig{Kagent: changed, Claude: changed, Codex: changed}
 			second := compile(images)
 			require.Equal(t, changed, second.Image)
 			require.JSONEq(t, string(first.Provenance), string(second.Provenance), "release defaults are not Kubernetes inputs")

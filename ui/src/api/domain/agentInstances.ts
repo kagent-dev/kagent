@@ -2,9 +2,9 @@
  * A running agent, as the v1alpha3 runtime reports it.
  *
  * An `AgentInstance` is not a custom resource — it is a row in the controller's
- * own database, served by `AgentInstanceService` in
- * `proto/kagent/api/v1alpha1/agent_instances.proto` and implemented in
- * `go/core/internal/service/agentinstance`. So unlike agents, models and prompt libraries,
+ * own database, served by `SessionService` in
+ * `proto/kagent/api/v1/sessions.proto` and implemented in
+ * `go/core/internal/service/session`. So unlike agents, models and prompt libraries,
  * nothing here arrives inside a `StructuredObject`: the proto message *is* the
  * record, and these types mirror it field for field.
  *

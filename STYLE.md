@@ -207,9 +207,9 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 ### Configuration
 
-- CLI and controller settings belong in `proto/kagent/api/v1alpha1/config.proto`,
+- CLI and controller settings belong in `proto/kagent/config/v1/config.proto`,
   with Protovalidate rules. Load once at startup and pass resolved values to owners.
-- ADK runtime settings belong in `proto/kagent/api/v1alpha1/adk.proto`; Go and
+- ADK runtime settings belong in `proto/kagent/config/v1/adk.proto`; Go and
   Python consume its generated messages using ProtoJSON. Native harnesses retain
   their own typed configuration. Runtime components must not read application
   settings from the process environment.

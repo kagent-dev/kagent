@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // ErrDispatchBusy means a send has not been forwarded because another dispatch
@@ -130,7 +130,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String() {
+		if session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED.String() {
 			return ErrNotFound
 		}
 		if task.ContextID != session.ContextID.String() {

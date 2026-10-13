@@ -5,7 +5,7 @@ from unittest import mock
 import httpx2
 import pytest
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from kagent.api.v1alpha1.adk_pb2 import ADKHTTPConnectionParams, ADKSSEConnectionParams
+from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams, ADKSSEConnectionParams
 
 from kagent.adk.types import _mcp_params
 

@@ -8,13 +8,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // SessionQuiescence grants one worker permission to pause an idle session or
 // suspend it and record its snapshot. Task publication has already completed.
 type SessionQuiescence struct {
-	Session    *apiv1alpha1.Session
+	Session    *apiv1.Session
 	TaskID     string
 	State      a2a.TaskState
 	Version    int64

@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
@@ -19,9 +19,9 @@ import (
 )
 
 func TestRuntimeDefaultsIgnoreProcessEnvironment(t *testing.T) {
-	cfg := &apiv1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	config.DefaultController(cfg)
-	cfg.RuntimeDefaults.Telemetry.Traces = &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc"), Timeout: durationpb.New(time.Second)}
+	cfg.RuntimeDefaults.Telemetry.Traces = &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc"), Timeout: durationpb.New(time.Second)}
 	first, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
 	require.NoError(t, err)
 	firstRuntime := translator.RuntimeConfig(cfg.GetRuntimeDefaults(), "assistant", "team")
@@ -40,9 +40,9 @@ func TestRuntimeDefaultsIgnoreProcessEnvironment(t *testing.T) {
 }
 
 func TestBYOTelemetryGenericEnvironmentOverridesFileDefaults(t *testing.T) {
-	cfg := &apiv1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	config.DefaultController(cfg)
-	cfg.RuntimeDefaults.Telemetry.Traces = &apiv1.OTLPConfig{Endpoint: "http://file-collector:4317", Protocol: new("grpc")}
+	cfg.RuntimeDefaults.Telemetry.Traces = &configv1.OTLPConfig{Endpoint: "http://file-collector:4317", Protocol: new("grpc")}
 	settings, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
 	require.NoError(t, err)
 	credential := corev1.EnvVar{Name: "OPENAI_API_KEY", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{Key: "api-key", LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}}}}
@@ -72,7 +72,7 @@ func TestBYOTelemetryServiceNameDefault(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("OTEL_SERVICE_NAME", tc.serviceName)
-			cfg := &apiv1.ControllerConfig{}
+			cfg := &configv1.ControllerConfig{}
 			config.DefaultController(cfg)
 			cfg.RuntimeDefaults.Telemetry.ResourceAttributes = map[string]string{"deployment.environment.name": "production"}
 			settings, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
@@ -95,10 +95,10 @@ func TestBYOTelemetryServiceNameDefault(t *testing.T) {
 }
 
 func TestCompilerPreservesSharedRuntimeTelemetry(t *testing.T) {
-	cfg := &apiv1.TelemetryConfig{
+	cfg := &configv1.TelemetryConfig{
 		CaptureContent: true, CaptureRawApiBodies: true, OpenaiNativeTracing: true, MaxCaptureBytes: new(int32(4096)),
 		ResourceAttributes: map[string]string{"deployment.environment.name": "test"},
-		Traces:             &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Timeout: durationpb.New(time.Second)},
+		Traces:             &configv1.OTLPConfig{Endpoint: "http://collector:4317", Timeout: durationpb.New(time.Second)},
 	}
 	compiled, err := translator.TelemetryConfigFromSettings(cfg)
 	require.NoError(t, err)

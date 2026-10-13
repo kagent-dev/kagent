@@ -357,7 +357,7 @@ def test_mcp_tool_with_proxy_url():
     internally to create its HTTP client, so verifying them ensures our configuration
     is correctly applied.
     """
-    from kagent.api.v1alpha1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
@@ -406,7 +406,7 @@ def test_mcp_tool_without_proxy():
     a public API to verify connection setup. The connection_params are what McpToolset uses
     internally to create its HTTP client.
     """
-    from kagent.api.v1alpha1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
@@ -454,7 +454,7 @@ def test_sse_mcp_tool_with_proxy_url():
     internally to create its HTTP client, so verifying them ensures our configuration
     is correctly applied.
     """
-    from kagent.api.v1alpha1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import SseMcpServerConfig
@@ -501,7 +501,7 @@ def test_sse_mcp_tool_without_proxy():
     a public API to verify connection setup. The connection_params are what McpToolset uses
     internally to create its HTTP client.
     """
-    from kagent.api.v1alpha1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import SseMcpServerConfig
