@@ -30,10 +30,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AgentTemplateService is CRUD over the kagent.dev/v1alpha3 AgentTemplate CRD:
-// the portable-behavior half of the (Harness, AgentTemplate) pair that
-// CreateAgentInstance names. Without it an AgentTemplate can only be authored
-// with kubectl, so no caller can offer a template picker or an edit form.
+// AgentTemplateService manages reusable portable agent behavior.
 type AgentTemplateServiceClient interface {
 	ListAgentTemplates(ctx context.Context, in *ListAgentTemplatesRequest, opts ...grpc.CallOption) (*ListAgentTemplatesResponse, error)
 	GetAgentTemplate(ctx context.Context, in *GetAgentTemplateRequest, opts ...grpc.CallOption) (*GetAgentTemplateResponse, error)
@@ -104,10 +101,7 @@ func (c *agentTemplateServiceClient) DeleteAgentTemplate(ctx context.Context, in
 // All implementations must embed UnimplementedAgentTemplateServiceServer
 // for forward compatibility.
 //
-// AgentTemplateService is CRUD over the kagent.dev/v1alpha3 AgentTemplate CRD:
-// the portable-behavior half of the (Harness, AgentTemplate) pair that
-// CreateAgentInstance names. Without it an AgentTemplate can only be authored
-// with kubectl, so no caller can offer a template picker or an edit form.
+// AgentTemplateService manages reusable portable agent behavior.
 type AgentTemplateServiceServer interface {
 	ListAgentTemplates(context.Context, *ListAgentTemplatesRequest) (*ListAgentTemplatesResponse, error)
 	GetAgentTemplate(context.Context, *GetAgentTemplateRequest) (*GetAgentTemplateResponse, error)

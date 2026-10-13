@@ -1,96 +1,72 @@
 package translator
 
 import (
-	"fmt"
-	"net/url"
-	"os"
-	"strconv"
+	"maps"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	corev1 "k8s.io/api/core/v1"
 )
 
+type Signal string
+
 const (
-	otelTracingEnabled             = "OTEL_TRACING_ENABLED"
-	otelLoggingEnabled             = "OTEL_LOGGING_ENABLED"
-	otelExporterOTLPEndpoint       = "OTEL_EXPORTER_OTLP_ENDPOINT"
-	otelExporterOTLPTracesEndpoint = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
-	otelExporterOTLPLogsEndpoint   = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
-	otelExporterOTLPProtocol       = "OTEL_EXPORTER_OTLP_PROTOCOL"
-	otelExporterOTLPTracesProtocol = "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"
-	otelExporterOTLPLogsProtocol   = "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"
-	otelCaptureSensitiveContent    = "KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT"
-	otelCaptureRawAPIBodies        = "KAGENT_OTEL_CAPTURE_RAW_API_BODIES"
-	otelMaxCaptureBytes            = "KAGENT_OTEL_MAX_CAPTURE_BYTES"
-	defaultOTLPProtocol            = "grpc"
+	SignalTraces  Signal = "traces"
+	SignalMetrics Signal = "metrics"
+	SignalLogs    Signal = "logs"
 )
 
-// TelemetryConfig is the controller-owned telemetry configuration compiled
-// into runtime revisions. Invalid signals are disabled before compilation.
 type TelemetryConfig struct {
-	Traces                  SignalConfig
-	Logs                    SignalConfig
+	Exporters               *telemetry.Config
+	Traces, Metrics, Logs   SignalConfig
 	CaptureSensitiveContent bool
 	CaptureRawAPIBodies     bool
-	// MaxCaptureBytes bounds each captured prompt and response on a Harness
-	// invocation span. Zero selects the shared default.
-	MaxCaptureBytes int
+	OpenAINativeTracing     bool
+	MaxCaptureBytes         int
 }
 
-// SignalConfig is the resolved export configuration for one telemetry signal.
 type SignalConfig struct {
-	Enabled  bool
-	Endpoint string
-	Protocol string
-	Hostname string
+	Enabled                      bool
+	Endpoint, Protocol, Hostname string
 }
 
-// TelemetryConfigFromProcess resolves the telemetry settings inherited by
-// agent runtimes. Invalid enabled signals are returned as warnings and left
-// disabled so observability configuration cannot invalidate AgentTemplates.
-func TelemetryConfigFromProcess() (TelemetryConfig, []error) {
-	traces, traceWarning := signalConfigFromProcess(
-		"traces", otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol,
-	)
-	logs, logWarning := signalConfigFromProcess(
-		"logs", otelLoggingEnabled, otelExporterOTLPLogsEndpoint, otelExporterOTLPLogsProtocol,
-	)
-	warnings := make([]error, 0, 3)
-	if traceWarning != nil {
-		warnings = append(warnings, traceWarning)
+func (c *TelemetryConfig) signal(signal Signal) *SignalConfig {
+	switch signal {
+	case SignalTraces:
+		return &c.Traces
+	case SignalMetrics:
+		return &c.Metrics
+	default:
+		return &c.Logs
 	}
-	if logWarning != nil {
-		warnings = append(warnings, logWarning)
-	}
-	maxCaptureBytes, captureWarning := maxCaptureBytesFromProcess()
-	if captureWarning != nil {
-		warnings = append(warnings, captureWarning)
-	}
-	return TelemetryConfig{
-		Traces:                  traces,
-		Logs:                    logs,
-		CaptureSensitiveContent: environmentEnabled(otelCaptureSensitiveContent),
-		CaptureRawAPIBodies:     environmentEnabled(otelCaptureRawAPIBodies),
-		MaxCaptureBytes:         maxCaptureBytes,
-	}, warnings
+}
+func (c TelemetryConfig) Enabled() bool {
+	return c.Traces.Enabled || c.Metrics.Enabled || c.Logs.Enabled
 }
 
-// maxCaptureBytesFromProcess resolves the user's capture budget. An unusable
-// value is reported and replaced by the default so an observability setting
-// cannot invalidate AgentTemplates.
-func maxCaptureBytesFromProcess() (int, error) {
-	raw := strings.TrimSpace(os.Getenv(otelMaxCaptureBytes))
-	if raw == "" {
-		return 0, nil
+// Destinations are the egress origins of the enabled signals.
+func (c TelemetryConfig) Destinations(environment []corev1.EnvVar) []string {
+	raw := make([]string, 0, len(environment))
+	for _, item := range environment {
+		raw = append(raw, item.Name+"="+item.Value)
 	}
-	value, err := strconv.Atoi(raw)
-	if err != nil || value <= 0 || value > tracing.MaxCaptureBytes {
-		return 0, fmt.Errorf("%s must be a positive integer of at most %d bytes", otelMaxCaptureBytes, tracing.MaxCaptureBytes)
+	cfg := telemetry.Config{}
+	if c.Exporters != nil {
+		cfg = *c.Exporters
 	}
-	return value, nil
+	raw = telemetry.Environment(raw, cfg)
+	var hosts []string
+	for _, signal := range []string{"TRACES", "METRICS", "LOGS"} {
+		if exporter := telemetry.OTLPExporter(raw, signal); exporter != nil {
+			hosts = appendURLOrigin(hosts, exporter.Endpoint)
+		}
+	}
+	return hosts
 }
 
 // RuntimeTelemetry is the compiler-owned telemetry contract for one compiled
@@ -102,6 +78,7 @@ func (c TelemetryConfig) RuntimeTelemetry(runtime tracing.Runtime, agentName, na
 		Runtime: runtime, AgentName: agentName, AgentNamespace: namespace,
 		Provider: ProviderName(model.Provider), Model: strings.TrimSpace(model.Model),
 		CaptureContent: c.CaptureSensitiveContent, MaxCaptureBytes: c.MaxCaptureBytes,
+		Exporters: c.Exporters, CaptureRawAPIBodies: c.CaptureRawAPIBodies, OpenAINativeTracing: c.OpenAINativeTracing,
 	}
 }
 
@@ -133,95 +110,52 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 	}
 }
 
-func signalConfigFromProcess(signal, enabledVariable, endpointVariable, protocolVariable string) (SignalConfig, error) {
-	if !environmentEnabled(enabledVariable) {
-		return SignalConfig{}, nil
+// TelemetryEnvironment adapts settings for opaque BYO images.
+func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry, environment []corev1.EnvVar) []corev1.EnvVar {
+	cfg := telemetry.Config{}
+	if c.Exporters != nil {
+		cfg = *c.Exporters
 	}
-
-	endpoint := strings.TrimSpace(os.Getenv(endpointVariable))
-	signalSpecificEndpoint := endpoint != ""
-	if endpoint == "" {
-		endpoint = strings.TrimSpace(os.Getenv(otelExporterOTLPEndpoint))
+	// Opaque SDKs do not read the runtime JSON. Supply a service-name default
+	// through resource attributes so their own OTEL_SERVICE_NAME still wins.
+	cfg.ResourceAttributes = maps.Clone(cfg.ResourceAttributes)
+	if cfg.ResourceAttributes == nil {
+		cfg.ResourceAttributes = make(map[string]string)
 	}
-	if endpoint == "" {
-		return SignalConfig{}, fmt.Errorf("OTLP %s endpoint is required when %s export is enabled", signal, signal)
+	if identity.AgentName != "" {
+		cfg.ResourceAttributes[string(semconv.ServiceNameKey)] = identity.AgentName
 	}
-
-	protocol := strings.ToLower(strings.TrimSpace(os.Getenv(protocolVariable)))
-	if protocol == "" {
-		protocol = strings.ToLower(strings.TrimSpace(os.Getenv(otelExporterOTLPProtocol)))
+	raw := make([]string, 0, len(environment))
+	provided := make(map[string]corev1.EnvVar, len(environment))
+	for _, item := range environment {
+		raw = append(raw, item.Name+"="+item.Value)
+		provided[item.Name] = item
 	}
-	if protocol == "" {
-		protocol = defaultOTLPProtocol
+	raw = tracing.ResourceEnvironment(telemetry.Environment(raw, cfg), resourceIdentity(identity))
+	result := make([]corev1.EnvVar, 0, len(raw))
+	for _, value := range raw {
+		name, v, _ := strings.Cut(value, "=")
+		if original, ok := provided[name]; ok && original.ValueFrom != nil {
+			result = append(result, original)
+			continue
+		}
+		result = append(result, corev1.EnvVar{Name: name, Value: v})
 	}
-	if protocol != "grpc" && protocol != "http/protobuf" {
-		return SignalConfig{}, fmt.Errorf("unsupported OTLP %s protocol %q", signal, protocol)
-	}
-
-	parsed, err := url.Parse(endpoint)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return SignalConfig{}, fmt.Errorf("OTLP %s endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment", signal)
-	}
-	if protocol == "http/protobuf" && !signalSpecificEndpoint {
-		parsed.Path = strings.TrimSuffix(parsed.Path, "/") + "/v1/" + signal
-		endpoint = parsed.String()
-	}
-
-	return SignalConfig{Enabled: true, Endpoint: endpoint, Protocol: protocol, Hostname: parsed.Hostname()}, nil
+	return result
 }
 
-func environmentEnabled(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv(name)), "true")
-}
-
-// OwnsTelemetryEnvironment reports whether Kagent resolves and compiles the
-// variable into runtime revisions. Other OTEL variables remain available for
-// harness-specific tuning.
-func OwnsTelemetryEnvironment(name string) bool {
-	switch name {
-	case otelTracingEnabled, otelLoggingEnabled,
-		otelExporterOTLPEndpoint, otelExporterOTLPTracesEndpoint, otelExporterOTLPLogsEndpoint,
-		otelExporterOTLPProtocol, otelExporterOTLPTracesProtocol, otelExporterOTLPLogsProtocol,
-		tracing.CaptureContentEnvironmentVariable:
-		return true
-	default:
-		return false
+// resourceIdentity leaves kagent.runtime to the runtime, which knows what it is.
+func resourceIdentity(identity tracing.RuntimeTelemetry) []attribute.KeyValue {
+	attributes := []attribute.KeyValue{
+		semconv.ServiceNamespaceKey.String(identity.AgentNamespace),
+		conv.GenAIMainAgentNameKey.String(identity.AgentName),
+		conv.GenAIMainAgentIDKey.String(identity.AgentID()),
 	}
-}
-
-// TraceEnvironment renders the resolved trace settings for an agent runtime.
-func (c TelemetryConfig) TraceEnvironment() []corev1.EnvVar {
-	return signalEnvironment(c.Traces, otelTracingEnabled, otelExporterOTLPTracesEndpoint, otelExporterOTLPTracesProtocol)
-}
-
-// CaptureEnvironment renders the content-capture decision as the standard
-// GenAI instrumentation variable, which is how a runtime that instruments its
-// own model calls learns it. It is rendered whether or not the controller
-// exports traces, so a runtime reaching a collector through settings the
-// controller did not render still follows the controller's decision, and a
-// user-supplied value cannot let one runtime record prompts the setting said
-// to keep out of traces. The ADK runtimes read the variable as a mode and
-// treat a plain true as log records only, so the span form is rendered.
-func (c TelemetryConfig) CaptureEnvironment() corev1.EnvVar {
-	value := tracing.CaptureContentDisabled
-	if c.CaptureSensitiveContent {
-		value = tracing.CaptureContentSpanOnly
+	if identity.Provider != "" {
+		attributes = append(attributes, conv.GenAIProviderNameKey.String(identity.Provider))
 	}
-	return corev1.EnvVar{Name: tracing.CaptureContentEnvironmentVariable, Value: value}
-}
-
-// LogEnvironment renders the resolved log settings for an agent runtime.
-func (c TelemetryConfig) LogEnvironment() []corev1.EnvVar {
-	return signalEnvironment(c.Logs, otelLoggingEnabled, otelExporterOTLPLogsEndpoint, otelExporterOTLPLogsProtocol)
-}
-
-func signalEnvironment(config SignalConfig, enabledVariable, endpointVariable, protocolVariable string) []corev1.EnvVar {
-	if !config.Enabled {
-		return nil
+	if identity.Model != "" {
+		attributes = append(attributes, conv.GenAIRequestModelKey.String(identity.Model))
 	}
-	return []corev1.EnvVar{
-		{Name: enabledVariable, Value: "true"},
-		{Name: endpointVariable, Value: config.Endpoint},
-		{Name: protocolVariable, Value: config.Protocol},
-	}
+	return attributes
 }

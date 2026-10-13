@@ -15,9 +15,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestAgentInstanceEgressDeniesUnconfiguredDestination(t *testing.T) {
+func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		var reachedDenied atomic.Bool
 		origin := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func([]byte) error {

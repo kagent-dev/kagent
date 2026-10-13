@@ -58,7 +58,7 @@ export interface DiscoveredTool {
 export interface ToolServerResponse {
   /** `namespace/name`. */
   ref: string;
-  /** e.g. `RemoteMCPServer.kagent.dev`. */
+  /** e.g. `RemoteMCPServer.api.kagent.dev`. */
   groupKind: string;
   discoveredTools: DiscoveredTool[];
 }

@@ -167,8 +167,11 @@ export async function selectOption(
   testId: string,
   label: string,
 ): Promise<void> {
-  await page.getByTestId(testId).click();
-  await optionNamed(page, label).click();
+  const select = page.getByTestId(testId);
+  await select.click();
+  // A press while the dropdown is still animating in is dropped silently, so wait it out and confirm.
+  await pressOnce(optionNamed(page, label));
+  await expect(select.locator(".ant-select-content")).toHaveAttribute("title", label);
 }
 
 /**
@@ -177,7 +180,7 @@ export async function selectOption(
  */
 export async function selectFirstOption(page: Page, testId: string): Promise<void> {
   await page.getByTestId(testId).click();
-  await optionNamed(page).first().click();
+  await pressOnce(optionNamed(page).first());
 }
 
 /**

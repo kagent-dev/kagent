@@ -8,26 +8,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
-
-// TestEnableFileSearchToolsEnvMatchesRegistry pins this package's env var
-// literal to the `kagent env` registry entry in go/core/pkg/env. The name is
-// declared twice on purpose -- the runtime reads the raw variable here, while
-// the registry exists solely so `kagent env` can document it -- so without
-// this assertion nothing would catch the two drifting apart.
-//
-// This is a test-only import: it does not put a dependency on the
-// control-plane module into the shipped agent runtime.
-func TestEnableFileSearchToolsEnvMatchesRegistry(t *testing.T) {
-	if got, want := enableFileSearchToolsEnv, env.KagentEnableFileSearchTools.Name(); got != want {
-		t.Fatalf("env var name drift: %s has %q, go/core/pkg/env registry has %q",
-			"go/adk/pkg/tools/skills.go", got, want)
-	}
-}
 
 // fakeToolContext is a minimal agent.Context for directly invoking tools in
 // tests, bypassing the full ADK flow engine. Embeds StrictContextMock (an
@@ -177,7 +161,6 @@ func TestResolvePathContainment(t *testing.T) {
 
 func TestNewSkillExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("failed to create skill dir: %v", err)
@@ -190,7 +173,7 @@ description: Demo skill.
 		t.Fatalf("failed to write skill metadata: %v", err)
 	}
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir, true)
 	if err != nil {
 		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}
@@ -209,9 +192,8 @@ description: Demo skill.
 
 func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir, false)
 	if err != nil {
 		t.Fatalf("NewSkillExecutionTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
 	}
@@ -223,7 +205,7 @@ func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T)
 
 	for _, name := range []string{"read_file", "write_file", "edit_file", "bash"} {
 		if !got[name] {
-			t.Errorf("expected tool %q to be present even without KAGENT_ENABLE_FILE_SEARCH_TOOLS", name)
+			t.Errorf("expected tool %q to be present when file search tools are disabled", name)
 		}
 	}
 	if got["list_files"] {
@@ -249,8 +231,7 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 	}
 
 	t.Run("disabled by default", func(t *testing.T) {
-		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
-		tools, err := NewSkillExecutionTools(skillsDir)
+		tools, err := NewSkillExecutionTools(skillsDir, false)
 		if err != nil {
 			t.Fatalf("NewSkillExecutionTools() error = %v", err)
 		}
@@ -261,8 +242,7 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 	})
 
 	t.Run("mentioned when enabled", func(t *testing.T) {
-		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
-		tools, err := NewSkillExecutionTools(skillsDir)
+		tools, err := NewSkillExecutionTools(skillsDir, true)
 		if err != nil {
 			t.Fatalf("NewSkillExecutionTools() error = %v", err)
 		}
@@ -281,9 +261,8 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir, true)
 	if err != nil {
 		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}

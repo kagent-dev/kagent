@@ -163,6 +163,37 @@ def test_convert_content_to_responses_input_stringifies_non_string_result():
     assert input_items[1]["output"] == "3"
 
 
+def test_convert_content_to_responses_input_includes_embedded_text_resource():
+    fc_part = Part.from_function_call(name="get_file_contents", args={"path": "README.md"})
+    fc_part.function_call.id = "call_1"
+    fr_part = Part.from_function_response(
+        name="get_file_contents",
+        response={
+            "content": [
+                {"type": "text", "text": "successfully downloaded text file (SHA: abc123)"},
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "repo://owner/repo/contents/README.md",
+                        "mimeType": "text/markdown",
+                        "text": "file body",
+                    },
+                },
+            ]
+        },
+    )
+    fr_part.function_response.id = "call_1"
+
+    input_items = _convert_content_to_responses_input(
+        [
+            Content(role="model", parts=[fc_part]),
+            Content(role="user", parts=[fr_part]),
+        ]
+    )
+
+    assert input_items[1]["output"] == "successfully downloaded text file (SHA: abc123)\nfile body"
+
+
 def test_convert_content_to_responses_input_multimodal_user_message():
     input_items = _convert_content_to_responses_input(
         [

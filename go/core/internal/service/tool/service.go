@@ -217,9 +217,9 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 
 	var object client.Object
 	switch groupKind {
-	case "RemoteMCPServer.kagent.dev":
+	case remoteMCPServerGVK.GroupKind().String():
 		object = &v1alpha3.RemoteMCPServer{}
-	case "MCPServer.kagent.dev":
+	case mcpServerGVK.GroupKind().String():
 		object = &kmcp.MCPServer{}
 	case "Service":
 		object = &corev1.Service{}

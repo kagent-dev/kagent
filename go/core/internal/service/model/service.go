@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -145,9 +146,12 @@ func (s *Service) createOwnedSecrets(ctx context.Context, modelConfig *v1alpha3.
 }
 
 // Update keeps its own write because the owned Secrets must land between the
-// authorized read and the retrying ModelConfig write.
+// authorized read and the retrying ModelConfig write; the update is authorized first.
 func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.ModelConfig, error) {
-	modelConfig, err := s.modelConfigs.GetForUpdate(ctx, request.Ref)
+	if err := s.modelConfigs.Authorize(ctx, auth.VerbUpdate, request.Ref); err != nil {
+		return nil, err
+	}
+	modelConfig, err := s.modelConfigs.Get(ctx, request.Ref)
 	if err != nil {
 		return nil, err
 	}
@@ -194,6 +198,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 		modelConfig = latest
 		return nil
 	}); err != nil {
+		if apierrors.IsInvalid(err) {
+			return nil, serviceerrors.NewInvalidArgument(err.Error(), err)
+		}
 		return nil, serviceerrors.NewInternal("Failed to update ModelConfig", err)
 	}
 
@@ -238,9 +245,6 @@ func referencedSecretNames(spec v1alpha3.ModelConfigSpec) map[string]struct{} {
 	references := map[string]struct{}{}
 	if spec.APIKeySecret != "" {
 		references[spec.APIKeySecret] = struct{}{}
-	}
-	if spec.TLS != nil && spec.TLS.CACertSecretRef != "" {
-		references[spec.TLS.CACertSecretRef] = struct{}{}
 	}
 	return references
 }

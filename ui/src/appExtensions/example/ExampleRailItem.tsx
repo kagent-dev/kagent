@@ -15,12 +15,16 @@ import { EXAMPLE_PATH } from "./paths";
  * any of them changes. A contribution that wants to look nothing like the rail is
  * free to; it should not have to.
  *
- * The agent it was handed is used rather than ignored, because an entry beneath a
+ * The instance it was handed is used rather than ignored, because an entry beneath a
  * conversation usually wants to be about that conversation.
  */
-export function ExampleRailItem({ isActive, agent }: ExtensionAgentRailItemProps) {
+export function ExampleRailItem({ isActive, instance, agent }: ExtensionAgentRailItemProps) {
   const theme = useTheme();
-  const to = agent ? `${EXAMPLE_PATH}?agent=${agent.id}` : EXAMPLE_PATH;
+  const to = instance
+    ? `${EXAMPLE_PATH}?instance=${instance.id}`
+    : agent?.name
+      ? `${EXAMPLE_PATH}?definition=${encodeURIComponent(`${agent.namespace}/${agent.name}`)}`
+      : EXAMPLE_PATH;
 
   return (
     <Link

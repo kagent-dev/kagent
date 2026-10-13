@@ -1,19 +1,141 @@
 package e2e_test
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"iter"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestAgentInstanceStreamingResumeAndPersistence(t *testing.T) {
+func TestSessionModelStreamingDisabled(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	for _, format := range []v1alpha3.OpenAIAPIFormat{
+		v1alpha3.OpenAIAPIFormatChatCompletions,
+		v1alpha3.OpenAIAPIFormatResponses,
+	} {
+		t.Run(string(format), func(t *testing.T) {
+			t.Parallel()
+			recorder := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func(body []byte) error {
+				var request struct {
+					Stream bool `json:"stream"`
+				}
+				if err := json.Unmarshal(body, &request); err != nil {
+					return err
+				}
+				if request.Stream {
+					return errors.New("stream=true is not supported by this model")
+				}
+				return nil
+			})
+			kube := interactionKubeClient(t)
+			model := createInteractionModel(t, kube, reachableModelURL(t, recorder.URL), map[string]string{"X-Kagent-E2E-Model": "non-streaming"})
+			before := model.DeepCopy()
+			model.Spec.Stream = new(false)
+			model.Spec.OpenAI.APIFormat = new(format)
+			// Status reconciliation may have advanced resourceVersion since creation.
+			require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(before)))
+			harness := testHarness{name: "kagent", runtimeLabel: "kagent"}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "non-streaming-", Namespace: "kagent", Labels: harness.labels()},
+				Spec: v1alpha3.AgentTemplateSpec{
+					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+				},
+			}
+			createAndWaitInteractionTemplate(t, harness, kube, template)
+			fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
+			_, _, task := fixture.send(t, "What is 2+2?")
+			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, taskText(task))
+			require.Contains(t, taskText(task), "The answer is 4.")
+
+			// A2A clients can still receive task events when model tokens are not streamed.
+			streamed := sendStreaming(t, fixture, "What is 3+3?")
+			require.Equal(t, a2atype.TaskStateCompleted, streamed.state, streamed.failureText)
+			require.Contains(t, streamed.text, "The answer is 6.")
+			require.Contains(t, taskText(getTask(t, fixture, streamed.taskID)), "The answer is 6.")
+			require.Len(t, recorder.Requests("X-Kagent-E2E-Model", "non-streaming"), 2)
+		})
+	}
+}
+
+// Completion must reach durable storage with no public stream left attached.
+// A reconnect reads the completed task after native work and cleanup finish.
+func TestSessionCompletesAfterDisconnect(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
+		started, release := make(chan struct{}), make(chan struct{})
+		var startedOnce, releaseOnce sync.Once
+		upstream := startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")
+		recorder := startModelRecorder(t, upstream, func([]byte) error {
+			startedOnce.Do(func() { close(started) })
+			select {
+			case <-release:
+				return nil
+			case <-t.Context().Done():
+				return t.Context().Err()
+			}
+		})
+		t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), reachableModelURL(t, recorder.URL))
+		_, request := newMessageRequest(t, "What is 2+2?")
+		request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
+		ctx, disconnect := context.WithCancel(fixture.ctx)
+		defer disconnect()
+		start := time.Now()
+		stream, err := fixture.client.SendStreamingMessage(ctx, request)
+		require.NoError(t, err)
+		first, err := stream.Recv()
+		require.NoError(t, err)
+		firstEventLatency := time.Since(start)
+		event, err := pbconv.FromProtoStreamResponse(first)
+		require.NoError(t, err)
+		taskID := string(event.TaskInfo().TaskID)
+		require.NotEmpty(t, taskID)
+		select {
+		case <-started:
+		case <-time.After(time.Minute):
+			t.Fatal("runtime did not call the model")
+		}
+		disconnect()
+		for err == nil {
+			_, err = stream.Recv()
+		}
+		nativeStart := time.Now()
+		releaseOnce.Do(func() { close(release) })
+		require.Eventually(t, func() bool {
+			task, err := fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Tenant: fixture.tenant, Id: taskID})
+			return err == nil && task.GetStatus().GetState() == a2apb.TaskState_TASK_STATE_COMPLETED
+		}, time.Minute, 100*time.Millisecond, "disconnected task did not finish and publish")
+		t.Logf("first event including actor resume: %s; model release through persisted completion: %s", firstEventLatency, time.Since(nativeStart))
+		reconnected, err := fixture.client.SubscribeToTask(fixture.ctx, &a2apb.SubscribeToTaskRequest{Tenant: fixture.tenant, Id: taskID})
+		require.NoError(t, err)
+		waitForTaskState(t, reconnected, a2atype.TaskStateCompleted)
+		assertTaskStreamClosed(t, reconnected)
+		require.Contains(t, taskText(getTask(t, fixture, a2atype.TaskID(taskID))), "The answer is 4.")
+	})
+}
+
+func TestSessionStreamingResumeAndPersistence(t *testing.T) {
+	t.Parallel()
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 
 		streamed := sendStreaming(t, fixture, "What is 2+2?")
@@ -58,28 +180,51 @@ type toolEvent struct {
 	name     string
 }
 
+// gRPC can report rejection on the first Recv, after opening the stream succeeds.
+// Match unary and HTTP sends: replay only proven rejection before any event.
+func sendStreamingMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) iter.Seq2[*a2apb.StreamResponse, error] {
+	return func(yield func(*a2apb.StreamResponse, error) bool) {
+		err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
+			// The retry budget must not shorten an accepted task's deadline.
+			// Cancel each stream when it ends or its consumer stops reading.
+			attemptCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			stream, err := client.SendStreamingMessage(attemptCtx, request)
+			if sendNotAccepted(err) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			received := false
+			for {
+				response, err := stream.Recv()
+				if !received && response == nil && sendNotAccepted(err) {
+					return false, nil
+				}
+				if errors.Is(err, io.EOF) {
+					return true, nil
+				}
+				received = true
+				if !yield(response, err) || err != nil {
+					return true, nil
+				}
+			}
+		})
+		if err != nil {
+			yield(nil, err)
+		}
+	}
+}
+
 func sendStreaming(t *testing.T, fixture *interactionFixture, text string) streamResult {
 	t.Helper()
 	_, request := newMessageRequest(t, text)
-	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
-	if err != nil {
-		t.Fatalf("start streaming A2A message: %v", err)
-	}
+	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
 	var result streamResult
 	var output strings.Builder
 	terminalEvents := 0
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			if terminalEvents != 1 {
-				t.Fatalf("stream terminal event count = %d, want 1", terminalEvents)
-			}
-			if result.taskID == "" {
-				t.Fatal("stream completed without a task ID")
-			}
-			result.text = output.String()
-			return result
-		}
+	for response, err := range sendStreamingMessageWithRetry(fixture.ctx, fixture.client, request) {
 		if err != nil {
 			t.Fatalf("receive task stream: %v", err)
 		}
@@ -127,6 +272,14 @@ func sendStreaming(t *testing.T, fixture *interactionFixture, text string) strea
 			terminalEvents++
 		}
 	}
+	if terminalEvents != 1 {
+		t.Fatalf("stream terminal event count = %d, want 1", terminalEvents)
+	}
+	if result.taskID == "" {
+		t.Fatal("stream completed without a task ID")
+	}
+	result.text = output.String()
+	return result
 }
 
 func toolEvents(parts []*a2atype.Part) []toolEvent {
@@ -196,7 +349,7 @@ func assertToolEvents(t *testing.T, events []toolEvent, toolNames ...string) {
 
 func getTask(t *testing.T, fixture *interactionFixture, taskID a2atype.TaskID) *a2atype.Task {
 	t.Helper()
-	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: taskID})
+	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: fixture.tenant, ID: taskID})
 	if err != nil {
 		t.Fatalf("build GetTask request: %v", err)
 	}
@@ -213,7 +366,7 @@ func getTask(t *testing.T, fixture *interactionFixture, taskID a2atype.TaskID) *
 
 func assertTaskHistory(t *testing.T, fixture *interactionFixture, taskIDs ...a2atype.TaskID) {
 	t.Helper()
-	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.contextID})
+	request, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{Tenant: fixture.tenant, ContextID: fixture.contextID})
 	if err != nil {
 		t.Fatalf("build ListTasks request: %v", err)
 	}

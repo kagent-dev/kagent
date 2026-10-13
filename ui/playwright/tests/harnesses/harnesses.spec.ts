@@ -19,12 +19,6 @@ import {
  *
  * ## What the tab exists to say
  *
- * **The admission selector has to be visible.** A harness admits templates through a
- * label selector, and that selector is what decides whether a template ever becomes an
- * agent at all. A template carrying no label it matches saves happily and then does
- * nothing, with nothing on screen explaining why — so the selector is on the page rather
- * than behind an expander.
- *
  * **A harness must not be called broken.** `ready: false` also covers one the controller
  * has not observed yet, which is a different thing from one that failed — and the
  * `kagent` harness on the development cluster is exactly that: it runs agents and carries
@@ -53,14 +47,11 @@ const table = "harnesses-table";
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
 test("harnesses: a harness is created, read and deleted", async ({ page }) => {
-  await test.step("1. the harnesses are listed, with what admits a template on the page", async () => {
+  await test.step("1. the harnesses are listed", async () => {
     await loadPage(page, routes.harnesses, { title: "Agents" });
     await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator("tbody tr").first()).toBeVisible();
+    await expect(page.getByTestId("harness-ready").first()).toBeVisible();
 
-    // The whole reason a template does or does not become an agent, so it is read
-    // without expanding a row.
-    await expect(page.getByTestId("harness-selector").first()).toBeVisible();
   });
 
   await test.step("2. an unobserved harness is 'not ready yet', never 'broken'", async () => {
@@ -90,24 +81,10 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before);
   });
 
-  await test.step("4. a harness with no selector says it will run nothing", async () => {
+  await test.step("4. the form requires a complete runtime configuration", async () => {
     await page.getByTestId("agents-new-harness").click();
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 
-    // Legal, and almost never intended: the CRD admits no templates when the selector is
-    // omitted, so the harness is created and does nothing with no sign of why.
-    await expect(page.getByTestId("harness-admits-nothing")).toBeVisible();
-
-    /*
-     * And the marks agree with what the form will refuse. antd draws the asterisk from
-     * `required` on a `Form.Item` while this form gates its submit in code, so the mark
-     * and the gate are two separate statements about the same field with nothing but
-     * this keeping them agreeing.
-     *
-     * The selector is deliberately unmarked: it is optional in the CRD's sense, and the
-     * warning above says what omitting it costs. A mark there would refuse a harness the
-     * cluster accepts.
-     */
     await expectRequired(page, {
       marked: [
         "Namespace",
@@ -117,7 +94,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
         "Worker pool",
         "Snapshot location",
       ],
-      unmarked: ["Admits agent templates labelled"],
+      unmarked: [],
     });
   });
 
@@ -147,9 +124,6 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
 
   await test.step("7. pinned by digest and told where snapshots go, it is created", async () => {
     await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent");
-    await page.getByTestId("harness-selector-key").fill("runtime");
-    await page.getByTestId("harness-selector-value").fill(CREATED);
-    await expect(page.getByTestId("harness-admits-nothing")).toHaveCount(0);
 
     await expect(page.getByTestId("harness-create")).toBeEnabled();
     await page.getByTestId("harness-create").click();
@@ -168,7 +142,27 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(row.getByTestId("harness-ready")).toContainText("Not ready yet");
   });
 
-  await test.step("9. it is removed from the same tab, and the rest stays", async () => {
+  await test.step("9. a rejected delete reports failure and keeps the row", async () => {
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("mock", "error");
+      window.history.replaceState({}, "", url);
+    });
+
+    await confirmDelete(page, CREATED);
+
+    await expect(page.getByText(`Could not delete harness ${CREATED}:`)).toBeVisible();
+    await expect(page.getByText(`Deleted harness ${CREATED}`)).toHaveCount(0);
+    await expect(page.getByTestId(table)).toContainText(CREATED);
+
+    await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("mock", "ok");
+      window.history.replaceState({}, "", url);
+    });
+  });
+
+  await test.step("10. it is removed from the same tab, and the rest stays", async () => {
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
 
@@ -180,10 +174,9 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     // One row went, not the table: "gone" has to mean that harness rather than a read
     // that failed and left an empty list behind it.
     await expect.poll(() => rows.count()).toBe(before - 1);
-    await expect(page.getByTestId("harnesses-delete-error")).toHaveCount(0);
   });
 
-  await test.step("10. an empty result leaves the tab standing, with no rows", async () => {
+  await test.step("11. an empty result leaves the tab standing, with no rows", async () => {
     // Last, after the delete: reaching these needs the backend answering differently and
     // `?mock=` is per-navigation, which discards what the journey made.
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
@@ -192,7 +185,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
   });
 
-  await test.step("11. a failed load is reported, not disguised as an empty tab", async () => {
+  await test.step("12. a failed load is reported, not disguised as an empty tab", async () => {
     await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("harnesses-error");

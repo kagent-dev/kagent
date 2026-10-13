@@ -9,58 +9,74 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
-type Compiler struct{ config *adkconfig.Builder }
-
-var _ v2translator.HarnessCompiler = (*Compiler)(nil)
-
-func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
-	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
+type Compiler struct {
+	config   *adkconfig.Builder
+	settings translator.CompilerSettings
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
-	compiled, err := c.config.Build(ctx, input.Root)
+var _ translator.HarnessCompiler = (*Compiler)(nil)
+
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings translator.CompilerSettings) *Compiler {
+	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
+}
+
+func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
+	compiled, err := c.config.Build(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
+	compiled.Config.Runtime = c.settings.RuntimeConfig(input.AgentName, template.Namespace)
 	configJSON, err := json.Marshal(compiled.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(template))
+	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
-	environment := adkconfig.DedupeEnv(append(compiled.Environment, adkconfig.HarnessEnvironment(harness)...))
+	// An opaque image may export to its own backend, so its own values win.
+	telemetryConfig := c.settings.Telemetry
+	environment := append([]corev1.EnvVar(nil), compiled.Environment...)
+	environment = append(environment, adkconfig.HarnessEnvironment(harness)...)
+	environment = adkconfig.DedupeEnv(environment)
+	if telemetryConfig.Enabled() {
+		environment = telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
+			AgentName: input.AgentName, AgentNamespace: template.Namespace,
+		}, environment)
+	}
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, err := v2translator.CompileCredentials(input, compiled.Models, environment)
+	environment, credentials, err := translator.CompileCredentials(input, compiled.Models, environment)
 	if err != nil {
 		return nil, err
 	}
+	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations(environment)...)
+	compiled.Egress = append(compiled.Egress, c.settings.APIURL)
 	slices.Sort(compiled.Egress)
 
-	return &v2translator.CompileResult{Revision: v2translator.Revision{
-		Namespace: template.Namespace, AgentTemplateName: template.Name, HarnessName: harness.Name,
-		Image: harness.Spec.Workload.Image, Command: harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
+	return &translator.CompileResult{Revision: translator.Revision{
+		Namespace: template.Namespace,
+		Image:     harness.Spec.Workload.Image, Command: harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil
 }
 
-func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
+func agentTemplateCard(agentName string, template *translator.TemplateConfiguration) *a2atype.AgentCard {
 	return &a2atype.AgentCard{
-		Name: strings.ReplaceAll(template.Name, "-", "_"), Description: template.Spec.Description, Version: "v1",
+		Name: strings.ReplaceAll(agentName, "-", "_"), Description: template.Spec.Description, Version: "v1",
 		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
 		Capabilities:        a2atype.AgentCapabilities{Streaming: true}, Skills: []a2atype.AgentSkill{},
 		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},

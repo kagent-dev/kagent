@@ -1,0 +1,61 @@
+suite: API tool server
+templates:
+  - toolserver-api.yaml
+tests:
+  - it: registers the controller MCP endpoint by default
+    release:
+      name: kagent
+      namespace: kagent
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isAPIVersion:
+          of: api.kagent.dev/v1alpha3
+      - isKind:
+          of: RemoteMCPServer
+      - equal:
+          path: metadata.name
+          value: kagent-api
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - equal:
+          path: spec.protocol
+          value: STREAMABLE_HTTP
+      - equal:
+          path: spec.url
+          value: http://kagent-controller.kagent.svc:8083/mcp
+
+  - it: follows the controller fullname, namespace, and service port overrides
+    set:
+      fullnameOverride: custom-kagent
+      namespaceOverride: agents
+      controller.service.ports.port: 9000
+      controller.service.ports.targetPort: 8083
+    asserts:
+      - equal:
+          path: metadata.name
+          value: custom-kagent-api
+      - equal:
+          path: metadata.namespace
+          value: agents
+      - equal:
+          path: spec.url
+          value: http://custom-kagent-controller.agents.svc:9000/mcp
+
+  - it: follows release naming and remains available when bundled tools are disabled
+    release:
+      name: staging
+      namespace: agents
+    set:
+      nameOverride: control
+      kagent-tools.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: staging-control-api
+      - equal:
+          path: spec.url
+          value: http://staging-control-controller.agents.svc:8083/mcp

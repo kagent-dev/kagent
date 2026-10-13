@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/google/jsonschema-go/jsonschema"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -78,7 +77,7 @@ type ResolvedConfigMapKeyReference struct {
 	Key            string
 }
 
-func (c *Compiler) resolveOutputSchema(_ context.Context, template *v1alpha3.AgentTemplate) (*ResolvedOutputSchema, error) {
+func (c *Compiler) resolveOutputSchema(_ context.Context, template *TemplateConfiguration) (*ResolvedOutputSchema, error) {
 	var raw []byte
 	var source *ResolvedConfigMapKeyReference
 	switch {

@@ -23,10 +23,6 @@ from a2a.types import (
 )
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import now_timestamp
-from kagent.core.tracing._span_processor import (
-    clear_kagent_span_attributes,
-    set_kagent_span_attributes,
-)
 from pydantic import BaseModel
 
 from crewai import Crew, Flow
@@ -66,127 +62,93 @@ class CrewAIAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
-        # Convert the a2a request to kagent span attributes.
-        span_attributes = _convert_a2a_request_to_span_attributes(context)
-
-        # Set kagent span attributes for all spans in context.
-        context_token = set_kagent_span_attributes(span_attributes)
-        try:
-            if not context.current_task:
-                await event_queue.enqueue_event(
-                    Task(
-                        id=context.task_id,
-                        context_id=context.context_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_SUBMITTED,
-                            message=context.message,
-                            timestamp=now_timestamp(),
-                        ),
-                    )
+        if not context.current_task:
+            await event_queue.enqueue_event(
+                Task(
+                    id=context.task_id,
+                    context_id=context.context_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_SUBMITTED,
+                        message=context.message,
+                        timestamp=now_timestamp(),
+                    ),
                 )
+            )
 
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_WORKING,
+                    timestamp=now_timestamp(),
+                ),
+                context_id=context.context_id,
+            )
+        )
+
+        # This listener will capture and convert CrewAI events and enqueue them to A2A event queue
+        A2ACrewAIListener(context, event_queue)
+
+        try:
+            inputs = None
+            if context.message and context.message.parts:
+                for part in context.message.parts:
+                    if part.HasField("data"):
+                        data_payload = MessageToDict(part.data)
+                        if isinstance(data_payload, dict):
+                            inputs = data_payload
+                        break
+            if inputs is None:
+                user_input = context.get_user_input()
+                inputs = {"input": user_input} if user_input else {}
+
+            if isinstance(self._crew, Flow):
+                flow_class = type(self._crew)
+                flow_instance = flow_class()
+
+                # output_text will be None if the last method in the flow does not return anything but updates the state instead
+                output_text = await flow_instance.kickoff_async(inputs=inputs)
+                result_text = output_text or flow_instance.state.model_dump_json()
+            else:
+                result = await self._crew.kickoff_async(inputs=inputs)
+                result_text = str(result.raw or "No response was generated.")
+
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    task_id=context.task_id,
+                    last_chunk=True,
+                    context_id=context.context_id,
+                    artifact=Artifact(
+                        artifact_id=str(uuid.uuid4()),
+                        parts=[Part(text=result_text)],
+                    ),
+                )
+            )
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.TASK_STATE_WORKING,
+                        state=TaskState.TASK_STATE_COMPLETED,
                         timestamp=now_timestamp(),
                     ),
                     context_id=context.context_id,
                 )
             )
 
-            # This listener will capture and convert CrewAI events and enqueue them to A2A event queue
-            A2ACrewAIListener(context, event_queue)
-
-            try:
-                inputs = None
-                if context.message and context.message.parts:
-                    for part in context.message.parts:
-                        if part.HasField("data"):
-                            data_payload = MessageToDict(part.data)
-                            if isinstance(data_payload, dict):
-                                inputs = data_payload
-                            break
-                if inputs is None:
-                    user_input = context.get_user_input()
-                    inputs = {"input": user_input} if user_input else {}
-
-                if isinstance(self._crew, Flow):
-                    flow_class = type(self._crew)
-                    flow_instance = flow_class()
-
-                    # output_text will be None if the last method in the flow does not return anything but updates the state instead
-                    output_text = await flow_instance.kickoff_async(inputs=inputs)
-                    result_text = output_text or flow_instance.state.model_dump_json()
-                else:
-                    result = await self._crew.kickoff_async(inputs=inputs)
-                    result_text = str(result.raw or "No response was generated.")
-
-                await event_queue.enqueue_event(
-                    TaskArtifactUpdateEvent(
-                        task_id=context.task_id,
-                        last_chunk=True,
-                        context_id=context.context_id,
-                        artifact=Artifact(
-                            artifact_id=str(uuid.uuid4()),
-                            parts=[Part(text=result_text)],
+        except Exception as e:
+            logger.error(f"Error during CrewAI execution: {e}", exc_info=True)
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        timestamp=now_timestamp(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=str(e))],
                         ),
-                    )
+                    ),
+                    context_id=context.context_id,
                 )
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_COMPLETED,
-                            timestamp=now_timestamp(),
-                        ),
-                        context_id=context.context_id,
-                    )
-                )
-
-            except Exception as e:
-                logger.error(f"Error during CrewAI execution: {e}", exc_info=True)
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_FAILED,
-                            timestamp=now_timestamp(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.ROLE_AGENT,
-                                parts=[Part(text=str(e))],
-                            ),
-                        ),
-                        context_id=context.context_id,
-                    )
-                )
-        finally:
-            clear_kagent_span_attributes(context_token)
-
-
-def _get_user_id(request: RequestContext) -> str:
-    # Get user from call context if available (auth is enabled on a2a server)
-    if request.call_context and request.call_context.user and request.call_context.user.user_name:
-        return request.call_context.user.user_name
-
-    # Get user from context id
-    return f"A2A_USER_{request.context_id}"
-
-
-def _convert_a2a_request_to_span_attributes(
-    request: RequestContext,
-) -> dict[str, Any]:
-    if not request.message:
-        raise ValueError("Request message cannot be None")
-
-    span_attributes = {
-        "kagent.user_id": _get_user_id(request),
-        "gen_ai.conversation.id": request.context_id,
-    }
-
-    if request.task_id:
-        span_attributes["gen_ai.task.id"] = request.task_id
-
-    return span_attributes
+            )

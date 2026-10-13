@@ -1,0 +1,115 @@
+# Weaver live-check configuration for telemetry captured in the e2e suite.
+# See docs/architecture/telemetry.md#conformance.
+
+[live-check]
+# Report only until the expected findings below are settled.
+fail_on = "none"
+search_all_attributes = true
+
+[[live-check.matchers]]
+id = "match.kagent.a2a.request"
+sample_type = "span"
+when = '''
+instrumentation_scope != null
+  && instrumentation_scope.name in ["github.com/kagent-dev/kagent/go/adk/pkg/a2a/server", "kagent.core.a2a"]
+  && name == "a2a.request"
+'''
+signal = "kagent.a2a.request"
+
+[[live-check.matchers]]
+id = "match.kagent.invoke_agent"
+sample_type = "span"
+when = '''
+instrumentation_scope != null
+  && instrumentation_scope.name in ["github.com/kagent-dev/kagent/go/adk/pkg/a2a/server", "kagent.core.a2a"]
+  && "gen_ai.operation.name" in attributes
+  && attributes["gen_ai.operation.name"] == "invoke_agent"
+'''
+signal = "gen_ai.invoke_agent.internal"
+strict_attribute_groups = ["kagent.identity", "kagent.request", "kagent.outcome"]
+attribute_groups = ["kagent.capture"]
+
+[[live-check.matchers]]
+id = "match.gen_ai.invoke_agent"
+sample_type = "span"
+when = '''
+!(instrumentation_scope != null
+  && instrumentation_scope.name in ["github.com/kagent-dev/kagent/go/adk/pkg/a2a/server", "kagent.core.a2a"])
+  && "gen_ai.operation.name" in attributes
+  && attributes["gen_ai.operation.name"] == "invoke_agent"
+'''
+signal = "gen_ai.invoke_agent.internal"
+
+[[live-check.matchers]]
+id = "match.gen_ai.invoke_workflow"
+sample_type = "span"
+when = '"gen_ai.operation.name" in attributes && attributes["gen_ai.operation.name"] == "invoke_workflow"'
+signal = "gen_ai.invoke_workflow.internal"
+
+[[live-check.matchers]]
+id = "match.gen_ai.execute_tool"
+sample_type = "span"
+when = '"gen_ai.operation.name" in attributes && attributes["gen_ai.operation.name"] == "execute_tool"'
+signal = "gen_ai.execute_tool.internal"
+
+[[live-check.matchers]]
+id = "match.gen_ai.inference"
+sample_type = "span"
+when = '"gen_ai.operation.name" in attributes && attributes["gen_ai.operation.name"] in ["chat", "generate_content", "text_completion"]'
+signal = "gen_ai.client.inference"
+
+# The span processor copies request identity onto every span beneath the
+# invocation.
+[[live-check.matchers]]
+id = "match.kagent.request"
+sample_type = "span"
+when = '"a2a.task.id" in attributes || "gen_ai.conversation.id" in attributes || "enduser.id" in attributes'
+attribute_groups = ["kagent.request"]
+
+[[live-check.matchers]]
+id = "match.http.server"
+sample_type = "span"
+when = 'kind == "server" && "http.request.method" in attributes'
+signal = "http.server"
+
+[[live-check.matchers]]
+id = "match.http.client"
+sample_type = "span"
+when = 'kind == "client" && "http.request.method" in attributes'
+signal = "http.client"
+
+[[live-check.matchers]]
+id = "match.rpc.server"
+sample_type = "span"
+when = 'kind == "server" && "rpc.method" in attributes'
+signal = "rpc.call.server"
+
+[[live-check.matchers]]
+id = "match.rpc.client"
+sample_type = "span"
+when = 'kind == "client" && "rpc.method" in attributes'
+signal = "rpc.call.client"
+
+[[live-check.matchers]]
+id = "match.kagent.resource"
+sample_type = "resource"
+when = '"gen_ai.main_agent.id" in attributes || "kagent.runtime" in attributes'
+strict_attribute_groups = ["kagent.resource"]
+
+# Every kagent attribute is development until the v1.x contract is declared
+# stable, and an opt-in attribute is absent by design.
+[[live-check.finding_filters]]
+exclude = ["not_stable", "opt_in_attribute_not_present"]
+
+# A resource also carries what the SDK and the operator add.
+[[live-check.finding_filters]]
+signal_type = "resource"
+exclude = ["unexpected_attribute"]
+
+# Expected findings. Each names the upstream issue that removes it.
+
+# The Go ADK writes its legacy keys whatever the capture setting
+# (google/adk-go#1634, google/adk-go#1635).
+[[live-check.finding_level_overrides]]
+sample_names = ["gcp.vertex.agent.*"]
+level = "information"

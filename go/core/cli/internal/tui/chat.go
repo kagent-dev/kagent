@@ -15,7 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
+	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/muesli/reflow/wordwrap"
 )
@@ -219,13 +219,13 @@ func (m *chatModel) stop() {
 func (m *chatModel) headerView(width int) string {
 	parts := []string{
 		theme.HeadingStyle().Render(m.agentRef),
-		theme.DimStyle().Render(instance.ShortID(m.contextID)),
+		theme.DimStyle().Render(sessionview.ShortID(m.contextID)),
 	}
 	if m.state != "" {
 		parts = append(parts, m.state)
 	}
 	if !m.lastActive.IsZero() {
-		parts = append(parts, theme.DimStyle().Render("active "+instance.Since(m.lastActive, time.Now())+" ago"))
+		parts = append(parts, theme.DimStyle().Render("active "+sessionview.Since(m.lastActive, time.Now())+" ago"))
 	}
 	return lipgloss.NewStyle().MaxWidth(width).Render(strings.Join(parts, theme.DimStyle().Render(" · ")))
 }

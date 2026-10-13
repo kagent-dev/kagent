@@ -6,6 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
@@ -35,7 +37,7 @@ func TestNilInvocationIsUsable(t *testing.T) {
 
 func TestInvocationEndsExactlyOnce(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false,
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil,
 		attribute.String(AttributeRuntime, "codex"))
 
 	ended, err := invocation.End(ctx, Result{TaskState: "TASK_STATE_COMPLETED"})
@@ -54,9 +56,65 @@ func TestInvocationEndsExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestInvocationDurationMatchesTheSpan(t *testing.T) {
+	tracer, exporter := recordingTracer(t)
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	histogram, err := InvocationDuration(provider.Meter("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
+	invocation.MeasureDuration(histogram, attribute.String(AttributeAgentName, "reporter"))
+	_, _ = invocation.End(ctx, Result{TaskState: "TASK_STATE_FAILED", Error: "runtime_failure"})
+
+	var collected metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	if len(collected.ScopeMetrics) != 1 || len(collected.ScopeMetrics[0].Metrics) != 1 {
+		t.Fatalf("collected %+v, want one metric", collected.ScopeMetrics)
+	}
+	metric := collected.ScopeMetrics[0].Metrics[0]
+	if metric.Name != "gen_ai.invoke_agent.duration" || metric.Unit != "s" {
+		t.Fatalf("metric = %s in %s, want gen_ai.invoke_agent.duration in s", metric.Name, metric.Unit)
+	}
+	points := metric.Data.(metricdata.Histogram[float64]).DataPoints
+	if len(points) != 1 {
+		t.Fatalf("data points = %d, want one", len(points))
+	}
+	want := attribute.NewSet(attribute.String(AttributeAgentName, "reporter"), attribute.String(AttributeErrorType, "runtime_failure"))
+	if !points[0].Attributes.Equals(&want) {
+		t.Errorf("attributes = %v, want %v", points[0].Attributes.ToSlice(), want.ToSlice())
+	}
+	span := exporter.GetSpans()[0]
+	if got, want := points[0].Sum, span.EndTime.Sub(span.StartTime).Seconds(); got != want {
+		t.Errorf("duration = %v, want the span duration %v", got, want)
+	}
+}
+
+func TestInvocationFlushesOnceAfterEnding(t *testing.T) {
+	tracer, exporter := recordingTracer(t)
+	flushes := 0
+	flush := func(context.Context) error {
+		if len(exporter.GetSpans()) != 1 {
+			t.Error("flush ran before the invocation span ended")
+		}
+		flushes++
+		return nil
+	}
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", flush)
+	_, _ = invocation.End(ctx, Result{TaskState: "TASK_STATE_COMPLETED"})
+	_, _ = invocation.End(ctx, Result{TaskState: "TASK_STATE_FAILED"})
+	if flushes != 1 {
+		t.Fatalf("flushed %d times, want once", flushes)
+	}
+}
+
 func TestAdoptedInvocationIgnoresTheTransport(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 	invocation.Adopt()
 
 	if ended, _ := invocation.EndTransport(ctx, Result{TaskState: "TASK_STATE_COMPLETED"}); ended {
@@ -79,7 +137,7 @@ func TestAdoptedInvocationIgnoresTheTransport(t *testing.T) {
 
 func TestTransportEndsUnadoptedInvocation(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 
 	if ended, _ := invocation.EndTransport(ctx, Result{Error: "transport_error"}); !ended {
 		t.Fatal("transport could not end an invocation it still owned")
@@ -92,13 +150,13 @@ func TestTransportEndsUnadoptedInvocation(t *testing.T) {
 
 func TestInvocationRecordsDispositionAndLinks(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	originCtx, origin := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	originCtx, origin := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 	originContext := origin.SpanContext()
 	if _, err := origin.End(originCtx, Result{TaskState: "TASK_STATE_INPUT_REQUIRED"}); err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 	invocation.AddLink(trace.Link{
 		SpanContext: originContext,
 		Attributes:  []attribute.KeyValue{attribute.String(AttributeLinkRelationship, RelationshipResumeOrigin)},
@@ -125,7 +183,7 @@ func TestInvocationRecordsDispositionAndLinks(t *testing.T) {
 
 func TestFinishedInvocationIgnoresLateWrites(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 	if _, err := invocation.End(ctx, Result{}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,12 +213,12 @@ func attributeValue(attributes []attribute.KeyValue, key string) string {
 // can no longer record any of it.
 func TestAdoptRefusesAFinishedInvocation(t *testing.T) {
 	tracer, exporter := recordingTracer(t)
-	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	ctx, invocation := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 	if !invocation.Adopt() {
 		t.Fatal("Adopt() refused a live invocation")
 	}
 
-	_, transport := StartInvocation(t.Context(), tracer, "invoke_agent", false)
+	_, transport := StartInvocation(t.Context(), tracer, "invoke_agent", nil)
 	if _, err := transport.EndTransport(ctx, Result{Error: "transport_error"}); err != nil {
 		t.Fatal(err)
 	}

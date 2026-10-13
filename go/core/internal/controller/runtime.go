@@ -5,12 +5,13 @@ import (
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/core/internal/controller/apiclient"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/client-go/rest"
 )
 
-// Runtime owns the Kubernetes client and common options shared by the v2 KRT
+// Runtime owns the Kubernetes client and common options shared by the KRT
 // collections. Collections must be created before Start so their informers are
 // registered before the client starts.
 type Runtime struct {
@@ -21,18 +22,18 @@ type Runtime struct {
 
 // NewRuntime creates the shared KRT client and collection graph. Handlers are
 // deliberately registered separately at the eventual application boundary.
-func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}) (*Runtime, error) {
+func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}, settings translator.CompilerSettings) (*Runtime, error) {
 	client, err := apiclient.New(config)
 	if err != nil {
 		return nil, fmt.Errorf("create KRT Kubernetes client: %w", err)
 	}
 	options := krt.NewOptionsBuilder(stop, "kagent", krt.GlobalDebugHandler)
-	collections := NewCollections(client, watchNamespaces, options)
+	collections := NewCollections(client, watchNamespaces, options, settings)
 	return &Runtime{Client: client, Options: options, Collections: collections}, nil
 }
 
-// Start starts every informer registered by the v2 KRT collections and keeps
-// them alive until the application shuts down. The v2 API uses installed CRDs
+// Start starts every informer registered by the KRT collections and keeps
+// them alive until the application shuts down. The API uses installed CRDs
 // directly, so it does not start Istio's cluster-wide delayed-CRD watcher.
 func (r *Runtime) Start(ctx context.Context) error {
 	defer r.Client.Shutdown()

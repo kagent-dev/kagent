@@ -6,12 +6,7 @@
  * protocol) — can be reasoned about and unit-tested without a DOM.
  */
 
-import type {
-  SecretMaterial,
-  TLSConfig,
-  ToolServerCreateRequest,
-  ValueRef,
-} from "@/api";
+import type { ToolServerCreateRequest, ValueRef } from "@/api";
 import {
   DEFAULT_NAMESPACE,
   RESOURCE_NAME_HINT,
@@ -21,13 +16,6 @@ import {
 
 /** Which kind of server the form is describing. */
 export type McpServerKind = "url" | "command";
-
-/** The Secret key a materialised CA bundle is stored under. */
-export const CA_CERT_SECRET_KEY = "ca.crt";
-
-/** The Secret a custom CA is written to, named off the server so a delete GCs it. */
-export const caCertSecretNameFor = (serverName: string): string =>
-  `${serverName.trim()}-ca`;
 
 /** The scheme the stored (scheme-less) URL is served under, per the TLS toggle. */
 export const schemeFor = (tlsEnabled: boolean): string =>
@@ -75,14 +63,8 @@ export interface McpServerFormValues {
 
   // URL kind.
   url: string;
-  // Whether the controller dials the upstream over TLS. On → https, and the
-  // optional CA field below applies; off → plaintext http. The URL is stored
-  // scheme-less (the scheme is shown as a fixed prefix driven by this flag), so
-  // the two together are what the submitted `spec.url` and `spec.tls` come from.
+  // Selects HTTPS or plaintext HTTP for the scheme-less URL.
   tlsEnabled: boolean;
-  // A PEM CA bundle to verify the upstream against a private CA. Only meaningful
-  // when `tlsEnabled`; empty means the system trust store.
-  caCertPem: string;
   streamableHttp: boolean;
   headersJson: string;
   timeout: string;
@@ -104,7 +86,6 @@ export function emptyMcpServerForm(): McpServerFormValues {
     namespace: DEFAULT_NAMESPACE,
     url: "",
     tlsEnabled: false,
-    caCertPem: "",
     // Matches the CRD's own default, and the only protocol Codex accepts.
     streamableHttp: true,
     headersJson: "",
@@ -223,30 +204,6 @@ export function toCreateRequest(
     // here onto the scheme-less host the form holds.
     const url = schemeFor(values.tlsEnabled) + stripScheme(values.url);
 
-    // A CA bundle only matters over TLS. With one, `spec.tls` points at a Secret
-    // materialised alongside the server (so a delete GCs it); without one but
-    // still over TLS, an empty `spec.tls` selects the system trust store; over
-    // plain HTTP there is no `spec.tls` at all.
-    const customCA = values.tlsEnabled && values.caCertPem.trim() !== "";
-    const caCertSecretName = customCA ? caCertSecretNameFor(name) : "";
-    const tls: TLSConfig | undefined = values.tlsEnabled
-      ? customCA
-        ? {
-            caCertSecretRef: caCertSecretName,
-            caCertSecretKey: CA_CERT_SECRET_KEY,
-          }
-        : {}
-      : undefined;
-    const secrets: SecretMaterial[] | undefined = customCA
-      ? [
-          {
-            name: caCertSecretName,
-            key: CA_CERT_SECRET_KEY,
-            value: values.caCertPem,
-          },
-        ]
-      : undefined;
-
     return {
       type: "RemoteMCPServer",
       remoteMCPServer: {
@@ -263,10 +220,8 @@ export function toCreateRequest(
             ? undefined
             : values.sseReadTimeout.trim() || undefined,
           terminateOnClose: values.terminateOnClose,
-          ...(tls !== undefined ? { tls } : {}),
         },
       },
-      ...(secrets ? { secrets } : {}),
     };
   }
 

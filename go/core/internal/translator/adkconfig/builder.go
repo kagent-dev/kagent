@@ -12,7 +12,8 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,118 +33,63 @@ type provenanceEntry struct {
 // Builder assembles resolved inputs into an ADK agent configuration.
 type Builder struct {
 	ctx         krt.HandlerContext
-	collections v2translator.Collections
+	collections translator.Collections
 }
 
 // NewBuilder constructs an ADK configuration builder.
-func NewBuilder(ctx krt.HandlerContext, collections v2translator.Collections) *Builder {
+func NewBuilder(ctx krt.HandlerContext, collections translator.Collections) *Builder {
 	return &Builder{ctx: ctx, collections: collections}
 }
 
 type Result struct {
 	Config      *adk.AgentConfig
-	Models      []*v2translator.ResolvedModelConfig
-	Templates   []*v1alpha3.AgentTemplate
+	Models      []*translator.ResolvedModelConfig
+	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
-}
-
-// ModelResult is the runtime configuration contributed by one ModelConfig.
-type ModelResult struct {
-	Resolved    *v2translator.ResolvedModelConfig
-	Model       adk.Model
-	Environment []corev1.EnvVar
-	Egress      []string
-}
-
-// BuildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) BuildModel(namespace, name string) (*ModelResult, error) {
-	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
-	if resolved == nil {
-		return nil, fmt.Errorf("model config %q not found", name)
-	}
-	if failures := resolved.SemanticFailures; len(failures) > 0 {
-		return nil, v2translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	if failures := resolved.ReferenceFailures; len(failures) > 0 {
-		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	runtime, err := resolveModel(resolved)
-	if err != nil {
-		return nil, err
-	}
-	if runtime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
-	return &ModelResult{
-		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
-		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
-	}, nil
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
-func HarnessEnvironment(harness *v1alpha3.Harness) []corev1.EnvVar {
+func HarnessEnvironment(harness *translator.HarnessConfiguration) []corev1.EnvVar {
 	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
 	for _, value := range harness.Spec.Env {
-		variable := corev1.EnvVar{Name: value.Name}
-		if value.Value != nil {
-			variable.Value = *value.Value
-		} else {
-			variable.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: value.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, variable)
+		environment = append(environment, corev1.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return environment
 }
 
-func (c *Builder) Build(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	return c.compileAgent(ctx, input)
-}
-
-// ApplyCompaction translates the Harness's kagent compaction policy into the
-// ADK context configuration of a compiled root agent. Compaction is a property
-// of the runner that drives the root agent, so it is runtime policy on the
-// Harness rather than portable behavior on the AgentTemplate.
-//
-// A summarizer ModelConfig other than the agent's own is resolved like the
-// agent model: its runtime configuration lands in config.json, its credentials
-// and egress join the revision, and it joins the provenance so a change to it
-// compiles a new revision. The agent's own model is left out because the
-// runtime already summarizes with it by default.
-func (c *Builder) ApplyCompaction(result *Result, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
-	spec := harness.Spec.Kagent.Compaction
-	if spec == nil {
-		return nil
-	}
-	compaction := &adk.AgentCompressionConfig{
-		CompactionInterval: spec.CompactionInterval,
-		OverlapSize:        spec.OverlapSize,
-		TokenThreshold:     spec.TokenThreshold,
-		EventRetentionSize: spec.EventRetentionSize,
-	}
-	if summarizer := spec.Summarizer; summarizer != nil {
-		compaction.PromptTemplate = summarizer.PromptTemplate
-		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.BuildModel(harness.Namespace, ref.Name)
-			if err != nil {
-				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
-			}
-			compaction.SummarizerModel = model.Model
-			result.Models = append(result.Models, model.Resolved)
-			result.Environment = append(result.Environment, model.Environment...)
-			result.Egress = append(result.Egress, model.Egress...)
+// Build returns the complete ADK configuration shared by kagent and BYO.
+// Runtime policy belongs to the root runner; shared subagents contribute only
+// agent behavior and use that runner's session store.
+func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*Result, error) {
+	if input.Harness.Spec.Kagent != nil {
+		if err := requireModels(input.Root); err != nil {
+			return nil, err
 		}
 	}
-	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
-	return nil
+	result, err := c.compileAgent(ctx, input.Root)
+	if err != nil {
+		return nil, err
+	}
+	if input.Harness.Spec.Kagent != nil {
+		if err := applyOutputSchema(result.Config, input.OutputSchema); err != nil {
+			return nil, err
+		}
+		if err := c.applyCompaction(result, input.Harness, input.Root.Template); err != nil {
+			return nil, err
+		}
+		if err := c.applyMemory(result, input.Harness); err != nil {
+			return nil, err
+		}
+	}
+	// The Python runtime needs an async SQLite driver; the Go runtime accepts
+	// this URL and strips the driver before opening the same durable database.
+	result.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
+	return result, nil
 }
 
-func isAgentModel(template *v1alpha3.AgentTemplate, name string) bool {
-	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
-}
-
-func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*Result, error) {
-	modelRuntime := &modelRuntime{data: &modelDeploymentData{}}
+func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput) (*Result, error) {
+	modelRuntime := &modelRuntime{}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
 		modelConfig = input.ResolvedModelConfig.Config
@@ -154,11 +100,14 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		}
 	}
 	if modelRuntime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
-	stream := true
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
-	pluginConfig, pluginEgress, err := v2translator.CompileSkillResources(input.Template)
+	stream := new(true)
+	if modelConfig != nil && modelConfig.Spec.Stream != nil {
+		stream = modelConfig.Spec.Stream
+	}
+	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
+	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -172,21 +121,18 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
+		if err := c.addRemoteMCPServer(cfg, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
-	}
 	result := &Result{
-		Config: cfg, Templates: []*v1alpha3.AgentTemplate{input.Template},
+		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
 		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
 	}
 	if modelConfig != nil {
-		result.Models = []*v2translator.ResolvedModelConfig{input.ResolvedModelConfig}
+		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
 		child, err := c.compileAgent(ctx, binding.Agent)
@@ -205,11 +151,16 @@ func (c *Builder) compileAgent(ctx context.Context, input *v2translator.AgentInp
 
 // BuildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Builder) BuildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v2translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
+func (c *Builder) BuildProvenance(ctx context.Context, harness *translator.HarnessConfiguration, templates []*translator.TemplateConfiguration, models []*translator.ResolvedModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+	var entries []provenanceEntry
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[string]struct{}{}
 	for _, template := range templates {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec))
+		if template.Source != nil {
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec))
+		}
 		if template.Spec.SystemPromptFrom != nil {
 			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}
@@ -353,10 +304,10 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
 	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
 	for _, tool := range cfg.HttpTools {
-		destinations = appendURLHost(destinations, tool.Params.Url)
+		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
 	for _, tool := range cfg.SseTools {
-		destinations = appendURLHost(destinations, tool.Params.Url)
+		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
 	modelJSON, _ := json.Marshal(model)
 	var values any
@@ -369,19 +320,23 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	}
 	switch modelConfig.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		destinations = append(destinations, "api.openai.com")
+		destinations = append(destinations, "https://api.openai.com:443")
 	case v1alpha3.ModelProviderAnthropic:
-		destinations = append(destinations, "api.anthropic.com")
+		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
-		destinations = append(destinations, "generativelanguage.googleapis.com")
+		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+	case v1alpha3.ModelProviderMistral:
+		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
+			destinations = append(destinations, "https://api.mistral.ai:443")
+		}
 	case v1alpha3.ModelProviderOllama:
 		// Ollama's endpoint is the provider's own field and is not part of the
-		// serialized model, so the walk above never sees it. Unlike the three
+		// serialized model, so the walk above never sees it. Unlike the
 		// providers above there is no default to fall back on: the host is the
 		// operator's, so it has to be read from the spec.
 		if ollama := modelConfig.Spec.Ollama; ollama != nil {
 			if ollama.Host != "" {
-				destinations = appendURLHost(destinations, withDefaultScheme(ollama.Host))
+				destinations = appendURLOrigin(destinations, withDefaultScheme(ollama.Host))
 			}
 			// A cloud model with a key and no explicit host reaches
 			// api.ollama.com, so the agent needs that host allowed or the call
@@ -394,7 +349,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 			// needs to be reachable.
 			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
-				destinations = append(destinations, "api.ollama.com")
+				destinations = append(destinations, "https://api.ollama.com:443")
 			}
 		}
 	}
@@ -424,11 +379,11 @@ func withDefaultScheme(host string) string {
 }
 
 // appendURLValues walks serialized provider config because endpoint fields are
-// provider-specific but all URLs reduce to the same hostname allowlist.
+// provider-specific but all URLs reduce to HTTP(S) origins.
 func appendURLValues(destinations []string, value any) []string {
 	switch value := value.(type) {
 	case string:
-		return appendURLHost(destinations, value)
+		return appendURLOrigin(destinations, value)
 	case []any:
 		for _, item := range value {
 			destinations = appendURLValues(destinations, item)
@@ -441,10 +396,10 @@ func appendURLValues(destinations []string, value any) []string {
 	return destinations
 }
 
-func appendURLHost(destinations []string, raw string) []string {
+func appendURLOrigin(destinations []string, raw string) []string {
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, parsed.Hostname())
+		return append(destinations, egress.Origin(parsed))
 	}
 	return destinations
 }

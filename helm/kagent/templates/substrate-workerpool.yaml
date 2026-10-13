@@ -1,4 +1,4 @@
-{{- if and .Values.controller.substrate.enabled .Values.substrateWorkerPool.create }}
+{{- if .Values.substrateWorkerPool.create }}
 {{- if not .Values.substrateWorkerPool.workerImage }}
 {{- fail "substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true" }}
 {{- end }}
@@ -8,17 +8,12 @@ metadata:
   name: {{ .Values.substrateWorkerPool.name | quote }}
   namespace: {{ include "kagent.namespace" . }}
   labels:
-    {{- include "kagent.labels" . | nindent 4 }}
-    kagent.dev/worker-pool: {{ .Values.substrateWorkerPool.name | quote }}
-    {{- with .Values.substrateWorkerPool.labels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- $labels := mergeOverwrite (dict) (include "kagent.labels" . | fromYaml) (.Values.substrateWorkerPool.labels | default dict) (dict "kagent.dev/worker-pool-name" (toString .Values.substrateWorkerPool.name) "kagent.dev/worker-pool-namespace" (include "kagent.namespace" .)) }}
+    {{- toYaml $labels | nindent 4 }}
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
   workerImage: {{ include "kagent.mirroredImage" (dict "root" . "image" .Values.substrateWorkerPool.workerImage) | quote }}
   sandboxClass: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
-  {{- with .Values.substrateWorkerPool.template }}
   template:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- toYaml (set (deepCopy (.Values.substrateWorkerPool.template | default dict)) "serviceAccountName" (include "kagent.substrateWorkerPool.serviceAccountName" .)) | nindent 4 }}
 {{- end }}

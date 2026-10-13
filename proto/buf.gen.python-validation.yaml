@@ -1,0 +1,11 @@
+version: v2
+# Keep this revision aligned with the validation dependency in buf.lock.
+inputs:
+  - module: buf.build/bufbuild/protovalidate:435963d1631043e694e56e6bcc3c79c3
+    paths:
+      - buf/validate/validate.proto
+plugins:
+  - remote: buf.build/protocolbuffers/python:v33.5
+    out: ../python/packages/kagent-proto/src
+  - remote: buf.build/protocolbuffers/pyi:v33.5
+    out: ../python/packages/kagent-proto/src

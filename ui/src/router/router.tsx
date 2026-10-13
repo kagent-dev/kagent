@@ -23,6 +23,7 @@ import { HarnessNewPage } from "@/pages/agents/HarnessNewPage";
 import { AgentNewChatPage } from "@/pages/AgentNewChatPage";
 import { UnmappedConversationsPage } from "@/pages/UnmappedConversationsPage";
 import { AgentPage } from "@/pages/AgentPage";
+import { AgentFormPage } from "@/pages/agents/AgentFormPage";
 import { AgentDetailsPage } from "@/pages/AgentDetailsPage";
 import { AgentChatPage } from "@/pages/AgentChatPage";
 
@@ -60,7 +61,9 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   // Before the two-segment agent routes: `unmapped` is a literal where they expect a
   // namespace, and the router takes the first match.
   { key: "agentsUnmapped", path: paths.agentsUnmapped, element: <UnmappedConversationsPage /> },
+  { key: "agentNew", path: paths.agentNew, element: <AgentFormPage /> },
   { key: "agent", path: paths.agent, element: <AgentPage /> },
+  { key: "agentEdit", path: paths.agentEdit, element: <AgentFormPage /> },
   { key: "agentNewChat", path: paths.agentNewChat, element: <AgentNewChatPage /> },
   /* After the static `/agents/...` segments, which must win over this pattern. */
   { key: "agentDetail", path: paths.agentDetail, element: <AgentDetailsPage /> },

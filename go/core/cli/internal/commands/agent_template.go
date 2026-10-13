@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -21,7 +20,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
@@ -200,25 +198,14 @@ func getAgentTemplates(
 
 func writeAgentTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, list bool, nextPageToken string) error {
 	tw := table.NewWriter()
-	tw.AppendHeader(table.Row{"NAME", "HARNESS", "READY", "CREATED"})
+	tw.AppendHeader(table.Row{"NAME", "CREATED"})
 	for i := range templates {
 		template := &templates[i]
 		created := ""
 		if !template.CreationTimestamp.IsZero() {
 			created = template.CreationTimestamp.Time.UTC().Format(time.RFC3339)
 		}
-		if len(template.Status.Harnesses) == 0 {
-			tw.AppendRow(table.Row{template.Name, "", "UNKNOWN", created})
-			continue
-		}
-		for j := range template.Status.Harnesses {
-			harness := &template.Status.Harnesses[j]
-			ready := "UNKNOWN"
-			if condition := meta.FindStatusCondition(harness.Conditions, apiv1alpha3.AgentTemplateConditionReady); condition != nil {
-				ready = strings.ToUpper(string(condition.Status))
-			}
-			tw.AppendRow(table.Row{template.Name, harness.Harness, ready, created})
-		}
+		tw.AppendRow(table.Row{template.Name, created})
 	}
 
 	output := tw.Render()
@@ -233,13 +220,12 @@ func writeAgentTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate
 	return nil
 }
 
-// NewGetAgentTemplateCmd constructs the AgentTemplate get/list command.
-func NewGetAgentTemplateCmd() *cobra.Command {
+func newAgentTemplateReadCmd(list bool) *cobra.Command {
 	cfg := &AgentTemplateGetCfg{}
 	cmd := &cobra.Command{
-		Use:   "agent-template [NAME]",
-		Short: "Get an AgentTemplate or list AgentTemplates",
-		Args:  cobra.MaximumNArgs(1),
+		Use:   "get NAME",
+		Short: "Get an AgentTemplate",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
@@ -252,6 +238,9 @@ func NewGetAgentTemplateCmd() *cobra.Command {
 			var name string
 			if len(args) == 1 {
 				name = args[0]
+				if name == "" {
+					return errors.New("agent template name must not be empty")
+				}
 			}
 			cfg.Namespace = options.Namespace
 			cfg.OutputFormat = format
@@ -259,8 +248,13 @@ func NewGetAgentTemplateCmd() *cobra.Command {
 			return runGetAgentTemplate(cmd.Context(), cfg, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
-	cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	if list {
+		cmd.Use = "list"
+		cmd.Short = "List AgentTemplates"
+		cmd.Args = cobra.NoArgs
+		cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
+		cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
+	}
 	return cmd
 }
 

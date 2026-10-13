@@ -3,20 +3,73 @@ package substrate
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 )
 
+func TestActorTemplateSandboxClass(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		class      atev1alpha1.SandboxClass
+		wantClass  ateapipb.SandboxClass
+		wantConfig string
+		wantError  string
+	}{
+		{name: "default", wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
+		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
+		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, wantConfig: "microvm"},
+		{name: "unsupported", class: "unsupported", wantError: `unsupported sandbox class "unsupported"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &translator.Revision{
+				Namespace: "agents", AgentName: "helper",
+				WorkerPoolName: "pool",
+				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
+				},
+			}
+			// Exercise builder validation independently of Digest's validation.
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			spec.SandboxClass = tt.class
+			template, err := ActorTemplateForRevision(spec, id)
+			if tt.wantError != "" {
+				require.EqualError(t, err, tt.wantError)
+				require.Nil(t, template)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
+			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
+			testWorkerPoolSelection(t, template, "agents", "pool")
+		})
+	}
+}
+
+// The keys are literals because the Helm chart and externally managed pools
+// set them by name; changing a key constant must fail here.
+func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, namespace, pool string) {
+	t.Helper()
+	require.Equal(t, map[string]string{
+		"kagent.dev/worker-pool-name":      pool,
+		"kagent.dev/worker-pool-namespace": namespace,
+	}, template.GetWorkerSelector().GetMatchLabels())
+}
+
 func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
-		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
+		Namespace: "agents", AgentName: "helper",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Command:        []string{"/agent"},
 		Args:           []string{"serve"},
@@ -33,22 +86,17 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-kagent-"+revisionID.Short() {
+	if template.GetMetadata().GetAtespace() != "agents" || template.GetMetadata().GetName() != "helper-"+revisionID.Short() {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.GetContainers()[0]
 	if !slices.Equal(container.Command, spec.Command) || !slices.Equal(container.Args, spec.Args) {
 		t.Fatalf("container command/args = %v %v", container.Command, container.Args)
 	}
-	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetReadyz().GetHttpGet().GetPath() != "/readyz" || container.GetReadyz().GetHttpGet().GetPort() != 8081 || container.GetReadyz().GetTimeoutSeconds() != 30 {
+	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotsConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
-		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotsConfig().GetOnResume())
-	}
-	if template.GetSnapshotsConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
-		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotsConfig().GetOnPause())
-	}
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, template.GetSnapshotConfig().GetOnCommit())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
@@ -58,9 +106,13 @@ func TestActorTemplateForRevision(t *testing.T) {
 			t.Fatalf("missing gateway trust for %s", name)
 		}
 	}
-	trust := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
-	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
+	trust := template.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
+	if !slices.Equal(trust.GetNames(), []string{"egress-mitm.ate.dev"}) || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
 		t.Fatal("gateway trust bundle was not projected")
+	}
+	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
+	if len(identity) != 3 || identity[0].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME || identity[0].GetPath() != "name" || container.VolumeMounts[2].GetMountPath() != actorIdentityMount {
+		t.Fatal("actor routing identity was not projected")
 	}
 	var rendered a2atype.AgentCard
 	if err := json.Unmarshal([]byte(environment["KAGENT_AGENT_CARD_JSON"].Value), &rendered); err != nil {
@@ -71,6 +123,40 @@ func TestActorTemplateForRevision(t *testing.T) {
 	}
 	if environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
 		t.Fatal("config was not embedded as a non-secret literal")
+	}
+}
+
+func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		environment []corev1.EnvVar
+		wantPrefix  string
+	}{
+		{name: "no resource environment"},
+		{name: "preserves attributes", environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "team=platform"}}, wantPrefix: "team=platform,"},
+		{name: "replaces forged version", environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.main_agent.name=helper-kagent,service.version=forged"}}, wantPrefix: "gen_ai.main_agent.name=helper-kagent,"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := &translator.Revision{
+				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+				Environment: slices.Clone(test.environment),
+			}
+			revisionID, err := spec.Digest()
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, revisionID)
+			require.NoError(t, err)
+			require.Equal(t, test.environment, spec.Environment, "stamping the revision must not change the compiled revision")
+			for _, variable := range template.GetContainers()[0].Env {
+				if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+					require.Equal(t, test.wantPrefix+"service.version="+revisionID.Short(), variable.Value)
+					return
+				}
+			}
+			t.Fatal("resource attributes missing from the actor")
+		})
 	}
 }
 
@@ -89,5 +175,48 @@ func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {
 	right.Containers[0].Image = "agent:v2"
 	if ActorTemplateSpecEqual(left, right) {
 		t.Fatal("different container image was accepted")
+	}
+}
+
+func TestActorTemplateEnvironmentValueSize(t *testing.T) {
+	const configOverhead = len(`{"instruction":""}`)
+	for _, test := range []struct {
+		name        string
+		instruction string
+		description string
+		environment []corev1.EnvVar
+		wantError   string
+	}{
+		{name: "ASCII boundary", instruction: strings.Repeat("a", 32768-configOverhead)},
+		{name: "ASCII overflow", instruction: strings.Repeat("a", 32769-configOverhead), wantError: `environment variable "KAGENT_CONFIG_JSON" is 32769 characters; Substrate supports at most 32768`},
+		{name: "Unicode boundary", instruction: strings.Repeat("日", 32768-configOverhead)},
+		{name: "Unicode overflow", instruction: strings.Repeat("日", 32769-configOverhead), wantError: `environment variable "KAGENT_CONFIG_JSON" is 32769 characters; Substrate supports at most 32768`},
+		{name: "JSON escaping", instruction: strings.Repeat("<>&", 2000), wantError: `environment variable "KAGENT_CONFIG_JSON" is 36018 characters; Substrate supports at most 32768`},
+		{name: "user environment", environment: []corev1.EnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}, wantError: `environment variable "EXTRA" is 32769 characters; Substrate supports at most 32768`},
+		{name: "agent card", description: strings.Repeat("x", 32769), wantError: `environment variable "KAGENT_AGENT_CARD_JSON"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config, err := json.Marshal(struct {
+				Instruction string `json:"instruction"`
+			}{test.instruction})
+			require.NoError(t, err)
+			spec := &translator.Revision{
+				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+				ConfigJSON: config, Environment: test.environment,
+				AgentCard: &a2apb.AgentCard{Name: "helper", Description: test.description, Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+			}
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, id)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, template)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, template)
+		})
 	}
 }

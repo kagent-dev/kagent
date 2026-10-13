@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"log/slog"
@@ -49,7 +48,7 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
+	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, agentConfig.ProcessConfig().TokenPropagation)
 	if err != nil {
 		return runner.Config{}, err
 	}
@@ -106,9 +105,9 @@ func CreateRunnerConfig(
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.TokenPropagationPlugin, error) {
-	propagateToken := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PROPAGATE_TOKEN")), "true")
-	stsWellKnownURI := strings.TrimSpace(os.Getenv("STS_WELL_KNOWN_URI"))
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
+	propagateToken := config.Enabled
+	stsWellKnownURI := config.STSWellKnownURI
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
 	}
@@ -135,21 +134,9 @@ func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger) (*sts.To
 
 	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
 	// backend. Both are repeatable; empty values are omitted from the request.
-	resource := splitCSV(os.Getenv("KAGENT_STS_RESOURCE"))
-	audience := splitCSV(os.Getenv("KAGENT_STS_AUDIENCE"))
+	resource := config.Resources
+	audience := config.Audiences
 
 	log.InfoContext(ctx, "enabling STS token propagation plugin", "well_known_uri", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
-}
-
-// splitCSV parses a comma-separated value into trimmed, non-empty entries,
-// returning nil when none are present so the exchange target stays unset.
-func splitCSV(v string) []string {
-	var out []string
-	for p := range strings.SplitSeq(v, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

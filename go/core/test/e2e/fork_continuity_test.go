@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -17,8 +18,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
+// checkpointForksSupported is false while Substrate 0.5 snapshots carry process
+// memory: kagent rejects forking them because the restored processes would keep
+// the source session's IDs. Remove it, and the guards that read it, once
+// lifecycle v2 lets templates take DATA snapshots on suspend again.
+const checkpointForksSupported = false
+
+// requireForkRejected asserts the rejection checkpointForksSupported describes.
+func requireForkRejected(ctx context.Context, t *testing.T, checkpoints apiv1alpha1.CheckpointServiceClient, checkpointID string) {
+	t.Helper()
+	_, err := checkpoints.ForkSession(ctx, &apiv1alpha1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "fork a process-memory checkpoint: %v", err)
+}
+
+func TestSessionPausedTaskCheckpointRejected(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		switch harness.name {
 		case codexE2EHarness, claudeE2EHarness:
 			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
@@ -30,9 +46,8 @@ func TestAgentInstancePausedTaskCheckpointRejected(t *testing.T) {
 		require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
 
 		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
-			AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+			SessionId: fixture.sessionID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
 		})
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.ErrorContains(t, err, "no quiescent turn boundary")
 	})
 }

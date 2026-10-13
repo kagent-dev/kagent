@@ -1,0 +1,143 @@
+suite: test worker pool sandbox selection
+templates:
+  - substrate-workerpool.yaml
+release:
+  namespace: kagent
+set:
+  controller.substrateClientCertificate.enabled: true
+  substrateWorkerPool.create: true
+  substrateWorkerPool.name: selected-pool
+  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
+tests:
+  - it: should default to gvisor and label the selected pool
+    asserts:
+      - isKind:
+          of: WorkerPool
+      - equal:
+          path: metadata.namespace
+          value: kagent
+      - equal:
+          path: metadata.name
+          value: selected-pool
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: selected-pool
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: kagent
+      # Name-only templates from earlier releases select this key; without it
+      # they cannot reach this pool from another namespace.
+      - notExists:
+          path: metadata.labels["kagent.dev/worker-pool"]
+      - equal:
+          path: spec.sandboxClass
+          value: gvisor
+      - equal:
+          path: spec.workerImage
+          value: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
+  - it: should preserve gvisor when the class is empty
+    set:
+      substrateWorkerPool.sandboxClass: ""
+    asserts:
+      - equal:
+          path: spec.sandboxClass
+          value: gvisor
+  - it: should scope a same-named pool to its release namespace
+    release:
+      namespace: tenant-b
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: tenant-b
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: selected-pool
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: tenant-b
+  - it: should scope placement to the namespace override
+    set:
+      namespaceOverride: tenant-a
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: tenant-a
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: tenant-a
+  - it: should preserve extra labels without allowing placement overrides
+    set:
+      labels:
+        environment: production
+        kagent.dev/worker-pool-name: foreign-global-pool
+        kagent.dev/worker-pool-namespace: foreign-global-namespace
+      substrateWorkerPool.labels:
+        team: platform
+        kagent.dev/worker-pool-name: foreign-pool
+        kagent.dev/worker-pool-namespace: foreign-namespace
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+      - equal:
+          path: metadata.labels.environment
+          value: production
+      - equal:
+          path: metadata.labels.team
+          value: platform
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: selected-pool
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-namespace"]
+          value: kagent
+  - it: should render a numeric pool name as a string label
+    set:
+      substrateWorkerPool.name: 1234
+    asserts:
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: "1234"
+  - it: should render microvm with the selected image and worker selector label
+    set:
+      substrateWorkerPool.sandboxClass: microvm
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
+    asserts:
+      - equal:
+          path: spec.sandboxClass
+          value: microvm
+      - equal:
+          path: spec.workerImage
+          value: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: selected-pool
+  - it: should not create an externally managed pool
+    set:
+      substrateWorkerPool.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should require an explicit worker image
+    set:
+      substrateWorkerPool.workerImage: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: substrateWorkerPool.workerImage is required when substrateWorkerPool.create=true
+  - it: should run the workers as the chart worker ServiceAccount
+    asserts:
+      - equal:
+          path: spec.template.serviceAccountName
+          value: selected-pool
+  - it: should use a user ServiceAccount and keep the rest of the template
+    set:
+      substrateWorkerPool.serviceAccount.create: false
+      substrateWorkerPool.serviceAccount.name: my-worker-sa
+      substrateWorkerPool.template.priorityClassName: high
+    asserts:
+      - equal:
+          path: spec.template.serviceAccountName
+          value: my-worker-sa
+      - equal:
+          path: spec.template.priorityClassName
+          value: high

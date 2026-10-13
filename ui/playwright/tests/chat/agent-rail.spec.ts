@@ -3,6 +3,7 @@ import { test, expect } from "../../fixtures/test";
 import {
   agentChat,
   agentDetail,
+  agentNewChat,
   agentPage,
   agents,
   instances,
@@ -10,6 +11,7 @@ import {
   loadPage,
   withScenario,
 } from "../../helpers/app";
+import { expectTurnFinished } from "../../helpers/chat";
 import { dialog, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
@@ -92,7 +94,7 @@ test("chat agent rail: the current agent is absent from the switcher on a surfac
   ).toBeVisible({ timeout: 30_000 });
 
   await expect(
-    page.getByTestId(`agent-switcher-option-${agents.k8s.template}-${agents.k8s.harness}`),
+    page.getByTestId(`agent-switcher-option-${agents.k8s.name}`),
     "the agent whose page is open should not be offered as somewhere to go",
   ).toHaveCount(0);
 });
@@ -126,7 +128,7 @@ test("chat agent rail: the identity card switches agent", async ({ page }) => {
    */
   await expect(options.first()).toBeVisible({ timeout: 30_000 });
   await expect(
-    page.getByTestId(`agent-switcher-option-${agents.k8s.template}-${agents.k8s.harness}`),
+    page.getByTestId(`agent-switcher-option-${agents.k8s.name}`),
   ).toHaveCount(0);
 
   // Filtering narrows it, and matches what the reader can see — the template and the
@@ -141,7 +143,7 @@ test("chat agent rail: the identity card switches agent", async ({ page }) => {
   // agent left behind, and not a new instance either.
   await switcher.getByTestId("agent-switcher-filter").fill("");
   await options.first().click();
-  await expect(page).toHaveURL(/\/agents\/[^/]+\/[^/]+\/on\/[^/]+\/new$/);
+  await expect(page).toHaveURL(/\/agents\/[^/]+\/[^/]+\/new$/);
 });
 
 /**
@@ -305,6 +307,44 @@ test("chat agent rail: conversations are named", async ({ page }) => {
     await expect(row).toContainText("…");
     // And emphatically not the id, which is what an unnamed conversation falls back to
     // when there is nothing said in it to derive from.
+    await expect(row).not.toContainText("Untitled");
+  });
+});
+
+/**
+ * A new conversation keeps its title once you leave it. Only the Agent Details hop fails
+ * without the fix here; the mock re-reads on the sibling hop, so the unit tests cover it.
+ */
+test("chat agent rail: a new conversation keeps its title once you leave it", async ({
+  page,
+}) => {
+  const said = "This is twin B.";
+  await loadPage(page, agentNewChat(agents.k8s));
+  await expect(page.getByTestId("new-chat-empty")).toBeVisible({ timeout: 30_000 });
+
+  const created = await test.step("1. the first message starts a conversation", async () => {
+    await page.getByTestId("chat-input").fill(said);
+    await page.getByTestId("chat-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
+    const id = new URL(page.url()).pathname.split("/")[2];
+    await expectTurnFinished(page, { finishedBefore: 0 });
+    return id;
+  });
+
+  const row = page.getByTestId(`chat-session-${created}`);
+
+  await test.step("2. opening another conversation leaves this one titled", async () => {
+    await page.getByTestId(`chat-session-${SIBLING_OF_READY}`).click();
+    await expect(page).toHaveURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
+    await expect(row).toContainText(said);
+    await expect(row).not.toContainText("Untitled");
+  });
+
+  await test.step("3. and so does the agent's details page", async () => {
+    // Clicked, not visited: a reload re-reads every title and would hide the defect.
+    await page.getByTestId("agent-nav-agent-conversations").click();
+    await expect(page.getByTestId("chat-panel")).toHaveCount(0);
+    await expect(row).toContainText(said);
     await expect(row).not.toContainText("Untitled");
   });
 });

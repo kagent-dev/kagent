@@ -87,7 +87,7 @@ func (c *rpcClient) read(reader io.Reader, max int) {
 	}
 }
 
-func (c *rpcClient) call(ctx context.Context, id int, method string, params any) (json.RawMessage, error) {
+func (c *rpcClient) call(ctx context.Context, id int, method string, params any, onNotification func(rpcMessage)) (json.RawMessage, error) {
 	message := rpcMessage{
 		JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: method,
 		Trace: traceContextFromContext(ctx),
@@ -111,8 +111,11 @@ func (c *rpcClient) call(ctx context.Context, id int, method string, params any)
 				if len(message.ID) != 0 {
 					return nil, fmt.Errorf("unsupported Codex server request %q", message.Method)
 				}
-				// Initialization calls can receive additive notifications before
-				// their response. Turn notifications are consumed after turn/start.
+				// Notifications can arrive before the response. Setup calls drop them;
+				// turn/interrupt records the usage, errors and completion among them.
+				if onNotification != nil {
+					onNotification(message)
+				}
 				continue
 			}
 			if string(message.ID) != fmt.Sprintf("%d", id) {

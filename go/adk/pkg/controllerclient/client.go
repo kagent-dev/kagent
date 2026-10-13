@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -17,8 +19,7 @@ import (
 )
 
 const (
-	defaultTimeout        = 30 * time.Second
-	defaultMaxMessageSize = 16 << 20
+	defaultTimeout = 30 * time.Second
 )
 
 type TokenProvider interface {
@@ -36,14 +37,15 @@ type Config struct {
 }
 
 type Client struct {
-	connection      *grpc.ClientConn
-	timeout         time.Duration
-	maxMessageBytes int
-	agentName       string
-	tokenProvider   TokenProvider
-	memoryService   apiv1alpha1.MemoryServiceClient
-	closeOnce       sync.Once
-	closeErr        error
+	connection       *grpc.ClientConn
+	timeout          time.Duration
+	maxMessageBytes  int
+	agentName        string
+	tokenProvider    TokenProvider
+	memoryService    apiv1alpha1.MemoryServiceClient
+	taskStoreService apiv1alpha1.TaskStoreServiceClient
+	closeOnce        sync.Once
+	closeErr         error
 }
 
 func New(config Config) (*Client, error) {
@@ -55,7 +57,7 @@ func New(config Config) (*Client, error) {
 		config.Timeout = defaultTimeout
 	}
 	if config.MaxMessageBytes == 0 {
-		config.MaxMessageBytes = defaultMaxMessageSize
+		config.MaxMessageBytes = client.DefaultGRPCMaxMessageSize
 	}
 	transportCredentials := config.TransportCredentials
 	if transportCredentials == nil {
@@ -65,8 +67,11 @@ func New(config Config) (*Client, error) {
 			transportCredentials = insecure.NewCredentials()
 		}
 	}
-	dialOptions := make([]grpc.DialOption, 0, len(config.DialOptions)+2)
-	dialOptions = append(dialOptions, grpc.WithTransportCredentials(transportCredentials))
+	dialOptions := make([]grpc.DialOption, 0, len(config.DialOptions)+3)
+	dialOptions = append(dialOptions,
+		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+	)
 	if config.MaxMessageBytes > 0 {
 		dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(config.MaxMessageBytes),
@@ -80,12 +85,13 @@ func New(config Config) (*Client, error) {
 		return nil, fmt.Errorf("create controller API client for %q: %w", config.APIURL, err)
 	}
 	return &Client{
-		connection:      connection,
-		timeout:         config.Timeout,
-		maxMessageBytes: config.MaxMessageBytes,
-		agentName:       config.AgentName,
-		tokenProvider:   config.TokenProvider,
-		memoryService:   apiv1alpha1.NewMemoryServiceClient(connection),
+		connection:       connection,
+		timeout:          config.Timeout,
+		maxMessageBytes:  config.MaxMessageBytes,
+		agentName:        config.AgentName,
+		tokenProvider:    config.TokenProvider,
+		memoryService:    apiv1alpha1.NewMemoryServiceClient(connection),
+		taskStoreService: apiv1alpha1.NewTaskStoreServiceClient(connection),
 	}, nil
 }
 
@@ -109,6 +115,10 @@ func targetFromURL(rawURL string) (string, bool, error) {
 
 func (client *Client) MemoryService() apiv1alpha1.MemoryServiceClient {
 	return client.memoryService
+}
+
+func (client *Client) TaskStoreService() apiv1alpha1.TaskStoreServiceClient {
+	return client.taskStoreService
 }
 
 func (client *Client) MaxMessageBytes() int {

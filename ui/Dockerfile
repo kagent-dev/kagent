@@ -1,16 +1,26 @@
 ### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
+ARG WOLFI_BASE_DIGEST=sha256:08df5982c3d27e70a4ce1607e3bb9af09d746f8722cf135a7694afef879fc5a2
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS deps
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS deps
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
+# Tools hold a major version so the bundle always builds with Node 24, and old revisions can't break the build.
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates "nodejs~${TOOLS_NODE_VERSION}" npm node-gyp \
+    && apk add --no-cache \
+        "curl~8" \
+        "bash~5" \
+        "openssl~3" \
+        "unzip~6" \
+        ca-certificates \
+        "nodejs-${TOOLS_NODE_VERSION}" \
+        npm-12 \
+        "node-gyp~13" \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
@@ -24,7 +34,7 @@ WORKDIR /app/ui
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN --mount=type=cache,target=/root/.npm,rw \
     YARN_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"yarn@\([0-9.]*\)".*/\1/p' package.json)" \
-    && npm install -g corepack \
+    && npm install -g corepack@0.36.0 \
     && corepack enable \
     && corepack prepare "yarn@${YARN_VERSION}" --activate \
     && yarn install --immutable
@@ -49,14 +59,20 @@ RUN yarn build \
 ### STAGE 3: Runtime
 # nginx only — the UI is a static bundle now, so there is no node process and no
 # node runtime in the final image.
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS final
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS final
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
 ARG BUILDPLATFORM
 
+# Shipped packages are pinned to a major version only, so security fixes land on rebuild.
+# No openssl CLI: nothing here runs it. curl stays for exec-based probes on IPv6 clusters.
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl ca-certificates nginx \
+    && apk add --no-cache \
+        "bash~5" \
+        ca-certificates \
+        "curl~8" \
+        "nginx-mainline~1" \
     && update-ca-certificates
 
 # `kagent` owns both the static root and the writable runtime dirs. /tmp/kagent

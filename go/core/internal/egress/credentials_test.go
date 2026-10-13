@@ -7,7 +7,7 @@ import (
 )
 
 func TestCanonicalCredentials(t *testing.T) {
-	base := Credential{Hostname: "API.Example.com.", Header: "Authorization", Prefix: "Bearer ", URI: "ate-secret://kubernetes.io/team/auth/token"}
+	base := Credential{Hostname: "API.Example.com.", Header: "Authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}
 	got, err := CanonicalCredentials([]Credential{base, base})
 	require.NoError(t, err)
 	require.Equal(t, []Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: base.URI}}, got)
@@ -21,7 +21,10 @@ func TestCanonicalCredentials(t *testing.T) {
 		{"header", func(c *Credential) { c.Header = "Authorization\r\nInjected" }},
 		{"prefix", func(c *Credential) { c.Prefix = "Bearer\n" }},
 		{"provider", func(c *Credential) { c.URI = "https://example.com/secret" }},
-		{"missing key", func(c *Credential) { c.URI = "ate-secret://kubernetes.io/team/auth" }},
+		{"missing key", func(c *Credential) { c.URI = "ate-secret://k8s.io/default/team/auth" }},
+		{"old provider", func(c *Credential) { c.URI = "ate-secret://kubernetes.io/team/auth/token" }},
+		{"missing locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/team/auth/token" }},
+		{"unsupported locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/remote/team/auth/token" }},
 		{"query", func(c *Credential) { c.URI += "?key=other" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -32,7 +35,7 @@ func TestCanonicalCredentials(t *testing.T) {
 		})
 	}
 	other := base
-	other.URI = "ate-secret://kubernetes.io/team/other/token"
+	other.URI = "ate-secret://k8s.io/default/team/other/token"
 	_, err = CanonicalCredentials([]Credential{base, other})
 	require.ErrorContains(t, err, "conflicting credentials")
 }

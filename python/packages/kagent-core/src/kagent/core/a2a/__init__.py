@@ -22,6 +22,7 @@ from ._hitl import (
     ToolApproval,
     ToolApprovalRequest,
     ToolApprovalResponse,
+    ask_user_questions,
     attach_hitl_agent_extension,
     attach_hitl_extension,
     get_ask_user_request,
@@ -30,11 +31,13 @@ from ._hitl import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
+    hitl_status_text,
     require_ask_user_response,
     require_tool_approval_response,
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
+from ._telemetry import TelemetryRequestHandler, request_attributes
 from ._time import now_timestamp
 
 __all__ = [
@@ -44,6 +47,8 @@ __all__ = [
     "set_request_user_id",
     "KAgentRequestContextBuilder",
     "KAgentGrpcServerCallContextBuilder",
+    "TelemetryRequestHandler",
+    "request_attributes",
     "now_timestamp",
     "A2A_PART_TYPE_METADATA_KEY",
     "A2A_USAGE_METADATA_KEY",
@@ -66,6 +71,8 @@ __all__ = [
     "ToolApprovalResponse",
     "AskUserResponse",
     "hitl_activated",
+    "hitl_status_text",
+    "ask_user_questions",
     "get_hitl_payload",
     "get_tool_approval_request",
     "get_ask_user_request",

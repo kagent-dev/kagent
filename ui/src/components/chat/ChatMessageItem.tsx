@@ -1,12 +1,16 @@
-import { Typography } from "antd";
+import type { ComponentType } from "react";
+import { Button, Tooltip, Typography } from "antd";
+import { Bell } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import { ExtensionSlot } from "@/appExtensions";
+import { ExtensionSlot, useExtensionChatPartRenderers } from "@/appExtensions";
+import type { ChatPartRendererProps, ExtensionChatPartRenderers } from "@/appExtensions";
 import type { ChatMessage } from "@/api";
 import { ToolCallCard } from "./ToolCallCard";
 import { StructuredOutputCard } from "./StructuredOutputCard";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
+import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
 
 const { Text } = Typography;
@@ -25,12 +29,15 @@ export function ChatMessageItem({
   message,
   sessionId,
   isCheckpointed = false,
+  onManagePush,
 }: {
   message: ChatMessage;
   /** The conversation this message belongs to, for the per-message extension point. */
   sessionId?: string;
   /** Whether this message is above the nearest saved boundary, for the browser suite. */
   isCheckpointed?: boolean;
+  /** Opens the callback settings for this message's task. */
+  onManagePush?: () => void;
 }) {
   const theme = useTheme();
   const isUser = message.role === "user";
@@ -39,6 +46,7 @@ export function ChatMessageItem({
   // retain the ordinary right-aligned, content-sized user lane.
   const isQuestionRecord = message.parts.some((part) => part.kind === "ask_user");
   const text = messageText(message);
+  const partRenderers = useExtensionChatPartRenderers();
 
   return (
     <article
@@ -64,6 +72,18 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
+        {onManagePush ? (
+          <Tooltip title="Task notifications">
+            <Button
+              type="text"
+              size="small"
+              icon={<Bell size={14} aria-hidden />}
+              aria-label="Task notifications"
+              data-testid={`task-push-open-${message.taskId}`}
+              onClick={onManagePush}
+            />
+          </Tooltip>
+        ) : null}
         {/* Per-message point: a contribution gets this message's identity and content,
             so it can act on the message it is attached to — plus the turn and
             conversation it belongs to, which is what a backend keyed by turns needs. */}
@@ -89,43 +109,25 @@ export function ChatMessageItem({
           width: isUser && !isQuestionRecord ? "auto" : "100%",
         }}
       >
-        {message.parts.map((part, index) =>
-          part.kind === "text" ? (
-            part.text ? (
-              <div
-                key={index}
-                data-testid="chat-message-text"
-                css={{
-                  padding: `${theme.space(2)} ${theme.space(3)}`,
-                  borderRadius: theme.radius.md,
-                  background: isUser ? theme.color.primary : theme.color.bgElevated,
-                  border: isUser ? "none" : `1px solid ${theme.color.border}`,
-                  // The user's bubble is a primary surface, so it takes the primary
-                  // foreground. Using the page's `text` for both put near-black on
-                  // deep purple on the light theme.
-                  color: isUser ? theme.color.textOnPrimary : theme.color.text,
-                  // The user's own words are shown verbatim, newlines and all. The
-                  // agent's reply is markdown, which brings its own line breaks and
-                  // block spacing — so `pre-wrap` is only for the user's side.
-                  whiteSpace: isUser ? "pre-wrap" : undefined,
-                  wordBreak: "break-word",
-                }}
-              >
-                {isUser ? part.text : <MarkdownMessage>{part.text}</MarkdownMessage>}
-              </div>
-            ) : null
-          ) : part.kind === "data" ? (
-            part.dataKind === "structured_output" ? (
-              <StructuredOutputCard key={index} part={part} />
-            ) : (
-              <ToolCallCard key={index} part={part} />
-            )
-          ) : part.kind === "tool_approval" ? (
-            <ToolApprovalRecord key={index} part={part} />
-          ) : (
-            <AskUserRecord key={index} part={part} />
-          ),
-        )}
+        {message.parts.map((part, index) => {
+          // Empty text is a reply still streaming in, so nothing renders it yet.
+          if (part.kind === "text" && !part.text) return null;
+          const key = part.kind === "data" ? part.dataKind : part.kind;
+          // The key picks a renderer typed for this part; TS cannot correlate the two.
+          const Renderer = (partRenderers[key] ?? CORE_PART_RENDERERS[key]) as ComponentType<
+            ChatPartRendererProps
+          >;
+          return (
+            <Renderer
+              key={index}
+              part={part}
+              role={message.role}
+              messageId={message.id}
+              taskId={message.taskId}
+              sessionId={sessionId}
+            />
+          );
+        })}
 
         {/* A reply that has been announced but has no text yet: without this the
             message would be an invisible gap between the tool result and the
@@ -142,3 +144,49 @@ export function ChatMessageItem({
     </article>
   );
 }
+
+/** The prose bubble: the user's words verbatim, the agent's reply as markdown. */
+function TextPart({ part, role }: ChatPartRendererProps<"text">) {
+  const theme = useTheme();
+  const isUser = role === "user";
+  return (
+    <div
+      data-testid="chat-message-text"
+      css={{
+        padding: `${theme.space(2)} ${theme.space(3)}`,
+        borderRadius: theme.radius.md,
+        background: isUser ? theme.color.primary : theme.color.bgElevated,
+        border: isUser ? "none" : `1px solid ${theme.color.border}`,
+        // A primary surface takes the primary foreground; the page's text was unreadable on it.
+        color: isUser ? theme.color.textOnPrimary : theme.color.text,
+        // Only the user's words need pre-wrap; the agent's markdown brings its own breaks.
+        whiteSpace: isUser ? "pre-wrap" : undefined,
+        wordBreak: "break-word",
+      }}
+    >
+      {isUser ? part.text : <MarkdownMessage>{part.text}</MarkdownMessage>}
+    </div>
+  );
+}
+
+/** A sent or received file, as a download chip on the message's side. */
+function FilePart({ part, role }: ChatPartRendererProps<"file">) {
+  return (
+    <div css={{ justifySelf: role === "user" ? "end" : "start", maxWidth: "100%" }}>
+      <AttachmentChip file={part} />
+    </div>
+  );
+}
+
+/** What renders each part when no extension replaces it. */
+const CORE_PART_RENDERERS: Required<ExtensionChatPartRenderers> = {
+  text: TextPart,
+  file: FilePart,
+  tool_call: ToolCallCard,
+  tool_result: ToolCallCard,
+  tool_not_run: ToolCallCard,
+  unknown: ToolCallCard,
+  structured_output: StructuredOutputCard,
+  tool_approval: ToolApprovalRecord,
+  ask_user: AskUserRecord,
+};

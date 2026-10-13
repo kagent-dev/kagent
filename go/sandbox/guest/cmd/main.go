@@ -24,9 +24,10 @@ func main() {
 	flag.StringVar(&cfg.ListenAddr, "listen", ":80", "address to serve the guest API on")
 	flag.StringVar(&cfg.Workspace, "workspace", "/data/workspace", "default process working directory and file API root")
 	flag.StringVar(&cfg.LogDir, "log-dir", "/data/guest-logs", "directory for process output logs")
+	logLevel := flag.String("log-level", "info", "logging level (debug, info, warn, error)")
 	flag.Parse()
 
-	logger, err := logging.NewFromEnv(os.Stderr)
+	logger, err := logging.New(os.Stderr, *logLevel)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -55,6 +56,14 @@ func serve(ctx context.Context, cfg guest.Config, listener net.Listener) error {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to close guest listener", "error", err)
 		}
 	}()
+	// A fresh durable volume mounted at /data has no workspace directory, even
+	// if the image included /data/workspace. Create it before readiness because
+	// StartProcess uses it as the default working directory and does not create it.
+	if cfg.Workspace != "" {
+		if err := os.MkdirAll(cfg.Workspace, 0o755); err != nil {
+			return fmt.Errorf("failed to create guest workspace: %w", err)
+		}
+	}
 	grpcServer, cleanup, err := guest.NewServer(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize guest services: %w", err)

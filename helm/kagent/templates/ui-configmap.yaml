@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-ui
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+data:
+  KAGENT_UI_API_BASE_URL: {{ .Values.ui.publicBackendUrl | default "/api" | quote }}
+  {{- with .Values.ui.basePath }}
+  {{- /* Keep in sync with ui/scripts/init.sh. nginx strips the prefix, so it must not start with a path nginx serves. */}}
+  {{- if or (not (regexMatch "^(/[A-Za-z0-9._~-]+)*/?$" .)) (regexMatch "(^|/)\\.\\.?(/|$)" .) }}{{ fail "ui.basePath must be a path like /ui" }}{{ end }}
+  {{- if regexMatch "^/(api|a2a|assets|health|env-config\\.js|index\\.html|mockServiceWorker\\.js)(/|$)" . }}{{ fail "ui.basePath cannot start with a path nginx serves, such as /api or /assets" }}{{ end }}
+  KAGENT_UI_BASE_PATH: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ui.auth }}
+  KAGENT_UI_SSO_REDIRECT_PATH: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
+  {{- end }}
+  {{- if .Values.ui.streamTimeoutSeconds }}
+  KAGENT_UI_STREAM_TIMEOUT_MS: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
+  {{- end }}

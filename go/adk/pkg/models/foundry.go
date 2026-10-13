@@ -3,10 +3,10 @@ package models
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -68,7 +68,7 @@ func NewFoundryModel(ctx context.Context, config *FoundryConfig) (*OpenAIModel, 
 	// otherwise the API key when provided, otherwise DefaultAzureCredential
 	// (Workload Identity in-cluster, az CLI in dev), eagerly probed so a
 	// misconfigured identity fails readiness at startup.
-	apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar)
+	apiKey := env.FoundryAPIKey.Get()
 	if config.APIKeyPassthrough {
 		apiKey = "passthrough"
 	}
@@ -141,7 +141,7 @@ func NewFoundryAnthropicModel(ctx context.Context, config *AnthropicConfig, endp
 		HTTPClient: httpClient,
 	}
 
-	apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar)
+	apiKey := env.FoundryAPIKey.Get()
 	if config.APIKeyPassthrough {
 		// Placeholder x-api-key overwritten per request by anthropicPassthroughOpts.
 		apiKey = "passthrough"

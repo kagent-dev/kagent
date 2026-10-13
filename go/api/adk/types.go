@@ -151,6 +151,7 @@ type AzureOpenAI struct {
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty"`
+	APIFormat   string   `json:"api_format,omitempty"`
 }
 
 func (a *AzureOpenAI) GetType() string {
@@ -176,6 +177,15 @@ type Anthropic struct {
 	TopP        *float64 `json:"top_p,omitempty"`
 	TopK        *int     `json:"top_k,omitempty"`
 	Timeout     *int     `json:"timeout,omitempty"`
+	// PromptCaching enables Anthropic prompt caching by marking the last tool
+	// definition, the last system prompt block and the last block of the latest
+	// conversation turn with a cache_control breakpoint. See the
+	// v1alpha3.AnthropicConfig CRD doc for context.
+	PromptCaching bool `json:"prompt_caching,omitempty"`
+	// CacheTTL selects the cache retention window when PromptCaching is on:
+	// "5m" (default) or "1h". See the v1alpha3.AnthropicConfig CRD doc for the
+	// cost trade-offs of "1h".
+	CacheTTL string `json:"cache_ttl,omitempty"`
 }
 
 func (a *Anthropic) MarshalJSON() ([]byte, error) {
@@ -670,6 +680,7 @@ type OutputConfig struct {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
+	Runtime         *RuntimeConfig         `json:"runtime,omitempty"`
 	Name            string                 `json:"name,omitempty"`
 	Model           Model                  `json:"model"`
 	Description     string                 `json:"description"`
@@ -699,67 +710,25 @@ func (a *AgentConfig) GetStream() bool {
 }
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
+	// Decode ordinary fields through the schema itself. Only Model needs a
+	// discriminator; the defined type prevents recursive UnmarshalJSON calls.
+	type agentConfig AgentConfig
 	var tmp struct {
-		Name            string                 `json:"name,omitempty"`
-		Model           json.RawMessage        `json:"model"`
-		Description     string                 `json:"description"`
-		Instruction     string                 `json:"instruction"`
-		HttpTools       []HttpMcpServerConfig  `json:"http_tools,omitempty"`
-		SseTools        []SseMcpServerConfig   `json:"sse_tools,omitempty"`
-		StdioTools      []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
-		RemoteAgents    []RemoteAgentConfig    `json:"remote_agents,omitempty"`
-		Stream          *bool                  `json:"stream,omitempty"`
-		Memory          json.RawMessage        `json:"memory"`
-		Network         *NetworkConfig         `json:"network,omitempty"`
-		AgentPlugins    *agentplugin.Resources `json:"agent_plugins,omitempty"`
-		ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
-		ShareTools      *bool                  `json:"share_tools,omitempty"`
-		SessionDBURL    string                 `json:"session_db_url,omitempty"`
-		SkillsDirectory string                 `json:"skills_directory,omitempty"`
-		SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
-		Output          *OutputConfig          `json:"output,omitempty"`
+		agentConfig
+		Model json.RawMessage `json:"model"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	// BYO agents carry a minimal config with no model (it marshals as "model":null); a config
-	// without a model is legal and must round-trip — ParseModel would reject it.
-	var model Model
+	// BYO images may supply their own model, so both absent and null are valid.
 	if len(tmp.Model) > 0 && string(tmp.Model) != "null" {
-		var err error
-		model, err = ParseModel(tmp.Model)
+		model, err := ParseModel(tmp.Model)
 		if err != nil {
 			return err
 		}
+		tmp.agentConfig.Model = model
 	}
-
-	var memory *MemoryConfig
-	if len(tmp.Memory) > 0 && string(tmp.Memory) != "null" {
-		var m MemoryConfig
-		if err := json.Unmarshal(tmp.Memory, &m); err != nil {
-			return err
-		}
-		memory = &m
-	}
-
-	a.Name = tmp.Name
-	a.Model = model
-	a.Description = tmp.Description
-	a.Instruction = tmp.Instruction
-	a.HttpTools = tmp.HttpTools
-	a.SseTools = tmp.SseTools
-	a.StdioTools = tmp.StdioTools
-	a.RemoteAgents = tmp.RemoteAgents
-	a.Stream = tmp.Stream
-	a.Memory = memory
-	a.Network = tmp.Network
-	a.AgentPlugins = tmp.AgentPlugins
-	a.ContextConfig = tmp.ContextConfig
-	a.ShareTools = tmp.ShareTools
-	a.SessionDBURL = tmp.SessionDBURL
-	a.SkillsDirectory = tmp.SkillsDirectory
-	a.SubAgents = tmp.SubAgents
-	a.Output = tmp.Output
+	*a = AgentConfig(tmp.agentConfig)
 	return nil
 }
 

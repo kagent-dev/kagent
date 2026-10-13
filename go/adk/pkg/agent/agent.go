@@ -10,6 +10,7 @@ import (
 
 	"log/slog"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
@@ -17,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
@@ -33,8 +35,8 @@ import (
 
 // Default model names used when not specified in configuration
 const (
-	DefaultGeminiModel    = "gemini-2.5-flash"
-	DefaultAnthropicModel = "claude-sonnet-4-20250514"
+	DefaultGeminiModel    = "gemini-3.5-flash"
+	DefaultAnthropicModel = "claude-sonnet-4-6"
 	DefaultOllamaModel    = "llama3.2"
 )
 
@@ -44,26 +46,29 @@ const (
 // Optional stsPlugin can be provided for token propagation to MCP tools; pass
 // nil if token propagation is not needed.
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
-	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, true, extraTools...)
+	if agentConfig == nil {
+		return nil, fmt.Errorf("agent config is required")
+	}
+	if err := agentConfig.ValidateRuntime(); err != nil {
+		return nil, err
+	}
+	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, agentConfig.ProcessConfig(), extraTools...)
 }
 
-func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, legacySkillsEnv bool, extraTools ...tool.Tool) (agent.Agent, error) {
+func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime adk.RuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logging.FromContext(ctx)
 
 	if agentConfig == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
 
-	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
+	propagateToken := runtime.TokenPropagation.Enabled
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
-	if skillsDirectory == "" && legacySkillsEnv {
-		skillsDirectory = strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
-	}
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
 		skills, err := skillsSource.ListFrontmatters(ctx)
@@ -71,7 +76,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
 		if len(skills) > 0 {
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory)
+			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, runtime.FileSearchTools)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
 			}
@@ -114,13 +119,14 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
+	llmModel = fileextract.WithFileText(llmModel)
 
 	if agentName == "" {
 		agentName = "agent"
 	}
 	var subAgents []agent.Agent
 	for _, childConfig := range agentConfig.SubAgents {
-		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, false)
+		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, runtime)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create sub-agent %q: %w", childConfig.Name, err)
 		}
@@ -281,13 +287,14 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Endpoint:        m.Endpoint,
 			Deployment:      m.Deployment,
 			APIVersion:      m.APIVersion,
+			APIFormat:       m.APIFormat,
 		}
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
 	case *adk.Gemini:
-		apiKey := os.Getenv("GOOGLE_API_KEY")
+		apiKey := env.GoogleAPIKey.Get()
 		if apiKey == "" {
-			apiKey = os.Getenv("GEMINI_API_KEY")
+			apiKey = env.GeminiAPIKey.Get()
 		}
 		if apiKey == "" {
 			return nil, fmt.Errorf("gemini model requires GOOGLE_API_KEY or GEMINI_API_KEY environment variable")
@@ -306,10 +313,10 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		})
 
 	case *adk.GeminiVertexAI:
-		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
-		location := os.Getenv("GOOGLE_CLOUD_LOCATION")
+		project := env.GoogleCloudProject.Get()
+		location := env.GoogleCloudLocation.Get()
 		if location == "" {
-			location = os.Getenv("GOOGLE_CLOUD_REGION")
+			location = env.GoogleCloudRegion.Get()
 		}
 		if project == "" || location == "" {
 			return nil, fmt.Errorf("GeminiVertexAI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_CLOUD_REGION) environment variables")
@@ -337,6 +344,8 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Temperature:     m.Temperature,
 			TopP:            m.TopP,
 			TopK:            m.TopK,
+			PromptCaching:   m.PromptCaching,
+			CacheTTL:        m.CacheTTL,
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 
@@ -357,7 +366,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		// then applies the cloud/local routing. Defaulting it to localhost here
 		// would look like an operator-chosen endpoint and pin every cloud model
 		// to the local daemon.
-		baseURL := os.Getenv("OLLAMA_API_BASE")
+		baseURL := env.OllamaAPIBase.Get()
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultOllamaModel
@@ -368,7 +377,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Model:           modelName,
 			Host:            baseURL,
 			// The environment holds only the gateway credential placeholder.
-			APIKey:  os.Getenv("OLLAMA_API_KEY"),
+			APIKey:  env.OllamaAPIKey.Get(),
 			Options: m.Options,
 		}
 		return models.NewOllamaModel(ctx, cfg)
@@ -376,14 +385,14 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	case *adk.Bedrock:
 		region := m.Region
 		if region == "" {
-			region = os.Getenv("AWS_REGION")
+			region = env.AWSRegion.Get()
 		}
 		if region == "" {
 			return nil, fmt.Errorf("bedrock requires AWS_REGION environment variable or region in model config")
 		}
 		modelName := m.Model
 		if modelName == "" {
-			return nil, fmt.Errorf("bedrock requires a model name (e.g. anthropic.claude-3-sonnet-20240229-v1:0)")
+			return nil, fmt.Errorf("bedrock requires a model name (e.g. global.anthropic.claude-sonnet-4-6)")
 		}
 		// Use Bedrock Converse API for ALL models (including Anthropic).
 		// ReadTimeout maps to the overall HTTP client timeout (whole Converse
@@ -409,10 +418,10 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 	case *adk.GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
 		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
-		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
-		region := os.Getenv("GOOGLE_CLOUD_LOCATION")
+		project := env.GoogleCloudProject.Get()
+		region := env.GoogleCloudLocation.Get()
 		if region == "" {
-			region = os.Getenv("GOOGLE_CLOUD_REGION")
+			region = env.GoogleCloudRegion.Get()
 		}
 		if project == "" || region == "" {
 			return nil, fmt.Errorf("GeminiAnthropic (Anthropic on Vertex AI) requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION environment variables")

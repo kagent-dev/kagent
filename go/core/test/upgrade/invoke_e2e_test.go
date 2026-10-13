@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 )
 
-const invokeE2ETest = "^TestAgentInstanceInteraction$"
+const invokeE2ETest = "^TestSessionInteraction$"
 
 func checkoutPreviousRelease(t *testing.T, env upgradeEnv) string {
 	t.Helper()
@@ -42,9 +43,9 @@ func checkoutPreviousRelease(t *testing.T, env upgradeEnv) string {
 // runInvokeE2E runs the invoke e2e slice from treeGoDir against the controller
 // currently serving in the cluster. treeGoDir is the `go/` module dir of the
 // matching-version tree (repo root for HEAD, the worktree for the prior
-// release). It port-forwards the controller for KAGENT_API_URL — re-established per
+// release). It port-forwards the controller for KAGENT_E2E_API_URL — re-established per
 // state, so it survives the controller being reinstalled between states — and
-// relies on KAGENT_LOCAL_HOST (kind gateway IP, set by the make target) for the
+// relies on KAGENT_E2E_LOCAL_HOST (kind gateway IP, set by the make target) for the
 // agent→host mock-LLM callback. label identifies the state in messages.
 func runInvokeE2E(t *testing.T, env upgradeEnv, treeGoDir, label string) {
 	t.Helper()
@@ -62,7 +63,7 @@ func runInvokeE2E(t *testing.T, env upgradeEnv, treeGoDir, label string) {
 
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "[%s] invoke e2e slice (%s) failed:\n%s", label, treeGoDir, string(out))
-	require.Contains(t, string(out), "--- PASS: TestAgentInstanceInteraction",
+	require.Contains(t, string(out), "--- PASS: TestSessionInteraction",
 		"[%s] selected invoke test did not run:\n%s", label, string(out))
 }
 
@@ -74,17 +75,16 @@ func upgradeE2EEnv(t *testing.T, env upgradeEnv, port int) []string {
 	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(kubeconfig), 0o600))
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 	return append(os.Environ(),
-		"KAGENT_E2E_API_URL="+endpoint,
-		"KAGENT_GATEWAY_URL="+endpoint,
-		"KUBECONFIG="+kubeconfigPath,
+		kagentenv.E2EAPIURL.Name()+"="+endpoint,
+		kagentenv.Kubeconfig.Name()+"="+kubeconfigPath,
 	)
 }
 
 func requireInvokeEnvironment(t *testing.T, treeGoDir, label string) {
 	t.Helper()
 
-	if os.Getenv("KAGENT_LOCAL_HOST") == "" {
-		t.Skipf("[%s] KAGENT_LOCAL_HOST is not set; run via make run-upgrade-tests", label)
+	if kagentenv.KagentLocalHost.Get() == "" {
+		t.Skipf("[%s] KAGENT_E2E_LOCAL_HOST is not set; run via make run-upgrade-tests", label)
 	}
 	if _, err := os.Stat(filepath.Join(treeGoDir, "go.mod")); err != nil {
 		t.Fatalf("[%s] test tree %q is not usable: %v", label, treeGoDir, err)

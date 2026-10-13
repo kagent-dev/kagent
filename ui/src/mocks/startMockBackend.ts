@@ -9,7 +9,7 @@
  *
  * Order matters: the transport is installed before anything can call an
  * operation, which is why this is awaited in `main.tsx` before the app renders.
- * Only `main.tsx` calls it, and only when `VITE_API_MODE` is not `"live"` — a page
+ * Only `main.tsx` calls it, and only when `KAGENT_UI_VITE_API_MODE` is not `"live"` — a page
  * that quietly served fixtures because the backend was unreachable would look
  * healthy while showing data that was never real.
  */

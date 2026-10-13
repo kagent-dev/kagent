@@ -85,8 +85,11 @@ jobs:
         working-directory: ./
       - name: Image vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_SHOW_SUPPRESSED: 'true'
         with:
           image-ref: localhost:5001/kagent-dev/kagent/${{ matrix.image_name }}:${{ steps.vars.outputs.version }}${{ matrix.tag_suffix }}
+          ignore-policy: .github/image-scan.rego
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'

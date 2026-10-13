@@ -9,7 +9,6 @@ import {
   loadPage,
   pageTitle,
   rowNamed,
-  routes,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
 import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
@@ -43,19 +42,10 @@ import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
 test("agents: one agent lists its own conversations, and only its own", async ({
   page,
 }) => {
-  await test.step("1. the agents list leads here", async () => {
-    await loadPage(page, routes.agents, { title: "Agents" });
-    await expectSettled(page);
-
-    // Clicked rather than navigated to: what is under test is that the list is a way
-    // in, which a `page.goto` to the destination could never fail on.
-    //
-    // Through the agent's name and then the rail. The name opens a new conversation,
-    // which is what a reader clicking an agent wants; the agent's own page — what it
-    // already has — is one step further, reached from the rail that page carries.
-    await page.getByTestId("agent-link-kagent-shared-brain-k8s-agent").click();
-    await page.getByTestId("agent-nav-agent-conversations").click();
-    await expect(page).toHaveURL(new RegExp(`${agentPage(agents.sharedOnK8s)}$`));
+  await test.step("1. the agent's page opens", async () => {
+    // Opened directly: `agent-chat-entry.spec.ts` and the template-link test below own
+    // the clicks from the list and the rail.
+    await loadPage(page, agentPage(agents.sharedOnK8s));
     await expectSettled(page);
   });
 
@@ -86,6 +76,14 @@ test("agents: one agent lists its own conversations, and only its own", async ({
     await expect(page.getByTestId("conversations-table")).not.toContainText(
       "Drafting the runbook",
     );
+  });
+
+  await test.step("5. its twin, with identical refs, lists none of them in its rail", async () => {
+    // Same template and harness as `shared-brain`, so only the agent's own name can tell them apart.
+    await loadPage(page, agentNewChat({ name: "shared-brain-twin", template: "", harness: "" }));
+    await expect(page.getByTestId("agent-rail-identity")).toContainText("shared-brain-twin");
+    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible();
+    await expect(page.getByTestId("chat-session-1d4f7a92-0c38-4e61-b25a-7f930e6c8b14")).toHaveCount(0);
   });
 });
 
@@ -266,10 +264,10 @@ test("agents: an agent links to its template, and a conversation links up to its
       "href",
       `/agent-templates/kagent/${agents.k8s.template}`,
     );
-    // Said on the page, because it is the thing a reader gets wrong: editing the
-    // template reaches every agent cut from it, not only this one.
+    // Said on the page, because readers need to distinguish inline templates from
+    // shared templates and understand that Harnesses always remain separate.
     await expect(page.getByTestId("agent-identity-note")).toContainText(
-      "every agent cut from it",
+      "Templates may be inline or shared; Harnesses are always referenced",
     );
   });
 
@@ -295,10 +293,6 @@ test("agents: an agent links to its template, and a conversation links up to its
     await expect(page.getByTestId("instance-agent-link")).toHaveAttribute(
       "href",
       agentPage(agents.k8s),
-    );
-    await expect(page.getByTestId("instance-template-link")).toHaveAttribute(
-      "href",
-      `/agent-templates/kagent/${agents.k8s.template}`,
     );
   });
 });
@@ -372,21 +366,10 @@ test("agents: a conversation is created by its first message, not by the click",
 
   await test.step("5. and the message is not left behind for a reload to send again", async () => {
     /*
-     * Reported as a defect: reloading a conversation just started sent its opening
-     * message a second time — a whole extra turn, from a page the reader only asked
-     * to redraw.
-     *
-     * The cause is that router state is not in memory. `AgentNewChatPage` hands the
-     * text over in `location.state`, which the browser keeps in the session history
-     * entry, so it came back with the page and the effect that sends it fired again.
-     * The page clears it once the turn is under way.
-     *
-     * Asserted against the history entry rather than by reloading, because the
-     * fixture backend keeps its writes in the page's own memory: a reload starts a
-     * backend that has never heard of this conversation, so there would be no
-     * transcript to count a second message in. The whole entry is searched rather
-     * than a router-specific field, so this keeps holding if the router changes where
-     * it files state.
+     * The opening message is handed over in memory, so nothing in the history entry can
+     * send it again on a reload, Back or forward. Asserted against the entry rather than
+     * by reloading, because a reload starts a fixture backend that has never heard of this
+     * conversation.
      */
     const entry = await page.evaluate(() => JSON.stringify(window.history.state ?? null));
     expect(
@@ -420,65 +403,18 @@ test("agents: a conversation is created by its first message, not by the click",
   });
 });
 
-test("agents: deleting an agent says what goes with it, and takes both halves", async ({
-  page,
-}) => {
-  /*
-   * There is nothing to delete called "an agent".
-   *
-   * An agent is a (template, harness) pair, and the pair is *derived* — the controller
-   * materialises it from admission and retires it when the labels stop matching. So
-   * deleting an agent means deleting its template, which retires the pair and stops new
-   * conversations, plus the conversations already open, which are separate rows that
-   * outlive it and would otherwise be left running against a retired pair with nothing
-   * describing them.
-   *
-   * The order matters and is asserted by the outcome rather than by spying: the
-   * conversations go first, because a conversation whose pair is already retired still
-   * runs and would be stranded.
-   */
+test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
-  await test.step("1. the prompt counts what will be destroyed", async () => {
-    await page.getByTestId(`delete-${agents.k8s.template} on ${agents.k8s.harness}`).click();
-    const consequence = page.getByTestId("agent-delete-consequence");
-    await expect(consequence).toBeVisible();
-    // Counted, not "some": a reader deciding this needs to know whether they are
-    // throwing away one conversation or thirty.
-    await expect(consequence).toContainText("of your conversations will be deleted");
-    // And split, because the two halves have different outcomes. An instance is scoped
-    // to its creator on write as well as read, so somebody else's cannot be deleted
-    // from here and keeps running — saying so is what stops "delete agent" reading as
-    // a promise it cannot keep.
-    await expect(consequence).toContainText("cannot be deleted from here");
-    // And what happens to the agent itself, which depends on whether anything is left.
-    // These fixtures include conversations started by somebody else, so the mapping
-    // stays: deleting it would retire the pair and leave those running with nothing
-    // describing them, which is not ours to do to tidy up an agent they did not ask to
-    // delete.
-    await expect(consequence).toContainText("the agent stays");
-    // And why it matters beyond tidiness.
-    await expect(consequence).toContainText("releases the workers");
-  });
-
-  await test.step("2. confirming removes this reader's conversations", async () => {
-    /*
-     * The same `DeleteResourceButton` every resource spec drives, so the same helper for
-     * finding its prompt: `confirmation` scopes to the open one, because every row
-     * carries a delete and an unscoped match answers a prompt nobody is looking at.
-     *
-     * Pressed once it has stopped arriving — a popconfirm zooms in like a modal, and a
-     * click computed mid-animation lands where the button no longer is. Once rather than
-     * until it takes: a retry would go out after the prompt closed, onto the list under
-     * it.
-     */
-    await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
-    await page.waitForURL(/\/agents(\?|$)/, { timeout: 30_000 });
-    await expectSettled(page);
-    // The agent is still listed, because somebody else's conversations are still under
-    // it. It goes when nothing is.
-    await expect(rowNamed(page, agents.k8s.template)).toHaveCount(1, { timeout: 30_000 });
-  });
+  await page.getByTestId(`delete-${agents.k8s.name}`).click();
+  await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
+  await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
+  await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});
+  await expect(rowNamed(page, agents.k8s.name)).toHaveCount(0);
+  await loadPage(page, `/agent-templates/kagent/${agents.k8s.template}`);
+  await expect(page.getByTestId("template-edit")).toBeVisible();
+  await loadPage(page, `/agents/${instances.ready}/chat`);
+  await expect(page.getByTestId("chat-input")).toBeVisible();
 });
 
 test("agents: conversations can be picked and deleted together from the table too", async ({

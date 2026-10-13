@@ -10,9 +10,8 @@
  *
  * ## What a conversation is
  *
- * The gateway routes and scopes history by the instance ID header. Its bound
- * A2A context ID is separate and survives a fork. Chat caches use the instance
- * ID so branches sharing a context cannot share a transcript.
+ * The Agent tenant selects the agent; the Session UUID selects its conversation.
+ * Forks have their own Session and context IDs, and chat caches use that identity.
  *
  * ## Why this is so much shorter than the client it replaces
  *
@@ -69,6 +68,7 @@ import {
   readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
+import { mediaTypeOf } from "./attachments";
 import { agentInstanceShareToken } from "../shareToken";
 import { interleaveTaskMessages } from "./transcriptOrder";
 import { serviceClient } from "../transport";
@@ -83,9 +83,6 @@ import type {
   ChatTurnState,
   SendMessageInput,
 } from "./types";
-
-/** The gateway requires exactly one instance ID header and validates it as a UUID. */
-const INSTANCE_ID_HEADER = "x-kagent-agent-instance-id";
 
 /** The header the controller validates a share token from. */
 const SHARE_HEADER = "X-Share-Token";
@@ -119,6 +116,15 @@ function nextId(prefix: string): string {
  */
 function isAwaitingReply(state: TaskState | undefined): boolean {
   return state === TaskState.INPUT_REQUIRED || state === TaskState.AUTH_REQUIRED;
+}
+
+function pendingRequestFromStatus(
+  taskId: string,
+  status: TaskStatus | undefined,
+): PendingRequest | undefined {
+  if (!taskId || !isAwaitingReply(status?.state)) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
 }
 
 /** The turn states this client has an opinion about. */
@@ -187,9 +193,45 @@ function toPart(part: A2APart): ChatPart | undefined {
         : {}),
     };
   }
-  // A file part, by url or raw bytes. Nothing renders one yet, and inventing a
-  // placeholder would put a broken attachment in a transcript that has none.
+  if (content.case === "raw") {
+    const mediaType = part.mediaType || "application/octet-stream";
+    return {
+      kind: "file",
+      name: part.filename || "file",
+      mediaType,
+      size: content.value.byteLength,
+      blob: new Blob([content.value as BlobPart], { type: mediaType }),
+    };
+  }
+  if (content.case === "url") {
+    // Only http(s) links reach an href; anything else (javascript:, data:) is dropped.
+    if (!isHttpUrl(content.value)) return undefined;
+    return {
+      kind: "file",
+      name: part.filename || fileNameFromUrl(content.value),
+      mediaType: part.mediaType,
+      url: content.value,
+    };
+  }
   return undefined;
+}
+
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Last path segment, so a query string or fragment never becomes the name.
+function fileNameFromUrl(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
+  } catch {
+    return "file";
+  }
 }
 
 /**
@@ -324,15 +366,10 @@ export class A2AGrpcChatClient implements ChatClient {
   readonly protocolVersion = "A2A 1.0 over gRPC-Web";
 
   /**
-   * The call metadata addressing one conversation.
-   *
-   * Every RPC on this client carries it — there is no other way to say which
-   * agent is meant, and a call without it is refused by the gateway rather than
-   * defaulting to anything.
+   * Carry the conversation share token and human-in-the-loop extension metadata.
    */
   private callOptions(conversation: ChatConversationRef, signal?: AbortSignal) {
     const headers: Record<string, string> = {
-      [INSTANCE_ID_HEADER]: conversation.id,
       /*
        * Activate the human-in-the-loop extension, on every call.
        *
@@ -381,8 +418,8 @@ export class A2AGrpcChatClient implements ChatClient {
       for (let page = 0; page < HISTORY_PAGE_LIMIT; page += 1) {
         const response = await client.listTasks(
           {
-            // History is scoped by the instance header; context is an optional filter.
-            contextId: conversation.contextId,
+            tenant: conversation.agent,
+            contextId: conversation.id,
             pageToken,
             // Artifacts carry the final text of a reply, which for a completed turn
             // may be the only place it exists.
@@ -396,12 +433,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequestFromStatus(task.id, task.status);
           }
         }
 
@@ -430,8 +462,16 @@ export class A2AGrpcChatClient implements ChatClient {
   async *send(input: SendMessageInput): AsyncIterable<ChatEvent> {
     const { conversation, text, signal } = input;
     const client = serviceClient(A2AService);
+    const fileParts = await Promise.all(
+      (input.files ?? []).map(async (file) => ({
+        content: { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
+        filename: file.name,
+        mediaType: mediaTypeOf(file),
+      })),
+    );
 
     const request = {
+      tenant: conversation.agent,
       message: create(MessageSchema, {
         // The caller's id when it has one. It has already put this message on
         // screen under that id, and the gateway files it in the task's history
@@ -440,9 +480,12 @@ export class A2AGrpcChatClient implements ChatClient {
         // one that happens to say the same thing.
         messageId: input.messageId || nextId("msg"),
         role: Role.USER,
-        parts: [{ content: { case: "text" as const, value: text } }],
-        // An omitted context resolves to the routed instance's bound context.
-        contextId: conversation.contextId,
+        parts: [
+          ...(text ? [{ content: { case: "text" as const, value: text } }] : []),
+          ...fileParts,
+        ],
+        // Select the existing Session rather than opening a new conversation.
+        contextId: conversation.id,
         /*
          * An answer declares the extension on the message itself.
          *
@@ -524,13 +567,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequestFromStatus(event.taskId, status);
 
           if (
             message &&
@@ -659,7 +696,12 @@ export class A2AGrpcChatClient implements ChatClient {
             delivered.add(message.id);
             yield { type: "message", message };
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequestFromStatus(task.id, task.status),
+          };
           continue;
         }
 
@@ -693,7 +735,7 @@ export class A2AGrpcChatClient implements ChatClient {
   async cancel(conversation: ChatConversationRef, taskId: string): Promise<void> {
     try {
       await serviceClient(A2AService).cancelTask(
-        { id: taskId },
+        { tenant: conversation.agent, id: taskId },
         this.callOptions(conversation),
       );
     } catch (error) {

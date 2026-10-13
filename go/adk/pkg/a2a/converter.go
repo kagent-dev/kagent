@@ -2,8 +2,10 @@ package a2a
 
 import (
 	"context"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
@@ -23,7 +25,12 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part *a2atype.Part) (*
 	dp := asDataPart(part)
 	if dp == nil {
 		// Text and file parts: delegate to ADK default.
-		return adka2a.ToGenAIPart(part)
+		converted, err := adka2a.ToGenAIPart(part)
+		if err != nil {
+			return nil, err
+		}
+		keepFileName(converted)
+		return converted, nil
 	}
 
 	// DataPart using kagent's public metadata contract: convert explicitly.
@@ -36,6 +43,18 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part *a2atype.Part) (*
 	// DataPart with no recognised type metadata (e.g. {decision_type: "approve"}).
 	// Drop it — returning nil excludes it from the GenAI content, matching Python.
 	return nil, nil
+}
+
+// keepFileName copies a non-image file's name into PartMetadata, which survives ADK blanking DisplayName.
+// Vertex rejects PartMetadata; this is safe only because the file wrapper replaces these parts.
+func keepFileName(p *genai.Part) {
+	if p == nil || p.InlineData == nil || p.InlineData.DisplayName == "" || strings.HasPrefix(p.InlineData.MIMEType, "image/") {
+		return
+	}
+	if p.PartMetadata == nil {
+		p.PartMetadata = map[string]any{}
+	}
+	p.PartMetadata[fileextract.FilenameMetadataKey] = p.InlineData.DisplayName
 }
 
 // genAIPartConverter lets the upstream executor own artifact construction

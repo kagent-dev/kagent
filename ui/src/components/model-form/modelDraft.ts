@@ -39,9 +39,6 @@ export interface HeaderRow {
 
 /** The TLS options the form edits, flattened from `TLSConfig`. */
 export interface ModelTls {
-  caCertSecretRef: string;
-  caCertSecretKey: string;
-  disableSystemCAs: boolean;
   disableVerify: boolean;
 }
 
@@ -76,9 +73,6 @@ export function newHeaderRow(): HeaderRow {
 
 function emptyTls(): ModelTls {
   return {
-    caCertSecretRef: "",
-    caCertSecretKey: "",
-    disableSystemCAs: false,
     disableVerify: false,
   };
 }
@@ -193,9 +187,6 @@ export function modelDraftFrom(config: ModelConfig): ModelDraft {
       ([key, value]) => ({ ...newHeaderRow(), key, value }),
     ),
     tls: {
-      caCertSecretRef: config.spec.tls?.caCertSecretRef ?? "",
-      caCertSecretKey: config.spec.tls?.caCertSecretKey ?? "",
-      disableSystemCAs: config.spec.tls?.disableSystemCAs ?? false,
       disableVerify: config.spec.tls?.disableVerify ?? false,
     },
   };
@@ -301,10 +292,6 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
     }
   } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
     spec.apiKeySecret = draft.apiKeySecret.trim();
-    // apiKeySecretKey is required by the CRD whenever apiKeySecret is set
-    // (Bedrock and SAPAICore are the only exemptions), so an empty field has
-    // to be filled in rather than omitted or admission rejects the save.
-    // Ollama Cloud always authenticates with OLLAMA_API_KEY.
     spec.apiKeySecretKey =
       draft.apiKeySecretKey.trim() || "OLLAMA_API_KEY";
   }
@@ -336,12 +323,6 @@ function headersToRecord(rows: HeaderRow[]): Record<string, string> {
 /** A `TLSConfig` with only the options the reader set, or `undefined` if none. */
 function buildTls(tls: ModelTls): TLSConfig | undefined {
   const out: TLSConfig = {};
-  if (tls.caCertSecretRef.trim()) {
-    out.caCertSecretRef = tls.caCertSecretRef.trim();
-    if (tls.caCertSecretKey.trim())
-      out.caCertSecretKey = tls.caCertSecretKey.trim();
-  }
-  if (tls.disableSystemCAs) out.disableSystemCAs = true;
   if (tls.disableVerify) out.disableVerify = true;
   return Object.keys(out).length > 0 ? out : undefined;
 }

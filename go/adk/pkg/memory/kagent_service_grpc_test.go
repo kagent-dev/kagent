@@ -11,14 +11,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/memory"
 	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -143,7 +146,7 @@ func TestKagentMemoryServiceAddSessionUsesGRPC(t *testing.T) {
 				embeddingClient:  embeddingClient,
 			}
 
-			err := service.AddSessionToMemory(t.Context(), test.session)
+			err := service.AddSessionToMemory(auth.WithUserID(t.Context(), "user"), test.session)
 			if test.rpcError {
 				require.Error(t, err)
 			} else {
@@ -196,7 +199,7 @@ func TestKagentMemoryServiceSearchUsesGRPC(t *testing.T) {
 				embeddingClient:  embeddingClient,
 			}
 
-			response, err := service.SearchMemory(t.Context(), &memory.SearchRequest{Query: test.query, UserID: "user"})
+			response, err := service.SearchMemory(auth.WithUserID(t.Context(), "user"), &memory.SearchRequest{Query: test.query, UserID: "user"})
 			require.NoError(t, err)
 			require.Len(t, response.Memories, len(test.wantContents))
 			for index, content := range test.wantContents {
@@ -239,7 +242,7 @@ func TestStoreMemoryPreservesTTLAndReturnsRPCError(t *testing.T) {
 				controllerClient: controllerClient,
 				ttlDays:          test.ttlDays,
 			}
-			err := service.storeMemory(t.Context(), "user", "content", make([]float32, 768))
+			err := service.storeMemory(auth.WithUserID(t.Context(), "user"), "content", make([]float32, 768))
 			if test.rpcErr != nil {
 				require.Error(t, err)
 			} else {
@@ -377,4 +380,67 @@ func newMockEventWithFunctionCall(author, functionName string) *adksession.Event
 	event := newMockEvent(author, "")
 	event.Content = &genai.Content{Role: author, Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: functionName}}}}
 	return event
+}
+
+func TestMemoryUsesCallerInsteadOfPrivateSessionUser(t *testing.T) {
+	controller := newMemoryControllerClient(t, &memoryTestServer{
+		add: func(ctx context.Context, req *apiv1alpha1.MemoryServiceAddSessionRequest) (*apiv1alpha1.MemoryServiceAddSessionResponse, error) {
+			assert.Equal(t, "alice", req.Memory.UserId)
+			values, _ := metadata.FromIncomingContext(ctx)
+			assert.Equal(t, []string{"alice"}, values.Get("x-user-id"))
+			return &apiv1alpha1.MemoryServiceAddSessionResponse{}, nil
+		},
+		search: func(ctx context.Context, req *apiv1alpha1.MemoryServiceSearchRequest) (*apiv1alpha1.MemoryServiceSearchResponse, error) {
+			assert.Equal(t, "alice", req.UserId)
+			values, _ := metadata.FromIncomingContext(ctx)
+			assert.Equal(t, []string{"alice"}, values.Get("x-user-id"))
+			return &apiv1alpha1.MemoryServiceSearchResponse{}, nil
+		},
+	})
+	embeddings, server := newMockEmbeddingClient(t)
+	defer server.Close()
+	svc := &KagentMemoryService{agentName: "agent", controllerClient: controller, embeddingClient: embeddings}
+	ctx := auth.WithUserID(t.Context(), "alice")
+	session := newMockSession("conversation", "conversation", []*adksession.Event{newMockEvent("user", "remember")})
+	require.NoError(t, svc.AddSessionToMemory(ctx, session))
+	require.NoError(t, runSaveMemoryTool(t, ctx, svc))
+	_, err := svc.SearchMemory(ctx, &memory.SearchRequest{UserID: "conversation", Query: "remember"})
+	require.NoError(t, err)
+}
+
+type memoryToolContext struct{ adkagent.StrictContextMock }
+
+func (*memoryToolContext) ToolConfirmation() *toolconfirmation.ToolConfirmation { return nil }
+
+func runSaveMemoryTool(t *testing.T, ctx context.Context, svc *KagentMemoryService) error {
+	t.Helper()
+	tool, err := NewSaveMemoryTool(svc)
+	require.NoError(t, err)
+	runnable, ok := tool.(interface {
+		Run(adkagent.Context, any) (map[string]any, error)
+	})
+	require.True(t, ok)
+	_, err = runnable.Run(&memoryToolContext{adkagent.NewStrictContextMock(ctx)}, map[string]any{"content": "remember"})
+	return err
+}
+
+func TestMemoryRequiresCallerBeforeExternalWork(t *testing.T) {
+	// Unconfigured dependencies make any embedding or RPC attempt fail the test.
+	svc := &KagentMemoryService{}
+	for _, operation := range []string{"session", "search", "store", "save tool"} {
+		t.Run(operation, func(t *testing.T) {
+			var err error
+			switch operation {
+			case "session":
+				err = svc.AddSessionToMemory(t.Context(), newMockSession("conversation", "conversation", []*adksession.Event{newMockEvent("user", "remember")}))
+			case "search":
+				_, err = svc.SearchMemory(t.Context(), &memory.SearchRequest{UserID: "conversation", Query: "remember"})
+			case "store":
+				err = svc.storeMemory(t.Context(), "remember", []float32{1})
+			case "save tool":
+				err = runSaveMemoryTool(t, t.Context(), svc)
+			}
+			require.EqualError(t, err, "memory requires caller identity")
+		})
+	}
 }
