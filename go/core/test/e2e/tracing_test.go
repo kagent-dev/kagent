@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"slices"
 	"strings"
@@ -579,23 +578,9 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 	t.Helper()
 	_, request := newMessageRequest(t, text)
 	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
-	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
-	if err != nil {
-		t.Fatalf("start streaming traced A2A message: %v", err)
-	}
 	var turn tracedTurn
 	terminalEvents := 0
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			if terminalEvents != 1 {
-				t.Fatalf("traced stream terminal event count = %d, want 1", terminalEvents)
-			}
-			if turn.taskID == "" || turn.contextID == "" {
-				t.Fatal("traced stream did not report a task and context ID")
-			}
-			return turn
-		}
+	for response, err := range sendStreamingMessageWithRetry(fixture.ctx, fixture.client, request) {
 		if err != nil {
 			t.Fatalf("receive traced A2A stream: %v", err)
 		}
@@ -618,6 +603,13 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 			turn.state = state
 		}
 	}
+	if terminalEvents != 1 {
+		t.Fatalf("traced stream terminal event count = %d, want 1", terminalEvents)
+	}
+	if turn.taskID == "" || turn.contextID == "" {
+		t.Fatal("traced stream did not report a task and context ID")
+	}
+	return turn
 }
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {

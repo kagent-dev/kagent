@@ -42,7 +42,7 @@ func TestSessionHTTPInteraction(t *testing.T) {
 		client, ctx := discoverHTTPAgent(t, fixture)
 		request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?"))}
 		request.Message.ContextID = fixture.sessionID
-		result, err := client.SendMessage(ctx, request)
+		result, err := sendHTTPMessageWithRetry(ctx, client, request)
 		require.NoError(t, err)
 		task, ok := result.(*a2atype.Task)
 		require.True(t, ok)
@@ -141,20 +141,39 @@ func requireSameHTTPTask(t *testing.T, expected, actual *a2atype.Task) {
 	require.True(t, proto.Equal(expectedProto, actualProto), "tasks differ: expected %v, actual %v", expectedProto, actualProto)
 }
 
+func sendHTTPMessageWithRetry(ctx context.Context, client *a2aclient.Client, request *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	var result a2atype.SendMessageResult
+	// Bound retries without shortening an accepted request's deadline.
+	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
+		var err error
+		result, err = client.SendMessage(ctx, request)
+		if httpSendNotAccepted(err) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+	return result, err
+}
+
+func httpSendNotAccepted(err error) bool {
+	var protocolError *a2atype.Error
+	if !errors.Is(err, a2atype.ErrUnsupportedOperation) || !errors.As(err, &protocolError) {
+		return false
+	}
+	info := protocolError.ErrorInfo().Value
+	metadata, _ := info["metadata"].(map[string]string)
+	return info["domain"] == a2atype.ProtocolDomain && metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED"
+}
+
 // Match sendMessageWithRetry's rejection contract for JSON-RPC streams. Once an
 // event has arrived, the stream must never be restarted, even on a rejection.
 func sendHTTPStreamingMessageWithRetry(ctx context.Context, client *a2aclient.Client, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
-		err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
 			received := false
 			for event, err := range client.SendStreamingMessage(ctx, request) {
-				var protocolError *a2atype.Error
-				if !received && event == nil && errors.Is(err, a2atype.ErrUnsupportedOperation) && errors.As(err, &protocolError) {
-					info := protocolError.ErrorInfo().Value
-					metadata, _ := info["metadata"].(map[string]string)
-					if info["domain"] == a2atype.ProtocolDomain && metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
-						return false, nil
-					}
+				if !received && event == nil && httpSendNotAccepted(err) {
+					return false, nil
 				}
 				received = true
 				if !yield(event, err) || err != nil {
@@ -202,9 +221,12 @@ func discoverHTTPAgent(t *testing.T, fixture *interactionFixture) (*a2aclient.Cl
 }
 
 func TestSessionHTTPPushNotifications(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		for _, streaming := range []bool{false, true} {
 			t.Run(fmt.Sprintf("stream=%t", streaming), func(t *testing.T) {
+				t.Parallel()
 				exerciseHTTPPush(t, harness, interactionTarget(t), streaming, "", nil)
 			})
 		}
@@ -337,6 +359,8 @@ func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
 func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget string, afterDisconnect func()) {
 	t.Helper()
 	modelURL, started, unblock, _ := startScheduledRecoveryModel(t)
+	// Release the model before session cleanup, including on assertion failure.
+	defer unblock()
 	fixture := newInteractionFixture(t, harness, target, modelURL)
 	keyID, publicKey := pushJWKSKey(t, target)
 	callbacks := make(chan *a2atype.TaskStatusUpdateEvent, 8)
@@ -407,7 +431,7 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 		cancel()
 		stop()
 	} else {
-		result, err := client.SendMessage(observation, request)
+		result, err := sendHTTPMessageWithRetry(observation, client, request)
 		require.NoError(t, err)
 		task := result.(*a2atype.Task)
 		taskID, contextID = task.ID, task.ContextID

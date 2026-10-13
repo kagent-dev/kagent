@@ -140,6 +140,18 @@ jobs:
               pullPolicy: Always
             service:
               type: LoadBalancer
+            # Check startup promptly across restart tests, keeping a 60s budget.
+            startupProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
+              failureThreshold: 60
+            readinessProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
           config:
             gateway:
               push:
