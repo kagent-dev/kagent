@@ -23,6 +23,7 @@ from google.genai import types
 from pydantic import Field
 
 from ._ssl import KAgentTLSMixin
+from ._usage import cached_token_count
 from ._utils import function_declaration_schema
 
 if TYPE_CHECKING:
@@ -428,6 +429,7 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                                 prompt_token_count=usage.get("inputTokens"),
                                 candidates_token_count=usage.get("outputTokens"),
                                 total_token_count=usage.get("totalTokens"),
+                                cached_content_token_count=cached_token_count(usage.get("cacheReadInputTokens")),
                             )
 
                 final_parts = []
@@ -471,6 +473,7 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                     prompt_token_count=usage.get("inputTokens"),
                     candidates_token_count=usage.get("outputTokens"),
                     total_token_count=usage.get("totalTokens"),
+                    cached_content_token_count=cached_token_count(usage.get("cacheReadInputTokens")),
                 )
 
                 yield LlmResponse(
