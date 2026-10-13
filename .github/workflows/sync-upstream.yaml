@@ -3,6 +3,7 @@ name: Sync with upstream
 # Fork (giantswarm/kagent-upstream): the weekly re-pin of the consumed branch
 # (FORK.md, "Re-pin"). Fast-forwards the mirror (main, release/v*.x, tags —
 # scripts/fork/mirror.sh) to upstream, rebases the carried commits onto the upstream head (scripts/fork/repin.sh),
+# checks that every carried hunk is in the result (scripts/fork/hunks.py),
 # lets CI Build and Scan images test the candidate branch, and force-pushes the
 # consumed branch so the CircleCI pipeline publishes the dev build. When a carried
 # commit conflicts or a check fails it opens a pull request against the
@@ -42,6 +43,9 @@ on:
       candidate:
         description: 'A sync/** branch rebased by hand onto upstream_ref (a ref or a full commit SHA) to land instead of rebasing (FORK.md, "Manual re-pin")'
         default: ''
+      accept_hunks:
+        description: 'Carried hunks the re-pin drops or reworks on purpose: hunk ids, or a commit for all its hunks, as scripts/fork/hunks.py reports them (FORK.md, "Re-pin")'
+        default: ''
 
 permissions:
   contents: write
@@ -58,6 +62,7 @@ env:
   DRY_RUN: ${{ inputs.dry_run == true }}
   MIRROR_ONLY: ${{ inputs.mirror_only == true }}
   TAKE_CANDIDATE: ${{ inputs.candidate }}
+  ACCEPT_HUNKS: ${{ inputs.accept_hunks }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:

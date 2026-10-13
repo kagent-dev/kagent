@@ -10,6 +10,8 @@
 # Exit 0: the candidate branch exists locally (status=rebased) or nothing is to
 # do (status=up-to-date). Exit 2: a carried commit conflicts (status=conflict);
 # the rebase is aborted and the working tree is back on the consumed head.
+# Exit 3: the rebase lost a carried hunk that ACCEPT_HUNKS does not name
+# (status=lost-hunks, each named in the report); the candidate is not pushed.
 # The report is written to $REPORT (markdown) and $REPORT_ENV (key=value).
 set -euo pipefail
 
@@ -68,7 +70,9 @@ while read -r sha; do
 done < <(git rev-list --no-merges "$pin..$target")
 
 git checkout -q -B "$CANDIDATE" "$head"
-if ! git rebase --quiet --no-reapply-cherry-picks --empty=drop --onto "$target" "$pin" 2> rebase.err; then
+# --autosquash folds an `amend!` or `fixup!` commit into the carried commit it
+# names: the way a carried commit's diff or message is corrected between re-pins.
+if ! git rebase --quiet --autosquash --no-reapply-cherry-picks --empty=drop --onto "$target" "$pin" 2> rebase.err; then
   conflict=$(git rev-parse REBASE_HEAD)
   applied=$(git rev-parse HEAD)
   mapfile -t files < <(git diff --name-only --diff-filter=U)
@@ -110,13 +114,22 @@ if [ ${#dropped[@]} -gt 0 ]; then
   printf '#### Dropped (%d)\n\n' "${#dropped[@]}" >> "$REPORT"
   for c in "${dropped[@]}"; do
     up=${upstream_by_patch[$(patch_id "$c")]:-}
-    if [ -n "$up" ]; then
+    if [[ $(subject "$c") =~ ^(amend|fixup|squash)!\  ]]; then
+      printf -- '- `%s` %s — folded into its commit\n' "$(short "$c")" "$(subject "$c")"
+    elif [ -n "$up" ]; then
       printf -- '- `%s` %s — merged upstream as `%s`\n' "$(short "$c")" "$(subject "$c")" "$(short "$up")"
     else
       printf -- '- `%s` %s — empty after the rebase (superseded upstream)\n' "$(short "$c")" "$(subject "$c")"
     fi
   done >> "$REPORT"
   printf '\nDelete the dropped commits'"'"' files under fork/carried/ (`scripts/fork/carried.sh --check` names them) in a follow-up pull request.\n\n' >> "$REPORT"
+fi
+
+# Every hunk the carried commits brought is in the candidate as it is in the
+# consumed head, unless ACCEPT_HUNKS names it as dropped or reworked on purpose.
+if ! scripts/fork/hunks.py "$pin" "$head" "$new_head" >> "$REPORT" 2>&1; then
+  env_out status lost-hunks
+  exit 3
 fi
 
 env_out status rebased

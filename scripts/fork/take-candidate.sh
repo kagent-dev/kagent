@@ -9,7 +9,8 @@
 #
 # Exit 0: the candidate is checked out detached (status=rebased) or it is
 # already the consumed head (status=up-to-date). Exit 1: the candidate is not a
-# re-pin onto the upstream ref (status=refused, the reason in the report).
+# re-pin onto the upstream ref, or it lost a carried hunk that ACCEPT_HUNKS does
+# not name (status=refused, the reason in the report).
 # The report is written to $REPORT (markdown) and $REPORT_ENV (key=value).
 set -euo pipefail
 
@@ -65,6 +66,12 @@ if git merge-base --is-ancestor "$head" "$new_head"; then
   refuse "\`${CANDIDATE}\` contains the consumed head \`$(short "$head")\`: a re-pin rebases the carried commits, it does not merge them."
 fi
 
+# Every hunk the carried commits brought is in the candidate as it is in the
+# consumed head, unless ACCEPT_HUNKS names it as dropped or reworked on purpose.
+hunks=$(scripts/fork/hunks.py "$pin" "$head" "$new_head" 2>&1) || refuse "A carried hunk is lost in the candidate (\`scripts/fork/hunks.py\`):
+
+${hunks}"
+
 git checkout -q --detach "$new_head"
 ledger=$(MIRROR="$target" scripts/fork/carried.sh --check 2>&1) || refuse "The ledger does not match the candidate (\`scripts/fork/carried.sh --check\`):
 
@@ -94,6 +101,7 @@ done
     for c in "${dropped[@]}"; do item "$c"; done
     printf '\n'
   fi
+  printf '%s\n' "$hunks"
 } >> "$REPORT"
 
 env_out status rebased

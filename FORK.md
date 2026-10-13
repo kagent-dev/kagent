@@ -262,7 +262,13 @@ also on demand (`gh workflow run sync-upstream.yaml`, inputs `upstream_ref`, `dr
    workflow files start at the mirrored refs (`scripts/fork/mirror-quiet.sh`);
 2. rebases the carried commits onto the upstream head into a candidate branch `sync/upstream-<date>-<sha7>`
    (`scripts/fork/repin.sh`; commits upstream merged in the meantime are dropped and named in the report,
-   with the upstream commit they landed as);
+   with the upstream commit they landed as; an `amend!` or `fixup!` commit is folded into the carried commit it
+   names — the way a carried commit's diff or message is corrected between re-pins) and checks every hunk the carried commits brought
+   (`scripts/fork/hunks.py`): one whose added lines the consumed head has and the candidate lacks, or whose
+   removed lines are back, is lost — the run stops and its summary names the commit, the file and the hunk.
+   A hunk upstream merged in another form, or one a re-pin reworks onto upstream's changes, is named in
+   the dispatch input `accept_hunks` (a hunk id as the report prints it, or a commit for all its hunks), and
+   the report lists it as accepted;
 3. pushes the candidate (as the org's `heraldbot` GitHub App, whose token the run mints — a push by an App
    triggers workflows, a push with the workflow's own token would not); `ci.yaml` and `image-scan.yaml` run on it;
    the workflow waits for `ci-ok` and `scan-ok`;
@@ -291,7 +297,7 @@ The same steps by hand, for when the workflow is broken or a conflict needs a hu
 git clone https://github.com/giantswarm/kagent-upstream && cd kagent-upstream
 git remote add upstream https://github.com/kagent-dev/kagent.git
 CANDIDATE=sync/upstream-$(date -u +%Y%m%d)-manual scripts/fork/repin.sh   # exit 2 = conflict, report in repin-report.md
-# on a conflict: git rebase --onto upstream/main "$(git merge-base origin/giantswarm upstream/main)" ; fix ; git rebase --continue
+# on a conflict: git rebase --autosquash --onto upstream/main "$(git merge-base origin/giantswarm upstream/main)" ; fix ; git rebase --continue
 sed -i "s|upstream.version=main@[0-9a-f]*|upstream.version=main@$(git merge-base HEAD upstream/main | cut -c1-7)|" .circleci/config.yml && git commit -qsam 'chore(fork): upstream pin annotation'   # the pin annotation moves with the pin (step 6); fold it into the ci(fork) commit if you rebase interactively
 git push origin "$CANDIDATE"                      # ci.yaml + image-scan.yaml run on sync/** ; wait for ci-ok and scan-ok
 gh workflow run sync-upstream.yaml --repo giantswarm/kagent-upstream --ref giantswarm \
@@ -300,7 +306,9 @@ gh workflow run sync-upstream.yaml --repo giantswarm/kagent-upstream --ref giant
 
 The dispatch lands the candidate the way the weekly sync lands its own: `scripts/fork/take-candidate.sh`
 refuses a candidate that is not a `sync/**` branch, does not sit on `upstream_ref`, still contains the consumed
-head (a merge, not a rebase) or whose ledger `scripts/fork/carried.sh --check` rejects; the workflow then waits
+head (a merge, not a rebase), lost a carried hunk `accept_hunks` does not name (`scripts/fork/hunks.py`, as in
+step 2 — run it before the push: `scripts/fork/hunks.py "$(git merge-base origin/giantswarm upstream/main)"
+origin/giantswarm HEAD`) or whose ledger `scripts/fork/carried.sh --check` rejects; the workflow then waits
 for `ci-ok` and `scan-ok` on its head, force-pushes it onto `giantswarm` with a lease on the head it read,
 deletes the branch, fast-forwards the mirror and appends the `re-pins.md` row. Nobody needs a bypass of the
 consumed branch's ruleset, and nobody force-pushes by hand.
