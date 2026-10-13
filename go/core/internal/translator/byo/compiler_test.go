@@ -85,20 +85,20 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 // advertises the A2A endpoint on :80. Without it a go/adk/pkg/app image falls
 // back to its 8080 default while the card points at :80 (#2758).
 func TestCompileInjectsPort(t *testing.T) {
-	harness := &v2translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
 	}}
-	template := &v2translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
 		Description: "custom A2A agent", SystemPrompt: "be helpful",
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "port-agent",
-		Harness:   harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
+		Harness:   harness, Root: &translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
 	require.NoError(t, err)
 
@@ -121,7 +121,7 @@ func TestCompileInjectsPort(t *testing.T) {
 // spec.env PORT, and leaves exactly one PORT entry.
 func TestCompilePortSetting(t *testing.T) {
 	port := int32(8443)
-	harness := &v2translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{Port: &port},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
 		Env:      []v1alpha3.RuntimeEnvVar{{Name: "PORT", Value: "9000"}},
@@ -129,13 +129,13 @@ func TestCompilePortSetting(t *testing.T) {
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
 	}}
-	template := &v2translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
 		Description: "custom A2A agent", SystemPrompt: "be helpful",
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, v2translator.Collections{}).Compile(context.Background(), &v2translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "port-agent",
-		Harness:   harness, Root: &v2translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
+		Harness:   harness, Root: &translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
 	require.NoError(t, err)
 
