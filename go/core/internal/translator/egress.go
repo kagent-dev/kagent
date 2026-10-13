@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // CompileEgressPolicies resolves same-namespace grants for either an Agent or a
