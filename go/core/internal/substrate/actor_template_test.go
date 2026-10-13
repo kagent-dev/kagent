@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -68,6 +69,32 @@ func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, nam
 	}, template.GetWorkerSelector().GetMatchLabels())
 }
 
+// Substrate's ate-api refuses an ActorTemplate whose snapshot_config carries a
+// field it does not know, so a removed field (on_pause, tag 1) left on the wire
+// keeps every Agent from reaching Ready. The compiled template sends exactly
+// on_commit and storage_location.
+func testSnapshotConfigWire(t *testing.T, template *ateapipb.ActorTemplate) {
+	t.Helper()
+	config := template.GetSnapshotConfig()
+	require.Empty(t, config.ProtoReflect().GetUnknown())
+	wire, err := proto.Marshal(config)
+	require.NoError(t, err)
+	fields := config.ProtoReflect().Descriptor().Fields()
+	var sent []string
+	for len(wire) > 0 {
+		number, kind, n := protowire.ConsumeTag(wire)
+		require.GreaterOrEqual(t, n, 0, "malformed snapshot_config tag")
+		wire = wire[n:]
+		n = protowire.ConsumeFieldValue(number, kind, wire)
+		require.GreaterOrEqual(t, n, 0, "malformed snapshot_config field %d", number)
+		wire = wire[n:]
+		field := fields.ByNumber(number)
+		require.NotNil(t, field, "snapshot_config carries unknown field %d", number)
+		sent = append(sent, string(field.Name()))
+	}
+	require.ElementsMatch(t, []string{"on_commit", "storage_location"}, sent)
+}
+
 func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
 		Namespace: "agents", AgentName: "helper",
@@ -103,6 +130,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
 	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, template.GetSnapshotConfig().GetOnCommit())
+	testSnapshotConfigWire(t, template)
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
