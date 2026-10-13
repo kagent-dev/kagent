@@ -58,9 +58,9 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.5.0-alpha2
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
-      # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
+      # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
       - name: Checkout repository
@@ -134,6 +134,7 @@ jobs:
             --set otel.metrics.enabled=true
             --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
           KAGENT_SUBSTRATE_HELM_EXTRA_ARGS: >-
+            --set atelet.resources.limits.memory=2Gi
             --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000
             --set ateApi.extraArgs[0]=--template-resync-interval=250ms
             --set credentialProvider.namespacePolicies[0].atespace=kagent
