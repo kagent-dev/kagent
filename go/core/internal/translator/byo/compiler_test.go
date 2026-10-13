@@ -85,7 +85,7 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 // advertises the A2A endpoint on :80. Without it a go/adk/pkg/app image falls
 // back to its 8080 default while the card points at :80 (#2758).
 func TestCompileInjectsPort(t *testing.T) {
-	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
@@ -121,7 +121,7 @@ func TestCompileInjectsPort(t *testing.T) {
 // spec.env PORT, and leaves exactly one PORT entry.
 func TestCompilePortSetting(t *testing.T) {
 	port := int32(8443)
-	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{Port: &port},
 		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
 		Env:      []v1alpha3.RuntimeEnvVar{{Name: "PORT", Value: "9000"}},
