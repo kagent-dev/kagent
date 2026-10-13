@@ -20,7 +20,7 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version = 5
+	Version = 6
 	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
 	// must recheck the telemetry gate in the driver.
 	PinnedClaudeVersion                 = "2.1.285"
@@ -120,7 +120,13 @@ type MCPServer struct {
 	URL             string            `json:"url"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	RequireApproval bool              `json:"require_approval,omitempty"`
+	// TimeoutMillis is Claude's per-server tool-call budget. Zero leaves
+	// Claude's default; Claude ignores values below MinMCPTimeoutMillis.
+	TimeoutMillis int64 `json:"timeout_millis,omitempty"`
 }
+
+// MinMCPTimeoutMillis is the smallest per-server timeout Claude Code honours.
+const MinMCPTimeoutMillis = 1000
 
 // Agent is one compiler-owned local Claude subagent passed through --agents.
 // Permission mode, hooks, memory, isolation, and inline MCP are deliberately
@@ -214,6 +220,9 @@ func (c Config) Validate() error {
 				return fmt.Errorf("claude MCP server %q headers require non-empty names and values", name)
 			}
 		}
+		if server.TimeoutMillis != 0 && server.TimeoutMillis < MinMCPTimeoutMillis {
+			return fmt.Errorf("claude MCP server %q timeout must be at least %dms", name, MinMCPTimeoutMillis)
+		}
 	}
 	return nil
 }
@@ -237,10 +246,11 @@ func (c Config) MCPConfigJSON() ([]byte, error) {
 		Type    string            `json:"type"`
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers,omitempty"`
+		Timeout int64             `json:"timeout,omitempty"`
 	}
 	servers := make(map[string]nativeMCPServer, len(c.MCPServers))
 	for name, server := range c.MCPServers {
-		servers[name] = nativeMCPServer{Type: server.Type, URL: server.URL, Headers: server.Headers}
+		servers[name] = nativeMCPServer{Type: server.Type, URL: server.URL, Headers: server.Headers, Timeout: server.TimeoutMillis}
 	}
 	raw, err := json.Marshal(struct {
 		Servers map[string]nativeMCPServer `json:"mcpServers"`

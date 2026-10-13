@@ -557,10 +557,38 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	if len(revision.Warnings) != 1 {
 		t.Fatalf("unsupported MCP option warnings = %v", revision.Warnings)
 	}
-	for _, field := range []string{"custom TLS configuration", "timeout", "terminateOnClose"} {
+	for _, field := range []string{"custom TLS configuration", "terminateOnClose"} {
 		if !strings.Contains(revision.Warnings[0], field) {
 			t.Errorf("unsupported MCP option warning %q omits %q", revision.Warnings[0], field)
 		}
+	}
+	if strings.Contains(revision.Warnings[0], "timeout") {
+		t.Errorf("unsupported MCP option warning %q reports the honoured timeout", revision.Warnings[0])
+	}
+	var withTimeout claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &withTimeout); err != nil {
+		t.Fatal(err)
+	}
+	if got := withTimeout.MCPServers["tools"].TimeoutMillis; got != 60000 {
+		t.Fatalf("compiled MCP timeout = %dms, want 60000ms", got)
+	}
+
+	server.Spec.TLS = nil
+	server.Spec.TerminateOnClose = nil
+	server.Spec.Timeout = &metav1.Duration{Duration: 500 * time.Millisecond}
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("sub-second MCP timeout Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "timeout below 1s") {
+		t.Fatalf("sub-second MCP timeout warnings = %v", revision.Warnings)
+	}
+	var subSecond claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &subSecond); err != nil {
+		t.Fatal(err)
+	}
+	if got := subSecond.MCPServers["tools"].TimeoutMillis; got != 0 {
+		t.Fatalf("sub-second MCP timeout compiled as %dms, want none", got)
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocol("STDIO")

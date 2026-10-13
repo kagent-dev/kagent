@@ -48,6 +48,9 @@ func TestParseRejectsUnsafeConfiguration(t *testing.T) {
 		{"duplicate tool", func(c *Config) {
 			c.MCPServers = map[string]MCPServer{"mcp": {URL: "https://example.com", EnabledTools: []string{"x", "x"}}}
 		}, "duplicate enabled tool"},
+		{"negative MCP timeout", func(c *Config) {
+			c.MCPServers = map[string]MCPServer{"mcp": {URL: "https://example.com", TimeoutMillis: -1}}
+		}, "timeout must not be negative"},
 		{"empty telemetry", func(c *Config) { c.Telemetry = &Telemetry{} }, "telemetry requires at least one exporter"},
 		{"telemetry endpoint", func(c *Config) {
 			c.Telemetry = &Telemetry{Traces: &OTLPExporter{Endpoint: "collector:4317", Protocol: "grpc"}}

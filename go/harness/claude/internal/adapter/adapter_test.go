@@ -22,7 +22,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
 	runner, err := New(context.Background(), Input{
-		ConfigJSON: []byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
+		ConfigJSON: []byte(`{"version":6,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
 		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_UPDATES=0"},
@@ -296,4 +296,19 @@ func TestResolveCredentialHeaders(t *testing.T) {
 
 	_, err = resolveCredentialHeaders(map[string]string{"Authorization": "${" + credential + "}"}, []string{"HOME=/home/kagent"})
 	require.ErrorContains(t, err, credential+", which the environment does not set")
+}
+
+func TestFrontMCPServersKeepsServerSettings(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.MCPServers = map[string]config.MCPServer{"tools": {
+		Type: "http", URL: "https://mcp.example.com/mcp", RequireApproval: true, TimeoutMillis: 180000,
+	}}
+	forwarder, err := frontMCPServers(&cfg, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+
+	fronted := cfg.MCPServers["tools"]
+	require.Equal(t, forwarder.URL("tools"), fronted.URL)
+	require.True(t, fronted.RequireApproval)
+	require.Equal(t, int64(180000), fronted.TimeoutMillis)
 }

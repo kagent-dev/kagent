@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -45,7 +44,8 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		if server.Spec.Protocol != "" && server.Spec.Protocol != v1alpha3.RemoteMCPServerProtocolStreamableHttp {
 			return mcpCompilation{}, translator.NewValidationError("Codex RemoteMCPServer %q requires Streamable HTTP", server.Name)
 		}
-		if warning := codexMCPCompatibilityWarning(server); warning != "" {
+		timeoutMillis, warning := codexMCPCompatibility(server)
+		if warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
 		host, err := absoluteHTTPOrigin(server.Spec.URL)
@@ -61,7 +61,7 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		selected = slices.Compact(selected)
 		result.servers[name] = codexconfig.MCPServer{
 			URL: server.Spec.URL, Headers: headers, EnabledTools: selected,
-			RequireApproval: tool.Binding.RequireApproval,
+			RequireApproval: tool.Binding.RequireApproval, TimeoutMillis: timeoutMillis,
 		}
 		result.environment = append(result.environment, environment...)
 		result.egress = append(result.egress, host)
@@ -69,21 +69,26 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 	return result, nil
 }
 
-func codexMCPCompatibilityWarning(server *v1alpha3.RemoteMCPServer) string {
+func codexMCPCompatibility(server *v1alpha3.RemoteMCPServer) (int64, string) {
 	var ignored []string
 	if !server.Spec.TLS.IsEmpty() {
 		ignored = append(ignored, "custom TLS configuration")
 	}
-	if server.Spec.Timeout != nil && server.Spec.Timeout.Duration != 30*time.Second {
-		ignored = append(ignored, "timeout")
+	var timeoutMillis int64
+	if server.Spec.Timeout != nil {
+		timeoutMillis = server.Spec.Timeout.Milliseconds()
+		if timeoutMillis <= 0 {
+			timeoutMillis = 0
+			ignored = append(ignored, "non-positive timeout")
+		}
 	}
 	if server.Spec.TerminateOnClose != nil && !*server.Spec.TerminateOnClose {
 		ignored = append(ignored, "terminateOnClose")
 	}
 	if len(ignored) == 0 {
-		return ""
+		return timeoutMillis, ""
 	}
-	return fmt.Sprintf("Codex RemoteMCPServer %q ignores unsupported fields %s", server.Name, strings.Join(ignored, ", "))
+	return timeoutMillis, fmt.Sprintf("Codex RemoteMCPServer %q ignores unsupported fields %s", server.Name, strings.Join(ignored, ", "))
 }
 
 func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {

@@ -25,6 +25,7 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	cfg.Agents = map[string]config.Agent{"reviewer": {Description: "Review carefully", Instruction: "Inspect \"all\" changes", Model: "gpt-5.2-codex"}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {
 		URL: "https://mcp.example.com/mcp", Headers: map[string]string{"X-Tenant": "test", "Authorization": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}, EnabledTools: []string{"read"}, RequireApproval: true,
+		TimeoutMillis: 180500,
 	}}
 	cfg.Telemetry = &config.Telemetry{
 		CaptureContent: true,
@@ -63,6 +64,12 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	provider := native.ModelProviders["kagent-openai"]
 	server := native.MCPServers["tools"]
+	if server.ToolTimeoutSec != 180.5 {
+		t.Fatalf("generated MCP tool_timeout_sec = %v, want 180.5", server.ToolTimeoutSec)
+	}
+	if !bytes.Contains(configContents, []byte("tool_timeout_sec = 180.5")) {
+		t.Fatalf("generated Codex configuration omits tool_timeout_sec:\n%s", configContents)
+	}
 	agent := native.Agents["reviewer"]
 	if native.ModelProvider != "kagent-openai" || provider.WireAPI != "responses" || provider.EnvKey != "OPENAI_API_KEY" || provider.BaseURL != cfg.Provider.BaseURL {
 		t.Fatalf("generated provider configuration = %#v, provider name = %q", provider, native.ModelProvider)

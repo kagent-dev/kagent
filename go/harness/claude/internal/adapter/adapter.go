@@ -272,7 +272,7 @@ func frontMCPServers(cfg *config.Config, environment []string) (*driver.Credenti
 	for name, server := range cfg.MCPServers {
 		fronted[name] = config.MCPServer{
 			Type: "http", URL: forwarder.URL(name), Headers: forwarder.Headers(),
-			RequireApproval: server.RequireApproval,
+			RequireApproval: server.RequireApproval, TimeoutMillis: server.TimeoutMillis,
 		}
 	}
 	cfg.MCPServers = fronted

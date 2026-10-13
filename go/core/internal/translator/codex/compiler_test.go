@@ -281,10 +281,13 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	if len(compilation.Warnings) != 1 {
 		t.Fatalf("MCP compatibility warnings = %v", compilation.Warnings)
 	}
-	for _, field := range []string{"custom TLS configuration", "timeout", "terminateOnClose"} {
+	for _, field := range []string{"custom TLS configuration", "terminateOnClose"} {
 		if !strings.Contains(compilation.Warnings[0], field) {
 			t.Errorf("MCP compatibility warning %q omits %q", compilation.Warnings[0], field)
 		}
+	}
+	if strings.Contains(compilation.Warnings[0], "timeout") {
+		t.Errorf("MCP compatibility warning %q reports the honoured timeout", compilation.Warnings[0])
 	}
 	var cfg codexconfig.Config
 	if err := json.Unmarshal(compilation.ConfigJSON, &cfg); err != nil {
@@ -292,6 +295,27 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 	if configured, exists := cfg.MCPServers[server.Name]; !exists || !configured.RequireApproval || len(configured.EnabledTools) != 0 {
 		t.Fatalf("config omits MCP server after compatibility warning: %#v", cfg.MCPServers)
+	}
+	if got := cfg.MCPServers[server.Name].TimeoutMillis; got != 60000 {
+		t.Fatalf("compiled MCP timeout = %dms, want 60000ms", got)
+	}
+
+	server.Spec.TLS = nil
+	server.Spec.TerminateOnClose = nil
+	server.Spec.Timeout = &metav1.Duration{}
+	compilation, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("zero MCP timeout Compile() error = %v", err)
+	}
+	if len(compilation.Warnings) != 1 || !strings.Contains(compilation.Warnings[0], "non-positive timeout") {
+		t.Fatalf("zero MCP timeout warnings = %v", compilation.Warnings)
+	}
+	cfg = codexconfig.Config{}
+	if err := json.Unmarshal(compilation.ConfigJSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.MCPServers[server.Name].TimeoutMillis; got != 0 {
+		t.Fatalf("zero MCP timeout compiled as %dms, want none", got)
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse

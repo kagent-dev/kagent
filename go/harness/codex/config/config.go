@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	Version            = 3
+	Version            = 4
 	PinnedCodexVersion = "0.148.0"
 )
 
@@ -75,6 +75,9 @@ type MCPServer struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 	EnabledTools    []string          `json:"enabled_tools,omitempty"`
 	RequireApproval bool              `json:"require_approval,omitempty"`
+	// TimeoutMillis is Codex's per-server tool-call budget. Zero leaves Codex's
+	// default.
+	TimeoutMillis int64 `json:"timeout_millis,omitempty"`
 }
 
 // Bounds the memory one JSON-RPC frame can take. Frames carry a tool
@@ -170,6 +173,9 @@ func (c Config) Validate() error {
 				return fmt.Errorf("codex MCP server %q has duplicate enabled tool %q", name, tool)
 			}
 			seen[tool] = struct{}{}
+		}
+		if server.TimeoutMillis < 0 {
+			return fmt.Errorf("codex MCP server %q timeout must not be negative", name)
 		}
 	}
 	return nil

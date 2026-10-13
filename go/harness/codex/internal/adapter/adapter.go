@@ -162,6 +162,7 @@ type nativeMCPServer struct {
 	EnvHTTPHeaders           map[string]string `toml:"env_http_headers,omitempty,inline"`
 	EnabledTools             []string          `toml:"enabled_tools,omitempty"`
 	DefaultToolsApprovalMode string            `toml:"default_tools_approval_mode"`
+	ToolTimeoutSec           float64           `toml:"tool_timeout_sec,omitempty"`
 }
 
 type nativeAgentConfig struct {
@@ -217,6 +218,7 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		native.MCPServers[name] = nativeMCPServer{
 			URL: server.URL, HTTPHeaders: literal, EnvHTTPHeaders: environment, EnabledTools: server.EnabledTools,
 			DefaultToolsApprovalMode: approvalMode,
+			ToolTimeoutSec:           float64(server.TimeoutMillis) / 1000,
 		}
 	}
 	contents, err := toml.Marshal(native)

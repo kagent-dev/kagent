@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -52,7 +51,7 @@ func (c *Compiler) compileMCP(
 		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
-		transport, compatibilityWarning, err := claudeMCPTransport(server)
+		transport, timeoutMillis, compatibilityWarning, err := claudeMCPTransport(server)
 		if err != nil {
 			return mcpCompilation{}, err
 		}
@@ -69,7 +68,7 @@ func (c *Compiler) compileMCP(
 		}
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
-			RequireApproval: tool.Binding.RequireApproval,
+			RequireApproval: tool.Binding.RequireApproval, TimeoutMillis: timeoutMillis,
 		}
 		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)
@@ -118,13 +117,18 @@ func currentDiscoveredToolNames(server *v1alpha3.RemoteMCPServer) ([]string, boo
 	return names, true
 }
 
-func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, string, error) {
+func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, int64, string, error) {
 	var ignored []string
 	if !server.Spec.TLS.IsEmpty() {
 		ignored = append(ignored, "custom TLS configuration")
 	}
-	if server.Spec.Timeout != nil && server.Spec.Timeout.Duration != 30*time.Second {
-		ignored = append(ignored, "timeout")
+	var timeoutMillis int64
+	if server.Spec.Timeout != nil {
+		timeoutMillis = server.Spec.Timeout.Milliseconds()
+		if timeoutMillis < claudeconfig.MinMCPTimeoutMillis {
+			timeoutMillis = 0
+			ignored = append(ignored, "timeout below 1s")
+		}
 	}
 	if server.Spec.TerminateOnClose != nil && !*server.Spec.TerminateOnClose {
 		ignored = append(ignored, "terminateOnClose")
@@ -135,11 +139,11 @@ func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, string, error
 	}
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
-		return "sse", warning, nil
+		return "sse", timeoutMillis, warning, nil
 	case "", v1alpha3.RemoteMCPServerProtocolStreamableHttp:
-		return "http", warning, nil
+		return "http", timeoutMillis, warning, nil
 	default:
-		return "", "", translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
+		return "", 0, "", translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
 	}
 }
 
