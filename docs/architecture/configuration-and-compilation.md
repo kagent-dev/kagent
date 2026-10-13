@@ -192,6 +192,10 @@ name and namespace. The Helm chart sets both labels on the pool it creates, and
 externally managed pools must carry both. Substrate matches worker labels without
 checking them against the pool's namespace. Placement therefore stays within a
 namespace only while every pool's labels name the pool's own namespace.
+Revisions compiled before these labels select the name-only `kagent.dev/worker-pool`,
+and their Sessions stay pinned to them, so the chart's pool also carries that label
+(`substrateWorkerPool.legacyPlacementLabel`, on by default); without it those
+Sessions find no worker after an upgrade.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining

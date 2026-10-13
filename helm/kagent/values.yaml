@@ -496,6 +496,13 @@ substrateWorkerPool:
   # pool's name and namespace, so ActorTemplates generated for other namespaces
   # do not select its workers.
   labels: {}
+  # Also stamp kagent.dev/worker-pool: <name>, the name-only placement label that
+  # ActorTemplates compiled before the two labels above select. Those revisions,
+  # and the Session actors created from them, keep selecting it until they are
+  # re-pointed to a new revision; without it they find no worker on this pool
+  # after an upgrade. It lets them reach this pool by name from any namespace, as
+  # they always did. Turn it off once no such revision is in use.
+  legacyPlacementLabel: true
   # -- ServiceAccount settings for the worker pods
   serviceAccount:
     # -- Create the worker ServiceAccount. Set to false to use one managed outside the chart.

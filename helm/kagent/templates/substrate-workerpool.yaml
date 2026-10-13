@@ -8,7 +8,11 @@ metadata:
   name: {{ .Values.substrateWorkerPool.name | quote }}
   namespace: {{ include "kagent.namespace" . }}
   labels:
-    {{- $labels := mergeOverwrite (dict) (include "kagent.labels" . | fromYaml) (.Values.substrateWorkerPool.labels | default dict) (dict "kagent.dev/worker-pool-name" (toString .Values.substrateWorkerPool.name) "kagent.dev/worker-pool-namespace" (include "kagent.namespace" .)) }}
+    {{- $placement := dict "kagent.dev/worker-pool-name" (toString .Values.substrateWorkerPool.name) "kagent.dev/worker-pool-namespace" (include "kagent.namespace" .) }}
+    {{- if .Values.substrateWorkerPool.legacyPlacementLabel }}
+    {{- $_ := set $placement "kagent.dev/worker-pool" (toString .Values.substrateWorkerPool.name) }}
+    {{- end }}
+    {{- $labels := mergeOverwrite (dict) (include "kagent.labels" . | fromYaml) (.Values.substrateWorkerPool.labels | default dict) $placement }}
     {{- toYaml $labels | nindent 4 }}
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}

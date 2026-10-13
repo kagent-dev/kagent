@@ -25,10 +25,11 @@ tests:
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: kagent
-      # Name-only templates from earlier releases select this key; without it
-      # they cannot reach this pool from another namespace.
-      - notExists:
+      # Revisions compiled before the name and namespace labels select this
+      # key; without it their Sessions find no worker after an upgrade.
+      - equal:
           path: metadata.labels["kagent.dev/worker-pool"]
+          value: selected-pool
       - equal:
           path: spec.sandboxClass
           value: gvisor
@@ -91,6 +92,25 @@ tests:
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-namespace"]
           value: kagent
+  - it: should keep the legacy placement label authoritative
+    set:
+      labels:
+        kagent.dev/worker-pool: foreign-global-pool
+      substrateWorkerPool.labels:
+        kagent.dev/worker-pool: foreign-pool
+    asserts:
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool"]
+          value: selected-pool
+  - it: should drop the legacy placement label when turned off
+    set:
+      substrateWorkerPool.legacyPlacementLabel: false
+    asserts:
+      - notExists:
+          path: metadata.labels["kagent.dev/worker-pool"]
+      - equal:
+          path: metadata.labels["kagent.dev/worker-pool-name"]
+          value: selected-pool
   - it: should render a numeric pool name as a string label
     set:
       substrateWorkerPool.name: 1234
