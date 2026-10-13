@@ -37,12 +37,12 @@ import type { ResourceReference, StructuredObject } from "@/generated/kagent/api
  *
  * Note that this is *not* the version in the proto package. The gRPC surface is
  * `kagent.api.v1alpha1` and the custom resources it carries are
- * `kagent.dev/v1alpha3`, so the two version numbers in play are deliberately
+ * `api.kagent.dev/v1alpha3`, so the two version numbers in play are deliberately
  * different: one versions the transport API, the other versions the CRDs travelling
  * inside it. Reading a `v1alpha1` import beside a `v1alpha3` payload looks like a
  * mistake and is not one.
  */
-export const KAGENT_API_VERSION = "kagent.dev/v1alpha3";
+export const KAGENT_API_VERSION = "api.kagent.dev/v1alpha3";
 
 /** A missing collection is an empty one — an absent list is not an error. */
 export function list<T>(items: readonly T[] | undefined): T[] {

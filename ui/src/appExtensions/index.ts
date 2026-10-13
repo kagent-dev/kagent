@@ -17,6 +17,7 @@ export {
   useExtensionAgentLinks,
   useExtensionApis,
   useExtensionBranding,
+  useExtensionChatPartRenderers,
   useExtensionFormFields,
   useExtensionAgentRailItems,
   useExtensionAgentRailOverrides,
@@ -35,6 +36,7 @@ export {
   extensionAgentLinks,
   extensionApis,
   extensionBranding,
+  extensionChatPartRenderers,
   extensionFormFields,
   extensionAgentRailItems,
   extensionAgentRailOverrides,
@@ -66,7 +68,12 @@ export type {
 
 export type {
   AppExtensionConfig,
+  ChatPartForKey,
+  ChatPartRendererKey,
+  ChatPartRendererProps,
+  ExtensionChatPartRenderers,
   ExtensionAgentLinks,
+  ExtensionAgentInstanceRef,
   ExtensionAgentRef,
   ExtensionAgentRailItemContribution,
   ExtensionAgentRailItemProps,

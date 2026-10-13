@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -63,6 +66,21 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
 		return nil, err
 	}
+	nativeDefaults := cfg.RuntimeTelemetry
+	if cfg.Telemetry != nil {
+		exporters := nativeDefaults.ExporterConfig()
+		if cfg.Telemetry.Traces != nil {
+			exporters.Traces = &sharedtelemetry.OTLPConfig{Endpoint: cfg.Telemetry.Traces.Endpoint, Protocol: cfg.Telemetry.Traces.Protocol}
+		}
+		if cfg.Telemetry.Logs != nil {
+			exporters.Logs = &sharedtelemetry.OTLPConfig{Endpoint: cfg.Telemetry.Logs.Endpoint, Protocol: cfg.Telemetry.Logs.Protocol}
+		}
+		nativeDefaults.Exporters = &exporters
+		nativeDefaults.CaptureContent = cfg.Telemetry.CaptureContent
+	}
+	environment := nativeEnvironment(input.Environment, codexHome, nativeDefaults)
+	cfg.Telemetry = effectiveTelemetry(cfg.Telemetry, environment)
+	cfg.Telemetry.CaptureContent = nativeDefaults.WithEnvironment(input.Environment).CaptureContent
 	configTOML, err := renderConfig(cfg, codexHome)
 	if err != nil {
 		return nil, err
@@ -70,10 +88,6 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
-	environment := setEnvironment(input.Environment, codexHomeEnv, codexHome)
-	// The native runtime inherits the compiled identity through the standard
-	// resource variable, so no user-supplied marker is required.
-	environment = tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.ChildResource())
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {
@@ -294,6 +308,15 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 	return nil
 }
 
+// nativeEnvironment drops OTLP compression: the Codex exporter is built without
+// gzip and refuses to start when asked for it.
+func nativeEnvironment(environment []string, codexHome string, telemetry tracing.RuntimeTelemetry) []string {
+	environment = tracing.ResourceEnvironment(setEnvironment(sharedtelemetry.Environment(environment, telemetry.ExporterConfig()), codexHomeEnv, codexHome), telemetry.ChildResource())
+	return slices.DeleteFunc(environment, func(item string) bool {
+		return strings.HasPrefix(item, env.OTELExporterOTLPCompression.Name()+"=")
+	})
+}
+
 func setEnvironment(environment []string, name, value string) []string {
 	prefix := name + "="
 	result := make([]string, 0, len(environment)+1)
@@ -303,4 +326,17 @@ func setEnvironment(environment []string, name, value string) []string {
 		}
 	}
 	return append(result, prefix+value)
+}
+
+func effectiveTelemetry(defaults *config.Telemetry, environment []string) *config.Telemetry {
+	result := &config.Telemetry{}
+	if defaults != nil {
+		result.CaptureContent = defaults.CaptureContent
+	}
+	for signal, target := range map[string]**config.OTLPExporter{"TRACES": &result.Traces, "LOGS": &result.Logs} {
+		if exporter := sharedtelemetry.OTLPExporter(environment, signal); exporter != nil {
+			*target = &config.OTLPExporter{Endpoint: exporter.Endpoint, Protocol: exporter.Protocol}
+		}
+	}
+	return result
 }

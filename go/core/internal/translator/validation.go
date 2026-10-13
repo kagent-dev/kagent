@@ -1,6 +1,19 @@
 package translator
 
-import "fmt"
+import (
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/types"
+)
+
+// WorkerPoolNotFoundError identifies an unresolved Harness capacity reference.
+type WorkerPoolNotFoundError struct {
+	WorkerPool types.NamespacedName
+}
+
+func (e *WorkerPoolNotFoundError) Error() string {
+	return fmt.Sprintf("WorkerPool %q not found", e.WorkerPool.String())
+}
 
 // ValidationError marks a resolved but unsupported public configuration. The
 // controller reports these as a compatibility condition instead of retrying

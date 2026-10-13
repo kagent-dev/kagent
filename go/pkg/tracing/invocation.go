@@ -2,10 +2,13 @@ package tracing
 
 import (
 	"context"
+	"slices"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -22,7 +25,11 @@ type invocationKey struct{}
 // tracing is installed.
 type Invocation struct {
 	span  trace.Span
-	flush bool
+	flush func(context.Context) error
+	start time.Time
+
+	duration           metric.Float64Histogram
+	durationAttributes []attribute.KeyValue
 
 	mu       sync.Mutex
 	adopted  bool
@@ -43,12 +50,25 @@ type Result struct {
 // execution still reports the identity of the runtime that rejected it. Setting
 // context attributes later cannot change a span that has already started.
 //
-// flush requests a bounded export when the invocation completes, for runtimes
-// whose Actor may be suspended as soon as a quiescent event leaves the process.
-func StartInvocation(ctx context.Context, tracer trace.Tracer, name string, flush bool, attributes ...attribute.KeyValue) (context.Context, *Invocation) {
-	ctx, span := tracer.Start(ctx, name, trace.WithAttributes(attributes...))
-	invocation := &Invocation{span: span, flush: flush}
+// flush, when set, runs once the invocation completes, because the Actor may be
+// suspended as soon as a quiescent event leaves the process.
+func StartInvocation(ctx context.Context, tracer trace.Tracer, name string, flush func(context.Context) error, attributes ...attribute.KeyValue) (context.Context, *Invocation) {
+	start := time.Now()
+	ctx, span := tracer.Start(ctx, name, trace.WithAttributes(attributes...), trace.WithTimestamp(start))
+	invocation := &Invocation{span: span, flush: flush, start: start}
 	return context.WithValue(ctx, invocationKey{}, invocation), invocation
+}
+
+// MeasureDuration records the span duration on histogram when the invocation
+// ends, with error.type added on failure.
+func (i *Invocation) MeasureDuration(histogram metric.Float64Histogram, attributes ...attribute.KeyValue) {
+	if i == nil || histogram == nil {
+		return
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.duration = histogram
+	i.durationAttributes = slices.Clip(attributes)
 }
 
 // InvocationFromContext returns the handle started for this request, or nil.
@@ -118,6 +138,14 @@ func (i *Invocation) IsRecording() bool {
 	return i != nil && i.span.IsRecording()
 }
 
+// Flush exports spans written after the invocation ended; it is safe on a nil handle.
+func (i *Invocation) Flush(ctx context.Context) error {
+	if i == nil || i.flush == nil {
+		return nil
+	}
+	return i.flush(ctx)
+}
+
 // End completes the invocation from the component that owns execution. It
 // reports whether this call ended the span, and any export failure the caller
 // should log.
@@ -156,13 +184,19 @@ func (i *Invocation) end(ctx context.Context, result Result, owner bool) (bool, 
 	if result.Error != "" {
 		i.span.SetStatus(codes.Error, result.Error)
 	}
-	i.span.End()
+	end := time.Now()
+	i.span.End(trace.WithTimestamp(end))
+	if i.duration != nil {
+		attributes := i.durationAttributes
+		if result.Error != "" {
+			attributes = append(attributes, attribute.String(AttributeErrorType, result.Error))
+		}
+		i.duration.Record(context.WithoutCancel(ctx), end.Sub(i.start).Seconds(), metric.WithAttributes(attributes...))
+	}
 	flush := i.flush
 	i.mu.Unlock()
-	if !flush {
+	if flush == nil {
 		return true, nil
 	}
-	// ForceFlush detaches from caller cancellation and bounds its own wait, so a
-	// collector outage costs at most that budget once per segment.
-	return true, ForceFlush(ctx)
+	return true, flush(ctx)
 }

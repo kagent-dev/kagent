@@ -19,7 +19,7 @@ describe("the agent rail's own entries", () => {
   });
 
   it("leaves out an entry whose address cannot be derived", () => {
-    // An instance with no prepared revision belongs to no pair, so there is nothing
+    // An instance with no prepared revision belongs to no Agent, so there is nothing
     // at the other end. A dead row is worse than no row.
     expect(coreRailItems({}).map((item) => item.key)).toEqual([]);
     expect(

@@ -4,7 +4,7 @@
 
 ## Background
 
-KAgent currently uses an unsecure authentication mechanism (`UnsecureAuthenticator`) that accepts any user ID provided via query parameters or headers, with no validation. This development-grade authentication is suitable only for trusted environments and poses significant security risks for production deployments.
+KAgent currently uses an insecure authentication mechanism (`InsecureAuthenticator`) that accepts any user ID provided via query parameters or headers, with no validation. This development-grade authentication is suitable only for trusted environments and poses significant security risks for production deployments.
 
 This proposal adds enterprise-grade authentication to KAgent by implementing a standard OIDC (OpenID Connect) client that works with any compliant OIDC provider. This enables integration with enterprise identity systems including Keycloak, Auth0, Okta, Azure AD, Google, or Dex. KAgent will not bundle an identity provider; instead, users deploy and manage their OIDC provider separately, following infrastructure separation principles.
 
@@ -39,7 +39,7 @@ This proposal adds enterprise-grade authentication to KAgent by implementing a s
 4. **Implement session management** with secure token storage, refresh, and revocation
 5. **Add RBAC foundation** with group-based role mapping from OIDC claims
 6. **Maintain backward compatibility** during migration with feature flags
-7. **Provide migration path** from unsecure auth to OIDC with clear documentation
+7. **Provide migration path** from insecure auth to OIDC with clear documentation
 8. **Support both UI and CLI** authentication flows (web flow for UI, device code or browser flow for CLI)
 
 ### Non-Goals
@@ -244,7 +244,7 @@ Different OIDC providers return groups in different formats. RBAC policies must 
 
 **7. Migration Strategy**
 - Add `--auth-enabled` flag (default: false for backward compatibility)
-- When disabled, use `UnsecureAuthenticator`
+- When disabled, use `InsecureAuthenticator`
 - When enabled, use `OIDCAuthenticator`
 
 **Migration Steps** (for existing deployments):
@@ -282,7 +282,7 @@ Different OIDC providers return groups in different formats. RBAC policies must 
 6. **Rollback** (if needed):
    - Set `--auth-enabled=false`
    - Restart kagent-server
-   - Users can immediately access with unsecure auth (user_id query params)
+   - Users can immediately access with insecure auth (user_id query params)
    - No data loss; only affects authentication layer
 
 #### Phase 2: Enhanced Security & Features

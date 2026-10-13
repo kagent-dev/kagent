@@ -8,7 +8,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
-const outputSchemaSHA256MetadataKey = "kagent.dev/a2a/output-schema-sha256"
+const outputSchemaSHA256MetadataKey = MetadataPrefix + "output-schema-sha256"
 
 // NewStructuredOutputPart constructs a structured terminal result with its
 // complete wire signature: JSON data and the digest of the enforced schema.

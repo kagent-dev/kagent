@@ -61,7 +61,6 @@ func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	incoming.Status = v1alpha3.AgentTemplateStatus{}
 	result, err := s.service.Create(ctx, incoming)
 	if err != nil {
 		return nil, err
@@ -82,13 +81,13 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	existing, err := s.service.GetForUpdate(ctx, ref)
+	existing, err := s.service.Get(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 	existing.Spec = *incoming.Spec.DeepCopy()
 	existing.Labels = maps.Clone(incoming.Labels)
-	result, err := s.service.SaveUpdate(ctx, existing)
+	result, err := s.service.Update(ctx, existing)
 	if err != nil {
 		return nil, err
 	}
@@ -115,10 +114,6 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode AgentTemplate resource", err)
 	}
-	admitting := make([]string, 0, len(template.Status.Harnesses))
-	for _, status := range template.Status.Harnesses {
-		admitting = append(admitting, status.Harness)
-	}
 	var modelConfigRef *apiv1alpha1.ResourceReference
 	if template.Spec.ModelConfig != nil {
 		modelConfigRef = &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}
@@ -127,10 +122,9 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 		Ref: &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
 		// The model config lives in the template's own namespace: the CRD's
 		// reference is name-only and same-namespace by construction.
-		ModelConfigRef:     modelConfigRef,
-		Resource:           resource,
-		Description:        template.Spec.Description,
-		AdmittingHarnesses: admitting,
+		ModelConfigRef: modelConfigRef,
+		Resource:       resource,
+		Description:    template.Spec.Description,
 	}, nil
 }
 

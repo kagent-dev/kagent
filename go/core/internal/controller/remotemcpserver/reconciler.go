@@ -29,6 +29,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/toolcatalog"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -44,37 +45,40 @@ import (
 
 const (
 	conditionAccepted = "Accepted"
-	remoteGroupKind   = "RemoteMCPServer.kagent.dev"
 	refreshInterval   = 5 * time.Minute
+
+	// discoveryDisabledMessage explains an Accepted RemoteMCPServer that publishes
+	// no discovered tools because its operator opted out of discovery.
+	discoveryDisabledMessage = "Tool discovery is disabled by the " + consts.DiscoveryLabel + "=" + consts.DiscoveryDisabled +
+		" label; agents resolve the tool list at run time"
 )
+
+var remoteGroupKind = v1alpha3.GroupVersion.WithKind("RemoteMCPServer").GroupKind().String()
 
 // ToolDiscoverer returns the tools currently advertised by one MCP server.
 type ToolDiscoverer interface {
 	ListTools(context.Context, toolservice.MCPServerRef) ([]toolservice.MCPAppTool, error)
 }
 
-// CatalogStore keeps the gRPC ToolService catalog aligned with Kubernetes status.
-// RemoteMCPServer status remains the source used by harness compilers, while the
-// database projection serves list RPCs without making those RPCs perform discovery.
-type CatalogStore interface {
-	RefreshToolServer(context.Context, *database.ToolServer, ...*v1alpha3.MCPTool) error
-	DeleteToolServer(context.Context, string, string) error
-}
-
 // Reconciler publishes RemoteMCPServer discovery results to its status.
 type Reconciler struct {
 	client     client.Client
 	discoverer ToolDiscoverer
-	catalog    CatalogStore
+	catalog    *toolcatalog.Publisher
 }
 
-func New(client client.Client, discoverer ToolDiscoverer, catalog CatalogStore) *Reconciler {
-	return &Reconciler{client: client, discoverer: discoverer, catalog: catalog}
+func New(client client.Client, discoverer ToolDiscoverer, catalog toolcatalog.Store) *Reconciler {
+	return &Reconciler{client: client, discoverer: discoverer, catalog: toolcatalog.NewPublisher(catalog)}
 }
 
 func (r *Reconciler) SetupWithManager(manager ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(manager).
-		For(&v1alpha3.RemoteMCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// A label change does not bump the generation, and the discovery opt-out
+		// is a label: watch both so the opt-out (and its removal) applies at once
+		// instead of on the next periodic refresh.
+		For(&v1alpha3.RemoteMCPServer{}, builder.WithPredicates(predicate.Or[client.Object](
+			predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{},
+		))).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.requestsForDependency)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.requestsForDependency)).
 		Complete(r)
@@ -86,7 +90,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
-		return reconcile.Result{}, r.catalog.DeleteToolServer(ctx, request.String(), remoteGroupKind)
+		return reconcile.Result{}, r.catalog.Delete(ctx, request.String(), remoteGroupKind)
+	}
+
+	if discoveryDisabled(server) {
+		// The operator opted this server out of discovery (a server that
+		// authenticates every caller has no credential to offer the controller).
+		// Accept it without listing tools: the status carries none and the catalog
+		// keeps the server, disconnected, with no tools.
+		if err := r.updateStatus(ctx, server, nil, metav1.ConditionTrue, "DiscoveryDisabled", discoveryDisabledMessage); err != nil {
+			return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer discovery status: %w", err)
+		}
+		if err := r.updateCatalog(ctx, server, nil, false); err != nil {
+			return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer tool catalog: %w", err)
+		}
+		return reconcile.Result{RequeueAfter: refreshInterval}, nil
 	}
 
 	tools, err := r.discoverer.ListTools(ctx, toolservice.MCPServerRef{
@@ -122,6 +140,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	return reconcile.Result{RequeueAfter: refreshInterval}, nil
 }
 
+// discoveryDisabled reports whether the operator opted the server out of tool
+// discovery with the kagent.dev/discovery=disabled label.
+func discoveryDisabled(server *v1alpha3.RemoteMCPServer) bool {
+	return server.Labels[consts.DiscoveryLabel] == consts.DiscoveryDisabled
+}
+
 func (r *Reconciler) updateCatalog(ctx context.Context, server *v1alpha3.RemoteMCPServer, tools []*v1alpha3.MCPTool, connected bool) error {
 	name := client.ObjectKeyFromObject(server).String()
 	var lastConnected *time.Time
@@ -129,7 +153,7 @@ func (r *Reconciler) updateCatalog(ctx context.Context, server *v1alpha3.RemoteM
 		now := time.Now().UTC()
 		lastConnected = &now
 	}
-	return r.catalog.RefreshToolServer(ctx, &database.ToolServer{
+	return r.catalog.Refresh(ctx, server.UID, &database.ToolServer{
 		Name: name, GroupKind: remoteGroupKind, Description: server.Spec.Description, LastConnected: lastConnected,
 	}, tools...)
 }
@@ -182,9 +206,6 @@ func (r *Reconciler) requestsForDependency(ctx context.Context, object client.Ob
 func referencesDependency(server *v1alpha3.RemoteMCPServer, object client.Object) bool {
 	switch object.(type) {
 	case *corev1.Secret:
-		if server.Spec.TLS != nil && server.Spec.TLS.CACertSecretRef == object.GetName() {
-			return true
-		}
 		for i := range server.Spec.HeadersFrom {
 			from := server.Spec.HeadersFrom[i].ValueFrom
 			if from != nil && from.Type == v1alpha3.SecretValueSource && from.Name == object.GetName() {

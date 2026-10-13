@@ -27,7 +27,7 @@ import { useChat } from "./useChat";
  * this.
  */
 
-const CONVERSATION = { id: "instance-1" };
+const CONVERSATION = { id: "instance-1", agent: "team-a/assistant" };
 const QUESTION = "why is checkout crashlooping?";
 
 /** The text of a message, for asserting on what is on screen rather than on shape. */
@@ -622,7 +622,7 @@ describe("useChat, continued", () => {
     setChatClientFactory(() => client({ reply: () => [] }));
 
     const { result, rerender } = renderHook(
-      ({ id }: { id: string }) => useChat({ id }),
+      ({ id }: { id: string }) => useChat({ id, agent: "team-a/assistant" }),
       { initialProps: { id: "instance-1" } },
     );
     await waitFor(() => expect(result.current.isLoadingHistory).toBe(false));

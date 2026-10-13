@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "kagent-openai",
-    "openai-agents>=0.18.3",
-    "uvicorn>=0.51.0",
+    "openai-agents>=0.23.1",
+    "uvicorn>=0.54.0",
 ]
 
 [tool.uv.sources]

@@ -1,13 +1,13 @@
 suite: test global values
 templates:
   - controller-deployment.yaml
-  - postgresql-secret.yaml
   - controller-configmap.yaml
   - rbac/getter-role.yaml
   - substrate-workerpool.yaml
-  # ui-deployment.yaml includes ui-nginx-configmap.yaml, and helm-unittest can
-  # only resolve cross-template includes when both are listed here.
+  # Helm-unittest requires the UI's ConfigMaps to be listed here so it can
+  # resolve the Deployment's checksum includes.
   - ui-deployment.yaml
+  - ui-configmap.yaml
   - ui-nginx-configmap.yaml
 tests:
   - it: should override every image registry from global.imageRegistry
@@ -18,10 +18,44 @@ tests:
       - matchRegex:
           path: spec.template.spec.containers[0].image
           pattern: "^mirror\\.example/kagent-dev/kagent/controller:"
+  - it: should mirror the sandbox guest image while preserving its digest
+    set:
+      global.imageRegistry: mirror.example
+      config.sandboxes.guestImage: ghcr.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: mirror\.example/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+  - it: should leave the sandbox guest image alone when the global is unset
+    set:
+      config.sandboxes.guestImage: ghcr.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: ghcr\.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+  - it: should normalize the mirror registry for the sandbox guest image
+    set:
+      global.imageRegistry: "mirror.example/"
+      config.sandboxes.guestImage: ghcr.io/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: mirror\.example/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$'
+  - it: should leave an unconfigured sandbox guest image empty under the global
+    set:
+      global.imageRegistry: mirror.example
+    template: controller-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: '(?m)^  guestImage: ""$'
   - it: should rewrite the worker pool image onto global.imageRegistry
     set:
       global.imageRegistry: mirror.example
-      controller.substrate.enabled: true
+      controller.substrateClientCertificate.enabled: true
       substrateWorkerPool.create: true
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
     template: substrate-workerpool.yaml
@@ -31,7 +65,7 @@ tests:
           value: mirror.example/kagent-dev/substrate/ateom:v1
   - it: should leave the worker pool image alone when the global is unset
     set:
-      controller.substrate.enabled: true
+      controller.substrateClientCertificate.enabled: true
       substrateWorkerPool.create: true
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
     template: substrate-workerpool.yaml
@@ -42,7 +76,7 @@ tests:
   - it: should tolerate a trailing slash on global.imageRegistry
     set:
       global.imageRegistry: "mirror.example/"
-      controller.substrate.enabled: true
+      controller.substrateClientCertificate.enabled: true
       substrateWorkerPool.create: true
       substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom:v1
     template: substrate-workerpool.yaml
@@ -54,14 +88,6 @@ tests:
   # come from each harness spec, not from this env. The global must therefore
   # not touch it -- rewiring it would claim mirror coverage the runtime does
   # not have. This pins the removal itself.
-  - it: should keep the agent-runtime env on its per-image registry under the global
-    set:
-      global.imageRegistry: mirror.example
-    template: controller-configmap.yaml
-    asserts:
-      - equal:
-          path: data.IMAGE_REGISTRY
-          value: ghcr.io
   - it: should point the ui image at global.imageRegistry
     set:
       global.imageRegistry: mirror.example
@@ -163,13 +189,13 @@ tests:
           namespace: other
           any: true
 
-  - it: should fold controller.watchNamespaces into the RBAC scope under the global
+  - it: should fold config.kubernetes.watchNamespaces into the RBAC scope under the global
     release:
       namespace: NAMESPACE
     set:
       global.watchNamespaces:
         - NAMESPACE
-      controller.watchNamespaces:
+      config.kubernetes.watchNamespaces:
         - NAMESPACE
         - extra
     template: rbac/getter-role.yaml
@@ -186,10 +212,10 @@ tests:
     set:
       rbac.namespaces:
         - NAMESPACE
-      controller.watchNamespaces:
+      config.kubernetes.watchNamespaces:
         - NAMESPACE
         - outside
     template: rbac/getter-role.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'controller\.watchNamespaces includes "outside" but rbac\.namespaces does not'
+          errorPattern: 'config\.kubernetes\.watchNamespaces includes "outside" but rbac\.namespaces does not'

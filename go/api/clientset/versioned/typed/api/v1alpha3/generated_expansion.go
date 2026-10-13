@@ -2,6 +2,8 @@
 
 package v1alpha3
 
+type AgentExpansion interface{}
+
 type AgentTemplateExpansion interface{}
 
 type HarnessExpansion interface{}
@@ -9,3 +11,5 @@ type HarnessExpansion interface{}
 type ModelConfigExpansion interface{}
 
 type RemoteMCPServerExpansion interface{}
+
+type SandboxTemplateExpansion interface{}

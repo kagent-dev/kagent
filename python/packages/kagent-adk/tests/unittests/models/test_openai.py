@@ -927,6 +927,71 @@ class TestConvertContentToOpenaiMessages:
         assert len(tool_messages) == 1
         assert tool_messages[0]["content"] == "text part\nanother text part"
 
+    def test_mcp_tool_result_includes_embedded_text_resource(self):
+        """Test that an EmbeddedResource with text is passed to the model.
+
+        The GitHub MCP server's get_file_contents returns a status line
+        plus an embedded resource that holds the file. Both must reach
+        the model, not only the status line.
+        """
+        response = {
+            "content": [
+                {"type": "text", "text": "successfully downloaded text file (SHA: abc123)"},
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "repo://owner/repo/contents/README.md",
+                        "mimeType": "text/markdown",
+                        "text": "# Title\nfile body",
+                    },
+                },
+            ]
+        }
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == "successfully downloaded text file (SHA: abc123)\n# Title\nfile body"
+
+    def test_mcp_tool_result_embedded_blob_resource_placeholder(self):
+        """Test that an EmbeddedResource with a blob becomes a placeholder."""
+        response = {
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "repo://owner/repo/contents/logo.png",
+                        "mimeType": "image/png",
+                        "blob": "iVBORw0KGgo=",
+                    },
+                },
+            ]
+        }
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert (
+            tool_messages[0]["content"] == "[binary resource repo://owner/repo/contents/logo.png (image/png) omitted]"
+        )
+
+    def test_mcp_tool_result_skips_resource_without_text_or_blob(self):
+        """Test that a resource item with neither text nor blob is skipped."""
+        response = {
+            "content": [
+                {"type": "text", "text": "text part"},
+                {"type": "resource", "resource": {"uri": "repo://owner/repo/contents/empty"}},
+            ]
+        }
+        contents = self._make_contents_with_tool_response(response)
+        messages = _convert_content_to_openai_messages(contents)
+
+        tool_messages = [m for m in messages if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == "text part"
+
     def test_mcp_tool_result_empty_content_list(self):
         """Test that an empty content list produces empty string."""
         response = {"content": []}

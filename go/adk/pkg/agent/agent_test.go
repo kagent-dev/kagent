@@ -58,7 +58,9 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
 		"model": {
 			"type": "anthropic",
 			"model": "claude-sonnet-4-20250514",
-			"base_url": "https://api.anthropic.com"
+			"base_url": "https://api.anthropic.com",
+			"prompt_caching": true,
+			"cache_ttl": "1h"
 		},
 		"description": "test agent",
 		"instruction": "you are helpful"
@@ -76,6 +78,38 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
 
 	if anthropic.Model != "claude-sonnet-4-20250514" {
 		t.Errorf("model name = %q, want %q", anthropic.Model, "claude-sonnet-4-20250514")
+	}
+	if !anthropic.PromptCaching {
+		t.Error("PromptCaching = false, want true")
+	}
+	if anthropic.CacheTTL != "1h" {
+		t.Errorf("CacheTTL = %q, want %q", anthropic.CacheTTL, "1h")
+	}
+}
+
+// TestCreateLLM_AnthropicPromptCaching verifies the prompt caching knobs reach
+// the Anthropic model, which is where the cache_control markers are set.
+func TestCreateLLM_AnthropicPromptCaching(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	m := &adk.Anthropic{
+		BaseModel:     adk.BaseModel{Type: "anthropic", Model: "claude-sonnet-4-6"},
+		PromptCaching: true,
+		CacheTTL:      "1h",
+	}
+
+	llm, err := CreateLLM(context.Background(), m)
+	if err != nil {
+		t.Fatalf("CreateLLM: %v", err)
+	}
+	am, ok := llm.(*models.AnthropicModel)
+	if !ok {
+		t.Fatalf("model is %T, want *models.AnthropicModel", llm)
+	}
+	if !am.Config.PromptCaching {
+		t.Error("Config.PromptCaching = false, want true")
+	}
+	if am.Config.CacheTTL != "1h" {
+		t.Errorf("Config.CacheTTL = %q, want %q", am.Config.CacheTTL, "1h")
 	}
 }
 
@@ -108,9 +142,9 @@ func TestConfigDeserialization_AllTypes(t *testing.T) {
 		},
 		{
 			name:      "gemini",
-			json:      `{"type":"gemini","model":"gemini-2.5-flash"}`,
+			json:      `{"type":"gemini","model":"gemini-3.5-flash"}`,
 			wantType:  "gemini",
-			wantModel: "gemini-2.5-flash",
+			wantModel: "gemini-3.5-flash",
 		},
 		{
 			name:      "gemini_vertex_ai",
@@ -252,6 +286,57 @@ func TestModelName_ReturnsModelNotProvider(t *testing.T) {
 			t.Errorf("Name() = %q, want %q", m.Name(), "anthropic.claude-3-sonnet-20240229-v1:0")
 		}
 	})
+}
+
+// TestCreateLLMConfig_Mistral verifies that createLLM wires an *adk.Mistral
+// into a MistralModel whose inner OpenAI client keeps the model name (not the
+// type discriminator "mistral") and inherits the Mistral base URL.
+func TestCreateLLMConfig_Mistral(t *testing.T) {
+	t.Setenv("MISTRAL_API_KEY", "test-key")
+	t.Setenv("MISTRAL_API_BASE", "")
+
+	configJSON := `{
+		"model": {
+			"type": "mistral",
+			"model": "mistral-large-latest",
+			"base_url": "https://api.mistral.ai/v1",
+			"temperature": 0.5,
+			"max_tokens": 1024
+		},
+		"description": "test",
+		"instruction": "test"
+	}`
+
+	var cfg adk.AgentConfig
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	mistral, ok := cfg.Model.(*adk.Mistral)
+	if !ok {
+		t.Fatalf("model is %T, want *adk.Mistral", cfg.Model)
+	}
+	if mistral.Model != "mistral-large-latest" {
+		t.Errorf("model = %q, want %q", mistral.Model, "mistral-large-latest")
+	}
+	if mistral.BaseUrl != "https://api.mistral.ai/v1" {
+		t.Errorf("base_url = %q, want %q", mistral.BaseUrl, "https://api.mistral.ai/v1")
+	}
+
+	llm, err := CreateLLM(t.Context(), cfg.Model)
+	if err != nil {
+		t.Fatalf("CreateLLM returned error: %v", err)
+	}
+	mm, ok := llm.(*models.MistralModel)
+	if !ok {
+		t.Fatalf("CreateLLM returned %T, want *models.MistralModel", llm)
+	}
+	if mm.Name() != "mistral-large-latest" {
+		t.Errorf("Name() = %q, want %q", mm.Name(), "mistral-large-latest")
+	}
+	if mm.Name() == "mistral" {
+		t.Error("Name() returns provider name 'mistral' instead of model name — this causes 404s from the Mistral API")
+	}
 }
 
 // TestConfigDeserialization_Bedrock verifies that a Bedrock config deserializes
@@ -447,7 +532,6 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 
 func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
-	t.Setenv("KAGENT_SKILLS_FOLDER", "/does/not/exist")
 	model := func() adk.Model {
 		return &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4o"}, BaseUrl: "https://api.openai.com/v1"}
 	}

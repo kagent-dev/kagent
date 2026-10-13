@@ -34,7 +34,7 @@ func (f fakeRunner) Run(ctx context.Context, turn runtime.Turn, sink runtime.Eve
 type fakePendingTurn struct {
 	request runtime.InputRequest
 	resume  func(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error)
-	cancel  func(context.Context) error
+	cancel  func(context.Context, runtime.ModelCallSink) error
 }
 
 func (f *fakePendingTurn) Request() runtime.InputRequest { return f.request }
@@ -43,11 +43,11 @@ func (f *fakePendingTurn) Resume(ctx context.Context, response runtime.InputResp
 	return f.resume(ctx, response, sink)
 }
 
-func (f *fakePendingTurn) Cancel(ctx context.Context) error {
+func (f *fakePendingTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) error {
 	if f.cancel == nil {
 		return nil
 	}
-	return f.cancel(ctx)
+	return f.cancel(ctx, sink)
 }
 
 type fakeContinuation struct {
@@ -237,7 +237,7 @@ func assertToolActivity(t *testing.T, events []a2atype.Event, partType string, w
 			continue
 		}
 		part := update.Artifact.Parts[0]
-		if part.Metadata["kagent_type"] != partType {
+		if part.Metadata[apia2a.PartTypeMetadataKey] != partType {
 			continue
 		}
 		if got := part.Data(); !reflect.DeepEqual(got, want) {
@@ -333,7 +333,7 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 		<-ctx.Done()
 		return runtime.Outcome{Pending: &fakePendingTurn{
 			request: &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write"},
-			cancel: func(context.Context) error {
+			cancel: func(context.Context, runtime.ModelCallSink) error {
 				close(pendingCancelStarted)
 				<-releasePendingCancel
 				return nil
@@ -395,7 +395,7 @@ func TestCancelParkedTurn(t *testing.T) {
 				request: &runtime.ApprovalRequest{
 					ID: "approval-1", CallID: "call-1", Name: "protected.write", Hint: "Approve?",
 				},
-				cancel: func(context.Context) error {
+				cancel: func(context.Context, runtime.ModelCallSink) error {
 					canceled = true
 					return nil
 				},
@@ -447,6 +447,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := requestContext("task-approval", "write")
+	if executor.ReservedTaskID() != "" {
+		t.Fatal("idle session is reserved")
+	}
 	events, errs := collect(executor.Execute(t.Context(), first))
 	if len(errs) != 0 || len(events) != 2 {
 		t.Fatalf("first execution events/errors = %#v/%v", events, errs)
@@ -456,6 +459,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatalf("input-required event = %#v", events[1])
 	}
 	decisionMessage := a2atype.NewMessage(a2atype.MessageRoleUser)
+	if executor.ReservedTaskID() != first.TaskID {
+		t.Fatal("pending approval did not reserve its native session")
+	}
 	decisionMessage.TaskID, decisionMessage.ContextID = first.TaskID, first.ContextID
 	if err := apia2a.AttachHITL(decisionMessage, apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: "7", Approved: false, RejectionReason: "production is still serving traffic"}}}); err != nil {
 		t.Fatal(err)
@@ -464,6 +470,9 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 	_, errs = collect(executor.Execute(t.Context(), second))
 	if len(errs) != 0 || decision == nil || decision.ID != "7" || decision.Approved || decision.RejectionReason != "production is still serving traffic" {
 		t.Fatalf("approval decision = %#v, errors = %v", decision, errs)
+	}
+	if executor.ReservedTaskID() != "" {
+		t.Fatal("completed approval kept its native session reserved")
 	}
 }
 

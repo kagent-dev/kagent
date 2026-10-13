@@ -108,7 +108,7 @@ This document provides the CNCF TAG-Security with an initial understanding of ka
 
 ### Critical
 
-- **Authentication System**: Currently includes UnsecureAuthenticator for development and A2AAuthenticator for agent-to-agent communication. https://github.com/kagent-dev/kagent/issues/476 is on the roadmap to create a more extensible authentication and authorization system.
+- **Authentication System**: Currently includes InsecureAuthenticator for development and A2AAuthenticator for agent-to-agent communication. https://github.com/kagent-dev/kagent/issues/476 is on the roadmap to create a more extensible authentication and authorization system.
 
 - **Secret Management**: Integrates with Kubernetes secret management for storing sensitive data like API keys, credentials, and configuration data. Secrets are automatically mounted into agent containers and accessed through secure channels. The kagent API does not allow for any cross namespace referencing of secrets and/or resources which reference secrets. We are interested in potentially adding this ability via something like a ReferenceGrant in the future.
 

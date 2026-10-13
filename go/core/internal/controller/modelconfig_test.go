@@ -5,7 +5,7 @@ import (
 	"time"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -14,8 +14,8 @@ import (
 )
 
 func TestResolvedModelConfigEquals(t *testing.T) {
-	left := v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
-	right := v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
+	left := translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
+	right := translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
 	if !krt.Equal(left, right) {
 		t.Fatal("equal resolutions were not considered equal")
 	}
@@ -141,12 +141,7 @@ func TestModelConfigReconciliationValidatesEffectiveProviderReferences(t *testin
 		configMap      *corev1.ConfigMap
 		expectedReason string
 	}{
-		{
-			name: "TLS CA key", spec: kagentv1alpha3.ModelConfigSpec{
-				Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderOpenAI,
-				TLS: &kagentv1alpha3.TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.pem"},
-			}, secret: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "ca"}}, expectedReason: "TLSSecretKeyNotFound",
-		},
+
 		{
 			name: "SAP credentials", spec: kagentv1alpha3.ModelConfigSpec{
 				Model: "gpt-5", Provider: kagentv1alpha3.ModelProviderSAPAICore,

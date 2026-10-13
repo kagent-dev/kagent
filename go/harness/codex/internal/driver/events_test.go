@@ -2,6 +2,7 @@ package driver
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ type recordingSink struct {
 	sessions []runtime.SessionStarted
 	calls    []runtime.ToolCall
 	results  []runtime.ToolResult
+	models   []runtime.ModelCall
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
@@ -30,6 +32,9 @@ func (s *recordingSink) ToolCall(event runtime.ToolCall) error {
 func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
 	s.results = append(s.results, event)
 	return nil
+}
+func (s *recordingSink) ModelCall(event runtime.ModelCall) {
+	s.models = append(s.models, event)
 }
 
 func TestTranslatePinnedNotifications(t *testing.T) {
@@ -64,8 +69,11 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	if !ok || result["exitCode"] != 0 {
 		t.Fatalf("command result = %#v, want integer exitCode 0", sink.results[0].Result)
 	}
-	if sink.calls[1].Name != "tools.lookup" || sink.results[1].Name != "tools.lookup" {
+	if call := sink.calls[1]; call.Name != "tools.lookup" || call.MCPServer != "tools" || call.MCPTool != "lookup" || sink.results[1].Name != "tools.lookup" {
 		t.Fatalf("MCP events = %#v, %#v, want tools.lookup", sink.calls[1], sink.results[1])
+	}
+	if call := sink.calls[0]; call.MCPServer != "" || call.MCPTool != "" {
+		t.Fatalf("non-MCP call = %#v, want no MCP server or tool", call)
 	}
 }
 
@@ -85,18 +93,191 @@ func TestApprovalToolCorrelatesActiveCall(t *testing.T) {
 		}
 	}
 
-	id, name, err := translator.approvalTool("protected", "", map[string]any{"path": "target"})
+	id, name, err := translator.approvalTool("", "protected", "", map[string]any{"path": "target"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id != "delete" || name != "protected.delete" {
 		t.Fatalf("approval tool = %q/%q, want delete/protected.delete", id, name)
 	}
-	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "target"}); err == nil {
+	if _, _, err := translator.approvalTool("thread", "protected", "", map[string]any{"path": "target"}); err == nil {
 		t.Fatal("approvalTool() accepted a duplicate approval")
 	}
-	translator.tools["copy"] = activeTool{name: "protected.copy", server: "protected", arguments: map[string]any{"path": "source"}}
-	if _, _, err := translator.approvalTool("protected", "", map[string]any{"path": "source"}); err == nil {
+	translator.tools["copy"] = activeTool{name: "protected.copy", server: "protected", thread: "thread", arguments: map[string]any{"path": "source"}}
+	if _, _, err := translator.approvalTool("thread", "protected", "", map[string]any{"path": "source"}); err == nil {
 		t.Fatal("approvalTool() accepted ambiguous active calls")
+	}
+}
+
+func TestApprovalToolMatchesTheRequestThread(t *testing.T) {
+	translator := newEventTranslator("thread", "turn")
+	sink := &recordingSink{}
+	for _, raw := range []string{
+		`{"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}`,
+		`{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}`,
+		`{"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"main-write","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}`,
+		`{"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-write","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ thread, wantID string }{
+		{thread: "child", wantID: "child-write"},
+		{thread: "thread", wantID: "main-write"},
+	} {
+		id, _, err := translator.approvalTool(tc.thread, "protected", "", map[string]any{"value": float64(7)})
+		if err != nil || id != tc.wantID {
+			t.Fatalf("approval tool on %s = %q, %v, want %q", tc.thread, id, err, tc.wantID)
+		}
+	}
+}
+
+func TestTranslateChildNotifications(t *testing.T) {
+	for _, method := range []string{"item/started", "item/completed", "item/agentMessage/delta", "turn/completed"} {
+		t.Run(method, func(t *testing.T) {
+			translator := newEventTranslator("parent", "turn")
+			translator.tools["active"] = activeTool{name: "Agent"}
+			sink := &recordingSink{}
+			outcome, done, err := translator.translate(rpcMessage{
+				Method: method,
+				Params: json.RawMessage(`{"threadId":"child","turnId":"child-turn","itemId":"message","delta":"private child answer","item":{"type":"commandExecution","id":"active","command":"pwd","status":"completed"},"turn":{"id":"child-turn","status":"failed"}}`),
+			}, sink)
+			if err != nil || done || outcome.Failure != nil || outcome.Pending != nil {
+				t.Fatalf("child notification: outcome=%#v done=%t error=%v", outcome, done, err)
+			}
+			if sink.text.Len() != 0 || len(sink.calls) != 0 || len(sink.results) != 0 || len(translator.tools) != 1 {
+				t.Fatalf("child notification changed parent state: sink=%#v tools=%#v", sink, translator.tools)
+			}
+		})
+	}
+}
+
+func TestTranslateRejectsInvalidParentIdentity(t *testing.T) {
+	for _, method := range []string{"item/started", "item/completed", "item/agentMessage/delta", "turn/completed"} {
+		for _, test := range []struct {
+			name   string
+			params string
+		}{
+			{name: "missing thread", params: `{"turnId":"turn","itemId":"message","turn":{"id":"turn","status":"completed"}}`},
+			{name: "wrong turn", params: `{"threadId":"parent","turnId":"wrong","itemId":"message","turn":{"id":"wrong","status":"completed"}}`},
+			{name: "missing turn", params: `{"threadId":"parent","itemId":"message","turn":{"status":"completed"}}`},
+			{name: "malformed params", params: `{"threadId":123}`},
+		} {
+			t.Run(method+"/"+test.name, func(t *testing.T) {
+				translator := newEventTranslator("parent", "turn")
+				_, done, err := translator.translate(rpcMessage{Method: method, Params: json.RawMessage(test.params)}, &recordingSink{})
+				if err == nil || done {
+					t.Fatalf("invalid parent notification: done=%t error=%v", done, err)
+				}
+			})
+		}
+	}
+	_, _, err := newEventTranslator("parent", "turn").translate(rpcMessage{
+		Method: "item/agentMessage/delta", Params: json.RawMessage(`{"threadId":"parent","turnId":"turn","delta":"missing item ID"}`),
+	}, &recordingSink{})
+	if err == nil {
+		t.Fatal("accepted parent text delta without an item ID")
+	}
+}
+
+func TestRejectBufferedPostTerminalActivity(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		method  string
+		params  string
+		wantErr string
+	}{
+		{name: "child item", method: "item/started", params: `{"threadId":"child"}`},
+		{name: "child delta", method: "item/agentMessage/delta", params: `{"threadId":"child"}`},
+		{name: "child turn", method: "turn/started", params: `{"threadId":"child"}`},
+		{name: "child terminal", method: "turn/completed", params: `{"threadId":"child"}`},
+		{name: "parent terminal", method: "turn/completed", params: `{"threadId":"parent"}`, wantErr: "duplicate terminal event"},
+		{name: "parent activity", method: "item/started", params: `{"threadId":"parent"}`, wantErr: "activity after its terminal event"},
+		{name: "missing thread", method: "item/started", params: `{}`, wantErr: "activity after its terminal event"},
+		{name: "malformed identity", method: "item/started", params: `{"threadId":123}`, wantErr: "decode"},
+		{name: "additive notification", method: "account/updated", params: `{}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			frames := make(chan rpcFrame, 2)
+			// Ignoring a child's completion must not hide a later parent violation.
+			frames <- rpcFrame{message: rpcMessage{Method: "turn/completed", Params: json.RawMessage(`{"threadId":"child"}`)}}
+			frames <- rpcFrame{message: rpcMessage{Method: test.method, Params: json.RawMessage(test.params)}}
+			close(frames)
+			err := newEventTranslator("parent", "turn").rejectBufferedPostTerminalActivity(frames)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+	frames := make(chan rpcFrame, 1)
+	wantErr := errors.New("broken protocol stream")
+	frames <- rpcFrame{err: wantErr}
+	if err := newEventTranslator("parent", "turn").rejectBufferedPostTerminalActivity(frames); !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestDeclinedCommandNeverRan(t *testing.T) {
+	sink := &recordingSink{}
+	translator := newEventTranslator("thread", "turn")
+	for _, raw := range []string{
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"rm -rf x","cwd":"/w","status":"inProgress"}}}`,
+		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"rm -rf x","cwd":"/w","status":"declined"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sink.results) != 1 || sink.results[0].Status != runtime.ToolDeclined || sink.results[0].IsError {
+		t.Fatalf("results = %#v, want one declined result", sink.results)
+	}
+}
+
+func TestTerminalClosesOpenToolsAsUnfinished(t *testing.T) {
+	sink := &recordingSink{}
+	translator := newEventTranslator("thread", "turn")
+	for _, raw := range []string{
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"c1","command":"sleep 9","cwd":"/w","status":"inProgress"}}}`,
+		`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"interrupted"}}}`,
+	} {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := translator.translate(message, sink); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sink.results) != 1 || sink.results[0].Status != runtime.ToolUnfinished || !sink.results[0].IsError {
+		t.Fatalf("results = %#v, want one unfinished error result", sink.results)
+	}
+}
+
+func TestUsageReadsTheTokenBreakdown(t *testing.T) {
+	sink := &recordingSink{}
+	translator := newEventTranslator("thread", "turn")
+	raw := `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thread","turnId":"turn","tokenUsage":{"total":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2,"reasoningOutputTokens":1},"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":3,"outputTokens":2,"reasoningOutputTokens":1}}}}`
+	var message rpcMessage
+	if err := json.Unmarshal([]byte(raw), &message); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := translator.translate(message, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.models) != 1 || sink.models[0].CacheWriteTokens != 3 || sink.models[0].CacheReadTokens != 4 || sink.models[0].ReasoningOutputTokens != 1 {
+		t.Fatalf("model calls = %+v, want cache write 3, cache read 4 and reasoning 1", sink.models)
 	}
 }

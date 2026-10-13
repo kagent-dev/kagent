@@ -13,6 +13,7 @@ import (
 	"log/slog"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -28,7 +29,7 @@ import (
 type DynamicHeaderProvider func(ctx context.Context) map[string]string
 
 const (
-	// Default timeout matching Python KAGENT_REMOTE_AGENT_TIMEOUT
+	// Default timeout for MCP requests.
 	defaultTimeout = 30 * time.Minute
 )
 
@@ -93,7 +94,7 @@ type mcpServerParams struct {
 //
 // When propagateToken is true, Authorization is forwarded to every MCP server
 // independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
-// behaviour triggered by KAGENT_PROPAGATE_TOKEN.
+// behaviour enabled by runtime.token_propagation.enabled.
 //
 // Optional headerProvider can be used to inject per-request headers
 // derived from invocation context (e.g., STS exchanged access tokens).
@@ -314,9 +315,14 @@ type headerRoundTripper struct {
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 
-	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
-	// A2A request independently of allowedHeaders.
+	// When propagateToken is enabled, forward Authorization from the incoming
+	// A2A request independently of allowedHeaders. Carry the authenticated user
+	// alongside it so kagent callbacks preserve ownership in insecure and
+	// trusted-proxy deployments. This remains opt-in for all configured servers.
 	if rt.propagateToken {
+		if userID := auth.UserIDFromContext(req.Context()); userID != "" {
+			req.Header.Set("X-User-Id", userID)
+		}
 		if callCtx, ok := a2asrv.CallContextFrom(req.Context()); ok {
 			if meta := callCtx.ServiceParams(); meta != nil {
 				if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {

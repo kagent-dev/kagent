@@ -20,8 +20,7 @@ from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    get_kagent_metadata_key,
+    A2A_PART_TYPE_METADATA_KEY,
 )
 from langchain_core.messages import (
     AIMessage,
@@ -29,14 +28,11 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from ._metadata_utils import get_rich_event_metadata
-
 
 async def _convert_langgraph_event_to_a2a(
     langgraph_event: dict[str, Any],
     task_id: str,
     context_id: str,
-    app_name: str,
     sent_message_ids: set[str],
 ) -> list[TaskArtifactUpdateEvent]:
     """Convert a LangGraph event to A2A events.
@@ -85,9 +81,7 @@ async def _convert_langgraph_event_to_a2a(
                                     Value(),
                                 ),
                                 metadata={
-                                    get_kagent_metadata_key(
-                                        A2A_DATA_PART_METADATA_TYPE_KEY
-                                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                                    A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
                                 },
                             )
                         )
@@ -96,21 +90,18 @@ async def _convert_langgraph_event_to_a2a(
                 if not a2a_message.parts:
                     continue
 
-                metadata = get_rich_event_metadata(app_name=app_name, session_id=context_id)
                 a2a_events.append(
                     TaskArtifactUpdateEvent(
                         task_id=task_id,
                         context_id=context_id,
                         last_chunk=True,
-                        artifact=Artifact(artifact_id=str(uuid.uuid4()), parts=a2a_message.parts, metadata=metadata),
-                        metadata=metadata,
+                        artifact=Artifact(artifact_id=str(uuid.uuid4()), parts=a2a_message.parts),
                     )
                 )
 
             elif isinstance(message, ToolMessage):
                 # Handle tool responses
                 if message.content:
-                    metadata = get_rich_event_metadata(app_name=app_name, session_id=context_id)
                     a2a_events.append(
                         TaskArtifactUpdateEvent(
                             task_id=task_id,
@@ -129,15 +120,11 @@ async def _convert_langgraph_event_to_a2a(
                                             Value(),
                                         ),
                                         metadata={
-                                            get_kagent_metadata_key(
-                                                A2A_DATA_PART_METADATA_TYPE_KEY
-                                            ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                                            A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
                                         },
                                     )
                                 ],
-                                metadata=metadata,
                             ),
-                            metadata=metadata,
                         )
                     )
 

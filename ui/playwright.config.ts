@@ -6,7 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
  * main process and again in every worker, so anything varying per process gives
  * each worker a different base URL from the one the servers were started on.
  */
-const PORT = Number(process.env.UI_LOOP_PORT ?? 8001);
+const PORT = Number(process.env.KAGENT_E2E_UI_LOOP_PORT ?? 8001);
 const BASE_URL = `http://localhost:${PORT}`;
 
 /**
@@ -21,34 +21,19 @@ const BASE_URL = `http://localhost:${PORT}`;
 // Deliberately not PORT + 1: Vite falls forward to the next free port when the
 // one it is told to use is busy, so adjacent ports let a slow-to-die server from
 // a previous run push one app onto the other's port.
-const EXTENSION_PORT = Number(process.env.UI_LOOP_EXTENSION_PORT ?? PORT + 50);
+const EXTENSION_PORT = Number(process.env.KAGENT_E2E_UI_LOOP_EXTENSION_PORT ?? PORT + 50);
 const EXTENSION_BASE_URL = `http://localhost:${EXTENSION_PORT}`;
 
 /** Specs that need an extension installed opt in by filename. */
 const EXTENSION_SPECS = /\.withExtension\.spec\.ts$/;
 
 /**
- * Specs that run in both suites, claimed by every project below.
- *
- * Only what holds on either backend — no `?mock=` scenario, no fixture by name. That
- * narrowness is the point and the risk: assertions true of both are the weakest ones,
- * so this folder stays a smoke sweep rather than growing lifecycles.
- * `conventions.test.ts` fails a spec here that reaches for a scenario.
- *
- * A glob, not a regex: Playwright matches a `testMatch` regex against the *absolute*
- * path, so `/shared\//` also matches every spec in a checkout that happens to live
- * under a directory of that name. A glob resolves against `testDir`, which is the
- * thing actually meant here.
- */
-const SHARED_SPECS = "shared/**/*.spec.ts";
-
-/**
  * The suite is the acceptance bar, so what it runs against cannot depend on the
  * shell it was started from: both servers are pinned to the in-browser mock
- * backend. An inherited VITE_API_MODE=live would otherwise point a whole run at
+ * backend. An inherited KAGENT_UI_VITE_API_MODE=live would otherwise point a whole run at
  * a real cluster.
  */
-const MOCK_BACKEND = { VITE_API_MODE: "mock" };
+const MOCK_BACKEND = { KAGENT_UI_VITE_API_MODE: "mock" };
 
 /**
  * What each of the three servers is pinned to.
@@ -57,13 +42,13 @@ const MOCK_BACKEND = { VITE_API_MODE: "mock" };
  * stated in one place — and so a branch that installs an extension changes a
  * value instead of restructuring the `projects`/`webServer` blocks.
  *
- * `VITE_EXAMPLE_EXTENSION` is pinned on the bare server for the same reason
- * `VITE_API_MODE` is: an inherited value must not be able to decide what a run
+ * `KAGENT_UI_VITE_EXAMPLE_EXTENSION` is pinned on the bare server for the same reason
+ * `KAGENT_UI_VITE_API_MODE` is: an inherited value must not be able to decide what a run
  * measures. Left unpinned, the bare project measures whatever the shell happened
  * to export.
  */
-const BARE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "false" };
-const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "true" };
+const BARE_APP = { ...MOCK_BACKEND, KAGENT_UI_VITE_EXAMPLE_EXTENSION: "false" };
+const EXAMPLE_APP = { ...MOCK_BACKEND, KAGENT_UI_VITE_EXAMPLE_EXTENSION: "true" };
 
 /**
  * The third mode: one app, wired to a real backend.
@@ -82,7 +67,7 @@ const EXAMPLE_APP = { ...MOCK_BACKEND, VITE_EXAMPLE_EXTENSION: "true" };
  * So `LIVE` swaps the whole `projects`/`webServer` pair rather than appending to
  * it. `yarn test:pw` and `yarn test:pw:live` are two disjoint runs.
  */
-const LIVE = process.env.UI_LOOP_LIVE === "true";
+const LIVE = process.env.KAGENT_E2E_UI_LOOP_LIVE === "true";
 
 /**
  * Its own port, far from the mock servers' 8001/8051, for the same reason those
@@ -90,72 +75,37 @@ const LIVE = process.env.UI_LOOP_LIVE === "true";
  * told to use is busy, so a live run must not be able to land on a port a mock
  * server is about to want, or vice versa.
  */
-const LIVE_PORT = Number(process.env.UI_LOOP_LIVE_PORT ?? 8301);
-
-/**
- * An app already running — in CI, the `kagent-ui` service — tested instead of one
- * this config starts. That is the deployed image, so nginx, the SPA fallback and the
- * `env-config.js` rendered at pod start are under test rather than approximated by
- * Vite. A developer still gets the dev server by default; the alternative is building
- * an image to run a test.
- *
- * Empty counts as absent, and the `||` is what makes that one question rather than
- * three. Three things below ask it — what `baseURL` is, whether `globalSetup` checks
- * for a deployed image, whether a dev server is started — and they had asked it three
- * ways: a `??`, a `!== undefined` and a truthiness test. An exported-but-empty
- * variable, which is what a `kubectl get svc` that found nothing leaves behind, then
- * pointed the run at `""`, checked that for nginx, *and* started a dev server nothing
- * would ever visit.
- */
-const LIVE_EXTERNAL_URL = process.env.UI_LOOP_LIVE_URL || undefined;
-
-const LIVE_BASE_URL = LIVE_EXTERNAL_URL ?? `http://localhost:${LIVE_PORT}`;
+const LIVE_PORT = Number(process.env.KAGENT_E2E_UI_LOOP_LIVE_PORT ?? 8301);
+const LIVE_BASE_URL = `http://localhost:${LIVE_PORT}`;
 
 /** Read by `playwright/globalSetup.ts` to decide what to verify about a server. */
 export const LIVE_PROJECT = "chromium-live";
 
 /**
- * Whether this live run is against a deployed app rather than a dev server, which
- * `globalSetup` checks one more thing for — see `verifyLiveWiring`.
+ * A live run reaches the backend through Vite's proxy, exactly as a deployed
+ * build reaches it through nginx — so the app uses the same relative URLs either
+ * way and this mode tests the addressing a real deployment uses.
+ *
+ * `KAGENT_UI_VITE_API_MODE` is pinned as well as the runtime flag: the build-time pin is
+ * the one thing an inherited `.env` cannot override, and a live suite that
+ * silently answered from fixtures would be worse than a red one.
  */
-export const LIVE_IS_DEPLOYED = LIVE_EXTERNAL_URL !== undefined;
+const LIVE_APP = { KAGENT_UI_VITE_API_MODE: "live", KAGENT_UI_ENABLE_MOCK: "false" };
 
 /**
- * How the *dev server* is configured for a live run; a deployment is configured by its
- * chart instead. It proxies `/api` the way nginx does in a cluster, so the app uses the
- * same relative URLs either way — standing in for nginx rather than being it, which is
- * the gap `UI_LOOP_LIVE_URL` closes. `VITE_API_MODE` is pinned at build time as well as
- * at runtime, being the one thing an inherited `.env` cannot override.
+ * How the live server is started.
+ *
+ * Named for the same reason the three env pins above are: a branch whose backend
+ * needs more than a dev server — a credential minted per run, a port-forward
+ * probed before Vite starts — replaces this line rather than the block below.
  */
-const LIVE_APP = { VITE_API_MODE: "live", ENABLE_MOCK_UI: "false" };
-
-/** How the live server is started. Unused when `UI_LOOP_LIVE_URL` names one already. */
 const LIVE_COMMAND = `yarn dev --port ${LIVE_PORT}`;
 
-/**
- * The servers a live run starts, which is none when it was handed one: there is no
- * process to own — the app is a pod. `globalSetup` checks the address serves the app.
- */
-const LIVE_WEB_SERVERS = LIVE_EXTERNAL_URL
-  ? []
-  : [
-      {
-        command: LIVE_COMMAND,
-        url: LIVE_BASE_URL,
-        reuseExistingServer: false,
-        timeout: 120_000,
-        // Whatever starts the live server is the most useful output a failed
-        // live run has — something that cannot reach the backend says so there,
-        // and Playwright discards a web server's stdout unless asked to pass it
-        // through.
-        stdout: "pipe" as const,
-        stderr: "pipe" as const,
-        env: LIVE_APP,
-      },
-    ];
+/** A pre-bundle cache per server, so one server's re-optimize cannot delete another's. */
+const ownCache = (port: number) => ({ KAGENT_UI_DEV_CACHE_DIR: `node_modules/.vite/e2e-${port}` });
 
 export default defineConfig({
-  testDir: "./playwright",
+  testDir: "./playwright/tests",
   // Both servers have to be rendering, not merely listening, before any test
   // navigates — see the file for what goes wrong otherwise.
   globalSetup: "./playwright/globalSetup.ts",
@@ -183,15 +133,7 @@ export default defineConfig({
    * of the machine than the local runs that provoked it.
    */
   workers: process.env.CI ? "50%" : undefined,
-  /*
-   * Both in CI: `github` writes the annotations that put a failure on the diff, and it
-   * writes no files at all — so the report CI uploads as an artifact has to come from
-   * somewhere, and for a live failure the trace is the only account of what the cluster
-   * answered.
-   */
-  reporter: process.env.CI
-    ? [["github"], ["html", { open: "never" }]]
-    : [["list"]],
+  reporter: process.env.CI ? "github" : "list",
   /*
    * A real backend behind a port-forward answers in tens of seconds where the
    * in-browser mock answers in milliseconds, so the defaults that suit the mock
@@ -204,20 +146,7 @@ export default defineConfig({
    * and a mock-backed suite that needs more than thirty seconds for one test is saying
    * something is stuck, which is worth hearing rather than absorbing.
    */
-  ...(LIVE
-    ? {
-        timeout: 120_000,
-        expect: { timeout: 30_000 },
-        /*
-         * One at a time. Every mock test owns a backend in its own page's memory; these
-         * share a cluster, so a spec creating a resource while another counts them is a
-         * failure with no defect behind it. A dozen tests, and one cluster to run them
-         * against — it costs little.
-         */
-        workers: 1,
-        fullyParallel: false,
-      }
-    : {}),
+  ...(LIVE ? { timeout: 120_000, expect: { timeout: 30_000 } } : {}),
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",
@@ -227,7 +156,7 @@ export default defineConfig({
     ? [
         {
           name: LIVE_PROJECT,
-          testMatch: ["live/**/*.spec.ts", SHARED_SPECS],
+          testDir: "./playwright/live",
           use: {
             ...devices["Desktop Chrome"],
             baseURL: LIVE_BASE_URL,
@@ -241,7 +170,6 @@ export default defineConfig({
     : [
         {
           name: "chromium",
-          testMatch: ["tests/**/*.spec.ts", SHARED_SPECS],
           testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Chrome"], baseURL: BASE_URL },
         },
@@ -257,7 +185,6 @@ export default defineConfig({
           // The extension split below is a build-time difference, not a browser one,
           // so it stays on one engine rather than doubling for no new signal.
           name: "firefox",
-          testMatch: ["tests/**/*.spec.ts", SHARED_SPECS],
           testIgnore: EXTENSION_SPECS,
           use: { ...devices["Desktop Firefox"], baseURL: BASE_URL },
         },
@@ -273,24 +200,38 @@ export default defineConfig({
   // extension specs then fail looking for contributions that were never installed.
   // That was an intermittent failure whose frequency depended only on whether
   // something happened to linger. Refusing to adopt makes an occupied port a
-  // loud startup error instead; set UI_LOOP_PORT / UI_LOOP_EXTENSION_PORT to run
+  // loud startup error instead; set KAGENT_E2E_UI_LOOP_PORT / KAGENT_E2E_UI_LOOP_EXTENSION_PORT to run
   // alongside a dev server you want to keep.
   webServer: LIVE
-    ? LIVE_WEB_SERVERS
+    ? [
+        {
+          command: LIVE_COMMAND,
+          url: LIVE_BASE_URL,
+          reuseExistingServer: false,
+          timeout: 120_000,
+          // Whatever starts the live server is the most useful output a failed
+          // live run has — something that cannot reach the backend says so there,
+          // and Playwright discards a web server's stdout unless asked to pass it
+          // through.
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...LIVE_APP, ...ownCache(LIVE_PORT) },
+        },
+      ]
     : [
         {
           command: `yarn dev --port ${PORT}`,
           url: BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
-          env: BARE_APP,
+          env: { ...BARE_APP, ...ownCache(PORT) },
         },
         {
           command: `yarn dev --port ${EXTENSION_PORT}`,
           url: EXTENSION_BASE_URL,
           reuseExistingServer: false,
           timeout: 120_000,
-          env: EXAMPLE_APP,
+          env: { ...EXAMPLE_APP, ...ownCache(EXTENSION_PORT) },
         },
       ],
 });

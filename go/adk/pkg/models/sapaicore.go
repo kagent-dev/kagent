@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"log/slog"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -58,8 +58,8 @@ func (m *SAPAICoreModel) ensureToken(ctx context.Context) (string, error) {
 		return m.token, nil
 	}
 
-	clientID := os.Getenv("SAP_AI_CORE_CLIENT_ID")
-	clientSecret := os.Getenv("SAP_AI_CORE_CLIENT_SECRET")
+	clientID := env.SAPAICoreClientID.Get()
+	clientSecret := env.SAPAICoreClientSecret.Get()
 	if m.Config.AuthUrl == "" || clientID == "" || clientSecret == "" {
 		return "", fmt.Errorf("SAP AI Core requires auth_url + SAP_AI_CORE_CLIENT_ID/SECRET env vars")
 	}

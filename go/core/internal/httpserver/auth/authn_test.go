@@ -19,7 +19,7 @@ func TestAuthnMiddleware(t *testing.T) {
 	}{
 		{
 			name:         "gets user from query param",
-			authn:        &authimpl.UnsecureAuthenticator{},
+			authn:        &authimpl.InsecureAuthenticator{},
 			url:          "http://foo.com/index?user_id=foo",
 			expectedUser: "foo",
 		},

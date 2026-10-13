@@ -205,10 +205,23 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
   HTTP calls use `http.NewRequestWithContext`. Never drop a `cancel` function.
 - Context keys use unexported struct types, never strings.
 
+### Configuration
+
+- CLI and controller settings belong in `proto/kagent/api/v1alpha1/config.proto`,
+  with Protovalidate rules. Load once at startup and pass resolved values to owners.
+- Runtime settings belong in the existing typed runtime JSON structures. Runtime
+  components must not read application settings from the process environment.
+- Standard `OTEL_*` settings override telemetry defaults for the receiving process
+  only. Controller overrides never become managed-runtime defaults.
+- Provider credentials, SDK trust, `KUBECONFIG`, and test harness inputs remain
+  external environment interfaces. Register these in `core/pkg/env` for discovery.
+- Direct process reads require an explained lint exception, such as resolving
+  controller-generated payloads or arbitrary credential placeholders.
+
 ### Logging
 
 - Use standard-library `log/slog`. Binaries write JSON to stderr and read the
-  minimum level from `LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
+  minimum level from explicit config or flags (`debug`, `info`, `warn`, or `error`).
 - Carry loggers in `context.Context` with `pkg/logging`; do not add logger
   parameters, package-global loggers, or `NewXxxWithLogger` constructors.
 - Use `DebugContext`, `InfoContext`, `WarnContext`, or `ErrorContext` whenever
@@ -315,7 +328,7 @@ All new CRD API surface goes in `v1alpha3`.
   Side effects and async logic belong in the reconciler (or a dedicated
   controller).
 - Every behavioral change to a translator **SHOULD** come with golden tests
-  (`UPDATE_GOLDEN=true go test ...` to regenerate).
+  (`KAGENT_TEST_UPDATE_GOLDEN=true go test ...` to regenerate).
 
 ### Database
 

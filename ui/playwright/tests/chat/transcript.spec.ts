@@ -164,6 +164,7 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
   });
 
   await test.step("10. the streamed reply lands exactly once", async () => {
+    await expectTurnFinished(page, turn);
     // Exact text, not a substring. Streaming appends, and the failure mode that
     // actually happened here was a doubled first chunk ("There There are 3
     // pods…") — which every `toContainText` in this file would have passed.
@@ -174,7 +175,6 @@ test("chat: history, sending, streaming, and tool rendering", async ({ page }) =
   });
 
   await test.step("11. the turn finishes, the composer comes back, and the indicator settles", async () => {
-    await expectTurnFinished(page, turn);
     await expect(page.getByTestId("chat-send")).toBeVisible();
     // Nothing reported once the turn is over: the status line belongs to a turn in
     // flight, so a finished one leaves it with nothing to say.
@@ -394,9 +394,8 @@ test("chat: the composer stays put when switching conversations", async ({ page 
   const rail = page.getByTestId("chat-sessions");
   await rail.locator(`a[data-testid="chat-session-${SIBLING_OF_READY}"]`).click();
   await page.waitForURL(new RegExp(`/agents/${SIBLING_OF_READY}/chat$`));
-  await expect(page.getByTestId("chat-composer")).toBeVisible();
-  // Settled, not mid-transition — the assertion is about where it ends up.
-  await page.waitForTimeout(1000);
+  // Settled, not mid-transition: the sibling has no messages, so wait for its empty state.
+  await expect(page.getByTestId("chat-empty")).toBeVisible();
 
   expect(
     Math.abs((await composerTop()) - before),

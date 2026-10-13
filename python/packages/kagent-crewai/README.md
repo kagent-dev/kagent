@@ -17,17 +17,22 @@ This package supports both CrewAI Crews and Flows. To get started, define your C
 ```python
 from kagent.crewai import KAgentApp
 from kagent.core import KAgentConfig
+
 # This is the crew or flow you defined
 from research_crew.crew import ResearchCrew
 
-app = KAgentApp(crew=ResearchCrew().crew(), agent_card={
-    "name": "my-crewai-agent",
-    "description": "A CrewAI agent with KAgent integration",
-    "version": "0.1.0",
-    "capabilities": {"streaming": True},
-    "defaultInputModes": ["text"],
-    "defaultOutputModes": ["text"]
-}, config=KAgentConfig())
+app = KAgentApp(
+    crew=ResearchCrew().crew(),
+    agent_card={
+        "name": "my-crewai-agent",
+        "description": "A CrewAI agent with KAgent integration",
+        "version": "0.1.0",
+        "capabilities": {"streaming": True},
+        "defaultInputModes": ["text"],
+        "defaultOutputModes": ["text"],
+    },
+    config=KAgentConfig.from_file(),
+)
 
 fastapi_app = app.build()
 uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
@@ -79,12 +84,20 @@ The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but use
 For local development, configure the HTTP endpoint used by protocol traffic:
 
 ```bash
-export KAGENT_API_URL=http://localhost:8083
-export KAGENT_GATEWAY_URL=http://localhost:8083
-export KAGENT_NAME=my-agent
-export KAGENT_NAMESPACE=default
+# Load process settings from /config/config.json (see Configuration).
 ```
 
 ## Deployment
 
 The uses the same deployment approach as other KAgent A2A applications (ADK / LangGraph). You can refer to `samples/crewai/` for examples.
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

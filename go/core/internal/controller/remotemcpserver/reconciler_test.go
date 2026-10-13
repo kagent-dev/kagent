@@ -25,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,15 +40,18 @@ type fakeDiscoverer struct {
 	tools []toolservice.MCPAppTool
 	err   error
 	ref   toolservice.MCPServerRef
+	calls int
 }
 
 type fakeCatalog struct {
+	writes  int
 	server  *database.ToolServer
 	tools   []*v1alpha3.MCPTool
 	deleted string
 }
 
 func (f *fakeCatalog) RefreshToolServer(_ context.Context, server *database.ToolServer, tools ...*v1alpha3.MCPTool) error {
+	f.writes++
 	f.server = server
 	f.tools = tools
 	return nil
@@ -60,6 +64,7 @@ func (f *fakeCatalog) DeleteToolServer(_ context.Context, name, groupKind string
 
 func (f *fakeDiscoverer) ListTools(_ context.Context, ref toolservice.MCPServerRef) ([]toolservice.MCPAppTool, error) {
 	f.ref = ref
+	f.calls++
 	return f.tools, f.err
 }
 
@@ -80,7 +85,7 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 	if result.RequeueAfter != 5*time.Minute {
 		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
 	}
-	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.kagent.dev" {
+	if discoverer.ref.Ref != client.ObjectKeyFromObject(server) || discoverer.ref.GroupKind != "RemoteMCPServer.api.kagent.dev" {
 		t.Fatalf("discovery ref = %#v", discoverer.ref)
 	}
 
@@ -100,6 +105,11 @@ func TestReconcilePublishesSortedDiscovery(t *testing.T) {
 	}
 	if len(catalog.tools) != 2 || catalog.tools[0].Name != "alpha" || catalog.tools[1].Name != "zeta" {
 		t.Fatalf("catalog tools = %#v", catalog.tools)
+	}
+	discoverer.tools[0], discoverer.tools[1] = discoverer.tools[1], discoverer.tools[0]
+	_, err = reconciler.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil || discoverer.calls != 2 || catalog.writes != 1 {
+		t.Fatalf("unchanged discovery: error = %v, discovery calls = %d, catalog writes = %d", err, discoverer.calls, catalog.writes)
 	}
 }
 
@@ -127,6 +137,38 @@ func TestReconcilePublishesFailureAndClearsStaleTools(t *testing.T) {
 	}
 }
 
+func TestReconcileAcceptsWithoutDiscoveryWhenDisabled(t *testing.T) {
+	server := testServer()
+	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
+	server.Status.DiscoveredTools = []*v1alpha3.MCPTool{{Name: "stale", Description: "stale"}}
+	kube := testClient(t, server)
+	discoverer := &fakeDiscoverer{err: errors.New("the controller must not dial an opted-out server")}
+	catalog := &fakeCatalog{}
+
+	result, err := New(kube, discoverer, catalog).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != 5*time.Minute {
+		t.Fatalf("Reconcile() requeue = %s, want 5m", result.RequeueAfter)
+	}
+	if discoverer.calls != 0 {
+		t.Fatalf("discovery calls = %d, want 0", discoverer.calls)
+	}
+
+	updated := getServer(t, kube, server)
+	if updated.Status.ObservedGeneration != server.Generation || len(updated.Status.DiscoveredTools) != 0 {
+		t.Fatalf("disabled discovery status = %#v", updated.Status)
+	}
+	condition := apiMeta.FindStatusCondition(updated.Status.Conditions, conditionAccepted)
+	if condition == nil || condition.Status != metav1.ConditionTrue || condition.Reason != "DiscoveryDisabled" || condition.Message != discoveryDisabledMessage {
+		t.Fatalf("Accepted condition = %#v", condition)
+	}
+	if catalog.server == nil || catalog.server.Name != "test/tools" || catalog.server.LastConnected != nil || len(catalog.tools) != 0 {
+		t.Fatalf("disabled discovery catalog = server %#v, tools %#v", catalog.server, catalog.tools)
+	}
+}
+
 func TestReconcileDeletesCatalogProjection(t *testing.T) {
 	catalog := &fakeCatalog{}
 	request := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "test", Name: "gone"}}
@@ -146,7 +188,6 @@ func TestReferencesDependency(t *testing.T) {
 		{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}},
 		{Name: "X-Config", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "headers", Key: "value"}},
 	}
-	server.Spec.TLS = &v1alpha3.TLSConfig{CACertSecretRef: "ca", CACertSecretKey: "ca.crt"}
 
 	tests := []struct {
 		name string
@@ -154,7 +195,6 @@ func TestReferencesDependency(t *testing.T) {
 		want bool
 	}{
 		{name: "header secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth"}}, want: true},
-		{name: "CA secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ca"}}, want: true},
 		{name: "header ConfigMap", obj: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "headers"}}, want: true},
 		{name: "unrelated secret", obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "other"}}},
 	}

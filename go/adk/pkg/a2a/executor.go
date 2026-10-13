@@ -21,7 +21,6 @@ import (
 	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
@@ -41,6 +40,7 @@ type KAgentExecutorConfig struct {
 	AppName        string
 	Logger         *slog.Logger
 	Output         *apiadk.OutputConfig
+	Flush          func(context.Context) error
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -51,6 +51,7 @@ type KAgentExecutor struct {
 	appName                 string
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
+	flush                   func(context.Context) error
 }
 
 type structuredOutput struct {
@@ -89,18 +90,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
 			outputLimitWatchFrom(ctx).observe(event)
-			if event.InvocationID != "" {
-				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
-			}
-			// Preserve the artifact's protocol type while giving current A2A clients a
-			// common ordering key. A2A #2129 will replace this with native artifact
-			// start/end generations and a task timeline.
+			// Preserve the artifact's protocol type and assign kagent's ordering key.
 			if processed.Artifact != nil {
 				position := event.Timestamp
 				if position.IsZero() {
 					position = time.Now()
 				}
-				processed.Artifact.SetMeta(apia2a.TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
+				apia2a.SetTimelinePosition(processed.Artifact, position)
 			}
 			return transformStructuredOutput(output, rootName, event, processed)
 		},
@@ -120,6 +116,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		appName:                 cfg.AppName,
 		logger:                  cfg.Logger.With("component", "kagent-executor"),
 		structuredOutputEnabled: output != nil,
+		flush:                   cfg.Flush,
 	}, nil
 }
 
@@ -248,32 +245,26 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 
 		userID := "A2A_USER_" + reqCtx.ContextID
+		trustedUserID := ""
 		if callCtx, ok := a2asrv.CallContextFrom(ctx); ok && callCtx.User != nil && callCtx.User.Name != "" {
 			userID = callCtx.User.Name
+			trustedUserID = userID
 		}
 		sessionID := reqCtx.ContextID
 
+		ctx = context.WithValue(ctx, publicContextIDKey{}, reqCtx.ContextID)
 		ctx = withBearerToken(ctx)
-		ctx = auth.WithUserID(ctx, userID)
+		// The synthetic ADK user ID is only a native session lookup key. Memory
+		// and outgoing credentials must receive only the passed-through caller.
+		ctx = auth.WithUserID(ctx, trustedUserID)
 		ctx = withOutputLimitWatch(ctx)
 		// The invocation span started before this executor ran, so the request
-		// identity the span processor stamps on descendant spans has to be
-		// recorded on it directly.
+		// identity has to be recorded on it directly. ADK's own spans get it
+		// through the request attribute span processor.
 		resumed := reqCtx.StoredTask != nil &&
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
-		spanAttributes := map[string]string{
-			"kagent.user_id":                userID,
-			"gen_ai.task.id":                string(reqCtx.TaskID),
-			tracing.AttributeConversationID: sessionID,
-		}
-		if e.appName != "" {
-			spanAttributes["kagent.app_name"] = e.appName
-		}
-		ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
-		ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
-		defer invocationSpan.End()
-		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
+		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
 
 		e.logger.InfoContext(ctx, "execute",
 			"task_id", reqCtx.TaskID,
@@ -334,20 +325,47 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
-				position := time.Now().UTC()
-				if update.Status.Timestamp != nil {
-					position = update.Status.Timestamp.UTC()
-				}
-				update.Status.Message.SetMeta(apia2a.TimelinePositionMetadataKey, position.Format(time.RFC3339Nano))
 			}
+			// Status messages are outbound timeline items regardless of whether they
+			// represent HITL, validation failures, or another runtime status.
+			stampStatusMessageTimeline(event)
+			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
-				flushTurnSpans(ctx, invocationSpan)
+				e.flushTurnSpans(ctx)
 			}
 			if !yield(event, err) {
 				return
 			}
 		}
 	}
+}
+
+func stampStatusMessageTimeline(event a2atype.Event) {
+	update, ok := event.(*a2atype.TaskStatusUpdateEvent)
+	if !ok || update.Status.Message == nil {
+		return
+	}
+	position := time.Now().UTC()
+	if update.Status.Timestamp != nil {
+		position = update.Status.Timestamp.UTC()
+	}
+	apia2a.SetTimelinePosition(update.Status.Message, position)
+}
+
+// requestSpanAttributes is the request identity every span of the turn
+// carries. The user is set only when the gateway established one.
+func requestSpanAttributes(conversationID, taskID, userID string) []attribute.KeyValue {
+	attributes := make([]attribute.KeyValue, 0, 3)
+	if conversationID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeConversationID, conversationID))
+	}
+	if taskID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeTaskID, taskID))
+	}
+	if userID != "" {
+		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
+	}
+	return attributes
 }
 
 // endsTurn reports whether an event is the last one a turn produces: a terminal
@@ -369,7 +387,7 @@ func endsTurn(event a2atype.Event, err error) bool {
 }
 
 // flushTurnSpans exports the turn's spans before the event that ends the turn
-// leaves the process, when the runtime asked for pre-response flushing.
+// leaves the process.
 //
 // The server-level flush runs once the handler returns. For a unary request that
 // is before the response is written, so it is early enough. For a streaming
@@ -378,15 +396,13 @@ func endsTurn(event a2atype.Event, err error) bool {
 // actor is checkpointed right after, with the spans of every streamed turn still
 // buffered and the flush's deadline expiring while the process is frozen. The
 // only window that exists for a streamed turn is before that event is yielded.
-//
-// The invocation span is ended first so it travels in the same export; the
-// deferred End in Execute becomes a no-op.
-func flushTurnSpans(ctx context.Context, invocationSpan trace.Span) {
-	if !telemetry.PreResponseFlushEnabled() {
+func (e *KAgentExecutor) flushTurnSpans(ctx context.Context) {
+	if e.flush == nil {
 		return
 	}
-	invocationSpan.End()
-	telemetry.ForceFlush(ctx)
+	if err := e.flush(ctx); err != nil {
+		e.logger.ErrorContext(ctx, "failed to flush turn telemetry", "error", err)
+	}
 }
 
 // ensureSession ensures that a session exists for the given user and session ID.
@@ -426,7 +442,15 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 
 // Cancel delegates cancellation to the upstream executor.
 func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
-	return e.builtin.Cancel(ctx, reqCtx)
+	return func(yield func(a2atype.Event, error) bool) {
+		for event, err := range e.builtin.Cancel(ctx, reqCtx) {
+			stampStatusMessageTimeline(event)
+			canonicalizeADKEvent(event)
+			if !yield(event, err) {
+				return
+			}
+		}
+	}
 }
 
 // Cleanup preserves the upstream executor's subagent cleanup behavior.
@@ -458,23 +482,11 @@ func extractSessionName(message *a2atype.Message) string {
 // withBearerToken extracts the Bearer token from the incoming A2A request's
 // Authorization header and stores it in ctx for API key passthrough.
 func withBearerToken(ctx context.Context) context.Context {
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok {
+	token := models.BearerFromCallContext(ctx)
+	if token == "" {
 		return ctx
 	}
-	meta := callCtx.ServiceParams()
-	if meta == nil {
-		return ctx
-	}
-	vals, ok := meta.Get("authorization")
-	if !ok || len(vals) == 0 || vals[0] == "" {
-		return ctx
-	}
-	parts := strings.Fields(strings.TrimSpace(vals[0]))
-	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
-		return context.WithValue(ctx, models.BearerTokenKey, parts[1])
-	}
-	return ctx
+	return context.WithValue(ctx, models.BearerTokenKey, token)
 }
 
 // dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision
@@ -491,4 +503,13 @@ func dropPreAppendedDecisionFromHistory(task *a2atype.Task, incoming *a2atype.Me
 		return
 	}
 	task.History = task.History[:len(task.History)-1]
+}
+
+type publicContextIDKey struct{}
+
+// ContextIDFromContext returns the public A2A conversation ID for this invocation.
+// Native ADK session keys can remain unchanged across a snapshot fork.
+func ContextIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(publicContextIDKey{}).(string)
+	return id
 }

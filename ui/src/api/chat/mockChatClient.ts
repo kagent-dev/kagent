@@ -16,11 +16,7 @@ import { currentChatScenario } from "@/mocks/scenario";
 import { allAgentInstances, instanceShareForToken } from "@/mocks/state";
 import { ApiError } from "../ApiError";
 import { agentInstanceShareToken } from "../shareToken";
-import {
-  HITL_EXTENSION_URI,
-  readToolApprovalResponse,
-  type PendingRequest,
-} from "./hitl";
+import { HITL_EXTENSION_URI, type PendingRequest } from "./hitl";
 import { conversationKey } from "./types";
 import type {
   ChatClient,
@@ -28,8 +24,10 @@ import type {
   ChatEvent,
   ChatHistory,
   ChatMessage,
+  ChatPart,
   SendMessageInput,
 } from "./types";
+import { mediaTypeOf } from "./attachments";
 
 const TIMING = {
   ok: { step: 300, word: 45 },
@@ -39,9 +37,6 @@ const TIMING = {
   error: { step: 300, word: 45 },
   asks: { step: 300, word: 45 },
   "asks-text": { step: 300, word: 45 },
-  approves: { step: 300, word: 45 },
-  "approves-one": { step: 300, word: 45 },
-  "asks-unknown": { step: 300, word: 45 },
 } as const;
 
 /**
@@ -59,19 +54,6 @@ const SIZES = ["Small", "Medium", "Large"];
 const NOTE_QUESTION = "What should I put on the order note?";
 /** The correlation id, which a real answer echoes verbatim. */
 const REQUEST_ID = "adk-mock-ask-1";
-
-/**
- * The tools the scripted approval turn asks to run.
- *
- * Two, because the decision is per tool: one approved and one rejected in the same
- * submission is the case a single-tool fixture cannot produce, and it is the one that
- * says the controls are wired to their own row rather than to the form.
- */
-const APPROVAL_TOOLS = [
-  { id: "call-1", name: "kubectl_apply", args: { manifest: "deployment.yaml" } },
-  { id: "call-2", name: "shell_exec", args: { command: "rm -rf /tmp//cache" } },
-];
-const APPROVAL_HINT = "These change the cluster. Approve only what you recognise.";
 
 /** Where the scripted turn gives up when the scenario asks it to fail. */
 const FAILURE_MESSAGE =
@@ -166,15 +148,15 @@ export class MockChatClient implements ChatClient {
 
     /*
      * The controller refuses a message while a question is pending, and so does
-     * this — in the controller's own words, from `storeError` in
-     * `go/core/v2/a2agateway/gateway.go`. A fixture that accepted it would let a
+     * this -- a Session can own only one active task. A fixture that accepted it
+     * would let a
      * build that never shows the parked state pass every browser test, which is
      * how the reported conversation came to look like an agent that had broken.
      */
     /*
      * The gateway refuses a message for an instance that is not ready, and so does
-     * this. It answers `UnsupportedOperation` naming the state — see the precondition
-     * on `SendStreamingMessage` in `go/core/v2/a2agateway/gateway.go`.
+     * this. It answers `UnsupportedOperation` naming the state -- see the precondition
+     * in `InteractionService.resolveSend`.
      *
      * Added because its absence made a real property untestable rather than merely
      * untested: a page that sends into a suspended conversation without resuming it
@@ -243,40 +225,18 @@ export class MockChatClient implements ChatClient {
       /*
        * What the agent understood, which is not the same as what it received.
        *
-       * The runtime reads a structured answer only from a message that both declares the
-       * extension and carries the payload under its URI; anything else reaches the agent
-       * as ordinary prose, the turn resumes, and the reply reads as though it worked. So
-       * the acknowledgement below says which happened, tool by tool for an approval —
-       * that silent failure is the reason this fixture bothers to check.
-       *
-       * Through the app's own parser rather than a second one: a copy here drifted
-       * permissive, taking an empty `approvals` array and an empty `rejection_reason`
-       * where the real reader rejects both, and a fixture that accepts more than the code
-       * it stands in for acknowledges payloads the app would refuse. The extension list
-       * is asserted rather than read — the port carries the payload directly, having no
-       * wire to declare it on.
+       * The runtime reads the structured answer only from a message that both
+       * declares the extension and carries the payload under its URI; anything else
+       * reaches the agent as ordinary prose, the turn resumes, and the reply reads
+       * as though it worked. So the acknowledgement here says which happened — that
+       * silent failure is the reason this fixture bothers to check.
        */
-      const decisions =
-        parked.kind === "tool_approval"
-          ? readToolApprovalResponse(input.hitl, [HITL_EXTENSION_URI])
-          : undefined;
-      const approvalReply =
-        decisions &&
-        decisions
-          .map(
-            (decision) =>
-              `${decision.id} ${decision.approved ? "approved" : `rejected (${decision.rejectionReason ?? "no reason given"})`}`,
-          )
-          .join("; ");
-
       const acknowledgement = message(
         `${parked.taskId}-ack`,
         "agent",
         structured && parked.kind === "ask_user" && structured.id === parked.requestId
           ? `Noted: **${structured.answers.map((a) => a.join(", ")).join("; ")}**.`
-          : approvalReply
-            ? `Noted: **${approvalReply}**.`
-            : `I did not catch a choice in that.`,
+          : `I did not catch a choice in that.`,
         parked.taskId,
       );
       answered.push(acknowledgement);
@@ -310,6 +270,17 @@ export class MockChatClient implements ChatClient {
      * backend is a fixture that hides the bug it is for.
      */
     const userMessage = message(input.messageId ?? `${taskId}-user`, "user", text, taskId);
+    // Described, not stored: sessionStorage holds JSON, and a reload shows the chip
+    // without a download link.
+    const files = (input.files ?? []).map(
+      (file): ChatPart => ({
+        kind: "file",
+        name: file.name,
+        mediaType: mediaTypeOf(file),
+        size: file.size,
+      }),
+    );
+    userMessage.parts = [...(text ? userMessage.parts : []), ...files];
     transcript.push(userMessage);
     this.persist(sessionId);
     yield { type: "status", state: "submitted", taskId };
@@ -369,7 +340,10 @@ export class MockChatClient implements ChatClient {
       "- `kagent-ui` — this page",
       "- `kagent-tools` — the tool server",
       "",
-      `You asked: "${text}".`,
+      ...(text ? [`You asked: "${text}".`] : []),
+      ...(input.files?.length
+        ? ["", `You attached: ${input.files.map((file) => file.name).join(", ")}.`]
+        : []),
     ].join("\n");
     for (const chunk of answer.match(/\S+\s*/g) ?? []) {
       if (await stopped(signal, timing.word)) return;
@@ -380,6 +354,28 @@ export class MockChatClient implements ChatClient {
     // Committed once the reply is whole rather than per chunk: a partial answer
     // is not something a backend would have recorded as the turn's result.
     this.persist(sessionId);
+
+    // An agent-sent file, so its chip has something to render.
+    if (input.files?.length) {
+      const report: ChatMessage = {
+        id: `${taskId}-file`,
+        role: "agent",
+        taskId,
+        createdAt: new Date().toISOString(),
+        parts: [
+          {
+            kind: "file",
+            name: "summary.txt",
+            mediaType: "text/plain",
+            size: 12,
+            blob: new Blob(["3 pods ready"], { type: "text/plain" }),
+          },
+        ],
+      };
+      transcript.push(report);
+      this.persist(sessionId);
+      yield { type: "message", message: snapshot(report) };
+    }
 
     if (scenario === "asks" || scenario === "asks-text") {
       /*
@@ -407,34 +403,6 @@ export class MockChatClient implements ChatClient {
       saveParked(sessionId, request);
       // The payload rides on the status, as it does on the wire — the choices are
       // the metadata of the message this status carried.
-      yield { type: "status", state: "input_required", taskId, awaiting: request };
-      return;
-    }
-
-    if (scenario === "approves" || scenario === "approves-one") {
-      // The same park, a different request: tools to vouch for rather than a question
-      // to answer. `hint` is the runtime's own sentence about why it is asking.
-      this.persist(sessionId);
-      const request: PendingRequest = {
-        kind: "tool_approval",
-        taskId,
-        tools: scenario === "approves-one" ? [APPROVAL_TOOLS[1]] : APPROVAL_TOOLS,
-        hint: APPROVAL_HINT,
-      };
-      saveParked(sessionId, request);
-      yield { type: "status", state: "input_required", taskId, awaiting: request };
-      return;
-    }
-
-    if (scenario === "asks-unknown") {
-      /*
-       * Parked on something this build cannot render: a turn started without the
-       * extension carries its question as prose and no correlation id, so there is
-       * nothing to answer against. `unknown` is what `readRequest` returns for it.
-       */
-      this.persist(sessionId);
-      const request: PendingRequest = { kind: "unknown", taskId };
-      saveParked(sessionId, request);
       yield { type: "status", state: "input_required", taskId, awaiting: request };
       return;
     }
@@ -555,7 +523,9 @@ function loadTranscript(sessionId: string): ChatMessage[] | null {
 
 function saveTranscript(sessionId: string, messages: ChatMessage[]): void {
   try {
-    window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, JSON.stringify(messages));
+    // Bytes don't survive JSON, so a reloaded file chip is described only, as with user files.
+    const withoutBytes = JSON.stringify(messages, (_, value) => (value instanceof Blob ? undefined : value));
+    window.sessionStorage.setItem(STORAGE_PREFIX + sessionId, withoutBytes);
   } catch {
     // Not being able to persist costs the transcript a reload, nothing more.
   }

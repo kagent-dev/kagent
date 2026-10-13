@@ -1,14 +1,11 @@
 from ._config import get_a2a_max_content_length
 from ._consts import (
-    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
     A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    ADK_METADATA_KEY_PREFIX,
-    get_kagent_metadata_key,
-    read_metadata_value,
+    A2A_PART_TYPE_METADATA_KEY,
+    A2A_USAGE_METADATA_KEY,
 )
 from ._context import get_request_user_id, set_request_user_id
 from ._hitl import (
@@ -25,6 +22,7 @@ from ._hitl import (
     ToolApproval,
     ToolApprovalRequest,
     ToolApprovalResponse,
+    ask_user_questions,
     attach_hitl_agent_extension,
     attach_hitl_extension,
     get_ask_user_request,
@@ -33,11 +31,13 @@ from ._hitl import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
+    hitl_status_text,
     require_ask_user_response,
     require_tool_approval_response,
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
+from ._telemetry import TelemetryRequestHandler, request_attributes
 from ._time import now_timestamp
 
 __all__ = [
@@ -47,12 +47,11 @@ __all__ = [
     "set_request_user_id",
     "KAgentRequestContextBuilder",
     "KAgentGrpcServerCallContextBuilder",
+    "TelemetryRequestHandler",
+    "request_attributes",
     "now_timestamp",
-    "get_kagent_metadata_key",
-    "read_metadata_value",
-    "ADK_METADATA_KEY_PREFIX",
-    "A2A_DATA_PART_METADATA_TYPE_KEY",
-    "A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY",
+    "A2A_PART_TYPE_METADATA_KEY",
+    "A2A_USAGE_METADATA_KEY",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL",
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE",
     "A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT",
@@ -72,6 +71,8 @@ __all__ = [
     "ToolApprovalResponse",
     "AskUserResponse",
     "hitl_activated",
+    "hitl_status_text",
+    "ask_user_questions",
     "get_hitl_payload",
     "get_tool_approval_request",
     "get_ask_user_request",

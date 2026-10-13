@@ -27,7 +27,7 @@ type Harness struct {
 	// Resource is the whole Harness CR. The spec is carried verbatim rather than
 	// re-modelled here so that a CRD change cannot silently drift from the API.
 	Resource *StructuredObject `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
-	// Runtime is the adapter the spec selects: "kagent", "codex" or "claude".
+	// Runtime is the adapter the spec selects: "kagent", "codex", "claude" or "byo".
 	// Denormalised because callers listing harnesses group and filter by it, and
 	// would otherwise each reimplement the exactly-one-of check the CRD enforces.
 	Runtime string `protobuf:"bytes,3,opt,name=runtime,proto3" json:"runtime,omitempty"`

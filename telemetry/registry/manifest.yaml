@@ -1,0 +1,12 @@
+file_format: definition_manifest/2.0
+name: kagent
+description: The telemetry contract of kagent runtimes.
+# An identifier for this registry version. Nothing is published there.
+schema_url: https://kagent.dev/schemas/telemetry/0.2.0
+stability: development
+dependencies:
+  - schema_url: https://opentelemetry.io/schemas/1.44.0
+    registry_path: https://github.com/open-telemetry/semantic-conventions.git@v1.44.0[model]
+  # semantic-conventions-genai has no releases yet, so it is pinned by commit.
+  - schema_url: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+    registry_path: https://github.com/open-telemetry/semantic-conventions-genai.git@06ec68e722c45a7218e23ea1bc1339fe4e21ecae[model]

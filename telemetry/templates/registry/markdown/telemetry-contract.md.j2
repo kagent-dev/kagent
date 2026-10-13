@@ -1,0 +1,73 @@
+# Telemetry contract reference
+
+<!-- Generated from telemetry/registry by `make semconv-generate`. Do not edit. -->
+
+This page lists what the [registry](../../telemetry/registry) defines.
+[Telemetry](telemetry.md) explains how kagent uses it.
+
+## Attributes kagent owns
+
+| Attribute | Type | Values | Description |
+| --- | --- | --- | --- |
+{% for a in ctx.attributes -%}
+| `{{ a.key }}` | {{ a.type }} | {% for v in a.values %}`{{ v }}`{% if not loop.last %}, {% endif %}{% endfor %} | {{ a.brief }}{% if a.note %} {{ a.note }}{% endif %} |
+{% endfor %}
+## Metrics
+{% for m in ctx.metrics %}
+### `{{ m.name }}`
+
+{% if m.id != m.name %}Refines `{{ m.name }}` as `{{ m.id }}`. {% endif %}Instrument: {{ m.instrument }}. Unit: `{{ m.unit }}`. {{ m.brief }}{% if m.note %} {{ m.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in m.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
+## Attribute groups
+{% for g in ctx.groups %}
+### `{{ g.id }}`
+
+{{ g.brief }}{% if g.note %} {{ g.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in g.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
+## Spans
+{% for s in ctx.spans %}
+### `{{ s.id }}`
+
+{% if s.id != s.type %}Refines `{{ s.type }}`, kind{% else %}Kind{% endif %} `{{ s.kind }}`. {{ s.brief }}{% if s.note %} {{ s.note }}{% endif %}
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+{% for a in s.attributes -%}
+| `{{ a.key }}` | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
+## Resource
+{% for e in ctx.entities %}
+### `{{ e.id }}`
+
+{% if e.id != e.type %}Refines the `{{ e.type }}` entity. {% endif %}{{ e.brief }}{% if e.note %} {{ e.note }}{% endif %}
+
+| Attribute | Role | Requirement | Note |
+| --- | --- | --- | --- |
+{% for a in e.identity -%}
+| `{{ a.key }}` | identity | {{ a.req }} | {{ a.note }} |
+{% endfor -%}
+{% for a in e.description -%}
+| `{{ a.key }}` | description | {{ a.req }} | {{ a.note }} |
+{% endfor %}
+{%- endfor %}
+
+## Imported signals
+
+The registry imports these upstream signals, so live-check compares the runtimes' own instrumentation with them.
+
+Spans: {% for s in ctx.imported_spans %}`{{ s }}`{% if not loop.last %}, {% endif %}{% endfor %}.
+
+Metrics: {% for m in ctx.imported_metrics %}`{{ m }}`{% if not loop.last %}, {% endif %}{% endfor %}.

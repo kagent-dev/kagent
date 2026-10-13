@@ -6,10 +6,7 @@ import "kagent/api/v1alpha1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
-// AgentTemplateService is CRUD over the kagent.dev/v1alpha3 AgentTemplate CRD:
-// the portable-behavior half of the (Harness, AgentTemplate) pair that
-// CreateAgentInstance names. Without it an AgentTemplate can only be authored
-// with kubectl, so no caller can offer a template picker or an edit form.
+// AgentTemplateService manages reusable portable agent behavior.
 service AgentTemplateService {
   rpc ListAgentTemplates(ListAgentTemplatesRequest) returns (ListAgentTemplatesResponse);
   rpc GetAgentTemplate(GetAgentTemplateRequest) returns (GetAgentTemplateResponse);
@@ -33,11 +30,8 @@ message AgentTemplate {
 
   string description = 4;
 
-  // AdmittingHarnesses names the same-namespace Harnesses whose admission
-  // selector matches this template, as reported in status. It is the set a
-  // caller may legally pair with this template in CreateAgentInstance, and it
-  // is derivable only from the Harness side, so a caller cannot compute it.
-  repeated string admitting_harnesses = 5;
+  reserved 5;
+  reserved "admitting_harnesses";
 }
 
 message ListAgentTemplatesRequest {

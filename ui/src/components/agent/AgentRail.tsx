@@ -55,6 +55,7 @@ import {
 import {
   applyAgentRailOverrides,
   ExtensionSlot,
+  type ExtensionAgentRef,
   isRailEntryHidden,
 } from "@/appExtensions";
 import {
@@ -63,7 +64,7 @@ import {
   railItemIsActive,
   type RailItem,
 } from "./railItems";
-import { agentPageUrl, agentUrl, type AgentRef } from "./agentUrl";
+import { agentPageUrl, agentUrl, type AgentInstanceRef } from "./agentUrl";
 import { AgentSwitcher } from "./AgentSwitcher";
 import {
   checkboxStyles,
@@ -74,6 +75,10 @@ import {
 } from "./controlStyles";
 
 const { Text } = Typography;
+
+// Click-through, since a row's title tooltip opens over that row's menu button.
+// Module-level: an inline object re-renders the ellipsis Text without end.
+const TITLE_TOOLTIP_STYLES = { root: { pointerEvents: "none" as const } };
 
 /** Where the rail's collapsed state is remembered, per reader. */
 const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
@@ -88,33 +93,13 @@ const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
  */
 const RAIL_COLLAPSES_BELOW = 1040;
 
-/**
- * The navigation for when you are inside one agent.
- *
- * Narrowed to a single agent: which agent you are in, the things you can do to it,
- * and every conversation you have had with it. That is a different shape of
- * navigation from the application's own rail, not a differently styled one, so it is
- * rendered beside the page's content rather than replacing the shell's.
- *
- * ## What "every conversation with it" now means
- *
- * The sibling instances cut from the same pair. An `AgentInstance` *is* one
- * conversation — the A2A gateway files its tasks under the instance as their
- * `contextId`, and there is no session beneath it — so a second conversation with
- * the same agent is a second instance of the same `(Harness, AgentTemplate)`.
- *
- * That makes the list here exactly what it always was on screen (the conversations
- * you have had with this agent) while being addressed the way the API actually
- * works, and it makes "New Chat" a create rather than a navigation.
- */
-
-
+/** Navigation for one named Agent and its conversations. */
 export interface AgentRailProps {
   /**
-   * Which agent the rail is scoped to. From the URL, so the rail stands up before
+   * Which instance is open. From the URL, so the rail stands up before
    * anything has been read — including when the read fails.
    */
-  agentRef: Partial<AgentRef>;
+  instanceRef: Partial<AgentInstanceRef>;
   /**
    * What the identity card names, when no conversation is selected.
    *
@@ -126,7 +111,7 @@ export interface AgentRailProps {
   /**
    * Where the agent's own page is, when no conversation is open to derive it from.
    *
-   * Normally this comes from the instance — its template and harness are the pair. On
+   * Normally this comes from the instance's Agent reference. On
    * the agent's own page and on a conversation that does not exist yet there is no
    * instance, and without this the rail loses its way back to the agent entirely.
    */
@@ -136,11 +121,11 @@ export interface AgentRailProps {
    *
    * Reconstructed from the open conversation otherwise, which is fine on a chat page
    * and impossible on the agent's own page or a new conversation — neither has a
-   * conversation to read a harness from. The switcher needs the whole pair to leave the
+   * conversation to read an Agent reference from. The switcher needs the Agent reference to leave the
    * current agent out of its own list, so a surface that knows it says so rather than
    * having it inferred from a title string.
    */
-  agentPair?: { namespace: string; agentTemplate?: string; harness?: string };
+  agentRef?: ExtensionAgentRef;
   /**
    * Controls the surface wants in the rail's gutter, under the collapse toggle.
    *
@@ -176,7 +161,7 @@ export interface AgentRailProps {
    * reader gave it.
    */
   autoTitle?: string;
-  /** Starts another conversation with this agent: a new instance of the same pair. */
+  /** Starts another conversation with this agent: a new instance of the same agent. */
   onNewChat?: () => void;
   /**
    * Told after a conversation is deleted, for a surface that must react.
@@ -189,10 +174,10 @@ export interface AgentRailProps {
 }
 
 export function AgentRail({
-  agentRef: ref,
+  instanceRef: ref,
   agentTitle,
   agentHref: agentHrefFromCaller,
-  agentPair,
+  agentRef,
   gutterActions,
   instance,
   instances,
@@ -215,8 +200,8 @@ export function AgentRail({
    */
   const links = useExtensionAgentLinks();
   const url = {
-    chat: (ref: AgentRef) => links?.chat?.(ref) ?? agentUrl.chat(ref),
-    details: (ref: AgentRef) => links?.details?.(ref) ?? agentUrl.details(ref),
+    chat: (ref: AgentInstanceRef) => links?.chat?.(ref) ?? agentUrl.chat(ref),
+    details: (ref: AgentInstanceRef) => links?.details?.(ref) ?? agentUrl.details(ref),
   };
 
   const conversations = instances;
@@ -230,7 +215,7 @@ export function AgentRail({
    * nothing to keep in step.
    */
   const [switcherFor, setSwitcherFor] = useState<string>();
-  const agentKey = ref.id ?? agentPair?.agentTemplate ?? "new";
+  const agentKey = ref.id ?? agentRef?.name ?? "new";
   const isSwitcherOpen = switcherFor === agentKey;
 
   /**
@@ -271,25 +256,23 @@ export function AgentRail({
    */
   const agentPageHref =
     agentHrefFromCaller ??
-    (instance?.harness && instance.agentTemplate
+    (instance?.agent
       ? agentPageUrl({
-        namespace: instance.agentTemplate.split("/")[0],
-          agentTemplate: bareName(instance.agentTemplate),
-          harness: bareName(instance.harness),
+        namespace: instance.agent.split("/")[0],
+          name: bareName(instance.agent),
         })
       : undefined);
 
   /*
-   * The agent as a pair, for everything that is about the agent rather than the
+   * The Agent identity, for everything that is about the agent rather than the
    * conversation open within it. From the surface when it knows, otherwise read off the
    * instance — the pages with no conversation open have only the first.
    */
-  const pair = agentPair ?? {
-    namespace: instance?.agentTemplate?.split("/")[0] ?? "",
-    agentTemplate: instance?.agentTemplate
-      ? bareName(instance.agentTemplate)
+  const agent = agentRef ?? {
+    namespace: instance?.agent?.split("/")[0] ?? "",
+    name: instance?.agent
+      ? bareName(instance.agent)
       : agentTitle?.primary,
-    harness: instance?.harness ? bareName(instance.harness) : undefined,
   };
 
   /*
@@ -308,7 +291,7 @@ export function AgentRail({
    * Its address is built from the instance's own template and harness, so until the
    * record lands there is nothing for Agent Details to point at and the entry was left
    * out — it then appeared under the reader's pointer and pushed the rest of the nav
-   * down. The pair-keyed pages name no conversation, so this is false there and the
+   * down. The agent-keyed pages name no conversation, so this is false there and the
    * entry is genuinely absent rather than late.
    */
   const isReadingConversation = Boolean(ref.id) && !instance;
@@ -319,7 +302,7 @@ export function AgentRail({
    * The new-conversation route is the agent's own address with `/new` on the end, so
    * it is derivable wherever the agent is known — including on the pages that have no
    * instance, which is exactly where this button used to be disabled. It was gated on
-   * `instance` because it once *created* the conversation and needed a pair to copy;
+   * `instance` because it once *created* the conversation and needed a agent to copy;
    * nothing is created now, so all it needs is somewhere to go.
    *
    * Built from `agentPageHref`, never `agentHref`: a redirected details link addresses
@@ -334,7 +317,7 @@ export function AgentRail({
    * which meant a product could retarget them through `agentLinks` and do nothing
    * else: not add a third, not hide one, not put them in a different order. They are
    * `coreRailItems` now, overrides are applied before anything is drawn, and
-   * contributions interleave by `order` — the same pair of extension points the
+   * contributions interleave by `order` — the same agent of extension points the
    * application sidebar has had all along.
    */
   const railOverrides = useExtensionAgentRailOverrides();
@@ -344,23 +327,12 @@ export function AgentRail({
     railContributions,
   );
 
-  /*
-   * The other conversations with this agent: the instances cut from the same pair.
-   *
-   * Narrowed on the pair rather than showing every visible instance,
-   * because "conversations with *this* agent" is what the list means — a different
-   * template is a different agent, and listing it here would make the rail a second
-   * copy of the agents page.
-   *
-   * With no instance loaded yet the pair is unknown, so nothing is claimed: an
-   * unfiltered list would briefly show every visible agent as though they
-   * were all conversations with this one.
-   */
+  // Only show instances belonging to this Agent, even when other Agents reuse its template.
   const chats = useMemo(() => {
     /*
      * With a conversation open, the list is narrowed to its siblings here — the
      * surfaces that mount this rail read every visible instance, and only
-     * this one knows which pair is current.
+     * this one knows which agent is current.
      *
      * With none open, the caller has already narrowed it, because the page *is* an
      * agent and could not have read anything else. Returning nothing in that case is
@@ -370,8 +342,7 @@ export function AgentRail({
     const siblings = instance
       ? (conversations.data ?? []).filter(
           (candidate) =>
-            candidate.harness === instance.harness &&
-            candidate.agentTemplate === instance.agentTemplate,
+            candidate.agent === instance.agent,
         )
       : (conversations.data ?? []);
     const needle = query.trim().toLowerCase();
@@ -424,7 +395,10 @@ export function AgentRail({
    * list very nearly unusable: the one row a reader could identify was the one they
    * were already looking at.
    */
-  const derivedTitles = useConversationTitles(chats);
+  const derivedTitles = useConversationTitles(
+    chats,
+    ref.id ? { id: ref.id, title: autoTitle } : undefined,
+  );
 
   /*
    * Bringing the list into line is the caller's job, not this one's.
@@ -626,7 +600,7 @@ export function AgentRail({
   const isCollapsed = wantsCollapsed || isNarrow;
 
   /*
-   * The reader's choice and the window's, kept apart — see the same pair on the chat
+   * The reader's choice and the window's, kept apart — see the same controls on the chat
    * page's agent panel. Only the choice is stored, so a rail folded away by a narrow
    * window is open again in the next wide one.
    */
@@ -830,7 +804,7 @@ export function AgentRail({
               being switched. It took them from the instance id, which meant the badge
               changed every time a reader opened a different conversation with the same
               agent — while the menu behind it listed agents that never changed. */}
-          {(instance?.agentTemplate ? bareName(instance.agentTemplate) : (agentTitle?.primary ?? ref.id ?? ""))
+          {(instance?.agent ? bareName(instance.agent) : (agentTitle?.primary ?? ref.id ?? ""))
             .slice(0, 2)
             .toUpperCase()}
         </span>
@@ -843,8 +817,8 @@ export function AgentRail({
               recognises the agent by; the id distinguishes this conversation from
               the others with it. Until the instance loads there is only the id. */}
           <Text ellipsis css={{ fontSize: 14, color: theme.color.text }}>
-            {instance?.agentTemplate
-              ? bareName(instance.agentTemplate)
+            {instance?.agent
+              ? bareName(instance.agent)
               : (agentTitle?.primary ?? shortInstanceId(ref.id ?? ""))}
           </Text>
           {/* Which conversation, under which agent. Named the way the reader named
@@ -863,12 +837,10 @@ export function AgentRail({
             }}
           >
             {/* Where it runs, which is the other half of what an agent *is* — a
-                template paired with a harness. The conversation is named in the list
+                named Agent definition. The conversation is named in the list
                 below, where it is one row among its siblings; naming it here made the
                 card describe a conversation while the menu it opens describes agents. */}
-            {instance?.harness
-              ? `on ${bareName(instance.harness)}`
-                  : (agentTitle?.secondary ?? agentPair?.namespace ?? instance?.agentTemplate?.split("/")[0] ?? "")}
+            { (agentTitle?.secondary ?? agentRef?.namespace ?? instance?.agent?.split("/")[0] ?? "")}
           </Text>
         </span>
         <ChevronsUpDown size={14} color={theme.color.textMuted} aria-hidden />
@@ -908,11 +880,11 @@ export function AgentRail({
           }}
         >
           <div css={{ minHeight: 0, overflow: "hidden" }}>
-            {/* Scoped to the agent — the pair — rather than to the conversation open
+            {/* Scoped to the named Agent rather than to the conversation open
                 within it. The switcher lists agents, so "which one am I on" is a
-                question about the pair. */}
+                question about the agent. */}
             <AgentSwitcher
-              current={pair}
+              current={agent}
               onPicked={() => setSwitcherFor(undefined)}
             />
           </div>
@@ -955,8 +927,8 @@ export function AgentRail({
             <entry.contribution.Component
               key={entry.contribution.key}
               isActive={railItemIsActive(entry.contribution, location)}
-              agent={ref.id ? { id: ref.id } : undefined}
-              pair={pair}
+              instance={ref.id ? { id: ref.id } : undefined}
+              agent={agent}
             />
           ),
         )}
@@ -1569,7 +1541,11 @@ function ChatEntry({
           // row, and what the ellipsis hides is the name. To the right, so it opens
           // into the page rather than back over the list it is explaining one of.
           ellipsis={{
-            tooltip: { title: conversationTitle(instance, autoTitle), placement: "right" },
+            tooltip: {
+              title: conversationTitle(instance, autoTitle),
+              placement: "right",
+              styles: TITLE_TOOLTIP_STYLES,
+            },
           }}
           css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
         >

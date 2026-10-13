@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
@@ -37,18 +39,19 @@ func TestCompileProviderCredentials(t *testing.T) {
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key"},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder},
-			wantEgress: []string{"api.anthropic.com"},
+			wantEnv:    map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder},
+			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"},
 		},
 		{
 			name: "Anthropic gateway",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic"}},
+				// cacheTTL is defaulted to "5m" by the CRD whenever the anthropic block is set.
+				Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "http://host.docker.internal:8090/anthropic", CacheTTL: "5m"}},
 			secretData: map[string][]byte{"api-key": []byte(credentialValue)},
-			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: v2translator.CredentialPlaceholder,
+			wantEnv: map[string]string{claudeconfig.AnthropicAPIKeyEnvName: translator.CredentialPlaceholder,
 				claudeconfig.AnthropicBaseURLEnvName: "http://host.docker.internal:8090/anthropic"},
-			wantEgress: []string{"host.docker.internal"},
+			wantEgress: []string{"http://host.docker.internal:8090", "http://kagent-controller.kagent:8083"},
 		},
 		{
 			name: "Bedrock IAM",
@@ -62,8 +65,8 @@ func TestCompileProviderCredentials(t *testing.T) {
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
 				APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
 			secretData: map[string][]byte{claudeconfig.AWSBedrockTokenEnvName: []byte(credentialValue)},
-			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: v2translator.CredentialPlaceholder},
-			wantEgress: []string{"bedrock-runtime.us-west-2.amazonaws.com"},
+			wantEnv:    map[string]string{claudeconfig.UseBedrockEnvName: "1", claudeconfig.AWSRegionEnvName: "us-west-2", claudeconfig.AWSBedrockTokenEnvName: translator.CredentialPlaceholder},
+			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
 		},
 		{
 			name: "Anthropic Vertex AI",
@@ -78,7 +81,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -120,122 +123,11 @@ func TestCompileProviderCredentials(t *testing.T) {
 				t.Fatalf("provenance contains gateway-managed Secret: %s", revision.Provenance)
 			}
 
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
 		})
-	}
-}
-
-func TestCompileTracing(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
-	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-	}
-	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "collector"}) {
-		t.Fatalf("egress = %v", revision.EgressDestinations)
-	}
-	environment := map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for name, value := range map[string]string{
-		"OTEL_TRACING_ENABLED": "true", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
-		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "otlp",
-		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
-		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
-		"KAGENT_NAME":      "assistant-claude",
-		"KAGENT_NAMESPACE": "test", claudeconfig.PreResponseTraceFlushEnvName: "true",
-	} {
-		if environment[name] != value {
-			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
-		}
-	}
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	environment = map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"} {
-		if environment[name] != "1" {
-			t.Errorf("sensitive trace environment[%s] = %q, want 1", name, environment[name])
-		}
-	}
-	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != tracing.CaptureContentSpanOnly {
-		t.Errorf("capture environment = %q, want %q", got, tracing.CaptureContentSpanOnly)
-	}
-}
-
-func TestCompileLogging(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
-	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "false")
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://logs:4318")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-	}
-	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "logs"}) {
-		t.Fatalf("egress = %v", revision.EgressDestinations)
-	}
-	environment := map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for name, value := range map[string]string{
-		"OTEL_LOGGING_ENABLED": "true", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf", "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
-		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1", "OTEL_TRACES_EXPORTER": "none",
-		"OTEL_LOGS_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none",
-	} {
-		if environment[name] != value {
-			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
-		}
-	}
-	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_TOOL_CONTENT", "OTEL_LOG_RAW_API_BODIES"} {
-		if _, exists := environment[name]; exists {
-			t.Fatalf("logging-only revision enables sensitive telemetry %s by default", name)
-		}
-	}
-
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
-	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "true")
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	environment = map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES"} {
-		if environment[name] != "1" {
-			t.Errorf("sensitive log environment[%s] = %q, want 1", name, environment[name])
-		}
-	}
-	if _, exists := environment["OTEL_LOG_TOOL_CONTENT"]; exists {
-		t.Fatal("logging-only revision enables trace-based tool content")
 	}
 }
 
@@ -248,6 +140,8 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 		{name: "passthrough", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeyPassthrough: true}},
 		{name: "headers", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", DefaultHeaders: map[string]string{"x": "y"}}},
 		{name: "Anthropic options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", Anthropic: &v1alpha3.AnthropicConfig{Temperature: "0.5"}}},
+		{name: "Anthropic prompt caching", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{PromptCaching: true, CacheTTL: "5m"}}},
+		{name: "Anthropic cache TTL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{CacheTTL: "1h"}}},
 		{name: "Anthropic relative base URL", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "/v1"}}},
 		{name: "Anthropic base URL credentials", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", Anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://user:password@example.com"}}},
 		{name: "Bedrock options", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}}},
@@ -256,8 +150,8 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, map[string][]byte{"api-key": []byte("secret"), claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte("secret"), "credentials.json": []byte(`{"type":"service_account"}`)})
-			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-			var validation *v2translator.ValidationError
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
+			var validation *translator.ValidationError
 			if !errors.As(err, &validation) {
 				t.Fatalf("Compile() error = %v, want validation error", err)
 			}
@@ -272,45 +166,47 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: &value}}
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	var validation *v2translator.ValidationError
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
+	var validation *translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
 	}
 }
 
-func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
+func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	var validation *v2translator.ValidationError
-	if !errors.As(err, &validation) {
-		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(result.EgressDestinations, value) {
+		t.Fatalf("missing runtime telemetry egress: %v", result.EgressDestinations)
 	}
 }
 
-func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
+func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "department=engineering"
-	input.Harness.Spec.Env = []v1alpha3.HarnessEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: &value}}
+	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(revision.Environment, corev1.EnvVar{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}) {
-		t.Fatalf("unmanaged OTEL environment missing from revision: %#v", revision.Environment)
+	if !slices.ContainsFunc(result.Environment, func(v corev1.EnvVar) bool { return v.Name == input.Harness.Spec.Env[0].Name && v.Value == value }) {
+		t.Fatal("runtime override missing")
 	}
 }
 
@@ -330,7 +226,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		Skills: []string{"deploy"},
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,13 +238,13 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		len(cfg.SkillResources.Plugins) != 1 || !reflect.DeepEqual(cfg.SkillResources.Plugins[0].Skills, []string{"deploy"}) {
 		t.Fatalf("compiled skills = %#v", cfg.SkillResources)
 	}
-	wantEgress := []string{"api.anthropic.com", "git.example.com", "registry.example.com"}
+	wantEgress := []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://git.example.com:443", "https://registry.example.com:443"}
 	if !reflect.DeepEqual(revision.EgressDestinations, wantEgress) {
 		t.Fatalf("egress = %v, want %v", revision.EgressDestinations, wantEgress)
 	}
 
 	input.Root.Template.Spec.Plugins[0].Skills = []string{"review"}
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
 		t.Fatalf("duplicate skill Compile() error = %v", err)
 	}
 }
@@ -380,9 +276,9 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 		Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
 		Tools:  []string{"get_time", "echo", "add_numbers"},
 	}}}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
+	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,14 +299,14 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 	foundSecret := false
 	for _, variable := range revision.Environment {
-		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == v2translator.CredentialPlaceholder {
+		if strings.HasPrefix(variable.Name, claudeconfig.MCPCredentialEnvPrefix) && variable.Value == translator.CredentialPlaceholder {
 			foundSecret = true
 		}
 	}
 	if !foundSecret {
 		t.Fatalf("MCP credential environment missing: %#v", revision.Environment)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"api.anthropic.com", "mcp.example.com"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://mcp.example.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 	if !bytes.Contains(revision.Provenance, []byte(`"kind":"RemoteMCPServer"`)) {
@@ -432,8 +328,8 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 		}},
 	}
 	binding := v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
-	input.Root.MCPTools = []v2translator.ResolvedMCPTool{{Binding: binding, Server: server}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: binding, Server: server}}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("omitted selection Compile() error = %v", err)
 	}
@@ -442,7 +338,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("partial selection Compile() error = %v", err)
 	}
@@ -451,7 +347,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Status.ObservedGeneration = 0
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("stale discovery Compile() error = %v", err)
 	}
@@ -465,7 +361,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	server.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
 	server.Spec.Timeout = &metav1.Duration{Duration: time.Minute}
 	server.Spec.TerminateOnClose = &terminateOnClose
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unsupported MCP options Compile() error = %v", err)
 	}
@@ -479,7 +375,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocol("STDIO")
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 
@@ -489,7 +385,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	server.Spec.TerminateOnClose = nil
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
 	input.Root.MCPTools[0].Binding.RequireApproval = true
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("approval-required MCP binding Compile() error = %v", err)
 	}
@@ -514,30 +410,29 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 	input, reader := testInput(t, modelSpec, map[string][]byte{"api-key": []byte("secret")})
 	childModelSpec := modelSpec
 	childModelSpec.Model = "claude-specialist"
-	child := &v2translator.AgentInput{
-		Template: &v1alpha3.AgentTemplate{
-			ObjectMeta: metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
+	child := &translator.AgentInput{
+		Template: &translator.TemplateConfiguration{
+			Name: "specialist-template", Namespace: "test", Source: &metav1.ObjectMeta{Name: "specialist-template", Namespace: "test", UID: "child-template-uid"},
 			Spec: v1alpha3.AgentTemplateSpec{
 				ModelConfig: &corev1.LocalObjectReference{Name: "child-model"},
 				Description: "template description", SystemPrompt: "specialize",
 			},
 		},
-		ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+		ResolvedModelConfig: &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test", UID: "child-model-uid"},
 			Spec:       childModelSpec,
 		}},
 		Instruction: "Return the specialist marker.",
 	}
-	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{Agent: &v1alpha3.AgentToolBinding{
+	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
 		Name: "specialist", Description: "Handles specialist requests",
-		TemplateRef: corev1.LocalObjectReference{Name: child.Template.Name},
-		Isolation:   v1alpha3.AgentToolIsolationShared,
+		TemplateRef: &corev1.LocalObjectReference{Name: child.Template.Name},
 	}}}
-	input.Root.Shared = []v2translator.AgentInputBinding{{
+	input.Root.Shared = []translator.AgentInputBinding{{
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,19 +460,19 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 	}
 	tests := []struct {
 		name   string
-		mutate func(*v2translator.AgentInputBinding)
+		mutate func(*translator.AgentInputBinding)
 		want   string
 	}{
-		{name: "provider configuration", mutate: func(binding *v2translator.AgentInputBinding) {
+		{name: "provider configuration", mutate: func(binding *translator.AgentInputBinding) {
 			binding.Agent.ResolvedModelConfig.Config.Spec.APIKeySecret = "different-auth"
 		}, want: "root agent's provider"},
-		{name: "nested tools", mutate: func(binding *v2translator.AgentInputBinding) {
+		{name: "nested tools", mutate: func(binding *translator.AgentInputBinding) {
 			binding.Agent.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{}}}
 		}, want: "cannot contain MCP or nested agent tools"},
-		{name: "skills", mutate: func(binding *v2translator.AgentInputBinding) {
+		{name: "skills", mutate: func(binding *translator.AgentInputBinding) {
 			binding.Agent.Template.Spec.Skills = []v1alpha3.AgentTemplateSkill{{Name: "review"}}
 		}, want: "cannot contain skills or plugins"},
-		{name: "invalid binding name", mutate: func(binding *v2translator.AgentInputBinding) {
+		{name: "invalid binding name", mutate: func(binding *translator.AgentInputBinding) {
 			binding.Name = "not valid"
 		}, want: "invalid compiled Claude configuration"},
 	}
@@ -586,20 +481,20 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			input, reader := testInput(t, modelSpec, map[string][]byte{"api-key": []byte("secret")})
 			childSpec := modelSpec
 			childSpec.Model = "claude-child"
-			binding := v2translator.AgentInputBinding{
+			binding := translator.AgentInputBinding{
 				Name: "specialist", Description: "Handles specialist requests",
-				Agent: &v2translator.AgentInput{
-					Template: &v1alpha3.AgentTemplate{
-						ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "test"},
-						Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
+				Agent: &translator.AgentInput{
+					Template: &translator.TemplateConfiguration{
+						Name: "child", Namespace: "test", Source: &metav1.ObjectMeta{Name: "child", Namespace: "test"},
+						Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "child-model"}},
 					},
-					ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec}},
+					ResolvedModelConfig: &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "child-model", Namespace: "test"}, Spec: childSpec}},
 					Instruction:         "specialize",
 				},
 			}
 			tt.mutate(&binding)
-			input.Root.Shared = []v2translator.AgentInputBinding{binding}
-			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			input.Root.Shared = []translator.AgentInputBinding{binding}
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Compile() error = %v, want containing %q", err, tt.want)
 			}
@@ -607,28 +502,26 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 	}
 }
 
-func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*v2translator.HarnessInput, v2translator.Collections) {
+func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*translator.HarnessInput, translator.Collections) {
 	t.Helper()
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
+	harness := &translator.HarnessConfiguration{Name: "claude", Namespace: "test", Source: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Substrate: v1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
+	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",
 	}}
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "test", UID: "model-uid"}, Spec: modelSpec}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test", UID: "secret-uid"}, Data: secretData}
 	mock := krttest.NewMock(t, []any{secret})
-	collections := v2translator.Collections{
+	collections := translator.Collections{
 		Secrets:    krttest.GetMockCollection[*corev1.Secret](mock),
 		ConfigMaps: krttest.GetMockCollection[*corev1.ConfigMap](mock),
 	}
-	return &v2translator.HarnessInput{Harness: harness, Root: &v2translator.AgentInput{Template: template, ResolvedModelConfig: &v2translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
+	return &translator.HarnessInput{AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{Template: template, ResolvedModelConfig: &translator.ResolvedModelConfig{Config: model}, Instruction: "help carefully"}}, collections
 }
 
 func TestCompileRuntimeTelemetry(t *testing.T) {
-	t.Setenv("OTEL_TRACING_ENABLED", "true")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -636,8 +529,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	input.Harness.Name = "fast"
 
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "false")
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	settings := testCompilerSettings()
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,9 +538,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The compiled identity follows the Harness name, not the harness kind.
+	// Changing the Harness name must not change the Agent runtime identity.
 	want := tracing.RuntimeTelemetry{
-		Runtime: tracing.RuntimeClaude, AgentName: "assistant-fast", AgentNamespace: "test",
+		Runtime: tracing.RuntimeClaude, AgentName: "runnable-agent", AgentNamespace: "test",
 		Provider: "anthropic", Model: "claude-sonnet-4-5",
 	}
 	if config.RuntimeTelemetry != want {
@@ -657,9 +550,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	t.Setenv("KAGENT_OTEL_CAPTURE_SENSITIVE_CONTENT", "true")
-	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "4096")
-	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	settings.Telemetry.CaptureSensitiveContent = true
+	settings.Telemetry.MaxCaptureBytes = 4096
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,13 +582,43 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 }
 
-func TestCompileRejectsAnUnusableCaptureBudget(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "-1")
-	config, warnings := v2translator.TelemetryConfigFromProcess()
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %v, want one", warnings)
+func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
+	settings := testCompilerSettings()
+	settings.Telemetry = translator.TelemetryConfig{CaptureSensitiveContent: true, CaptureRawAPIBodies: true, MaxCaptureBytes: 4096,
+		Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://traces:4317", Protocol: "grpc"}, Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}, Logs: &telemetry.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: "http/protobuf"}}}
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
 	}
-	if config.MaxCaptureBytes != 0 {
-		t.Fatalf("MaxCaptureBytes = %d, want the shared default", config.MaxCaptureBytes)
+	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), "mcp-token": []byte(credentialValue)})
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "math-server", Namespace: "test", UID: "mcp-uid", Generation: 1},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp, URL: "https://mcp.example.com/mcp",
+			HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "model-auth", Key: "mcp-token"}}},
+		},
+		Status: v1alpha3.RemoteMCPServerStatus{ObservedGeneration: 1, DiscoveredTools: []*v1alpha3.MCPTool{{Name: "echo"}}},
 	}
+	input.Root.Template.Spec.Tools = []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+		Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"echo"},
+	}}}
+	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
+
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisionID, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, err := substrate.ActorTemplateForRevision(&revision.Revision, revisionID)
+	if err != nil {
+		t.Fatalf("worst-case Claude actor does not fit Substrate: %v", err)
+	}
+	t.Logf("worst-case Claude actor uses %d of 32 environment variables", len(template.GetContainers()[0].GetEnv()))
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }

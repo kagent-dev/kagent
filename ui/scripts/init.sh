@@ -25,15 +25,24 @@ mkdir -p /tmp/nginx/client_temp \
 # awaited fetch to have landed. Keep the keys in sync with `ui/src/env.ts`.
 CONFIG_PATH=/tmp/kagent/env-config.js
 
-API_BASE_URL="${KAGENT_API_BASE_URL:-/api}"
-SSO_REDIRECT_PATH="${SSO_REDIRECT_PATH:-/oauth2/start}"
-STREAM_TIMEOUT_MS="${KAGENT_STREAM_TIMEOUT_MS:-1800000}"
-ENABLE_MOCK_UI="${ENABLE_MOCK_UI:-false}"
+API_BASE_URL="${KAGENT_UI_API_BASE_URL:-/api}"
+SSO_REDIRECT_PATH="${KAGENT_UI_SSO_REDIRECT_PATH:-/oauth2/start}"
+STREAM_TIMEOUT_MS="${KAGENT_UI_STREAM_TIMEOUT_MS:-1800000}"
+ENABLE_MOCK_UI="${KAGENT_UI_ENABLE_MOCK:-false}"
+# Public path prefix when a reverse proxy serves the UI under a sub-path, e.g. /ui.
+BASE_PATH="${KAGENT_UI_BASE_PATH:-}"
+BASE_PATH="${BASE_PATH%/}"
+# Keep in sync with the ui.basePath check in helm/kagent/templates/ui-deployment.yaml.
+if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || [[ "$BASE_PATH" =~ (^|/)\.\.?(/|$) ]] \
+  || [[ "$BASE_PATH" =~ ^/(api|a2a|assets|health|env-config\.js|index\.html|mockServiceWorker\.js)(/|$) ]]; then
+  echo "init.sh: KAGENT_UI_BASE_PATH='${BASE_PATH}' is not a path like /ui, or starts with a path nginx serves; serving at the root" >&2
+  BASE_PATH=""
+fi
 
 # A non-numeric timeout would abort every chat stream immediately, which looks
 # like the backend hanging up rather than like a bad value. Fall back instead.
 if ! [[ "$STREAM_TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
-  echo "init.sh: KAGENT_STREAM_TIMEOUT_MS='${STREAM_TIMEOUT_MS}' is not a number; using 1800000" >&2
+  echo "init.sh: KAGENT_UI_STREAM_TIMEOUT_MS='${STREAM_TIMEOUT_MS}' is not a number; using 1800000" >&2
   STREAM_TIMEOUT_MS=1800000
 fi
 
@@ -48,7 +57,7 @@ json_escape() {
 }
 
 # Anything an installed extension reads, passed through verbatim and by name rather
-# than by list: whatever the chart sets as `EXTENSION_*` arrives, so this image needs
+# than by list: whatever the chart sets as `KAGENT_UI_EXTENSION_*` arrives, so this image needs
 # no change when an extension grows a setting, and this repository does not enumerate
 # another product's configuration. The application ignores keys it has no use for.
 #
@@ -57,16 +66,21 @@ extension_json=""
 while IFS='=' read -r name value; do
   extension_json+="  \"$(json_escape "$name")\": \"$(json_escape "$value")\",
 "
-done < <(env | grep '^EXTENSION_' | sort)
+done < <(env | grep '^KAGENT_UI_EXTENSION_' | sort)
 
 cat > "$CONFIG_PATH" <<EOF
 window.environmentVariables = {
   "API_BASE_URL": "$(json_escape "$API_BASE_URL")",
   "SSO_REDIRECT_PATH": "$(json_escape "$SSO_REDIRECT_PATH")",
   "STREAM_TIMEOUT_MS": "$STREAM_TIMEOUT_MS",
-${extension_json}  "ENABLE_MOCK_UI": "$(json_escape "$ENABLE_MOCK_UI")"
+${extension_json}  "BASE_PATH": "$BASE_PATH",
+  "ENABLE_MOCK_UI": "$(json_escape "$ENABLE_MOCK_UI")"
 };
 EOF
+
+# Assets load relative to <base href>, so deep links resolve under the sub-path too.
+sed "s|<base href=\"/\"|<base href=\"${BASE_PATH}/\"|" /usr/share/nginx/html/index.html > /tmp/kagent/index.html
+grep -q "<base href=\"${BASE_PATH}/\"" /tmp/kagent/index.html || echo "init.sh: could not set <base href> to ${BASE_PATH}/" >&2
 
 # nginx is the only process in this container, so it runs as PID 1 directly
 # instead of under a process manager.

@@ -46,7 +46,24 @@ export interface ChatAskUserPart {
   interaction: AskUserRecord;
 }
 
-export type ChatPart = ChatTextPart | ChatDataPart | ChatToolApprovalPart | ChatAskUserPart;
+/** A file sent with a message, or one the agent sent back. */
+export interface ChatFilePart {
+  kind: "file";
+  name: string;
+  mediaType: string;
+  size?: number;
+  /** Its bytes. Absent when only its description was kept. */
+  blob?: Blob;
+  /** A remote address, for a file sent by URL rather than by bytes. */
+  url?: string;
+}
+
+export type ChatPart =
+  | ChatTextPart
+  | ChatDataPart
+  | ChatToolApprovalPart
+  | ChatAskUserPart
+  | ChatFilePart;
 
 export interface ChatMessage {
   id: string;
@@ -87,9 +104,11 @@ export type ChatEvent =
 
 /** A conversation identified by UUID. */
 export interface ChatConversationRef {
-  /** The AgentInstance id. A UUID; the gateway rejects anything else. */
+  /** The Session UUID, also its A2A conversation ID. */
   id: string;
-  /** Omitted until loaded; the routed gateway resolves an empty context. */
+  /** Agent selected for A2A routing, as namespace/name. */
+  agent: string;
+  /** The Session conversation ID. */
   contextId?: string;
 }
 
@@ -101,6 +120,8 @@ export function conversationKey(conversation: ChatConversationRef): string {
 export interface SendMessageInput {
   conversation: ChatConversationRef;
   text: string;
+  /** Sent as raw file parts after the text. */
+  files?: readonly File[];
   /**
    * The id the caller has already filed this message under.
    *

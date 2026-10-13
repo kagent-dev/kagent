@@ -25,11 +25,13 @@ import {
 } from "@/generated/a2a_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
 
 const CONVERSATION = {
   id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  contextId: "8f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  contextId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+  agent: "team-a/assistant",
 };
 
 afterEach(() => setApiTransport(undefined));
@@ -53,11 +55,20 @@ const text = (value: string) => ({ content: { case: "text" as const, value } });
 const data = (
   value: Record<string, unknown>,
   options: { mediaType?: string; metadata?: Record<string, unknown> } = {},
-) => ({
-  content: { case: "data" as const, value: fromJson(ValueSchema, value as never) },
-  mediaType: options.mediaType ?? "",
-  metadata: options.metadata,
-});
+) => {
+  const partType = "args" in value
+    ? "function_call"
+    : "response" in value
+      ? "function_response"
+      : undefined;
+  return {
+    content: { case: "data" as const, value: fromJson(ValueSchema, value as never) },
+    mediaType: options.mediaType ?? "",
+    metadata:
+      options.metadata ??
+      (partType ? { [A2A_METADATA.partType]: partType } : undefined),
+  };
+};
 
 /** A `working` status update carrying one message. */
 function statusFrame(options: {
@@ -66,7 +77,12 @@ function statusFrame(options: {
   message?: {
     messageId: string;
     role: Role;
-    parts: (ReturnType<typeof text> | ReturnType<typeof data>)[];
+    parts: (
+      | ReturnType<typeof text>
+      | ReturnType<typeof data>
+      | { content: { case: "raw"; value: Uint8Array }; filename: string; mediaType: string }
+      | { content: { case: "url"; value: string }; filename: string; mediaType: string }
+    )[];
     metadata?: Record<string, unknown>;
     extensions?: string[];
   };
@@ -259,6 +275,85 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it.each([TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED])(
+    "reads tool approval directly from a task snapshot in state %s",
+    async (state) => {
+      const events = await turn([{
+        payload: {
+          case: "task",
+          value: {
+            id: "task-1",
+            contextId: CONVERSATION.id,
+            status: {
+              state,
+              message: {
+                messageId: "approval-request",
+                role: Role.AGENT,
+                parts: [text("Allow describe?")],
+                extensions: ["https://kagent.dev/extensions/hitl/v1"],
+                metadata: {
+                  "https://kagent.dev/extensions/hitl/v1": {
+                    type: "tool_approval_request",
+                    tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      }]);
+      expect(transcript(events)).toEqual([]);
+      expect(events).toContainEqual({
+        type: "status",
+        state: "input_required",
+        taskId: "task-1",
+        awaiting: {
+          kind: "tool_approval",
+          taskId: "task-1",
+          tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+          hint: undefined,
+          askedBy: undefined,
+        },
+      });
+    },
+  );
+
+  it("reads ask-user choices directly from a task snapshot", async () => {
+    const events = await turn([{
+      payload: {
+        case: "task",
+        value: {
+          id: "task-1",
+          status: {
+            state: TaskState.INPUT_REQUIRED,
+            message: {
+              messageId: "ask-request",
+              role: Role.AGENT,
+              parts: [text("Which database?")],
+              extensions: ["https://kagent.dev/extensions/hitl/v1"],
+              metadata: {
+                "https://kagent.dev/extensions/hitl/v1": {
+                  type: "ask_user_request",
+                  id: "ask-1",
+                  questions: [{ question: "Which database?", choices: ["PostgreSQL"] }],
+                },
+              },
+            },
+          },
+        },
+      },
+    }]);
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status", state: "input_required", taskId: "task-1",
+      awaiting: {
+        kind: "ask_user", taskId: "task-1", requestId: "ask-1",
+        questions: [{ question: "Which database?", choices: ["PostgreSQL"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
   it("shows only the interactive card when ask_user parks the turn", async () => {
     const events = await turn([
       {
@@ -404,65 +499,6 @@ describe("A2AGrpcChatClient.send", () => {
     const user = transcript(events).filter((message) => message.role === "user");
     expect(user).toHaveLength(1);
     expect(textOf(user[0])).toBe("why is checkout crashlooping?");
-  });
-
-  it("coalesces a reply streamed as partial chunks into one message", async () => {
-    // Each chunk is a whole message with a messageId of its own — delivered as they
-    // arrive, one reply became a column of bubbles, one per word. What relates them
-    // is `adk_invocation_id`.
-    const chunk = (id: string, value: string) => ({
-      messageId: id,
-      role: Role.AGENT,
-      parts: [text(value)],
-      metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
-    });
-
-    const events = await turn([
-      statusFrame({ message: chunk("c1", "The checkout ") }),
-      statusFrame({ message: chunk("c2", "pod is out ") }),
-      statusFrame({ message: chunk("c3", "of memory.") }),
-    ]);
-
-    const agent = transcript(events).filter((message) => message.role === "agent");
-    expect(agent).toHaveLength(1);
-    expect(textOf(agent[0])).toBe("The checkout pod is out of memory.");
-  });
-
-  it("replaces the streamed reply with the server's final one rather than adding it", async () => {
-    // The complete message repeats every word already streamed, under a messageId of
-    // its own. Emitted as a new message it printed the answer twice; emitted under
-    // the streamed id it is a replacement, and the authority sits with the backend.
-    const events = await turn([
-      statusFrame({
-        message: {
-          messageId: "c1",
-          role: Role.AGENT,
-          parts: [text("The checkout ")],
-          metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
-        },
-      }),
-      statusFrame({
-        message: {
-          messageId: "c2",
-          role: Role.AGENT,
-          parts: [text("pod is out of memory.")],
-          metadata: { adk_partial: true, adk_invocation_id: "inv-1" },
-        },
-      }),
-      statusFrame({
-        state: TaskState.COMPLETED,
-        message: {
-          messageId: "final",
-          role: Role.AGENT,
-          parts: [text("The checkout pod is out of memory.")],
-          metadata: { adk_invocation_id: "inv-1" },
-        },
-      }),
-    ]);
-
-    const agent = transcript(events).filter((message) => message.role === "agent");
-    expect(agent).toHaveLength(1);
-    expect(textOf(agent[0])).toBe("The checkout pod is out of memory.");
   });
 
   it("does not deliver the answer twice when an artifact repeats it", async () => {
@@ -771,7 +807,7 @@ describe("A2AGrpcChatClient.send", () => {
     expect(states).toContain("failed");
   });
 
-  it("addresses the conversation by contextId and routes on the instance headers", async () => {
+  it("routes to the Agent tenant and selects the Session by contextId", async () => {
     let sent: SendMessageRequest | undefined;
     let namespaceHeader: string | null = null;
     let idHeader: string | null = null;
@@ -797,18 +833,39 @@ describe("A2AGrpcChatClient.send", () => {
       expect(event).toBeDefined();
     }
 
-    // Both halves of the address, because the gateway routes on the metadata rather
-    // than on a path — a gRPC method has no path to put them in.
+    // Agent routing lives in the request tenant; the old instance headers are absent.
     expect(namespaceHeader).toBeNull();
-    expect(idHeader).toBe(CONVERSATION.id);
-    // The instance's own id is the conversation's context, and the gateway refuses a
-    // value that is neither empty nor its own.
+    expect(idHeader).toBeNull();
+    expect(sent?.tenant).toBe(CONVERSATION.agent);
+    // The Session ID selects the existing conversation.
     expect(sent?.message?.contextId).toBe(CONVERSATION.contextId);
     expect(sent?.message?.role).toBe(Role.USER);
   });
 });
 
 describe("A2AGrpcChatClient.history", () => {
+  it("routes history and cancellation to the conversation's Agent", async () => {
+    const seen: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        listTasks: (request) => {
+          seen.push({ tenant: request.tenant, contextId: request.contextId });
+          return { tasks: [] };
+        },
+        cancelTask: (request) => {
+          seen.push({ tenant: request.tenant, id: request.id });
+          return {};
+        },
+      });
+    });
+    const client = new A2AGrpcChatClient();
+    await client.history(CONVERSATION);
+    await client.cancel(CONVERSATION, "task-1");
+    expect(seen).toEqual([
+      { tenant: CONVERSATION.agent, contextId: CONVERSATION.id },
+      { tenant: CONVERSATION.agent, id: "task-1" },
+    ]);
+  });
   function serveTasks(tasks: unknown[]): void {
     serve(({ service }) => {
       service(A2AService, {
@@ -871,6 +928,78 @@ describe("A2AGrpcChatClient.history", () => {
           },
         ],
       }),
+    ]);
+  });
+
+  it("keeps earlier tool activity before a positioned approval on reload", async () => {
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          {
+            messageId: "opening",
+            role: Role.USER,
+            parts: [text("List pods and delete one")],
+            metadata: position("2025-12-31T23:59:59.000000001Z"),
+          },
+          {
+            messageId: "request",
+            role: Role.AGENT,
+            parts: [text("Tool request approval")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              ...position("2026-01-01T00:00:00.000000002Z"),
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_request",
+                tools: [{ id: "call-1", name: "delete_pod", args: {} }],
+              },
+            },
+          },
+          {
+            messageId: "approval",
+            role: Role.USER,
+            parts: [text("Approved: delete_pod")],
+            extensions: ["https://kagent.dev/extensions/hitl/v1"],
+            metadata: {
+              ...position("2026-01-01T00:00:00.000000003Z"),
+              "https://kagent.dev/extensions/hitl/v1": {
+                type: "tool_approval_response",
+                approvals: [{ id: "call-1", approved: true }],
+              },
+            },
+          },
+        ],
+        artifacts: [
+          {
+            artifactId: "list-call",
+            parts: [data({ id: "list-1", name: "list_pods", args: {} })],
+            metadata: position("2025-12-31T23:59:59.000000002Z"),
+          },
+          {
+            artifactId: "list-result",
+            parts: [data({ id: "list-1", name: "list_pods", response: { result: "old" } })],
+            metadata: position("2025-12-31T23:59:59.000000003Z"),
+          },
+          {
+            artifactId: "call",
+            parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
+            metadata: position("2026-01-01T00:00:00.000000001Z"),
+          },
+          {
+            artifactId: "result",
+            parts: [data({ id: "call-1", name: "delete_pod", response: { result: "deleted" } })],
+            metadata: position("2026-01-01T00:00:00.000000004Z"),
+          },
+        ],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual([
+      "opening", "list-call", "list-result", "call", "approval", "result",
     ]);
   });
 
@@ -1041,7 +1170,7 @@ describe("A2AGrpcChatClient.history", () => {
   });
 
   it("orders messages and artifacts by their timeline positions", async () => {
-    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
         id: "task-1",
@@ -1066,7 +1195,7 @@ describe("A2AGrpcChatClient.history", () => {
   });
 
   it("replays text on both sides of tool activity in its original order", async () => {
-    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
         id: "task-1",
@@ -1103,7 +1232,7 @@ describe("A2AGrpcChatClient.history", () => {
   });
 
   it("does not use text as identity for positioned artifacts", async () => {
-    const position = (value: string) => ({ "kagent.dev/timeline-position": value });
+    const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
         id: "task-1",
@@ -1308,7 +1437,12 @@ describe("A2AGrpcChatClient.history", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].parts).toEqual([
       { kind: "text", text: "alpha beta" },
-      { kind: "data", dataKind: "tool_call", data: { name: "lookup", args: {} } },
+      {
+        kind: "data",
+        dataKind: "tool_call",
+        data: { name: "lookup", args: {} },
+        metadata: { [A2A_METADATA.partType]: "function_call" },
+      },
       { kind: "text", text: " gamma delta" },
     ]);
   });
@@ -1340,5 +1474,90 @@ describe("A2AGrpcChatClient.history", () => {
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
     expect(messages.map((message) => textOf(message))).toEqual(["task-1", "task-2"]);
+  });
+});
+
+describe("A2AGrpcChatClient files", () => {
+  it("sends each file as a raw part, typed by extension when the browser says nothing", async () => {
+    let captured: SendMessageRequest | undefined;
+    serve(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* (request) {
+          captured = request;
+        },
+      });
+    });
+    const notes = new File(["# hi"], "notes.md", { type: "" });
+    for await (const event of new A2AGrpcChatClient().send({
+      conversation: CONVERSATION,
+      text: "",
+      files: [notes],
+    })) {
+      void event;
+    }
+    // Files alone: no empty text part ahead of them.
+    expect(captured?.message?.parts).toHaveLength(1);
+    const part = captured?.message?.parts[0];
+    expect(part?.content.case).toBe("raw");
+    expect(part?.filename).toBe("notes.md");
+    expect(part?.mediaType).toBe("text/markdown");
+    expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
+  });
+
+  it("renders a file the agent sent rather than dropping it", async () => {
+    const events = await turn([
+      statusFrame({
+        state: TaskState.WORKING,
+        message: {
+          messageId: "m-file",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "raw" as const, value: new TextEncoder().encode("ok") },
+              filename: "report.csv",
+              mediaType: "text/csv",
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.csv",
+        mediaType: "text/csv",
+        size: 2,
+        blob: expect.any(Blob),
+      },
+    ]);
+  });
+
+  it("names a linked file by its path and drops non-http links", async () => {
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-url",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "url" as const, value: "https://files.example/out/report.pdf?sig=abc" },
+              filename: "",
+              mediaType: "application/pdf",
+            },
+            { content: { case: "url" as const, value: "javascript:alert(1)" }, filename: "x.pdf", mediaType: "application/pdf" },
+            { content: { case: "url" as const, value: "data:text/html,<b>hi</b>" }, filename: "y.html", mediaType: "text/html" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.pdf",
+        mediaType: "application/pdf",
+        url: "https://files.example/out/report.pdf?sig=abc",
+      },
+    ]);
   });
 });

@@ -1,61 +1,70 @@
 package tracing
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
-// SchemaURL is the OpenTelemetry semantic conventions version this contract
-// follows. Every tracer kagent creates declares it, so a consumer can tell
-// which revision of the GenAI conventions a span's attribute names come from.
+// SchemaURL is the OpenTelemetry semantic conventions version every tracer
+// kagent creates declares. It is the core version the SDK itself uses; the
+// GenAI names come from the registry in telemetry/registry.
 const SchemaURL = semconv.SchemaURL
 
 // Span and resource attribute keys kagent runtimes produce. Consumers read
-// these names directly, so treat them as a published contract. Names the GenAI
-// semantic conventions define are taken from the pinned semconv package rather
-// than spelled out, so they cannot drift from the version SchemaURL declares;
-// only the kagent and A2A namespaces are kagent's own.
+// these names directly, so treat them as a published contract. They come from
+// the generated conv package, so they cannot drift from telemetry/registry.
 const (
 	// AttributeOperationName is the GenAI operation. An invocation span carries
 	// OperationInvokeAgent; model and tool spans come from the runtime itself.
-	AttributeOperationName = string(semconv.GenAIOperationNameKey)
-	// AttributeRuntime names the runtime behind an invocation. A Harness
-	// object's configurable name is not its runtime.
-	AttributeRuntime = "kagent.runtime"
-	// AttributeAgentName is the compiled agent identity, <template>-<harness>.
-	AttributeAgentName = string(semconv.GenAIAgentNameKey)
+	AttributeOperationName = string(conv.GenAIOperationNameKey)
+	// AttributeRuntime names the runtime on the resource. A Harness object's
+	// configurable name is not its runtime.
+	AttributeRuntime = string(conv.KagentRuntimeKey)
+	// AttributeGenAIProducer names the component that writes a native process's model and tool spans.
+	AttributeGenAIProducer = string(conv.KagentGenaiProducerKey)
+	// AttributeAgentName is the compiled agent identity, <agent>.
+	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.
-	AttributeAgentID = string(semconv.GenAIAgentIDKey)
+	AttributeAgentID = string(conv.GenAIAgentIDKey)
+	// AttributeMainAgentName and AttributeMainAgentID carry the same identity
+	// on the resource, where the conventions keep gen_ai.agent.* off.
+	AttributeMainAgentName = string(conv.GenAIMainAgentNameKey)
+	AttributeMainAgentID   = string(conv.GenAIMainAgentIDKey)
 	// AttributeProviderName is the model provider the agent is compiled against,
 	// in the GenAI conventions' vocabulary.
-	AttributeProviderName = string(semconv.GenAIProviderNameKey)
+	AttributeProviderName = string(conv.GenAIProviderNameKey)
 	// AttributeRequestModel is the model the agent is compiled against. The
 	// conventions allow it on an agent span only when the agent is bound to one
 	// model, which a compiled kagent agent is.
-	AttributeRequestModel = string(semconv.GenAIRequestModelKey)
+	AttributeRequestModel = string(conv.GenAIRequestModelKey)
 	// AttributeConversationID is the A2A context that groups a conversation.
-	AttributeConversationID = string(semconv.GenAIConversationIDKey)
+	AttributeConversationID = string(conv.GenAIConversationIDKey)
 	// AttributeTaskID is the A2A task an invocation executes. The conventions
 	// have no task identity, so it stays in the A2A namespace.
-	AttributeTaskID = "a2a.task.id"
+	AttributeTaskID = string(conv.A2ATaskIDKey)
 	// AttributeUserID is the gateway-established user, absent when no trusted
 	// identity reached the runtime.
 	AttributeUserID = string(semconv.EnduserIDKey)
 	// AttributeMethod is the A2A method that started the invocation.
-	AttributeMethod = "a2a.method"
+	AttributeMethod = string(conv.A2AMethodKey)
 	// AttributeTaskState is the A2A state execution actually reported.
-	AttributeTaskState = "a2a.task.state"
+	AttributeTaskState = string(conv.A2ATaskStateKey)
 	// AttributeSegment distinguishes the first execution of a task from the
 	// segments that continue it after an approval or question.
-	AttributeSegment = "kagent.invocation.segment"
+	AttributeSegment = string(conv.KagentInvocationSegmentKey)
 	// AttributeDisposition records how a segment stopped when that is not
 	// visible from the task state, such as an abandoned client stream.
-	AttributeDisposition = "kagent.invocation.disposition"
+	AttributeDisposition = string(conv.KagentInvocationDispositionKey)
 	// AttributeInputMessages and AttributeOutputMessages carry bounded turn
 	// content in the conventions' message shape, recorded only under the
 	// content-capture opt-in. The truncation flags live in kagent's namespace
@@ -64,47 +73,49 @@ const (
 	// a nested document cannot hold a string and an object at the same path:
 	// ClickHouse renders both and a reader parsing the result keeps only the
 	// last, dropping the captured text, and Elasticsearch rejects the mapping.
-	AttributeInputMessages   = string(semconv.GenAIInputMessagesKey)
-	AttributeInputTruncated  = "kagent.capture.input_truncated"
-	AttributeOutputMessages  = string(semconv.GenAIOutputMessagesKey)
-	AttributeOutputTruncated = "kagent.capture.output_truncated"
+	AttributeInputMessages   = string(conv.GenAIInputMessagesKey)
+	AttributeInputTruncated  = string(conv.KagentCaptureInputTruncatedKey)
+	AttributeOutputMessages  = string(conv.GenAIOutputMessagesKey)
+	AttributeOutputTruncated = string(conv.KagentCaptureOutputTruncatedKey)
 	// AttributeErrorType is a safe failure category. It never carries provider
 	// responses, credentials, or captured content.
 	AttributeErrorType = string(semconv.ErrorTypeKey)
 	// AttributeLinkRelationship describes why a segment links to another span.
-	AttributeLinkRelationship = "kagent.invocation.relationship"
+	AttributeLinkRelationship = string(conv.KagentInvocationRelationshipKey)
 )
 
 // OperationInvokeAgent is the GenAI operation a native harness invocation
 // span reports.
-const OperationInvokeAgent = "invoke_agent"
+const OperationInvokeAgent = conv.GenAIOperationNameInvokeAgent
 
-// TransportSpanName names the wrapper span of a runtime whose invocation
-// span comes from the runtime itself.
+// TransportSpanName names the wrapper span of a runtime that emits its own
+// invoke_agent. It ends and flushes before a quiescent event leaves the
+// process, because the gateway may suspend the Actor on that event while the
+// inbound request, and so its SERVER span, is still open.
 const TransportSpanName = "a2a.request"
 
 // Segment values for AttributeSegment.
 const (
-	SegmentInitial = "initial"
-	SegmentResumed = "resumed"
+	SegmentInitial = conv.KagentInvocationSegmentInitial
+	SegmentResumed = conv.KagentInvocationSegmentResumed
 )
 
 // Disposition values for AttributeDisposition.
 const (
 	// DispositionAbandoned means the A2A event consumer stopped reading. It is
 	// deliberately distinct from cancellation, which the client must request.
-	DispositionAbandoned = "abandoned"
+	DispositionAbandoned = conv.KagentInvocationDispositionAbandoned
 	// DispositionCanceled means cancellation was requested for this task.
-	DispositionCanceled = "canceled"
+	DispositionCanceled = conv.KagentInvocationDispositionCanceled
 	// DispositionInterrupted means the execution context ended without a
 	// cancellation request, such as a runtime shutting down mid-turn.
-	DispositionInterrupted = "interrupted"
+	DispositionInterrupted = conv.KagentInvocationDispositionInterrupted
 )
 
 // RelationshipResumeOrigin marks the link from a resumed segment back to the
 // segment that parked the task. A link states a relationship; it does not
 // reparent spans or transfer ownership of token usage.
-const RelationshipResumeOrigin = "resume_origin"
+const RelationshipResumeOrigin = conv.KagentInvocationRelationshipResumeOrigin
 
 // Runtime identifies the runtime that executes an agent. Its values name what
 // produces the model and tool spans beneath an invocation, since that is what
@@ -113,9 +124,9 @@ const RelationshipResumeOrigin = "resume_origin"
 type Runtime string
 
 const (
-	RuntimeADKGo  Runtime = "adk-go"
-	RuntimeClaude Runtime = "claude"
-	RuntimeCodex  Runtime = "codex"
+	RuntimeADKGo  Runtime = conv.KagentRuntimeADKGo
+	RuntimeClaude Runtime = conv.KagentRuntimeClaude
+	RuntimeCodex  Runtime = conv.KagentRuntimeCodex
 )
 
 // NativeHarness reports whether the runtime wraps a native coding agent whose
@@ -127,14 +138,8 @@ func (r Runtime) NativeHarness() bool {
 	return r == RuntimeClaude || r == RuntimeCodex
 }
 
-// CaptureContentEnvironmentVariable is the OpenTelemetry GenAI instrumentation
-// switch for recording prompts and responses. The controller renders it into
-// every runtime from one setting, so the runtimes that read it directly and
-// the ones that carry the decision in their compiled configuration agree.
-const CaptureContentEnvironmentVariable = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-
-// Values the controller renders for CaptureContentEnvironmentVariable. The ADK
-// runtimes read the variable as a mode and treat a plain true as log records
+// Values the controller renders for OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT.
+// The ADK runtimes read the variable as a mode and treat a plain true as log records
 // only, so the span form is spelled out; false is what every runtime,
 // including kagent's own ADK payload capture, reads as off.
 const (
@@ -158,11 +163,14 @@ const MaxCaptureBytes = 64 << 10
 // conversations, tasks, and users.
 //
 // A configuration without this section stays valid: the runtime keeps its
-// environment-derived service identity and capture stays off.
+// standalone service identity and capture stays off.
 type RuntimeTelemetry struct {
-	Runtime        Runtime `json:"runtime,omitempty"`
-	AgentName      string  `json:"agent_name,omitempty"`
-	AgentNamespace string  `json:"agent_namespace,omitempty"`
+	Exporters           *telemetry.Config `json:"exporters,omitempty"`
+	CaptureRawAPIBodies bool              `json:"capture_raw_api_bodies,omitempty"`
+	OpenAINativeTracing bool              `json:"openai_native_tracing,omitempty"`
+	Runtime             Runtime           `json:"runtime,omitempty"`
+	AgentName           string            `json:"agent_name,omitempty"`
+	AgentNamespace      string            `json:"agent_namespace,omitempty"`
 	// Provider and Model describe the model the agent is compiled against, in
 	// the GenAI conventions' vocabulary. They let a consumer attribute usage
 	// that a native runtime reports without naming the model.
@@ -174,6 +182,16 @@ type RuntimeTelemetry struct {
 
 // Validate rejects configurations a compiler could not have produced.
 func (t RuntimeTelemetry) Validate() error {
+	if t.Exporters != nil {
+		if err := t.Exporters.Validate(); err != nil {
+			return err
+		}
+		for _, key := range []attribute.Key{semconv.ServiceNameKey, semconv.ServiceNamespaceKey} {
+			if _, ok := t.Exporters.ResourceAttributes[string(key)]; ok {
+				return fmt.Errorf("runtime telemetry resource_attributes must not override compiled %s", key)
+			}
+		}
+	}
 	switch t.Runtime {
 	case "", RuntimeADKGo, RuntimeClaude, RuntimeCodex:
 	default:
@@ -211,31 +229,65 @@ func (t RuntimeTelemetry) AgentID() string {
 }
 
 // Identity returns the trusted static attributes stamped on every invocation
-// span and on the runtime resource.
+// span.
 func (t RuntimeTelemetry) Identity() []attribute.KeyValue {
-	attributes := make([]attribute.KeyValue, 0, 5)
-	for _, entry := range []struct{ key, value string }{
-		{AttributeRuntime, string(t.Runtime)},
-		{AttributeAgentName, t.AgentName},
-		{AttributeAgentID, t.AgentID()},
-		{AttributeProviderName, t.Provider},
-		{AttributeRequestModel, t.Model},
-	} {
-		if entry.value != "" {
-			attributes = append(attributes, attribute.String(entry.key, entry.value))
+	return nonEmpty(
+		attribute.String(AttributeAgentName, t.AgentName),
+		attribute.String(AttributeAgentID, t.AgentID()),
+		attribute.String(AttributeProviderName, t.Provider),
+		attribute.String(AttributeRequestModel, t.Model),
+	)
+}
+
+// ResourceIdentity returns the same identity in its resource form.
+func (t RuntimeTelemetry) ResourceIdentity() []attribute.KeyValue {
+	return nonEmpty(
+		attribute.String(AttributeRuntime, string(t.Runtime)),
+		attribute.String(AttributeMainAgentName, t.AgentName),
+		attribute.String(AttributeMainAgentID, t.AgentID()),
+		attribute.String(AttributeProviderName, t.Provider),
+		attribute.String(AttributeRequestModel, t.Model),
+	)
+}
+
+func nonEmpty(attributes ...attribute.KeyValue) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attributes))
+	for _, attr := range attributes {
+		if attr.Value.AsString() != "" {
+			result = append(result, attr)
 		}
+	}
+	return result
+}
+
+// ResourceDefaults names the service when the environment does not.
+func (t RuntimeTelemetry) ResourceDefaults(fallbackName string) []attribute.KeyValue {
+	var attributes []attribute.KeyValue
+	if name := cmp.Or(t.AgentName, fallbackName); name != "" {
+		attributes = append(attributes, semconv.ServiceNameKey.String(name))
+	}
+	if t.AgentNamespace != "" {
+		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
 	}
 	return attributes
 }
 
-// ChildResource returns the resource attributes a native child process shares
-// with the wrapper that supervises it: the identity plus the compiled
-// namespace, so both producers group under one service.namespace. The child
-// keeps its own service.name.
+// ChildResource returns the resource attributes a native child process shares with its
+// wrapper: the agent identity and namespace, but not the compiled provider and model.
 func (t RuntimeTelemetry) ChildResource() []attribute.KeyValue {
-	attributes := t.Identity()
+	attributes := nonEmpty(
+		attribute.String(AttributeRuntime, string(t.Runtime)),
+		attribute.String(AttributeMainAgentName, t.AgentName),
+		attribute.String(AttributeMainAgentID, t.AgentID()),
+	)
 	if t.AgentNamespace != "" {
 		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
+	}
+	if t.Runtime.NativeHarness() {
+		// Empty values clear the model inherited from the pod environment, because
+		// Claude Code copies resource keys onto every span and each would look like a model call.
+		attributes = append(attributes, attribute.String(AttributeGenAIProducer, conv.KagentGenaiProducerRuntime),
+			attribute.String(AttributeProviderName, ""), attribute.String(AttributeRequestModel, ""))
 	}
 	return attributes
 }
@@ -338,16 +390,13 @@ func encodeResourceValue(value string) string {
 	return builder.String()
 }
 
-// ResourceEnvironmentVariable is the standard OTEL resource attribute carrier.
-const ResourceEnvironmentVariable = "OTEL_RESOURCE_ATTRIBUTES"
-
 // ResourceEnvironment merges owned attributes into the OTEL_RESOURCE_ATTRIBUTES
 // entry of a child process environment, so a native runtime reports the same
 // identity as the Go wrapper that supervises it. User-supplied attributes
 // survive; owned keys are replaced. The variable is dropped when the merge
 // leaves nothing to set.
 func ResourceEnvironment(environment []string, owned []attribute.KeyValue) []string {
-	prefix := ResourceEnvironmentVariable + "="
+	prefix := env.OTELResourceAttributes.Name() + "="
 	existing := ""
 	result := make([]string, 0, len(environment)+1)
 	for _, variable := range environment {
@@ -362,4 +411,30 @@ func ResourceEnvironment(environment []string, owned []attribute.KeyValue) []str
 		return result
 	}
 	return append(result, prefix+merged)
+}
+
+// ExporterConfig returns the resolved exporters, disabled when omitted.
+func (t RuntimeTelemetry) ExporterConfig() telemetry.Config {
+	if t.Exporters == nil {
+		return telemetry.Config{}
+	}
+	return *t.Exporters
+}
+
+// WithEnvironment applies the standard GenAI instrumentation override for this
+// process. Compiler configuration never reads the controller environment.
+func (t RuntimeTelemetry) WithEnvironment(environment []string) RuntimeTelemetry {
+	for _, entry := range environment {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || name != env.OTELGenAICaptureMessageContent.Name() {
+			continue
+		}
+		switch strings.ToUpper(strings.TrimSpace(value)) {
+		case "SPAN_ONLY", "SPAN_AND_EVENT", "TRUE":
+			t.CaptureContent = true
+		case "NO_CONTENT", "FALSE":
+			t.CaptureContent = false
+		}
+	}
+	return t
 }

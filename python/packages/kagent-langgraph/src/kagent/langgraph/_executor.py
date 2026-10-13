@@ -27,25 +27,22 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
+    AskUserRequest,
     HitlTool,
     ToolApprovalRequest,
+    ask_user_questions,
     attach_hitl_extension,
     get_ask_user_request,
     get_ask_user_response,
     get_hitl_payload,
-    get_kagent_metadata_key,
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
+    hitl_status_text,
     now_timestamp,
     require_ask_user_response,
     require_tool_approval_response,
-)
-from kagent.core.tracing._span_processor import (
-    clear_kagent_span_attributes,
-    set_kagent_span_attributes,
 )
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
@@ -54,7 +51,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from ._converters import _convert_langgraph_event_to_a2a
-from ._error_mappings import get_error_metadata, get_user_friendly_error_message
+from ._error_mappings import get_user_friendly_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +64,19 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
     # Whether to stream intermediate results
     enable_streaming: bool = True
+
+
+def _hitl_request(tools: list[HitlTool], text: str) -> AskUserRequest | ToolApprovalRequest:
+    """An ask_user interrupt becomes a question; anything else becomes an approval.
+
+    An ask_user call with no answerable question becomes an approval too: an
+    empty question list gives a request that no response can satisfy, because
+    resume requires one answer per question.
+    """
+    questions = ask_user_questions(tools)
+    if questions:
+        return AskUserRequest(id=tools[0].id, questions=questions)
+    return ToolApprovalRequest(hint=text, tools=tools)
 
 
 class LangGraphAgentExecutor(AgentExecutor):
@@ -99,8 +109,6 @@ class LangGraphAgentExecutor(AgentExecutor):
         """Create LangGraph config from A2A request context."""
         # Extract session information
         session_id = getattr(context, "session_id", None) or context.context_id
-        span_attributes = _convert_a2a_request_to_span_attributes(context)
-
         return {
             "configurable": {
                 "thread_id": session_id,
@@ -121,7 +129,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                 "a2a_context_id": context.context_id,
                 "a2a_task_id": context.task_id,
                 "a2a_request_id": getattr(context, "request_id", None),
-                **span_attributes,
             },
         }
 
@@ -151,7 +158,7 @@ class LangGraphAgentExecutor(AgentExecutor):
 
             # Convert LangGraph events to A2A events
             a2a_events = await _convert_langgraph_event_to_a2a(
-                event, context.task_id, context.context_id, self.app_name, sent_message_ids
+                event, context.task_id, context.context_id, sent_message_ids
             )
             for a2a_event in a2a_events:
                 await event_queue.enqueue_event(a2a_event)
@@ -224,29 +231,38 @@ class LangGraphAgentExecutor(AgentExecutor):
                     action,
                 )
                 continue
-            tool_name = action["name"]
-            tool_args = action["args"]
+            tool_name = str(action.get("name") or "")
             # id is the opaque HITL correlation id; call_id is the tool call id.
             # Graphs typically set both to the LangChain tool call id.
-            correlation_id = action["id"]
-            call_id = action.get("call_id") or correlation_id
-            tools.append(HitlTool(id=correlation_id, call_id=call_id, name=tool_name, args=tool_args))
+            correlation_id = str(action.get("id") or "")
+            if not tool_name or not correlation_id:
+                logger.warning("Skipping an action_request without a tool name or id: %r", action)
+                continue
+            tool_args = action.get("args")
+            call_id = str(action.get("call_id") or correlation_id)
+            tools.append(
+                HitlTool(
+                    id=correlation_id,
+                    call_id=call_id,
+                    name=tool_name,
+                    args=tool_args if isinstance(tool_args, dict) else {},
+                )
+            )
 
+        # The text part names the tools so a client that did not activate the
+        # extension still learns what it is being asked.
+        text = hitl_status_text(tools)
         status_message = Message(
             message_id=str(uuid.uuid4()),
             role=Role.ROLE_AGENT,
             task_id=task_id,
             context_id=context_id,
-            parts=[Part(text="Human approval is required before the agent can continue.")],
+            parts=[Part(text=text)],
         )
-        if hitl_enabled:
-            attach_hitl_extension(
-                status_message,
-                ToolApprovalRequest(
-                    hint="Human approval is required before the agent can continue.",
-                    tools=tools,
-                ),
-            )
+        # With no usable action request there is nothing for a client to decide on,
+        # so the pause stays text-only rather than carrying an empty request.
+        if hitl_enabled and tools:
+            attach_hitl_extension(status_message, _hitl_request(tools, text))
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
@@ -297,12 +313,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         else:
             raise ValueError("Stored input-required task has no HITL request")
 
-        # Task.metadata is a protobuf Struct, not a dict.
-        task_metadata = _task_metadata(context.current_task)
-        thread_id = task_metadata.get(get_kagent_metadata_key("thread_id")) or task_metadata.get("thread_id")
-        if not thread_id:
-            # Fallback to computing from context (same as initial)
-            thread_id = getattr(context, "session_id", None) or context.context_id
+        thread_id = getattr(context, "session_id", None) or context.context_id
 
         logger.info(
             "Resuming after interrupt - task_id=%s, thread_id=%s, type=%s",
@@ -312,8 +323,6 @@ class LangGraphAgentExecutor(AgentExecutor):
         )
 
         resume_input = Command(resume=resume_value)
-        span_attributes = _convert_a2a_request_to_span_attributes(context)
-
         # Create graph config with explicit thread_id
         config = {
             "configurable": {
@@ -337,7 +346,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                 "a2a_task_id": context.task_id,
                 "thread_id": thread_id,
                 "resume": True,
-                **span_attributes,
             },
         }
 
@@ -393,152 +401,94 @@ class LangGraphAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
-        # Convert the a2a request to kagent span attributes.
-        span_attributes = _convert_a2a_request_to_span_attributes(context)
+        # Check if this is a resume command (check before current_task check)
+        # Resume commands can come as new messages to continue interrupted tasks
+        if self._is_resume_command(context):
+            logger.info(f"Resuming task {context.task_id} after interrupt")
+            await self._handle_resume(context, event_queue)
+            return
 
-        # Set kagent span attributes for all spans in context.
-        context_token = set_kagent_span_attributes(span_attributes)
-        try:
-            # Check if this is a resume command (check before current_task check)
-            # Resume commands can come as new messages to continue interrupted tasks
-            if self._is_resume_command(context):
-                logger.info(f"Resuming task {context.task_id} after interrupt")
-                await self._handle_resume(context, event_queue)
-                return
-
-            # For new tasks, the first event must be a Task (not TaskStatusUpdateEvent).
-            if not context.current_task:
-                await event_queue.enqueue_event(
-                    Task(
-                        id=context.task_id,
-                        context_id=context.context_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_SUBMITTED,
-                            message=context.message,
-                            timestamp=now_timestamp(),
-                        ),
-                    )
+        # For new tasks, the first event must be a Task (not TaskStatusUpdateEvent).
+        if not context.current_task:
+            await event_queue.enqueue_event(
+                Task(
+                    id=context.task_id,
+                    context_id=context.context_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_SUBMITTED,
+                        message=context.message,
+                        timestamp=now_timestamp(),
+                    ),
                 )
+            )
 
-            # Calculate and store thread_id for potential resume
-            thread_id = getattr(context, "session_id", None) or context.context_id
+        # Send working status
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_WORKING,
+                    timestamp=now_timestamp(),
+                ),
+                context_id=context.context_id,
+            )
+        )
 
-            # Send working status
+        try:
+            # Resolve the graph
+
+            # Convert A2A message to LangChain format
+            inputs = {"messages": [("user", context.get_user_input())]}
+
+            # Create graph config
+            config = self._create_graph_config(context)
+
+            # Stream graph execution
+            await asyncio.wait_for(
+                self._stream_graph_events(self._graph, inputs, config, context, event_queue),
+                timeout=self._config.execution_timeout,
+            )
+
+        except TimeoutError:
+            logger.error(f"Graph execution timed out after {self._config.execution_timeout} seconds")
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.TASK_STATE_WORKING,
+                        state=TaskState.TASK_STATE_FAILED,
                         timestamp=now_timestamp(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text="Execution timed out")],
+                        ),
                     ),
                     context_id=context.context_id,
-                    metadata={
-                        get_kagent_metadata_key("app_name"): self.app_name,
-                        get_kagent_metadata_key("session_id"): getattr(context, "session_id", context.context_id),
-                        get_kagent_metadata_key("thread_id"): thread_id,
-                    },
                 )
             )
+        except Exception as e:
+            logger.error(f"Error during LangGraph execution: {e}", exc_info=True)
 
-            try:
-                # Resolve the graph
+            # Get user-friendly message
+            user_message = get_user_friendly_error_message(e)
 
-                # Convert A2A message to LangChain format
-                inputs = {"messages": [("user", context.get_user_input())]}
-
-                # Create graph config
-                config = self._create_graph_config(context)
-
-                # Stream graph execution
-                await asyncio.wait_for(
-                    self._stream_graph_events(self._graph, inputs, config, context, event_queue),
-                    timeout=self._config.execution_timeout,
-                )
-
-            except TimeoutError:
-                logger.error(f"Graph execution timed out after {self._config.execution_timeout} seconds")
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_FAILED,
-                            timestamp=now_timestamp(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.ROLE_AGENT,
-                                parts=[Part(text="Execution timed out")],
-                            ),
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        timestamp=now_timestamp(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=user_message)],
                         ),
-                        context_id=context.context_id,
-                    )
+                    ),
+                    context_id=context.context_id,
                 )
-            except Exception as e:
-                logger.error(f"Error during LangGraph execution: {e}", exc_info=True)
-
-                # Get user-friendly message
-                user_message = get_user_friendly_error_message(e)
-                error_meta = get_error_metadata(e)
-
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_FAILED,
-                            timestamp=now_timestamp(),
-                            message=Message(
-                                message_id=str(uuid.uuid4()),
-                                role=Role.ROLE_AGENT,
-                                parts=[Part(text=user_message)],
-                                metadata={
-                                    get_kagent_metadata_key("error_type"): error_meta["error_type"],
-                                    get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
-                                },
-                            ),
-                        ),
-                        context_id=context.context_id,
-                        metadata={
-                            get_kagent_metadata_key("error_type"): error_meta["error_type"],
-                            get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
-                        },
-                    )
-                )
-        finally:
-            clear_kagent_span_attributes(context_token)
-
-
-def _get_user_id(request: RequestContext) -> str:
-    # Get user from call context if available (auth is enabled on a2a server)
-    if request.call_context and request.call_context.user and request.call_context.user.user_name:
-        return request.call_context.user.user_name
-
-    # Get user from context id
-    return f"A2A_USER_{request.context_id}"
+            )
 
 
 def _call_state(context: RequestContext) -> dict[str, Any]:
     state = getattr(context.call_context, "state", None)
     return state if isinstance(state, dict) else {}
-
-
-def _task_metadata(task: Task | None) -> dict[str, Any]:
-    """Return task metadata as a plain dict (A2A Task.metadata is a Struct)."""
-    if task is None or not task.HasField("metadata"):
-        return {}
-    return MessageToDict(task.metadata)
-
-
-def _convert_a2a_request_to_span_attributes(
-    request: RequestContext,
-) -> dict[str, Any]:
-    if not request.message:
-        raise ValueError("Request message cannot be None")
-
-    span_attributes = {
-        "kagent.user_id": _get_user_id(request),
-        "gen_ai.conversation.id": request.context_id,
-    }
-
-    if request.task_id:
-        span_attributes["gen_ai.task.id"] = request.task_id
-
-    return span_attributes

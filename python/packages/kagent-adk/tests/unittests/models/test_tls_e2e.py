@@ -25,13 +25,18 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import httpx2
 import pytest
+from anthropic import APIConnectionError
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.genai.types import Content, Part
 
+from kagent.adk.models._anthropic import FoundryAnthropic, KAgentAnthropicLlm
 from kagent.adk.models._openai import BaseOpenAI
 from kagent.adk.models._ssl import create_ssl_context
+from kagent.adk.types import HttpMcpServerConfig, SseMcpServerConfig
 
 # Path to test certificates
 CERT_DIR = Path(__file__).parent.parent.parent / "fixtures" / "certs"
@@ -149,6 +154,37 @@ class TestHTTPSServer:
 
 
 # ssl context tests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_cls", [KAgentAnthropicLlm, FoundryAnthropic])
+@pytest.mark.parametrize(
+    "tls_kwargs, trusted",
+    [
+        ({"tls_ca_cert_path": str(CA_CERT), "tls_disable_system_cas": True}, True),
+        ({"tls_disable_verify": True}, True),
+        ({"tls_disable_system_cas": True}, False),
+    ],
+    ids=["custom-ca", "verification-disabled", "untrusted-ca"],
+)
+async def test_anthropic_tls_against_local_server(model_cls, tls_kwargs, trusted):
+    with TestHTTPSServer() as server:
+        llm = model_cls(
+            model="claude-test",
+            base_url=server.url,
+            endpoint=server.url,
+            deployment="claude-test",
+            api_key_passthrough=True,
+            **tls_kwargs,
+        )
+        llm.set_passthrough_key("test-key")
+        async with llm._anthropic_client as client:
+            client.max_retries = 0
+            if trusted:
+                assert await client.get(f"{server.url}/health", cast_to=str) == "OK"
+            else:
+                with pytest.raises(APIConnectionError):
+                    await client.get(f"{server.url}/health", cast_to=str)
 
 
 @pytest.mark.asyncio
@@ -567,3 +603,32 @@ async def test_e2e_ssl_error_contains_troubleshooting_info():
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v", "-s"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "config_cls, params_cls",
+    [(HttpMcpServerConfig, StreamableHTTPConnectionParams), (SseMcpServerConfig, SseConnectionParams)],
+    ids=["streamable-http", "sse"],
+)
+@pytest.mark.parametrize(
+    "tls_kwargs, trusted",
+    [
+        ({"tls_ca_cert_path": str(CA_CERT), "tls_disable_system_cas": True}, True),
+        ({"tls_insecure_skip_verify": True}, True),
+        ({"tls_disable_system_cas": True}, False),
+    ],
+    ids=["custom-ca", "verification-disabled", "untrusted-ca"],
+)
+async def test_mcp_tls_against_local_server(config_cls, params_cls, tls_kwargs, trusted):
+    with TestHTTPSServer() as server:
+        config = config_cls(params=params_cls(url=server.url), tools=[], **tls_kwargs)
+        config._apply_tls_to_params(config.params)
+        async with config.params.httpx_client_factory(timeout=httpx2.Timeout(5)) as client:
+            if trusted:
+                response = await client.get(f"{server.url}/health")
+                assert response.status_code == 200
+                assert response.text == "OK"
+            else:
+                with pytest.raises(httpx2.ConnectError):
+                    await client.get(f"{server.url}/health")

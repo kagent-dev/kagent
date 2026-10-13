@@ -1,3 +1,4 @@
+import { withBasePath } from "@/env";
 import { UNSECURED } from "./types";
 import type { AuthResult, AuthSource, AuthUser } from "./types";
 
@@ -111,7 +112,7 @@ export interface OAuth2ProxyAuthSourceOptions {
 export function createOAuth2ProxyAuthSource(
   options: OAuth2ProxyAuthSourceOptions = {},
 ): AuthSource {
-  const path = options.userInfoPath ?? DEFAULT_USERINFO_PATH;
+  const path = options.userInfoPath ?? withBasePath(DEFAULT_USERINFO_PATH);
   const doFetch = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 
   return {

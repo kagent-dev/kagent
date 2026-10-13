@@ -2,8 +2,11 @@ package a2a
 
 import (
 	"context"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
@@ -22,26 +25,36 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part *a2atype.Part) (*
 	dp := asDataPart(part)
 	if dp == nil {
 		// Text and file parts: delegate to ADK default.
-		return adka2a.ToGenAIPart(part)
-	}
-
-	// DataPart with kagent_type metadata: convert explicitly.
-	if part != nil && part.Metadata != nil {
-		if _, has := part.Metadata[GetKAgentMetadataKey(A2ADataPartMetadataTypeKey)]; has {
-			return convertDataPartToGenAI(dp, part.Metadata, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+		converted, err := adka2a.ToGenAIPart(part)
+		if err != nil {
+			return nil, err
 		}
+		keepFileName(converted)
+		return converted, nil
 	}
 
-	// DataPart with adk_type metadata (produced by the ADK itself): delegate.
+	// DataPart using kagent's public metadata contract: convert explicitly.
 	if part != nil && part.Metadata != nil {
-		if _, has := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey)]; has {
-			return adka2a.ToGenAIPart(part)
+		if _, has := part.Metadata[kagenta2a.PartTypeMetadataKey]; has {
+			return convertDataPartToGenAI(dp, part.Metadata, kagenta2a.PartTypeMetadataKey)
 		}
 	}
 
 	// DataPart with no recognised type metadata (e.g. {decision_type: "approve"}).
 	// Drop it — returning nil excludes it from the GenAI content, matching Python.
 	return nil, nil
+}
+
+// keepFileName copies a non-image file's name into PartMetadata, which survives ADK blanking DisplayName.
+// Vertex rejects PartMetadata; this is safe only because the file wrapper replaces these parts.
+func keepFileName(p *genai.Part) {
+	if p == nil || p.InlineData == nil || p.InlineData.DisplayName == "" || strings.HasPrefix(p.InlineData.MIMEType, "image/") {
+		return
+	}
+	if p.PartMetadata == nil {
+		p.PartMetadata = map[string]any{}
+	}
+	p.PartMetadata[fileextract.FilenameMetadataKey] = p.InlineData.DisplayName
 }
 
 // genAIPartConverter lets the upstream executor own artifact construction
@@ -57,8 +70,7 @@ func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.
 	return converted, nil
 }
 
-// convertDataPartToGenAI converts a DataPart with a type metadata key
-// (either adk_type or kagent_type) back to GenAI for inbound message processing.
+// convertDataPartToGenAI converts a typed DataPart back to GenAI.
 func convertDataPartToGenAI(data map[string]any, metadata map[string]any, typeKey string) (*genai.Part, error) {
 	if data == nil {
 		return nil, nil

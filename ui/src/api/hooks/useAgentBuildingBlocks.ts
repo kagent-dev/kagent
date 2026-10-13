@@ -1,16 +1,10 @@
-/**
- * The two halves an agent is made of, for the pickers that choose them.
- *
- * A `Harness` says how an agent runs; an `AgentTemplate` says what it is.
- * `CreateAgentInstance` names one of each, so creating an agent is choosing a
- * pair — which is why these are read together and why the create form is two
- * pickers rather than a spec form.
- */
+/** Reusable Harness and AgentTemplate resources used to define Agents. */
 
 import { apiClient } from "../client";
-import { admitsHarness, type AgentTemplate } from "../domain/agentTemplates";
+import { type AgentTemplate } from "../domain/agentTemplates";
 import type { Harness } from "../domain/harnesses";
 import { type ApiResource, useApiResource } from "./useApiResource";
+import { useAgent } from "./useAgents";
 
 /**
  * The harnesses in one namespace, or in every observed namespace.
@@ -23,6 +17,18 @@ export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
   return useApiResource(["harnesses.list", namespace ?? ""], () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
+}
+
+/** Whether an Agent (`namespace/name`) takes files; undefined until known. Only the kagent harness does. */
+export function useAgentTakesFiles(ref?: string): boolean | undefined {
+  const [namespace, name] = ref?.split("/") ?? [];
+  const spec = useAgent(namespace, name).data?.resource.spec;
+  const refName = spec?.harnessRef.name;
+  const harnesses = useApiResource(refName ? ["harnesses.list", namespace] : null, () =>
+    apiClient.agentBuildingBlocks.harnesses(namespace),
+  );
+  const harness = harnesses.data?.find((candidate) => candidate.ref === `${namespace}/${refName}`);
+  return harness && harness.runtime === "kagent";
 }
 
 /** The agent templates in one namespace, or in every observed namespace. */
@@ -48,17 +54,9 @@ export function useAgentTemplates(namespace?: string): ApiResource<AgentTemplate
 export function useHarnessesAcrossNamespaces(
   namespaces: readonly string[] | undefined,
 ): ApiResource<Harness[]> {
-  /*
-   * Keyed on `namespaces` rather than on the joined string, because `[]` joins to
-   * `""` — and holding the read back for that conflates "we do not know the
-   * namespaces yet" with "we know, and there are none". The second is an answer: it
-   * resolves to an empty list, so a page can say "0 of 0" and mean it. Held back, the
-   * key stays null, `isLoading` is reported false (idle, not loading) and `data` never
-   * arrives, so a summary gated on `data` would never render at all.
-   */
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
 
-  return useApiResource(namespaces ? ["harnesses.listAll", key] : null, async () => {
+  return useApiResource(key ? ["harnesses.listAll", key] : null, async () => {
     const names = key ? key.split(",").filter(Boolean) : [];
     const settled = await Promise.allSettled(
       names.map((namespace) => apiClient.agentBuildingBlocks.harnesses(namespace)),
@@ -113,12 +111,10 @@ export function useAgentTemplatesAcrossNamespaces(
 ): ApiResource<AgentTemplatesAcrossNamespaces> {
   // Sorted into the key, so the same set in a different order is the same read rather
   // than a cache miss that refetches everything.
-  // `namespaces`, not `key`: see `useHarnessesAcrossNamespaces` — `[]` joins to `""`,
-  // and a known-empty set is an answer rather than a reason to hold the read back.
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
 
   return useApiResource(
-    namespaces ? ["agentTemplates.listAll", key] : null,
+    key ? ["agentTemplates.listAll", key] : null,
     async () => {
       const names = key ? key.split(",").filter(Boolean) : [];
       const settled = await Promise.allSettled(
@@ -169,33 +165,4 @@ export function useAgentTemplate(
     namespace && name ? ["agentTemplates.get", namespace, name] : null,
     () => apiClient.agentBuildingBlocks.agentTemplate(namespace ?? "", name ?? ""),
   );
-}
-
-/**
- * The templates a given harness will accept, and the ones it will not.
- *
- * Both halves, because a picker that silently showed only the admitted templates
- * would leave a reader who cannot find theirs with nothing to read: the reason a
- * template is missing is that no harness admits it yet, and that is a sentence
- * worth putting on screen rather than an absence to puzzle over.
- *
- * `harnessName` is the bare name. A harness admits templates in its own namespace
- * only, so `admitting_harnesses` carries names and comparing full refs would never
- * match.
- */
-export function partitionByAdmission(
-  templates: readonly AgentTemplate[],
-  harnessName: string | undefined,
-): { admitted: AgentTemplate[]; rejected: AgentTemplate[] } {
-  // With no harness chosen there is nothing to admit against, so everything is
-  // still on offer rather than nothing being.
-  if (!harnessName) return { admitted: [...templates], rejected: [] };
-
-  const admitted: AgentTemplate[] = [];
-  const rejected: AgentTemplate[] = [];
-  for (const template of templates) {
-    if (admitsHarness(template, harnessName)) admitted.push(template);
-    else rejected.push(template);
-  }
-  return { admitted, rejected };
 }

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Alert, Button, Select, Space, Typography } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Button, Form, Select, Space } from "antd";
 import toast from "react-hot-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
@@ -14,7 +14,6 @@ import {
 import { agentTemplatesTab } from "@/router/routes";
 import { apiClient, useInvalidateAgentTemplates, useNamespaces } from "@/api";
 
-const { Text } = Typography;
 
 /**
  * Create an agent template.
@@ -40,6 +39,11 @@ export function AgentTemplateNewPage() {
   const [draft, setDraft] = useState(() => emptyDraft(namespace));
   const [isSubmitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
 
   // The namespace comes from the URL or from the cluster, and the draft follows it
   // until the reader picks one — after which their choice stands.
@@ -85,41 +89,30 @@ export function AgentTemplateNewPage() {
       description="What an agent does. A harness supplies the runtime; an agent is one of each."
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
-        {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not create the agent template"
-            description={error}
-            data-testid="template-create-error"
-          />
-        ) : null}
-
-        <Space size={8}>
-          <Text css={{ color: theme.color.textMuted }}>Namespace</Text>
-          <div data-testid="template-form-namespace">
-            <Select
-              css={{ minWidth: 220 }}
-              value={effective}
-              loading={namespaces.isLoading}
-              onChange={(value: string) =>
-                // The model configurations and harnesses on offer are all
-                // same-namespace, so changing it changes what the form can select.
-                setDraft({ ...draft, namespace: value, modelConfig: "" })
-              }
-              options={(namespaces.data ?? []).map((entry) => ({
-                value: entry.name,
-                label: entry.name,
-              }))}
-            />
-          </div>
-        </Space>
-
         <AgentTemplateForm
           draft={{ ...draft, namespace: effective }}
           onChange={setDraft}
           isCreate
           namespace={effective}
+          namespaceField={
+            <Form.Item label="Namespace" required>
+              <div data-testid="template-form-namespace">
+                <Select
+                  value={effective}
+                  loading={namespaces.isLoading}
+                  onChange={(value: string) =>
+                    // The model configurations and harnesses on offer are all
+                    // same-namespace, so changing it changes what the form can select.
+                    setDraft({ ...draft, namespace: value, modelConfig: "" })
+                  }
+                  options={(namespaces.data ?? []).map((entry) => ({
+                    value: entry.name,
+                    label: entry.name,
+                  }))}
+                />
+              </div>
+            </Form.Item>
+          }
         />
 
         {/*
@@ -149,6 +142,19 @@ export function AgentTemplateNewPage() {
           </Button>
           <Button onClick={() => navigate(agentTemplatesTab)}>Cancel</Button>
         </div>
+
+        {/* Under the button that failed, scrolled into view: the form's top is off-screen. */}
+        {error ? (
+          <div ref={errorRef} css={{ scrollMarginBottom: theme.space(4) }}>
+            <Alert
+              type="error"
+              showIcon
+              title="Could not create the agent template"
+              description={error}
+              data-testid="template-create-error"
+            />
+          </div>
+        ) : null}
       </Space>
     </PageFrame>
   );

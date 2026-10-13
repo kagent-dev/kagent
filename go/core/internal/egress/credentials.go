@@ -36,12 +36,12 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 			return nil, fmt.Errorf("invalid credential injection header %q", c.Header)
 		}
 		u, err := url.Parse(c.URI)
-		if err != nil || u.Scheme != "ate-secret" || u.Host != "kubernetes.io" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		if err != nil || u.Scheme != "ate-secret" || u.Host != "k8s.io" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return nil, fmt.Errorf("invalid Kubernetes credential URI")
 		}
 		parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
-		if len(parts) != 3 || len(validation.IsDNS1123Label(parts[0])) != 0 || len(validation.IsDNS1123Subdomain(parts[1])) != 0 || parts[2] == "" || len(validation.IsConfigMapKey(parts[2])) != 0 {
-			return nil, fmt.Errorf("credential URI must identify a namespace, Secret and key")
+		if len(parts) != 4 || parts[0] != "default" || len(validation.IsDNS1123Label(parts[1])) != 0 || len(validation.IsDNS1123Subdomain(parts[2])) != 0 || parts[3] == "" || len(validation.IsConfigMapKey(parts[3])) != 0 {
+			return nil, fmt.Errorf("credential URI must identify the default locator, namespace, Secret and key")
 		}
 	}
 	slices.SortFunc(result, func(a, b Credential) int {

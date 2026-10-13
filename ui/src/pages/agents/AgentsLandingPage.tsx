@@ -64,6 +64,11 @@ export function AgentsLandingPage() {
           {/* The point the agents list has always offered, kept where the controls
               now are rather than left behind in the tab they moved out of. */}
           <ExtensionSlot id="app_agents_agentsList_pageHeader_actions" />
+          <Link to={paths.agentNew}>
+            <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new">
+              New Agent
+            </Button>
+          </Link>
           <Link to={paths.agentTemplateNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="agents-new-template">
               New Template
@@ -82,7 +87,6 @@ export function AgentsLandingPage() {
       <div css={{ marginTop: `-${theme.space(3)}` }}>
         <AgentConcepts />
       </div>
-
 
       <Tabs
         activeKey={active}

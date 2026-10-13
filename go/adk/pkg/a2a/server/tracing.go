@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // invocationScope is the instrumentation scope of the invocation span.
@@ -37,21 +38,33 @@ const invocationScope = "github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 type invocationInterceptor struct {
 	a2asrv.PassthroughCallInterceptor
 	logger *slog.Logger
-	flush  bool
+	flush  func(context.Context) error
 	// name and static are fixed for the life of the runtime, so they are built
 	// once rather than on every request.
 	name   string
 	static []attribute.KeyValue
+
+	duration           metric.Float64Histogram
+	durationAttributes []attribute.KeyValue
 }
 
 // newInvocationInterceptor prepares the span name and static attributes. A
 // native harness gets the conventions' invoke_agent operation and span name;
 // any other runtime keeps the transport span name and no operation.
-func newInvocationInterceptor(logger *slog.Logger, telemetry tracing.RuntimeTelemetry, flush bool) *invocationInterceptor {
+func newInvocationInterceptor(logger *slog.Logger, telemetry tracing.RuntimeTelemetry, flush func(context.Context) error) *invocationInterceptor {
 	interceptor := &invocationInterceptor{logger: logger, flush: flush, name: tracing.TransportSpanName}
 	if telemetry.Runtime.NativeHarness() {
 		interceptor.name = tracing.OperationInvokeAgent + " " + telemetry.AgentName
 		interceptor.static = append(interceptor.static, attribute.String(tracing.AttributeOperationName, tracing.OperationInvokeAgent))
+		duration, err := tracing.InvocationDuration(tracing.Meter(invocationScope))
+		if err != nil {
+			logger.Error("failed to create the invoke_agent duration histogram", "error", err)
+		}
+		interceptor.duration = duration
+		interceptor.durationAttributes = []attribute.KeyValue{attribute.String(tracing.AttributeAgentName, telemetry.AgentName)}
+		if telemetry.Model != "" {
+			interceptor.durationAttributes = append(interceptor.durationAttributes, attribute.String(tracing.AttributeRequestModel, telemetry.Model))
+		}
 	}
 	interceptor.static = append(interceptor.static, telemetry.Identity()...)
 	return interceptor
@@ -71,6 +84,7 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
 	}
 	ctx, invocation := tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.name, i.flush, attributes...)
+	invocation.MeasureDuration(i.duration, i.durationAttributes...)
 	// a2a-go runs no final After callback when a streaming consumer stops
 	// reading, so an invocation the transport still owns would otherwise never
 	// end and never export. The request context ends in that case, and
@@ -79,8 +93,7 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 	context.AfterFunc(ctx, func() {
 		detached := context.WithoutCancel(ctx)
 		if _, err := invocation.EndTransport(detached, tracing.Result{Disposition: tracing.DispositionAbandoned}); err != nil {
-			i.logger.ErrorContext(detached, "failed to flush traces for an abandoned A2A request", "error", err,
-				"trace_id", invocation.SpanContext().TraceID().String())
+			i.logger.ErrorContext(detached, "failed to flush traces for an abandoned A2A request", "error", err)
 		}
 	})
 	return ctx, nil, nil
@@ -124,8 +137,7 @@ func (i *invocationInterceptor) After(ctx context.Context, callCtx *a2asrv.CallC
 		result.Error = "transport_error"
 	}
 	if _, err := invocation.EndTransport(ctx, result); err != nil {
-		i.logger.ErrorContext(ctx, "failed to flush traces before quiescent A2A response", "error", err,
-			"trace_id", invocation.SpanContext().TraceID().String(), "task_state", state)
+		i.logger.ErrorContext(ctx, "failed to flush traces before quiescent A2A response", "error", err, "task_state", state)
 	}
 	return nil
 }

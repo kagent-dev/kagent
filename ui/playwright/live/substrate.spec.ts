@@ -1,6 +1,5 @@
-import { test, expect } from "../fixtures/test";
-import { expectNoLoadFailure, loadApp } from "../helpers/app";
-import { liveRoutes } from "./helpers/live";
+import { test, expect } from "@playwright/test";
+import { expectNoLoadFailure, liveRoutes, loadLive } from "./helpers/live";
 
 /**
  * The substrate page, against what the controller actually sends.
@@ -19,7 +18,8 @@ import { liveRoutes } from "./helpers/live";
  * says whether the token it hands back means what the page thinks it means.
  */
 test("live: the substrate page renders the cluster's own inventory", async ({ page }) => {
-  await loadApp(page, liveRoutes.substrate);
+  await loadLive(page, liveRoutes.substrate);
+  await expectNoLoadFailure(page);
 
   await test.step("1. the page is there rather than an error", async () => {
     await expect(page.getByTestId("substrate-actors-card")).toBeVisible({
@@ -29,16 +29,15 @@ test("live: the substrate page renders the cluster's own inventory", async ({ pa
 
   await test.step("2. the tiles report a real count, not zero", async () => {
     /*
-     * The assertion "no load failure" cannot make: a page that understood none of the
-     * answer draws the same tiles, with an em-dash where each number goes. Retrying,
-     * because that em-dash is also what shows while the read is in flight — read once,
-     * this failed reporting "Actors running—" against a cluster that said "0/4" a moment
-     * later. Against the mock that gap is a millisecond, so only a cluster showed it.
+     * The assertion "no load failure" cannot make. A page that reached the controller
+     * and understood none of the answer draws the same tiles with nothing in them, and
+     * this cluster is running a worker pool — so a zero here is a decode problem, not
+     * an empty cluster.
      */
-    await expect(
-      page.getByTestId("substrate-stat-actors-value"),
-      "the actor tile should report a count",
-    ).toHaveText(/\d/, { timeout: 60_000 });
+    const actors = page.getByTestId("substrate-stat-actors");
+    await expect(actors).toBeVisible();
+    const text = (await actors.textContent()) ?? "";
+    expect(text, "the actor tile should report a count").toMatch(/\d/);
   });
 
   await test.step("3. the worker table holds rows the cluster returned", async () => {
@@ -50,13 +49,5 @@ test("live: the substrate page renders the cluster's own inventory", async ({ pa
     await expect(workers.locator(".ant-table-row").first()).toBeVisible({
       timeout: 60_000,
     });
-
-    /*
-     * Last, and not after the card in step 1: the card is a shell the page draws
-     * before it has read anything, so an alert counted then is counted before any read
-     * could have failed — and `expectNoLoadFailure` reads once rather than retrying, so
-     * it would never look again. Here, three reads have demonstrably landed.
-     */
-    await expectNoLoadFailure(page);
   });
 });

@@ -29,7 +29,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry;Mistral
 type ModelProvider string
 
 const (
@@ -43,6 +43,7 @@ const (
 	ModelProviderBedrock           ModelProvider = "Bedrock"
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 	ModelProviderFoundry           ModelProvider = "Foundry"
+	ModelProviderMistral           ModelProvider = "Mistral"
 )
 
 type BaseVertexAIConfig struct {
@@ -97,6 +98,33 @@ type AnthropicVertexAIConfig struct {
 	MaxTokens int `json:"maxTokens,omitempty"`
 }
 
+// MistralConfig contains Mistral-specific configuration options.
+// Mistral exposes an OpenAI-compatible wire protocol; the runtime posts to
+// {baseURL}/chat/completions with a Bearer token from MISTRAL_API_KEY.
+type MistralConfig struct {
+	// Base URL for the Mistral API (overrides default https://api.mistral.ai/v1)
+	// +optional
+	BaseURL *string `json:"baseUrl,omitempty"`
+
+	// Temperature for sampling
+	// +optional
+	Temperature *string `json:"temperature,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP *string `json:"topP,omitempty"`
+
+	// Maximum tokens to generate
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxTokens *int `json:"maxTokens,omitempty"`
+
+	// Timeout in seconds for the underlying HTTP client
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Timeout *int `json:"timeout,omitempty"`
+}
+
 // AnthropicConfig contains Anthropic-specific configuration options
 type AnthropicConfig struct {
 	// Base URL for the Anthropic API (overrides default)
@@ -118,28 +146,63 @@ type AnthropicConfig struct {
 	// Top-k sampling parameter
 	// +optional
 	TopK int `json:"topK,omitempty"`
-}
 
-// TokenExchangeType identifies the token exchange mechanism
-// +kubebuilder:validation:Enum=GDCHServiceAccount
-type TokenExchangeType string
-
-const TokenExchangeTypeGDCH TokenExchangeType = "GDCHServiceAccount"
-
-// GDCHServiceAccountConfig holds GDCH-specific token exchange parameters.
-type GDCHServiceAccountConfig struct {
-	// Audience is the token exchange audience URL (the GDC inference gateway base URL)
-	// +required
-	Audience string `json:"audience"`
-}
-
-// TokenExchangeConfig configures dynamic bearer token acquisition before model calls.
-type TokenExchangeConfig struct {
-	// +required
-	Type TokenExchangeType `json:"type"`
+	// PromptCaching enables Anthropic prompt caching by marking the reusable
+	// prefix of every Messages API request with `cache_control` breakpoints:
+	// the last tool definition, the last system prompt block and the last
+	// content block of the most recent conversation turn. Anthropic caches the
+	// prefix up to each breakpoint and bills a cache hit at a fraction of the
+	// normal input price on later requests within the TTL. Because the
+	// conversation breakpoint moves with every turn, each call of an agent
+	// loop reads the whole previous history from the cache and writes only
+	// the new turn.
+	//
+	// Recommended for tool-using agents that make many model calls per task
+	// with a stable system prompt and tool set — without it the full history
+	// is billed as fresh input on every call. Cache writes are billed at a
+	// premium over normal input, so a prefix has to be read at least once to
+	// pay off, and each model has a minimum cacheable prefix (1024–4096
+	// tokens depending on the model) below which the markers are silently
+	// ignored.
+	//
+	// See https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+	// for the current list of supported models, minimum prefix sizes and
+	// pricing.
 	// +optional
-	GDCHServiceAccount *GDCHServiceAccountConfig `json:"gdchServiceAccount,omitempty"`
+	// +kubebuilder:default=false
+	PromptCaching bool `json:"promptCaching,omitempty"`
+
+	// CacheTTL controls how long Anthropic retains a cached prefix when
+	// PromptCaching is enabled. Only meaningful when PromptCaching is true.
+	//
+	//   - "5m" (default): the standard 5-minute cache. Each cache hit refreshes
+	//     the window, so an agent loop whose calls are less than 5 minutes
+	//     apart keeps its prefix cached for the whole task.
+	//   - "1h": the extended 1-hour cache, useful for tasks whose model calls
+	//     are spaced more than 5 minutes apart.
+	//
+	// NOTE: "1h" is NOT strictly better than "5m". 1-hour cache writes are
+	// billed at a higher per-token rate than 5-minute writes. Only choose
+	// "1h" when calls are spaced far enough apart that a 5-minute cache would
+	// expire between them; otherwise the higher write cost is wasted. See the
+	// Anthropic prompt-caching docs above.
+	// +optional
+	// +kubebuilder:validation:Enum="5m";"1h"
+	// +kubebuilder:default="5m"
+	CacheTTL string `json:"cacheTTL,omitempty"`
 }
+
+// Deferred until service-account credentials can be provided to the runtime:
+//
+// type TokenExchangeType string
+// const TokenExchangeTypeGDCH TokenExchangeType = "GDCHServiceAccount"
+// type GDCHServiceAccountConfig struct {
+//     Audience string `json:"audience"`
+// }
+// type TokenExchangeConfig struct {
+//     Type TokenExchangeType `json:"type"`
+//     GDCHServiceAccount *GDCHServiceAccountConfig `json:"gdchServiceAccount,omitempty"`
+// }
 
 // OpenAIConfig contains OpenAI-specific configuration options
 //
@@ -210,10 +273,8 @@ type OpenAIConfig struct {
 	// +kubebuilder:default=chatCompletions
 	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
 
-	// TokenExchange configures dynamic bearer token acquisition via credential exchange.
-	// Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
-	// +optional
-	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
+	// Deferred until service-account credentials can be provided to the runtime.
+	// TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
 
 // OpenAIAPIFormat selects the OpenAI HTTP API shape used by the ADK runtime.
@@ -232,14 +293,16 @@ const (
 type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options
+//
+// +kubebuilder:validation:XValidation:message="apiVersion is required unless apiFormat is responses",rule="has(self.apiVersion) || (has(self.apiFormat) && self.apiFormat == 'responses')"
 type AzureOpenAIConfig struct {
 	// Endpoint for the Azure OpenAI API
 	// +required
 	Endpoint string `json:"azureEndpoint"`
 
-	// API version for the Azure OpenAI API
-	// +required
-	APIVersion string `json:"apiVersion"`
+	// API version for the Azure OpenAI API. Required unless apiFormat is responses.
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
 
 	// Deployment name for the Azure OpenAI API
 	// +optional
@@ -265,6 +328,12 @@ type AzureOpenAIConfig struct {
 	// Top-p sampling parameter
 	// +optional
 	TopP string `json:"topP,omitempty"`
+
+	// APIFormat selects chatCompletions (default, the dated deployments path) or
+	// responses (the /openai/v1 surface, which needs no apiVersion and reads files by link).
+	// +optional
+	// +kubebuilder:default=chatCompletions
+	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
 }
 
 // OllamaConfig contains Ollama-specific configuration options
@@ -452,13 +521,7 @@ type FoundryConfig struct {
 }
 
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
-// connections from the agent (model provider, RemoteMCPServer). The
-// XValidation rules below apply at admission to every CRD field that
-// uses TLSConfig, so callers don't need to re-declare them per spec.
-//
-// +kubebuilder:validation:XValidation:message="caCertSecretKey requires caCertSecretRef",rule="!(has(self.caCertSecretKey) && size(self.caCertSecretKey) > 0 && (!has(self.caCertSecretRef) || size(self.caCertSecretRef) == 0))"
-// +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey",rule="!(has(self.caCertSecretRef) && size(self.caCertSecretRef) > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey) == 0))"
-// +kubebuilder:validation:XValidation:message="disableSystemCAs requires caCertSecretRef or disableVerify (trust-nothing config rejects every upstream)",rule="!(has(self.disableSystemCAs) && self.disableSystemCAs && (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef) || size(self.caCertSecretRef) == 0))"
+// connections from the agent (model provider, RemoteMCPServer).
 type TLSConfig struct {
 	// DisableVerify disables SSL certificate verification entirely.
 	// When false (default), SSL certificates are verified.
@@ -469,29 +532,10 @@ type TLSConfig struct {
 	// +kubebuilder:default=false
 	DisableVerify bool `json:"disableVerify,omitempty"`
 
-	// CACertSecretRef is a reference to a Kubernetes Secret containing
-	// CA certificate(s) in PEM format. The Secret must be in the same
-	// namespace as the resource referencing it (ModelConfig,
-	// RemoteMCPServer, or any future consumer of TLSConfig).
-	// When set, the certificate will be used to verify the upstream's
-	// SSL certificate.
-	// +optional
-	CACertSecretRef string `json:"caCertSecretRef,omitempty"`
-
-	// CACertSecretKey is the key within the Secret that contains the
-	// CA certificate data (PEM-encoded). Required when CACertSecretRef
-	// is set — admission rejects ref-without-key regardless of
-	// DisableVerify (see the TLSConfig-level XValidation rules).
-	// +optional
-	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
-
-	// DisableSystemCAs disables the use of system CA certificates.
-	// When false (default), system CA certificates are used for verification (safe behavior).
-	// When true, only the custom CA from CACertSecretRef is trusted.
-	// This allows strict security policies where only corporate CAs should be trusted.
-	// +optional
-	// +kubebuilder:default=false
-	DisableSystemCAs bool `json:"disableSystemCAs,omitempty"`
+	// Deferred until custom CA bundles can be provided to the runtime.
+	// CACertSecretRef string `json:"caCertSecretRef,omitempty"`
+	// CACertSecretKey string `json:"caCertSecretKey,omitempty"`
+	// DisableSystemCAs bool `json:"disableSystemCAs,omitempty"`
 }
 
 // IsEmpty reports whether the TLSConfig carries any opinion. A nil
@@ -504,7 +548,7 @@ func (t *TLSConfig) IsEmpty() bool {
 	if t == nil {
 		return true
 	}
-	return !t.DisableVerify && t.CACertSecretRef == "" && t.CACertSecretKey == "" && !t.DisableSystemCAs
+	return !t.DisableVerify
 }
 
 // ModelConfigSpec defines the desired state of ModelConfig.
@@ -519,16 +563,20 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
+// +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
-// +kubebuilder:validation:XValidation:message="openAI.tokenExchange requires apiKeySecret (the service account secret)",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret) || size(self.apiKeySecret) == 0))"
-// +kubebuilder:validation:XValidation:message="openAI.tokenExchange and apiKeyPassthrough are mutually exclusive",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough) && self.apiKeyPassthrough)"
-// +kubebuilder:validation:XValidation:message="openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type == 'GDCHServiceAccount' && !has(self.openAI.tokenExchange.gdchServiceAccount))"
 type ModelConfigSpec struct {
 	// +required
 	Model string `json:"model"`
+
+	// Stream controls LLM response streaming for the kagent harness. Set to false
+	// for model endpoints that do not support streaming. Defaults to true.
+	// +kubebuilder:default=true
+	// +optional
+	Stream *bool `json:"stream,omitempty"`
 
 	// The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
 	// For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
@@ -595,6 +643,10 @@ type ModelConfigSpec struct {
 	// Azure AI Foundry-specific configuration
 	// +optional
 	Foundry *FoundryConfig `json:"foundry,omitempty"`
+
+	// Mistral-specific configuration
+	// +optional
+	Mistral *MistralConfig `json:"mistral,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers

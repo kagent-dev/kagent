@@ -188,6 +188,21 @@ def _blob_data_uri(blob: types.Blob) -> str:
     return f"data:{blob.mime_type};base64,{base64.b64encode(blob.data or b'').decode()}"
 
 
+def _function_response_item_text(item: Any) -> Optional[str]:
+    """Text of one MCP content item, or None when the item carries no text."""
+    if not isinstance(item, dict):
+        return None
+    if isinstance(item.get("text"), str):  # TextContent
+        return item["text"]
+    if item.get("type") == "resource":  # EmbeddedResource
+        resource = item.get("resource") or {}
+        if isinstance(resource.get("text"), str):  # TextResourceContents
+            return resource["text"]
+        if resource.get("blob") is not None:  # BlobResourceContents
+            return f"[binary resource {resource.get('uri', '')} ({resource.get('mimeType', 'unknown type')}) omitted]"
+    return None
+
+
 def _extract_function_response_content(func_response: FunctionResponse) -> str:
     """Extract text content from a genai FunctionResponse for the model to consume."""
     if isinstance(func_response.response, str):
@@ -195,7 +210,8 @@ def _extract_function_response_content(func_response: FunctionResponse) -> str:
     if func_response.response and "content" in func_response.response:
         content_list = func_response.response["content"]
         if len(content_list) > 0:
-            return "\n".join(item["text"] for item in content_list if "text" in item)
+            texts = (_function_response_item_text(item) for item in content_list)
+            return "\n".join(t for t in texts if t is not None)
     elif func_response.response and "result" in func_response.response:
         return str(func_response.response["result"])
     return ""

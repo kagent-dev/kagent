@@ -1,22 +1,20 @@
 import faulthandler
 import logging
-import os
 from typing import Union
 
-from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
-from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
+from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+from kagent.core.telemetry import conv, shutdown_lifespan
 
 from crewai import Crew, Flow
 
@@ -50,7 +48,7 @@ class KAgentApp:
     ):
         self._crew = crew
         self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
-        self.config = config or KAgentConfig()
+        self.config = config or KAgentConfig.from_file()
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
 
@@ -61,9 +59,10 @@ class KAgentApp:
             config=self.executor_config,
         )
 
-        task_store = InMemoryTaskStore()
+        controller = AsyncControllerClient(self.config.api_url)
+        task_store = KAgentTaskStore(controller)
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandlerV2(
+        request_handler = KAgentRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,
@@ -72,21 +71,19 @@ class KAgentApp:
 
         faulthandler.enable()
         app = FastAPI(
+            lifespan=shutdown_lifespan(controller.lifespan()),
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(self.config.runtime.max_content_length),
         )
 
         if self.tracing:
-            configure_tracing(self.config.name, self.config.namespace, app)
-            # Setup crewAI instrumentor separately as core configure does not include it
-            tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-            if tracing_enabled:
-                CrewAIInstrumentor().instrument()
+            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name, config=self.config.runtime)
+            instrument_app(app)
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)

@@ -3,14 +3,30 @@ package app
 import (
 	"context"
 	"iter"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/stretchr/testify/require"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -35,93 +51,48 @@ func TestNew_NilExecutor(t *testing.T) {
 	}
 }
 
-func TestNew_Success(t *testing.T) {
+func TestNew_RequiresController(t *testing.T) {
 	app, err := New(AppConfig{
 		AgentCard: a2atype.AgentCard{Name: "test-agent"},
-		Port:      "0",
 	}, &fakeExecutor{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if app == nil {
-		t.Fatal("expected non-nil app")
-	}
+	require.ErrorContains(t, err, "ControllerClient or ControlPlaneURL is required")
+	require.Nil(t, app)
 }
 
-func TestSeedTaskInterceptor(t *testing.T) {
-	store := a2ataskstore.NewInMemory(nil)
-	message := &a2atype.Message{ID: "message-1", TaskID: "task-1", ContextID: "instance-1", Role: a2atype.MessageRoleUser}
-	interceptor := seedTaskInterceptor{store: store}
-	_, _, err := interceptor.Before(t.Context(), nil, &a2asrv.Request{Payload: &a2atype.SendMessageRequest{Message: message}})
-	if err != nil {
-		t.Fatalf("Before() error = %v", err)
-	}
-	stored, err := store.Get(t.Context(), message.TaskID)
-	if err != nil || stored.Task.ID != message.TaskID || stored.Task.ContextID != message.ContextID || len(stored.Task.History) != 1 {
-		t.Fatalf("stored task = %#v, error = %v", stored, err)
-	}
+func TestNew_ControllerFromConfig(t *testing.T) {
+	app, err := New(AppConfig{
+		AgentCard:       a2atype.AgentCard{Name: "test-agent"},
+		Port:            "0",
+		ControlPlaneURL: "http://127.0.0.1:1",
+	}, &fakeExecutor{})
+	require.NoError(t, err)
+	require.NotNil(t, app)
+	require.NotNil(t, app.ownedController)
+	t.Cleanup(func() { require.NoError(t, app.ownedController.Close()) })
 }
 
-func TestSeedTaskInterceptorRestoresWaitingTask(t *testing.T) {
-	store := a2ataskstore.NewInMemory(nil)
-	status := a2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent), &apia2a.AskUserRequest{
-		Type: a2a.HITLTypeAskUserRequest, ID: "question-1",
-	})
-	waiting := &a2atype.Task{
-		ID: "task-1", ContextID: "instance-1",
-		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: status},
-	}
-	reply := a2atype.NewMessage(a2atype.MessageRoleUser)
-	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	if err := apia2a.AttachStoredTask(reply, waiting); err != nil {
-		t.Fatal(err)
-	}
-	interceptor := seedTaskInterceptor{store: store}
-	if _, _, err := interceptor.Before(t.Context(), nil, &a2asrv.Request{Payload: &a2atype.SendMessageRequest{Message: reply}}); err != nil {
-		t.Fatal(err)
-	}
-	stored, err := store.Get(t.Context(), waiting.ID)
-	if err != nil || stored.Task.Status.State != a2atype.TaskStateInputRequired || a2a.GetAskUserRequest(stored.Task.Status.Message) == nil {
-		t.Fatalf("restored task = %#v, error = %v", stored, err)
-	}
-	if restored, err := apia2a.TakeStoredTask(reply); err != nil || restored != nil {
-		t.Fatalf("private state was not consumed: task = %#v, error = %v", restored, err)
-	}
-}
-
-func TestStoredTaskMetadataSupportsAuthRequired(t *testing.T) {
-	waiting := &a2atype.Task{
-		ID: "task-1", ContextID: "instance-1",
-		Status: a2atype.TaskStatus{State: a2atype.TaskStateAuthRequired},
-	}
-	reply := &a2atype.Message{TaskID: waiting.ID, ContextID: waiting.ContextID}
-	if err := apia2a.AttachStoredTask(reply, waiting); err != nil {
-		t.Fatal(err)
-	}
-	restored, err := apia2a.TakeStoredTask(reply)
-	if err != nil || restored == nil || restored.Status.State != a2atype.TaskStateAuthRequired || restored.Status.Message != nil {
-		t.Fatalf("restored task = %#v, error = %v", restored, err)
-	}
+func TestNew_ProvidedController(t *testing.T) {
+	controller, err := controllerclient.New(controllerclient.Config{APIURL: "http://127.0.0.1:1"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, controller.Close()) })
+	app, err := New(AppConfig{
+		ControllerClient: controller,
+		AgentCard:        a2atype.AgentCard{Name: "test-agent"},
+		Port:             "0",
+	}, &fakeExecutor{})
+	require.NoError(t, err)
+	require.NotNil(t, app)
+	require.Nil(t, app.ownedController, "the caller retains ownership of its client")
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
-	t.Setenv("PORT", "")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
 	}
 }
 
-func TestApplyDefaults_PortFromEnv(t *testing.T) {
-	t.Setenv("PORT", "9090")
-	cfg := applyDefaults(AppConfig{})
-	if cfg.Port != "9090" {
-		t.Errorf("expected port %q, got %q", "9090", cfg.Port)
-	}
-}
-
 func TestApplyDefaults_PortExplicit(t *testing.T) {
-	t.Setenv("PORT", "9090")
 	cfg := applyDefaults(AppConfig{Port: "3000"})
 	if cfg.Port != "3000" {
 		t.Errorf("expected port %q, got %q", "3000", cfg.Port)
@@ -142,18 +113,7 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	}
 }
 
-func TestBuildAppName_FromEnv(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "my-agent")
-	t.Setenv("KAGENT_NAMESPACE", "my-ns")
-	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
-	if name != "my_ns__NS__my_agent" {
-		t.Errorf("expected %q, got %q", "my_ns__NS__my_agent", name)
-	}
-}
-
 func TestBuildAppName_FromAgentCard(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
@@ -161,10 +121,141 @@ func TestBuildAppName_FromAgentCard(t *testing.T) {
 }
 
 func TestBuildAppName_Default(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{})
 	if name != defaultAppName {
 		t.Errorf("expected %q, got %q", defaultAppName, name)
 	}
+}
+
+func TestBuildAgentCard_DeclaresHITLWithoutAgent(t *testing.T) {
+	card := buildAgentCard(AppConfig{AgentCard: a2atype.AgentCard{Name: "byo-agent"}})
+
+	if !slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
+		return extension.URI == a2a.HITLExtensionURI
+	}) {
+		t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
+	}
+}
+
+func TestBuildAgentCard_DeclaresHITLWithAgent(t *testing.T) {
+	agent, err := adkagent.New(adkagent.Config{
+		Name:        "adk_agent",
+		Description: "an ADK agent",
+		Run: func(adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("adkagent.New: %v", err)
+	}
+
+	card := buildAgentCard(AppConfig{AgentCard: a2atype.AgentCard{Name: "adk-agent"}, Agent: agent})
+
+	if !slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
+		return extension.URI == a2a.HITLExtensionURI
+	}) {
+		t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
+	}
+	if card.Description != "an ADK agent" {
+		t.Errorf("description = %q, want the agent description", card.Description)
+	}
+}
+
+func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
+	cfg := AppConfig{AgentCard: a2atype.AgentCard{Name: "byo-agent"}}
+
+	buildAgentCard(cfg)
+
+	if len(cfg.AgentCard.Capabilities.Extensions) != 0 {
+		t.Errorf("caller extensions = %#v, want the caller's card untouched", cfg.AgentCard.Capabilities.Extensions)
+	}
+}
+
+// admissionServer sends the next message during settlement: the first moment the
+// gateway can report the previous task as terminal.
+type admissionServer struct {
+	apiv1alpha1.UnimplementedTaskStoreServiceServer
+	mu      sync.Mutex
+	tasks   map[string]*apiv1alpha1.StoredTask
+	next    func() error
+	nextErr chan error
+}
+
+func (s *admissionServer) save(task *a2apb.Task) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	version := s.tasks[task.GetId()].GetVersion() + 1
+	s.tasks[task.GetId()] = &apiv1alpha1.StoredTask{Task: task, Version: version}
+	return version
+}
+
+func (s *admissionServer) GetTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stored, ok := s.tasks[request.TaskId]; ok {
+		return &apiv1alpha1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
+	}
+	return nil, status.Error(codes.NotFound, "task not found")
+}
+
+func (s *admissionServer) CreateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
+	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
+}
+
+func (s *admissionServer) UpdateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
+	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
+}
+
+func (s *admissionServer) SettleTask(context.Context, *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
+	if next := s.next; next != nil {
+		s.next = nil
+		s.nextErr <- next()
+	}
+	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+}
+
+func TestSettledTaskAdmitsNextSend(t *testing.T) {
+	api := &admissionServer{tasks: map[string]*apiv1alpha1.StoredTask{}, nextErr: make(chan error, 1)}
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	apiv1alpha1.RegisterTaskStoreServiceServer(server, api)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	client, err := controllerclient.New(controllerclient.Config{
+		APIURL: "http://api.test", DialOptions: []grpc.DialOption{
+			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	dir := t.TempDir()
+	for field, value := range map[string]string{"name": "session-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, field), []byte(value), 0o600))
+	}
+	store := runtimetaskstore.New(client, filepath.Join(dir, "name"))
+	started, release := make(chan struct{}), make(chan struct{})
+	var executions atomic.Int32
+	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+		return func(yield func(a2atype.Event, error) bool) {
+			if executions.Add(1) == 1 {
+				close(started)
+				<-release
+			}
+			yield(a2atype.NewStatusUpdateEvent(input, a2atype.TaskStateCompleted, nil), nil)
+		}
+	}), "", nil)
+	handler := a2asrv.NewHandler(wrapper, handlerOptions(store, wrapper)...)
+	send := func(text string) error {
+		_, err := handler.SendMessage(t.Context(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))})
+		return err
+	}
+	api.next = func() error { return send("second") }
+	first := make(chan error, 1)
+	go func() { first <- send("first") }()
+	<-started
+	require.ErrorIs(t, send("concurrent"), a2atype.ErrUnsupportedOperation, "active work must reject another send")
+	close(release)
+	require.NoError(t, <-first)
+	require.NoError(t, <-api.nextErr, "settlement must not precede the slot becoming free")
+	require.Equal(t, int32(2), executions.Load())
 }

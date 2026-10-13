@@ -13,7 +13,7 @@ standing up a real MCP server.
 
 from unittest import mock
 
-import httpx
+import httpx2
 import pytest
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 
@@ -89,7 +89,7 @@ def test_no_tls_config_leaves_factory_default():
 
 def test_disable_verify_installs_factory_with_verify_false():
     """``tls_insecure_skip_verify=True`` is the test-fixture escape hatch.
-    The factory it installs must hand httpx ``verify=False`` so self-signed
+    The factory it installs must hand httpx2 ``verify=False`` so self-signed
     upstreams accept the connection."""
     params = StreamableHTTPConnectionParams(url="https://upstream.example.com/mcp")
     cfg = HttpMcpServerConfig(
@@ -99,7 +99,7 @@ def test_disable_verify_installs_factory_with_verify_false():
     )
 
     with mock.patch("kagent.adk.types.create_ssl_context") as mock_create:
-        mock_create.return_value = False  # httpx accepts False to disable
+        mock_create.return_value = False  # httpx2 accepts False to disable
         cfg._apply_tls_to_params(cfg.params)
 
     mock_create.assert_called_once_with(
@@ -108,9 +108,9 @@ def test_disable_verify_installs_factory_with_verify_false():
         disable_system_cas=False,
     )
 
-    # Calling the installed factory should produce an httpx.AsyncClient
+    # Calling the installed factory should produce an httpx2.AsyncClient
     # configured with the SSL context returned by create_ssl_context.
-    with mock.patch("kagent.adk.types.httpx.AsyncClient") as mock_client:
+    with mock.patch("kagent.adk.types.httpx2.AsyncClient") as mock_client:
         cfg.params.httpx_client_factory()
         kwargs = mock_client.call_args[1]
         assert kwargs["verify"] is False
@@ -138,14 +138,14 @@ def test_custom_ca_path_installs_factory_with_ssl_context():
         disable_system_cas=False,
     )
 
-    with mock.patch("kagent.adk.types.httpx.AsyncClient") as mock_client:
+    with mock.patch("kagent.adk.types.httpx2.AsyncClient") as mock_client:
         cfg.params.httpx_client_factory()
         kwargs = mock_client.call_args[1]
         assert kwargs["verify"] is fake_ctx
         # Caller defaults preserved: follow_redirects + timeout matching
         # google-adk's create_mcp_http_client defaults.
         assert kwargs["follow_redirects"] is True
-        assert isinstance(kwargs["timeout"], httpx.Timeout)
+        assert isinstance(kwargs["timeout"], httpx2.Timeout)
 
 
 def test_disable_system_cas_propagates_to_create_ssl_context():
@@ -183,9 +183,9 @@ def test_factory_forwards_caller_kwargs():
     with mock.patch("kagent.adk.types.create_ssl_context", return_value=object()):
         cfg._apply_tls_to_params(cfg.params)
 
-    auth = httpx.BasicAuth(username="u", password="p")
-    timeout = httpx.Timeout(60)
-    with mock.patch("kagent.adk.types.httpx.AsyncClient") as mock_client:
+    auth = httpx2.BasicAuth(username="u", password="p")
+    timeout = httpx2.Timeout(60)
+    with mock.patch("kagent.adk.types.httpx2.AsyncClient") as mock_client:
         cfg.params.httpx_client_factory(
             headers={"X-Token": "abc"},
             timeout=timeout,

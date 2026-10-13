@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
 )
@@ -89,6 +91,10 @@ var BearerTokenKey = &contextKey{}
 // is enabled, so every model/embedding provider resolves passthrough the same way.
 // Each caller wraps the returned token in its own SDK's request-option type, since
 // that varies by provider (e.g. Authorization vs Api-Key header).
+//
+// It reads BearerTokenKey alone and takes no call-context fallback, unlike
+// BearerTokenFromContext: passthrough sends the credential to a third-party model
+// provider, so it is limited to the contexts the executor threaded it through.
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
@@ -102,6 +108,39 @@ func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string
 
 type contextKey struct{}
 
+// BearerFromCallContext returns the bearer token carried by the A2A call
+// context's Authorization header, or "" when there is none.
+func BearerFromCallContext(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ""
+	}
+	meta := callCtx.ServiceParams()
+	if meta == nil {
+		return ""
+	}
+	vals, ok := meta.Get(constants.AuthorizationHeader)
+	if !ok || len(vals) == 0 {
+		return ""
+	}
+	parts := strings.Fields(strings.TrimSpace(vals[0]))
+	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return ""
+}
+
+// BearerTokenFromContext returns the credential the request authenticates with.
+// It prefers the value stored under BearerTokenKey and falls back to the A2A
+// call context, which reaches callers whose context was not threaded through
+// the executor.
+func BearerTokenFromContext(ctx context.Context) string {
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		return token
+	}
+	return BearerFromCallContext(ctx)
+}
+
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {
 	base    http.RoundTripper
@@ -114,6 +153,19 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(req)
+}
+
+// nonNilFunctionCallArgs returns args, substituting an empty map for nil.
+// A no-argument FunctionCall reloads from the session store with nil Args
+// (omitempty drops the empty map), and some providers reject null or "null".
+//
+// TODO: remove once the pinned go-genai fixes
+// https://github.com/googleapis/go-genai/issues/920.
+func nonNilFunctionCallArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
 }
 
 // parametersJsonSchemaToMap converts a genai.FunctionDeclaration.ParametersJsonSchema value
@@ -137,6 +189,16 @@ func parametersJsonSchemaToMap(v any) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// unsupportedImageNote stands in for an image a text-only adapter cannot send,
+// so an image-only turn is not dropped.
+func unsupportedImageNote(blob *genai.Blob) string {
+	name := blob.DisplayName
+	if name == "" {
+		name = "image"
+	}
+	return fmt.Sprintf("[Image %q was not sent: this provider integration cannot pass images.]", name)
 }
 
 // extractFunctionResponseContent converts a tool/function response value to a plain string:
