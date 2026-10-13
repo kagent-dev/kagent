@@ -4,19 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"log/slog"
-
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/golang-jwt/jwt/v5"
-	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
 )
 
 type fakeSessionContext struct {

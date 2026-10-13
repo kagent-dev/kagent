@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // TestSessionServicePoliciesMatchTheirEffect pins the access mode of every

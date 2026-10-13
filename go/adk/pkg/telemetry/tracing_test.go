@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
@@ -18,6 +17,8 @@ import (
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestInitExportsConfiguredSignals(t *testing.T) {

@@ -8,10 +8,11 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // CreateTaskPushConfig registers or replaces a callback for an existing task.

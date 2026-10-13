@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pgvector/pgvector-go"
+
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/pgvector/pgvector-go"
 )
 
 const (

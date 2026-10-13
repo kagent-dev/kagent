@@ -11,6 +11,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
@@ -184,6 +185,7 @@ func run(logLevel, host, port, configDir string) error {
 		Logger:         logger,
 		Output:         agentConfig.Output,
 		Flush:          providers.ForceFlush,
+		AgentName:      runtimeTelemetry.AgentName,
 	})
 	if err != nil {
 		return fmt.Errorf("create A2A executor: %w", err)

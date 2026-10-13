@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/codex/config"
 )
 
 func TestRPCClientRejectsOversizedAndUnexpectedRequests(t *testing.T) {

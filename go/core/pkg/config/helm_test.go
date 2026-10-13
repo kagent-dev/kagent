@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
 func TestHelmControllerConfig(t *testing.T) {

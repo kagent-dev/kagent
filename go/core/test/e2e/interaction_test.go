@@ -25,11 +25,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
-	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -45,6 +40,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 //go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json
@@ -814,19 +815,27 @@ func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, 
 // transport error may hide accepted work and must not cause another execution.
 func sendMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
 	var response *a2apb.SendMessageResponse
-	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+	// Bound retries without shortening an accepted request's deadline.
+	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
 		var err error
 		response, err = client.SendMessage(ctx, request)
-		if status.Code(err) == codes.FailedPrecondition {
-			for _, detail := range status.Convert(err).Details() {
-				if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == a2atype.ProtocolDomain && info.Metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
-					return false, nil
-				}
-			}
+		if sendNotAccepted(err) {
+			return false, nil
 		}
 		return err == nil, err
 	})
 	return response, err
+}
+
+func sendNotAccepted(err error) bool {
+	if status.Code(err) == codes.FailedPrecondition {
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == a2atype.ProtocolDomain && info.Metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newMessageRequest(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest) {

@@ -563,6 +563,8 @@ printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 read interrupt
 printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"id":4,"result":{}}'
+# Flush the final usage report only when the driver requests graceful shutdown.
+while read ignored; do :; done
 printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
 `
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
@@ -577,6 +579,7 @@ printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"threa
 		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
 	})
 	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	go func() {
 		// Cancel only once the turn is running, so the cancel reaches consume.
 		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {

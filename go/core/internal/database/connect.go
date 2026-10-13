@@ -10,9 +10,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.

@@ -9,8 +9,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/require"
+
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 type fakeTaskPushClient struct {

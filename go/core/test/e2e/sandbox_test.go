@@ -11,11 +11,6 @@ import (
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -28,6 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type sandboxFixture struct {
@@ -384,8 +385,11 @@ func TestSandboxControllerRestart(t *testing.T) {
 	after, err := findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
 	require.NoError(t, err)
 	require.Equal(t, actor.GetMetadata().GetUid(), after.GetMetadata().GetUid(), "controller restart must preserve compute")
-	finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.NoError(t, err)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, finished.Status)
+	// The replacement controller can become ready before the process's sleep
+	// finishes. Observe completion instead of using rollout time as a delay.
+	require.Eventually(t, func() bool {
+		finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+		return err == nil && finished.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+	}, 10*time.Second, 100*time.Millisecond, "process did not complete after controller replacement")
 	require.Equal(t, "once", string(f.read(t, instance.Id, "restart-count")))
 }

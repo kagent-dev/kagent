@@ -6,9 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // catalog reads what could be run: Agent CRDs, the TUI's only kubeconfig need.

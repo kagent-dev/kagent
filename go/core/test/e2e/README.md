@@ -96,9 +96,22 @@ without an additional flag. Both runners allow 30 minutes and finish the matrix
 after a failure so all harness results are visible. Independent harness subtests
 run in parallel, sharing the suite's `-parallel` budget. Each case owns its mocks,
 configuration, Sessions, and cleanup; installed Harnesses are read-only fixtures.
+Push notification cases also share that budget, including their streaming and
+unary variants. Tests that replace controllers or change deployment settings
+keep sequential parents so they cannot disrupt independent scenarios. CI uses
+one-second controller startup/readiness probes to avoid waiting for the default
+probe intervals after each restart, with a 60-second startup failure budget.
+The CI job uses an eight-vCPU runner with four concurrent scenarios by default
+and a 2 GiB memory limit for atelet during parallel snapshot operations.
 The inline/referenced configuration matrix also runs its configuration cases in
 parallel. Steps that share a Session, such as the CLI output-format subtests,
 remain sequential within each harness.
+
+Send helpers retry only the gateway's explicit `KAGENT_SEND_NOT_ACCEPTED`
+rejection, preserving the request identity. Streaming helpers also inspect the
+first receive: gRPC can open a stream successfully and report rejection in its
+trailers. Once any event arrives, errors fail the test without resending input.
+Generic transport failures are never retried because they may hide accepted work.
 
 Independent sandbox scenarios, opaque BYO invocation, and completed-chat trace
 checks also run in parallel. Trace cases share the receiver but select spans by

@@ -194,7 +194,7 @@ func mcpOnlyApprovalPolicy() map[string]any {
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
-	client, command, wait, stderr, translator := session.client, session.command, session.wait, session.stderr, session.translator
+	client, wait, stderr, translator := session.client, session.wait, session.stderr, session.translator
 	for {
 		select {
 		case <-ctx.Done():
@@ -202,16 +202,11 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			err := d.interrupt(session, sink)
 			drained := session.drainUsage(sink)
 			if err != nil {
-				_ = utils.KillProcessGroup(command.Process)
-			} else {
-				_ = utils.TerminateProcessGroup(command.Process)
+				_ = utils.KillProcessGroup(session.command.Process)
 			}
-			select {
-			case <-wait:
-			case <-time.After(d.config.InterruptGrace):
-				_ = utils.KillProcessGroup(command.Process)
-				<-wait
-			}
+			// An interrupt response can precede the final usage report. Let Codex
+			// flush it on stdin EOF before escalating to process-group signals.
+			d.stopSession(session)
 			<-drained
 			translator.flushOpenCall(interrupted, sink)
 			return runtime.Outcome{}, ctx.Err()

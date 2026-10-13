@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
-	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type mcpCompilation struct {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 )
 

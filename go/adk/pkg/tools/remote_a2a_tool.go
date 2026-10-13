@@ -12,15 +12,16 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 // userIDContextKey is the context key for passing the session user_id to the subagent.

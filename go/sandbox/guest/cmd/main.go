@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/agent-substrate/env/guest"
+
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 

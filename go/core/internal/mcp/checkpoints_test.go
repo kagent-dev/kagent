@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
 func TestCheckpointSummary(t *testing.T) {

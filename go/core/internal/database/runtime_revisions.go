@@ -9,8 +9,9 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/jackc/pgx/v5"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // UpsertAgentDefinition records the desired runtime revision for a

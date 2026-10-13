@@ -5,12 +5,6 @@ import (
 	"net"
 	"testing"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,6 +16,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 const testHarnessImage = "example.test/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"

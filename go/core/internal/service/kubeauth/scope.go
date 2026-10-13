@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"slices"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 )
 
 // Matcher is a validated authorization scope that can be applied to Kubernetes objects.

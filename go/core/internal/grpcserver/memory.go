@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 
+	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type memoryServer struct {

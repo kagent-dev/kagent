@@ -405,14 +405,6 @@ func (f *Foundry) GetType() string {
 	return ModelTypeFoundry
 }
 
-// GenericModel is a catch-all model type used by the Go ADK when the model
-// type doesn't match any known constant.
-type GenericModel struct {
-	BaseModel
-}
-
-func (g *GenericModel) GetType() string { return g.Type }
-
 func ParseModel(bytes []byte) (Model, error) {
 	var model BaseModel
 	if err := json.Unmarshal(bytes, &model); err != nil {

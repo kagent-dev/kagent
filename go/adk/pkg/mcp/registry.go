@@ -5,22 +5,22 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"time"
 
-	"log/slog"
-
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // DynamicHeaderProvider is a function that returns headers to inject into MCP requests.
@@ -190,6 +190,9 @@ func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, t
 		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
 		return nil, err
 	}
+	if params.ServerType != "stdio" {
+		ts.inner = withCallScope(ts.inner)
+	}
 	if requireApproval {
 		ts.inner = tool.WithConfirmation(ts.inner, true, nil)
 	}
@@ -270,9 +273,10 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		}
 	}
 
-	// Outermost layer: inject W3C traceparent/tracestate from the active span so
-	// MCP calls stay attached to the invocation trace (kagent-dev/kagent#2550).
-	httpTransport = otelhttp.NewTransport(httpTransport)
+	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
+	// OTEL_PROPAGATORS includes it, from the active span so MCP calls stay
+	// attached to the invocation trace (kagent-dev/kagent#2550).
+	httpTransport = otelhttp.NewTransport(httpTransport, otelhttp.WithFilter(traceMCPRequest))
 
 	httpClient := &http.Client{
 		Timeout:   httpTimeout,

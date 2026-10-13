@@ -22,11 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
-	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -38,6 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 )
 
 type fakeDiscoverer struct {

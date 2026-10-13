@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/stretchr/testify/require"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json

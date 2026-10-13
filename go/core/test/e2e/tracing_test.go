@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"slices"
 	"strings"
@@ -17,12 +16,6 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -40,6 +33,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -579,23 +579,9 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 	t.Helper()
 	_, request := newMessageRequest(t, text)
 	request.Tenant, request.Message.ContextId = fixture.tenant, fixture.sessionID
-	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
-	if err != nil {
-		t.Fatalf("start streaming traced A2A message: %v", err)
-	}
 	var turn tracedTurn
 	terminalEvents := 0
-	for {
-		response, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			if terminalEvents != 1 {
-				t.Fatalf("traced stream terminal event count = %d, want 1", terminalEvents)
-			}
-			if turn.taskID == "" || turn.contextID == "" {
-				t.Fatal("traced stream did not report a task and context ID")
-			}
-			return turn
-		}
+	for response, err := range sendStreamingMessageWithRetry(fixture.ctx, fixture.client, request) {
 		if err != nil {
 			t.Fatalf("receive traced A2A stream: %v", err)
 		}
@@ -618,6 +604,13 @@ func sendTracingMessage(t *testing.T, fixture *interactionFixture, text string) 
 			turn.state = state
 		}
 	}
+	if terminalEvents != 1 {
+		t.Fatalf("traced stream terminal event count = %d, want 1", terminalEvents)
+	}
+	if turn.taskID == "" || turn.contextID == "" {
+		t.Fatal("traced stream did not report a task and context ID")
+	}
+	return turn
 }
 
 func assertActorSuspended(t *testing.T, fixture *interactionFixture) {

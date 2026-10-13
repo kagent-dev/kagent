@@ -17,9 +17,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 )
 
 const (

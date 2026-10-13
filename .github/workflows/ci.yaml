@@ -3,16 +3,8 @@ name: CI Build
 on:
   push:
     branches: [main, "release/**"]
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "docs/env.md"
   pull_request:
     branches: [main, "release/**"]
-    paths:
-      - "**"
-      - "!**/*.md"
-      - "docs/env.md"
   merge_group:
   workflow_dispatch:
     inputs:
@@ -102,7 +94,7 @@ jobs:
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa
         with:
           version: v0.33.0
           install_only: true
@@ -140,6 +132,18 @@ jobs:
               pullPolicy: Always
             service:
               type: LoadBalancer
+            # Check startup promptly across restart tests, keeping a 60s budget.
+            startupProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
+              failureThreshold: 60
+            readinessProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
           config:
             gateway:
               push:

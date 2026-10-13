@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestModelCallRecordsInferenceMetrics(t *testing.T) {

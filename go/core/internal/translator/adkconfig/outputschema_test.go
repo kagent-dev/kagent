@@ -3,9 +3,10 @@ package adkconfig
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/stretchr/testify/require"
 )
 
 func TestApplyOutputSchema(t *testing.T) {

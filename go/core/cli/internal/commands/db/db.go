@@ -4,10 +4,11 @@ package db
 import (
 	"context"
 
+	"github.com/spf13/cobra"
+
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/db"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	"github.com/spf13/cobra"
 )
 
 func NewDBCmd() *cobra.Command {

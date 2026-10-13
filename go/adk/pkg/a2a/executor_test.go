@@ -3,19 +3,15 @@ package a2a
 import (
 	"context"
 	"iter"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"log/slog"
-
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -25,6 +21,10 @@ import (
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
 )
 
 func TestUserIDCallInterceptorPropagatesUserID(t *testing.T) {

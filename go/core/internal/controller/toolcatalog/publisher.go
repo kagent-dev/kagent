@@ -23,9 +23,10 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // Store atomically persists each server and its visible tools.

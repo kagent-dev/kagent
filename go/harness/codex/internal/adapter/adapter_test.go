@@ -13,9 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/pelletier/go-toml/v2"
 )
 
 func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {

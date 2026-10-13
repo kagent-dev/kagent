@@ -9,13 +9,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 )
 
 func TestSessionExpirationRetriesDeletion(t *testing.T) {

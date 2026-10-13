@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/stretchr/testify/require"
+
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 )
 
 func TestCheckConfigAllowsUnsignedPush(t *testing.T) {
