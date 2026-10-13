@@ -137,7 +137,6 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	}
 	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
 	for _, required := range []string{
-		"--setting-sources\n\n",
 		"--settings\n" + filepath.Join(ephemeralDir, "settings.json"),
 		"--dangerously-skip-permissions",
 		"--permission-prompt-tool\nmcp__" + approvalMCPServerName + "__approve",
@@ -146,7 +145,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 			t.Fatalf("approval arguments do not contain %q: %s", required, args)
 		}
 	}
-	for _, forbidden := range []string{"--bare", "--permission-mode", "dontAsk"} {
+	for _, forbidden := range []string{"--bare", "--permission-mode", "dontAsk", "--setting-sources"} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("approval arguments contain %q: %s", forbidden, args)
 		}

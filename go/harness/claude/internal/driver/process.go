@@ -157,8 +157,10 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 		"--dangerously-skip-permissions",
 	}
 	if d.config.ApprovalBroker != nil {
+		// Setting sources stay open: Claude counts skills under --add-dir as
+		// project settings, and an ask rule from --settings still wins over the
+		// allow rules and hooks of every other source.
 		args = append(args,
-			"--setting-sources", "",
 			"--settings", d.config.SettingsPath,
 			"--permission-prompt-tool", d.config.PermissionPromptTool,
 		)
