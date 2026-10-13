@@ -3,8 +3,9 @@ package substrate
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestActorPolicyKeepsCredentialsOnExactOrigin(t *testing.T) {
