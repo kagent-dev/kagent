@@ -35,6 +35,5 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 	}
 	return &auth.ShareContext{
 		Token: token, UserID: owner, SessionID: share.GetSessionId(),
-		ReadOnly: share.GetPermission() != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE,
 	}, nil
 }

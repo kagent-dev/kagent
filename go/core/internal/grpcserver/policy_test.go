@@ -54,27 +54,22 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
 	for _, test := range []struct {
-		name       string
-		permission string
-		method     string
-		wantCode   codes.Code
+		name     string
+		method   string
+		wantCode codes.Code
 	}{
 		{
-			name: "read-only share may read", permission: "READ_ONLY",
+			name:   "read-only share may read",
 			method: apiv1alpha1.SessionService_GetSession_FullMethodName, wantCode: codes.OK,
 		},
 		{
-			name: "read-only share may not rename", permission: "READ_ONLY",
+			name:   "read-only share may not rename",
 			method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.PermissionDenied,
-		},
-		{
-			name: "read-write share may rename", permission: "READ_WRITE",
-			method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.OK,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			shareStore := &testShareStore{
-				sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+test.permission])}, ownerUserID: "owner",
+				sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
 			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, nil, shareStore, DefaultMethodPolicies())

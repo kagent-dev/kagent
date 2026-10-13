@@ -306,29 +306,27 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "session-revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
 	require.NoError(t, err)
-	for _, permission := range []apiv1alpha1.SessionSharePermission{apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE} {
-		digest := sha256.Sum256([]byte(permission.String()))
-		value := &apiv1alpha1.SessionShare{Id: uuid.NewString(), SessionId: session.Id, Permission: permission}
-		addUnknown(value)
-		share, err := client.CreateSessionShare(ctx, value, digest[:], "alice")
-		require.NoError(t, err)
-		require.Equal(t, value.ProtoReflect().GetUnknown(), share.ProtoReflect().GetUnknown())
-		resolved, ownerUserID, err := client.GetSessionShareByTokenHash(ctx, digest[:])
-		require.NoError(t, err)
-		require.True(t, proto.Equal(share, resolved))
-		require.Equal(t, "alice", ownerUserID)
-		listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
-		require.NoError(t, err)
-		require.Len(t, listed, 1)
-		require.True(t, proto.Equal(share, listed[0]))
-		listed, err = client.ListSessionShares(ctx, session.Id, "mallory", "", 10)
-		require.NoError(t, err)
-		require.Empty(t, listed)
-		require.ErrorIs(t, client.DeleteSessionShare(ctx, share.Id, "mallory"), ErrNotFound)
-		require.NoError(t, client.DeleteSessionShare(ctx, share.Id, "alice"))
-		_, _, err = client.GetSessionShareByTokenHash(ctx, digest[:])
-		require.ErrorIs(t, err, ErrNotFound)
-	}
+	digest := sha256.Sum256([]byte("share-token"))
+	value := &apiv1alpha1.SessionShare{Id: uuid.NewString(), SessionId: session.Id}
+	addUnknown(value)
+	share, err := client.CreateSessionShare(ctx, value, digest[:], "alice")
+	require.NoError(t, err)
+	require.Equal(t, value.ProtoReflect().GetUnknown(), share.ProtoReflect().GetUnknown())
+	resolved, ownerUserID, err := client.GetSessionShareByTokenHash(ctx, digest[:])
+	require.NoError(t, err)
+	require.True(t, proto.Equal(share, resolved))
+	require.Equal(t, "alice", ownerUserID)
+	listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.True(t, proto.Equal(share, listed[0]))
+	listed, err = client.ListSessionShares(ctx, session.Id, "mallory", "", 10)
+	require.NoError(t, err)
+	require.Empty(t, listed)
+	require.ErrorIs(t, client.DeleteSessionShare(ctx, share.Id, "mallory"), ErrNotFound)
+	require.NoError(t, client.DeleteSessionShare(ctx, share.Id, "alice"))
+	_, _, err = client.GetSessionShareByTokenHash(ctx, digest[:])
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestProtobufRowsRejectInconsistentIndexes(t *testing.T) {
@@ -338,9 +336,9 @@ func TestProtobufRowsRejectInconsistentIndexes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = toSessionCheckpoint(sessionCheckpointRow{ID: id, SourceSessionID: id, State: "CREATING", Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
-	share := &apiv1alpha1.SessionShare{Id: id.String(), SessionId: id.String(), Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}
+	share := &apiv1alpha1.SessionShare{Id: id.String(), SessionId: id.String()}
 	data, err = proto.Marshal(share)
 	require.NoError(t, err)
-	_, err = toSessionShare(sessionShareRow{ID: id, SessionID: id, Permission: "SESSION_SHARE_PERMISSION_READ_ONLY", Data: data})
+	_, err = toSessionShare(sessionShareRow{ID: id, SessionID: uuid.New(), Data: data})
 	require.ErrorContains(t, err, "disagrees with indexed columns")
 }

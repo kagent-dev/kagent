@@ -96,7 +96,6 @@ import {
 } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
 import {
   SessionService,
-  SessionSharePermission as PbSharePermission,
   type SessionSchema,
 } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1alpha1/common_pb";
@@ -1052,10 +1051,7 @@ on(SessionService.method.createSessionShare, (input, call) => {
     requireInstanceId(input.sessionId),
     call,
   );
-  const { share, token } = createInstanceShare(
-    instance.id,
-    input.permission === PbSharePermission.READ_WRITE ? "readWrite" : "readOnly",
-  );
+  const { share, token } = createInstanceShare(instance.id);
   return { share: instanceShareMessage(share), token };
 });
 
@@ -1069,10 +1065,6 @@ on(SessionService.method.revokeSessionShare, (input) => {
 const instanceShareMessage = (share: AgentInstanceShare) => ({
   id: share.id,
   sessionId: share.agentInstanceId,
-  permission:
-    share.permission === "readWrite"
-      ? PbSharePermission.READ_WRITE
-      : PbSharePermission.READ_ONLY,
   createdAt: timestampFromDate(new Date(share.createdAt)),
 });
 

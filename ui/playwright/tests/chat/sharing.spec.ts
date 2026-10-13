@@ -32,12 +32,9 @@ test("chat sharing: a link is created, shown once, listed and revoked", async ({
     await expect(page.getByTestId("share-create")).toBeVisible();
   });
 
-  await test.step("2. read-only is the default, because giving away access should be deliberate", async () => {
-    // `READ_WRITE` lets a visitor send *as the owner*, so it is an opt-in.
-    await expect(page.getByTestId("share-allow-writes")).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
+  await test.step("2. shares are always read-only", async () => {
+    await expect(page.getByTestId("share-dialog")).toContainText("read-only");
+    await expect(page.getByRole("switch")).toHaveCount(0);
   });
 
   await test.step("3. a created link is shown once, and says so", async () => {
@@ -73,7 +70,6 @@ test("chat sharing: a link is created, shown once, listed and revoked", async ({
     // opened". Waited for rather than counted immediately — the list reloads after a
     // create, and counting mid-reload reads a number that is about to change.
     await expect(list.locator("tbody tr")).toHaveCount(2, { timeout: 15_000 });
-    await expect(list).toContainText("Read only");
     await expect(
       list,
       "the list cannot show a token — only its digest is stored",
@@ -131,26 +127,22 @@ test("chat sharing: a token the backend never issued is refused", async ({ page 
   await expect(page.getByTestId("shared-agent-transcript")).toHaveCount(0);
 });
 
-test("chat sharing: a link that allows replies offers a way to reply", async ({ page }) => {
-  /*
-   * The permission was grantable and had no effect.
-   *
-   * An owner could tick "Also allow replies", hand the link over, and the person
-   * opening it had no composer — a permission granted and silently ignored. The page
-   * withheld one deliberately, on the reasoning that a composer working for some links
-   * and not others fails invisibly; the cost of that reasoning was worse than the
-   * problem it avoided.
-   *
-   * The link carries `?reply`, which is a hint about what to draw and never a
-   * permission: the controller resolves the token and refuses a send the share does
-   * not allow, so a hand-edited address gets a refusal in the controller's own words.
-   */
+test("chat sharing: query parameters cannot enable replies", async ({ page }) => {
   await page.goto(`${SEEDED_LINK}?reply`);
 
-  await expect(page.getByTestId("shared-agent-notice")).toBeVisible({ timeout: 30_000 });
-  // And it says what replying means here, because it is not obvious: a share answers
-  // as its owner, so anything sent is recorded as theirs.
-  await expect(page.getByTestId("shared-agent-notice")).toContainText("owner");
-  await expect(page.getByTestId("chat-input")).toBeVisible();
+  await expect(page.getByTestId("shared-agent-transcript")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("shared-agent-notice")).toContainText("read-only");
+  await expect(page.getByTestId("chat-input")).toHaveCount(0);
+});
 
+test("chat sharing: a pending question offers no reply or cancellation controls", async ({ page }) => {
+  await page.goto(`${CONVERSATION}?chat=asks`);
+  await page.getByTestId("chat-input").fill("What should I order?");
+  await page.getByTestId("chat-send").click();
+  await expect(page.getByTestId("chat-awaiting-reply")).toBeVisible({ timeout: 20_000 });
+
+  await page.goto(SEEDED_LINK);
+  await expect(page.getByTestId("chat-awaiting-owner")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("chat-awaiting-reply")).toHaveCount(0);
+  await expect(page.getByTestId("chat-input")).toHaveCount(0);
 });
