@@ -58,6 +58,9 @@ type ProcessConfig struct {
 	// cleared before the turn's outcome is returned, so a parked or suspended
 	// Actor holds none.
 	CallerCredentials CallerCredentialBinder
+	// MCPForwarder fronts the MCP servers Claude reaches through the harness;
+	// Close stops it.
+	MCPForwarder *CredentialForwarder
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -530,8 +533,8 @@ func (d *ProcessDriver) Close() error {
 	if d.config.ApprovalBroker != nil {
 		errs = append(errs, d.config.ApprovalBroker.Close())
 	}
-	if forwarder, ok := d.config.CallerCredentials.(*CredentialForwarder); ok && forwarder != nil {
-		errs = append(errs, forwarder.Close())
+	if d.config.MCPForwarder != nil {
+		errs = append(errs, d.config.MCPForwarder.Close())
 	}
 	return errors.Join(errs...)
 }

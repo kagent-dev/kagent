@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -503,7 +504,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}
 }
 
-func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
+func TestCompileMCPSelectionAndCompatibilityWarnings(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -526,24 +527,66 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 		t.Fatalf("omitted selection warnings = %v", revision.Warnings)
 	}
 
+	input.Root.MCPTools[0].Binding.Tools = []string{"two", "one", "two"}
+	for _, discovery := range []struct {
+		name               string
+		observedGeneration int64
+	}{{name: "current discovery", observedGeneration: 1}, {name: "stale discovery", observedGeneration: 0}} {
+		server.Status.ObservedGeneration = discovery.observedGeneration
+		revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+		if err != nil {
+			t.Fatalf("%s selection Compile() error = %v", discovery.name, err)
+		}
+		if len(revision.Warnings) != 0 {
+			t.Fatalf("%s: a streamable HTTP selection the harness enforces warns %v", discovery.name, revision.Warnings)
+		}
+		var selected claudeconfig.Config
+		if err := json.Unmarshal(revision.ConfigJSON, &selected); err != nil {
+			t.Fatal(err)
+		}
+		if got := selected.MCPServers["tools"].Tools; !slices.Equal(got, []string{"one", "two"}) {
+			t.Fatalf("%s: compiled tool selection = %v, want [one two]", discovery.name, got)
+		}
+	}
+
+	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
+	server.Status.ObservedGeneration = server.Generation
 	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
-		t.Fatalf("partial selection Compile() error = %v", err)
+		t.Fatalf("SSE partial selection Compile() error = %v", err)
 	}
 	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "exposing the whole server") {
-		t.Fatalf("partial selection warnings = %v", revision.Warnings)
+		t.Fatalf("SSE partial selection warnings = %v", revision.Warnings)
+	}
+	var sse claudeconfig.Config
+	if err := json.Unmarshal(revision.ConfigJSON, &sse); err != nil {
+		t.Fatal(err)
+	}
+	if got := sse.MCPServers["tools"].Tools; len(got) != 0 {
+		t.Fatalf("SSE server compiled tool selection %v, which no forwarder enforces", got)
 	}
 
 	server.Status.ObservedGeneration = 0
 	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
 	if err != nil {
-		t.Fatalf("stale discovery Compile() error = %v", err)
+		t.Fatalf("SSE stale discovery Compile() error = %v", err)
 	}
 	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "no current discovered tool set") {
-		t.Fatalf("stale discovery warnings = %v", revision.Warnings)
+		t.Fatalf("SSE stale discovery warnings = %v", revision.Warnings)
 	}
 
+	input.Root.MCPTools[0].Binding.Tools = []string{"one", "two"}
+	server.Status.ObservedGeneration = server.Generation
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatalf("SSE whole-server selection Compile() error = %v", err)
+	}
+	if len(revision.Warnings) != 0 {
+		t.Fatalf("SSE selection of every discovered tool warns %v", revision.Warnings)
+	}
+
+	server.Spec.Protocol = ""
 	server.Status.ObservedGeneration = server.Generation
 	input.Root.MCPTools[0].Binding.Tools = nil
 	terminateOnClose := false
@@ -613,8 +656,8 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	if !compiled.MCPServers["tools"].RequireApproval {
 		t.Fatalf("approval-required MCP server = %#v", compiled.MCPServers["tools"])
 	}
-	if len(revision.Warnings) != 1 || !strings.Contains(revision.Warnings[0], "exposing the whole server") {
-		t.Fatalf("approval-required partial selection warnings = %v", revision.Warnings)
+	if len(revision.Warnings) != 0 || !slices.Equal(compiled.MCPServers["tools"].Tools, []string{"one"}) {
+		t.Fatalf("approval-required partial selection = %v, warnings %v", compiled.MCPServers["tools"].Tools, revision.Warnings)
 	}
 }
 

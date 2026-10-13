@@ -20,7 +20,7 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version = 6
+	Version = 7
 	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
 	// must recheck the telemetry gate in the driver.
 	PinnedClaudeVersion                 = "2.1.285"
@@ -123,6 +123,10 @@ type MCPServer struct {
 	// TimeoutMillis is Claude's per-server tool-call budget. Zero leaves
 	// Claude's default; Claude ignores values below MinMCPTimeoutMillis.
 	TimeoutMillis int64 `json:"timeout_millis,omitempty"`
+	// Tools is the server's tool selection: the only tools Claude may list and
+	// call, enforced by the harness's MCP forwarder. Empty exposes the whole
+	// server.
+	Tools []string `json:"tools,omitempty"`
 }
 
 // MinMCPTimeoutMillis is the smallest per-server timeout Claude Code honours.
@@ -222,6 +226,14 @@ func (c Config) Validate() error {
 		}
 		if server.TimeoutMillis != 0 && server.TimeoutMillis < MinMCPTimeoutMillis {
 			return fmt.Errorf("claude MCP server %q timeout must be at least %dms", name, MinMCPTimeoutMillis)
+		}
+		if len(server.Tools) != 0 && server.Type != "http" {
+			return fmt.Errorf("claude MCP server %q selects tools, which only a streamable HTTP server supports", name)
+		}
+		for i, tool := range server.Tools {
+			if strings.TrimSpace(tool) == "" || slices.Contains(server.Tools[:i], tool) {
+				return fmt.Errorf("claude MCP server %q tool selection requires unique non-empty names", name)
+			}
 		}
 	}
 	return nil

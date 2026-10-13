@@ -22,7 +22,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
 	runner, err := New(context.Background(), Input{
-		ConfigJSON: []byte(`{"version":6,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
+		ConfigJSON: []byte(`{"version":7,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
 		Environment: []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/wrong", "DISABLE_UPDATES=0"},
@@ -303,7 +303,7 @@ func TestFrontMCPServersKeepsServerSettings(t *testing.T) {
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {
 		Type: "http", URL: "https://mcp.example.com/mcp", RequireApproval: true, TimeoutMillis: 180000,
 	}}
-	forwarder, err := frontMCPServers(&cfg, nil)
+	forwarder, err := frontMCPServers(&cfg, []string{"tools"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
 
@@ -311,4 +311,23 @@ func TestFrontMCPServersKeepsServerSettings(t *testing.T) {
 	require.Equal(t, forwarder.URL("tools"), fronted.URL)
 	require.True(t, fronted.RequireApproval)
 	require.Equal(t, int64(180000), fronted.TimeoutMillis)
+}
+
+func TestFrontedServersSelectToolsWithoutCallerCredential(t *testing.T) {
+	servers := map[string]config.MCPServer{
+		"selected": {Type: "http", URL: "https://selected.example.com/mcp", Tools: []string{"echo"}},
+		"whole":    {Type: "http", URL: "https://whole.example.com/mcp"},
+	}
+	require.Equal(t, []string{"selected"}, frontedServers(servers, false))
+	require.Equal(t, []string{"selected", "whole"}, frontedServers(servers, true))
+	require.Empty(t, frontedServers(map[string]config.MCPServer{"whole": servers["whole"]}, false))
+
+	cfg := config.Production("claude-test", "help")
+	cfg.MCPServers = servers
+	forwarder, err := frontMCPServers(&cfg, frontedServers(servers, false), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+	require.Equal(t, forwarder.URL("selected"), cfg.MCPServers["selected"].URL)
+	require.Empty(t, cfg.MCPServers["selected"].Tools, "Claude's MCP file carries no selection; the forwarder enforces it")
+	require.Equal(t, servers["whole"], cfg.MCPServers["whole"])
 }

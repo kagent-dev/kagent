@@ -159,8 +159,11 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			_ = approvalBroker.Close()
 		}
 	}
-	if holdsCallerCredential {
-		forwarder, err = frontMCPServers(&cfg, input.Environment)
+	// The forwarder carries the calls of every server while the caller's
+	// credential travels with them, and otherwise those of the servers with a
+	// tool selection, which Claude Code cannot enforce itself.
+	if fronted := frontedServers(cfg.MCPServers, holdsCallerCredential); len(fronted) != 0 {
+		forwarder, err = frontMCPServers(&cfg, fronted, input.Environment)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +244,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		MaxBudgetUSD: cfg.MaxBudgetUSD, MaxTurns: cfg.MaxTurns,
 	}
 	if forwarder != nil {
-		processConfig.CallerCredentials = forwarder
+		processConfig.MCPForwarder = forwarder
+		if holdsCallerCredential {
+			processConfig.CallerCredentials = forwarder
+		}
 	}
 	return driver.NewProcessDriver(processConfig), nil
 }
@@ -252,24 +258,40 @@ func propagateCallerToken(environment []string) bool {
 	return strings.EqualFold(strings.TrimSpace(environmentValue(environment, config.PropagateTokenEnvName)), "true")
 }
 
-// frontMCPServers starts the credential forwarder for the compiled MCP servers
+// frontedServers names the servers the credential forwarder fronts: all of
+// them when it forwards the caller's credential, otherwise those with a tool
+// selection.
+func frontedServers(servers map[string]config.MCPServer, callerCredential bool) []string {
+	var fronted []string
+	for name, server := range servers {
+		if callerCredential || len(server.Tools) != 0 {
+			fronted = append(fronted, name)
+		}
+	}
+	slices.Sort(fronted)
+	return fronted
+}
+
+// frontMCPServers starts the credential forwarder for the named MCP servers
 // and rewrites them to their loopback endpoints, so the written configuration
-// carries no upstream URL, no static header and no credential.
-func frontMCPServers(cfg *config.Config, environment []string) (*driver.CredentialForwarder, error) {
-	upstream := make(map[string]driver.UpstreamMCPServer, len(cfg.MCPServers))
-	for name, server := range cfg.MCPServers {
+// carries no upstream URL, no static header and no credential of theirs.
+func frontMCPServers(cfg *config.Config, names []string, environment []string) (*driver.CredentialForwarder, error) {
+	upstream := make(map[string]driver.UpstreamMCPServer, len(names))
+	for _, name := range names {
+		server := cfg.MCPServers[name]
 		headers, err := resolveCredentialHeaders(server.Headers, environment)
 		if err != nil {
 			return nil, fmt.Errorf("MCP server %q: %w", name, err)
 		}
-		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: headers}
+		upstream[name] = driver.UpstreamMCPServer{URL: server.URL, Headers: headers, Tools: server.Tools}
 	}
 	forwarder, err := driver.NewCredentialForwarder(upstream, cfg.MaxEventBytes)
 	if err != nil {
 		return nil, fmt.Errorf("start Claude credential forwarder: %w", err)
 	}
-	fronted := make(map[string]config.MCPServer, len(cfg.MCPServers))
-	for name, server := range cfg.MCPServers {
+	fronted := maps.Clone(cfg.MCPServers)
+	for _, name := range names {
+		server := cfg.MCPServers[name]
 		fronted[name] = config.MCPServer{
 			Type: "http", URL: forwarder.URL(name), Headers: forwarder.Headers(),
 			RequireApproval: server.RequireApproval, TimeoutMillis: server.TimeoutMillis,

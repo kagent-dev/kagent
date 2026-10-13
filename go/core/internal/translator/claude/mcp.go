@@ -48,15 +48,16 @@ func (c *Compiler) compileMCP(
 			return mcpCompilation{}, translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
 		}
 
-		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
-			result.warnings = append(result.warnings, warning)
-		}
 		transport, timeoutMillis, compatibilityWarning, err := claudeMCPTransport(server)
 		if err != nil {
 			return mcpCompilation{}, err
 		}
 		if compatibilityWarning != "" {
 			result.warnings = append(result.warnings, compatibilityWarning)
+		}
+		selected, selectionWarning := mcpSelection(tool.Binding.Tools, server, transport)
+		if selectionWarning != "" {
+			result.warnings = append(result.warnings, selectionWarning)
 		}
 		hostname, err := mcpOrigin(server.Spec.URL)
 		if err != nil {
@@ -68,7 +69,7 @@ func (c *Compiler) compileMCP(
 		}
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
-			RequireApproval: tool.Binding.RequireApproval, TimeoutMillis: timeoutMillis,
+			RequireApproval: tool.Binding.RequireApproval, TimeoutMillis: timeoutMillis, Tools: selected,
 		}
 		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)
@@ -76,25 +77,32 @@ func (c *Compiler) compileMCP(
 	return result, nil
 }
 
-func mcpSelectionWarning(selectedTools []string, server *v1alpha3.RemoteMCPServer) string {
+// mcpSelection returns the tool selection the harness enforces on a streamable
+// HTTP server, whose calls its MCP forwarder carries. Claude Code itself
+// cannot select part of a server, so an SSE server exposes the whole server
+// unless the selection is all of its current discovered tools.
+func mcpSelection(selectedTools []string, server *v1alpha3.RemoteMCPServer, transport string) ([]string, string) {
 	if len(selectedTools) == 0 {
-		return ""
+		return nil, ""
 	}
 	selected := append([]string(nil), selectedTools...)
 	slices.Sort(selected)
 	selected = slices.Compact(selected)
+	if transport == "http" {
+		return selected, ""
+	}
 	discovered, current := currentDiscoveredToolNames(server)
 	if current && slices.Equal(selected, discovered) {
-		return ""
+		return nil, ""
 	}
 	if !current {
-		return fmt.Sprintf(
-			"Claude RemoteMCPServer %q cannot verify selected tools %v because no current discovered tool set is available; exposing the whole server",
+		return nil, fmt.Sprintf(
+			"Claude SSE RemoteMCPServer %q cannot verify selected tools %v because no current discovered tool set is available; exposing the whole server",
 			server.Name, selected,
 		)
 	}
-	return fmt.Sprintf(
-		"Claude RemoteMCPServer %q does not support partial tool selection: selected %v, discovered %v; exposing the whole server",
+	return nil, fmt.Sprintf(
+		"Claude SSE RemoteMCPServer %q does not support partial tool selection: selected %v, discovered %v; exposing the whole server",
 		server.Name, selected, discovered,
 	)
 }

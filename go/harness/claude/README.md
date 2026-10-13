@@ -27,7 +27,7 @@ harness.
 - [x] Claude Code built-in tools
 - [x] Shared local subagents
 - [x] Standalone skills and plugin-provided skills
-- [x] Direct HTTP and SSE MCP servers with whole-server tool access
+- [x] Direct HTTP and SSE MCP servers; a tool selection on streamable HTTP servers
 - [x] Human-in-the-loop MCP tool approval
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
@@ -50,6 +50,18 @@ byte is refused with 400 before it is matched to a server, since the forwarded p
 onto the server's URL. Of Claude's request headers, only those the streamable HTTP transport
 and trace propagation use reach the server (`Accept`, `Content-Type`, `Mcp-Session-Id`,
 `Mcp-Protocol-Version`, `Last-Event-ID`, `User-Agent`, `traceparent`, `tracestate`, `baggage`).
+
+Claude Code exposes every tool a server lists, so the same forwarder enforces a binding's tool
+selection: a streamable HTTP server with selected tools is fronted whether or not the caller's
+credential travels, its `tools/list` results (JSON or event stream) keep only the selected
+tools, and a `tools/call` of another tool is answered with the JSON-RPC error `-32602 Unknown
+tool` without reaching the server. Such a server takes JSON-RPC only: a body that is not, a
+`tools/call` without a string tool name, or a member spelt in another case than `jsonrpc`, `id`,
+`method`, `params` or `name` is refused with 400, and every request is forwarded re-encoded from
+what the forwarder checked, so a duplicate member reaches the server as it was decided. The
+selection needs no discovered tool set. An SSE server
+is not fronted and exposes the whole server, which the compiler reports unless the selection
+is all of its current discovered tools.
 
 ## Users
 

@@ -24,10 +24,12 @@ const (
 )
 
 // UpstreamMCPServer is one compiled MCP server the forwarder fronts: its real
-// URL and the static headers the compiler assigned to it.
+// URL, the static headers the compiler assigned to it and its tool selection,
+// empty for the whole server.
 type UpstreamMCPServer struct {
 	URL     string
 	Headers map[string]string
+	Tools   []string
 }
 
 // CallerCredentialBinder receives the caller's credential for the duration of
@@ -37,9 +39,10 @@ type CallerCredentialBinder interface {
 	Clear()
 }
 
-// CredentialForwarder fronts the compiled MCP servers on loopback and adds the
-// caller's credential of the current turn to every request it forwards to a
-// server that configures no Authorization of its own. Claude receives the
+// CredentialForwarder fronts the compiled MCP servers on loopback, keeps
+// Claude to a server's tool selection and adds the caller's credential of the
+// current turn to every request it forwards to a server that configures no
+// Authorization of its own. Claude receives the
 // loopback address and a per-process token only; the caller's credential never
 // enters its environment, its configuration files or the Actor's filesystem,
 // and it is held in this process for one turn at a time.
@@ -58,6 +61,7 @@ type forwardTarget struct {
 	url                 *url.URL
 	headers             map[string]string
 	callerAuthorization bool
+	tools               toolSelection
 	proxy               *httputil.ReverseProxy
 }
 
@@ -93,10 +97,13 @@ func NewCredentialForwarder(servers map[string]UpstreamMCPServer, maxBodyBytes i
 		// replaces its placeholder with the Secret, and only when the request
 		// carries one. Every other server takes the caller's credential.
 		_, ownsAuthorization := headers["Authorization"]
-		entry := &forwardTarget{url: target, headers: headers, callerAuthorization: !ownsAuthorization}
+		entry := &forwardTarget{url: target, headers: headers, callerAuthorization: !ownsAuthorization, tools: newToolSelection(server.Tools)}
 		entry.proxy = &httputil.ReverseProxy{
 			Rewrite:       forwarder.rewrite(entry),
 			FlushInterval: -1,
+		}
+		if entry.tools != nil {
+			entry.proxy.ModifyResponse = entry.tools.filterResponse(forwarder.maxBody)
 		}
 		forwarder.targets[name] = entry
 	}
@@ -185,6 +192,11 @@ func (f *CredentialForwarder) serve(response http.ResponseWriter, request *http.
 	if !ok {
 		http.NotFound(response, request)
 		return
+	}
+	if target.tools != nil {
+		if request, ok = target.tools.screen(response, request); !ok {
+			return
+		}
 	}
 	request = request.WithContext(context.WithValue(request.Context(), pathSuffixKey{}, suffix))
 	target.proxy.ServeHTTP(response, request)
