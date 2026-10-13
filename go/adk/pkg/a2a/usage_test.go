@@ -11,12 +11,13 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // scriptedAgent emits one event per response. With a non-nil reported

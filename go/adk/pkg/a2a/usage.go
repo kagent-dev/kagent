@@ -8,10 +8,11 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/plugin"
 	adksession "google.golang.org/adk/v2/session"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // UsageExtensionURI is the versioned A2A extension carrying task token usage.
