@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -54,7 +55,12 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		if effects[binding.Hostname] == nil {
 			effects[binding.Hostname] = &ateapipb.HttpRuleEffects{}
 		}
-		effects[binding.Hostname].ReplaceHeaders = append(effects[binding.Hostname].ReplaceHeaders, &ateapipb.CredentialHeader{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI})
+		header := &ateapipb.CredentialHeader{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI}
+		if binding.Audience != "" {
+			header.CredentialUri = ""
+			header.ActorJwt = &ateapipb.ActorJWTSource{Audiences: []string{binding.Audience}, ExpirationSeconds: int64(egress.ActorJWTLifetime / time.Second)}
+		}
+		effects[binding.Hostname].ReplaceHeaders = append(effects[binding.Hostname].ReplaceHeaders, header)
 	}
 	names := make([]string, 0, len(origins))
 	for origin := range origins {

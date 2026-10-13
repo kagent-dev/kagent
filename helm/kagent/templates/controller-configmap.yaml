@@ -27,6 +27,9 @@ data:
   KAGENT_SESSION_ADMISSION_JWT_JWKS_URL: {{ .jwksURL | quote }}
   KAGENT_SESSION_ADMISSION_JWT_ISSUER: {{ .issuer | quote }}
   KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: {{ .audience | quote }}
+  {{- with .brokers }}
+  KAGENT_SESSION_ADMISSION_JWT_BROKERS: {{ join "," . | quote }}
+  {{- end }}
   {{- end }}
   {{- end }}
   {{- if .Values.ui.externalUrl }}

@@ -101,6 +101,19 @@ tests:
             KAGENT_SESSION_ADMISSION_JWT_JWKS_URL: http://workspace-manager.kagent.svc/.well-known/jwks.json
             KAGENT_SESSION_ADMISSION_JWT_ISSUER: https://workspaces.example.test
             KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: kagent
+      - notExists:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_BROKERS
+
+  - it: renders the brokers the jwt Session admission knows
+    set:
+      controller.session.admission.jwt.jwksURL: http://workspace-manager.kagent.svc/.well-known/jwks.json
+      controller.session.admission.jwt.issuer: https://workspaces.example.test
+      controller.session.admission.jwt.audience: kagent
+      controller.session.admission.jwt.brokers: [workspaces, gitlab]
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_BROKERS
+          value: workspaces,gitlab
 
   - it: refuses a partial jwt Session admission
     set:

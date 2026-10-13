@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,11 +39,18 @@ type Config struct {
 	Issuer string
 	// Audience is the grant's required aud: this installation's kagent.
 	Audience string
+	// Brokers names the token brokers the installation's egress gateway knows:
+	// a grant whose provider names another is refused. A broker is named,
+	// never addressed, so a grant cannot point a credential at an endpoint of
+	// its choosing. Empty admits any name: the actor-JWT credentials the
+	// controller compiles today address no broker.
+	Brokers []string
 }
 
 // Admission verifies workspace grants. It is safe for concurrent use.
 type Admission struct {
 	issuer, audience string
+	brokers          []string
 	keys             *keySet
 }
 
@@ -59,7 +67,10 @@ func New(config Config, client *http.Client) (*Admission, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &Admission{issuer: config.Issuer, audience: config.Audience, keys: newKeySet(location.String(), client)}, nil
+	if slices.Contains(config.Brokers, "") {
+		return nil, errors.New("a broker name is empty")
+	}
+	return &Admission{issuer: config.Issuer, audience: config.Audience, brokers: slices.Clone(config.Brokers), keys: newKeySet(location.String(), client)}, nil
 }
 
 // volume is the grant's volume claim: a CSI volume by its driver and handle.
@@ -126,7 +137,7 @@ func (a *Admission) Admit(ctx context.Context, caller string, source *apiv1alpha
 	if err := allows(grant, source); err != nil {
 		return session.Admitted{}, err
 	}
-	return admitted(grant)
+	return admitted(grant, a.brokers)
 }
 
 // refusal maps a failed verification to its named reason, most specific
@@ -181,8 +192,9 @@ func mountAllowed(allowed []mount, requested *apiv1alpha1.SessionVolumeMount) bo
 }
 
 // admitted is what the grant admits the Session with, refused as malformed
-// when a provider or a changed path is not one a Session can carry.
-func admitted(grant *claims) (session.Admitted, error) {
+// when a provider or a changed path is not one a Session can carry, and when
+// brokers is set, refused for a provider naming a broker not in it.
+func admitted(grant *claims, brokers []string) (session.Admitted, error) {
 	result := session.Admitted{Changed: grant.Changed}
 	for _, changed := range grant.Changed {
 		if changed == "" || changed != path.Clean(changed) || path.IsAbs(changed) || changed == ".." || strings.HasPrefix(changed, "../") {
@@ -194,6 +206,9 @@ func admitted(grant *claims) (session.Admitted, error) {
 			(granted.Scheme != "Bearer" && granted.Scheme != "Basic") ||
 			(granted.Scheme == "Basic") != (granted.Username != "") {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is malformed: a provider needs a hostname, an audience, a broker and the Bearer or Basic scheme, a user name with Basic only", nil)
+		}
+		if len(brokers) != 0 && !slices.Contains(brokers, granted.Broker) {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant names an unknown broker %q", granted.Broker), nil)
 		}
 		result.Providers = append(result.Providers, &apiv1alpha1.SessionProvider{
 			Hostname: granted.Hostname, Audience: granted.Audience, Scheme: granted.Scheme,

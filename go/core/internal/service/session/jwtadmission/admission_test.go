@@ -306,3 +306,30 @@ func tamper(t *testing.T, token string) string {
 	other := strings.Split(sign(t, newSigner(t, issuer, audience), "mallory@example.test", workspaceGrant(), time.Minute), ".")
 	return parts[0] + "." + other[1] + "." + parts[2]
 }
+
+// A broker is named, never addressed: with the installation's brokers
+// configured, a grant whose provider names another is refused, and a grant
+// naming a known one is admitted with its providers.
+func TestRefusesAGrantNamingAnUnknownBroker(t *testing.T) {
+	signer := newSigner(t, issuer, audience)
+	keys := &issuerKeys{}
+	keys.publish(signer)
+	server := httptest.NewServer(keys)
+	t.Cleanup(server.Close)
+	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, Brokers: []string{"workspaces"}}, server.Client())
+	require.NoError(t, err)
+
+	admitted, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	require.NoError(t, err)
+	require.Len(t, admitted.Providers, 1)
+
+	unknown := workspaceGrant()
+	unknown.Providers = append(unknown.Providers, grant.Provider{Hostname: "api.github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "elsewhere"})
+	admitted, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, unknown, time.Minute))
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Admit() error = %v", err)
+	require.ErrorContains(t, err, `admission grant names an unknown broker "elsewhere"`)
+	require.Equal(t, session.Admitted{}, admitted)
+
+	_, err = New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, Brokers: []string{""}}, server.Client())
+	require.Error(t, err, "an empty broker name is a configuration error")
+}

@@ -137,9 +137,30 @@ revision's origins, on create and on every repoint: the session's directory
 setup and its git and API calls reach the provider without the Agent listing
 it, and the Agent's other sessions and its revision are unchanged.
 
+A `Bearer` provider's host also carries the session's caller credential: the
+egress gateway replaces the `Authorization` header a request from the session's
+Actor carries (any placeholder value) with `Bearer <JWT>`, the JWT Substrate
+mints for that Actor bound to the provider's audience (`CredentialHeader.actor_jwt`,
+fifteen minutes each). The token is minted at the gateway per request: it is
+never in the sandbox's environment, `/data` or `/workspace`, nor in the
+controller or its database, which hold only the provider's host, audience and
+broker. The provider, or the broker in front of it, verifies the JWT with
+OpenID Connect Discovery against Substrate's issuer and maps its subject,
+`atespaces:<atespace>:actors:session-<session id>`, to the person: the Actor is
+the session's own, and the session records its creator as the person the grant
+admitted. A session of the same Agent without providers, the ActorTemplate's
+default policy and the Agent's own credential bindings get no such rule, and a
+provider on a host and header the Agent already binds a credential to is
+refused when the session's policy is compiled. A `Basic` provider's host is
+allowed without a credential until the gateway exchanges the actor JWT at the
+named broker (RFC 8693) and injects the broker's token, since a Basic header
+encodes the user name with the token. A grant names a broker, never its
+address: with `KAGENT_SESSION_ADMISSION_JWT_BROKERS` set, a provider naming a
+broker outside it is refused at admission.
+
 Every refusal is `PermissionDenied` with its reason (no grant, expired, not yet
 valid, another person's, another volume, a mount it does not allow, an unknown
-issuer, audience or key, an invalid signature, a malformed grant) and never
+issuer, audience, key or broker, an invalid signature, a malformed grant) and never
 key material. The JWKS is fetched on the first grant, trusted for ten minutes,
 and fetched again on a key id it lacks (at most every ten seconds), so a key
 rotation needs no restart. An issuer whose JWKS cannot be fetched refuses

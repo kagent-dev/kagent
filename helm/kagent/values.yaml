@@ -415,12 +415,15 @@ controller:
     # verified against jwksURL (refetched on an unknown key id, so a key rotation
     # needs no restart), with this iss and aud, naming the caller as sub, the
     # volume and the mounts it allows. Unset, every create that names a volume
-    # source is refused.
+    # source is refused. brokers names the token brokers the egress gateway
+    # knows: a grant whose provider names another is refused; empty admits any
+    # name.
     admission:
       jwt:
         jwksURL: ""
         issuer: ""
         audience: ""
+        brokers: []
 
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.

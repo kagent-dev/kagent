@@ -21,4 +21,5 @@ var (
 	SessionAdmissionJWTJWKSURL  = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_JWKS_URL", "", "URL of the JWKS that verifies the signed grants a Session volume source is admitted with. Empty, with the issuer and audience, configures no admission: every create that names a volume source or carries an admission token is refused.", ComponentController)
 	SessionAdmissionJWTIssuer   = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_ISSUER", "", "Required iss of a Session admission grant. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL.", ComponentController)
 	SessionAdmissionJWTAudience = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_AUDIENCE", "", "Required aud of a Session admission grant: this kagent. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL.", ComponentController)
+	SessionAdmissionJWTBrokers  = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_BROKERS", "", "Comma-separated names of the token brokers the egress gateway knows; a grant whose provider names another is refused. Empty admits any broker name.", ComponentController)
 )

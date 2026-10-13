@@ -589,8 +589,13 @@ func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
 		Issuer:   kagentenv.SessionAdmissionJWTIssuer.Get(),
 		Audience: kagentenv.SessionAdmissionJWTAudience.Get(),
 	}
-	if config == (jwtadmission.Config{}) {
+	if config.JWKSURL == "" && config.Issuer == "" && config.Audience == "" {
 		return nil, nil
+	}
+	if brokers := kagentenv.SessionAdmissionJWTBrokers.Get(); brokers != "" {
+		for broker := range strings.SplitSeq(brokers, ",") {
+			config.Brokers = append(config.Brokers, strings.TrimSpace(broker))
+		}
 	}
 	admission, err := jwtadmission.New(config, nil)
 	if err != nil {

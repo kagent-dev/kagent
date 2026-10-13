@@ -157,11 +157,15 @@ controller:
         jwksURL: http://workspace-issuer.kagent.svc/.well-known/jwks.json
         issuer: https://workspaces.example.com
         audience: kagent
+        brokers: [workspaces]
 ```
 
 The chart renders `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`,
 `KAGENT_SESSION_ADMISSION_JWT_ISSUER` and `KAGENT_SESSION_ADMISSION_JWT_AUDIENCE`;
-all three are set together or not at all. Unset, every create that names a
+all three are set together or not at all. `brokers`
+(`KAGENT_SESSION_ADMISSION_JWT_BROKERS`) names the token brokers the egress
+gateway knows; a grant whose provider names another is refused, and an empty
+list admits any name. Unset, every create that names a
 volume source is refused `FailedPrecondition`. The grant's claims are described
 in [Runtime and Lifecycle](../docs/architecture/runtime-and-lifecycle.md#session-volume-admission).
 
