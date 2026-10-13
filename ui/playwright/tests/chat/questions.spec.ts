@@ -14,10 +14,12 @@ import { LIFECYCLE_TIMEOUT, pressOnce } from "../../helpers/resource";
  * of that, because the question renders as ordinary agent prose and the conversation
  * looks finished.
  *
- * One journey rather than three tests, because there is exactly one way in and the
- * ways out are alternatives to each other: a turn parks, and from there it is
- * answered, discarded, or it blocks the conversation. Each step returns the
- * conversation to a state the next can start from, which is what makes them steps.
+ * Three tests, one per way out: a parked turn is answered, given up, or answered with
+ * the keyboard. Each starts from its own conversation, so none inherits the state the
+ * one before left behind — and each gets its own budget. As one journey of twelve
+ * steps they shared one, and on a loaded Firefox runner the first eight steps alone
+ * took fifty-five of its sixty seconds: the keyboard journey then timed out at step
+ * nine on every attempt, waiting on a turn the mock was still streaming.
  *
  * The fixture is the controller's behaviour, copied — the parked turn survives a
  * reload, a send while it stands is refused in the controller's own words, and
@@ -27,16 +29,12 @@ import { LIFECYCLE_TIMEOUT, pressOnce } from "../../helpers/resource";
 const AGENT_CHAT = agentChat(instances.ready);
 
 /*
- * A journey in one test, so it gets the lifecycle budget rather than the default.
- * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`:
- * twelve steps around five page loads, each an app boot that takes ten seconds and
- * more on a loaded Firefox runner, so twice the budget.
+ * Each journey still holds several turns of the mock, so each gets the lifecycle budget
+ * rather than the default — see `LIFECYCLE_TIMEOUT`.
  */
-test.describe.configure({ timeout: LIFECYCLE_TIMEOUT * 2 });
+test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("chat: a question is asked, answered, given up, and answered with the keyboard", async ({
-  page,
-}) => {
+test("chat: a question is asked and answered", async ({ page }) => {
   await test.step("1. a turn ends by asking rather than by finishing", async () => {
     await page.goto(`${AGENT_CHAT}?chat=asks`);
     await page.getByTestId("chat-input").fill("What should I order?");
@@ -123,10 +121,10 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
     await sendAndAwaitTurn(page, "How many pods are running?");
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
   });
+});
 
-  await test.step("7. a second question can be given up rather than answered", async () => {
-    // Parked again, because the previous steps answered the first one: discarding is
-    // the alternative to answering, so it needs its own question to discard.
+test("chat: a question is given up rather than answered", async ({ page }) => {
+  await test.step("1. a question can be given up rather than answered", async () => {
     await page.goto(`${AGENT_CHAT}?chat=asks`);
     await page.getByTestId("chat-input").fill("What should I order?");
     await page.getByTestId("chat-send").click();
@@ -142,13 +140,15 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
     // and this step is about the question being gone rather than about the state.
   });
 
-  await test.step("8. and an unrelated message is accepted again", async () => {
+  await test.step("2. and an unrelated message is accepted again", async () => {
     await page.goto(`${AGENT_CHAT}?chat=ok`);
     await sendAndAwaitTurn(page, "How many pods are running?");
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
   });
+});
 
-  await test.step("9. a question that is one prose field takes the caret", async () => {
+test("chat: a question of one prose field is answered with the keyboard", async ({ page }) => {
+  await test.step("1. a question that is one prose field takes the caret", async () => {
     await page.goto(`${AGENT_CHAT}?chat=asks-text`);
     await page.getByTestId("chat-input").fill("Order me a pizza");
     await page.getByTestId("chat-send").click();
@@ -159,11 +159,11 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
     await expect(page.getByTestId("chat-choices-0")).toHaveCount(0);
   });
 
-  await test.step("10. the field has the caret already", async () => {
+  await test.step("2. the field has the caret already", async () => {
     await expect(page.getByTestId("chat-answer-text-0")).toBeFocused();
   });
 
-  await test.step("11. Enter sends it, without reaching for the button", async () => {
+  await test.step("3. Enter sends it, without reaching for the button", async () => {
     // Typed with the keyboard rather than filled, because what is under test is that
     // the caret was already in the right place — `fill` would put it there itself and
     // pass whether or not step 2 held.
@@ -180,7 +180,7 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
     await expect(page.getByTestId("chat-awaiting-reply")).toHaveCount(0);
   });
 
-  await test.step("12. and the caret comes back to the composer", async () => {
+  await test.step("4. and the caret comes back to the composer", async () => {
     // The field it was in is gone with the question, so a caret left there is a caret
     // nowhere — and the next thing typed is an ordinary message.
     await expect(page.getByTestId("chat-input")).toBeFocused();
