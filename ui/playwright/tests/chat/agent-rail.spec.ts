@@ -649,8 +649,12 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     // Pressed until it takes, like every other dialog button here: an Escape sent while
     // the save behind it is still settling is swallowed, and the modal then blocks the
     // row menu the next step aims at.
-    await pressUntil(page.getByRole("button", { name: "Close" }), () =>
-      expect(fields).toBeHidden(),
+    //
+    // The details modal's own Close: the rename box above it is still animating out
+    // after its Save, and its close button answers to the same name until it has gone.
+    await pressUntil(
+      page.getByTestId("conversation-details-modal").getByRole("button", { name: "Close" }),
+      () => expect(fields).toBeHidden(),
     );
   });
 
