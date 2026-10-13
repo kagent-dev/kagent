@@ -24,10 +24,9 @@ type MistralConfig struct {
 	TransportConfig
 	Model       string
 	BaseUrl     string
-	MaxTokens   *int
+	MaxTokens   *int64
 	Temperature *float64
 	TopP        *float64
-	Timeout     *int
 }
 
 // MistralModel implements model.LLM (see mistral_adk.go) for Mistral AI.

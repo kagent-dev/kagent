@@ -3,6 +3,7 @@ syntax = "proto3";
 package kagent.api.v1alpha1;
 
 import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "kagent/api/v1alpha1/config.proto";
 
@@ -64,17 +65,37 @@ message ADKModelConfig {
 }
 
 message ADKOpenAI {
+  option (buf.validate.message).cel = {
+    id: "openai.token_limits"
+    message: "max_tokens and max_completion_tokens are mutually exclusive"
+    expression: "!has(this.max_tokens) || !has(this.max_completion_tokens)"
+  };
   string base_url = 1;
-  optional double frequency_penalty = 2;
-  optional int64 max_tokens = 3;
-  optional int64 max_completion_tokens = 4 [(buf.validate.field).int64.gt = 0];
-  optional int64 n = 5;
-  optional double presence_penalty = 6;
+  optional double frequency_penalty = 2 [(buf.validate.field).double = {
+    gte: -2
+    lte: 2
+  }];
+  optional int64 max_tokens = 3 [(buf.validate.field).int64 = {gte: 1}];
+  optional int64 max_completion_tokens = 4 [(buf.validate.field).int64 = {gte: 1}];
+  optional int64 n = 5 [(buf.validate.field).int64 = {gte: 1}];
+  optional double presence_penalty = 6 [(buf.validate.field).double = {
+    gte: -2
+    lte: 2
+  }];
   optional string reasoning_effort = 7;
   optional int64 seed = 8;
-  optional double temperature = 9;
-  optional int64 timeout = 10;
-  optional double top_p = 11;
+  optional double temperature = 9 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  google.protobuf.Duration timeout = 10 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  optional double top_p = 11 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
   string api_format = 12 [
     (buf.validate.field).string.in = "",
     (buf.validate.field).string.in = "chatCompletions",
@@ -96,9 +117,15 @@ message ADKAzureOpenAI {
   string endpoint = 1;
   string deployment = 2;
   string api_version = 3;
-  optional int64 max_tokens = 4;
-  optional double temperature = 5;
-  optional double top_p = 6;
+  optional int64 max_tokens = 4 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 5 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 6 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
   string api_format = 7 [(buf.validate.field).string = {
     in: [
       "",
@@ -109,11 +136,20 @@ message ADKAzureOpenAI {
 }
 message ADKAnthropic {
   string base_url = 1;
-  optional int64 max_tokens = 2;
-  optional double temperature = 3;
-  optional double top_p = 4;
-  optional int64 top_k = 5;
-  optional int64 timeout = 6;
+  optional int64 max_tokens = 2 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 3 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 4 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  optional int64 top_k = 5 [(buf.validate.field).int64 = {gte: 0}];
+  google.protobuf.Duration timeout = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
   bool prompt_caching = 7;
   string cache_ttl = 8 [(buf.validate.field).string = {
     in: [
@@ -125,20 +161,35 @@ message ADKAnthropic {
 }
 message ADKMistral {
   string base_url = 1;
-  optional int64 max_tokens = 2 [(buf.validate.field).int64.gt = 0];
-  optional double temperature = 3;
-  optional double top_p = 4;
-  optional int64 timeout = 5 [(buf.validate.field).int64.gt = 0];
+  optional int64 max_tokens = 2 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 3 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 4 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  google.protobuf.Duration timeout = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 message ADKGeminiVertexAI {
-  optional int64 max_output_tokens = 1 [(buf.validate.field).int64.gt = 0];
+  optional int64 max_output_tokens = 1 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
 }
 message ADKGeminiAnthropic {}
 message ADKOllama {
   map<string, string> options = 1;
 }
 message ADKGemini {
-  optional int64 max_output_tokens = 1 [(buf.validate.field).int64.gt = 0];
+  optional int64 max_output_tokens = 1 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
 }
 message ADKBedrock {
   string region = 1;
@@ -153,8 +204,14 @@ message ADKBedrock {
     ]
   }];
   ADKBedrockGuardrail guardrail = 5;
-  optional int64 read_timeout = 6 [(buf.validate.field).int64.gt = 0];
-  optional int64 connect_timeout = 7 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Duration read_timeout = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration connect_timeout = 7 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 message ADKBedrockGuardrail {
   string identifier = 1;
@@ -182,8 +239,14 @@ message ADKFoundry {
 message ADKHTTPConnectionParams {
   string url = 1;
   map<string, string> headers = 2;
-  optional double timeout = 3;
-  optional double sse_read_timeout = 4;
+  google.protobuf.Duration timeout = 3 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration sse_read_timeout = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
   optional bool terminate_on_close = 5;
   optional bool tls_insecure_skip_verify = 6;
   optional string tls_ca_cert_path = 7;
@@ -192,8 +255,14 @@ message ADKHTTPConnectionParams {
 message ADKSSEConnectionParams {
   string url = 1;
   map<string, string> headers = 2;
-  optional double timeout = 3;
-  optional double sse_read_timeout = 4;
+  google.protobuf.Duration timeout = 3 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration sse_read_timeout = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
   optional bool tls_insecure_skip_verify = 5;
   optional string tls_ca_cert_path = 6;
   optional bool tls_disable_system_cas = 7;
@@ -222,7 +291,10 @@ message ADKRemoteAgentConfig {
   map<string, string> headers = 3;
   string description = 4;
   bool isolate_sessions = 5;
-  optional double timeout = 6;
+  google.protobuf.Duration timeout = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 message ADKEmbeddingConfig {
   string provider = 1;
@@ -237,7 +309,11 @@ message ADKEmbeddingConfig {
   string api_version = 10;
 }
 message ADKMemoryConfig {
-  int64 ttl_days = 1;
+  // Zero uses the server default. Bound days to Go's time.Duration range.
+  int64 ttl_days = 1 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 106751
+  }];
   ADKEmbeddingConfig embedding = 2;
 }
 message ADKNetworkConfig {
@@ -247,12 +323,24 @@ message ADKContextConfig {
   ADKCompressionConfig compaction = 1;
 }
 message ADKCompressionConfig {
-  optional int64 compaction_interval = 1;
-  optional int64 overlap_size = 2;
+  optional int64 compaction_interval = 1 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
+  optional int64 overlap_size = 2 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 2147483647
+  }];
   ADKModelConfig summarizer_model = 3;
   string prompt_template = 4;
-  optional int64 token_threshold = 5;
-  optional int64 event_retention_size = 6;
+  optional int64 token_threshold = 5 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
+  optional int64 event_retention_size = 6 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 2147483647
+  }];
 }
 message ADKOutputConfig {
   // Canonical JSON bytes retain the exact schema hashed by the compiler.
@@ -321,10 +409,10 @@ message ADKRuntimeConfig {
     ]
   }];
   string host = 6;
-  string port = 7 [(buf.validate.field).cel = {
-    id: "runtime.port"
-    message: "port must be between 1 and 65535"
-    expression: "this == '' || (this.matches('^[0-9]{1,5}$') && int(this) >= 1 && int(this) <= 65535)"
+  // Absent selects the runtime's listener default.
+  optional uint32 port = 7 [(buf.validate.field).uint32 = {
+    gt: 0
+    lte: 65535
   }];
   // Absent selects the runtime default; zero means unlimited.
   optional int64 max_content_length = 8 [(buf.validate.field).int64.gte = 0];

@@ -89,7 +89,7 @@ class KAgentApp:
         self.kagent_api_url = kagent_api_url
         self.config = config if config is not None else Config()
         runtime = self.config.runtime
-        self.a2a_grpc_address = a2a_grpc_address or f"{runtime.host or '[::]'}:{runtime.port or '80'}"
+        self.a2a_grpc_address = a2a_grpc_address or f"{runtime.host or '[::]'}:{runtime.port or 80}"
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan

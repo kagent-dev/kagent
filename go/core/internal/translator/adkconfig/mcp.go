@@ -1,6 +1,8 @@
 package adkconfig
 
 import (
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
@@ -14,10 +16,10 @@ func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, server *v1alpha3.R
 	case v1alpha3.RemoteMCPServerProtocolSse:
 		params := &adk.SseConnectionParams{Url: targetURL, Headers: headers}
 		if server.Spec.Timeout != nil {
-			params.Timeout = new(server.Spec.Timeout.Seconds())
+			params.Timeout = durationpb.New(server.Spec.Timeout.Duration)
 		}
 		if server.Spec.SseReadTimeout != nil {
-			params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
+			params.SseReadTimeout = durationpb.New(server.Spec.SseReadTimeout.Duration)
 		}
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.SseTools = append(config.SseTools, &adk.SseMcpServerConfig{
@@ -26,10 +28,10 @@ func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, server *v1alpha3.R
 	default:
 		params := &adk.StreamableHTTPConnectionParams{Url: targetURL, Headers: headers}
 		if server.Spec.Timeout != nil {
-			params.Timeout = new(server.Spec.Timeout.Seconds())
+			params.Timeout = durationpb.New(server.Spec.Timeout.Duration)
 		}
 		if server.Spec.SseReadTimeout != nil {
-			params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
+			params.SseReadTimeout = durationpb.New(server.Spec.SseReadTimeout.Duration)
 		}
 		if server.Spec.TerminateOnClose != nil {
 			params.TerminateOnClose = server.Spec.TerminateOnClose

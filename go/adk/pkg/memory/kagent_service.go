@@ -26,7 +26,7 @@ import (
 type KagentMemoryService struct {
 	agentName        string
 	controllerClient *controllerclient.Client
-	ttlDays          int
+	ttlDays          int64
 	embeddingClient  *embedding.Client
 	model            adkmodel.LLM // Optional: for session summarization
 }
@@ -38,7 +38,7 @@ type Config struct {
 	// ControllerClient is the shared authenticated native gRPC client.
 	ControllerClient *controllerclient.Client
 	// TTLDays is the TTL for memory entries in days (0 uses server default of 15)
-	TTLDays int
+	TTLDays int64
 	// EmbeddingConfig for generating embeddings (optional but recommended)
 	EmbeddingConfig *adk.EmbeddingConfig
 	// Model for session summarization (optional)

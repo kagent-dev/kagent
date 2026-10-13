@@ -74,7 +74,7 @@ type BedrockConfig struct {
 	TransportConfig
 	Model                        string
 	Region                       string
-	MaxTokens                    *int
+	MaxTokens                    *int32
 	Temperature                  *float64
 	TopP                         *float64
 	AdditionalModelRequestFields map[string]any
@@ -853,7 +853,7 @@ func buildInferenceConfig(cfg *BedrockConfig, thinkingEnabled bool) *types.Infer
 	}
 	ic := &types.InferenceConfiguration{}
 	if cfg.MaxTokens != nil {
-		ic.MaxTokens = aws.Int32(int32(*cfg.MaxTokens))
+		ic.MaxTokens = cfg.MaxTokens
 	}
 	if !thinkingEnabled {
 		if cfg.Temperature != nil {

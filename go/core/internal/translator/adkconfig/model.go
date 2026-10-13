@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -115,7 +116,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				openai.GetOpenai().N = runtimeInt(model.Spec.OpenAI.N)
 			}
 			if model.Spec.OpenAI.Timeout != nil {
-				openai.GetOpenai().Timeout = runtimeInt(model.Spec.OpenAI.Timeout)
+				openai.GetOpenai().Timeout = runtimeDuration(model.Spec.OpenAI.Timeout)
 			}
 			if model.Spec.OpenAI.ReasoningEffort != nil {
 				effort := string(*model.Spec.OpenAI.ReasoningEffort)
@@ -467,8 +468,8 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				AdditionalModelRequestFields: additionalFields,
 				PromptCaching:                model.Spec.Bedrock.PromptCaching,
 				CacheTtl:                     model.Spec.Bedrock.CacheTTL,
-				ReadTimeout:                  runtimeInt(model.Spec.Bedrock.ReadTimeout),
-				ConnectTimeout:               runtimeInt(model.Spec.Bedrock.ConnectTimeout),
+				ReadTimeout:                  runtimeDuration(model.Spec.Bedrock.ReadTimeout),
+				ConnectTimeout:               runtimeDuration(model.Spec.Bedrock.ConnectTimeout),
 			}},
 		}
 		if model.Spec.Bedrock.Guardrail != nil {
@@ -629,7 +630,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				mistral.GetMistral().MaxTokens = runtimeInt(spec.MaxTokens)
 			}
 			if spec.Timeout != nil {
-				mistral.GetMistral().Timeout = runtimeInt(spec.Timeout)
+				mistral.GetMistral().Timeout = runtimeDuration(spec.Timeout)
 			}
 		}
 
@@ -644,4 +645,12 @@ func runtimeInt(value *int) *int64 {
 		return nil
 	}
 	return new(int64(*value))
+}
+
+func runtimeDuration(seconds *int) *durationpb.Duration {
+	if seconds == nil {
+		return nil
+	}
+	// Validate the protobuf before converting seconds to a native duration.
+	return &durationpb.Duration{Seconds: int64(*seconds)}
 }

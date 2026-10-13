@@ -76,6 +76,6 @@ func (s CompilerSettings) RuntimeConfig(name, namespace string) *adk.RuntimeConf
 	}
 	result.ControlPlaneUrl, result.GatewayUrl = s.APIURL, s.GatewayURL
 	result.Name, result.Namespace = name, namespace
-	result.LogLevel, result.Port = s.LogLevel, "80"
+	result.LogLevel, result.Port = s.LogLevel, new(uint32(80))
 	return result
 }

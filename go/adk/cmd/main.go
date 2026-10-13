@@ -67,7 +67,9 @@ func run(logLevel, host, port, configDir string) error {
 	}
 	slog.SetDefault(logger)
 	host = cmp.Or(host, runtime.Host)
-	port = cmp.Or(port, runtime.Port)
+	if port == "" && runtime.Port != nil {
+		port = fmt.Sprint(runtime.GetPort())
+	}
 	if err := config.MaterializeAgentPlugins(
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
@@ -165,7 +167,7 @@ func run(logLevel, host, port, configDir string) error {
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
 			AgentName:        appName,
 			ControllerClient: controllerClient,
-			TTLDays:          int(agentConfig.Memory.TtlDays),
+			TTLDays:          agentConfig.Memory.TtlDays,
 			EmbeddingConfig:  agentConfig.Memory.Embedding,
 		})
 		if err != nil {

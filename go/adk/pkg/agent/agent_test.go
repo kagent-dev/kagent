@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -408,12 +410,12 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
 // from the model config are wired into the Go ADK's HTTP transport, so the same
 // ModelConfig fields are honored by both the Python and Go runtimes.
 func TestCreateLLM_BedrockTimeouts(t *testing.T) {
-	read := 1800
-	connect := 10
+	read := 1500 * time.Millisecond
+	connect := 250 * time.Millisecond
 	m := &adk.Model{Model: "anthropic.claude-3-sonnet-20240229-v1:0", Provider: &adk.Model_Bedrock{Bedrock: &adk.Bedrock{
 		Region:         "us-east-1",
-		ReadTimeout:    new(int64(read)),
-		ConnectTimeout: new(int64(connect))}}}
+		ReadTimeout:    durationpb.New(read),
+		ConnectTimeout: durationpb.New(connect)}}}
 
 	llm, err := CreateLLM(context.Background(), m)
 	if err != nil {

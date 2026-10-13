@@ -10,6 +10,7 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
@@ -546,7 +547,7 @@ type ADKOpenAI struct {
 	ReasoningEffort     *string                 `protobuf:"bytes,7,opt,name=reasoning_effort,json=reasoningEffort,proto3,oneof" json:"reasoning_effort,omitempty"`
 	Seed                *int64                  `protobuf:"varint,8,opt,name=seed,proto3,oneof" json:"seed,omitempty"`
 	Temperature         *float64                `protobuf:"fixed64,9,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
-	Timeout             *int64                  `protobuf:"varint,10,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	Timeout             *durationpb.Duration    `protobuf:"bytes,10,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	TopP                *float64                `protobuf:"fixed64,11,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
 	ApiFormat           string                  `protobuf:"bytes,12,opt,name=api_format,json=apiFormat,proto3" json:"api_format,omitempty"`
 	TokenExchange       *ADKTokenExchangeConfig `protobuf:"bytes,13,opt,name=token_exchange,json=tokenExchange,proto3" json:"token_exchange,omitempty"`
@@ -647,11 +648,11 @@ func (x *ADKOpenAI) GetTemperature() float64 {
 	return 0
 }
 
-func (x *ADKOpenAI) GetTimeout() int64 {
-	if x != nil && x.Timeout != nil {
-		return *x.Timeout
+func (x *ADKOpenAI) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 func (x *ADKOpenAI) GetTopP() float64 {
@@ -892,7 +893,7 @@ type ADKAnthropic struct {
 	Temperature   *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
 	TopP          *float64               `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
 	TopK          *int64                 `protobuf:"varint,5,opt,name=top_k,json=topK,proto3,oneof" json:"top_k,omitempty"`
-	Timeout       *int64                 `protobuf:"varint,6,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	Timeout       *durationpb.Duration   `protobuf:"bytes,6,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	PromptCaching bool                   `protobuf:"varint,7,opt,name=prompt_caching,json=promptCaching,proto3" json:"prompt_caching,omitempty"`
 	CacheTtl      string                 `protobuf:"bytes,8,opt,name=cache_ttl,json=cacheTtl,proto3" json:"cache_ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -964,11 +965,11 @@ func (x *ADKAnthropic) GetTopK() int64 {
 	return 0
 }
 
-func (x *ADKAnthropic) GetTimeout() int64 {
-	if x != nil && x.Timeout != nil {
-		return *x.Timeout
+func (x *ADKAnthropic) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 func (x *ADKAnthropic) GetPromptCaching() bool {
@@ -991,7 +992,7 @@ type ADKMistral struct {
 	MaxTokens     *int64                 `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
 	Temperature   *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
 	TopP          *float64               `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
-	Timeout       *int64                 `protobuf:"varint,5,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	Timeout       *durationpb.Duration   `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1054,11 +1055,11 @@ func (x *ADKMistral) GetTopP() float64 {
 	return 0
 }
 
-func (x *ADKMistral) GetTimeout() int64 {
-	if x != nil && x.Timeout != nil {
-		return *x.Timeout
+func (x *ADKMistral) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 type ADKGeminiVertexAI struct {
@@ -1237,8 +1238,8 @@ type ADKBedrock struct {
 	PromptCaching                bool                 `protobuf:"varint,3,opt,name=prompt_caching,json=promptCaching,proto3" json:"prompt_caching,omitempty"`
 	CacheTtl                     string               `protobuf:"bytes,4,opt,name=cache_ttl,json=cacheTtl,proto3" json:"cache_ttl,omitempty"`
 	Guardrail                    *ADKBedrockGuardrail `protobuf:"bytes,5,opt,name=guardrail,proto3" json:"guardrail,omitempty"`
-	ReadTimeout                  *int64               `protobuf:"varint,6,opt,name=read_timeout,json=readTimeout,proto3,oneof" json:"read_timeout,omitempty"`
-	ConnectTimeout               *int64               `protobuf:"varint,7,opt,name=connect_timeout,json=connectTimeout,proto3,oneof" json:"connect_timeout,omitempty"`
+	ReadTimeout                  *durationpb.Duration `protobuf:"bytes,6,opt,name=read_timeout,json=readTimeout,proto3" json:"read_timeout,omitempty"`
+	ConnectTimeout               *durationpb.Duration `protobuf:"bytes,7,opt,name=connect_timeout,json=connectTimeout,proto3" json:"connect_timeout,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -1308,18 +1309,18 @@ func (x *ADKBedrock) GetGuardrail() *ADKBedrockGuardrail {
 	return nil
 }
 
-func (x *ADKBedrock) GetReadTimeout() int64 {
-	if x != nil && x.ReadTimeout != nil {
-		return *x.ReadTimeout
+func (x *ADKBedrock) GetReadTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ReadTimeout
 	}
-	return 0
+	return nil
 }
 
-func (x *ADKBedrock) GetConnectTimeout() int64 {
-	if x != nil && x.ConnectTimeout != nil {
-		return *x.ConnectTimeout
+func (x *ADKBedrock) GetConnectTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ConnectTimeout
 	}
-	return 0
+	return nil
 }
 
 type ADKBedrockGuardrail struct {
@@ -1514,8 +1515,8 @@ type ADKHTTPConnectionParams struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	Url                   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	Headers               map[string]string      `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Timeout               *float64               `protobuf:"fixed64,3,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
-	SseReadTimeout        *float64               `protobuf:"fixed64,4,opt,name=sse_read_timeout,json=sseReadTimeout,proto3,oneof" json:"sse_read_timeout,omitempty"`
+	Timeout               *durationpb.Duration   `protobuf:"bytes,3,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	SseReadTimeout        *durationpb.Duration   `protobuf:"bytes,4,opt,name=sse_read_timeout,json=sseReadTimeout,proto3" json:"sse_read_timeout,omitempty"`
 	TerminateOnClose      *bool                  `protobuf:"varint,5,opt,name=terminate_on_close,json=terminateOnClose,proto3,oneof" json:"terminate_on_close,omitempty"`
 	TlsInsecureSkipVerify *bool                  `protobuf:"varint,6,opt,name=tls_insecure_skip_verify,json=tlsInsecureSkipVerify,proto3,oneof" json:"tls_insecure_skip_verify,omitempty"`
 	TlsCaCertPath         *string                `protobuf:"bytes,7,opt,name=tls_ca_cert_path,json=tlsCaCertPath,proto3,oneof" json:"tls_ca_cert_path,omitempty"`
@@ -1568,18 +1569,18 @@ func (x *ADKHTTPConnectionParams) GetHeaders() map[string]string {
 	return nil
 }
 
-func (x *ADKHTTPConnectionParams) GetTimeout() float64 {
-	if x != nil && x.Timeout != nil {
-		return *x.Timeout
+func (x *ADKHTTPConnectionParams) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
-func (x *ADKHTTPConnectionParams) GetSseReadTimeout() float64 {
-	if x != nil && x.SseReadTimeout != nil {
-		return *x.SseReadTimeout
+func (x *ADKHTTPConnectionParams) GetSseReadTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.SseReadTimeout
 	}
-	return 0
+	return nil
 }
 
 func (x *ADKHTTPConnectionParams) GetTerminateOnClose() bool {
@@ -1614,8 +1615,8 @@ type ADKSSEConnectionParams struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	Url                   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
 	Headers               map[string]string      `protobuf:"bytes,2,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Timeout               *float64               `protobuf:"fixed64,3,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
-	SseReadTimeout        *float64               `protobuf:"fixed64,4,opt,name=sse_read_timeout,json=sseReadTimeout,proto3,oneof" json:"sse_read_timeout,omitempty"`
+	Timeout               *durationpb.Duration   `protobuf:"bytes,3,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	SseReadTimeout        *durationpb.Duration   `protobuf:"bytes,4,opt,name=sse_read_timeout,json=sseReadTimeout,proto3" json:"sse_read_timeout,omitempty"`
 	TlsInsecureSkipVerify *bool                  `protobuf:"varint,5,opt,name=tls_insecure_skip_verify,json=tlsInsecureSkipVerify,proto3,oneof" json:"tls_insecure_skip_verify,omitempty"`
 	TlsCaCertPath         *string                `protobuf:"bytes,6,opt,name=tls_ca_cert_path,json=tlsCaCertPath,proto3,oneof" json:"tls_ca_cert_path,omitempty"`
 	TlsDisableSystemCas   *bool                  `protobuf:"varint,7,opt,name=tls_disable_system_cas,json=tlsDisableSystemCas,proto3,oneof" json:"tls_disable_system_cas,omitempty"`
@@ -1667,18 +1668,18 @@ func (x *ADKSSEConnectionParams) GetHeaders() map[string]string {
 	return nil
 }
 
-func (x *ADKSSEConnectionParams) GetTimeout() float64 {
-	if x != nil && x.Timeout != nil {
-		return *x.Timeout
+func (x *ADKSSEConnectionParams) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
-func (x *ADKSSEConnectionParams) GetSseReadTimeout() float64 {
-	if x != nil && x.SseReadTimeout != nil {
-		return *x.SseReadTimeout
+func (x *ADKSSEConnectionParams) GetSseReadTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.SseReadTimeout
 	}
-	return 0
+	return nil
 }
 
 func (x *ADKSSEConnectionParams) GetTlsInsecureSkipVerify() bool {
@@ -1913,7 +1914,7 @@ type ADKRemoteAgentConfig struct {
 	Headers         map[string]string      `protobuf:"bytes,3,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Description     string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	IsolateSessions bool                   `protobuf:"varint,5,opt,name=isolate_sessions,json=isolateSessions,proto3" json:"isolate_sessions,omitempty"`
-	Timeout         *float64               `protobuf:"fixed64,6,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	Timeout         *durationpb.Duration   `protobuf:"bytes,6,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1983,11 +1984,11 @@ func (x *ADKRemoteAgentConfig) GetIsolateSessions() bool {
 	return false
 }
 
-func (x *ADKRemoteAgentConfig) GetTimeout() float64 {
-	if x != nil && x.Timeout != nil {
-		return *x.Timeout
+func (x *ADKRemoteAgentConfig) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
 	}
-	return 0
+	return nil
 }
 
 type ADKEmbeddingConfig struct {
@@ -2107,9 +2108,10 @@ func (x *ADKEmbeddingConfig) GetApiVersion() string {
 }
 
 type ADKMemoryConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TtlDays       int64                  `protobuf:"varint,1,opt,name=ttl_days,json=ttlDays,proto3" json:"ttl_days,omitempty"`
-	Embedding     *ADKEmbeddingConfig    `protobuf:"bytes,2,opt,name=embedding,proto3" json:"embedding,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Zero uses the server default. Bound days to Go's time.Duration range.
+	TtlDays       int64               `protobuf:"varint,1,opt,name=ttl_days,json=ttlDays,proto3" json:"ttl_days,omitempty"`
+	Embedding     *ADKEmbeddingConfig `protobuf:"bytes,2,opt,name=embedding,proto3" json:"embedding,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2783,7 +2785,8 @@ type ADKRuntimeConfig struct {
 	Namespace       string                 `protobuf:"bytes,4,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	LogLevel        string                 `protobuf:"bytes,5,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`
 	Host            string                 `protobuf:"bytes,6,opt,name=host,proto3" json:"host,omitempty"`
-	Port            string                 `protobuf:"bytes,7,opt,name=port,proto3" json:"port,omitempty"`
+	// Absent selects the runtime's listener default.
+	Port *uint32 `protobuf:"varint,7,opt,name=port,proto3,oneof" json:"port,omitempty"`
 	// Absent selects the runtime default; zero means unlimited.
 	MaxContentLength *int64                  `protobuf:"varint,8,opt,name=max_content_length,json=maxContentLength,proto3,oneof" json:"max_content_length,omitempty"`
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,9,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
@@ -2866,11 +2869,11 @@ func (x *ADKRuntimeConfig) GetHost() string {
 	return ""
 }
 
-func (x *ADKRuntimeConfig) GetPort() string {
-	if x != nil {
-		return x.Port
+func (x *ADKRuntimeConfig) GetPort() uint32 {
+	if x != nil && x.Port != nil {
+		return *x.Port
 	}
-	return ""
+	return 0
 }
 
 func (x *ADKRuntimeConfig) GetMaxContentLength() int64 {
@@ -2912,7 +2915,7 @@ var File_kagent_api_v1alpha1_adk_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\n" +
-	"\x1dkagent/api/v1alpha1/adk.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a kagent/api/v1alpha1/config.proto\"\x87\x01\n" +
+	"\x1dkagent/api/v1alpha1/adk.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a kagent/api/v1alpha1/config.proto\"\x87\x01\n" +
 	"\tADKConfig\x12?\n" +
 	"\aruntime\x18\x01 \x01(\v2%.kagent.api.v1alpha1.ADKRuntimeConfigR\aruntime\x129\n" +
 	"\x05agent\x18\x02 \x01(\v2#.kagent.api.v1alpha1.ADKAgentConfigR\x05agent\"\xa0\b\n" +
@@ -2967,24 +2970,26 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\bprovider\x12\x05\xbaH\x02\b\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\xe0\x05\n" +
+	"\x17_tls_disable_system_cas\"\x89\b\n" +
 	"\tADKOpenAI\x12\x19\n" +
-	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x120\n" +
-	"\x11frequency_penalty\x18\x02 \x01(\x01H\x00R\x10frequencyPenalty\x88\x01\x01\x12\"\n" +
+	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12I\n" +
+	"\x11frequency_penalty\x18\x02 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\xc0H\x00R\x10frequencyPenalty\x88\x01\x01\x12+\n" +
 	"\n" +
-	"max_tokens\x18\x03 \x01(\x03H\x01R\tmaxTokens\x88\x01\x01\x12@\n" +
-	"\x15max_completion_tokens\x18\x04 \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x02R\x13maxCompletionTokens\x88\x01\x01\x12\x11\n" +
-	"\x01n\x18\x05 \x01(\x03H\x03R\x01n\x88\x01\x01\x12.\n" +
-	"\x10presence_penalty\x18\x06 \x01(\x01H\x04R\x0fpresencePenalty\x88\x01\x01\x12.\n" +
+	"max_tokens\x18\x03 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x01R\tmaxTokens\x88\x01\x01\x12@\n" +
+	"\x15max_completion_tokens\x18\x04 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x02R\x13maxCompletionTokens\x88\x01\x01\x12\x1a\n" +
+	"\x01n\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x03R\x01n\x88\x01\x01\x12G\n" +
+	"\x10presence_penalty\x18\x06 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\xc0H\x04R\x0fpresencePenalty\x88\x01\x01\x12.\n" +
 	"\x10reasoning_effort\x18\a \x01(\tH\x05R\x0freasoningEffort\x88\x01\x01\x12\x17\n" +
-	"\x04seed\x18\b \x01(\x03H\x06R\x04seed\x88\x01\x01\x12%\n" +
-	"\vtemperature\x18\t \x01(\x01H\aR\vtemperature\x88\x01\x01\x12\x1d\n" +
+	"\x04seed\x18\b \x01(\x03H\x06R\x04seed\x88\x01\x01\x12>\n" +
+	"\vtemperature\x18\t \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\aR\vtemperature\x88\x01\x01\x12E\n" +
 	"\atimeout\x18\n" +
-	" \x01(\x03H\bR\atimeout\x88\x01\x01\x12\x18\n" +
-	"\x05top_p\x18\v \x01(\x01H\tR\x04topP\x88\x01\x01\x12B\n" +
+	" \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeout\x121\n" +
+	"\x05top_p\x18\v \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\bR\x04topP\x88\x01\x01\x12B\n" +
 	"\n" +
 	"api_format\x18\f \x01(\tB#\xbaH r\x1eR\x00R\x0fchatCompletionsR\tresponsesR\tapiFormat\x12R\n" +
-	"\x0etoken_exchange\x18\r \x01(\v2+.kagent.api.v1alpha1.ADKTokenExchangeConfigR\rtokenExchangeB\x14\n" +
+	"\x0etoken_exchange\x18\r \x01(\v2+.kagent.api.v1alpha1.ADKTokenExchangeConfigR\rtokenExchange:\x94\x01\xbaH\x90\x01\x1a\x8d\x01\n" +
+	"\x13openai.token_limits\x12;max_tokens and max_completion_tokens are mutually exclusive\x1a9!has(this.max_tokens) || !has(this.max_completion_tokens)B\x14\n" +
 	"\x12_frequency_penaltyB\r\n" +
 	"\v_max_tokensB\x18\n" +
 	"\x16_max_completion_tokensB\x04\n" +
@@ -2992,74 +2997,72 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\x11_presence_penaltyB\x13\n" +
 	"\x11_reasoning_effortB\a\n" +
 	"\x05_seedB\x0e\n" +
-	"\f_temperatureB\n" +
-	"\n" +
-	"\b_timeoutB\b\n" +
+	"\f_temperatureB\b\n" +
 	"\x06_top_p\"\x8e\x01\n" +
 	"\x16ADKTokenExchangeConfig\x12c\n" +
 	"\x14gdch_service_account\x18\x01 \x01(\v2/.kagent.api.v1alpha1.ADKGDCHTokenExchangeConfigH\x00R\x12gdchServiceAccountB\x0f\n" +
 	"\x06source\x12\x05\xbaH\x02\b\x01\"|\n" +
 	"\x1aADKGDCHTokenExchangeConfig\x129\n" +
 	"\x14service_account_path\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x12serviceAccountPath\x12#\n" +
-	"\baudience\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\baudience\"\xbf\x02\n" +
+	"\baudience\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\baudience\"\xfa\x02\n" +
 	"\x0eADKAzureOpenAI\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x1e\n" +
 	"\n" +
 	"deployment\x18\x02 \x01(\tR\n" +
 	"deployment\x12\x1f\n" +
 	"\vapi_version\x18\x03 \x01(\tR\n" +
-	"apiVersion\x12\"\n" +
+	"apiVersion\x12+\n" +
 	"\n" +
-	"max_tokens\x18\x04 \x01(\x03H\x00R\tmaxTokens\x88\x01\x01\x12%\n" +
-	"\vtemperature\x18\x05 \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x18\n" +
-	"\x05top_p\x18\x06 \x01(\x01H\x02R\x04topP\x88\x01\x01\x12B\n" +
+	"max_tokens\x18\x04 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x00R\tmaxTokens\x88\x01\x01\x12>\n" +
+	"\vtemperature\x18\x05 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\x01R\vtemperature\x88\x01\x01\x121\n" +
+	"\x05top_p\x18\x06 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\x02R\x04topP\x88\x01\x01\x12B\n" +
 	"\n" +
 	"api_format\x18\a \x01(\tB#\xbaH r\x1eR\x00R\x0fchatCompletionsR\tresponsesR\tapiFormatB\r\n" +
 	"\v_max_tokensB\x0e\n" +
 	"\f_temperatureB\b\n" +
-	"\x06_top_p\"\xdb\x02\n" +
+	"\x06_top_p\"\xbb\x03\n" +
 	"\fADKAnthropic\x12\x19\n" +
-	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12\"\n" +
+	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12+\n" +
 	"\n" +
-	"max_tokens\x18\x02 \x01(\x03H\x00R\tmaxTokens\x88\x01\x01\x12%\n" +
-	"\vtemperature\x18\x03 \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x18\n" +
-	"\x05top_p\x18\x04 \x01(\x01H\x02R\x04topP\x88\x01\x01\x12\x18\n" +
-	"\x05top_k\x18\x05 \x01(\x03H\x03R\x04topK\x88\x01\x01\x12\x1d\n" +
-	"\atimeout\x18\x06 \x01(\x03H\x04R\atimeout\x88\x01\x01\x12%\n" +
+	"max_tokens\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x00R\tmaxTokens\x88\x01\x01\x12>\n" +
+	"\vtemperature\x18\x03 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\x01R\vtemperature\x88\x01\x01\x121\n" +
+	"\x05top_p\x18\x04 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\x02R\x04topP\x88\x01\x01\x12!\n" +
+	"\x05top_k\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x03R\x04topK\x88\x01\x01\x12E\n" +
+	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeout\x12%\n" +
 	"\x0eprompt_caching\x18\a \x01(\bR\rpromptCaching\x12,\n" +
 	"\tcache_ttl\x18\b \x01(\tB\x0f\xbaH\fr\n" +
 	"R\x00R\x025mR\x021hR\bcacheTtlB\r\n" +
 	"\v_max_tokensB\x0e\n" +
 	"\f_temperatureB\b\n" +
 	"\x06_top_pB\b\n" +
-	"\x06_top_kB\n" +
-	"\n" +
-	"\b_timeout\"\xf2\x01\n" +
+	"\x06_top_k\"\xb7\x02\n" +
 	"\n" +
 	"ADKMistral\x12\x19\n" +
 	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12+\n" +
 	"\n" +
-	"max_tokens\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x00R\tmaxTokens\x88\x01\x01\x12%\n" +
-	"\vtemperature\x18\x03 \x01(\x01H\x01R\vtemperature\x88\x01\x01\x12\x18\n" +
-	"\x05top_p\x18\x04 \x01(\x01H\x02R\x04topP\x88\x01\x01\x12&\n" +
-	"\atimeout\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x03R\atimeout\x88\x01\x01B\r\n" +
+	"max_tokens\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x00R\tmaxTokens\x88\x01\x01\x12>\n" +
+	"\vtemperature\x18\x03 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\x01R\vtemperature\x88\x01\x01\x121\n" +
+	"\x05top_p\x18\x04 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\x02R\x04topP\x88\x01\x01\x12E\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeoutB\r\n" +
 	"\v_max_tokensB\x0e\n" +
 	"\f_temperatureB\b\n" +
-	"\x06_top_pB\n" +
-	"\n" +
-	"\b_timeout\"c\n" +
-	"\x11ADKGeminiVertexAI\x128\n" +
-	"\x11max_output_tokens\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
+	"\x06_top_p\"i\n" +
+	"\x11ADKGeminiVertexAI\x12>\n" +
+	"\x11max_output_tokens\x18\x01 \x01(\x03B\r\xbaH\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
 	"\x12_max_output_tokens\"\x14\n" +
 	"\x12ADKGeminiAnthropic\"\x8e\x01\n" +
 	"\tADKOllama\x12E\n" +
 	"\aoptions\x18\x01 \x03(\v2+.kagent.api.v1alpha1.ADKOllama.OptionsEntryR\aoptions\x1a:\n" +
 	"\fOptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"[\n" +
-	"\tADKGemini\x128\n" +
-	"\x11max_output_tokens\x18\x01 \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
-	"\x12_max_output_tokens\"\xae\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"a\n" +
+	"\tADKGemini\x12>\n" +
+	"\x11max_output_tokens\x18\x01 \x01(\x03B\r\xbaH\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
+	"\x12_max_output_tokens\"\xc7\x03\n" +
 	"\n" +
 	"ADKBedrock\x12\x16\n" +
 	"\x06region\x18\x01 \x01(\tR\x06region\x12^\n" +
@@ -3067,11 +3070,11 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\x0eprompt_caching\x18\x03 \x01(\bR\rpromptCaching\x12,\n" +
 	"\tcache_ttl\x18\x04 \x01(\tB\x0f\xbaH\fr\n" +
 	"R\x00R\x025mR\x021hR\bcacheTtl\x12F\n" +
-	"\tguardrail\x18\x05 \x01(\v2(.kagent.api.v1alpha1.ADKBedrockGuardrailR\tguardrail\x12/\n" +
-	"\fread_timeout\x18\x06 \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x00R\vreadTimeout\x88\x01\x01\x125\n" +
-	"\x0fconnect_timeout\x18\a \x01(\x03B\a\xbaH\x04\"\x02 \x00H\x01R\x0econnectTimeout\x88\x01\x01B\x0f\n" +
-	"\r_read_timeoutB\x12\n" +
-	"\x10_connect_timeout\"e\n" +
+	"\tguardrail\x18\x05 \x01(\v2(.kagent.api.v1alpha1.ADKBedrockGuardrailR\tguardrail\x12N\n" +
+	"\fread_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\vreadTimeout\x12T\n" +
+	"\x0fconnect_timeout\x18\a \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0econnectTimeout\"e\n" +
 	"\x13ADKBedrockGuardrail\x12\x1e\n" +
 	"\n" +
 	"identifier\x18\x01 \x01(\tR\n" +
@@ -3091,40 +3094,38 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\vapi_version\x18\x03 \x01(\tR\n" +
 	"apiVersion\x129\n" +
 	"\n" +
-	"api_format\x18\x04 \x01(\tB\x1a\xbaH\x17r\x15R\x00R\x06openaiR\tanthropicR\tapiFormat\"\xe8\x04\n" +
+	"api_format\x18\x04 \x01(\tB\x1a\xbaH\x17r\x15R\x00R\x06openaiR\tanthropicR\tapiFormat\"\x97\x05\n" +
 	"\x17ADKHTTPConnectionParams\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12S\n" +
-	"\aheaders\x18\x02 \x03(\v29.kagent.api.v1alpha1.ADKHTTPConnectionParams.HeadersEntryR\aheaders\x12\x1d\n" +
-	"\atimeout\x18\x03 \x01(\x01H\x00R\atimeout\x88\x01\x01\x12-\n" +
-	"\x10sse_read_timeout\x18\x04 \x01(\x01H\x01R\x0esseReadTimeout\x88\x01\x01\x121\n" +
-	"\x12terminate_on_close\x18\x05 \x01(\bH\x02R\x10terminateOnClose\x88\x01\x01\x12<\n" +
-	"\x18tls_insecure_skip_verify\x18\x06 \x01(\bH\x03R\x15tlsInsecureSkipVerify\x88\x01\x01\x12,\n" +
-	"\x10tls_ca_cert_path\x18\a \x01(\tH\x04R\rtlsCaCertPath\x88\x01\x01\x128\n" +
-	"\x16tls_disable_system_cas\x18\b \x01(\bH\x05R\x13tlsDisableSystemCas\x88\x01\x01\x1a:\n" +
+	"\aheaders\x18\x02 \x03(\v29.kagent.api.v1alpha1.ADKHTTPConnectionParams.HeadersEntryR\aheaders\x12E\n" +
+	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeout\x12U\n" +
+	"\x10sse_read_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0esseReadTimeout\x121\n" +
+	"\x12terminate_on_close\x18\x05 \x01(\bH\x00R\x10terminateOnClose\x88\x01\x01\x12<\n" +
+	"\x18tls_insecure_skip_verify\x18\x06 \x01(\bH\x01R\x15tlsInsecureSkipVerify\x88\x01\x01\x12,\n" +
+	"\x10tls_ca_cert_path\x18\a \x01(\tH\x02R\rtlsCaCertPath\x88\x01\x01\x128\n" +
+	"\x16tls_disable_system_cas\x18\b \x01(\bH\x03R\x13tlsDisableSystemCas\x88\x01\x01\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\n" +
-	"\n" +
-	"\b_timeoutB\x13\n" +
-	"\x11_sse_read_timeoutB\x15\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x15\n" +
 	"\x13_terminate_on_closeB\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\x9c\x04\n" +
+	"\x17_tls_disable_system_cas\"\xcb\x04\n" +
 	"\x16ADKSSEConnectionParams\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12R\n" +
-	"\aheaders\x18\x02 \x03(\v28.kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntryR\aheaders\x12\x1d\n" +
-	"\atimeout\x18\x03 \x01(\x01H\x00R\atimeout\x88\x01\x01\x12-\n" +
-	"\x10sse_read_timeout\x18\x04 \x01(\x01H\x01R\x0esseReadTimeout\x88\x01\x01\x12<\n" +
-	"\x18tls_insecure_skip_verify\x18\x05 \x01(\bH\x02R\x15tlsInsecureSkipVerify\x88\x01\x01\x12,\n" +
-	"\x10tls_ca_cert_path\x18\x06 \x01(\tH\x03R\rtlsCaCertPath\x88\x01\x01\x128\n" +
-	"\x16tls_disable_system_cas\x18\a \x01(\bH\x04R\x13tlsDisableSystemCas\x88\x01\x01\x1a:\n" +
+	"\aheaders\x18\x02 \x03(\v28.kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntryR\aheaders\x12E\n" +
+	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeout\x12U\n" +
+	"\x10sse_read_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0esseReadTimeout\x12<\n" +
+	"\x18tls_insecure_skip_verify\x18\x05 \x01(\bH\x00R\x15tlsInsecureSkipVerify\x88\x01\x01\x12,\n" +
+	"\x10tls_ca_cert_path\x18\x06 \x01(\tH\x01R\rtlsCaCertPath\x88\x01\x01\x128\n" +
+	"\x16tls_disable_system_cas\x18\a \x01(\bH\x02R\x13tlsDisableSystemCas\x88\x01\x01\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\n" +
-	"\n" +
-	"\b_timeoutB\x13\n" +
-	"\x11_sse_read_timeoutB\x1b\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
 	"\x17_tls_disable_system_cas\"\xd0\x01\n" +
@@ -3145,19 +3146,18 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\x03dir\x18\x04 \x01(\tR\x03dir\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc2\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xde\x02\n" +
 	"\x14ADKRemoteAgentConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12P\n" +
 	"\aheaders\x18\x03 \x03(\v26.kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntryR\aheaders\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12)\n" +
-	"\x10isolate_sessions\x18\x05 \x01(\bR\x0fisolateSessions\x12\x1d\n" +
-	"\atimeout\x18\x06 \x01(\x01H\x00R\atimeout\x88\x01\x01\x1a:\n" +
+	"\x10isolate_sessions\x18\x05 \x01(\bR\x0fisolateSessions\x12E\n" +
+	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeout\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\n" +
-	"\n" +
-	"\b_timeout\"\xe1\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe1\x03\n" +
 	"\x12ADKEmbeddingConfig\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x19\n" +
@@ -3175,23 +3175,27 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"apiVersionB\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"s\n" +
-	"\x0fADKMemoryConfig\x12\x19\n" +
-	"\bttl_days\x18\x01 \x01(\x03R\attlDays\x12E\n" +
+	"\x17_tls_disable_system_cas\"\x80\x01\n" +
+	"\x0fADKMemoryConfig\x12&\n" +
+	"\bttl_days\x18\x01 \x01(\x03B\v\xbaH\b\"\x06\x18\xff\xc1\x06(\x00R\attlDays\x12E\n" +
 	"\tembedding\x18\x02 \x01(\v2'.kagent.api.v1alpha1.ADKEmbeddingConfigR\tembedding\";\n" +
 	"\x10ADKNetworkConfig\x12'\n" +
 	"\x0fallowed_domains\x18\x01 \x03(\tR\x0eallowedDomains\"]\n" +
 	"\x10ADKContextConfig\x12I\n" +
 	"\n" +
 	"compaction\x18\x01 \x01(\v2).kagent.api.v1alpha1.ADKCompressionConfigR\n" +
-	"compaction\"\xa8\x03\n" +
-	"\x14ADKCompressionConfig\x124\n" +
-	"\x13compaction_interval\x18\x01 \x01(\x03H\x00R\x12compactionInterval\x88\x01\x01\x12&\n" +
-	"\foverlap_size\x18\x02 \x01(\x03H\x01R\voverlapSize\x88\x01\x01\x12N\n" +
+	"compaction\"\xe4\x03\n" +
+	"\x14ADKCompressionConfig\x12C\n" +
+	"\x13compaction_interval\x18\x01 \x01(\x03B\r\xbaH\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x12compactionInterval\x88\x01\x01\x125\n" +
+	"\foverlap_size\x18\x02 \x01(\x03B\r\xbaH\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x00H\x01R\voverlapSize\x88\x01\x01\x12N\n" +
 	"\x10summarizer_model\x18\x03 \x01(\v2#.kagent.api.v1alpha1.ADKModelConfigR\x0fsummarizerModel\x12'\n" +
-	"\x0fprompt_template\x18\x04 \x01(\tR\x0epromptTemplate\x12,\n" +
-	"\x0ftoken_threshold\x18\x05 \x01(\x03H\x02R\x0etokenThreshold\x88\x01\x01\x125\n" +
-	"\x14event_retention_size\x18\x06 \x01(\x03H\x03R\x12eventRetentionSize\x88\x01\x01B\x16\n" +
+	"\x0fprompt_template\x18\x04 \x01(\tR\x0epromptTemplate\x12;\n" +
+	"\x0ftoken_threshold\x18\x05 \x01(\x03B\r\xbaH\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x02R\x0etokenThreshold\x88\x01\x01\x12D\n" +
+	"\x14event_retention_size\x18\x06 \x01(\x03B\r\xbaH\n" +
+	"\"\b\x18\xff\xff\xff\xff\a(\x00H\x03R\x12eventRetentionSize\x88\x01\x01B\x16\n" +
 	"\x14_compaction_intervalB\x0f\n" +
 	"\r_overlap_sizeB\x12\n" +
 	"\x10_token_thresholdB\x17\n" +
@@ -3224,7 +3228,7 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x1d\n" +
 	"\n" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x16\n" +
-	"\x06region\x18\x05 \x01(\tR\x06region\"\x87\b\n" +
+	"\x06region\x18\x05 \x01(\tR\x06region\"\x90\a\n" +
 	"\x10ADKRuntimeConfig\x12J\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\x0fcontrolPlaneUrl\x12?\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\n" +
@@ -3232,16 +3236,16 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1c\n" +
 	"\tnamespace\x18\x04 \x01(\tR\tnamespace\x12>\n" +
 	"\tlog_level\x18\x05 \x01(\tB!\xbaH\x1er\x1cR\x00R\x05debugR\x04infoR\x04warnR\x05errorR\blogLevel\x12\x12\n" +
-	"\x04host\x18\x06 \x01(\tR\x04host\x12\xa3\x01\n" +
-	"\x04port\x18\a \x01(\tB\x8e\x01\xbaH\x8a\x01\xba\x01\x86\x01\n" +
-	"\fruntime.port\x12 port must be between 1 and 65535\x1aTthis == '' || (this.matches('^[0-9]{1,5}$') && int(this) >= 1 && int(this) <= 65535)R\x04port\x12:\n" +
-	"\x12max_content_length\x18\b \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x00R\x10maxContentLength\x88\x01\x01\x12X\n" +
+	"\x04host\x18\x06 \x01(\tR\x04host\x12$\n" +
+	"\x04port\x18\a \x01(\rB\v\xbaH\b*\x06\x18\xff\xff\x03 \x00H\x00R\x04port\x88\x01\x01\x12:\n" +
+	"\x12max_content_length\x18\b \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x01R\x10maxContentLength\x88\x01\x01\x12X\n" +
 	"\x11token_propagation\x18\t \x01(\v2+.kagent.api.v1alpha1.TokenPropagationConfigR\x10tokenPropagation\x12$\n" +
 	"\x0ebash_venv_path\x18\n" +
 	" \x01(\tR\fbashVenvPath\x12*\n" +
 	"\x11file_search_tools\x18\v \x01(\bR\x0ffileSearchTools\x12\xba\x02\n" +
 	"\ttelemetry\x18\f \x01(\v2$.kagent.api.v1alpha1.TelemetryConfigB\xf5\x01\xbaH\xf1\x01\xba\x01\xed\x01\n" +
-	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetryB\x15\n" +
+	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetryB\a\n" +
+	"\x05_portB\x15\n" +
 	"\x13_max_content_lengthBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
 
 var (
@@ -3300,9 +3304,10 @@ var file_kagent_api_v1alpha1_adk_proto_goTypes = []any{
 	nil,                                // 39: kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntry
 	nil,                                // 40: kagent.api.v1alpha1.ADKStdioMCPServerConfig.EnvEntry
 	nil,                                // 41: kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntry
-	(*structpb.Struct)(nil),            // 42: google.protobuf.Struct
-	(*TokenPropagationConfig)(nil),     // 43: kagent.api.v1alpha1.TokenPropagationConfig
-	(*TelemetryConfig)(nil),            // 44: kagent.api.v1alpha1.TelemetryConfig
+	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
+	(*structpb.Struct)(nil),            // 43: google.protobuf.Struct
+	(*TokenPropagationConfig)(nil),     // 44: kagent.api.v1alpha1.TokenPropagationConfig
+	(*TelemetryConfig)(nil),            // 45: kagent.api.v1alpha1.TelemetryConfig
 }
 var file_kagent_api_v1alpha1_adk_proto_depIdxs = []int32{
 	35, // 0: kagent.api.v1alpha1.ADKConfig.runtime:type_name -> kagent.api.v1alpha1.ADKRuntimeConfig
@@ -3330,33 +3335,43 @@ var file_kagent_api_v1alpha1_adk_proto_depIdxs = []int32{
 	15, // 22: kagent.api.v1alpha1.ADKModelConfig.sap_ai_core:type_name -> kagent.api.v1alpha1.ADKSAPAICore
 	16, // 23: kagent.api.v1alpha1.ADKModelConfig.foundry:type_name -> kagent.api.v1alpha1.ADKFoundry
 	8,  // 24: kagent.api.v1alpha1.ADKModelConfig.mistral:type_name -> kagent.api.v1alpha1.ADKMistral
-	4,  // 25: kagent.api.v1alpha1.ADKOpenAI.token_exchange:type_name -> kagent.api.v1alpha1.ADKTokenExchangeConfig
-	5,  // 26: kagent.api.v1alpha1.ADKTokenExchangeConfig.gdch_service_account:type_name -> kagent.api.v1alpha1.ADKGDCHTokenExchangeConfig
-	37, // 27: kagent.api.v1alpha1.ADKOllama.options:type_name -> kagent.api.v1alpha1.ADKOllama.OptionsEntry
-	42, // 28: kagent.api.v1alpha1.ADKBedrock.additional_model_request_fields:type_name -> google.protobuf.Struct
-	14, // 29: kagent.api.v1alpha1.ADKBedrock.guardrail:type_name -> kagent.api.v1alpha1.ADKBedrockGuardrail
-	38, // 30: kagent.api.v1alpha1.ADKHTTPConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams.HeadersEntry
-	39, // 31: kagent.api.v1alpha1.ADKSSEConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntry
-	17, // 32: kagent.api.v1alpha1.ADKHTTPMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams
-	18, // 33: kagent.api.v1alpha1.ADKSSEMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams
-	40, // 34: kagent.api.v1alpha1.ADKStdioMCPServerConfig.env:type_name -> kagent.api.v1alpha1.ADKStdioMCPServerConfig.EnvEntry
-	41, // 35: kagent.api.v1alpha1.ADKRemoteAgentConfig.headers:type_name -> kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntry
-	23, // 36: kagent.api.v1alpha1.ADKMemoryConfig.embedding:type_name -> kagent.api.v1alpha1.ADKEmbeddingConfig
-	27, // 37: kagent.api.v1alpha1.ADKContextConfig.compaction:type_name -> kagent.api.v1alpha1.ADKCompressionConfig
-	2,  // 38: kagent.api.v1alpha1.ADKCompressionConfig.summarizer_model:type_name -> kagent.api.v1alpha1.ADKModelConfig
-	30, // 39: kagent.api.v1alpha1.ADKAgentPlugins.skills:type_name -> kagent.api.v1alpha1.ADKSkill
-	31, // 40: kagent.api.v1alpha1.ADKAgentPlugins.plugins:type_name -> kagent.api.v1alpha1.ADKPluginBundle
-	32, // 41: kagent.api.v1alpha1.ADKSkill.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
-	32, // 42: kagent.api.v1alpha1.ADKPluginBundle.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
-	33, // 43: kagent.api.v1alpha1.ADKPluginSource.git:type_name -> kagent.api.v1alpha1.ADKPluginGitSource
-	34, // 44: kagent.api.v1alpha1.ADKPluginSource.s3:type_name -> kagent.api.v1alpha1.ADKPluginS3Source
-	43, // 45: kagent.api.v1alpha1.ADKRuntimeConfig.token_propagation:type_name -> kagent.api.v1alpha1.TokenPropagationConfig
-	44, // 46: kagent.api.v1alpha1.ADKRuntimeConfig.telemetry:type_name -> kagent.api.v1alpha1.TelemetryConfig
-	47, // [47:47] is the sub-list for method output_type
-	47, // [47:47] is the sub-list for method input_type
-	47, // [47:47] is the sub-list for extension type_name
-	47, // [47:47] is the sub-list for extension extendee
-	0,  // [0:47] is the sub-list for field type_name
+	42, // 25: kagent.api.v1alpha1.ADKOpenAI.timeout:type_name -> google.protobuf.Duration
+	4,  // 26: kagent.api.v1alpha1.ADKOpenAI.token_exchange:type_name -> kagent.api.v1alpha1.ADKTokenExchangeConfig
+	5,  // 27: kagent.api.v1alpha1.ADKTokenExchangeConfig.gdch_service_account:type_name -> kagent.api.v1alpha1.ADKGDCHTokenExchangeConfig
+	42, // 28: kagent.api.v1alpha1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
+	42, // 29: kagent.api.v1alpha1.ADKMistral.timeout:type_name -> google.protobuf.Duration
+	37, // 30: kagent.api.v1alpha1.ADKOllama.options:type_name -> kagent.api.v1alpha1.ADKOllama.OptionsEntry
+	43, // 31: kagent.api.v1alpha1.ADKBedrock.additional_model_request_fields:type_name -> google.protobuf.Struct
+	14, // 32: kagent.api.v1alpha1.ADKBedrock.guardrail:type_name -> kagent.api.v1alpha1.ADKBedrockGuardrail
+	42, // 33: kagent.api.v1alpha1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
+	42, // 34: kagent.api.v1alpha1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
+	38, // 35: kagent.api.v1alpha1.ADKHTTPConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams.HeadersEntry
+	42, // 36: kagent.api.v1alpha1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
+	42, // 37: kagent.api.v1alpha1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	39, // 38: kagent.api.v1alpha1.ADKSSEConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntry
+	42, // 39: kagent.api.v1alpha1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
+	42, // 40: kagent.api.v1alpha1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	17, // 41: kagent.api.v1alpha1.ADKHTTPMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams
+	18, // 42: kagent.api.v1alpha1.ADKSSEMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams
+	40, // 43: kagent.api.v1alpha1.ADKStdioMCPServerConfig.env:type_name -> kagent.api.v1alpha1.ADKStdioMCPServerConfig.EnvEntry
+	41, // 44: kagent.api.v1alpha1.ADKRemoteAgentConfig.headers:type_name -> kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntry
+	42, // 45: kagent.api.v1alpha1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
+	23, // 46: kagent.api.v1alpha1.ADKMemoryConfig.embedding:type_name -> kagent.api.v1alpha1.ADKEmbeddingConfig
+	27, // 47: kagent.api.v1alpha1.ADKContextConfig.compaction:type_name -> kagent.api.v1alpha1.ADKCompressionConfig
+	2,  // 48: kagent.api.v1alpha1.ADKCompressionConfig.summarizer_model:type_name -> kagent.api.v1alpha1.ADKModelConfig
+	30, // 49: kagent.api.v1alpha1.ADKAgentPlugins.skills:type_name -> kagent.api.v1alpha1.ADKSkill
+	31, // 50: kagent.api.v1alpha1.ADKAgentPlugins.plugins:type_name -> kagent.api.v1alpha1.ADKPluginBundle
+	32, // 51: kagent.api.v1alpha1.ADKSkill.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
+	32, // 52: kagent.api.v1alpha1.ADKPluginBundle.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
+	33, // 53: kagent.api.v1alpha1.ADKPluginSource.git:type_name -> kagent.api.v1alpha1.ADKPluginGitSource
+	34, // 54: kagent.api.v1alpha1.ADKPluginSource.s3:type_name -> kagent.api.v1alpha1.ADKPluginS3Source
+	44, // 55: kagent.api.v1alpha1.ADKRuntimeConfig.token_propagation:type_name -> kagent.api.v1alpha1.TokenPropagationConfig
+	45, // 56: kagent.api.v1alpha1.ADKRuntimeConfig.telemetry:type_name -> kagent.api.v1alpha1.TelemetryConfig
+	57, // [57:57] is the sub-list for method output_type
+	57, // [57:57] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_adk_proto_init() }
@@ -3388,10 +3403,8 @@ func file_kagent_api_v1alpha1_adk_proto_init() {
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[8].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[9].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[12].OneofWrappers = []any{}
-	file_kagent_api_v1alpha1_adk_proto_msgTypes[13].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[17].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[18].OneofWrappers = []any{}
-	file_kagent_api_v1alpha1_adk_proto_msgTypes[22].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[23].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[27].OneofWrappers = []any{}
 	file_kagent_api_v1alpha1_adk_proto_msgTypes[32].OneofWrappers = []any{

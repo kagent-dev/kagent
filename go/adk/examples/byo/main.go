@@ -141,7 +141,7 @@ func main() {
 				},
 			},
 		},
-		Port:   cmp.Or(runtime.Port, "8082"),
+		Port:   fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),
 		Logger: logger,
 		Agent:  parallelAgent,
 	}, executor)

@@ -1,4 +1,7 @@
+import datetime
+
 from buf.validate import validate_pb2 as _validate_pb2
+from google.protobuf import duration_pb2 as _duration_pb2
 from google.protobuf import struct_pb2 as _struct_pb2
 from kagent.api.v1alpha1 import config_pb2 as _config_pb2
 from google.protobuf.internal import containers as _containers
@@ -126,11 +129,11 @@ class ADKOpenAI(_message.Message):
     reasoning_effort: str
     seed: int
     temperature: float
-    timeout: int
+    timeout: _duration_pb2.Duration
     top_p: float
     api_format: str
     token_exchange: ADKTokenExchangeConfig
-    def __init__(self, base_url: _Optional[str] = ..., frequency_penalty: _Optional[float] = ..., max_tokens: _Optional[int] = ..., max_completion_tokens: _Optional[int] = ..., n: _Optional[int] = ..., presence_penalty: _Optional[float] = ..., reasoning_effort: _Optional[str] = ..., seed: _Optional[int] = ..., temperature: _Optional[float] = ..., timeout: _Optional[int] = ..., top_p: _Optional[float] = ..., api_format: _Optional[str] = ..., token_exchange: _Optional[_Union[ADKTokenExchangeConfig, _Mapping]] = ...) -> None: ...
+    def __init__(self, base_url: _Optional[str] = ..., frequency_penalty: _Optional[float] = ..., max_tokens: _Optional[int] = ..., max_completion_tokens: _Optional[int] = ..., n: _Optional[int] = ..., presence_penalty: _Optional[float] = ..., reasoning_effort: _Optional[str] = ..., seed: _Optional[int] = ..., temperature: _Optional[float] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., top_p: _Optional[float] = ..., api_format: _Optional[str] = ..., token_exchange: _Optional[_Union[ADKTokenExchangeConfig, _Mapping]] = ...) -> None: ...
 
 class ADKTokenExchangeConfig(_message.Message):
     __slots__ = ("gdch_service_account",)
@@ -179,10 +182,10 @@ class ADKAnthropic(_message.Message):
     temperature: float
     top_p: float
     top_k: int
-    timeout: int
+    timeout: _duration_pb2.Duration
     prompt_caching: bool
     cache_ttl: str
-    def __init__(self, base_url: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., top_k: _Optional[int] = ..., timeout: _Optional[int] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ...) -> None: ...
+    def __init__(self, base_url: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., top_k: _Optional[int] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ...) -> None: ...
 
 class ADKMistral(_message.Message):
     __slots__ = ("base_url", "max_tokens", "temperature", "top_p", "timeout")
@@ -195,8 +198,8 @@ class ADKMistral(_message.Message):
     max_tokens: int
     temperature: float
     top_p: float
-    timeout: int
-    def __init__(self, base_url: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., timeout: _Optional[int] = ...) -> None: ...
+    timeout: _duration_pb2.Duration
+    def __init__(self, base_url: _Optional[str] = ..., max_tokens: _Optional[int] = ..., temperature: _Optional[float] = ..., top_p: _Optional[float] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class ADKGeminiVertexAI(_message.Message):
     __slots__ = ("max_output_tokens",)
@@ -241,9 +244,9 @@ class ADKBedrock(_message.Message):
     prompt_caching: bool
     cache_ttl: str
     guardrail: ADKBedrockGuardrail
-    read_timeout: int
-    connect_timeout: int
-    def __init__(self, region: _Optional[str] = ..., additional_model_request_fields: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ..., guardrail: _Optional[_Union[ADKBedrockGuardrail, _Mapping]] = ..., read_timeout: _Optional[int] = ..., connect_timeout: _Optional[int] = ...) -> None: ...
+    read_timeout: _duration_pb2.Duration
+    connect_timeout: _duration_pb2.Duration
+    def __init__(self, region: _Optional[str] = ..., additional_model_request_fields: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ..., guardrail: _Optional[_Union[ADKBedrockGuardrail, _Mapping]] = ..., read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., connect_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class ADKBedrockGuardrail(_message.Message):
     __slots__ = ("identifier", "version", "trace")
@@ -296,13 +299,13 @@ class ADKHTTPConnectionParams(_message.Message):
     TLS_DISABLE_SYSTEM_CAS_FIELD_NUMBER: _ClassVar[int]
     url: str
     headers: _containers.ScalarMap[str, str]
-    timeout: float
-    sse_read_timeout: float
+    timeout: _duration_pb2.Duration
+    sse_read_timeout: _duration_pb2.Duration
     terminate_on_close: bool
     tls_insecure_skip_verify: bool
     tls_ca_cert_path: str
     tls_disable_system_cas: bool
-    def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[float] = ..., sse_read_timeout: _Optional[float] = ..., terminate_on_close: _Optional[bool] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
+    def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sse_read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., terminate_on_close: _Optional[bool] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
 
 class ADKSSEConnectionParams(_message.Message):
     __slots__ = ("url", "headers", "timeout", "sse_read_timeout", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas")
@@ -322,12 +325,12 @@ class ADKSSEConnectionParams(_message.Message):
     TLS_DISABLE_SYSTEM_CAS_FIELD_NUMBER: _ClassVar[int]
     url: str
     headers: _containers.ScalarMap[str, str]
-    timeout: float
-    sse_read_timeout: float
+    timeout: _duration_pb2.Duration
+    sse_read_timeout: _duration_pb2.Duration
     tls_insecure_skip_verify: bool
     tls_ca_cert_path: str
     tls_disable_system_cas: bool
-    def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[float] = ..., sse_read_timeout: _Optional[float] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
+    def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sse_read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
 
 class ADKHTTPMCPServerConfig(_message.Message):
     __slots__ = ("params", "tools", "allowed_headers", "require_approval")
@@ -392,8 +395,8 @@ class ADKRemoteAgentConfig(_message.Message):
     headers: _containers.ScalarMap[str, str]
     description: str
     isolate_sessions: bool
-    timeout: float
-    def __init__(self, name: _Optional[str] = ..., url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., description: _Optional[str] = ..., isolate_sessions: _Optional[bool] = ..., timeout: _Optional[float] = ...) -> None: ...
+    timeout: _duration_pb2.Duration
+    def __init__(self, name: _Optional[str] = ..., url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., description: _Optional[str] = ..., isolate_sessions: _Optional[bool] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class ADKEmbeddingConfig(_message.Message):
     __slots__ = ("provider", "model", "base_url", "api_key_passthrough", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "endpoint", "deployment", "api_version")
@@ -541,10 +544,10 @@ class ADKRuntimeConfig(_message.Message):
     namespace: str
     log_level: str
     host: str
-    port: str
+    port: int
     max_content_length: int
     token_propagation: _config_pb2.TokenPropagationConfig
     bash_venv_path: str
     file_search_tools: bool
     telemetry: _config_pb2.TelemetryConfig
-    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[str] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ...) -> None: ...
+    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ...) -> None: ...

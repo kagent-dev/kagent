@@ -763,7 +763,7 @@ func TestBuildInferenceConfig(t *testing.T) {
 		},
 		{
 			name:           "thinking with maxTokens keeps only maxTokens",
-			cfg:            BedrockConfig{Temperature: f64(0.7), TopP: f64(0.9), MaxTokens: func() *int { v := 1000; return &v }()},
+			cfg:            BedrockConfig{Temperature: f64(0.7), TopP: f64(0.9), MaxTokens: new(int32(1000))},
 			thinkingActive: true,
 			wantNil:        false,
 			wantMaxTokens:  i32(1000),

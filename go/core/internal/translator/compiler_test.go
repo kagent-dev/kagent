@@ -74,7 +74,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			require.Equal(t, tt.args, result.Args)
 			var process adk.Config
 			require.NoError(t, adk.Unmarshal(result.ConfigJSON, &process))
-			require.Equal(t, "80", process.Runtime.Port)
+			require.Equal(t, uint32(80), process.Runtime.GetPort())
 			for _, variable := range result.Environment {
 				require.NotEqual(t, "KAGENT_A2A_GRPC_ADDRESS", variable.Name)
 			}

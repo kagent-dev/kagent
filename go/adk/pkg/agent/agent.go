@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
 	"buf.build/go/protovalidate"
 	"google.golang.org/adk/v2/agent"
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 	"google.golang.org/genai"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
@@ -95,7 +98,11 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			log.InfoContext(ctx, "skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
+		var httpClient *http.Client
+		if remoteAgent.Timeout != nil {
+			httpClient = &http.Client{Timeout: remoteAgent.Timeout.AsDuration()}
+		}
+		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, httpClient, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
@@ -261,16 +268,16 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 	switch p := m.GetProvider().(type) {
 	case *adk.Model_Openai:
 		cfg := &models.OpenAIConfig{
-			TransportConfig:     transportConfigFromBase(m, modelInt(p.Openai.Timeout)),
+			TransportConfig:     transportConfigFromBase(m, modelDuration(p.Openai.Timeout)),
 			Model:               m.Model,
 			BaseUrl:             p.Openai.BaseUrl,
 			FrequencyPenalty:    p.Openai.FrequencyPenalty,
-			MaxTokens:           modelInt(p.Openai.MaxTokens),
-			MaxCompletionTokens: modelInt(p.Openai.MaxCompletionTokens),
-			N:                   modelInt(p.Openai.N),
+			MaxTokens:           p.Openai.MaxTokens,
+			MaxCompletionTokens: p.Openai.MaxCompletionTokens,
+			N:                   p.Openai.N,
 			PresencePenalty:     p.Openai.PresencePenalty,
 			ReasoningEffort:     p.Openai.ReasoningEffort,
-			Seed:                modelInt(p.Openai.Seed),
+			Seed:                p.Openai.Seed,
 			Temperature:         p.Openai.Temperature,
 			TopP:                p.Openai.TopP,
 			APIFormat:           p.Openai.ApiFormat,
@@ -334,13 +341,13 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
-			TransportConfig: transportConfigFromBase(m, modelInt(p.Anthropic.Timeout)),
+			TransportConfig: transportConfigFromBase(m, modelDuration(p.Anthropic.Timeout)),
 			Model:           modelName,
 			BaseUrl:         p.Anthropic.BaseUrl,
-			MaxTokens:       modelInt(p.Anthropic.MaxTokens),
+			MaxTokens:       p.Anthropic.MaxTokens,
 			Temperature:     p.Anthropic.Temperature,
 			TopP:            p.Anthropic.TopP,
-			TopK:            modelInt(p.Anthropic.TopK),
+			TopK:            p.Anthropic.TopK,
 			PromptCaching:   p.Anthropic.PromptCaching,
 			CacheTTL:        p.Anthropic.CacheTtl,
 		}
@@ -348,13 +355,12 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 
 	case *adk.Model_Mistral:
 		cfg := &models.MistralConfig{
-			TransportConfig: transportConfigFromBase(m, modelInt(p.Mistral.Timeout)),
+			TransportConfig: transportConfigFromBase(m, modelDuration(p.Mistral.Timeout)),
 			Model:           m.Model,
 			BaseUrl:         p.Mistral.BaseUrl,
-			MaxTokens:       modelInt(p.Mistral.MaxTokens),
+			MaxTokens:       p.Mistral.MaxTokens,
 			Temperature:     p.Mistral.Temperature,
 			TopP:            p.Mistral.TopP,
-			Timeout:         modelInt(p.Mistral.Timeout),
 		}
 		return models.NewMistralModel(ctx, cfg)
 
@@ -395,8 +401,8 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		// ReadTimeout maps to the overall HTTP client timeout (whole Converse
 		// request) and ConnectTimeout to the dialer, mirroring the Python ADK's
 		// botocore read/connect timeouts so the config is honored on both runtimes.
-		tc := transportConfigFromBase(m, modelInt(p.Bedrock.ReadTimeout))
-		tc.ConnectTimeout = modelInt(p.Bedrock.ConnectTimeout)
+		tc := transportConfigFromBase(m, modelDuration(p.Bedrock.ReadTimeout))
+		tc.ConnectTimeout = modelDuration(p.Bedrock.ConnectTimeout)
 		cfg := &models.BedrockConfig{
 			TransportConfig:              tc,
 			Model:                        modelName,
@@ -470,7 +476,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 }
 
 // transportConfigFromBase builds a TransportConfig from the shared model fields.
-func transportConfigFromBase(b *adk.Model, timeout *int) models.TransportConfig {
+func transportConfigFromBase(b *adk.Model, timeout *time.Duration) models.TransportConfig {
 	return models.TransportConfig{
 		Headers:               extractHeaders(b.Headers),
 		TLSInsecureSkipVerify: b.TlsInsecureSkipVerify,
@@ -550,9 +556,9 @@ func mapKeys(m map[string]any) []string {
 	return keys
 }
 
-func modelInt(value *int64) *int {
+func modelDuration(value *durationpb.Duration) *time.Duration {
 	if value == nil {
 		return nil
 	}
-	return new(int(*value))
+	return new(value.AsDuration())
 }

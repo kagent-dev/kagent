@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
@@ -80,8 +81,8 @@ type mcpServerParams struct {
 	Args                  []string
 	Env                   map[string]string
 	Dir                   string
-	Timeout               *float64
-	SseReadTimeout        *float64
+	Timeout               *durationpb.Duration
+	SseReadTimeout        *durationpb.Duration
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
@@ -215,18 +216,15 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	operationTimeout := defaultTimeout
-	if params.Timeout != nil && *params.Timeout > 0 {
-		operationTimeout = max(time.Duration(*params.Timeout)*time.Second, 1*time.Second)
+	if params.Timeout != nil {
+		operationTimeout = params.Timeout.AsDuration()
 	}
 
 	httpTimeout := operationTimeout
-	if params.ServerType == "sse" && params.SseReadTimeout != nil && *params.SseReadTimeout > 0 {
-		configuredSseTimeout := time.Duration(*params.SseReadTimeout) * time.Second
+	if params.ServerType == "sse" && params.SseReadTimeout != nil {
+		configuredSseTimeout := params.SseReadTimeout.AsDuration()
 		if configuredSseTimeout > operationTimeout {
 			httpTimeout = configuredSseTimeout
-		}
-		if httpTimeout < 1*time.Second {
-			httpTimeout = 1 * time.Second
 		}
 	}
 

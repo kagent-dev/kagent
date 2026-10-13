@@ -1,12 +1,14 @@
 """The controller and Python ADK share the generated protobuf contract."""
 
+import json
 from pathlib import Path
 
 import pytest
+from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 from google.protobuf.json_format import MessageToDict, MessageToJson, ParseError
 from protovalidate import ValidationError
 
-from kagent.adk.types import parse_config
+from kagent.adk.types import _create_llm_from_model_config, _mcp_params, parse_config
 
 
 def test_shared_go_agent_contract():
@@ -49,3 +51,48 @@ def test_shared_go_agent_contract():
 def test_invalid_contract(value):
     with pytest.raises((ValidationError, ParseError)):
         parse_config(value)
+
+
+_NUMERIC_CASES = json.loads(
+    (Path(__file__).resolve().parents[5] / "go/api/adk/testdata/numeric_cases.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", _NUMERIC_CASES, ids=lambda case: case["name"])
+def test_shared_numeric_validation(case):
+    if case["valid"]:
+        parse_config(case["config"])
+    else:
+        with pytest.raises((ValidationError, ParseError)):
+            parse_config(case["config"])
+
+
+def test_fractional_mcp_timeout():
+    config = parse_config(
+        {
+            "agent": {
+                "http_tools": [
+                    {"params": {"url": "https://mcp.example.com", "timeout": "0.250s", "sse_read_timeout": "0.750s"}}
+                ]
+            }
+        }
+    )
+    params = _mcp_params(config.agent.http_tools[0].params, StreamableHTTPConnectionParams)
+    assert params.timeout == 0.25
+    assert params.sse_read_timeout == 0.75
+
+
+@pytest.mark.parametrize(
+    "provider,field",
+    [
+        ("openai", "timeout"),
+        ("mistral", "timeout"),
+        ("anthropic", "timeout"),
+        ("bedrock", "read_timeout"),
+        ("bedrock", "connect_timeout"),
+    ],
+)
+def test_fractional_model_timeout(provider, field):
+    config = parse_config({"agent": {"model": {"model": "test-model", provider: {field: "0.250s"}}}})
+    model = _create_llm_from_model_config(config.agent.model)
+    assert getattr(model, field) == 0.25

@@ -147,7 +147,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "name": "researcher",
     "namespace": "kagent",
     "log_level": "info",
-    "port": "80",
+    "port": 80,
     "max_content_length": "0",
     "file_search_tools": false,
     "token_propagation": {"enabled": false}
@@ -164,7 +164,13 @@ Models select exactly one provider, for example:
 Provider-specific fields live inside the selected provider; shared transport
 settings remain beside `model`. ProtoJSON accepts snake_case and camelCase
 field names and emits 64-bit integers as strings. Optional fields preserve an
-explicit false or zero. Structured output carries canonical schema bytes as
+explicit false or zero. Listener ports use `uint32` (1–65535), so they emit JSON
+numbers; absent ports retain the runtime default. Body limits remain `int64` to
+match the HTTP API, with zero meaning unlimited. Model and MCP timeouts use
+protobuf durations (for example, `"0.250s"`), preserving fractional seconds.
+Durations must be positive and fit Go `time.Duration`; count fields are bounded
+where downstream SDKs require narrower integers. Kagent-owned model counts and
+seeds retain `int64` through the Go SDK boundary. Structured output carries canonical schema bytes as
 base64 so its SHA-256 still identifies the exact bytes.
 
 This is a complete cutover from the previous `model.type` JSON discriminator;

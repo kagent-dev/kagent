@@ -7,13 +7,16 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 )
@@ -609,5 +612,26 @@ func TestStaticHeaders_OverrideDynamic(t *testing.T) {
 
 	if capturedAuth != "Bearer static" {
 		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
+	}
+}
+
+func TestCreateTransportPreservesFractionalTimeout(t *testing.T) {
+	for _, serverType := range []string{"http", "sse"} {
+		t.Run(serverType, func(t *testing.T) {
+			transport, err := createTransport(t.Context(), mcpServerParams{
+				ServerType:     serverType,
+				Timeout:        durationpb.New(250 * time.Millisecond),
+				SseReadTimeout: durationpb.New(750 * time.Millisecond),
+			})
+			require.NoError(t, err)
+			switch tr := transport.(type) {
+			case *mcpsdk.StreamableClientTransport:
+				require.Equal(t, 250*time.Millisecond, tr.HTTPClient.Timeout)
+			case *mcpsdk.SSEClientTransport:
+				require.Equal(t, 750*time.Millisecond, tr.HTTPClient.Timeout)
+			default:
+				t.Fatalf("unexpected transport %T", transport)
+			}
+		})
 	}
 }

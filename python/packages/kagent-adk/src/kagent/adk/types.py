@@ -261,9 +261,17 @@ def parse_config(value: dict | str) -> Config:
     return config
 
 
+def _timeout_seconds(config, name):
+    duration = optional_field(config, name)
+    return duration.seconds + duration.nanos / 1_000_000_000 if duration is not None else None
+
+
 def _mcp_params(config, params_type):
     # Only pass present fields, so the ADK retains its own timeout defaults.
     values = {field.name: value for field, value in config.ListFields() if not field.name.startswith("tls_")}
+    for name in ("timeout", "sse_read_timeout"):
+        if config.HasField(name):
+            values[name] = _timeout_seconds(config, name)
     values["headers"] = dict(config.headers)
     params = params_type(**values)
     if any(
@@ -341,7 +349,9 @@ def create_agent(
         for remote_agent in config.remote_agents:  # Add remote agents as tools
             # Prepare httpx client parameters
             timeout = httpx.Timeout(
-                timeout=remote_agent.timeout if remote_agent.HasField("timeout") else DEFAULT_TIMEOUT
+                timeout=_timeout_seconds(remote_agent, "timeout")
+                if remote_agent.HasField("timeout")
+                else DEFAULT_TIMEOUT
             )
             headers: dict[str, str] | None = dict(remote_agent.headers)
             base_url: str | None = None
@@ -547,7 +557,7 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             reasoning_effort=optional_field(settings, "reasoning_effort"),
             seed=optional_field(settings, "seed"),
             temperature=optional_field(settings, "temperature"),
-            timeout=optional_field(settings, "timeout"),
+            timeout=_timeout_seconds(settings, "timeout"),
             top_p=optional_field(settings, "top_p"),
             api_format=settings.api_format or None,
             token_exchange=token_exchange,
@@ -560,6 +570,7 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             extra_headers=extra_headers,
             prompt_caching=settings.prompt_caching,
             cache_ttl=settings.cache_ttl or None,
+            timeout=_timeout_seconds(settings, "timeout"),
             **_transport_kwargs(model_config),
         )
     if provider == "gemini_vertex_ai":
@@ -619,8 +630,8 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             else None,
             prompt_caching=settings.prompt_caching,
             cache_ttl=settings.cache_ttl or None,
-            read_timeout=optional_field(settings, "read_timeout"),
-            connect_timeout=optional_field(settings, "connect_timeout"),
+            read_timeout=_timeout_seconds(settings, "read_timeout"),
+            connect_timeout=_timeout_seconds(settings, "connect_timeout"),
             **_transport_kwargs(model_config),
         )
     if provider == "sap_ai_core":
@@ -642,7 +653,7 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             max_tokens=optional_field(settings, "max_tokens"),
             temperature=optional_field(settings, "temperature"),
             top_p=optional_field(settings, "top_p"),
-            timeout=optional_field(settings, "timeout"),
+            timeout=_timeout_seconds(settings, "timeout"),
             **_transport_kwargs(model_config),
         )
     raise ValueError(f"Invalid model type: {provider}")

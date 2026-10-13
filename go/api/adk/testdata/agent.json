@@ -6,7 +6,7 @@
     "namespace": "team",
     "log_level": "debug",
     "host": "0.0.0.0",
-    "port": "8080",
+    "port": 8080,
     "max_content_length": "0",
     "token_propagation": {
       "sts_well_known_uri": "https://sts.example.com/.well-known/oauth-authorization-server",
@@ -58,7 +58,7 @@
       {
         "params": {
           "url": "https://mcp.example.com",
-          "timeout": 0.0,
+          "timeout": "0.250s",
           "terminate_on_close": false,
           "tls_ca_cert_path": "/etc/ca.pem",
           "tls_disable_system_cas": false
@@ -76,7 +76,7 @@
       {
         "params": {
           "url": "https://mcp.example.com/sse",
-          "sse_read_timeout": 30.0
+          "sse_read_timeout": "30s"
         }
       }
     ],

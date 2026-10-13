@@ -5,7 +5,7 @@
   "namespace": "team",
   "log_level": "debug",
   "host": "0.0.0.0",
-  "port": "8080",
+  "port": 8080,
   "max_content_length": 0,
   "token_propagation": {
     "enabled": false,

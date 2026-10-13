@@ -8,6 +8,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -54,7 +55,7 @@ func main() {
 				Params: &adk.StreamableHTTPConnectionParams{
 					Url:     "http://127.0.0.1:3001/mcp",
 					Headers: map[string]string{},
-					Timeout: new(30.0),
+					Timeout: durationpb.New(30 * time.Second),
 				},
 				Tools: []string{},
 			},

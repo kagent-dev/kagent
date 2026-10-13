@@ -374,7 +374,7 @@ type bedrockEmbeddingResponse struct {
 }
 
 func embeddingHTTPClient(cfg *adk.EmbeddingConfig) (*http.Client, error) {
-	timeout := int((5 * time.Minute) / time.Second)
+	timeout := 5 * time.Minute
 	return models.BuildHTTPClient(models.TransportConfig{
 		TLSInsecureSkipVerify: cfg.TlsInsecureSkipVerify,
 		TLSCACertPath:         cfg.TlsCaCertPath,

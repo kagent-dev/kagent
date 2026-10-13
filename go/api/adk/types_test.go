@@ -1,8 +1,10 @@
 package adk_test
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -50,6 +52,7 @@ func TestSharedAgentContract(t *testing.T) {
 	require.NoError(t, err)
 	cfg := new(adk.Config)
 	require.NoError(t, adk.Unmarshal(raw, cfg))
+	require.Equal(t, 250*time.Millisecond, cfg.Agent.HttpTools[0].Params.Timeout.AsDuration())
 	require.Equal(t, int64(9007199254740993), cfg.Agent.Model.GetOpenai().GetSeed())
 	require.NotNil(t, cfg.Agent.Model.GetOpenai().Temperature)
 	require.Zero(t, cfg.Agent.Model.GetOpenai().GetTemperature())
@@ -84,4 +87,26 @@ func TestModelToEmbeddingConfig(t *testing.T) {
 	require.False(t, *cfg.TlsInsecureSkipVerify)
 	model.Provider = &adk.Model_Bedrock{Bedrock: &adk.Bedrock{}}
 	require.False(t, adk.ModelToEmbeddingConfig(model).ApiKeyPassthrough)
+}
+
+// Both runtimes load these cases to enforce the same numeric boundaries.
+func TestSharedNumericValidation(t *testing.T) {
+	raw, err := os.ReadFile("testdata/numeric_cases.json")
+	require.NoError(t, err)
+	var cases []struct {
+		Name   string          `json:"name"`
+		Valid  bool            `json:"valid"`
+		Config json.RawMessage `json:"config"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &cases))
+	for _, test := range cases {
+		t.Run(test.Name, func(t *testing.T) {
+			err := adk.Unmarshal(test.Config, new(adk.Config))
+			if test.Valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }
