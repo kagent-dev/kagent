@@ -275,6 +275,85 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it.each([TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED])(
+    "reads tool approval directly from a task snapshot in state %s",
+    async (state) => {
+      const events = await turn([{
+        payload: {
+          case: "task",
+          value: {
+            id: "task-1",
+            contextId: CONVERSATION.id,
+            status: {
+              state,
+              message: {
+                messageId: "approval-request",
+                role: Role.AGENT,
+                parts: [text("Allow describe?")],
+                extensions: ["https://kagent.dev/extensions/hitl/v1"],
+                metadata: {
+                  "https://kagent.dev/extensions/hitl/v1": {
+                    type: "tool_approval_request",
+                    tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      }]);
+      expect(transcript(events)).toEqual([]);
+      expect(events).toContainEqual({
+        type: "status",
+        state: "input_required",
+        taskId: "task-1",
+        awaiting: {
+          kind: "tool_approval",
+          taskId: "task-1",
+          tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+          hint: undefined,
+          askedBy: undefined,
+        },
+      });
+    },
+  );
+
+  it("reads ask-user choices directly from a task snapshot", async () => {
+    const events = await turn([{
+      payload: {
+        case: "task",
+        value: {
+          id: "task-1",
+          status: {
+            state: TaskState.INPUT_REQUIRED,
+            message: {
+              messageId: "ask-request",
+              role: Role.AGENT,
+              parts: [text("Which database?")],
+              extensions: ["https://kagent.dev/extensions/hitl/v1"],
+              metadata: {
+                "https://kagent.dev/extensions/hitl/v1": {
+                  type: "ask_user_request",
+                  id: "ask-1",
+                  questions: [{ question: "Which database?", choices: ["PostgreSQL"] }],
+                },
+              },
+            },
+          },
+        },
+      },
+    }]);
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status", state: "input_required", taskId: "task-1",
+      awaiting: {
+        kind: "ask_user", taskId: "task-1", requestId: "ask-1",
+        questions: [{ question: "Which database?", choices: ["PostgreSQL"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
   it("shows only the interactive card when ask_user parks the turn", async () => {
     const events = await turn([
       {
@@ -852,7 +931,7 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
-  it("orders a canonically positioned approval between its tool call and result", async () => {
+  it("keeps earlier tool activity before a positioned approval on reload", async () => {
     const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
@@ -860,6 +939,12 @@ describe("A2AGrpcChatClient.history", () => {
         contextId: CONVERSATION.id,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [
+          {
+            messageId: "opening",
+            role: Role.USER,
+            parts: [text("List pods and delete one")],
+            metadata: position("2025-12-31T23:59:59.000000001Z"),
+          },
           {
             messageId: "request",
             role: Role.AGENT,
@@ -889,6 +974,16 @@ describe("A2AGrpcChatClient.history", () => {
         ],
         artifacts: [
           {
+            artifactId: "list-call",
+            parts: [data({ id: "list-1", name: "list_pods", args: {} })],
+            metadata: position("2025-12-31T23:59:59.000000002Z"),
+          },
+          {
+            artifactId: "list-result",
+            parts: [data({ id: "list-1", name: "list_pods", response: { result: "old" } })],
+            metadata: position("2025-12-31T23:59:59.000000003Z"),
+          },
+          {
             artifactId: "call",
             parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
             metadata: position("2026-01-01T00:00:00.000000001Z"),
@@ -903,7 +998,9 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages.map((message) => message.id)).toEqual(["call", "approval", "result"]);
+    expect(messages.map((message) => message.id)).toEqual([
+      "opening", "list-call", "list-result", "call", "approval", "result",
+    ]);
   });
 
   it("replays a completed ask_user exchange as one structured record", async () => {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -197,6 +198,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha3.
 		modelConfig = latest
 		return nil
 	}); err != nil {
+		if apierrors.IsInvalid(err) {
+			return nil, serviceerrors.NewInvalidArgument(err.Error(), err)
+		}
 		return nil, serviceerrors.NewInternal("Failed to update ModelConfig", err)
 	}
 

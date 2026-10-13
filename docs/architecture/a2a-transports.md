@@ -39,7 +39,7 @@ The card advertises `capabilities.pushNotifications: true`. See
 [A2A push notifications](a2a-push-notifications.md) for registration, callbacks,
 and delivery guarantees.
 
-Set `controller.a2aGatewayUrl` in Helm (the controller's `KAGENT_GATEWAY_URL`) to
+Set `config.gateway.publicUrl` in Helm (the controller’s `gateway.publicUrl`) to
 the externally reachable gateway base URL when exposing agents outside the
 cluster. Its default is the controller's cluster Service URL. HTTP interfaces
 append `/agents/{namespace}/{name}` to this base, preserving any deployment prefix.

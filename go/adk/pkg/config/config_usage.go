@@ -32,7 +32,7 @@ import (
 //
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
 //   - Skills are added via SkillsPlugin in Python
-//   - In go-adk, skills are handled via AgentConfig.SkillsDirectory (or the legacy KAGENT_SKILLS_FOLDER env var for root agents)
+//   - In go-adk, skills are handled via AgentConfig.SkillsDirectory
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used
 // This is a helper function to ensure we're using all fields correctly

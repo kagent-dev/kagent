@@ -16,6 +16,10 @@ import (
 type recordingSink struct {
 	sessions []runtime.SessionStarted
 	text     strings.Builder
+	models   []runtime.ModelCall
+	calls    []runtime.ToolCall
+	results  []runtime.ToolResult
+	onText   func()
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
@@ -24,10 +28,22 @@ func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
 }
 func (s *recordingSink) TextDelta(event runtime.TextDelta) error {
 	s.text.WriteString(event.Text)
+	if s.onText != nil {
+		s.onText()
+	}
 	return nil
 }
-func (*recordingSink) ToolCall(runtime.ToolCall) error     { return nil }
-func (*recordingSink) ToolResult(runtime.ToolResult) error { return nil }
+func (s *recordingSink) ToolCall(event runtime.ToolCall) error {
+	s.calls = append(s.calls, event)
+	return nil
+}
+func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
+	s.results = append(s.results, event)
+	return nil
+}
+func (s *recordingSink) ModelCall(event runtime.ModelCall) {
+	s.models = append(s.models, event)
+}
 
 func TestResumedEventSinkDropsOnlyInterruptedResponseWarning(t *testing.T) {
 	underlying := &recordingSink{}
@@ -226,5 +242,82 @@ func TestProcessDriverCancellation(t *testing.T) {
 	}
 	if time.Since(started) > time.Second {
 		t.Fatalf("cancellation took too long")
+	}
+}
+
+func TestProcessDriverCancellationKeepsTheOpenModelCall(t *testing.T) {
+	dir, executable := writeFakeClaude(t, `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":5}}}}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}}'
+exec sleep 30
+`)
+	d := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir,
+		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	sink := &recordingSink{onText: cancel}
+	if _, err := d.Run(ctx, runtime.Turn{Prompt: "hello"}, sink); err != context.Canceled {
+		t.Fatalf("Run() error = %v, want only context canceled", err)
+	}
+	if len(sink.models) != 1 || !sink.models[0].UsagePartial || sink.models[0].InputTokens != 5 || !sink.models[0].Canceled {
+		t.Fatalf("model calls = %#v, want one canceled partial call", sink.models)
+	}
+}
+
+func TestProcessDriverCrashMarksTheOpenModelCallAnError(t *testing.T) {
+	dir, executable := writeFakeClaude(t, `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":5}}}}'
+exit 1
+`)
+	d := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir,
+		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
+	})
+	sink := &recordingSink{}
+	if _, err := d.Run(t.Context(), runtime.Turn{Prompt: "hello"}, sink); err == nil {
+		t.Fatal("Run() succeeded, want the crash reported")
+	}
+	if len(sink.models) != 1 || !sink.models[0].UsagePartial || sink.models[0].Canceled || sink.models[0].StopReason != "error" {
+		t.Fatalf("model calls = %#v, want one failed partial call", sink.models)
+	}
+}
+
+func writeFakeClaude(t *testing.T, script string) (dir, executable string) {
+	t.Helper()
+	dir = t.TempDir()
+	executable = filepath.Join(dir, "claude")
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir, executable
+}
+
+func TestToolCallSplitsTheMCPName(t *testing.T) {
+	for _, tc := range []struct {
+		name, server, tool string
+	}{
+		{name: "mcp__kagent__k8s_get", server: "kagent", tool: "k8s_get"},
+		{name: "mcp__kagent__k8s__get", server: "kagent", tool: "k8s__get"},
+		{name: "mcp__kagent_tools__write", server: "kagent_tools", tool: "write"},
+		{name: "Bash"},
+		{name: "mcp__kagent"},
+		{name: "mcp____write"},
+		{name: "mcp__kagent__"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			if _, err := emitEvent(Event{Kind: EventToolActivity, ToolID: "toolu_1", ToolName: tc.name, ToolPhase: "started"}, sink, false); err != nil {
+				t.Fatal(err)
+			}
+			if len(sink.calls) != 1 {
+				t.Fatalf("calls = %+v, want one", sink.calls)
+			}
+			if call := sink.calls[0]; call.Name != tc.name || call.MCPServer != tc.server || call.MCPTool != tc.tool {
+				t.Errorf("call = %+v, want server %q and tool %q", call, tc.server, tc.tool)
+			}
+		})
 	}
 }

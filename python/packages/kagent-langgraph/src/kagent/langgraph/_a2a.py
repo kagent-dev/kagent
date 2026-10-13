@@ -120,11 +120,13 @@ class KAgentApp:
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(self.config.runtime.max_content_length),
         )
 
         if self._enable_tracing:
-            bootstrap(conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name)
+            bootstrap(
+                conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name, config=self.config.runtime
+            )
             instrument_app(app)
 
         # Add health check and debugging routes

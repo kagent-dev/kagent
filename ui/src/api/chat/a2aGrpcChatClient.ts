@@ -118,6 +118,15 @@ function isAwaitingReply(state: TaskState | undefined): boolean {
   return state === TaskState.INPUT_REQUIRED || state === TaskState.AUTH_REQUIRED;
 }
 
+function pendingRequestFromStatus(
+  taskId: string,
+  status: TaskStatus | undefined,
+): PendingRequest | undefined {
+  if (!taskId || !isAwaitingReply(status?.state)) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
+}
+
 /** The turn states this client has an opinion about. */
 const TURN_STATE_BY_ENUM: Partial<Record<TaskState, ChatTurnState>> = {
   [TaskState.SUBMITTED]: "submitted",
@@ -416,12 +425,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequestFromStatus(task.id, task.status);
           }
         }
 
@@ -555,13 +559,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequestFromStatus(event.taskId, status);
 
           if (
             message &&
@@ -690,7 +688,12 @@ export class A2AGrpcChatClient implements ChatClient {
             delivered.add(message.id);
             yield { type: "message", message };
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequestFromStatus(task.id, task.status),
+          };
           continue;
         }
 

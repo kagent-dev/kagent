@@ -296,7 +296,7 @@ func upgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
 		"DOCKER_REGISTRY="+env.dockerRegistry,
 		"KIND_CLUSTER_NAME="+env.kindClusterName,
 		"OPENAI_API_KEY="+env.openAIAPIKey,
-		"KAGENT_DEFAULT_MODEL_PROVIDER=openAI",
+		"MODEL_PROVIDER=openAI",
 	)
 	return cmd
 }

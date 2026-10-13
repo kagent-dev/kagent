@@ -7,12 +7,12 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
@@ -91,46 +91,33 @@ func TestNewCommandAcceptsHyphenatedNames(t *testing.T) {
 }
 
 func TestResolveDSN(t *testing.T) {
-	tests := []struct {
-		name     string
-		flag     string
-		env      string
-		want     string
-		wantErr  bool
-		unsetEnv bool
-	}{
-		{name: "flag wins over env", flag: "postgres://flag", env: "postgres://env", want: "postgres://flag"},
-		{name: "env fallback", env: "postgres://env", want: "postgres://env"},
-		{name: "neither set", wantErr: true},
-		{name: "unset env does not use controller default", unsetEnv: true, wantErr: true},
+	path := filepath.Join(t.TempDir(), "database-url")
+	if err := os.WriteFile(path, []byte("postgres://file\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
+	for _, tt := range []struct {
+		name    string
+		state   commandState
+		want    string
+		wantErr bool
+	}{
+		{name: "flag", state: commandState{dbURL: "postgres://flag"}, want: "postgres://flag"},
+		{name: "file", state: commandState{dbURLFile: path}, want: "postgres://file"},
+		{name: "missing", wantErr: true},
+		{name: "unreadable", state: commandState{dbURLFile: path + "-absent"}, wantErr: true},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(env.PostgresDatabaseURL.Name(), tt.env)
-			if tt.unsetEnv {
-				if err := os.Unsetenv(env.PostgresDatabaseURL.Name()); err != nil {
-					t.Fatal(err)
-				}
-			}
-			s := &commandState{dbURL: tt.flag}
-			got, err := s.resolveDSN()
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("resolveDSN() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if got != tt.want {
-				t.Errorf("resolveDSN() = %q, want %q", got, tt.want)
+			got, err := tt.state.resolveDSN()
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Fatalf("resolveDSN = %q, %v", got, err)
 			}
 		})
 	}
 }
 
 func TestResolveRole(t *testing.T) {
-	t.Setenv(env.DatabaseRole.Name(), "env_role")
-	if got := (&commandState{}).role(); got != "env_role" {
-		t.Fatalf("role() = %q, want env_role", got)
-	}
-	if got := (&commandState{dbRole: "flag_role"}).role(); got != "flag_role" {
-		t.Fatalf("role() = %q, want flag_role", got)
+	if got := (&commandState{dbRole: " app_role "}).role(); got != "app_role" {
+		t.Fatal(got)
 	}
 }
 
@@ -190,11 +177,10 @@ func TestArgValidation(t *testing.T) {
 		{name: "up rejects source flag", args: []string{"up", "--source", "alpha"}, wantErr: "--source is not applicable"},
 		{name: "status rejects source flag", args: []string{"status", "--source", "alpha"}, wantErr: "--source is not applicable"},
 		{name: "status invalid output", args: []string{"status", "--output", "yaml"}, wantErr: "invalid --output"},
-		{name: "no dsn", args: []string{"version"}, wantErr: "set the database URL"},
+		{name: "no dsn", args: []string{"version"}, wantErr: "database.urlFile"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(env.PostgresDatabaseURL.Name(), "")
 			_, _, err := runCLI(t, testSources(), tt.args...)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)

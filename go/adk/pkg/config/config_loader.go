@@ -22,6 +22,9 @@ func LoadAgentConfig(configPath string) (*adk.AgentConfig, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if err := config.ValidateRuntime(); err != nil {
+		return nil, err
+	}
 	return &config, nil
 }
 

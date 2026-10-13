@@ -1,11 +1,15 @@
 package mcp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"strings"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -20,6 +24,19 @@ import (
 )
 
 const sandboxToolBytes = 1 << 20
+
+const maxSandboxPageBytes = 32 << 10
+
+// Matches the chat attachment limit. Claude Code and Codex resize images for
+// their models, so this only bounds what one read holds.
+const maxSandboxImageBytes = 10 << 20
+
+var sandboxImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true}
+
+const (
+	defaultSandboxReadLines = 2000
+	maxSandboxLineBytes     = 2000
+)
 
 type sandboxInput struct {
 	SandboxID string `json:"sandbox_id" jsonschema:"Sandbox UUID"`
@@ -93,10 +110,8 @@ type sandboxOutputsOutput struct {
 type sandboxReadInput struct {
 	SandboxID string `json:"sandbox_id"`
 	Path      string `json:"path"`
-}
-
-type sandboxReadOutput struct {
-	DataBase64 string `json:"data_base64"`
+	Offset    int    `json:"offset,omitempty" jsonschema:"First line of a text file to read, from 1"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Lines of a text file to read; defaults to 2000"`
 }
 
 type sandboxWriteInput struct {
@@ -108,6 +123,77 @@ type sandboxWriteInput struct {
 
 type sandboxWriteOutput struct {
 	BytesWritten int64 `json:"bytes_written"`
+}
+
+func textContent(format string, args ...any) []mcp.Content {
+	return []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(format, args...)}}
+}
+
+func readFileContent(r io.Reader, offset, limit int) ([]mcp.Content, error) {
+	// Line reads hold one more byte than a line keeps, to tell a cut line from
+	// one that only fits.
+	br := bufio.NewReaderSize(r, maxSandboxLineBytes+1)
+	head, err := br.Peek(512)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	mediaType := http.DetectContentType(head)
+	switch {
+	case strings.HasPrefix(mediaType, "text/"):
+		text, err := readLines(br, offset, limit)
+		return textContent("%s", text), err
+	case !sandboxImageTypes[mediaType]:
+		return textContent("binary file, %s", mediaType), nil
+	}
+	data, err := io.ReadAll(io.LimitReader(br, maxSandboxImageBytes+1))
+	switch {
+	case err != nil:
+		return nil, err
+	case len(data) > maxSandboxImageBytes:
+		return textContent("Image exceeds maximum allowed size (%d bytes). Write a smaller copy in the sandbox and read that instead.", maxSandboxImageBytes), nil
+	}
+	return []mcp.Content{&mcp.ImageContent{Data: data, MIMEType: mediaType}}, nil
+}
+
+func readLines(r *bufio.Reader, offset, limit int) (string, error) {
+	var page []byte
+	n := 0
+	for {
+		line, cut, err := readLine(r)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if n++; n < offset {
+			continue
+		}
+		if n >= offset+limit || len(page)+len(line) > maxSandboxPageBytes {
+			return fmt.Sprintf("%s(lines %d–%d; continue with offset=%d)", strings.ToValidUTF8(string(page), "\uFFFD"), offset, n-1, n), nil
+		}
+		page = fmt.Appendf(page, "%d\t%s", n, line)
+		if cut {
+			page = append(page, " [line cut]"...)
+		}
+		page = append(page, '\n')
+	}
+	if n < offset {
+		return fmt.Sprintf("(the file has %d lines)", n), nil
+	}
+	return strings.ToValidUTF8(string(page), "\uFFFD"), nil
+}
+
+func readLine(r *bufio.Reader) (line []byte, cut bool, err error) {
+	line, more, err := r.ReadLine()
+	if len(line) > maxSandboxLineBytes {
+		line = line[:maxSandboxLineBytes]
+	}
+	line, cut = bytes.Clone(line), more
+	for more && err == nil {
+		_, more, err = r.ReadLine()
+	}
+	return line, cut, err
 }
 
 func summarizeSandbox(value *apiv1alpha1.Sandbox) sandboxSummary {
@@ -124,6 +210,18 @@ func addSandboxTool[In, Out any](server *mcp.Server, name, description string, c
 			return toolError(errors.New(serviceerrors.MessageOf(err))), output, nil
 		}
 		return nil, output, nil
+	})
+}
+
+// addSandboxToolContent registers a tool whose result is content for the model,
+// with no structured output.
+func addSandboxToolContent[In any](server *mcp.Server, name, description string, call func(context.Context, In) ([]mcp.Content, error)) {
+	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description}, func(ctx context.Context, _ *mcp.CallToolRequest, input In) (*mcp.CallToolResult, any, error) {
+		content, err := call(ctx, input)
+		if err != nil {
+			return toolError(errors.New(serviceerrors.MessageOf(err))), nil, nil
+		}
+		return &mcp.CallToolResult{Content: content}, nil, nil
 	})
 }
 
@@ -241,16 +339,20 @@ func registerSandboxTools(server *mcp.Server, service *sandbox.Service, template
 		result.StdoutBase64, result.StderrBase64 = base64.StdEncoding.EncodeToString(stdout), base64.StdEncoding.EncodeToString(stderr)
 		return result, err
 	})
-	addSandboxTool(server, "read_sandbox_file", "Read a file up to 1 MiB as base64. Decode data_base64 and save artifacts outside the sandbox before deletion or expiration. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) (sandboxReadOutput, error) {
-		var data []byte
-		err := service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.FileChunk) error {
-			if len(data)+len(chunk.Data) > sandboxToolBytes {
-				return fmt.Errorf("file exceeds MCP 1 MiB limit; use the streaming API")
-			}
-			data = append(data, chunk.Data...)
-			return nil
-		})
-		return sandboxReadOutput{DataBase64: base64.StdEncoding.EncodeToString(data)}, err
+	addSandboxToolContent(server, "read_sandbox_file", "Read a file. Text comes back as numbered lines from offset, up to limit lines or 32 KiB, with the offset to continue from. PNG, JPEG and GIF images up to 10 MiB come back as images you can see. Other files are described rather than returned. Paths are absolute or relative to /data/workspace.", func(ctx context.Context, in sandboxReadInput) ([]mcp.Content, error) {
+		limit := defaultSandboxReadLines
+		if in.Limit > 0 {
+			limit = in.Limit
+		}
+		file, sink := io.Pipe()
+		defer file.Close()
+		go func() {
+			sink.CloseWithError(service.ReadFile(ctx, in.SandboxID, &guestpb.ReadFileRequest{Path: in.Path}, func(chunk *guestpb.FileChunk) error {
+				_, err := sink.Write(chunk.Data)
+				return err
+			}))
+		}()
+		return readFileContent(file, max(in.Offset, 1), limit)
 	})
 	addSandboxTool(server, "write_sandbox_file", "Replace a file with decoded base64 data, up to 1 MiB. Paths are absolute or relative to /data/workspace. Verify bytes_written; interrupted writes may leave partial files. There is no append or offset input.", func(ctx context.Context, in sandboxWriteInput) (sandboxWriteOutput, error) {
 		header := &guestpb.WriteFileRequest{Path: in.Path, Mode: in.Mode}

@@ -376,21 +376,6 @@ def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
     return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
 
 
-_ENABLE_FILE_SEARCH_TOOLS_ENV = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
-
-
-def file_search_tools_enabled() -> bool:
-    """Whether the list_files/grep_file tools are enabled.
-
-    Opt-in (disabled by default): they let an agent enumerate and search the
-    filesystem under its session/skills roots without invoking a shell, so
-    deployments that want to grant that visibility do so deliberately rather
-    than having it enabled implicitly. Note this gate is theirs alone -- bash
-    is always registered.
-    """
-    return os.environ.get(_ENABLE_FILE_SEARCH_TOOLS_ENV, "").strip().lower() in ("1", "t", "true")
-
-
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
     if "python " in command or "python3 " in command:
@@ -403,6 +388,7 @@ async def execute_command(
     command: str,
     working_dir: Path,
     skills_dir: Path = Path("/skills"),
+    bash_venv_path: str = "",
 ) -> str:
     """Execute a shell command inside the agent runtime."""
     timeout = _get_command_timeout_seconds(command)
@@ -415,8 +401,7 @@ async def execute_command(
     env["PYTHONPATH"] = ":".join(pythonpath_additions)
 
     # If a separate venv for shell commands is specified, use its python and pip
-    # Otherwise the system python/pip will be used for backward compatibility
-    bash_venv_path = os.environ.get("KAGENT_BASH_VENV_PATH")
+    # Otherwise use the process Python environment.
     if bash_venv_path:
         bash_venv_bin = os.path.join(bash_venv_path, "bin")
         # Prepend bash venv to PATH so its python and pip are used

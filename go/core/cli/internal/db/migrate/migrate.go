@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
@@ -32,6 +32,7 @@ type SourcesFunc func(ctx context.Context) ([]migrations.Source, error)
 
 type commandState struct {
 	dbURL     string
+	dbURLFile string
 	dbRole    string
 	source    string
 	resolveFn SourcesFunc
@@ -91,9 +92,11 @@ func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
 		Use:   "migrate",
 		Short: "Apply, roll back, and inspect database migrations",
 		Long: `Apply, roll back, and inspect database migrations.
-The command reads KAGENT_POSTGRES_DATABASE_URL and KAGENT_POSTGRES_DATABASE_ROLE when their flags are empty.`,
+Connection settings come from the CLI configuration or explicit database flags.`,
 	}
 	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL")
+	command.PersistentFlags().StringVar(&state.dbURLFile, "db-url-file", "", "File containing the PostgreSQL connection URL")
+	command.MarkFlagsMutuallyExclusive("db-url", "db-url-file")
 	command.PersistentFlags().StringVar(&state.dbRole, "db-role", "", "Stable PostgreSQL role to assume after authentication")
 	command.PersistentFlags().StringVar(&state.source, sourceFlag, "", "Migration source for down, goto, or version")
 	command.AddCommand(newUpCmd(state))
@@ -105,23 +108,17 @@ The command reads KAGENT_POSTGRES_DATABASE_URL and KAGENT_POSTGRES_DATABASE_ROLE
 }
 
 func (s *commandState) role() string {
-	if role := strings.TrimSpace(s.dbRole); role != "" {
-		return role
-	}
-	return strings.TrimSpace(env.DatabaseRole.Get())
+	return strings.TrimSpace(s.dbRole)
 }
 
 func (s *commandState) resolveDSN() (string, error) {
-	dsn := strings.TrimSpace(s.dbURL)
-	if dsn == "" {
-		if value, set := env.PostgresDatabaseURL.Lookup(); set {
-			dsn = value
-		}
+	if dsn := strings.TrimSpace(s.dbURL); dsn != "" {
+		return dsn, nil
 	}
-	if dsn == "" {
-		return "", fmt.Errorf("set the database URL with --db-url or %s", env.PostgresDatabaseURL.Name())
+	if s.dbURLFile != "" {
+		return config.ReadSecret(s.dbURLFile)
 	}
-	return dsn, nil
+	return "", fmt.Errorf("database.urlFile, --db-url-file, or --db-url is required")
 }
 
 func (s *commandState) resolveSource(ctx context.Context) (migrations.Source, error) {

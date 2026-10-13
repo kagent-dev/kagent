@@ -20,7 +20,6 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -32,34 +31,19 @@ const (
 )
 
 func main() {
-	logLevel := flag.String("log-level", cmp.Or(env.LogLevel.Get(), env.LogLevel.DefaultValue()), "Set the logging level (debug, info, warn, error)")
+	logLevel := flag.String("log-level", "", "Set the logging level (debug, info, warn, error)")
 	host := flag.String("host", "", "Set the host address to bind to (default: empty, binds to all interfaces)")
-	portFlag := flag.String("port", "", "Set the port to listen on (overrides KAGENT_PORT environment variable)")
-	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides KAGENT_CONFIG_DIR environment variable)")
+	portFlag := flag.String("port", "", "Set the port to listen on (overrides runtime.port)")
+	filepathFlag := flag.String("filepath", "/config", "Set the config directory path")
 	flag.Parse()
 
-	logger, err := logging.New(os.Stderr, *logLevel)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid log level %q: %v\n", *logLevel, err)
-		os.Exit(1)
-	}
-	slog.SetDefault(logger)
-	logger.Info("logger initialized", "level", *logLevel)
-
-	configDir := cmp.Or(*filepathFlag, env.KagentConfigDir.Get(), env.KagentConfigDir.DefaultValue())
-
-	if err := run(logger, *host, *portFlag, configDir); err != nil {
-		logger.Error("agent stopped", "error", err)
+	if err := run(*logLevel, *host, *portFlag, *filepathFlag); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, host, port, configDir string) error {
-	kagentAPIURL := env.KagentAPIURL.Get()
-	if kagentAPIURL == "" {
-		return fmt.Errorf("KAGENT_API_URL is required")
-	}
-
+func run(logLevel, host, port, configDir string) error {
 	if err := config.MaterializeFromEnv(configDir); err != nil {
 		return fmt.Errorf("materialize agent config in %s: %w", configDir, err)
 	}
@@ -68,6 +52,18 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 	if err != nil {
 		return fmt.Errorf("load agent config from %s (model configuration is required): %w", configDir, err)
 	}
+	runtime := agentConfig.ProcessConfig()
+	kagentAPIURL := runtime.ControlPlaneURL
+	if kagentAPIURL == "" {
+		return fmt.Errorf("runtime.control_plane_url is required")
+	}
+	logger, err := logging.New(os.Stderr, cmp.Or(logLevel, runtime.LogLevel, "info"))
+	if err != nil {
+		return err
+	}
+	slog.SetDefault(logger)
+	host = cmp.Or(host, runtime.Host)
+	port = cmp.Or(port, runtime.Port)
 	if err := config.MaterializeAgentPlugins(
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
@@ -86,10 +82,10 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 		"sse_tools", len(agentConfig.SseTools),
 		"remote_agents", len(agentConfig.RemoteAgents))
 
-	kagentName := env.KagentName.Get()
-	kagentNamespace := env.KagentNamespace.Get()
+	kagentName := runtime.Name
+	kagentNamespace := runtime.Namespace
 
-	// Derive app name from env or agent card.
+	// Derive app name from process identity or agent card.
 	appName := deriveAppName(kagentName, kagentNamespace, agentCard, logger)
 
 	// Fall back to appName / "default" so traces always have a non-empty service identity.
@@ -104,9 +100,10 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 	// The same identity reaches the resource and every invocation span, so a
 	// consumer reads one contract whichever runtime executed the agent. Model
 	// identity stays on the model spans the ADK emits per call.
-	runtimeTelemetry := tracing.RuntimeTelemetry{
-		Runtime: tracing.RuntimeADKGo, AgentName: serviceName, AgentNamespace: serviceNamespace,
-	}
+	runtimeTelemetry := runtime.Telemetry.WithEnvironment(os.Environ())
+	runtimeTelemetry.Runtime = tracing.RuntimeADKGo
+	runtimeTelemetry.AgentName = serviceName
+	runtimeTelemetry.AgentNamespace = serviceNamespace
 	providers, err := telemetry.Init(context.Background(), runtimeTelemetry)
 	if err != nil {
 		logger.Error("failed to initialize ADK telemetry", "error", err)
@@ -211,6 +208,7 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 		ControllerClient: controllerClient,
 		AgentCard:        *agentCard,
 		Host:             host,
+		MaxContentLength: runtime.MaxContentLength,
 		Port:             port,
 		AppName:          appName,
 		ShutdownTimeout:  5 * time.Second,
@@ -231,7 +229,7 @@ func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentC
 		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
 		name := strings.ReplaceAll(kagentName, "-", "_")
 		appName := namespace + "__NS__" + name
-		logger.Info("built app_name from environment variables",
+		logger.Info("built app_name from runtime identity",
 			"kagent_namespace", kagentNamespace,
 			"kagent_name", kagentName,
 			"app_name", appName)

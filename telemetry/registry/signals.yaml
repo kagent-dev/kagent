@@ -121,6 +121,72 @@ attribute_groups:
         requirement_level:
           conditionally_required: gen_ai.output.messages is present.
 
+  - id: kagent.inference
+    visibility: public
+    brief: What one model request returned.
+    stability: development
+    attributes:
+      - ref: gen_ai.response.model
+        requirement_level:
+          recommended: The runtime reported it.
+        note: The model the harness reported.
+      - ref: gen_ai.response.id
+        requirement_level:
+          recommended: The runtime reported it.
+        note: The Claude message ID. Codex reports none.
+      - ref: kagent.inference.request_id
+        requirement_level:
+          recommended: The runtime reported it.
+        note: The Claude request ID. Codex reports none.
+      - ref: gen_ai.response.finish_reasons
+        requirement_level:
+          recommended: The runtime reported it.
+        note: >
+          Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`.
+          Codex calls have only `error`, set for a failed call.
+      - ref: gen_ai.usage.input_tokens
+        requirement_level: recommended
+        note: Includes cached tokens. Absent when the runtime reported no usage.
+      - ref: gen_ai.usage.output_tokens
+        requirement_level: recommended
+        note: Absent when the runtime reported no usage.
+      - ref: gen_ai.usage.cache_read.input_tokens
+        requirement_level:
+          recommended: The runtime reported a non-zero count.
+      - ref: gen_ai.usage.cache_write.input_tokens
+        requirement_level:
+          recommended: The runtime reported a non-zero count.
+      - ref: gen_ai.usage.reasoning.output_tokens
+        requirement_level:
+          recommended: The runtime reported a non-zero count.
+        note: Included in gen_ai.usage.output_tokens.
+      - ref: kagent.inference.usage_partial
+        requirement_level:
+          conditionally_required: The call ended without final usage.
+      - ref: kagent.inference.retry.count
+        requirement_level:
+          conditionally_required: The harness retried the call.
+
+  - id: kagent.tool_call
+    visibility: public
+    brief: One tool call of an invocation.
+    stability: development
+    attributes:
+      - ref: gen_ai.tool.name
+        requirement_level: required
+        note: For an MCP tool, the MCP tool name without the server.
+      - ref: gen_ai.tool.call.id
+        requirement_level: required
+      - ref: kagent.mcp.server.name
+        requirement_level:
+          conditionally_required: The tool is an MCP tool.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The tool reported a failure or never finished.
+        note: >
+          `tool_error` when the tool reported a failure, `unfinished` when its
+          result never arrived. Never the tool output.
+
   - id: kagent.resource
     visibility: public
     brief: The resource of a kagent runtime.
@@ -179,7 +245,8 @@ span_refinements:
       Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a
       runtime that emits no invoke_agent span of its own. A resumed segment links
       to the segment that started the native turn, with
-      `kagent.invocation.relationship` set to `resume_origin`.
+      `kagent.invocation.relationship` set to `resume_origin`. Usage and finish
+      reasons are only on inference spans, so they are opt-in here and never set.
     stability: development
     attributes:
       - ref: gen_ai.operation.name
@@ -195,10 +262,109 @@ span_refinements:
         note: >
           Bounded turn content, recorded only under
           `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`.
+      - ref: gen_ai.usage.input_tokens
+        requirement_level: opt_in
+      - ref: gen_ai.usage.output_tokens
+        requirement_level: opt_in
+      - ref: gen_ai.response.finish_reasons
+        requirement_level: opt_in
       - ref_group: kagent.identity
       - ref_group: kagent.request
       - ref_group: kagent.outcome
       - ref_group: kagent.capture
+
+  - id: kagent.inference.client
+    ref: gen_ai.client.inference
+    brief: One model request of a harness turn.
+    note: >
+      Named `chat {gen_ai.request.model}`, or `chat` when the request model is
+      unknown. A subagent model call goes under the execute_tool span of the tool
+      call that started the subagent. Examples are the Claude `Agent` tool and the
+      Codex `spawnAgent` call. This rule also applies when the tool span is in a
+      later segment. Other model calls go under the invoke_agent span. A subagent
+      model call can start outside the time of its parent span. A Codex
+      `spawnAgent` call ends when the subagent starts, so the subagent model calls
+      start after that span ends. After a pause, the tool span starts in the later
+      segment, so earlier subagent model calls start before it. A call
+      that ended with finish reason `error` has an error status, unless it was
+      canceled. One span covers a call and all its automatic retries, and only a
+      final failure gives it an error status. A Claude call's token counts add up
+      every attempt that the provider started. Codex reports usage only for the
+      attempt that succeeded, and none for a call canceled mid-response. Codex
+      errors of the `other` and `badRequest` categories can also come from
+      outside a model request, and they still
+      give a failed call. Codex reports no call times, so a Codex
+      call starts at the previous call's usage report or final error. It ends
+      when its first tool starts or the turn pauses for input, or else at its own
+      usage report or final error. The first call
+      of a Codex subagent starts when its `spawnAgent` call first names its thread.
+    stability: development
+    attributes:
+      - ref: gen_ai.operation.name
+        requirement_level: required
+        note: Always `chat`.
+      - ref: gen_ai.provider.name
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+        note: The provider the agent is compiled against.
+      - ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+        note: The model the agent is compiled against.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The call ended with finish reason `error` and was not canceled.
+        note: >
+          The error category from the harness, such as `rate_limit`, or
+          `model_error` when the harness gives none. A canceled call keeps finish
+          reason `error`, as the conventions require, but has no error status.
+      - ref: gen_ai.conversation.id
+        requirement_level:
+          conditionally_required: The gateway assigned an A2A context.
+        note: The A2A context ID.
+      - ref: gen_ai.input.messages
+        requirement_level: opt_in
+        note: Never set here. With content capture on, the turn content is on the invoke_agent span.
+      - ref: gen_ai.output.messages
+        requirement_level: opt_in
+        note: Never set here. With content capture on, the turn content is on the invoke_agent span.
+      - ref_group: kagent.inference
+
+  - id: kagent.execute_tool.internal
+    ref: gen_ai.execute_tool.internal
+    brief: One tool call of a harness turn.
+    note: >
+      Named `execute_tool {gen_ai.tool.name}`. The span runs from the tool call to
+      its result. A subagent tool goes under the execute_tool span of the tool
+      call that started the subagent. Other tools go under the invoke_agent span.
+      A call open across a pause starts no earlier than the segment its result
+      arrives in. The call belongs to that segment, but a subagent tool stays
+      under its parent tool span.
+    stability: development
+    attributes:
+      - ref: gen_ai.operation.name
+        requirement_level: required
+        note: Always `execute_tool`.
+      - ref: gen_ai.conversation.id
+        requirement_level:
+          conditionally_required: The gateway assigned an A2A context.
+        note: The A2A context ID.
+      - ref_group: kagent.tool_call
+      - ref: gen_ai.tool.call.arguments
+        note: >
+          The tool input as JSON. It can hold sensitive data, so it is recorded only under
+          `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. It is cut to the
+          same byte budget as `gen_ai.input.messages`, so a cut value is not valid JSON.
+      - ref: gen_ai.tool.call.result
+        note: >
+          The tool result as JSON, which can hold sensitive data, under the same rule
+          and budget. Absent when the call failed or never finished.
+      - ref: kagent.capture.input_truncated
+        requirement_level:
+          conditionally_required: gen_ai.tool.call.arguments is present.
+      - ref: kagent.capture.output_truncated
+        requirement_level:
+          conditionally_required: gen_ai.tool.call.result is present.
 
 metric_refinements:
   - id: kagent.invoke_agent.duration
@@ -221,6 +387,142 @@ metric_refinements:
           conditionally_required: The invocation failed.
         note: The same bounded kagent vocabulary as on the span.
 
+  - id: kagent.invoke_agent.inference_calls
+    ref: gen_ai.invoke_agent.inference_calls
+    brief: The model calls of one execution segment of a harness agent.
+    note: >
+      Recorded when the invoke_agent span kagent opens ends, if the agent ran.
+      Counts only the agent's own model calls, so a subagent's calls are not
+      counted. A call
+      that names an unknown parent tool is not counted either. A Codex call
+      whose usage arrives after a pause counts in the later segment. A call
+      reported when a paused turn is canceled is not counted.
+    stability: development
+    attributes:
+      - &invocation_agent
+        ref: gen_ai.agent.name
+        requirement_level: required
+        note: The compiled agent identity, `<agent>`.
+  - id: kagent.invoke_agent.tool_calls
+    ref: gen_ai.invoke_agent.tool_calls
+    brief: The tool calls of one execution segment of a harness agent.
+    note: >
+      Recorded when the invoke_agent span kagent opens ends, if the agent ran.
+      Counts only the agent's own tool calls, declined calls included, so a subagent's tools
+      are not counted. A tool that names an unknown parent tool is not counted
+      either.
+    stability: development
+    attributes:
+      - *invocation_agent
+  - id: kagent.execute_tool.duration
+    ref: gen_ai.execute_tool.duration
+    brief: The duration of one tool call of a harness turn.
+    note: >
+      Recorded with the execute_tool span, and equal to its duration. A declined
+      call has no span, so it has no duration either.
+    stability: development
+    attributes:
+      - ref: gen_ai.tool.name
+        requirement_level: required
+        note: The plain MCP tool name, as on the execute_tool span.
+      - ref: gen_ai.agent.name
+        requirement_level:
+          conditionally_required: The tool is the agent's own, not a subagent's.
+        note: >
+          The compiled agent identity, `<agent>`. Absent on a subagent's tool,
+          since Claude Code and Codex report no subagent name.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The call failed or never got a result.
+        note: The same bounded kagent vocabulary as on the execute_tool span.
+  - id: kagent.client.inference.duration
+    ref: gen_ai.client.inference.duration
+    brief: The duration of one model call of a harness turn.
+    note: >
+      Recorded with the chat span, and equal to its duration. Not recorded for a
+      zero-length call, such as a Codex call from a thread not known yet. Codex
+      reports no call times, so its durations are estimates, as on the chat span.
+    stability: development
+    attributes:
+      - &inference_operation
+        ref: gen_ai.operation.name
+        requirement_level: required
+        note: Always `chat`.
+      - &inference_provider
+        ref: gen_ai.provider.name
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - &inference_model
+        ref: gen_ai.request.model
+        requirement_level:
+          conditionally_required: The runtime is a harness compiled against one model.
+      - ref: error.type
+        requirement_level:
+          conditionally_required: The call failed.
+        note: The same bounded kagent vocabulary as on the chat span.
+  - id: kagent.client.inference.operation.input_tokens
+    ref: gen_ai.client.inference.operation.input_tokens
+    brief: The input tokens of one model call of a harness turn.
+    note: >
+      Recorded with each chat span that reports usage. The input count of a
+      partial call is exact, so it is recorded too.
+    stability: development
+    attributes:
+      - *inference_operation
+      - *inference_provider
+      - *inference_model
+  - id: kagent.client.inference.operation.output_tokens
+    ref: gen_ai.client.inference.operation.output_tokens
+    brief: The output tokens of one model call of a harness turn.
+    note: >
+      Recorded with each chat span that reports usage. Not recorded for a
+      partial call, since its output count is a lower bound.
+    stability: development
+    attributes:
+      - *inference_operation
+      - *inference_provider
+      - *inference_model
+  - id: kagent.client.inference.usage.input_tokens
+    ref: gen_ai.client.inference.usage.input_tokens
+    brief: The input tokens of the model calls of harness turns.
+    note: &inference_usage_note >
+      Added with each chat span, with the same count. Not added when the count
+      is zero. A partial call adds its counts, which are a lower bound. At the
+      end of a Claude turn, the runtime also adds the tokens that Claude's own
+      total shows but no chat span has, such as most of a subagent's output.
+    stability: development
+    attributes: &inference_usage_attributes
+      - *inference_operation
+      - *inference_provider
+      - *inference_model
+      - ref: gen_ai.token.modality
+        requirement_level: required
+        note: Always `unknown`, since the runtimes report no count by modality.
+  - id: kagent.client.inference.usage.output_tokens
+    ref: gen_ai.client.inference.usage.output_tokens
+    brief: The output tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+  - id: kagent.client.inference.usage.cache_read.input_tokens
+    ref: gen_ai.client.inference.usage.cache_read.input_tokens
+    brief: The cache read input tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+  - id: kagent.client.inference.usage.cache_write.input_tokens
+    ref: gen_ai.client.inference.usage.cache_write.input_tokens
+    brief: The cache write input tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+  - id: kagent.client.inference.usage.reasoning.output_tokens
+    ref: gen_ai.client.inference.usage.reasoning.output_tokens
+    brief: The reasoning output tokens of the model calls of harness turns.
+    note: *inference_usage_note
+    stability: development
+    attributes: *inference_usage_attributes
+
 entity_refinements:
   - id: kagent.main_agent
     ref: gen_ai.main_agent
@@ -237,6 +539,9 @@ entity_refinements:
         note: The compiled agent identity, `<agent>`.
       - ref: kagent.runtime
         requirement_level: required
+      - ref: kagent.genai.producer
+        requirement_level:
+          conditionally_required: The runtime is a native harness.
       - ref: gen_ai.provider.name
         requirement_level:
           conditionally_required: The runtime is a harness compiled against one model.

@@ -1,4 +1,4 @@
-# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=--set ui.replicas=0
+# Load local overrides (gitignored) — e.g. HELM_ARGS=--set ui.replicas=0
 -include .env
 
 # Image configuration
@@ -252,45 +252,45 @@ SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
-KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
+MODEL_PROVIDER ?= openAI
 
 
 ##@ Build
 
 .PHONY: check-api-key
 check-api-key: ## Validate required API key for the configured model provider
-	@if [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
+	@if [ "$(MODEL_PROVIDER)" = "openAI" ]; then \
 		if [ -z "$(OPENAI_API_KEY)" ]; then \
 			echo "Error: OPENAI_API_KEY environment variable is not set for OpenAI provider"; \
 			echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "anthropic" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "anthropic" ]; then \
 		if [ -z "$(ANTHROPIC_API_KEY)" ]; then \
 			echo "Error: ANTHROPIC_API_KEY environment variable is not set for Anthropic provider"; \
 			echo "Please set it with: export ANTHROPIC_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "azureOpenAI" ]; then \
 		if [ -z "$(AZURE_OPENAI_API_KEY)" ]; then \
 			echo "Error: AZURE_OPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
 			echo "Please set it with: export AZURE_OPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "gemini" ]; then \
 		if [ -z "$(GOOGLE_API_KEY)" ]; then \
 			echo "Error: GOOGLE_API_KEY environment variable is not set for Gemini provider"; \
 			echo "Please set it with: export GOOGLE_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "ollama" ]; then \
 		if [ -z "$$OLLAMA_API_KEY" ]; then \
 			echo "Note: OLLAMA_API_KEY is not set — local Ollama models need no key, and a"; \
 			echo "      ':cloud' model will be proxied by the local daemon instead of"; \
 			echo "      reaching api.ollama.com directly. Export OLLAMA_API_KEY to use the cloud API."; \
 		fi; \
 	else \
-		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
+		echo "Warning: Unknown model provider '$(MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
 
 .PHONY: buildx-create
@@ -513,7 +513,7 @@ helm-install-provider: helm-version check-api-key
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
-		--set controller.loglevel=debug \
+		--set config.logging.level=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
@@ -521,11 +521,11 @@ helm-install-provider: helm-version check-api-key
 		--set providers.azureOpenAI.apiKey=$(AZURE_OPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
-		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
+		--set providers.default=$(MODEL_PROVIDER) \
 		--set database.postgres.connectionStringSecretRef.name=$(KAGENT_POSTGRES_SECRET) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		$(KAGENT_HELM_EXTRA_ARGS)
+		$(HELM_ARGS)
 
 .PHONY: helm-install
 helm-install: ## Build all images then install kagent onto the kind cluster
@@ -629,21 +629,15 @@ helm-publish: helm-version
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
 kagent-cli-install: kagent-cli-deploy
-	KUBECONFIG=$(KIND_KUBECONFIG) KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
+	KUBECONFIG=$(KIND_KUBECONFIG) ./go/core/bin/kagent-local dashboard
 
 .PHONY: kagent-cli-deploy
 kagent-cli-deploy: ## Build CLI locally and install kagent with Substrate and the development database
 kagent-cli-deploy: use-kind-cluster build-cli-local helm-version
-	KUBECONFIG=$(KIND_KUBECONFIG) \
-	KAGENT_HELM_REPO=./helm/ \
-	KAGENT_HELM_VERSION=$(VERSION) \
-	KAGENT_SUBSTRATE_HELM_REPO=$(SUBSTRATE_REPO)/ \
-	KAGENT_SUBSTRATE_HELM_VERSION=$(SUBSTRATE_VERSION) \
-	KAGENT_SUBSTRATE_PODCERT_HELM_REPO=$(SUBSTRATE_PODCERT_REPO)/ \
-	KAGENT_SUBSTRATE_PODCERT_HELM_VERSION=$(SUBSTRATE_PODCERT_VERSION) \
-	KAGENT_SUBSTRATE_HELM_EXTRA_ARGS="$(KIND_SUBSTRATE_HELM_ARGS) $(KAGENT_SUBSTRATE_HELM_EXTRA_ARGS)" \
-	KAGENT_HELM_EXTRA_ARGS="--set registry=$(DOCKER_REGISTRY) --set tag=$(VERSION) --set imagePullPolicy=Always --set controller.image.pullPolicy=Always --set ui.image.pullPolicy=Always $(KAGENT_HELM_EXTRA_ARGS)" \
-	./go/core/bin/kagent-local install
+	printf '%s\n' 'registry: "$(DOCKER_REGISTRY)"' 'tag: "$(VERSION)"' 'imagePullPolicy: Always' 'controller: {image: {pullPolicy: Always}}' 'ui: {image: {pullPolicy: Always}}' > go/core/bin/local-values.yaml
+	printf '%s\n' 'atelet:' '  extraArgs: [--localhost-registry-replacement=kind-registry:5000]' 'ateApi:' '  extraArgs: [--template-resync-interval=250ms]' > go/core/bin/local-substrate-values.yaml
+	printf '%s\n' 'install:' '  defaultModelProvider: $(shell printf "%s" "$(MODEL_PROVIDER)" | awk "{print toupper(substr(\$$0,1,1)) substr(\$$0,2)}")' '  kagent:' '    repository: "$(CURDIR)/helm/"' '    version: "$(VERSION)"' '    valuesFiles: [local-values.yaml]' '  substrate:' '    repository: "$(SUBSTRATE_REPO)/"' '    version: "$(SUBSTRATE_VERSION)"' '    valuesFiles: [local-substrate-values.yaml]' '  podCertificate:' '    repository: "$(SUBSTRATE_PODCERT_REPO)/"' '    version: "$(SUBSTRATE_PODCERT_VERSION)"' > go/core/bin/local-config.yaml
+	KUBECONFIG=$(KIND_KUBECONFIG) ./go/core/bin/kagent-local --config go/core/bin/local-config.yaml install
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083
@@ -686,7 +680,7 @@ otel-collector-kind: ## Install the reference OpenTelemetry Collector into the k
 	helm upgrade --install kagent-otel opentelemetry-collector --repo https://open-telemetry.github.io/opentelemetry-helm-charts \
 		--version $(OTEL_COLLECTOR_CHART_VERSION) --kube-context kind-$(KIND_CLUSTER_NAME) --namespace observability --create-namespace \
 		-f examples/observability/collector-values.yaml -f examples/observability/collector-local.yaml
-	@echo "Point kagent at it with --set-string otel.exporter.otlp.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317"
+	@echo "Point kagent at it with --set-string config.runtimeDefaults.telemetry.traces.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317"
 
 .PHONY: kind-debug
 kind-debug: ## Install btop/htop inside the kind control-plane container and launch btop

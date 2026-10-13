@@ -48,7 +48,7 @@ class KAgentApp:
     ):
         self._crew = crew
         self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
-        self.config = config or KAgentConfig()
+        self.config = config or KAgentConfig.from_file()
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
 
@@ -78,11 +78,11 @@ class KAgentApp:
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(self.config.runtime.max_content_length),
         )
 
         if self.tracing:
-            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name)
+            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name, config=self.config.runtime)
             instrument_app(app)
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
