@@ -12,8 +12,6 @@ const (
 	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
 	PartTypeMetadataKey         = MetadataPrefix + "part-type"
 	UsageMetadataKey            = MetadataPrefix + "usage"
-	// StoppedByMetadataKey names the limit that ended a completed turn.
-	StoppedByMetadataKey = "stopped_by"
 )
 
 // SetTimelinePosition records the temporary task-timeline ordering key.

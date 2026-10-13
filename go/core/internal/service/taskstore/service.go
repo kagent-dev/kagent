@@ -16,14 +16,13 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
 type Store interface {
-	SettleSessionTaskResult(context.Context, string, string, int64) (*a2a.Task, error)
+	SettleSessionTask(context.Context, string, string, int64) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task, string) (int64, error)
 	GetVersionedSessionTask(context.Context, string, string) (*a2a.Task, int64, error)
@@ -36,16 +35,10 @@ var _ Store = (*database.Client)(nil)
 type Service struct {
 	store          Store
 	quiescenceWake chan<- struct{}
-	metrics        *turnMetrics
 }
 
-// NewService records the turns it settles with provider's meter.
-func NewService(store Store, quiescenceWake chan<- struct{}, provider metric.MeterProvider) (*Service, error) {
-	metrics, err := newTurnMetrics(provider)
-	if err != nil {
-		return nil, err
-	}
-	return &Service{store: store, quiescenceWake: quiescenceWake, metrics: metrics}, nil
+func NewService(store Store, quiescenceWake chan<- struct{}) *Service {
+	return &Service{store: store, quiescenceWake: quiescenceWake}
 }
 
 func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.Session, error) {
@@ -67,11 +60,9 @@ func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.S
 // CreateTask persists the SDK's first task snapshot. Runtime execution and
 // request serialization remain owned by the agent's SDK.
 func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
-	session, err := s.session(ctx, input.SessionId)
-	if err != nil {
+	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
-	s.metrics.start(ctx, session)
 	task, err := pbconv.FromProtoTask(input.Task)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -170,16 +161,11 @@ func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreSer
 	return &apiv1alpha1.TaskStoreServiceListTasksResponse{Result: wire}, nil
 }
 
-// SettleTask publishes the runtime's saved boundary and counts the turn it
-// completes. The store reports a task only to the call that published it, so a
-// retried settlement counts the turn once.
 func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
-	session, err := s.session(ctx, input.SessionId)
-	if err != nil {
+	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
-	task, err := s.store.SettleSessionTaskResult(ctx, input.SessionId, input.TaskId, input.Version)
-	if err != nil {
+	if err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version); err != nil {
 		return nil, storageError(err)
 	}
 	// Publication is committed before waking local workers. The durable claim
@@ -188,7 +174,6 @@ func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	case s.quiescenceWake <- struct{}{}:
 	default:
 	}
-	s.metrics.settled(ctx, session, task)
 	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 

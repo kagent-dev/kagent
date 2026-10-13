@@ -227,59 +227,6 @@ refinements:
     type: gen_ai.main_agent
   events: []
   metrics:
-  - attributes:
-    - brief: The human-readable name of the invoked GenAI agent.
-      examples:
-      - Math Tutor
-      - Fiction Writer
-      key: gen_ai.agent.name
-      note: The Agent\u0027s name.
-      provenance:
-        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-      requirement_level: required
-      stability: development
-      type: string
-    - brief: |
-        The name of the namespace that the pod is running in.
-      examples:
-      - default
-      key: k8s.namespace.name
-      note: The Agent\u0027s namespace.
-      provenance:
-        source: https://opentelemetry.io/schemas/1.44.0
-      requirement_level: required
-      stability: stable
-      type: string
-    - brief: The limit of its own that ended a completed turn.
-      key: kagent.turn.stopped_by
-      note: |
-        Absent for a turn that finished on its own. The turn is complete either way, and the next turn continues the conversation.
-      provenance:
-        path: telemetry/registry/kagent.yaml
-      requirement_level:
-        conditionally_required: The turn ended at one of its own limits.
-      stability: development
-      type:
-        members:
-        - brief: The turn reached its cost budget.
-          id: budget
-          stability: development
-          value: budget
-        - brief: The turn reached its limit of model turns.
-          id: turns
-          stability: development
-          value: turns
-    brief: Number of completed agent turns.
-    id: kagent.agent.turns
-    instrument: counter
-    name: kagent.agent.turns
-    note: |
-      Counted by the controller once per turn, when the runtime settles the turn\u0027s task as completed, so the count and the stored tasks agree however often the runtime retries the settlement. A failed or canceled turn is not counted. The series of an Agent start at zero when its first task of the process is created. Never per Session, task or person.
-    provenance:
-      path: telemetry/registry/signals.yaml
-    requirement_level: recommended
-    stability: development
-    unit: \u0027{turn}\u0027
   - annotations:
       code_generation:
         metric_value_type: double
@@ -2148,78 +2095,9 @@ registry:
         id: byo
         stability: development
         value: byo
-  - brief: The limit of its own that ended a completed turn.
-    key: kagent.turn.stopped_by
-    note: |
-      Absent for a turn that finished on its own. The turn is complete either way, and the next turn continues the conversation.
-    provenance:
-      path: telemetry/registry/kagent.yaml
-    stability: development
-    type:
-      members:
-      - brief: The turn reached its cost budget.
-        id: budget
-        stability: development
-        value: budget
-      - brief: The turn reached its limit of model turns.
-        id: turns
-        stability: development
-        value: turns
   entities: []
   events: []
   metrics:
-  - attributes:
-    - brief: The human-readable name of the invoked GenAI agent.
-      examples:
-      - Math Tutor
-      - Fiction Writer
-      key: gen_ai.agent.name
-      note: The Agent\u0027s name.
-      provenance:
-        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-      requirement_level: required
-      stability: development
-      type: string
-    - brief: |
-        The name of the namespace that the pod is running in.
-      examples:
-      - default
-      key: k8s.namespace.name
-      note: The Agent\u0027s namespace.
-      provenance:
-        source: https://opentelemetry.io/schemas/1.44.0
-      requirement_level: required
-      stability: stable
-      type: string
-    - brief: The limit of its own that ended a completed turn.
-      key: kagent.turn.stopped_by
-      note: |
-        Absent for a turn that finished on its own. The turn is complete either way, and the next turn continues the conversation.
-      provenance:
-        path: telemetry/registry/kagent.yaml
-      requirement_level:
-        conditionally_required: The turn ended at one of its own limits.
-      stability: development
-      type:
-        members:
-        - brief: The turn reached its cost budget.
-          id: budget
-          stability: development
-          value: budget
-        - brief: The turn reached its limit of model turns.
-          id: turns
-          stability: development
-          value: turns
-    brief: Number of completed agent turns.
-    instrument: counter
-    name: kagent.agent.turns
-    note: |
-      Counted by the controller once per turn, when the runtime settles the turn\u0027s task as completed, so the count and the stored tasks agree however often the runtime retries the settlement. A failed or canceled turn is not counted. The series of an Agent start at zero when its first task of the process is created. Never per Session, task or person.
-    provenance:
-      path: telemetry/registry/signals.yaml
-    requirement_level: recommended
-    stability: development
-    unit: \u0027{turn}\u0027
   - attributes:
     - brief: |
         Describes a class of error the operation ended with.

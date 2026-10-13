@@ -19,7 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/metric/noop"
 )
 
 type observedQuiescenceStore struct {
@@ -29,13 +28,6 @@ type observedQuiescenceStore struct {
 }
 
 var _ workflowStore = (*observedQuiescenceStore)(nil)
-
-func newTaskStoreService(t *testing.T, store taskstore.Store, wake chan<- struct{}) *taskstore.Service {
-	t.Helper()
-	service, err := taskstore.NewService(store, wake, noop.NewMeterProvider())
-	require.NoError(t, err)
-	return service
-}
 
 func (s *observedQuiescenceStore) HasPendingSessionQuiescence(ctx context.Context) (bool, error) {
 	pending, err := s.Client.HasPendingSessionQuiescence(ctx)
@@ -137,7 +129,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		workflow := NewActorWorkflow(writes, runtime, wake, time.Hour)
 		startQuiescenceWorker(t, workflow)
 		workflows = append(workflows, workflow)
-		services = append(services, newTaskStoreService(t, store, wake))
+		services = append(services, taskstore.NewService(store, wake))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 8 }, 5*time.Second, 10*time.Millisecond)
 	// Failed settlement leaves the task unpublished and no eligible work.
@@ -151,7 +143,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	// Fill one replica before waking the other. PostgreSQL does not promise
 	// fair assignment when both replicas compete for the same small burst.
 	// Deliver one coalesced hint per burst to exercise the workers' handoff.
-	coalesced := newTaskStoreService(t, store, nil)
+	coalesced := taskstore.NewService(store, nil)
 	for replica := range 2 {
 		for i := replica * 4; i < (replica+1)*4; i++ {
 			_, err := coalesced.SettleTask(settlementContext(t, sessions[i]), requests[i])
@@ -210,7 +202,7 @@ func TestQuiescenceRecoversMissedSignal(t *testing.T) {
 	startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 100*time.Millisecond))
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 4 }, 5*time.Second, time.Millisecond)
 	// This simulates a commit on a replica that dies before sending its hint.
-	_, err = newTaskStoreService(t, store, nil).SettleTask(settlementContext(t, session), request)
+	_, err = taskstore.NewService(store, nil).SettleTask(settlementContext(t, session), request)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 }

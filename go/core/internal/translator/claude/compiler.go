@@ -116,10 +116,6 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
-	if limits := input.Harness.Spec.Claude.Limits; limits != nil {
-		config.MaxBudgetUSD = limits.BudgetUSD
-		config.MaxTurns = int(limits.MaxTurns)
-	}
 	if err := config.Validate(); err != nil {
 		return nil, translator.NewValidationError("invalid compiled Claude configuration: %v", err)
 	}

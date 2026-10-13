@@ -14,23 +14,6 @@ attributes:
           brief: Claiming, deleting compute for, or finalizing a revision.
           stability: development
 
-  - key: kagent.turn.stopped_by
-    brief: The limit of its own that ended a completed turn.
-    note: >
-      Absent for a turn that finished on its own. The turn is complete either
-      way, and the next turn continues the conversation.
-    stability: development
-    type:
-      members:
-        - id: budget
-          value: budget
-          brief: The turn reached its cost budget.
-          stability: development
-        - id: turns
-          value: turns
-          brief: The turn reached its limit of model turns.
-          stability: development
-
   - key: kagent.runtime
     brief: The runtime that produces the model and tool spans of an agent.
     note: >

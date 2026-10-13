@@ -340,8 +340,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
 			endInvocation()
 			var message *a2atype.Message
-			if outcome.Usage != nil || outcome.StoppedBy != "" {
-				message = taskMessage(reqCtx, limitNotice(outcome.StoppedBy))
+			if outcome.Usage != nil {
+				message = taskMessage(reqCtx, "")
 				message.Metadata = usageMetadata(outcome)
 				apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			}
@@ -775,25 +775,11 @@ func safeFailure(message string) string {
 var _ runtime.EventSink = (*executionSink)(nil)
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
-func limitNotice(stoppedBy string) string {
-	switch stoppedBy {
-	case runtime.LimitBudget:
-		return "The turn stopped at its budget limit; what it did so far is kept, and a follow-up message continues from here."
-	case runtime.LimitTurns:
-		return "The turn stopped at its limit of model turns; what it did so far is kept, and a follow-up message continues from here."
-	default:
-		return ""
-	}
-}
-
 // usageMetadata carries a turn's usage under the canonical usage key, in the
 // token fields every runtime reports, plus the cost and model turns Claude Code
-// also reports, and the limit that stopped the turn.
+// also reports.
 func usageMetadata(outcome runtime.Outcome) map[string]any {
 	metadata := map[string]any{}
-	if outcome.StoppedBy != "" {
-		metadata[apia2a.StoppedByMetadataKey] = outcome.StoppedBy
-	}
 	if usage := outcome.Usage; usage != nil {
 		metadata[apia2a.UsageMetadataKey] = map[string]any{
 			"promptTokenCount":        usage.InputTokens,

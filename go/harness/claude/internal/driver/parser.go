@@ -117,12 +117,6 @@ func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 			CachedTokens: envelope.Usage.CacheReadTokens,
 			OutputTokens: envelope.Usage.OutputTokens,
 		}
-		// A turn that reached one of its own limits is a completed turn: the work
-		// so far is kept, the session continues on the next turn, and the limit
-		// is reported rather than raised as a failure.
-		if stopped, ok := runtime.LimitReached(envelope.Subtype); ok {
-			return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result, Category: stopped, Usage: usage})
-		}
 		if envelope.IsError || envelope.Subtype != "success" {
 			message := envelope.Result
 			if message == "" {

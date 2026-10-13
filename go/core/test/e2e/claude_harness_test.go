@@ -2,51 +2,31 @@ package e2e_test
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// A Claude Harness with a turn cap ends a turn that reaches it as completed,
-// names the limit on the status message and reports the usage it spent.
-func TestClaudeTurnStopsAtItsTurnLimit(t *testing.T) {
+// A completed Claude turn reports the usage it spent on its final status.
+func TestClaudeTurnReportsItsUsage(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
-	kube := interactionKubeClient(t)
-	harness := cloneHarness(t, kube, claudeE2EHarness, "claude-limits-", func(harness *v1alpha3.Harness) {
-		harness.Spec.Claude.Limits = &v1alpha3.ClaudeHarnessLimits{MaxTurns: 1}
-	})
 	modelURL := reachableServerURL(t, startMockLLMServer(t, claudeInteractionMocks, "mocks/invoke_claude_builtin_tools.json"), "")
-	model := createClaudeMockModel(t, kube, modelURL)
-	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "claude-limits-", Namespace: "kagent",
-			Labels: map[string]string{"kagent.dev/e2e-runtime": "claude"},
-		},
-		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &corev1.LocalObjectReference{Name: model.Name},
-			Description: "Claude turn limit E2E fixture", SystemPrompt: "Use your tools and report what they return.",
-		},
-	}
-	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
-	fixture := newInteractionFixtureForHarnessTemplate(t, target, harness.Name, template.Name)
+	template := createClaudeMockTemplate(t, modelURL)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, claudeE2EHarness, template)
 
 	_, _, task := fixture.send(t, "Create the requested file and read it back.")
-	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "a turn stopped by its limit completes: %s", taskText(task))
-	require.NotNil(t, task.Status.Message, "a limited turn carries a status message")
-	require.Equal(t, runtime.LimitTurns, task.Status.Message.Metadata[apia2a.StoppedByMetadataKey], "metadata = %#v", task.Status.Message.Metadata)
+	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "text = %s", taskText(task))
+	require.NotNil(t, task.Status.Message, "a completed turn with usage carries a status message")
 	usage, ok := task.Status.Message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
 	require.True(t, ok, "usage metadata = %#v", task.Status.Message.Metadata[apia2a.UsageMetadataKey])
 	require.Contains(t, usage, "numTurns")
-	require.Contains(t, strings.ToLower(taskText(task)), "turn", "the completion names the limit: %s", taskText(task))
 }
 
 // With KAGENT_PROPAGATE_TOKEN the Claude harness calls an MCP server as the

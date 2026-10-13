@@ -67,16 +67,9 @@ KAGENT_INVOCATION_SEGMENT: Final = "kagent.invocation.segment"
 KAGENT_RUNTIME: Final = "kagent.runtime"
 """The runtime that produces the model and tool spans of an agent."""
 
-KAGENT_TURN_STOPPED_BY: Final = "kagent.turn.stopped_by"
-"""The limit of its own that ended a completed turn."""
-
 GEN_AI_INVOKE_AGENT_DURATION: Final = "gen_ai.invoke_agent.duration"
 GEN_AI_INVOKE_AGENT_DURATION_UNIT: Final = "s"
 GEN_AI_INVOKE_AGENT_DURATION_DESCRIPTION: Final = "The duration of one execution segment of a kagent agent."
-
-KAGENT_AGENT_TURNS: Final = "kagent.agent.turns"
-KAGENT_AGENT_TURNS_UNIT: Final = "{turn}"
-KAGENT_AGENT_TURNS_DESCRIPTION: Final = "Number of completed agent turns."
 
 KAGENT_RUNTIME_REVISION_GC_DURATION: Final = "kagent.runtime_revision.gc.duration"
 KAGENT_RUNTIME_REVISION_GC_DURATION_UNIT: Final = "s"
@@ -252,12 +245,3 @@ class KagentRuntimeValues(StrEnum):
     """The OpenAI Agents SDK runtime."""
     BYO = "byo"
     """A bring-your-own image built on kagent-core."""
-
-
-class KagentTurnStoppedByValues(StrEnum):
-    """Values of KAGENT_TURN_STOPPED_BY."""
-
-    BUDGET = "budget"
-    """The turn reached its cost budget."""
-    TURNS = "turns"
-    """The turn reached its limit of model turns."""

@@ -48,8 +48,6 @@ const (
 	KagentInvocationSegmentKey = attribute.Key("kagent.invocation.segment")
 	// KagentRuntimeKey is "kagent.runtime". The runtime that produces the model and tool spans of an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
-	// KagentTurnStoppedByKey is "kagent.turn.stopped_by". The limit of its own that ended a completed turn.
-	KagentTurnStoppedByKey = attribute.Key("kagent.turn.stopped_by")
 )
 
 // Values of A2AMethodKey.
@@ -208,26 +206,11 @@ const (
 	KagentRuntimeBYO = "byo"
 )
 
-// Values of KagentTurnStoppedByKey.
-const (
-	// KagentTurnStoppedByBudget: The turn reached its cost budget.
-	KagentTurnStoppedByBudget = "budget"
-	// KagentTurnStoppedByTurns: The turn reached its limit of model turns.
-	KagentTurnStoppedByTurns = "turns"
-)
-
 // GenAIInvokeAgentDuration: The duration of one execution segment of a kagent agent.
 const (
 	GenAIInvokeAgentDuration            = "gen_ai.invoke_agent.duration"
 	GenAIInvokeAgentDurationUnit        = "s"
 	GenAIInvokeAgentDurationDescription = "The duration of one execution segment of a kagent agent."
-)
-
-// KagentAgentTurns: Number of completed agent turns.
-const (
-	KagentAgentTurns            = "kagent.agent.turns"
-	KagentAgentTurnsUnit        = "{turn}"
-	KagentAgentTurnsDescription = "Number of completed agent turns."
 )
 
 // KagentRuntimeRevisionGCDuration: Duration of a runtime revision garbage collection attempt.

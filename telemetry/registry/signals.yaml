@@ -1,28 +1,5 @@
 file_format: definition/2
 metrics:
-  - name: kagent.agent.turns
-    requirement_level: recommended
-    instrument: counter
-    unit: "{turn}"
-    brief: Number of completed agent turns.
-    note: >
-      Counted by the controller once per turn, when the runtime settles the
-      turn's task as completed, so the count and the stored tasks agree however
-      often the runtime retries the settlement. A failed or canceled turn is not
-      counted. The series of an Agent start at zero when its first task of the
-      process is created. Never per Session, task or person.
-    stability: development
-    attributes:
-      - ref: gen_ai.agent.name
-        requirement_level: required
-        note: The Agent's name.
-      - ref: k8s.namespace.name
-        requirement_level: required
-        note: The Agent's namespace.
-      - ref: kagent.turn.stopped_by
-        requirement_level:
-          conditionally_required: The turn ended at one of its own limits.
-
   - name: kagent.runtime_revision.gc.pending
     requirement_level: recommended
     instrument: gauge

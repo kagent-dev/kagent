@@ -9,7 +9,6 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -99,10 +98,6 @@ type Config struct {
 	Agents                map[string]Agent       `json:"agents,omitempty"`
 	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
-	// MaxBudgetUSD and MaxTurns bound one turn (--max-budget-usd, --max-turns);
-	// zero values leave the bound unset.
-	MaxBudgetUSD string `json:"max_budget_usd,omitempty"`
-	MaxTurns     int    `json:"max_turns,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy. It is absent for standalone runs, which fall back to the
 	// environment for service identity and leave capture disabled.
@@ -155,8 +150,6 @@ func Production(model, instruction string) Config {
 	}
 }
 
-var budgetPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,4})?$`)
-
 func Parse(b []byte) (Config, error) {
 	var cfg Config
 	dec := json.NewDecoder(strings.NewReader(string(b)))
@@ -188,15 +181,6 @@ func (c Config) Validate() error {
 	}
 	if err := c.RuntimeTelemetry.Validate(); err != nil {
 		return err
-	}
-	if c.MaxBudgetUSD != "" {
-		budget, err := strconv.ParseFloat(c.MaxBudgetUSD, 64)
-		if err != nil || !budgetPattern.MatchString(c.MaxBudgetUSD) || budget <= 0 {
-			return fmt.Errorf("max_budget_usd %q must be a positive decimal amount", c.MaxBudgetUSD)
-		}
-	}
-	if c.MaxTurns < 0 {
-		return fmt.Errorf("max_turns must not be negative")
 	}
 	if runtime := c.RuntimeTelemetry.Runtime; runtime != "" && runtime != tracing.RuntimeClaude {
 		return fmt.Errorf("claude runtime telemetry names runtime %q", runtime)
