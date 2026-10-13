@@ -332,17 +332,17 @@ write access.
 
 ## Contributing
 
-- **Every patch is prepared for upstream, and the upstream pull requests are opened in batches.** Work on
+- **Every patch is prepared for upstream; a human decides what goes upstream.** Work on
   a branch of this repository (`fix/…`, `feat/…`) and open the pull request here against `giantswarm`: the
   change is one upstream-ready commit, with its `fork/carried/` file. Beside it, push its upstream branch
   `upstream/<slug>` to this repository: the commit on the mirror's `main` at the pin (or on the upstream
   branch it depends on), DCO-signed, with no fork references, its message the upstream pull request's
-  text. The carried file's `Upstream` column records it: "to file — prepared in the fork: branch
-  `upstream/<slug>`", with what the branch is based on and the upstream search. Opening the upstream pull request (kagent-dev/kagent; a workflow run on a pull
-  request from a fork waits for a maintainer's approval) is not a step of the fork pull request: whoever
-  maintains the line's upstream relationship opens the prepared branches in batches. Once one is opened,
-  the `Upstream` column links it and the upstream pull request names the fork commit, so the two
-  reference each other.
+  text, and queue it as a row on [giantswarm/giantswarm#37742](https://github.com/giantswarm/giantswarm/issues/37742). The carried file's `Upstream` column records it:
+  "to file — prepared in the fork: branch `upstream/<slug>`", with what the branch is based on and the upstream
+  search. Opening the upstream pull request (kagent-dev/kagent) is not a step of the fork pull request: a human
+  decides what goes upstream and opens it, and an agent never opens, comments on, reviews or closes anything on the
+  upstream repository. Once one is opened, the `Upstream` column links it and the upstream pull request names the
+  fork commit, so the two reference each other.
 - **Lint with `make -C go lint`** (`make -C go lint-fix` to apply the fixes), the command CI's `go-lint`
   runs. `go/.golangci.yaml` enables `kubeapilinter`, a custom linter loaded as a Go plugin from
   `go/bin/kube-api-linter.so`; a plugin loads only into a binary built with the same toolchain and
