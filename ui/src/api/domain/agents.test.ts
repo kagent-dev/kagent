@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentTemplate } from "./agentTemplates";
-import { agentDescription, agentRevisionState, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
+import { agentDescription, agentRevisionState, isAgentSettling, newConversationBlockedReason, type Agent, type AgentStatus } from "./agents";
 
 function agent(status?: AgentStatus): Agent {
   return { name: "a", namespace: "team", ref: "team/a", resource: { metadata: { name: "a", namespace: "team" }, spec: { templateRef: { name: "shared" }, harnessRef: { name: "runner" } }, status } };
@@ -31,6 +31,13 @@ describe("Agent readiness", () => {
   });
   it("treats any Ready failure other than a pending snapshot as failed", () => {
     expect(agentRevisionState(agent({ desiredRevision: "new", conditions: [{ type: "Ready", status: "False", reason: "ActorTemplateConflict" }] }))).toBe("failed");
+  });
+  it("counts only the states the controller moves on its own as settling", () => {
+    expect(isAgentSettling(agent({ latestSuccessfulRevision: "good", desiredRevision: "new" }))).toBe(true);
+    expect(isAgentSettling(agent({ desiredRevision: "new" }))).toBe(true);
+    expect(isAgentSettling(agent({ latestSuccessfulRevision: "good", desiredRevision: "good" }))).toBe(false);
+    expect(isAgentSettling(agent({ desiredRevision: "new", conditions: [{ type: "Compatible", status: "False" }] }))).toBe(false);
+    expect(isAgentSettling(agent())).toBe(false);
   });
   it("blocks an Agent the controller has not reported on", () => {
     expect(agentRevisionState(agent())).toBe("notReported");

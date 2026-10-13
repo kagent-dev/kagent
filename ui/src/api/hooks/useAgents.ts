@@ -1,18 +1,27 @@
-import type { Agent } from "../domain/agents";
+import { isAgentSettling, type Agent } from "../domain/agents";
 import { apiClient } from "../client";
 import { useApiResource } from "./useApiResource";
 import { useInvalidateKeys } from "./useInvalidateKeys";
+import { useRefreshWhile } from "./useRefreshWhile";
+
+/**
+ * How often an Agent the controller is still preparing is re-read. Its revision state
+ * changes without anyone editing it, so a page read once would show "Updating" forever.
+ */
+export const SETTLING_AGENT_POLL_MS = 5000;
 
 export function useAgent(namespace: string | undefined, name: string | undefined) {
-  return useApiResource(
+  const resource = useApiResource(
     namespace && name ? ["agents.get", namespace, name] : null,
     () => apiClient.agentBuildingBlocks.agent(namespace!, name!),
   );
+  useRefreshWhile(Boolean(resource.data && isAgentSettling(resource.data)), resource.refresh, SETTLING_AGENT_POLL_MS);
+  return resource;
 }
 
 export function useAgentsAcrossNamespaces(namespaces: readonly string[] | undefined) {
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
-  return useApiResource(key !== undefined ? ["agents.listAll", key] : null, async () => {
+  const resource = useApiResource(key !== undefined ? ["agents.listAll", key] : null, async () => {
     const names = key ? key.split(",") : [];
     const results = await Promise.allSettled(
       names.map((namespace) => apiClient.agentBuildingBlocks.agents(namespace)),
@@ -34,6 +43,8 @@ export function useAgentsAcrossNamespaces(namespaces: readonly string[] | undefi
     }
     return { agents, refused };
   });
+  useRefreshWhile(Boolean(resource.data?.agents.some(isAgentSettling)), resource.refresh, SETTLING_AGENT_POLL_MS);
+  return resource;
 }
 
 const KEYS = ["agents."];
