@@ -170,6 +170,6 @@ cat >/dev/null
 		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set credentialProvider.namespacePolicies[0].atespace=kagent --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent --set postgres.clientCertificates.enabled=true",
-		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set substrateWorkerPool.create=true --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v2 --set database.postgres.clientCertificate.enabled=true --set database.postgres.schema=kagent --set database.postgres.vectorSchema=extensions",
+		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set substrateWorkerPool.create=true --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v2 --set database.postgres.clientCertificate.enabled=true",
 	}, strings.Split(strings.TrimSpace(string(commands)), "\n"))
 }

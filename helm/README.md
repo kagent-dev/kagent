@@ -99,8 +99,6 @@ Kagent 1.x also stores its tables in the `kagent` schema instead of `public`, an
 
 The move has no down path. A controller of a release from before it, started after the move (a rollback), finds `public` empty and creates new, empty tables there; the moved data stays in `schema`, and the next start of a release with the move refuses the split database. Before rolling back, move the tables back as their owner: `ALTER TABLE`, `ALTER VIEW` or `ALTER SEQUENCE kagent.<name> SET SCHEMA public` for every table, view and unowned sequence of `schema`, and `ALTER EXTENSION vector SET SCHEMA public`.
 
-The Giant Swarm line's chart defaults `schema` and `vectorSchema` to `public`, where its installations from before this change hold their tables and pgvector, so an upgrade keeps them. `kagent install` sets `kagent` and `extensions` for the database it creates.
-
 #### OIDC authentication
 
 Set `controller.auth.mode: trusted-proxy` together with

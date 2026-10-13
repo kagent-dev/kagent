@@ -12,7 +12,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/spf13/cobra"
 
@@ -258,10 +257,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 
 	if !skipDatabaseSetup {
-		helmConfig.values = append(helmConfig.values, "database.postgres.clientCertificate.enabled=true",
-			// The bundled database's schemas; the chart's defaults keep an existing installation's.
-			"database.postgres.schema="+consts.DefaultPostgresTableSchema,
-			"database.postgres.vectorSchema="+consts.DefaultPgvectorSchema)
+		helmConfig.values = append(helmConfig.values, "database.postgres.clientCertificate.enabled=true")
 	}
 	s.Suffix = fmt.Sprintf(" Installing kagent [%s] Using %s:%s %v", modelProvider, helmConfig.registry, helmConfig.version, redactedValues)
 	if output, err := installChart(ctx, "kagent", cfg.Namespace, helmConfig.registry, helmConfig.version, helmConfig.values, helmConfig.inlineValues); err != nil {

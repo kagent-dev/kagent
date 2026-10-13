@@ -120,13 +120,11 @@ database:
     # Unset, it is kagent_owner, or none with urlFile; "" assumes none.
     # @default -- kagent_owner, none with urlFile
     role: null
-    # -- Schema for Kagent tables. The Giant Swarm line keeps `public`, where every
-    # installation before this release holds its tables; a clean install may set `kagent`.
-    schema: public
+    # -- Schema for Kagent tables.
+    schema: kagent
     # -- Schema for the shared pgvector extension. Existing installations must match this value.
     # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
-    # The Giant Swarm line keeps `public`, where earlier releases' migration created the extension.
-    vectorSchema: public
+    vectorSchema: extensions
     # -- Enable the pgvector migration
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
