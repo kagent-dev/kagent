@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
+
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 

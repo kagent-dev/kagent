@@ -8,10 +8,11 @@ import (
 	"time"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"github.com/spf13/cobra"
+
 	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
-	"github.com/spf13/cobra"
 )
 
 // processEvent keeps command output separate from metadata in JSON mode. Data

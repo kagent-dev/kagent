@@ -9,13 +9,6 @@ import (
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
-	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,6 +16,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
+
+	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 const (

@@ -1,8 +1,9 @@
 package commands
 
 import (
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/spf13/cobra"
+
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 )
 
 // NewDashboardCmd constructs the kagent dashboard command.

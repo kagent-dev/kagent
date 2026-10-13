@@ -11,15 +11,16 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
+	"istio.io/istio/pkg/kube/krt"
+
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	adkagent "github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/adk/v2/runner"
-	adksession "google.golang.org/adk/v2/session"
-	"istio.io/istio/pkg/kube/krt"
 )
 
 // Exercise the compiled payload through the real Go ADK executor against an

@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
 // Start starts a pgvector Postgres container and returns the connection string

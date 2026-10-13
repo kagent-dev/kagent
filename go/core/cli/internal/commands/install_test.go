@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
+
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
-	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/yaml"
 )
 
 func TestDeleteCRDsLeavesLegacyGroupAlone(t *testing.T) {

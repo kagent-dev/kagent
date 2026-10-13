@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 var _ manager.Runnable = (*ActorWorkflow)(nil)

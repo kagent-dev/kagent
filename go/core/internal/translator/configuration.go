@@ -1,8 +1,9 @@
 package translator
 
 import (
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // TemplateConfiguration is reusable behavior resolved for compilation.

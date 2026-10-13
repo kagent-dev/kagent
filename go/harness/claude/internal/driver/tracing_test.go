@@ -16,10 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 func TestTracingGateEnvironment(t *testing.T) {

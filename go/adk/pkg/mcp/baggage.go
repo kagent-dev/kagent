@@ -5,12 +5,13 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // An MCP session is shared by every request the runtime serves, and opens

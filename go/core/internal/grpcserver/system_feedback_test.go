@@ -8,11 +8,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -25,6 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func TestSystemGeneratedClient(t *testing.T) {

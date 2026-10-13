@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 	"k8s.io/client-go/tools/clientcmd"
+
+	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 )
 
 // NewKagentClientset builds the generated kagent clientset from the ambient

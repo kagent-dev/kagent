@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 )
 
 type mcpCompilation struct {

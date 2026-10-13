@@ -14,10 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	"github.com/stretchr/testify/require"
 )
 
 const (

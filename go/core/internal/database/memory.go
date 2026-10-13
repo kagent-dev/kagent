@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvector "github.com/pgvector/pgvector-go"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // StoreAgentMemories inserts one or more memories atomically and assigns generated IDs

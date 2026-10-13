@@ -5,8 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 func TestSharedRuntimeContract(t *testing.T) {

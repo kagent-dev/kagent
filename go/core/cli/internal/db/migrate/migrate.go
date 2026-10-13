@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 

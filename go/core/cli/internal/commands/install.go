@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/briandowns/spinner"
+	"github.com/spf13/cobra"
+
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/spf13/cobra"
-
-	"github.com/briandowns/spinner"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
+	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
 
 type InstallCfg struct {

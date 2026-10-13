@@ -5,11 +5,12 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // isEmptyDataPart returns true if the part is a DataPart with nil or empty Data.

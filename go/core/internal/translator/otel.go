@@ -4,13 +4,14 @@ import (
 	"maps"
 	"strings"
 
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
-	corev1 "k8s.io/api/core/v1"
 )
 
 type Signal string

@@ -11,15 +11,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
-	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
-	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
-	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -30,6 +21,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/workqueue"
+
+	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
+	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
+	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
+	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 )
 
 // AgentReconciliation is the complete desired and observed state for one

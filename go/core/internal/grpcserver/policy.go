@@ -3,9 +3,10 @@ package grpcserver
 import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type MethodPolicies map[string]auth.AccessMode

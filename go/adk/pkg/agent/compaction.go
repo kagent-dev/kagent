@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/adk/v2/session/compaction"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"google.golang.org/adk/v2/session/compaction"
 )
 
 // summarizerTimeout bounds one summarization call. Compaction runs inside the

@@ -14,9 +14,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // bedrockToolIDValid matches Bedrock's toolUseId constraint: [a-zA-Z0-9_.:-]+

@@ -3,9 +3,14 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"log/slog"
+	adkmemory "google.golang.org/adk/v2/memory"
+	adkplugin "google.golang.org/adk/v2/plugin"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
+	adktool "google.golang.org/adk/v2/tool"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
@@ -13,11 +18,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	adkmemory "google.golang.org/adk/v2/memory"
-	adkplugin "google.golang.org/adk/v2/plugin"
-	"google.golang.org/adk/v2/runner"
-	adksession "google.golang.org/adk/v2/session"
-	adktool "google.golang.org/adk/v2/tool"
 )
 
 func agentNameFromAppName(appName string) string {

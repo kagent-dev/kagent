@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -16,6 +14,9 @@ import (
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func convDataPart(data map[string]any, metadata map[string]any) *a2atype.Part {

@@ -8,12 +8,13 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	tea "github.com/charmbracelet/bubbletea"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 )
 
 var testTime = time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)

@@ -5,9 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 )
 
 func TestGetProjectDir(t *testing.T) {
