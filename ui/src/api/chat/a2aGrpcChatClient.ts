@@ -263,31 +263,7 @@ function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
     }
     result.push(part);
   }
-  return withToolArguments(result);
-}
-
-function withToolArguments(parts: ChatPart[]): ChatPart[] {
-  const parameters = new Map<string, object>();
-  for (const part of parts) {
-    if (
-      part.kind !== "data" || part.dataKind !== "tool_result" ||
-      typeof part.data.id !== "string"
-    ) continue;
-    const response = part.data.response;
-    if (typeof response !== "object" || response === null || !("params" in response)) continue;
-    const args = response.params;
-    if (typeof args === "object" && args !== null && !Array.isArray(args)) {
-      parameters.set(part.data.id, args);
-    }
-  }
-  return parts.map((part) => {
-    if (
-      part.kind !== "data" || part.dataKind !== "tool_call" ||
-      typeof part.data.id !== "string"
-    ) return part;
-    const args = parameters.get(part.data.id);
-    return args ? { ...part, data: { ...part.data, args } } : part;
-  });
+  return result;
 }
 
 type ControlFlowResult = "confirmation_required" | "rejected";
@@ -665,7 +641,7 @@ export class A2AGrpcChatClient implements ChatClient {
             const combined = event.append ? [...previous, ...parts] : parts;
             const updated: ChatPart[] = textOnly
               ? [{ kind: "text", text: textOf(combined) }]
-              : withToolArguments(combined);
+              : combined;
             artifacts.set(id, updated);
             if (event.append && textOnly) {
               yield { type: "delta", messageId: id, text: body };

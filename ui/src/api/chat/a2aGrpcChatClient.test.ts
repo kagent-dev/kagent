@@ -575,41 +575,51 @@ describe("A2AGrpcChatClient.send", () => {
     ]);
   });
 
-  it("associates executed parameters with their invocation by call id", async () => {
-    const frame = (parts: unknown[], append = false) => ({
-      payload: {
-        case: "artifactUpdate",
-        value: {
-          taskId: "task-1",
-          artifact: { artifactId: "tools", parts },
-          append,
+  it.each([{}, { query: { page_size: 10 } }])(
+    "preserves streamed invocation arguments when tool output contains params: %j",
+    async (args) => {
+      const frame = (parts: unknown[], append = false) => ({
+        payload: {
+          case: "artifactUpdate",
+          value: {
+            taskId: "task-1",
+            artifact: { artifactId: "tools", parts },
+            append,
+          },
         },
-      },
-    });
-    const events = await turn([
-      frame([
-        data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
-        data({ id: "call-2", name: "alerts_list_alerts", args: {} }),
-      ]),
-      frame([
-        data({
-          id: "call-2",
-          name: "alerts_list_alerts",
-          response: { data: "observed alert", params: { query: { page_size: 1 } } },
-        }),
-      ], true),
-    ]);
-    const messages = events.filter((event) => event.type === "message");
-    expect(messages[0].message.parts).toMatchObject([
-      { data: { id: "call-1", args: {} } },
-      { data: { id: "call-2", args: {} } },
-    ]);
-    expect(transcript(events)[0].parts).toMatchObject([
-      { data: { id: "call-1", args: {} } },
-      { data: { id: "call-2", args: { query: { page_size: 1 } } } },
-      { data: { id: "call-2" } },
-    ]);
-  });
+      });
+      const events = await turn([
+        frame([
+          data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
+          data({ id: "call-2", name: "alerts_list_alerts", args }),
+        ]),
+        frame([
+          data({
+            id: "call-2",
+            name: "alerts_list_alerts",
+            response: { data: "observed alert", params: { query: { page_size: 1 } } },
+          }),
+        ], true),
+      ]);
+      const messages = events.filter((event) => event.type === "message");
+      expect(messages[0].message.parts).toMatchObject([
+        { data: { id: "call-1", args: {} } },
+        { data: { id: "call-2", args } },
+      ]);
+      expect(messages[0].message.parts[1]).toHaveProperty("data.args", args);
+      expect(transcript(events)[0].parts).toMatchObject([
+        { data: { id: "call-1", args: {} } },
+        { data: { id: "call-2", args } },
+        {
+          data: {
+            id: "call-2",
+            response: { data: "observed alert", params: { query: { page_size: 1 } } },
+          },
+        },
+      ]);
+      expect(transcript(events)[0].parts[1]).toHaveProperty("data.args", args);
+    },
+  );
 
   it("does not double the answer when the last chunk repeats what was streamed", async () => {
     // The closing frame carries the whole reply rather than the last increment, and
@@ -855,32 +865,40 @@ describe("A2AGrpcChatClient.send", () => {
 });
 
 describe("A2AGrpcChatClient.history", () => {
-  it("restores executed tool parameters when reopening a conversation", async () => {
-    serveTasks([
-      {
-        id: "task-1",
-        contextId: CONVERSATION.id,
-        status: { state: TaskState.COMPLETED },
-        artifacts: [{
-          artifactId: "call-1",
-          parts: [
-            data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
-            data({
-              id: "call-1",
-              name: "alerts_list_alerts",
-              response: { data: "observed alert", params: { query: { page_size: 1 } } },
-            }),
-          ],
-        }],
-      },
-    ]);
+  it.each([{}, { query: { page_size: 10 } }])(
+    "preserves saved invocation arguments when tool output contains params: %j",
+    async (args) => {
+      serveTasks([
+        {
+          id: "task-1",
+          contextId: CONVERSATION.id,
+          status: { state: TaskState.COMPLETED },
+          artifacts: [{
+            artifactId: "call-1",
+            parts: [
+              data({ id: "call-1", name: "alerts_list_alerts", args }),
+              data({
+                id: "call-1",
+                name: "alerts_list_alerts",
+                response: { data: "observed alert", params: { query: { page_size: 1 } } },
+              }),
+            ],
+          }],
+        },
+      ]);
 
-    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages[0].parts[0]).toMatchObject({
-      dataKind: "tool_call",
-      data: { id: "call-1", name: "alerts_list_alerts", args: { query: { page_size: 1 } } },
-    });
-  });
+      const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+      expect(messages[0].parts[0]).toMatchObject({
+        dataKind: "tool_call",
+        data: { id: "call-1", name: "alerts_list_alerts", args },
+      });
+      expect(messages[0].parts[0]).toHaveProperty("data.args", args);
+      expect(messages[0].parts[1]).toMatchObject({
+        dataKind: "tool_result",
+        data: { response: { data: "observed alert", params: { query: { page_size: 1 } } } },
+      });
+    },
+  );
 
   it("routes history and cancellation to the conversation's Agent", async () => {
     const seen: unknown[] = [];
