@@ -99,6 +99,11 @@ func (s *gatewayTestStore) InterruptSessionTask(_ context.Context, _, taskID str
 	if s.interruptErr != nil {
 		return nil, s.interruptErr
 	}
+	if s.task != nil && string(s.task.ID) == taskID {
+		ended := *s.task
+		ended.Status = a2atype.TaskStatus{State: a2atype.TaskStateFailed, Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(message))}
+		s.task = &ended
+	}
 	return &database.SessionTaskInterruption{State: a2atype.TaskStateFailed}, nil
 }
 
@@ -1252,6 +1257,23 @@ func TestGatewayFailsTheTurnWhenRuntimeIsLostAfterTakingTheInput(t *testing.T) {
 				require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
 				require.EqualError(t, err, want)
 				require.Equal(t, 1, store.reserveCalls, "a failed session reserves no dispatch")
+			})
+			t.Run("crashed with a snapshot", func(t *testing.T) {
+				session := gatewayTestSession()
+				taken := &a2atype.Task{ID: "task", ContextID: session.ContextId, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+				store := &gatewayTestStore{session: session, task: taken, lostCause: "Actor team-a/session-8bd650a8 crashed: worker drained"}
+				runtime := &gatewayTestRuntime{onSend: func() error {
+					store.replay = taken
+					return lost
+				}}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+				result, err := send(t, gateway, streaming)
+				require.NoError(t, err)
+				require.Equal(t, a2atype.TaskStateFailed, result.Status.State, "the send is answered with the ended turn")
+				require.Equal(t, "task", store.interruptedTask, "the crashed Actor's turn ends at once")
+				require.Contains(t, store.interruptionMessage, "worker drained")
+				require.Nil(t, store.failed, "an Actor back at its snapshot is no loss")
+				require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, store.session.State)
 			})
 			t.Run("intact", func(t *testing.T) {
 				session := gatewayTestSession()

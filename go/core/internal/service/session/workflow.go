@@ -74,6 +74,10 @@ type ActorWorkflow struct {
 	// wait between resumes, of the turn's and of a lifecycle attempt's.
 	busyWait  time.Duration
 	busyRetry time.Duration
+	// crashWait bounds how long TurnCrash asks again about an Actor still
+	// RUNNING under a broken turn, every crashRetry.
+	crashWait  time.Duration
+	crashRetry time.Duration
 	// directories tells the owner of a deleted session's volume that the
 	// session's directory may go.
 	directories DirectoryReleaser
@@ -145,7 +149,7 @@ func WithDirectoryReleaser(releaser DirectoryReleaser) WorkflowOption {
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, options ...WorkflowOption) *ActorWorkflow {
 	workflow := &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, settleDelay: time.Second, claimLease: 30 * time.Second,
-		busyWait: 2 * time.Minute, busyRetry: 500 * time.Millisecond}
+		busyWait: 2 * time.Minute, busyRetry: 500 * time.Millisecond, crashWait: 15 * time.Second, crashRetry: time.Second}
 	for _, option := range options {
 		option(workflow)
 	}
@@ -310,33 +314,69 @@ func (e *RuntimeLossError) Is(target error) bool { return target == ErrRuntimeLo
 
 func (e *RuntimeLossError) Unwrap() error { return e.Err }
 
-// RuntimeLost reports whether the session's runtime can no longer take a turn:
-// the Actor is gone, or Substrate reports it CRASHED without a durable snapshot
-// to return it to, so every later message would fail the way the last one did.
-// A crashed Actor that holds an external snapshot is not lost: Substrate
-// returns such an Actor to that snapshot when its crash was the worker going
-// away under it (a drain, a replaced pod, an unreachable ateom), the resume
-// recovers it (AwaitRuntime), and the conversation goes on from the snapshot;
-// a crash Substrate does not recover from is settled by the resume it refuses.
-// The cause names the Actor and what became of it. An answer Substrate cannot
-// give is returned as the error it is: not knowing is not the same as lost.
+// RuntimeLost reports whether the session's Actor crashed and whether its
+// runtime can no longer take a turn. The runtime is lost when the Actor is
+// gone, or Substrate reports it CRASHED without a durable snapshot to return it
+// to, so every later message would fail the way the last one did. A crashed
+// Actor that holds an external snapshot is not lost: Substrate returns such an
+// Actor to that snapshot when its crash was the worker going away under it (a
+// drain, a replaced pod, an unreachable ateom), the resume recovers it
+// (AwaitRuntime), and the conversation goes on from the snapshot; a crash
+// Substrate does not recover from is settled by the resume it refuses. The
+// cause, empty while the Actor has not crashed, names the Actor and what became
+// of it, with the crash's message when Substrate recorded one. An answer
+// Substrate cannot give is returned as the error it is: not knowing is not the
+// same as lost.
 func (w *ActorWorkflow) RuntimeLost(ctx context.Context, session *apiv1alpha1.Session) (string, bool, error) {
+	cause, lost, _, err := w.actorCrash(ctx, session)
+	return cause, lost, err
+}
+
+// TurnCrash is RuntimeLost for a turn whose runtime stream broke: Substrate
+// marks the Actor CRASHED only once it notices that the worker went away under
+// the turn, so an Actor still RUNNING is asked about again, every crashRetry
+// for at most crashWait. An Actor still RUNNING at that bound has not crashed.
+func (w *ActorWorkflow) TurnCrash(ctx context.Context, session *apiv1alpha1.Session) (string, bool, error) {
+	deadline := time.Now().Add(w.crashWait)
+	for {
+		cause, lost, state, err := w.actorCrash(ctx, session)
+		if err != nil || state != ateapipb.ActorState_ACTOR_STATE_RUNNING || !time.Now().Before(deadline) {
+			return cause, lost, err
+		}
+		select {
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		case <-time.After(min(w.crashRetry, time.Until(deadline))):
+		}
+	}
+}
+
+// actorCrash is RuntimeLost with the state the Actor was found in.
+func (w *ActorWorkflow) actorCrash(ctx context.Context, session *apiv1alpha1.Session) (string, bool, ateapipb.ActorState, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
-		return "", false, fmt.Errorf("load prepared revision: %w", err)
+		return "", false, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED, fmt.Errorf("load prepared revision: %w", err)
 	}
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	actor, err := w.actors.GetActor(ctx, atespace, name)
 	if status.Code(err) == codes.NotFound {
-		return fmt.Sprintf("Actor %s/%s not found", atespace, name), true, nil
+		return fmt.Sprintf("Actor %s/%s not found", atespace, name), true, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
+		return "", false, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED, fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
 	}
-	if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED && actor.GetStatus().GetExternalSnapshot().GetSnapshotUri() == "" {
-		return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, nil
+	state := actor.GetStatus().GetState()
+	if state != ateapipb.ActorState_ACTOR_STATE_CRASHED {
+		return "", false, state, nil
 	}
-	return "", false, nil
+	if actor.GetStatus().GetExternalSnapshot().GetSnapshotUri() == "" {
+		return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, state, nil
+	}
+	cause := fmt.Sprintf("Actor %s/%s crashed", atespace, name)
+	if message := actor.GetStatus().GetCrash().GetMessage(); message != "" {
+		cause += ": " + message
+	}
+	return cause, false, state, nil
 }
 
 // AwaitRuntime resumes the session's Actor, waiting while Substrate answers

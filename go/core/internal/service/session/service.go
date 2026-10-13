@@ -49,6 +49,7 @@ type sessionWorkflow interface {
 	Resume(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	RuntimeLost(context.Context, *apiv1alpha1.Session) (string, bool, error)
+	TurnCrash(context.Context, *apiv1alpha1.Session) (string, bool, error)
 	RepointQuiesced(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	AwaitRuntime(context.Context, *apiv1alpha1.Session) error
 }
@@ -168,26 +169,44 @@ func (s *Service) FailLostRuntime(ctx context.Context, session *apiv1alpha1.Sess
 }
 
 // FailLostTurn ends the session's turn whose runtime stream broke after the
-// runtime took its input, when the runtime is gone: a runtime that crashed
-// with a turn in flight saves nothing more for it, so the caller waiting for
-// the turn's boundary would wait until its deadline and the session would keep
-// the turn as active work until the stalled sweep. The turn ends FAILED with
-// the loss's message, the session records the loss, and the failure is
-// returned for the caller's answer. A turn that moved on meanwhile keeps its
-// outcome; the loss is recorded all the same. A turn whose runtime work is not
-// settled, another attempt's reservation or claimed idle work, is left alone
-// with that error: the next send settles the loss. A runtime that is not lost,
-// or whose state cannot be read, returns nil and leaves the turn to its runtime.
+// runtime took its input, when its Actor crashed: a crashed Actor saves nothing
+// more for the turn, also when Substrate returns it to its snapshot, so the
+// caller waiting for the turn's boundary would wait until its deadline and the
+// session would keep the turn as active work until the stalled sweep. The turn
+// ends FAILED with the crash's message. When the runtime is lost the session
+// records the loss and the failure is returned for the caller's answer; when
+// the Actor returns to its snapshot the session stays READY, nil is returned,
+// and the caller answers with the ended turn. A turn that moved on meanwhile
+// keeps its outcome; a loss is recorded all the same. A turn whose runtime work
+// is not settled, another attempt's reservation or claimed idle work, is left
+// alone with that error: the next send settles it. An Actor that has not
+// crashed, or whose state cannot be read, returns nil and leaves the turn to
+// its runtime.
 func (s *Service) FailLostTurn(ctx context.Context, session *apiv1alpha1.Session, taskID string) (*apiv1alpha1.Failure, error) {
-	failure, err := s.runtimeLoss(ctx, session)
-	if err != nil || failure == nil {
+	cause, lost, err := s.workflow.TurnCrash(ctx, session)
+	if err != nil || cause == "" {
 		return nil, err
 	}
-	_, err = s.store.InterruptSessionTask(ctx, session.GetId(), taskID, time.Time{}, failure.GetMessage())
+	var failure *apiv1alpha1.Failure
+	message := crashedTurnMessage(cause)
+	if lost {
+		failure = runtimeLostFailure(cause)
+		message = failure.GetMessage()
+	}
+	_, err = s.store.InterruptSessionTask(ctx, session.GetId(), taskID, time.Time{}, message)
 	if err != nil && !errors.Is(err, database.ErrConflict) && !errors.Is(err, database.ErrNotFound) {
 		return nil, err
 	}
+	if failure == nil {
+		return nil, nil
+	}
 	return s.failLost(ctx, session, failure)
+}
+
+// crashedTurnMessage ends a turn whose Actor crashed under it and returns to
+// its snapshot: the turn is gone, the conversation is not.
+func crashedTurnMessage(cause string) string {
+	return "the session's runtime crashed during this turn: " + cause + "; the conversation goes on from its last snapshot"
 }
 
 // runtimeLoss is the failure the session's runtime is due to, nil while the

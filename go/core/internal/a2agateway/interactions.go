@@ -291,13 +291,15 @@ func (g *Gateway) refusedSend(ctx context.Context, session *apiv1alpha1.Session,
 	return errRuntimeAwaited
 }
 
-// failLostTurn ends a turn the runtime took before its stream broke, when the
-// runtime is lost, and answers the loss: the runtime saves nothing more for
-// that turn, so waiting for its boundary would only wait out the caller's
-// deadline, and the next send would be refused with the same loss. A turn
-// whose boundary the runtime did save is recovered by the caller instead. A
-// runtime that is not lost, or whose state cannot be read, returns nil: the
-// turn's outcome is still the runtime's.
+// failLostTurn ends a turn the runtime took before its stream broke, when its
+// Actor crashed, and answers a lost runtime's loss: the crashed Actor saves
+// nothing more for that turn, so waiting for its boundary would only wait out
+// the caller's deadline, and the next send would be refused with the same
+// loss. An Actor that returns to its snapshot returns nil with the turn ended
+// FAILED, which the caller recovers as the turn's boundary, as it does a
+// boundary the runtime did save. A runtime whose Actor has not crashed, or
+// whose state cannot be read, returns nil: the turn's outcome is still the
+// runtime's.
 func (g *Gateway) failLostTurn(ctx context.Context, session *apiv1alpha1.Session, task *a2atype.Task) error {
 	if isQuiescent(task.Status.State) {
 		return nil

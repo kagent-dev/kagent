@@ -191,14 +191,19 @@ the gateway recovers the committed public result through the interaction service
 task containing the input if suspension interrupts the response; ambiguous message
 IDs and protocol errors are not recovered. Cancellation recovers only a terminal
 task. A send whose stream breaks after the runtime took its input, while the
-task is still submitted or working, first asks whether the runtime is lost: a
-missing Actor, or one crashed without a snapshot to return to, saves nothing
-more for the turn, so the turn ends `FAILED` with the loss's message, the
-session records the loss, and the send is answered with it at once rather than
-waiting for a boundary that never comes; an intact runtime, a crashed Actor
-Substrate returns to its snapshot, or one whose state cannot be read, keeps
-the turn, which the stalled-turn sweep ends if the runtime records nothing
-more for it. An
+task is still submitted or working, first asks whether its Actor crashed. A
+crashed Actor saves nothing more for the turn, whether or not it comes back,
+so the turn ends `FAILED` at once rather than waiting for a boundary that never
+comes. A missing Actor, or one crashed without a snapshot to return to, is a
+lost runtime: the turn ends with the loss's message, the session records the
+loss, and the send is answered with it. A crashed Actor Substrate returns to
+its snapshot ends the turn with the crash's message, the session stays `READY`,
+the send is answered with the ended turn, and the next send resumes the Actor
+from its snapshot. Substrate marks the Actor crashed only once it notices the
+worker is gone, so an Actor still `RUNNING` is asked about again, every second
+for at most 15 seconds. An Actor that has not crashed by then, or whose state
+cannot be read, keeps the turn, which the stalled-turn sweep ends if the
+runtime records nothing more for it. An
 interrupted request with unfinished work
 still returns an error. Clients can replace their
 projection with that current task and apply subsequent upstream A2A updates.

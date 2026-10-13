@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -912,6 +913,7 @@ func TestRuntimeLost(t *testing.T) {
 		name      string
 		state     ateapipb.ActorState
 		snapshot  bool
+		crash     string
 		missing   bool
 		getErr    error
 		wantCause string
@@ -921,8 +923,9 @@ func TestRuntimeLost(t *testing.T) {
 		{name: "missing", missing: true, wantCause: "Actor team-a/" + name + " not found", wantLost: true},
 		{name: "crashed without a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCause: "Actor team-a/" + name + " crashed with no snapshot to return to", wantLost: true},
 		// Substrate returns a crashed Actor to its durable snapshot; the resume
-		// tells whether it can.
-		{name: "crashed with a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, snapshot: true},
+		// tells whether it can. The crash is reported, the runtime is not lost.
+		{name: "crashed with a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, snapshot: true, wantCause: "Actor team-a/" + name + " crashed"},
+		{name: "crashed with a snapshot and a message", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, snapshot: true, crash: "worker drained", wantCause: "Actor team-a/" + name + " crashed: worker drained"},
 		{name: "paused", state: ateapipb.ActorState_ACTOR_STATE_PAUSED},
 		{name: "running", state: ateapipb.ActorState_ACTOR_STATE_RUNNING},
 		{name: "suspended", state: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, snapshot: true},
@@ -938,6 +941,9 @@ func TestRuntimeLost(t *testing.T) {
 				if test.snapshot {
 					actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name + "/last", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL}
 				}
+				if test.crash != "" {
+					actor.Status.Crash = &ateapipb.ActorCrash{Message: test.crash}
+				}
 				actors.actors[actorKey("team-a", name)] = actor
 			}
 			cause, lost, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).RuntimeLost(t.Context(), session)
@@ -951,6 +957,71 @@ func TestRuntimeLost(t *testing.T) {
 			require.Equal(t, test.wantCause, cause)
 		})
 	}
+}
+
+// crashingActors reports the session's Actor RUNNING for the first running
+// reads, then as Substrate records it once it notices the worker went away
+// under the turn: crashed, back at its snapshot.
+type crashingActors struct {
+	*lifecycleTestActors
+	running int
+	reads   int
+}
+
+func (a *crashingActors) GetActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor, err := a.lifecycleTestActors.GetActor(ctx, atespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if a.reads++; a.reads > a.running {
+		actor.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
+		actor.Status.Crash = &ateapipb.ActorCrash{Message: "worker drained"}
+	}
+	return actor, nil
+}
+
+func TestTurnCrash(t *testing.T) {
+	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
+	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
+	name := substrate.ActorName(session.Id)
+	newActors := func(running int) *crashingActors {
+		return &crashingActors{running: running, lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{actorKey("team-a", name): {
+			Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: name, Uid: "actor-uid"},
+			Status: &ateapipb.ActorStatus{
+				State:            ateapipb.ActorState_ACTOR_STATE_RUNNING,
+				ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name + "/last", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL},
+			},
+		}}}}
+	}
+	t.Run("crashes while asked again", func(t *testing.T) {
+		actors := newActors(2)
+		workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+		workflow.crashWait, workflow.crashRetry = time.Second, time.Millisecond
+		cause, lost, err := workflow.TurnCrash(t.Context(), session)
+		require.NoError(t, err)
+		require.False(t, lost, "an Actor back at its snapshot is not lost")
+		require.Equal(t, "Actor team-a/"+name+" crashed: worker drained", cause)
+		require.Equal(t, 3, actors.reads)
+	})
+	t.Run("still running at the bound", func(t *testing.T) {
+		actors := newActors(math.MaxInt)
+		workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+		workflow.crashWait, workflow.crashRetry = 20*time.Millisecond, time.Millisecond
+		cause, lost, err := workflow.TurnCrash(t.Context(), session)
+		require.NoError(t, err)
+		require.False(t, lost)
+		require.Empty(t, cause, "an Actor that has not crashed keeps its turn")
+		require.Greater(t, actors.reads, 1)
+	})
+	t.Run("not running", func(t *testing.T) {
+		actors := newActors(0)
+		workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+		workflow.crashWait, workflow.crashRetry = time.Second, time.Millisecond
+		cause, _, err := workflow.TurnCrash(t.Context(), session)
+		require.NoError(t, err)
+		require.NotEmpty(t, cause)
+		require.Equal(t, 1, actors.reads, "a crashed Actor is answered at once")
+	})
 }
 
 // heldActors answers the resumes in answers in order, the way ate-api answers

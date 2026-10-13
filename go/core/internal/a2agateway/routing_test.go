@@ -57,6 +57,10 @@ func (w gatewayTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) 
 	return w.store.lostCause, w.store.lost, w.store.lostErr
 }
 
+func (w gatewayTestWorkflow) TurnCrash(ctx context.Context, session *apiv1alpha1.Session) (string, bool, error) {
+	return w.RuntimeLost(ctx, session)
+}
+
 func (w gatewayTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
 	w.store.awaitCalls++
 	return w.store.awaitErr

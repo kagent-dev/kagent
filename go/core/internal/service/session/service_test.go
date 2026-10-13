@@ -156,6 +156,10 @@ func (w serviceTestWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) 
 	return w.lostCause, w.lost, w.lostErr
 }
 
+func (w serviceTestWorkflow) TurnCrash(ctx context.Context, session *apiv1alpha1.Session) (string, bool, error) {
+	return w.RuntimeLost(ctx, session)
+}
+
 func (w serviceTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
 	return w.awaitErr
 }
@@ -856,6 +860,17 @@ func TestFailLostTurn(t *testing.T) {
 		require.Equal(t, session.Id, store.failedID)
 		require.Equal(t, apia2a.FailureReasonRuntimeLost, failure.GetReason())
 		require.Equal(t, want, failure.GetMessage())
+	})
+	t.Run("crashed with a snapshot", func(t *testing.T) {
+		store := &serviceTestStore{}
+		crashed := serviceTestWorkflow{lostCause: "Actor team-a/session-session-1 crashed: worker drained"}
+		failure, err := NewService(store, serviceTestAuthorizer{}, crashed).FailLostTurn(t.Context(), session, "task-1")
+		require.NoError(t, err)
+		require.Nil(t, failure, "the runtime returns to its snapshot; nothing refuses later sends")
+		require.Equal(t, "task-1", store.interruptedTask, "the crashed Actor's turn ends at once")
+		require.True(t, store.interruptCutoff.IsZero())
+		require.Equal(t, "the session's runtime crashed during this turn: Actor team-a/session-session-1 crashed: worker drained; the conversation goes on from its last snapshot", store.interruptionMessage)
+		require.Empty(t, store.failedID, "the session stays READY")
 	})
 	t.Run("turn moved on", func(t *testing.T) {
 		for name, interruptErr := range map[string]error{"ended": database.ErrConflict, "gone": database.ErrNotFound} {

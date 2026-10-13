@@ -582,6 +582,10 @@ func (*fakeSessionWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) (
 	return "", false, nil
 }
 
+func (*fakeSessionWorkflow) TurnCrash(context.Context, *apiv1alpha1.Session) (string, bool, error) {
+	return "", false, nil
+}
+
 func (*fakeSessionWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
 	return nil
 }

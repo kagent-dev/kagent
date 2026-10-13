@@ -32,6 +32,10 @@ func (staticSessionWorkflow) RuntimeLost(context.Context, *apiv1alpha1.Session) 
 	return "", false, nil
 }
 
+func (staticSessionWorkflow) TurnCrash(context.Context, *apiv1alpha1.Session) (string, bool, error) {
+	return "", false, nil
+}
+
 func (staticSessionWorkflow) RepointQuiesced(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, nil
 }
