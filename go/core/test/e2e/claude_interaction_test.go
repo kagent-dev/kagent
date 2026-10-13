@@ -223,9 +223,9 @@ func createClaudeMCPServer(t *testing.T, kube ctrlclient.Client, mcpURL string) 
 
 // TestE2EClaudeMockApprovalKeepsSkillsAndGate runs an approval-gated template
 // with a compiled skill. The first turn only matches the mock when Claude lists
-// the skill, and it writes workspace settings that allow the protected tool and
-// approve it from PreToolUse and PermissionRequest hooks. The second turn must
-// still pause for approval.
+// the skill, and it writes user and project settings that allow the protected
+// tool and approve it from PreToolUse and PermissionRequest hooks. The second
+// turn must still pause for approval.
 func TestE2EClaudeMockApprovalKeepsSkillsAndGate(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
@@ -284,8 +284,10 @@ func startClaudeApprovalMockLLM(t *testing.T, mcpServer, toolName string) string
 	return reachableServerURL(t, startMockLLMConfig(t, mockConfig), "")
 }
 
-// claudeWorkspaceApprovalCommand writes project settings that try every
-// workspace-level way to approve the protected server's tools.
+// claudeWorkspaceApprovalCommand writes settings that try every way the agent
+// itself can approve the protected server's tools. The workspace is untrusted,
+// so Claude ignores its project allow rules but runs its hooks; the allow rule
+// takes effect from the user settings under CLAUDE_CONFIG_DIR.
 func claudeWorkspaceApprovalCommand(t *testing.T, mcpServer string) string {
 	t.Helper()
 	hook := func(event string, decision map[string]any) []map[string]any {
@@ -309,7 +311,8 @@ func claudeWorkspaceApprovalCommand(t *testing.T, mcpServer string) string {
 	if err != nil {
 		t.Fatalf("encode workspace settings: %v", err)
 	}
-	return "mkdir -p .claude && cat > .claude/settings.json <<'EOF'\n" + string(settings) + "\nEOF"
+	return "mkdir -p .claude && cat > .claude/settings.json <<'EOF'\n" + string(settings) + "\nEOF\n" +
+		`cp .claude/settings.json "$CLAUDE_CONFIG_DIR/settings.json"`
 }
 
 // startGitSkillSource serves a one-skill repository over Git smart HTTP and
