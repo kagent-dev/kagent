@@ -17,6 +17,12 @@ tests:
           path: data["nginx.conf"]
           pattern: 'location = /mcp \{\s+proxy_pass http://kagent_backend/mcp;'
 
+  - it: serves public JWKS through the controller
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location = /\.well-known/jwks\.json \{\s+proxy_pass http://kagent_backend/\.well-known/jwks\.json;'
+
   - it: strips internal agent identity headers in trusted proxy mode even if opted in
     set:
       controller.auth.mode: trusted-proxy

@@ -6,7 +6,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,8 +61,9 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				harness.Spec.Kagent = nil
 				harness.Spec.BYO = &v1alpha3.BYOHarness{}
 			}
+			objects = append(objects, harness)
 
-			var previous v2translator.RevisionID
+			var previous translator.RevisionID
 			for _, host := range []string{"first.services.ai.azure.com", "second.services.ai.azure.com"} {
 				endpoint := "https://" + host
 				configMap := &corev1.ConfigMap{

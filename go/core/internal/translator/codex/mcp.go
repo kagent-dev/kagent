@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -23,7 +23,7 @@ type mcpCompilation struct {
 	warnings    []string
 }
 
-func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []v2translator.ResolvedMCPTool) (mcpCompilation, error) {
+func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []translator.ResolvedMCPTool) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
 	}
@@ -36,21 +36,21 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []v2t
 		}
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, ok := identities[name]; ok {
-			return mcpCompilation{}, v2translator.NewValidationError("Codex MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
+			return mcpCompilation{}, translator.NewValidationError("Codex MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
 		}
 		identities[name] = server.Name
 		if _, ok := result.servers[name]; ok {
-			return mcpCompilation{}, v2translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
+			return mcpCompilation{}, translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
 		}
 		if server.Spec.Protocol != "" && server.Spec.Protocol != v1alpha3.RemoteMCPServerProtocolStreamableHttp {
-			return mcpCompilation{}, v2translator.NewValidationError("Codex RemoteMCPServer %q requires Streamable HTTP", server.Name)
+			return mcpCompilation{}, translator.NewValidationError("Codex RemoteMCPServer %q requires Streamable HTTP", server.Name)
 		}
 		if warning := codexMCPCompatibilityWarning(server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
 		host, err := absoluteHTTPOrigin(server.Spec.URL)
 		if err != nil {
-			return mcpCompilation{}, v2translator.NewValidationError("Codex RemoteMCPServer %q URL %v", server.Name, err)
+			return mcpCompilation{}, translator.NewValidationError("Codex RemoteMCPServer %q URL %v", server.Name, err)
 		}
 		headers, environment, err := c.compileMCPHeaders(ctx, namespace, server.Spec.HeadersFrom)
 		if err != nil {
@@ -94,10 +94,10 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 	var environment []corev1.EnvVar
 	for _, ref := range refs {
 		if strings.TrimSpace(ref.Name) == "" {
-			return nil, nil, v2translator.NewValidationError("MCP header name is required")
+			return nil, nil, translator.NewValidationError("MCP header name is required")
 		}
 		if _, ok := headers[ref.Name]; ok {
-			return nil, nil, v2translator.NewValidationError("duplicate MCP header %q", ref.Name)
+			return nil, nil, translator.NewValidationError("duplicate MCP header %q", ref.Name)
 		}
 		switch {
 		case ref.ValueFrom == nil:
@@ -118,7 +118,7 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 			headers[ref.Name] = "${" + name + "}"
 			environment = append(environment, secretEnvironment(name, ref.ValueFrom.Name, ref.ValueFrom.Key))
 		default:
-			return nil, nil, v2translator.NewValidationError("unsupported MCP header value source %q", ref.ValueFrom.Type)
+			return nil, nil, translator.NewValidationError("unsupported MCP header value source %q", ref.ValueFrom.Type)
 		}
 	}
 	return headers, environment, nil

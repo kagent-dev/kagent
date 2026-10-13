@@ -1,7 +1,6 @@
 suite: test global values
 templates:
   - controller-deployment.yaml
-  - postgresql-secret.yaml
   - controller-configmap.yaml
   - rbac/getter-role.yaml
   - substrate-workerpool.yaml

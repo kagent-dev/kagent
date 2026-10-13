@@ -107,8 +107,9 @@ metadata:
   name: smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: smoke
+  template:
+    ref:
+      name: smoke
   harnessRef:
     name: kagent
 ---
@@ -118,7 +119,8 @@ metadata:
   name: byo-smoke
   namespace: kagent
 spec:
-  templateRef:
-    name: byo-smoke
+  template:
+    ref:
+      name: byo-smoke
   harnessRef:
     name: byo-e2e

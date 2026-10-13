@@ -12,7 +12,7 @@ import (
 )
 
 func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
@@ -45,7 +45,7 @@ func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {
 }
 
 func TestTaskHistoryLimitsAndSessionScope(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
@@ -111,7 +111,7 @@ func TestZeroTaskHistoryDoesNotQueryMessages(t *testing.T) {
 }
 
 func TestTaskHistoryLimitWithInlineMessages(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	task := &a2a.Task{ID: "task", History: []*a2a.Message{{ID: "first"}, {ID: "second"}, {ID: "third"}}}
 	require.NoError(t, loadSessionTaskHistories(t.Context(), client.db, uuid.New(), []*a2a.Task{task}, new(2), false))
 	require.Equal(t, []*a2a.Message{{ID: "second"}, {ID: "third"}}, task.History)

@@ -17,7 +17,7 @@ import (
 )
 
 func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	for _, test := range []struct {
 		name string
@@ -97,7 +97,7 @@ func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	insertReadySessionFixture(t, db, "11111111-1111-4111-8111-111111111111", "request-1", []byte{})
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	now := time.Now()
 	first := &a2a.Task{
 		ID: "task-1", ContextID: "11111111-1111-4111-8111-111111111111",
@@ -172,7 +172,7 @@ func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 }
 
 func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
@@ -227,7 +227,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	insertReadySessionFixture(t, db, sessionID, "session-request", sessionData)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	task := newSessionTask("task-1", "message-1")
 	if _, err := client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("message-request"), task, ""); err != nil {
 		t.Fatal(err)
@@ -346,7 +346,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 func TestReserveSessionCheckpointRejectsCorruptSource(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	sessionID := "99999999-9999-4999-8999-999999999999"
 	insertReadySessionFixture(t, db, sessionID, "session-request", []byte{0xff})
 	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
@@ -355,7 +355,7 @@ func TestReserveSessionCheckpointRejectsCorruptSource(t *testing.T) {
 
 func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 	sourceID := "66666666-6666-4666-8666-666666666666"
 	forkID := "77777777-7777-4777-8777-777777777777"
@@ -517,7 +517,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 }
 
 func TestSessionCreateAndTransitions(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := context.Background()
 	revision := RuntimeRevision{
 		Revision: "revision-1", Namespace: "team-a",
@@ -650,7 +650,7 @@ func newSessionRequest(id, template, harness, name string) *apiv1alpha1.Session 
 }
 
 func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	for _, namespace := range []string{"team-a", "team-b"} {
 		sessionFixture(t, c, ctx, namespace, namespace+"-revision", "assistant", "kagent")
@@ -680,7 +680,7 @@ func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 }
 
 func TestSessionNameRoundTripsAndRenames(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := context.Background()
 	sessionFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
 	namedID := "11111111-1111-4111-8111-111111111111"
@@ -736,7 +736,7 @@ func TestSessionNameRoundTripsAndRenames(t *testing.T) {
 }
 
 func TestListSessionsFiltersByAgent(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	for _, name := range []string{"reviewer", "researcher"} {
 		sessionFixture(t, c, ctx, "team-a", name+"-revision", name, "")
@@ -756,7 +756,7 @@ func TestListSessionsFiltersByAgent(t *testing.T) {
 }
 
 func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	source, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
@@ -845,7 +845,7 @@ func markSessionReady(ctx context.Context, client *Client, id, authority string)
 }
 
 func TestSessionShareCreationRequiresOwner(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
@@ -872,7 +872,7 @@ func TestSessionShareCreationRequiresOwner(t *testing.T) {
 }
 
 func TestSessionShareExpiry(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
@@ -905,7 +905,7 @@ func TestSessionShareExpiry(t *testing.T) {
 }
 
 func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "original")
@@ -962,7 +962,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 }
 
 func TestShareCreationRacesSessionDeletion(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	for range 8 {

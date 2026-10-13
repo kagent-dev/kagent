@@ -46,14 +46,62 @@ GEN_AI_PROVIDER_NAME: Final = "gen_ai.provider.name"
 GEN_AI_REQUEST_MODEL: Final = "gen_ai.request.model"
 """The name of the GenAI model configured for the agent."""
 
+GEN_AI_RESPONSE_FINISH_REASONS: Final = "gen_ai.response.finish_reasons"
+"""Array of reasons the model stopped generating tokens, corresponding to each generation received."""
+
+GEN_AI_RESPONSE_ID: Final = "gen_ai.response.id"
+"""The unique identifier for the completion."""
+
+GEN_AI_RESPONSE_MODEL: Final = "gen_ai.response.model"
+"""The name of the model that generated the response."""
+
+GEN_AI_TOOL_CALL_ARGUMENTS: Final = "gen_ai.tool.call.arguments"
+"""Parameters passed to the tool call."""
+
+GEN_AI_TOOL_CALL_ID: Final = "gen_ai.tool.call.id"
+"""The tool call identifier."""
+
+GEN_AI_TOOL_CALL_RESULT: Final = "gen_ai.tool.call.result"
+"""The result returned by the tool call (if any and if execution was successful)."""
+
+GEN_AI_TOOL_NAME: Final = "gen_ai.tool.name"
+"""Name of the tool utilized by the agent."""
+
+GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS: Final = "gen_ai.usage.cache_read.input_tokens"
+"""The number of input tokens served from a provider-managed cache."""
+
+GEN_AI_USAGE_CACHE_WRITE_INPUT_TOKENS: Final = "gen_ai.usage.cache_write.input_tokens"
+"""The number of input tokens written to a provider-managed cache."""
+
+GEN_AI_USAGE_INPUT_TOKENS: Final = "gen_ai.usage.input_tokens"
+"""The number of tokens used in the GenAI input (prompt)."""
+
+GEN_AI_USAGE_OUTPUT_TOKENS: Final = "gen_ai.usage.output_tokens"
+"""The number of tokens used in the GenAI response (completion)."""
+
+GEN_AI_USAGE_REASONING_OUTPUT_TOKENS: Final = "gen_ai.usage.reasoning.output_tokens"
+"""The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking)."""
+
 KAGENT_CAPTURE_INPUT_TRUNCATED: Final = "kagent.capture.input_truncated"
-"""Whether the captured input messages were shortened to the capture budget."""
+"""Whether the captured input messages or tool arguments were shortened to the capture budget."""
 
 KAGENT_CAPTURE_OUTPUT_TRUNCATED: Final = "kagent.capture.output_truncated"
-"""Whether the captured output messages were shortened to the capture budget."""
+"""Whether the captured output messages or tool result were shortened to the capture budget."""
 
 KAGENT_GC_STAGE: Final = "kagent.gc.stage"
 """The stage of a runtime revision garbage collection attempt."""
+
+KAGENT_GENAI_PRODUCER: Final = "kagent.genai.producer"
+"""The component that writes the GenAI model and tool spans of an agent."""
+
+KAGENT_INFERENCE_REQUEST_ID: Final = "kagent.inference.request_id"
+"""The provider's request ID of a model call."""
+
+KAGENT_INFERENCE_RETRY_COUNT: Final = "kagent.inference.retry.count"
+"""How many times the harness retried a model call after a transient error."""
+
+KAGENT_INFERENCE_USAGE_PARTIAL: Final = "kagent.inference.usage_partial"
+"""Whether the call ended without final usage, so its output tokens are a lower bound."""
 
 KAGENT_INVOCATION_DISPOSITION: Final = "kagent.invocation.disposition"
 """How a segment stopped, when the task state does not say it."""
@@ -64,12 +112,71 @@ KAGENT_INVOCATION_RELATIONSHIP: Final = "kagent.invocation.relationship"
 KAGENT_INVOCATION_SEGMENT: Final = "kagent.invocation.segment"
 """Whether an execution starts a task or continues it."""
 
+KAGENT_MCP_SERVER_NAME: Final = "kagent.mcp.server.name"
+"""The name of the MCP server that serves a tool call."""
+
 KAGENT_RUNTIME: Final = "kagent.runtime"
-"""The runtime that produces the model and tool spans of an agent."""
+"""The framework or harness that runs an agent."""
+
+GEN_AI_CLIENT_INFERENCE_DURATION: Final = "gen_ai.client.inference.duration"
+GEN_AI_CLIENT_INFERENCE_DURATION_UNIT: Final = "s"
+GEN_AI_CLIENT_INFERENCE_DURATION_DESCRIPTION: Final = "The duration of one model call of a harness turn."
+
+GEN_AI_CLIENT_INFERENCE_OPERATION_INPUT_TOKENS: Final = "gen_ai.client.inference.operation.input_tokens"
+GEN_AI_CLIENT_INFERENCE_OPERATION_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_OPERATION_INPUT_TOKENS_DESCRIPTION: Final = (
+    "The input tokens of one model call of a harness turn."
+)
+
+GEN_AI_CLIENT_INFERENCE_OPERATION_OUTPUT_TOKENS: Final = "gen_ai.client.inference.operation.output_tokens"
+GEN_AI_CLIENT_INFERENCE_OPERATION_OUTPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_OPERATION_OUTPUT_TOKENS_DESCRIPTION: Final = (
+    "The output tokens of one model call of a harness turn."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_READ_INPUT_TOKENS: Final = "gen_ai.client.inference.usage.cache_read.input_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_READ_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_READ_INPUT_TOKENS_DESCRIPTION: Final = (
+    "The cache read input tokens of the model calls of harness turns."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_WRITE_INPUT_TOKENS: Final = "gen_ai.client.inference.usage.cache_write.input_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_WRITE_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_CACHE_WRITE_INPUT_TOKENS_DESCRIPTION: Final = (
+    "The cache write input tokens of the model calls of harness turns."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_INPUT_TOKENS: Final = "gen_ai.client.inference.usage.input_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_INPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_INPUT_TOKENS_DESCRIPTION: Final = "The input tokens of the model calls of harness turns."
+
+GEN_AI_CLIENT_INFERENCE_USAGE_OUTPUT_TOKENS: Final = "gen_ai.client.inference.usage.output_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_OUTPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_OUTPUT_TOKENS_DESCRIPTION: Final = (
+    "The output tokens of the model calls of harness turns."
+)
+
+GEN_AI_CLIENT_INFERENCE_USAGE_REASONING_OUTPUT_TOKENS: Final = "gen_ai.client.inference.usage.reasoning.output_tokens"
+GEN_AI_CLIENT_INFERENCE_USAGE_REASONING_OUTPUT_TOKENS_UNIT: Final = "{token}"
+GEN_AI_CLIENT_INFERENCE_USAGE_REASONING_OUTPUT_TOKENS_DESCRIPTION: Final = (
+    "The reasoning output tokens of the model calls of harness turns."
+)
+
+GEN_AI_EXECUTE_TOOL_DURATION: Final = "gen_ai.execute_tool.duration"
+GEN_AI_EXECUTE_TOOL_DURATION_UNIT: Final = "s"
+GEN_AI_EXECUTE_TOOL_DURATION_DESCRIPTION: Final = "The duration of one tool call of a harness turn."
 
 GEN_AI_INVOKE_AGENT_DURATION: Final = "gen_ai.invoke_agent.duration"
 GEN_AI_INVOKE_AGENT_DURATION_UNIT: Final = "s"
 GEN_AI_INVOKE_AGENT_DURATION_DESCRIPTION: Final = "The duration of one execution segment of a kagent agent."
+
+GEN_AI_INVOKE_AGENT_INFERENCE_CALLS: Final = "gen_ai.invoke_agent.inference_calls"
+GEN_AI_INVOKE_AGENT_INFERENCE_CALLS_UNIT: Final = "{inference_call}"
+GEN_AI_INVOKE_AGENT_INFERENCE_CALLS_DESCRIPTION: Final = "The model calls of one execution segment of a harness agent."
+
+GEN_AI_INVOKE_AGENT_TOOL_CALLS: Final = "gen_ai.invoke_agent.tool_calls"
+GEN_AI_INVOKE_AGENT_TOOL_CALLS_UNIT: Final = "{tool_call}"
+GEN_AI_INVOKE_AGENT_TOOL_CALLS_DESCRIPTION: Final = "The tool calls of one execution segment of a harness agent."
 
 KAGENT_RUNTIME_REVISION_GC_DURATION: Final = "kagent.runtime_revision.gc.duration"
 KAGENT_RUNTIME_REVISION_GC_DURATION_UNIT: Final = "s"
@@ -197,6 +304,13 @@ class KagentGcStageValues(StrEnum):
     """Discovering cleanup-eligible persisted revisions."""
     COLLECTION = "collection"
     """Claiming, deleting compute for, or finalizing a revision."""
+
+
+class KagentGenaiProducerValues(StrEnum):
+    """Values of KAGENT_GENAI_PRODUCER."""
+
+    RUNTIME = "runtime"
+    """The kagent harness runtime writes the model and tool spans."""
 
 
 class KagentInvocationDispositionValues(StrEnum):

@@ -3,18 +3,24 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -63,6 +69,7 @@ type processSession struct {
 	terminal  *runtime.Outcome
 	sessionID string
 	stopOnce  sync.Once
+	canceled  bool
 }
 
 // pendingTurn owns a Claude process blocked in the permission MCP hook. Resume
@@ -83,6 +90,26 @@ const interruptedResponseWarning = "API Error: Connection lost mid-response. The
 // emits it during an ordinary, uninterrupted turn.
 type resumedEventSink struct {
 	runtime.EventSink
+	// declined is the call the user denied. Its result looks like a tool error,
+	// so this is the only way to mark it as never run.
+	declined  string
+	resumedAt time.Time
+}
+
+func (s resumedEventSink) ToolResult(event runtime.ToolResult) error {
+	if s.declined != "" && event.ID == s.declined {
+		event.Status = runtime.ToolDeclined
+	}
+	return s.EventSink.ToolResult(event)
+}
+
+// ModelCall keeps a call that asked for a tool before the pause from counting as failed: Claude
+// reports the stream the wait held open as a lost connection.
+func (s resumedEventSink) ModelCall(call runtime.ModelCall) {
+	if call.ParentToolID == "" && call.ErrorType == "server_error" && !call.End.IsZero() && call.End.Before(s.resumedAt) {
+		call.StopReason, call.ErrorType = tracing.FinishReasonToolCall, ""
+	}
+	s.EventSink.ModelCall(call)
 }
 
 func (s resumedEventSink) TextDelta(event runtime.TextDelta) error {
@@ -195,6 +222,11 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	cmd.Stderr = stderr
+	// Read before Claude starts, since the process saves its own totals when it ends.
+	startUsage, err := sessionUsage(d.config.Environment, turn.ContinuationID)
+	if err != nil {
+		logging.FromContext(ctx).WarnContext(ctx, "failed to read the Claude session usage, so this turn adds no tokens that only its totals show", "error", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
 	}
@@ -203,7 +235,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	parseDone := make(chan struct{})
 	go func() {
 		defer close(items)
-		parseErr := ParseJSONL(stdout, d.config.MaxEventBytes, func(event Event) error {
+		parseErr := parseJSONL(ctx, stdout, d.config.MaxEventBytes, startUsage, func(event Event) error {
 			select {
 			case items <- parseItem{event: &event}:
 				return nil
@@ -211,8 +243,8 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 				return context.Canceled
 			}
 		})
-		// Wait closes pipes returned by StdoutPipe, so it must not run until the
-		// parser has finished its final read.
+		// Wait closes pipes returned by StdoutPipe, so it runs only after the parser
+		// returns; a read still in flight then fails and its goroutine exits.
 		close(parseDone)
 		select {
 		case items <- parseItem{err: parseErr}:
@@ -232,7 +264,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			d.stopSession(session)
+			d.stopSession(session, sink)
 		}
 	}()
 	outcome, err := d.consume(ctx, session, sink)
@@ -240,6 +272,48 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
+}
+
+// sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
+// process starts its result.modelUsage from these, so they are this process's baseline.
+func sessionUsage(environment []string, sessionID string) (map[string]modelUsage, error) {
+	usage := map[string]modelUsage{}
+	if sessionID == "" {
+		return usage, nil
+	}
+	var configDir string
+	for _, entry := range environment {
+		if value, ok := strings.CutPrefix(entry, config.ClaudeConfigDirEnvName+"="); ok {
+			configDir = value
+		}
+	}
+	if configDir == "" {
+		return nil, fmt.Errorf("%s is not set", config.ClaudeConfigDirEnvName)
+	}
+	files, err := filepath.Glob(filepath.Join(configDir, "projects", "*", sessionID+".jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) != 1 {
+		return nil, fmt.Errorf("found %d files for session %s, want 1", len(files), sessionID)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		return nil, err
+	}
+	for line := range bytes.Lines(raw) {
+		if !bytes.Contains(line, []byte(`"cost-state"`)) {
+			continue
+		}
+		var state struct {
+			Type       string                `json:"type"`
+			ModelUsage map[string]modelUsage `json:"modelUsage"`
+		}
+		if json.Unmarshal(line, &state) == nil && state.Type == "cost-state" && state.ModelUsage != nil {
+			usage = state.ModelUsage
+		}
+	}
+	return usage, nil
 }
 
 // traceEnvironment injects the trace context into the environment variables.
@@ -347,7 +421,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				// A process that exits before its result can explain the failure
 				// only on stderr. Reap it to finish draining stderr; malformed
 				// output can also stop the parser while the process is still alive.
-				d.stopSession(session)
+				d.stopSession(session, sink)
 				if stderr := strings.TrimSpace(session.stderr.String()); stderr != "" {
 					return runtime.Outcome{}, fmt.Errorf("%w: %s", item.err, stderr)
 				}
@@ -361,6 +435,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			}
 			return *session.terminal, nil
 		case <-ctx.Done():
+			session.canceled = true
 			return runtime.Outcome{}, ctx.Err()
 		}
 	}
@@ -374,7 +449,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			p.driver.stopSession(p.session)
+			p.driver.stopSession(p.session, sink)
 		}
 	}()
 	decision, ok := response.(*runtime.ApprovalDecision)
@@ -384,20 +459,26 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	if decision.ID != p.pending.request.ID {
 		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, p.pending.request.ID)
 	}
+	resumedAt := time.Now()
 	if err := p.pending.resolve(*decision); err != nil {
 		return runtime.Outcome{}, err
 	}
-	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink})
+	resumed := resumedEventSink{EventSink: sink, resumedAt: resumedAt}
+	if !decision.Approved {
+		resumed.declined = p.pending.request.CallID
+	}
+	outcome, err := p.driver.consume(ctx, p.session, resumed)
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return outcome, err
 }
 
 // Cancel denies the outstanding permission MCP call and reaps the Claude process.
-func (p *pendingTurn) Cancel(_ context.Context) error {
+func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) error {
 	_ = p.pending.resolve(runtime.ApprovalDecision{
 		ID: p.pending.request.ID, Approved: false, RejectionReason: "The task was canceled.",
 	})
-	p.driver.stopSession(p.session)
+	p.session.canceled = true
+	p.driver.stopSession(p.session, sink)
 	return nil
 }
 
@@ -424,9 +505,9 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	case EventToolActivity:
 		switch event.ToolPhase {
 		case "started":
-			return nil, sink.ToolCall(runtime.ToolCall{
-				ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata,
-			})
+			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata, ParentToolID: event.ParentToolID}
+			call.MCPServer, call.MCPTool = splitMCPName(event.ToolName)
+			return nil, sink.ToolCall(call)
 		case "completed":
 			return nil, sink.ToolResult(runtime.ToolResult{
 				ID: event.ToolID, Name: event.ToolName, Result: event.ToolResult, IsError: event.ToolError,
@@ -434,6 +515,9 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 		default:
 			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)
 		}
+	case EventModelCall:
+		sink.ModelCall(*event.ModelCall)
+		return nil, nil
 	case EventCompleted:
 		return &runtime.Outcome{}, nil
 	case EventFailed:
@@ -443,9 +527,19 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	}
 }
 
-func (d *ProcessDriver) stopSession(session *processSession) {
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) {
 	session.stopOnce.Do(func() {
-		close(session.stopEmit)
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for item := range session.items {
+				if item.event != nil && item.event.ModelCall != nil {
+					call := *item.event.ModelCall
+					call.Canceled = session.canceled && call.UsagePartial
+					sink.ModelCall(call)
+				}
+			}
+		}()
 		_ = utils.InterruptProcessGroup(session.command.Process)
 		timer := time.NewTimer(d.config.InterruptGrace)
 		defer timer.Stop()
@@ -458,9 +552,23 @@ func (d *ProcessDriver) stopSession(session *processSession) {
 			_ = utils.KillProcessGroup(session.command.Process)
 			<-session.wait
 		}
-		for range session.items {
-		}
+		<-drained
+		close(session.stopEmit)
 	})
 }
 
 var _ runtime.PendingTurn = (*pendingTurn)(nil)
+
+// splitMCPName splits Claude's mcp__<server>__<tool> name at the first "__". Agent server
+// names come from Kubernetes names, which never contain "__"; plugin servers are best effort.
+func splitMCPName(name string) (server, tool string) {
+	rest, ok := strings.CutPrefix(name, "mcp__")
+	if !ok {
+		return "", ""
+	}
+	server, tool, ok = strings.Cut(rest, "__")
+	if !ok || server == "" || tool == "" {
+		return "", ""
+	}
+	return server, tool
+}

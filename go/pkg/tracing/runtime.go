@@ -27,6 +27,8 @@ const (
 	// AttributeRuntime names the runtime on the resource. A Harness object's
 	// configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
+	// AttributeGenAIProducer names the component that writes a native process's model and tool spans.
+	AttributeGenAIProducer = string(conv.KagentGenaiProducerKey)
 	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
@@ -255,14 +257,22 @@ func (t RuntimeTelemetry) ResourceDefaults(fallbackName string) []attribute.KeyV
 	return attributes
 }
 
-// ChildResource returns the resource attributes a native child process shares
-// with the wrapper that supervises it: the identity plus the compiled
-// namespace, so both producers group under one service.namespace. The child
-// keeps its own service.name.
+// ChildResource returns the resource attributes a native child process shares with its
+// wrapper: the agent identity and namespace, but not the compiled provider and model.
 func (t RuntimeTelemetry) ChildResource() []attribute.KeyValue {
-	attributes := t.ResourceIdentity()
+	attributes := nonEmpty(
+		attribute.String(AttributeRuntime, string(t.Runtime)),
+		attribute.String(AttributeMainAgentName, t.AgentName),
+		attribute.String(AttributeMainAgentID, t.AgentID()),
+	)
 	if t.AgentNamespace != "" {
 		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
+	}
+	if t.Runtime.NativeHarness() {
+		// Empty values clear the model inherited from the pod environment, because
+		// Claude Code copies resource keys onto every span and each would look like a model call.
+		attributes = append(attributes, attribute.String(AttributeGenAIProducer, conv.KagentGenaiProducerRuntime),
+			attribute.String(AttributeProviderName, ""), attribute.String(AttributeRequestModel, ""))
 	}
 	return attributes
 }

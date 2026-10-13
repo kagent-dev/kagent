@@ -61,10 +61,13 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		if _, err := saveTaskProjection(ctx, tx, session.HistoryID, taskID, string(task.Status.State), task.Status.Timestamp, data); err != nil {
 			return err
 		}
-		return execSQL(ctx, tx, `
+		if err := execSQL(ctx, tx, `
 			UPDATE session_task_event SET published = TRUE
 			WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
-		`, session.HistoryID, taskID, row.ExpectedVersion, version)
+		`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
+			return err
+		}
+		return enqueuePushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
 	})
 }
 

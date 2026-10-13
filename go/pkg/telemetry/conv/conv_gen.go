@@ -34,19 +34,57 @@ const (
 	GenAIProviderNameKey = attribute.Key("gen_ai.provider.name")
 	// GenAIRequestModelKey is "gen_ai.request.model". The name of the GenAI model configured for the agent.
 	GenAIRequestModelKey = attribute.Key("gen_ai.request.model")
-	// KagentCaptureInputTruncatedKey is "kagent.capture.input_truncated". Whether the captured input messages were shortened to the capture budget.
+	// GenAIResponseFinishReasonsKey is "gen_ai.response.finish_reasons". Array of reasons the model stopped generating tokens, corresponding to each generation received.
+	GenAIResponseFinishReasonsKey = attribute.Key("gen_ai.response.finish_reasons")
+	// GenAIResponseIDKey is "gen_ai.response.id". The unique identifier for the completion.
+	GenAIResponseIDKey = attribute.Key("gen_ai.response.id")
+	// GenAIResponseModelKey is "gen_ai.response.model". The name of the model that generated the response.
+	GenAIResponseModelKey = attribute.Key("gen_ai.response.model")
+	// GenAITokenModalityKey is "gen_ai.token.modality". The modality of the tokens being counted.
+	GenAITokenModalityKey = attribute.Key("gen_ai.token.modality")
+	// GenAIToolCallArgumentsKey is "gen_ai.tool.call.arguments". Parameters passed to the tool call.
+	GenAIToolCallArgumentsKey = attribute.Key("gen_ai.tool.call.arguments")
+	// GenAIToolCallIDKey is "gen_ai.tool.call.id". The tool call identifier.
+	GenAIToolCallIDKey = attribute.Key("gen_ai.tool.call.id")
+	// GenAIToolCallResultKey is "gen_ai.tool.call.result". The result returned by the tool call (if any and if execution was successful).
+	GenAIToolCallResultKey = attribute.Key("gen_ai.tool.call.result")
+	// GenAIToolNameKey is "gen_ai.tool.name". Name of the tool utilized by the agent.
+	GenAIToolNameKey = attribute.Key("gen_ai.tool.name")
+	// GenAIToolTypeKey is "gen_ai.tool.type". Type of the tool utilized by the agent
+	GenAIToolTypeKey = attribute.Key("gen_ai.tool.type")
+	// GenAIUsageCacheReadInputTokensKey is "gen_ai.usage.cache_read.input_tokens". The number of input tokens served from a provider-managed cache.
+	GenAIUsageCacheReadInputTokensKey = attribute.Key("gen_ai.usage.cache_read.input_tokens")
+	// GenAIUsageCacheWriteInputTokensKey is "gen_ai.usage.cache_write.input_tokens". The number of input tokens written to a provider-managed cache.
+	GenAIUsageCacheWriteInputTokensKey = attribute.Key("gen_ai.usage.cache_write.input_tokens")
+	// GenAIUsageInputTokensKey is "gen_ai.usage.input_tokens". The number of tokens used in the GenAI input (prompt).
+	GenAIUsageInputTokensKey = attribute.Key("gen_ai.usage.input_tokens")
+	// GenAIUsageOutputTokensKey is "gen_ai.usage.output_tokens". The number of tokens used in the GenAI response (completion).
+	GenAIUsageOutputTokensKey = attribute.Key("gen_ai.usage.output_tokens")
+	// GenAIUsageReasoningOutputTokensKey is "gen_ai.usage.reasoning.output_tokens". The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking).
+	GenAIUsageReasoningOutputTokensKey = attribute.Key("gen_ai.usage.reasoning.output_tokens")
+	// KagentCaptureInputTruncatedKey is "kagent.capture.input_truncated". Whether the captured input messages or tool arguments were shortened to the capture budget.
 	KagentCaptureInputTruncatedKey = attribute.Key("kagent.capture.input_truncated")
-	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages were shortened to the capture budget.
+	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages or tool result were shortened to the capture budget.
 	KagentCaptureOutputTruncatedKey = attribute.Key("kagent.capture.output_truncated")
 	// KagentGCStageKey is "kagent.gc.stage". The stage of a runtime revision garbage collection attempt.
 	KagentGCStageKey = attribute.Key("kagent.gc.stage")
+	// KagentGenaiProducerKey is "kagent.genai.producer". The component that writes the GenAI model and tool spans of an agent.
+	KagentGenaiProducerKey = attribute.Key("kagent.genai.producer")
+	// KagentInferenceRequestIDKey is "kagent.inference.request_id". The provider's request ID of a model call.
+	KagentInferenceRequestIDKey = attribute.Key("kagent.inference.request_id")
+	// KagentInferenceRetryCountKey is "kagent.inference.retry.count". How many times the harness retried a model call after a transient error.
+	KagentInferenceRetryCountKey = attribute.Key("kagent.inference.retry.count")
+	// KagentInferenceUsagePartialKey is "kagent.inference.usage_partial". Whether the call ended without final usage, so its output tokens are a lower bound.
+	KagentInferenceUsagePartialKey = attribute.Key("kagent.inference.usage_partial")
 	// KagentInvocationDispositionKey is "kagent.invocation.disposition". How a segment stopped, when the task state does not say it.
 	KagentInvocationDispositionKey = attribute.Key("kagent.invocation.disposition")
 	// KagentInvocationRelationshipKey is "kagent.invocation.relationship". Why a segment links to another span.
 	KagentInvocationRelationshipKey = attribute.Key("kagent.invocation.relationship")
 	// KagentInvocationSegmentKey is "kagent.invocation.segment". Whether an execution starts a task or continues it.
 	KagentInvocationSegmentKey = attribute.Key("kagent.invocation.segment")
-	// KagentRuntimeKey is "kagent.runtime". The runtime that produces the model and tool spans of an agent.
+	// KagentMcpServerNameKey is "kagent.mcp.server.name". The name of the MCP server that serves a tool call.
+	KagentMcpServerNameKey = attribute.Key("kagent.mcp.server.name")
+	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
 )
 
@@ -154,12 +192,30 @@ const (
 	GenAIProviderNameMoonshotAI = "moonshot_ai"
 )
 
+// Values of GenAITokenModalityKey.
+const (
+	// GenAITokenModalityText: Text tokens.
+	GenAITokenModalityText = "text"
+	// GenAITokenModalityImage: Image tokens.
+	GenAITokenModalityImage = "image"
+	// GenAITokenModalityAudio: Audio tokens.
+	GenAITokenModalityAudio = "audio"
+	// GenAITokenModalityUnknown: The modality is not known.
+	GenAITokenModalityUnknown = "unknown"
+)
+
 // Values of KagentGCStageKey.
 const (
 	// KagentGCStageDiscovery: Discovering cleanup-eligible persisted revisions.
 	KagentGCStageDiscovery = "discovery"
 	// KagentGCStageCollection: Claiming, deleting compute for, or finalizing a revision.
 	KagentGCStageCollection = "collection"
+)
+
+// Values of KagentGenaiProducerKey.
+const (
+	// KagentGenaiProducerRuntime: The kagent harness runtime writes the model and tool spans.
+	KagentGenaiProducerRuntime = "runtime"
 )
 
 // Values of KagentInvocationDispositionKey.
@@ -206,11 +262,88 @@ const (
 	KagentRuntimeBYO = "byo"
 )
 
+// GenAIClientInferenceDuration: The duration of one model call of a harness turn.
+const (
+	GenAIClientInferenceDuration            = "gen_ai.client.inference.duration"
+	GenAIClientInferenceDurationUnit        = "s"
+	GenAIClientInferenceDurationDescription = "The duration of one model call of a harness turn."
+)
+
+// GenAIClientInferenceOperationInputTokens: The input tokens of one model call of a harness turn.
+const (
+	GenAIClientInferenceOperationInputTokens            = "gen_ai.client.inference.operation.input_tokens"
+	GenAIClientInferenceOperationInputTokensUnit        = "{token}"
+	GenAIClientInferenceOperationInputTokensDescription = "The input tokens of one model call of a harness turn."
+)
+
+// GenAIClientInferenceOperationOutputTokens: The output tokens of one model call of a harness turn.
+const (
+	GenAIClientInferenceOperationOutputTokens            = "gen_ai.client.inference.operation.output_tokens"
+	GenAIClientInferenceOperationOutputTokensUnit        = "{token}"
+	GenAIClientInferenceOperationOutputTokensDescription = "The output tokens of one model call of a harness turn."
+)
+
+// GenAIClientInferenceUsageCacheReadInputTokens: The cache read input tokens of the model calls of harness turns.
+const (
+	GenAIClientInferenceUsageCacheReadInputTokens            = "gen_ai.client.inference.usage.cache_read.input_tokens"
+	GenAIClientInferenceUsageCacheReadInputTokensUnit        = "{token}"
+	GenAIClientInferenceUsageCacheReadInputTokensDescription = "The cache read input tokens of the model calls of harness turns."
+)
+
+// GenAIClientInferenceUsageCacheWriteInputTokens: The cache write input tokens of the model calls of harness turns.
+const (
+	GenAIClientInferenceUsageCacheWriteInputTokens            = "gen_ai.client.inference.usage.cache_write.input_tokens"
+	GenAIClientInferenceUsageCacheWriteInputTokensUnit        = "{token}"
+	GenAIClientInferenceUsageCacheWriteInputTokensDescription = "The cache write input tokens of the model calls of harness turns."
+)
+
+// GenAIClientInferenceUsageInputTokens: The input tokens of the model calls of harness turns.
+const (
+	GenAIClientInferenceUsageInputTokens            = "gen_ai.client.inference.usage.input_tokens"
+	GenAIClientInferenceUsageInputTokensUnit        = "{token}"
+	GenAIClientInferenceUsageInputTokensDescription = "The input tokens of the model calls of harness turns."
+)
+
+// GenAIClientInferenceUsageOutputTokens: The output tokens of the model calls of harness turns.
+const (
+	GenAIClientInferenceUsageOutputTokens            = "gen_ai.client.inference.usage.output_tokens"
+	GenAIClientInferenceUsageOutputTokensUnit        = "{token}"
+	GenAIClientInferenceUsageOutputTokensDescription = "The output tokens of the model calls of harness turns."
+)
+
+// GenAIClientInferenceUsageReasoningOutputTokens: The reasoning output tokens of the model calls of harness turns.
+const (
+	GenAIClientInferenceUsageReasoningOutputTokens            = "gen_ai.client.inference.usage.reasoning.output_tokens"
+	GenAIClientInferenceUsageReasoningOutputTokensUnit        = "{token}"
+	GenAIClientInferenceUsageReasoningOutputTokensDescription = "The reasoning output tokens of the model calls of harness turns."
+)
+
+// GenAIExecuteToolDuration: The duration of one tool call of a harness turn.
+const (
+	GenAIExecuteToolDuration            = "gen_ai.execute_tool.duration"
+	GenAIExecuteToolDurationUnit        = "s"
+	GenAIExecuteToolDurationDescription = "The duration of one tool call of a harness turn."
+)
+
 // GenAIInvokeAgentDuration: The duration of one execution segment of a kagent agent.
 const (
 	GenAIInvokeAgentDuration            = "gen_ai.invoke_agent.duration"
 	GenAIInvokeAgentDurationUnit        = "s"
 	GenAIInvokeAgentDurationDescription = "The duration of one execution segment of a kagent agent."
+)
+
+// GenAIInvokeAgentInferenceCalls: The model calls of one execution segment of a harness agent.
+const (
+	GenAIInvokeAgentInferenceCalls            = "gen_ai.invoke_agent.inference_calls"
+	GenAIInvokeAgentInferenceCallsUnit        = "{inference_call}"
+	GenAIInvokeAgentInferenceCallsDescription = "The model calls of one execution segment of a harness agent."
+)
+
+// GenAIInvokeAgentToolCalls: The tool calls of one execution segment of a harness agent.
+const (
+	GenAIInvokeAgentToolCalls            = "gen_ai.invoke_agent.tool_calls"
+	GenAIInvokeAgentToolCallsUnit        = "{tool_call}"
+	GenAIInvokeAgentToolCallsDescription = "The tool calls of one execution segment of a harness agent."
 )
 
 // KagentRuntimeRevisionGCDuration: Duration of a runtime revision garbage collection attempt.

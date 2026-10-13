@@ -2,7 +2,6 @@ suite: test controller deployment
 templates:
   - controller-deployment.yaml
   - controller-configmap.yaml
-  - postgresql-secret.yaml
 tests:
   - it: keeps chart defaults in the ConfigMap and pod identity and credentials in env
     template: controller-deployment.yaml
@@ -17,7 +16,7 @@ tests:
               name: RELEASE-NAME-controller
       - matchRegex:
           path: spec.template.spec.containers[0].env[*].name
-          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|POSTGRES_PASSWORD|KAGENT_POSTGRES_DATABASE_URL)$"
+          pattern: "^(KAGENT_NAMESPACE|K8S_POD_NAME|K8S_POD_UID|K8S_NODE_NAME|OTEL_RESOURCE_ATTRIBUTES|KAGENT_POSTGRES_DATABASE_URL|KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY)$"
       - notExists:
           path: data.KAGENT_POSTGRES_DATABASE_URL
         template: controller-configmap.yaml
@@ -26,6 +25,9 @@ tests:
         template: controller-configmap.yaml
       - notExists:
           path: data.OTEL_RESOURCE_ATTRIBUTES
+        template: controller-configmap.yaml
+      - notExists:
+          path: data.KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY
         template: controller-configmap.yaml
 
   - it: should render controller deployment with default values
@@ -108,6 +110,36 @@ tests:
           path: data.KAGENT_GRPC_REFLECTION
           value: "false"
 
+  - it: uses the push signing Secret configured under controller.push
+    template: controller-deployment.yaml
+    set:
+      controller.push.signing.secretName: receiver-signing-key
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.name
+          value: receiver-signing-key
+      - equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef.key
+          value: private-key.pem
+
+  - it: leaves push JWT signing disabled by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY
+          any: true
+
+  - it: uses the push issuer configured under controller.push
+    template: controller-configmap.yaml
+    set:
+      controller.push.signing.issuer: https://kagent.example
+    asserts:
+      - equal:
+          path: data.KAGENT_A2A_PUSH_ISSUER
+          value: https://kagent.example
+
   - it: should set global annotations on deployment
     template: controller-deployment.yaml
     set:
@@ -140,6 +172,10 @@ tests:
   - it: should configure substrate ate-api mTLS when substrate is enabled
     template: controller-deployment.yaml
     set:
+      database:
+        postgres:
+          connectionStringSecretRef:
+            name: external-postgres
       controller:
         substrate:
           enabled: true
@@ -161,23 +197,20 @@ tests:
           path: spec.template.spec.volumes[0].name
           value: substrate-servicedns
       - equal:
-          path: spec.template.spec.volumes[0].projected.sources[0].clusterTrustBundle.signerName
-          value: servicedns.podcert.ate.dev/identity
-      - equal:
-          path: spec.template.spec.volumes[1].projected.sources[0].podCertificate.signerName
-          value: podidentity.podcert.ate.dev/identity
-      - equal:
-          path: spec.template.spec.volumes[1].projected.sources[0].podCertificate.credentialBundlePath
-          value: credential-bundle.pem
-      - equal:
-          path: spec.template.spec.containers[0].volumeMounts[0].name
-          value: substrate-servicedns
-      - equal:
-          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
-          value: /run/substrate-servicedns
-      - equal:
-          path: spec.template.spec.containers[0].volumeMounts[1].mountPath
-          value: /run/substrate-podidentity
+          path: spec.template.spec.volumes[1].name
+          value: substrate-podidentity
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: substrate-servicedns
+            mountPath: /run/substrate-servicedns
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: substrate-podidentity
+            mountPath: /run/substrate-podidentity
+            readOnly: true
 
   - it: should set KAGENT_GATEWAY_URL with computed default value
     template: controller-configmap.yaml
@@ -571,63 +604,110 @@ tests:
             name: extra-data
             mountPath: /extra
 
-  - it: should not render volumes or volumeMounts sections when none are configured
-    template: controller-deployment.yaml
-    asserts:
-      - isNull:
-          path: spec.template.spec.volumes
-      - isNull:
-          path: spec.template.spec.containers[0].volumeMounts
-
   # =============================================================================
   # Database Configuration Tests
   # =============================================================================
 
-  - it: should set POSTGRES_PASSWORD from secret and KAGENT_POSTGRES_DATABASE_URL with bundled connection string by default
+  - it: should require an application Secret
+    template: controller-deployment.yaml
+    set:
+      database.postgres.connectionStringSecretRef.name: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.connectionStringSecretRef.name is required
+
+  - it: should use the managed Kagent Secret by default
     template: controller-deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: POSTGRES_PASSWORD
+            name: KAGENT_POSTGRES_DATABASE_URL
             valueFrom:
               secretKeyRef:
-                name: RELEASE-NAME-postgresql
-                key: POSTGRES_PASSWORD
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_POSTGRES_DATABASE_URL
-            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
+                name: kagent-postgres
+                key: connectionString
+      - notExists:
+          path: spec.template.spec.initContainers
+      - notExists:
+          path: spec.template.spec.volumes
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "postgres-admin")]
 
-  - it: should set KAGENT_POSTGRES_DATABASE_URL with external url when url is set
+  - it: should inject an external database Secret
     template: controller-deployment.yaml
     set:
       database:
         postgres:
-          url: "postgres://user:pass@external-host:5432/db"
+          connectionStringSecretRef:
+            name: external-postgres
+            key: url
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: KAGENT_POSTGRES_DATABASE_URL
-            value: "postgres://user:pass@external-host:5432/db"
-
-  - it: should set KAGENT_POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile is set
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          urlFile: "/var/secrets/db-url"
-    asserts:
-      - equal:
-          path: data.KAGENT_POSTGRES_DATABASE_URL_FILE
-          value: "/var/secrets/db-url"
-        template: controller-configmap.yaml
+            valueFrom:
+              secretKeyRef:
+                name: external-postgres
+                key: url
+      - notExists:
+          path: spec.template.spec.volumes
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_PASSWORD
+
+  - it: should project a PostgreSQL client certificate when enabled
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          clientCertificate:
+            enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-client-certificate
+            projected:
+              sources:
+                - podCertificate:
+                    signerName: postgres.podcert.ate.dev/identity
+                    keyType: ECDSAP256
+                    credentialBundlePath: credential-bundle.pem
+                    userAnnotations:
+                      postgres.podcert.ate.dev/username: kagent_user
+                - clusterTrustBundle:
+                    signerName: servicedns.podcert.ate.dev/identity
+                    labelSelector:
+                      matchLabels:
+                        podcert.ate.dev/canarying: live
+                    path: trust-bundle.pem
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: postgres-client-certificate
+            mountPath: /run/postgres.podcert.ate.dev
+            readOnly: true
+
+  - it: should keep Kagent separate from Substrate database Secrets
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          connectionStringSecretRef:
+            name: kagent-db
+            key: kagent-url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_POSTGRES_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: kagent-db
+                key: kagent-url
 
   - it: should set KAGENT_DATABASE_VECTOR_ENABLED to false by default
     template: controller-configmap.yaml
@@ -646,6 +726,55 @@ tests:
       - equal:
           path: data.KAGENT_DATABASE_VECTOR_ENABLED
           value: "true"
+
+  - it: should set the default PostgreSQL role
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          value: kagent_owner
+
+  - it: should set a BYO PostgreSQL role
+    template: controller-configmap.yaml
+    set:
+      database.postgres.connectionStringSecretRef.name: tenant-postgres
+      database.postgres.role: tenant_owner
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          value: tenant_owner
+
+  - it: should use the kagent PostgreSQL schema by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_SCHEMA
+          value: kagent
+
+  - it: should allow a custom PostgreSQL schema
+    template: controller-configmap.yaml
+    set:
+      database.postgres.schema: kagent_custom
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_SCHEMA
+          value: kagent_custom
+
+  - it: should use the extensions schema for pgvector by default
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_VECTOR_SCHEMA
+          value: extensions
+
+  - it: should allow an existing pgvector extension in public
+    template: controller-configmap.yaml
+    set:
+      database.postgres.vectorSchema: public
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_VECTOR_SCHEMA
+          value: public
 
   - it: should not set DB pool env vars by default
     template: controller-configmap.yaml
@@ -688,75 +817,6 @@ tests:
     asserts:
       - notExists:
           path: data.KAGENT_POSTGRES_DATABASE_URL
-
-  - it: should not set POSTGRES_PASSWORD when url is set and bundled is enabled
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          url: "postgres://user:pass@external-host:5432/db"
-          bundled:
-            enabled: true
-    asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
-
-  - it: should not set POSTGRES_PASSWORD when url is set and bundled is disabled
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          url: "postgres://user:pass@external-host:5432/db"
-          bundled:
-            enabled: false
-    asserts:
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
-
-  - it: should set KAGENT_POSTGRES_DATABASE_URL_FILE and omit POSTGRES_PASSWORD when urlFile and bundled are both enabled
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          urlFile: "/var/secrets/db-url"
-          bundled:
-            enabled: true
-    asserts:
-      - equal:
-          path: data.KAGENT_POSTGRES_DATABASE_URL_FILE
-          value: "/var/secrets/db-url"
-        template: controller-configmap.yaml
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_POSTGRES_DATABASE_URL
-
-  - it: should set external KAGENT_POSTGRES_DATABASE_URL and omit POSTGRES_PASSWORD when url and bundled are both enabled
-    template: controller-deployment.yaml
-    set:
-      database:
-        postgres:
-          url: "postgres://user:pass@external-host:5432/db"
-          bundled:
-            enabled: true
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: KAGENT_POSTGRES_DATABASE_URL
-            value: "postgres://user:pass@external-host:5432/db"
-      - notContains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_PASSWORD
 
   - it: should use default httpGet startup probe
     template: controller-deployment.yaml

@@ -107,9 +107,17 @@ func TestResourceIdentityUsesTheMainAgentKeys(t *testing.T) {
 	}
 }
 
-func TestChildResourceAddsTheCompiledNamespace(t *testing.T) {
-	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}
-	want := append(telemetry.ResourceIdentity(), attribute.String("service.namespace", "team"))
+func TestChildResourceSharesIdentityButNotTheModel(t *testing.T) {
+	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team", Provider: "openai", Model: "gpt-5"}
+	want := []attribute.KeyValue{
+		attribute.String(AttributeRuntime, "codex"),
+		attribute.String(AttributeMainAgentName, "reporter-codex"),
+		attribute.String(AttributeMainAgentID, "team/reporter-codex"),
+		attribute.String("service.namespace", "team"),
+		attribute.String(AttributeGenAIProducer, "runtime"),
+		attribute.String(AttributeProviderName, ""),
+		attribute.String(AttributeRequestModel, ""),
+	}
 	if got := telemetry.ChildResource(); !slices.Equal(got, want) {
 		t.Fatalf("ChildResource() = %v, want %v", got, want)
 	}
@@ -136,6 +144,7 @@ func TestRequestIdentity(t *testing.T) {
 
 func TestMergeResourceAttributes(t *testing.T) {
 	owned := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude"}.ResourceIdentity()
+	child := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-4-5"}.ChildResource()
 	for _, test := range []struct {
 		name     string
 		existing string
@@ -160,6 +169,13 @@ func TestMergeResourceAttributes(t *testing.T) {
 		{
 			name: "duplicate user key keeps its original position", existing: "team=sre,zone=a,team=platform", owned: nil,
 			want: "team=platform,zone=a",
+		},
+		{
+			// The pod environment carries the compiled model; the native child must not report it.
+			name: "child resource clears the inherited model", owned: child,
+			existing: "gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,team=sre",
+			want: "team=sre,gen_ai.main_agent.id=team/reporter-claude,gen_ai.main_agent.name=reporter-claude," +
+				"kagent.genai.producer=runtime,kagent.runtime=claude,service.namespace=team",
 		},
 		{name: "unparsable entries dropped", existing: "novalue, ,=orphan,team=sre", owned: nil, want: "team=sre"},
 		{name: "empty owned value dropped", owned: []attribute.KeyValue{attribute.String("kagent.runtime", "  ")}, want: ""},

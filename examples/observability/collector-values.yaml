@@ -114,6 +114,17 @@ config:
           statements:
             - delete_matching_keys(span.attributes, "^gen_ai\\.usage\\.")
 
+    # The kagent harness runtime writes the model and tool spans of a Claude Code or Codex process, so its
+    # native spans stop counting as model calls. It writes none for a standalone Claude request.
+    transform/harness_native_genai:
+      error_mode: ignore
+      trace_statements:
+        - context: span
+          conditions:
+            - resource.attributes["kagent.genai.producer"] == "runtime" and not span.attributes["llm_request.context"] == "standalone"
+          statements:
+            - delete_matching_keys(span.attributes, "^gen_ai\\.(operation\\.name|system|request\\.model|response\\.finish_reasons|usage\\..*)$")
+
     # Content backstop for an installation with otel.capture.messageContent
     # off. Remove it from the pipelines when capture is on. It also drops the
     # Go ADK tool payloads it writes regardless of capture (google/adk-go#1634).
@@ -184,7 +195,7 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
-        processors: [memory_limiter, k8sattributes, transform/adk_call_llm_usage, transform/genai_content]
+        processors: [memory_limiter, k8sattributes, transform/adk_call_llm_usage, transform/harness_native_genai, transform/genai_content]
         exporters: [signaltometrics, otlp/backend]
       metrics:
         receivers: [otlp, signaltometrics]

@@ -9,7 +9,7 @@ import (
 )
 
 func TestSessionOperationGenerationAndTombstone(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestSessionOperationGenerationAndTombstone(t *testing.T) {
 }
 
 func TestSessionOperationClaimsAndPreparationRecovery(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
@@ -147,7 +147,7 @@ func TestSessionOperationClaimsAndPreparationRecovery(t *testing.T) {
 }
 
 func TestDeleteSupersedesOnlyUnissuedCreation(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestDeleteSupersedesOnlyUnissuedCreation(t *testing.T) {
 }
 
 func TestLifecycleABARejectsOldClaimAndCompletion(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestLifecycleABARejectsOldClaimAndCompletion(t *testing.T) {
 }
 
 func TestLifecycleObservationUsesCurrentFields(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)

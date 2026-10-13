@@ -11,7 +11,7 @@ import (
 )
 
 func TestTaskEventsRequireTaskIdentity(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	_, task := waitingTaskFixture(t, client)
 	_, err := client.db.Exec(t.Context(), "UPDATE session_task_event SET task_id = NULL WHERE task_id = $1", string(task.ID))
@@ -19,7 +19,7 @@ func TestTaskEventsRequireTaskIdentity(t *testing.T) {
 }
 
 func TestRuntimeTaskSaveRetriesAndVersions(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
@@ -59,7 +59,7 @@ func TestRuntimeTaskSaveRetriesAndVersions(t *testing.T) {
 }
 
 func TestConcurrentRuntimeTaskSaves(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
@@ -88,7 +88,7 @@ func TestConcurrentRuntimeTaskSaves(t *testing.T) {
 }
 
 func TestRuntimeTaskSaveScopeAndAtomicity(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	task, version, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(waiting.ID))
@@ -117,7 +117,7 @@ func TestRuntimeTaskSaveScopeAndAtomicity(t *testing.T) {
 }
 
 func TestRuntimeTaskCreateRetries(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, _ := waitingTaskFixture(t, client)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("new task"))
@@ -161,7 +161,7 @@ func resumeRuntimeTask(t *testing.T, client *Client, sessionID string, reply *a2
 }
 
 func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
@@ -218,7 +218,7 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 }
 
 func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	source, waiting := waitingTaskFixture(t, client)
 	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
@@ -298,7 +298,7 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 }
 
 func TestNewExecutionRacesIdleClaim(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	for range 12 {
@@ -353,7 +353,7 @@ func TestNewExecutionRacesIdleClaim(t *testing.T) {
 }
 
 func TestRuntimeTaskLookupRejectsAmbiguousMessageIDs(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
 	messageID := waiting.History[0].ID
@@ -375,7 +375,7 @@ func TestRuntimeTaskLookupRejectsAmbiguousMessageIDs(t *testing.T) {
 }
 
 func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
@@ -410,7 +410,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 }
 
 func TestDispatchExpiryRejectsLateSave(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
@@ -437,7 +437,7 @@ func TestDispatchExpiryRejectsLateSave(t *testing.T) {
 }
 
 func TestRevokedContinuationWithSavedInputIsNotRetryable(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
@@ -456,7 +456,7 @@ func TestRevokedContinuationWithSavedInputIsNotRetryable(t *testing.T) {
 }
 
 func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, waiting := waitingTaskFixture(t, client)
@@ -492,7 +492,7 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 }
 
 func TestInitialMessageReservationDeduplicatesAfterAcceptance(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
@@ -523,7 +523,7 @@ func TestInitialMessageReservationDeduplicatesAfterAcceptance(t *testing.T) {
 }
 
 func TestCheckpointRejectsOlderPendingTask(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _ := waitingTaskFixture(t, client)

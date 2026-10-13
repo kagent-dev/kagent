@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/openai/openai-go/v3/packages/param"
@@ -24,7 +25,11 @@ func generateContentResponses(
 	stream bool,
 	yield func(*model.LLMResponse, error) bool,
 ) {
-	input, instructions := genaiContentsToResponsesInput(req.Contents, req.Config)
+	input, instructions, err := genaiContentsToResponsesInput(req.Contents, req.Config)
+	if err != nil {
+		yield(nil, err)
+		return
+	}
 	params := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(modelName),
 		Input: responses.ResponseNewParamsInputUnion{
@@ -80,7 +85,9 @@ func applyOpenAIResponsesConfig(params *responses.ResponseNewParams, cfg *OpenAI
 	}
 }
 
-func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.GenerateContentConfig) (responses.ResponseInputParam, string) {
+const linkRule = "this provider integration can only pass http and https links"
+
+func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.GenerateContentConfig) (responses.ResponseInputParam, string, error) {
 	instructions := mergeSystemInstructionFromConfig("", config)
 
 	functionResponses := make(map[string]*genai.FunctionResponse)
@@ -95,15 +102,18 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 		}
 	}
 
+	newestUser := newestUserTurn(contents)
 	var input responses.ResponseInputParam
-	for _, content := range contents {
+	for i, content := range contents {
 		if content == nil || strings.TrimSpace(content.Role) == openAIRoleSystem {
 			continue
 		}
 		role := strings.TrimSpace(content.Role)
 		var textParts []string
 		var functionCalls []*genai.FunctionCall
-		var imageURLs []string
+		// contentParts keeps text and file parts in order; used once a file part exists.
+		var contentParts responses.ResponseInputMessageContentListParam
+		hasFile := false
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -111,14 +121,35 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 			}
 			if part.Text != "" {
 				textParts = append(textParts, part.Text)
+				contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(part.Text))
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
 			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageURLs = append(imageURLs, fmt.Sprintf(
+				hasFile = true
+				contentParts = append(contentParts, responsesInputImage(fmt.Sprintf(
 					"data:%s;base64,%s",
 					part.InlineData.MIMEType,
 					base64.StdEncoding.EncodeToString(part.InlineData.Data),
-				))
+				)))
+			} else if part.FileData != nil && role == genai.RoleUser {
+				// The provider fetches the link itself, on this turn and on every replayed one.
+				switch {
+				case !isHTTPLink(part.FileData.FileURI) && i == newestUser:
+					return nil, "", unsupportedLinkError(part.FileData)
+				case !isHTTPLink(part.FileData.FileURI):
+					note := unsupportedLinkNote(part.FileData)
+					textParts = append(textParts, note)
+					contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(note))
+				case strings.HasPrefix(part.FileData.MIMEType, "image/"):
+					hasFile = true
+					contentParts = append(contentParts, linkNameParts(part.FileData)...)
+					contentParts = append(contentParts, responsesInputImage(part.FileData.FileURI))
+				default:
+					hasFile = true
+					contentParts = append(contentParts, linkNameParts(part.FileData)...)
+					file := responses.ResponseInputFileParam{FileURL: param.NewOpt(part.FileData.FileURI)}
+					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
+				}
 			}
 		}
 
@@ -147,7 +178,7 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 			continue
 		}
 
-		if len(textParts) == 0 && len(imageURLs) == 0 {
+		if len(textParts) == 0 && !hasFile {
 			continue
 		}
 
@@ -156,22 +187,61 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 			msgRole = responses.EasyInputMessageRoleAssistant
 		}
 
-		if len(imageURLs) > 0 {
-			parts := make(responses.ResponseInputMessageContentListParam, 0, len(textParts)+len(imageURLs))
-			for _, t := range textParts {
-				parts = append(parts, responses.ResponseInputContentParamOfInputText(t))
-			}
-			for _, url := range imageURLs {
-				img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
-				img.OfInputImage.ImageURL = param.NewOpt(url)
-				parts = append(parts, img)
-			}
-			input = append(input, responses.ResponseInputItemParamOfMessage(parts, msgRole))
+		if hasFile {
+			input = append(input, responses.ResponseInputItemParamOfMessage(contentParts, msgRole))
 		} else {
 			input = append(input, responses.ResponseInputItemParamOfMessage(strings.Join(textParts, "\n"), msgRole))
 		}
 	}
-	return input, instructions
+	return input, instructions, nil
+}
+
+// linkNameParts names a link in a text part before it: neither input_file nor
+// input_image takes a name next to a URL (Azure rejects filename beside file_url).
+func linkNameParts(f *genai.FileData) responses.ResponseInputMessageContentListParam {
+	if f.DisplayName == "" {
+		return nil
+	}
+	return responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText("File: " + f.DisplayName)}
+}
+
+// responsesInputImage builds an input_image part from a data or https URL.
+func responsesInputImage(url string) responses.ResponseInputContentUnionParam {
+	img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+	img.OfInputImage.ImageURL = param.NewOpt(url)
+	return img
+}
+
+func isHTTPLink(uri string) bool {
+	lower := strings.ToLower(uri)
+	return strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://")
+}
+
+// newestUserTurn is the index of the last user content, or -1. Only a bad link
+// there fails the request; in replayed history it becomes a note.
+func newestUserTurn(contents []*genai.Content) int {
+	for i, c := range slices.Backward(contents) {
+		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
+			return i
+		}
+	}
+	return -1
+}
+
+func unsupportedLinkError(f *genai.FileData) error {
+	if f.MIMEType == "" {
+		return fmt.Errorf("cannot send link %q without a media type: %s", f.FileURI, linkRule)
+	}
+	return fmt.Errorf("cannot send link %q with media type %q: %s", f.FileURI, f.MIMEType, linkRule)
+}
+
+// unsupportedLinkNote keeps the URL, so a model with a fetch tool can still use it.
+func unsupportedLinkNote(f *genai.FileData) string {
+	link := f.FileURI
+	if f.DisplayName != "" {
+		link = fmt.Sprintf("%s (%s)", f.DisplayName, f.FileURI)
+	}
+	return fmt.Sprintf("[Link %q was not sent: %s.]", link, linkRule)
 }
 
 func genaiToolsToResponsesTools(tools []*genai.Tool) []responses.ToolUnionParam {

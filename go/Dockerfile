@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
 FROM alpine:3.24
 ARG TARGETPLATFORM
 
-RUN apk add --no-cache bash ca-certificates git && \
+RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && \
     mkdir -p /skills /plugins /data/plugins && \
     chown -R 65532:65532 /skills /plugins /data
 
