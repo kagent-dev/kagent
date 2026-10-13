@@ -729,6 +729,12 @@ func TestSessionUsage(t *testing.T) {
 			want: map[string]modelUsage{"m": {InputTokens: 3, OutputTokens: 4}},
 		},
 		{
+			name:  "the saved totals carry each model's cost",
+			id:    session,
+			lines: []string{`{"type":"cost-state","totalCostUSD":0.013448,"modelUsage":{"m":{"inputTokens":10,"outputTokens":42,"costUSD":0.013448}}}`},
+			want:  map[string]modelUsage{"m": {InputTokens: 10, OutputTokens: 42, CostUSD: 0.013448}},
+		},
+		{
 			name:  "a session with no saved totals starts at zero",
 			id:    session,
 			lines: []string{`{"type":"user","message":{"content":"hi"}}`},

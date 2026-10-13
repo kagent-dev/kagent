@@ -83,6 +83,8 @@ type modelUsage struct {
 	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
 	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
 	ThinkingTokens           int64 `json:"thinkingTokens"`
+	// CostUSD is this model's share of total_cost_usd.
+	CostUSD float64 `json:"costUSD"`
 }
 
 func (u *modelUsage) add(call *runtime.ModelCall) {
@@ -96,7 +98,7 @@ func (u *modelUsage) add(call *runtime.ModelCall) {
 func (u modelUsage) plus(o modelUsage) modelUsage {
 	return modelUsage{u.InputTokens + o.InputTokens, u.OutputTokens + o.OutputTokens,
 		u.CacheReadInputTokens + o.CacheReadInputTokens, u.CacheCreationInputTokens + o.CacheCreationInputTokens,
-		u.ThinkingTokens + o.ThinkingTokens}
+		u.ThinkingTokens + o.ThinkingTokens, u.CostUSD + o.CostUSD}
 }
 
 // merge overlays the non-zero fields of a message_delta usage on its message_start usage.
@@ -391,20 +393,32 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 			return err
 		}
 		p.terminal = true
-		usage := &runtime.Usage{
-			TotalCostUSD: envelope.Cost, NumTurns: envelope.NumTurns,
-			InputTokens:  envelope.Usage.InputTokens + envelope.Usage.CacheReadTokens + envelope.Usage.CacheCreationTokens,
-			CachedTokens: envelope.Usage.CacheReadTokens,
-			OutputTokens: envelope.Usage.OutputTokens,
-		}
-		// modelUsage counts every model the turn called, as total_cost_usd
-		// prices them; a budget-stopped result reports zeros under usage.
-		if len(envelope.ModelUsage) > 0 {
-			usage.InputTokens, usage.CachedTokens, usage.OutputTokens = 0, 0, 0
-			for _, m := range envelope.ModelUsage {
-				usage.InputTokens += int(m.InputTokens + m.CacheReadInputTokens + m.CacheCreationInputTokens)
-				usage.CachedTokens += int(m.CacheReadInputTokens)
-				usage.OutputTokens += int(m.OutputTokens)
+		// total_cost_usd and modelUsage are session totals that a resumed session starts from
+		// the ones it saved, so the turn's usage is what they grew by in this process. With the
+		// totals at the start unknown, so is the turn's share, and the turn reports none.
+		var usage *runtime.Usage
+		if p.startUsage != nil {
+			usage = &runtime.Usage{
+				TotalCostUSD: envelope.Cost, NumTurns: envelope.NumTurns,
+				InputTokens:  envelope.Usage.InputTokens + envelope.Usage.CacheReadTokens + envelope.Usage.CacheCreationTokens,
+				CachedTokens: envelope.Usage.CacheReadTokens,
+				OutputTokens: envelope.Usage.OutputTokens,
+			}
+			for _, start := range p.startUsage {
+				usage.TotalCostUSD -= start.CostUSD
+			}
+			usage.TotalCostUSD = max(usage.TotalCostUSD, 0)
+			// modelUsage counts every model the turn called, as total_cost_usd
+			// prices them; a budget-stopped result reports zeros under usage.
+			if len(envelope.ModelUsage) > 0 {
+				usage.InputTokens, usage.CachedTokens, usage.OutputTokens = 0, 0, 0
+				for model, total := range envelope.ModelUsage {
+					start := p.startUsage[model]
+					cached := max(total.CacheReadInputTokens-start.CacheReadInputTokens, 0)
+					usage.InputTokens += int(max(total.InputTokens-start.InputTokens, 0) + cached + max(total.CacheCreationInputTokens-start.CacheCreationInputTokens, 0))
+					usage.CachedTokens += int(cached)
+					usage.OutputTokens += int(max(total.OutputTokens-start.OutputTokens, 0))
+				}
 			}
 		}
 		// A turn that reached one of its own limits is a completed turn: the work

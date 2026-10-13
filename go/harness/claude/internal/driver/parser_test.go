@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -121,6 +122,34 @@ func TestParseJSONLBudgetResultCountsModelUsage(t *testing.T) {
 	}
 	if last.Usage.InputTokens != 71812 || last.Usage.CachedTokens != 10 || last.Usage.OutputTokens != 204 || last.Usage.TotalCostUSD != 0.6 {
 		t.Fatalf("a budget-limited turn counts the tokens of every model it called: %#v", last.Usage)
+	}
+}
+
+func TestParseJSONLResumedTurnCountsOnlyItsOwnUsage(t *testing.T) {
+	// Captured from Claude Code 2.1.292: the second turn of a session, run with --resume. Its
+	// total_cost_usd and modelUsage continue from the totals the first turn saved.
+	start := map[string]modelUsage{"claude-haiku-4-5-20251001": {InputTokens: 10, OutputTokens: 42, CacheCreationInputTokens: 6614, CostUSD: 0.013448}}
+	events := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"e67aab23-392c-46f0-bbaa-c8cb31543fe7"}`,
+		`{"type":"result","subtype":"success","result":"two","total_cost_usd":0.0144904,"num_turns":1,"usage":{"input_tokens":10,"cache_read_input_tokens":6614,"cache_creation_input_tokens":88,"output_tokens":39},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":20,"outputTokens":81,"cacheReadInputTokens":6614,"cacheCreationInputTokens":6702,"costUSD":0.0144904}},"session_id":"e67aab23-392c-46f0-bbaa-c8cb31543fe7"}`,
+	}, "\n") + "\n"
+	var last Event
+	if err := parseJSONL(t.Context(), strings.NewReader(events), 4096, start, func(event Event) error { last = event; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if last.Kind != EventCompleted || last.Usage == nil {
+		t.Fatalf("resumed turn = %#v", last)
+	}
+	if got := last.Usage; got.InputTokens != 6712 || got.CachedTokens != 6614 || got.OutputTokens != 39 || got.NumTurns != 1 || math.Abs(got.TotalCostUSD-0.0010424) > 1e-9 {
+		t.Fatalf("a resumed turn reports only what it spent, not the session's totals: %#v", got)
+	}
+
+	// Without the totals at the start, the turn's share is unknown.
+	if err := parseJSONL(t.Context(), strings.NewReader(events), 4096, nil, func(event Event) error { last = event; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if last.Kind != EventCompleted || last.Usage != nil {
+		t.Fatalf("a turn whose starting totals are unknown reports no usage: %#v", last)
 	}
 }
 
