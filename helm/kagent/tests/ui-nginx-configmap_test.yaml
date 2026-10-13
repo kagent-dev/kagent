@@ -316,3 +316,15 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: "client_max_body_size 200m;"
+
+  - it: restores the gRPC-Web content type of a call an Envoy grpc_web filter turned into gRPC
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'map \$http_content_type \$kagent_api_content_type \{\s+default\s+\$http_content_type;\s+"~\*\^application/grpc\(\\\+proto\)\?\(;\.\*\)\?\$"\s+application/grpc-web\+proto;\s+"~\*\^application/grpc\\\+json\(;\.\*\)\?\$"\s+application/grpc-web\+json;\s+\}'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location /api/ \{[^}]*proxy_set_header Content-Type \$kagent_api_content_type;'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location /a2a/ \{[^}]*proxy_set_header Content-Type'
