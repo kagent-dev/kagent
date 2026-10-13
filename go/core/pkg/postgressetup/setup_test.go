@@ -122,6 +122,18 @@ func testSetupScript(t *testing.T, container *tcpostgres.PostgresContainer, admi
 		t.Fatalf("setup without an owner role error = %v", err)
 	}
 
+	for name, shared := range map[string]func(*postgressetup.Config){
+		"shared role":           func(c *postgressetup.Config) { c.ReadWriteRole = c.OwnerRole },
+		"shared login":          func(c *postgressetup.Config) { c.ReadWriteUser = c.OwnerUser },
+		"login named as a role": func(c *postgressetup.Config) { c.ReadWriteUser = c.OwnerRole },
+	} {
+		conflicting := config
+		shared(&conflicting)
+		if err := runSetupWith(conflicting); err == nil || !strings.Contains(err.Error(), "must all be different") {
+			t.Fatalf("setup with a %s error = %v", name, err)
+		}
+	}
+
 	ownerRole := pgx.Identifier{config.OwnerRole}.Sanitize()
 	exec("CREATE ROLE " + ownerRole + " LOGIN")
 	if err := runSetup(); err == nil || !strings.Contains(err.Error(), "conflicts with the required attributes") {

@@ -744,16 +744,16 @@ func (x *AuthenticationConfig) GetUserIdClaim() string {
 // the owner and require it only when they connect.
 type DatabaseConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Owner         *DatabaseLoginConfig   `protobuf:"bytes,1,opt,name=owner,proto3" json:"owner,omitempty"`
+	ReadWrite     *DatabaseLoginConfig   `protobuf:"bytes,2,opt,name=read_write,json=readWrite,proto3" json:"read_write,omitempty"`
 	VectorEnabled bool                   `protobuf:"varint,3,opt,name=vector_enabled,json=vectorEnabled,proto3" json:"vector_enabled,omitempty"`
 	// Skip applying migrations at controller startup. The controller still verifies,
 	// through the read/write login, that all required migrations are applied and
 	// fails to start if any are missing. The owner login is then not needed.
-	SkipMigrations bool                 `protobuf:"varint,4,opt,name=skip_migrations,json=skipMigrations,proto3" json:"skip_migrations,omitempty"`
-	Pool           *PostgresPoolConfig  `protobuf:"bytes,5,opt,name=pool,proto3" json:"pool,omitempty"`
-	Schema         *string              `protobuf:"bytes,6,opt,name=schema,proto3,oneof" json:"schema,omitempty"`
-	VectorSchema   *string              `protobuf:"bytes,7,opt,name=vector_schema,json=vectorSchema,proto3,oneof" json:"vector_schema,omitempty"`
-	Owner          *DatabaseLoginConfig `protobuf:"bytes,8,opt,name=owner,proto3" json:"owner,omitempty"`
-	ReadWrite      *DatabaseLoginConfig `protobuf:"bytes,9,opt,name=read_write,json=readWrite,proto3" json:"read_write,omitempty"`
+	SkipMigrations bool                `protobuf:"varint,4,opt,name=skip_migrations,json=skipMigrations,proto3" json:"skip_migrations,omitempty"`
+	Pool           *PostgresPoolConfig `protobuf:"bytes,5,opt,name=pool,proto3" json:"pool,omitempty"`
+	Schema         *string             `protobuf:"bytes,6,opt,name=schema,proto3,oneof" json:"schema,omitempty"`
+	VectorSchema   *string             `protobuf:"bytes,7,opt,name=vector_schema,json=vectorSchema,proto3,oneof" json:"vector_schema,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -786,6 +786,20 @@ func (x *DatabaseConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use DatabaseConfig.ProtoReflect.Descriptor instead.
 func (*DatabaseConfig) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1alpha1_config_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *DatabaseConfig) GetOwner() *DatabaseLoginConfig {
+	if x != nil {
+		return x.Owner
+	}
+	return nil
+}
+
+func (x *DatabaseConfig) GetReadWrite() *DatabaseLoginConfig {
+	if x != nil {
+		return x.ReadWrite
+	}
+	return nil
 }
 
 func (x *DatabaseConfig) GetVectorEnabled() bool {
@@ -821,20 +835,6 @@ func (x *DatabaseConfig) GetVectorSchema() string {
 		return *x.VectorSchema
 	}
 	return ""
-}
-
-func (x *DatabaseConfig) GetOwner() *DatabaseLoginConfig {
-	if x != nil {
-		return x.Owner
-	}
-	return nil
-}
-
-func (x *DatabaseConfig) GetReadWrite() *DatabaseLoginConfig {
-	if x != nil {
-		return x.ReadWrite
-	}
-	return nil
 }
 
 // DatabaseLoginConfig is one login: a local secret file holding its connection
@@ -1871,18 +1871,18 @@ const file_kagent_api_v1alpha1_config_proto_rawDesc = "" +
 	"\x14AuthenticationConfig\x127\n" +
 	"\x04mode\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19R\binsecureR\rtrusted-proxyH\x00R\x04mode\x88\x01\x01\x12\"\n" +
 	"\ruser_id_claim\x18\x02 \x01(\tR\vuserIdClaimB\a\n" +
-	"\x05_mode\"\xec\x03\n" +
-	"\x0eDatabaseConfig\x12%\n" +
+	"\x05_mode\"\xd0\x03\n" +
+	"\x0eDatabaseConfig\x12>\n" +
+	"\x05owner\x18\x01 \x01(\v2(.kagent.api.v1alpha1.DatabaseLoginConfigR\x05owner\x12G\n" +
+	"\n" +
+	"read_write\x18\x02 \x01(\v2(.kagent.api.v1alpha1.DatabaseLoginConfigR\treadWrite\x12%\n" +
 	"\x0evector_enabled\x18\x03 \x01(\bR\rvectorEnabled\x12'\n" +
 	"\x0fskip_migrations\x18\x04 \x01(\bR\x0eskipMigrations\x12;\n" +
 	"\x04pool\x18\x05 \x01(\v2'.kagent.api.v1alpha1.PostgresPoolConfigR\x04pool\x12>\n" +
 	"\x06schema\x18\x06 \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x00R\x06schema\x88\x01\x01\x12K\n" +
-	"\rvector_schema\x18\a \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x01R\fvectorSchema\x88\x01\x01\x12>\n" +
-	"\x05owner\x18\b \x01(\v2(.kagent.api.v1alpha1.DatabaseLoginConfigR\x05owner\x12G\n" +
-	"\n" +
-	"read_write\x18\t \x01(\v2(.kagent.api.v1alpha1.DatabaseLoginConfigR\treadWriteB\t\n" +
+	"\rvector_schema\x18\a \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x01R\fvectorSchema\x88\x01\x01B\t\n" +
 	"\a_schemaB\x10\n" +
-	"\x0e_vector_schemaJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\burl_fileR\x04role\"D\n" +
+	"\x0e_vector_schema\"D\n" +
 	"\x13DatabaseLoginConfig\x12\x19\n" +
 	"\burl_file\x18\x01 \x01(\tR\aurlFile\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\"\xd0\x03\n" +
@@ -2061,9 +2061,9 @@ var file_kagent_api_v1alpha1_config_proto_depIdxs = []int32{
 	21, // 20: kagent.api.v1alpha1.ControllerConfig.telemetry:type_name -> kagent.api.v1alpha1.TelemetryConfig
 	23, // 21: kagent.api.v1alpha1.ControllerConfig.runtime_defaults:type_name -> kagent.api.v1alpha1.RuntimeDefaultsConfig
 	9,  // 22: kagent.api.v1alpha1.ControllerServerConfig.auth:type_name -> kagent.api.v1alpha1.AuthenticationConfig
-	12, // 23: kagent.api.v1alpha1.DatabaseConfig.pool:type_name -> kagent.api.v1alpha1.PostgresPoolConfig
-	11, // 24: kagent.api.v1alpha1.DatabaseConfig.owner:type_name -> kagent.api.v1alpha1.DatabaseLoginConfig
-	11, // 25: kagent.api.v1alpha1.DatabaseConfig.read_write:type_name -> kagent.api.v1alpha1.DatabaseLoginConfig
+	11, // 23: kagent.api.v1alpha1.DatabaseConfig.owner:type_name -> kagent.api.v1alpha1.DatabaseLoginConfig
+	11, // 24: kagent.api.v1alpha1.DatabaseConfig.read_write:type_name -> kagent.api.v1alpha1.DatabaseLoginConfig
+	12, // 25: kagent.api.v1alpha1.DatabaseConfig.pool:type_name -> kagent.api.v1alpha1.PostgresPoolConfig
 	26, // 26: kagent.api.v1alpha1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
 	26, // 27: kagent.api.v1alpha1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
 	26, // 28: kagent.api.v1alpha1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration

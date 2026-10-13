@@ -138,8 +138,8 @@ message AuthenticationConfig {
 // read/write login serves runtime queries. The CLI's database commands use only
 // the owner and require it only when they connect.
 message DatabaseConfig {
-  reserved 1, 2;
-  reserved "url_file", "role";
+  DatabaseLoginConfig owner = 1;
+  DatabaseLoginConfig read_write = 2;
   bool vector_enabled = 3;
   // Skip applying migrations at controller startup. The controller still verifies,
   // through the read/write login, that all required migrations are applied and
@@ -154,8 +154,6 @@ message DatabaseConfig {
     pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
     max_len: 63
   }];
-  DatabaseLoginConfig owner = 8;
-  DatabaseLoginConfig read_write = 9;
 }
 
 // DatabaseLoginConfig is one login: a local secret file holding its connection

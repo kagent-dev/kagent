@@ -59,6 +59,10 @@ BEGIN
     IF schema_name = '' OR owner_role = '' OR owner_user = '' OR readwrite_role = '' OR readwrite_user = '' THEN
         RAISE EXCEPTION 'set kagent_schema and the kagent_owner_* and kagent_readwrite_* role and user variables, and run the script in one transaction';
     END IF;
+    -- A shared name would merge the owner's and the read/write login's privileges.
+    IF (SELECT count(DISTINCT name) FROM unnest(ARRAY[owner_role, owner_user, readwrite_role, readwrite_user]) AS name) <> 4 THEN
+        RAISE EXCEPTION 'the owner and read/write role and user names must all be different';
+    END IF;
 
     PERFORM pg_advisory_xact_lock(hashtextextended('kagent:setup:' || schema_name, 0));
 

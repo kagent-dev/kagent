@@ -24,6 +24,17 @@ func TestCheckConfigAllowsUnsignedPush(t *testing.T) {
 	require.ErrorContains(t, run(path, true, ""), "missing.pem")
 }
 
+func TestCheckConfigSkipsOwnerFileWhenSkippingMigrations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.yaml")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "readwrite-url"), []byte("postgres://localhost/kagent"), 0o600))
+	const database = "database: {owner: {urlFile: missing-owner-url, role: kagent_owner}, readWrite: {urlFile: readwrite-url, role: kagent_readwrite}"
+	require.NoError(t, os.WriteFile(path, []byte(database+", skipMigrations: true}\n"), 0o600))
+	require.NoError(t, run(path, true, ""))
+	require.NoError(t, os.WriteFile(path, []byte(database+"}\n"), 0o600))
+	require.ErrorContains(t, run(path, true, ""), "missing-owner-url")
+}
+
 func TestControllerAuthenticator(t *testing.T) {
 	for _, tt := range []struct {
 		name, mode, claim, payload, wantUser string
