@@ -101,7 +101,9 @@ jobs:
     # stable tag whose chart pin (the Makefile's SUBSTRATE_VERSION) or module
     # pin (the go.mod replace target) is a prerelease fails here, naming the
     # version, and nothing of that release is published. A candidate or a dev
-    # build passes: a candidate exists to prove a prerelease Substrate.
+    # build passes: a candidate exists to prove a prerelease Substrate. A stable
+    # tag is also refused while an earlier stable release has no row in FORK.md's
+    # Releases table.
     executor: architect/architect
     resource_class: small
     steps:
@@ -109,6 +111,11 @@ jobs:
       - run:
           name: Refuse a stable release built on a Substrate prerelease
           command: make -s substrate-pin-check RELEASE_VERSION="${CIRCLE_TAG:-}"
+      - run:
+          name: Refuse a release whose predecessors have no ledger row
+          command: |
+            git fetch --tags --quiet origin
+            scripts/fork/ledger-check.sh releases "${CIRCLE_TAG:-}"
 
   push-charts:
     executor: architect/architect
