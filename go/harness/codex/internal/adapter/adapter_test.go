@@ -300,6 +300,18 @@ func featureEnabled(output []byte, name string) bool {
 	return false
 }
 
+func TestNativeEnvironmentAppendsToolImagePaths(t *testing.T) {
+	telemetry := tracing.RuntimeTelemetry{Runtime: tracing.RuntimeCodex, AgentName: "demo-codex", AgentNamespace: "team"}
+	got := nativeEnvironment([]string{"PATH=/bin", "KAGENT_TOOL_PATHS=/opt/kagent/tools/go/bin"}, "/data/codex", telemetry)
+	if !slices.Contains(got, "PATH=/bin:/opt/kagent/tools/go/bin") || !slices.Contains(got, "KAGENT_TOOL_PATHS=/opt/kagent/tools/go/bin") {
+		t.Fatalf("environment = %v, want PATH extended by the tool image paths", got)
+	}
+	got = nativeEnvironment([]string{"PATH=/bin"}, "/data/codex", telemetry)
+	if !slices.Contains(got, "PATH=/bin") {
+		t.Fatalf("environment = %v, want the image PATH untouched without tool images", got)
+	}
+}
+
 func TestNativeEnvironmentDropsCompressionCodexCannotLoad(t *testing.T) {
 	got := nativeEnvironment([]string{"PATH=/bin", "OTEL_EXPORTER_OTLP_COMPRESSION=gzip", "CODEX_HOME=/wrong"}, "/data/codex",
 		tracing.RuntimeTelemetry{Runtime: tracing.RuntimeCodex, AgentName: "demo-codex", AgentNamespace: "team"})

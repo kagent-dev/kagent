@@ -121,4 +121,9 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	revision.Environment = append(revision.Environment, corev1.EnvVar{Name: "ONE_MORE", Value: "value"})
 	_, err = substrate.ActorTemplateForRevision(&revision.Revision, id)
 	require.ErrorContains(t, err, "Substrate supports at most 32")
+	// A tool image list costs one variable of the same budget.
+	revision.Environment = revision.Environment[:len(revision.Environment)-1]
+	revision.ToolImages = []translator.ToolImage{{Name: "kubectl", Reference: "example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+	_, err = substrate.ActorTemplateForRevision(&revision.Revision, id)
+	require.ErrorContains(t, err, "Substrate supports at most 32")
 }

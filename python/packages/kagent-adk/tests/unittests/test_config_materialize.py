@@ -1,7 +1,7 @@
 import os
 
 import pytest
-from kagent.core._config_materialize import materialize_from_env
+from kagent.core._config_materialize import extend_path_from_tool_images, materialize_from_env
 
 
 def test_materializes_present_env_vars(tmp_path, monkeypatch):
@@ -84,3 +84,30 @@ def test_unwritable_token_path_does_not_crash(tmp_path, monkeypatch):
     materialize_from_env(str(config_dir))  # must not raise
 
     assert (config_dir / "config.json").exists()
+
+
+def test_extends_path_with_tool_paths(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
+    monkeypatch.setenv("KAGENT_TOOL_PATHS", "/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin")
+
+    extend_path_from_tool_images()
+
+    assert os.environ["PATH"] == "/usr/local/bin:/usr/bin:/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin"
+
+
+def test_tool_paths_noop_when_unset(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("KAGENT_TOOL_PATHS", raising=False)
+
+    extend_path_from_tool_images()
+
+    assert os.environ["PATH"] == "/usr/bin"
+
+
+def test_tool_paths_skip_duplicates(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin:/opt/kagent/tools/go/bin")
+    monkeypatch.setenv("KAGENT_TOOL_PATHS", ":/opt/kagent/tools/go/bin::/opt/kagent/tools/helm/bin:")
+
+    extend_path_from_tool_images()
+
+    assert os.environ["PATH"] == "/usr/bin:/opt/kagent/tools/go/bin:/opt/kagent/tools/helm/bin"
