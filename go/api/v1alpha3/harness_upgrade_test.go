@@ -77,7 +77,7 @@ func TestClaudeHarnessAppliedWithLimitsTakesAnEmptyClaudeAfterTheCRDUpgrade(t *t
 				},
 			},
 		}}
-		return c.Patch(t.Context(), harness, ctrlclient.Apply, ctrlclient.FieldOwner("helm-controller"), ctrlclient.ForceOwnership)
+		return c.Apply(t.Context(), ctrlclient.ApplyConfigurationFromUnstructured(harness), ctrlclient.FieldOwner("helm-controller"), ctrlclient.ForceOwnership)
 	}
 	require.NoError(t, apply(map[string]any{"limits": map[string]any{"maxTurns": int64(40)}}))
 
