@@ -59,6 +59,7 @@ export function harnessSpecFromDraft(draft: HarnessDraft, existing?: HarnessSpec
   delete spec.workload;
   const image = draft.image.trim();
   const workload = {
+    ...(existing?.workload?.toolImages ? { toolImages: existing.workload.toolImages } : {}),
     ...(image ? { image } : {}),
     ...(overrides && draft.command.length > 0 ? { command: draft.command } : {}),
     ...(overrides && draft.args.length > 0 ? { args: draft.args } : {}),
