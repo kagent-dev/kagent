@@ -3,6 +3,7 @@ name: Add Issue to Project when assigned
 on:
   issues:
     types:
+    - opened
     - assigned
     - labeled
 
@@ -10,6 +11,7 @@ jobs:
   build_user_list:
     name: Get yaml config of GS users
     runs-on: ubuntu-latest
+    if: github.event.action != 'opened'
     permissions:
       contents: read
     steps:
@@ -94,4 +96,20 @@ jobs:
       uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
       with:
         project-url: ${{ env.BOARD }}
+        github-token: ${{ secrets.ISSUE_AUTOMATION }}
+
+  # An issue opened with a label or an assignee also fires `labeled` or
+  # `assigned`, which add it above; only a bare one is added here.
+  add_unlabelled_to_roadmap_board:
+    name: Add unlabelled, unassigned issue to roadmap board
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.action == 'opened' &&
+      join(github.event.issue.labels.*.name, '') == '' &&
+      join(github.event.issue.assignees.*.login, '') == ''
+    steps:
+    - name: Add issue to roadmap board
+      uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
+      with:
+        project-url: https://github.com/orgs/giantswarm/projects/273
         github-token: ${{ secrets.ISSUE_AUTOMATION }}
