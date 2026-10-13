@@ -46,6 +46,7 @@ type AzureOpenAIConfig struct {
 	Endpoint   string
 	Deployment string
 	APIVersion string
+	APIFormat  string
 
 	// credential overrides the Azure credential used for the implicit Workload
 	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
@@ -164,6 +165,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 		Deployment: deployment,
 		APIVersion: apiVersion,
 		HTTPClient: httpClient,
+		V1:         config.APIFormat == OpenAIAPIFormatResponses,
 	}
 
 	// Implicit auth: the incoming bearer token when APIKeyPassthrough is enabled
@@ -186,11 +188,12 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	if err != nil {
 		return nil, err
 	}
-	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion)
+	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion, "api_format", config.APIFormat)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
 			TransportConfig: config.TransportConfig,
 			Model:           deployment,
+			APIFormat:       config.APIFormat,
 		},
 		Client:  client,
 		IsAzure: true,

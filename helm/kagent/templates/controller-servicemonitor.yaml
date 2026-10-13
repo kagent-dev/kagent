@@ -30,7 +30,7 @@ spec:
       scrapeTimeout: {{ . }}
       {{- end }}
       honorLabels: {{ .Values.controller.metrics.serviceMonitor.honorLabels }}
-      {{- if .Values.controller.metrics.secureServing }}
+      {{- if .Values.config.metrics.secure }}
       scheme: https
       {{- with .Values.controller.metrics.serviceMonitor.bearerTokenFile }}
       bearerTokenFile: {{ . | quote }}

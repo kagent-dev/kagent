@@ -8,6 +8,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -21,6 +22,59 @@ type interactionTestStore struct {
 	task        *a2atype.Task
 	taskLookups int
 	taskReads   int
+	dispatchErr error
+}
+
+func (s *interactionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+	return s.dispatchErr
+}
+
+func TestPrepareSendStampsInboundTimeline(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		taskID   a2atype.TaskID
+		accepted bool
+	}{
+		{name: "opening"},
+		{name: "reply", taskID: "task"},
+		{name: "accepted retry", accepted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1alpha1.Session{Id: id, ContextId: id, State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+				Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+				Agent:     &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
+			original := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
+			originalPosition := time.Now().Add(-time.Hour).UTC()
+			apia2a.SetTimelinePosition(original, originalPosition)
+			tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id,
+				Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}, History: []*a2atype.Message{original}}}
+			if test.accepted {
+				tasks.dispatchErr = database.ErrMessageAccepted
+			}
+			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
+			message.ID, message.ContextID, message.TaskID = original.ID, id, test.taskID
+			apia2a.SetTimelinePosition(message, time.Unix(1, 0))
+			before := time.Now().UTC()
+			prepared, err := service.PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.accepted {
+				position, ok := apia2a.TimelinePosition(prepared.AcceptedTask.History[0])
+				if !ok || !position.Equal(originalPosition) || prepared.DispatchID != uuid.Nil {
+					t.Fatal("accepted retry changed the original timeline or granted dispatch")
+				}
+				return
+			}
+			position, ok := apia2a.TimelinePosition(message)
+			if !ok || position.Before(before) || position.After(time.Now().UTC()) || prepared.DispatchID == uuid.Nil {
+				t.Fatalf("dispatched input position = %v, want server time after %v", position, before)
+			}
+		})
+	}
 }
 
 func (s *interactionTestStore) SessionForTask(context.Context, string) (string, error) {
@@ -46,6 +100,23 @@ func (s *interactionTestStore) GetSettledSessionTask(context.Context, string, st
 func (s *interactionTestStore) GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error) {
 	s.taskReads++
 	return s.task, nil
+}
+
+func (s *interactionTestStore) GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error) {
+	s.taskReads++
+	return &database.TaskPushConfig{ID: "callback", URL: "https://receiver.example/callback"}, nil
+}
+
+func (s *interactionTestStore) ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error) {
+	s.taskReads++
+	return []database.TaskPushConfig{{ID: "callback", URL: "https://receiver.example/callback"}}, nil
+}
+
+func TestTaskPageTokenRejectsInvalidUTF8(t *testing.T) {
+	_, err := decodeTaskPageToken("invalid")
+	if err == nil {
+		t.Fatal("invalid UTF-8 page token was accepted")
+	}
 }
 
 func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
@@ -84,6 +155,21 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			_, err := s.ListTasks(ctx, agent, &a2atype.ListTasksRequest{ContextID: id})
 			return err
 		}},
+		{name: "push create", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.CreateTaskPushConfig(ctx, agent, &a2atype.PushConfig{TaskID: "task", ID: "callback", URL: "https://receiver.example/callback", Auth: &a2atype.PushAuthInfo{Scheme: "Bearer"}})
+			return err
+		}},
+		{name: "push get", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.GetTaskPushConfig(ctx, agent, &a2atype.GetTaskPushConfigRequest{TaskID: "task", ID: "callback"})
+			return err
+		}},
+		{name: "push list", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			_, err := s.ListTaskPushConfigs(ctx, agent, &a2atype.ListTaskPushConfigRequest{TaskID: "task"})
+			return err
+		}},
+		{name: "push delete", verb: auth.VerbDelete, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
+			return s.DeleteTaskPushConfig(ctx, agent, &a2atype.DeleteTaskPushConfigRequest{TaskID: "task", ID: "callback"})
+		}},
 		{name: "subscribe", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
 			_, _, err := s.PrepareTaskSubscription(ctx, agent, &a2atype.SubscribeToTaskRequest{ID: "task"})
 			return err
@@ -119,7 +205,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				sessionStore := &serviceTestStore{getResult: stored}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
-				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil))
+				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false)
 				want := test.want
 				if test.name == "read-only share" && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
@@ -147,7 +233,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 }
 
 func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
-	service := NewInteractionService(nil, nil, nil)
+	service := NewInteractionService(nil, nil, nil, false)
 	for _, agent := range []types.NamespacedName{
 		{},
 		{Namespace: "team-a"},

@@ -126,7 +126,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	store := database.NewClient(pool)
+	store := database.NewClient(pool, "public")
 	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
@@ -159,7 +159,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	t.Cleanup(func() { require.NoError(t, guests.Close()) })
 	actors := &testActors{}
 	service, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: kube, Authorizer: auth.NoopAuthorizer{}, Actors: actors, Guests: guests,
-		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour})
+		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour, ExpirationPollInterval: time.Second})
 	require.NoError(t, err)
 	return service, auth.AuthSessionTo(t.Context(), testSession("alice")), actors, func() http.Header {
 		mu.Lock()

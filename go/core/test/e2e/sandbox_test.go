@@ -216,8 +216,11 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
 	require.Equal(t, data, f.read(t, id, "binary.dat"))
-	_, err = f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.Equal(t, codes.NotFound, status.Code(err))
+	// Sandboxes take FULL snapshots until Substrate's lifecycle v2, so the guest's
+	// in-memory process registry survives suspend and resume.
+	restored, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+	require.NoError(t, err)
+	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, restored.Status)
 	_, err = f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
 	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
@@ -256,11 +259,14 @@ func TestSandboxMCP(t *testing.T) {
 	}
 	call("write_sandbox_file", map[string]any{"sandbox_id": sandbox.Id, "path": "mcp.txt", "data_base64": base64.StdEncoding.EncodeToString([]byte("from MCP"))}, &write)
 	require.Equal(t, 8, write.Bytes)
-	var read struct {
-		Data string `json:"data_base64"`
+	text := func(name string, args map[string]any) string {
+		t.Helper()
+		result := mcpCall(t, mcpEndpoint(t), "tools/call", map[string]any{"name": name, "arguments": args}, false)["result"].(map[string]any)
+		require.NotEqual(t, true, result["isError"], "%#v", result)
+		require.Nil(t, result["structuredContent"], "content tools must not return structured output")
+		return mcpResultText(result)
 	}
-	call("read_sandbox_file", map[string]any{"sandbox_id": sandbox.Id, "path": "mcp.txt"}, &read)
-	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("from MCP")), read.Data)
+	require.Equal(t, "1\tfrom MCP\n", text("read_sandbox_file", map[string]any{"sandbox_id": sandbox.Id, "path": "mcp.txt"}))
 	var process struct {
 		ID string `json:"process_id"`
 	}
@@ -378,8 +384,11 @@ func TestSandboxControllerRestart(t *testing.T) {
 	after, err := findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
 	require.NoError(t, err)
 	require.Equal(t, actor.GetMetadata().GetUid(), after.GetMetadata().GetUid(), "controller restart must preserve compute")
-	finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.NoError(t, err)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, finished.Status)
+	// The replacement controller can become ready before the process's sleep
+	// finishes. Observe completion instead of using rollout time as a delay.
+	require.Eventually(t, func() bool {
+		finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+		return err == nil && finished.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+	}, 10*time.Second, 100*time.Millisecond, "process did not complete after controller replacement")
 	require.Equal(t, "once", string(f.read(t, instance.Id, "restart-count")))
 }

@@ -48,11 +48,13 @@ Unsupported or invalid authorization decisions fail closed.
 
 ## Resource identity
 
-Authorization uses identity derived from stored or validated resource data. A request reference identifies what to load; it is not trusted evidence about the resource itself.
+Authorization uses namespace and name, the only attributes in scope. Each decision is made before the operation it authorizes.
 
-- Reads and deletes are decided from the stored resource.
+- Reads and deletes are decided from their references before the read, so denial does not reveal whether the resource exists.
 - Creates are decided from the validated proposed resource.
-- Updates are decided from the stored resource and preserve its namespace and name.
+- Updates authorize get before the read and update before the write. Generic updates use the identity of the loaded resource.
+
+A service that writes through its own client authorizes update from the request reference before its first side effect.
 
 ## Collection behavior
 

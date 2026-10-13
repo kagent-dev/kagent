@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Alert, Button, Card, Form, Input, Radio, Select, Skeleton, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
@@ -12,13 +12,6 @@ import {
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
-import { HarnessFields } from "@/components/harness-form/HarnessFields";
-import {
-  emptyHarnessDraft,
-  harnessDraftFromSpec,
-  harnessDraftProblems,
-  harnessSpecFromDraft,
-} from "@/components/harness-form/harnessDraft";
 import {
   apiClient,
   useAgent,
@@ -45,7 +38,7 @@ export function AgentFormPage() {
   return (
     <PageFrame
       title={editing ? `Edit agent ${name}` : "New agent"}
-      description="An agent pairs a template with a harness. Reference a shared one, or define it inline for this agent only."
+      description="An agent pairs inline or shared behavior with a platform-managed harness."
     >
       {!editing && namespaces.error ? (
         <Alert
@@ -93,17 +86,13 @@ function AgentForm({ agent }: { agent?: Agent }) {
   const namespace = chosenNamespace ?? fallbackNamespace;
   const [name, setName] = useState(agent?.name ?? "");
 
-  const [templateSource, setTemplateSource] = useState<Source>(spec?.template ? "inline" : "reference");
-  const [templateRef, setTemplateRef] = useState(spec?.templateRef?.name);
+  const [templateSource, setTemplateSource] = useState<Source>(spec?.template.inline ? "inline" : "reference");
+  const [templateRef, setTemplateRef] = useState(spec?.template.ref?.name);
   const [templateDraft, setTemplateDraft] = useState(() =>
-    spec?.template ? draftFromSpec(spec.template, agent!.namespace) : emptyDraft(namespace),
+    spec?.template.inline ? draftFromSpec(spec.template.inline, agent!.namespace) : emptyDraft(namespace),
   );
 
-  const [harnessSource, setHarnessSource] = useState<Source>(spec?.harness ? "inline" : "reference");
-  const [harnessRef, setHarnessRef] = useState(spec?.harnessRef?.name);
-  const [harnessDraft, setHarnessDraft] = useState(() =>
-    spec?.harness ? harnessDraftFromSpec(spec.harness) : emptyHarnessDraft(),
-  );
+  const [harnessRef, setHarnessRef] = useState(spec?.harnessRef.name);
 
   const templates = useAgentTemplates(namespace || undefined);
   const harnesses = useHarnesses(namespace || undefined);
@@ -111,9 +100,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
   const [failure, setFailure] = useState<string>();
 
   const inlineTemplate = { ...templateDraft, namespace };
-  const adapter = harnessSource === "inline"
-    ? harnessDraft.adapter
-    : harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
+  const adapter = harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
   const problems = [
     ...(namespace ? [] : ["A namespace is required."]),
     ...(name.trim() ? [] : ["A name is required."]),
@@ -123,20 +110,17 @@ function AgentForm({ agent }: { agent?: Agent }) {
     ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig.trim()
       ? ["Choose a model configuration for the inline template."]
       : []),
-    ...(harnessSource === "reference" && !harnessRef ? ["Choose a harness."] : []),
-    ...(harnessSource === "inline" ? harnessDraftProblems(harnessDraft) : []),
+    ...(!harnessRef ? ["Choose a harness."] : []),
   ];
 
   async function save() {
     setSaving(true);
     setFailure(undefined);
     const agentSpec = {
-      ...(templateSource === "reference"
-        ? { templateRef: { name: templateRef! } }
-        : { template: specFromDraft(inlineTemplate, spec?.template) }),
-      ...(harnessSource === "reference"
-        ? { harnessRef: { name: harnessRef! } }
-        : { harness: harnessSpecFromDraft(harnessDraft, spec?.harness) }),
+      template: templateSource === "reference"
+        ? { ref: { name: templateRef! } }
+        : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },
+      harnessRef: { name: harnessRef! },
     } as AgentSpec;
     const input = {
       namespace,
@@ -215,33 +199,37 @@ function AgentForm({ agent }: { agent?: Agent }) {
             onChange={setTemplateDraft}
             isCreate={false}
             namespace={namespace}
-            hasUnshownFields={spec?.template ? hasUnshownSpecFields(spec.template) : false}
+            hasUnshownFields={spec?.template.inline ? hasUnshownSpecFields(spec.template.inline) : false}
           />
         }
       />
 
-      <SourceSection
-        kind="harness"
-        title="Harness"
-        summary="How and where the agent runs: its runtime, image and worker pool."
-        source={harnessSource}
-        onSource={setHarnessSource}
-        reference={
-          <RefSelect
-            kind="harness"
-            value={harnessRef}
-            onChange={setHarnessRef}
-            loading={harnesses.isLoading}
-            error={harnesses.error?.message}
-            names={(harnesses.data ?? []).map((row) => row.name)}
-          />
+      <Card
+        size="small"
+        data-testid="agent-form-harness"
+        title={
+          <div css={{ padding: `${theme.space(2)} 0` }}>
+            <div>Harness</div>
+            <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
+              Platform-managed runtime, image and worker pool.
+            </Text>
+          </div>
         }
-        inline={
-          <Form layout="vertical">
-            <HarnessFields draft={harnessDraft} onChange={setHarnessDraft} />
-          </Form>
-        }
-      />
+      >
+        <RefSelect
+          kind="harness"
+          value={harnessRef}
+          onChange={setHarnessRef}
+          loading={harnesses.isLoading}
+          error={harnesses.error?.message}
+          names={(harnesses.data ?? []).map((row) => row.name)}
+          empty={
+            <span>
+              No harnesses in this namespace. <Link to={paths.harnessNew}>Create a harness</Link>
+            </span>
+          }
+        />
+      </Card>
 
       {failure ? (
         <Alert
@@ -339,6 +327,7 @@ function RefSelect({
   loading,
   error,
   names,
+  empty,
 }: {
   kind: string;
   value?: string;
@@ -346,6 +335,7 @@ function RefSelect({
   loading: boolean;
   error?: string;
   names: string[];
+  empty?: ReactNode;
 }) {
   return (
     <Form layout="vertical">
@@ -363,7 +353,7 @@ function RefSelect({
           loading={loading}
           showSearch
           options={names.map((name) => ({ value: name, label: name }))}
-          notFoundContent={loading ? undefined : `No ${kind}s in this namespace`}
+          notFoundContent={loading ? undefined : (empty ?? `No ${kind}s in this namespace`)}
         />
       </Form.Item>
     </Form>

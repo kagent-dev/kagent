@@ -10,23 +10,27 @@ const (
 	EventToolActivity   EventKind = "tool_activity"
 	EventCompleted      EventKind = "completed"
 	EventFailed         EventKind = "failed"
+	EventModelCall      EventKind = "model_call"
 )
 
 // Event is the Claude stream vocabulary consumed by ProcessDriver. Vendor
 // parsing details stay here and are normalized before reaching shared runtime
 // code.
 type Event struct {
-	Kind        EventKind
-	SessionID   string
-	Text        string
-	ToolID      string
-	ToolName    string
-	ToolPhase   string
-	ToolResult  any
-	ToolError   bool
-	Metadata    map[string]any
-	Category    string
-	SafeMessage string
-	Result      string
-	Usage       *runtime.Usage
+	Kind      EventKind
+	SessionID string
+	Text      string
+	ToolID    string
+	ToolName  string
+	ToolPhase string
+	// ParentToolID is the Agent call whose subagent started the tool.
+	ParentToolID string
+	ToolResult   any
+	ToolError    bool
+	Metadata     map[string]any
+	Category     string
+	SafeMessage  string
+	Result       string
+	ModelCall    *runtime.ModelCall
+	Usage        *runtime.Usage
 }

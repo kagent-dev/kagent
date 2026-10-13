@@ -37,7 +37,7 @@ tests:
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
-      controller.metrics.bindAddress: "0"
+      config.metrics.bindAddress: "0"
     asserts:
       - hasDocuments:
           count: 0
@@ -113,7 +113,7 @@ tests:
     set:
       controller.metrics.enabled: true
       controller.metrics.serviceMonitor.enabled: true
-      controller.metrics.secureServing: false
+      config.metrics.secure: false
     asserts:
       - equal:
           path: spec.endpoints[0].port

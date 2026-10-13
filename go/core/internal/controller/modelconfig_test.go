@@ -5,7 +5,7 @@ import (
 	"time"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -14,8 +14,8 @@ import (
 )
 
 func TestResolvedModelConfigEquals(t *testing.T) {
-	left := v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
-	right := v2translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
+	left := translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
+	right := translator.ResolvedModelConfig{Config: &kagentv1alpha3.ModelConfig{Spec: kagentv1alpha3.ModelConfigSpec{Model: "gpt-5"}}}
 	if !krt.Equal(left, right) {
 		t.Fatal("equal resolutions were not considered equal")
 	}

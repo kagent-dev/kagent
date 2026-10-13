@@ -94,6 +94,7 @@ export {
   useAgentTemplatesAcrossNamespaces,
   useHarnesses,
   useHarnessesAcrossNamespaces,
+  useAgentTakesFiles,
 } from "./hooks/useAgentBuildingBlocks";
 export {
   useAgentConversations,
@@ -135,6 +136,7 @@ export type {
   ChatPart,
   ChatRole,
   ChatTextPart,
+  ChatFilePart,
   ChatToolApprovalPart,
   ChatTurnState,
 } from "./chat";

@@ -15,7 +15,7 @@ import (
 	adkagent "github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
@@ -67,10 +67,10 @@ func TestNonStreamingModelTurn(t *testing.T) {
 			model.Spec.Stream = new(false)
 			model.Spec.OpenAI.APIFormat = new(tc.format)
 			collections := contextTestCollections(t, model)
-			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &v2translator.HarnessInput{
-				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-				Root: &v2translator.AgentInput{
-					Template: &v2translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &translator.AgentInput{
+					Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
 				},
 			})
 			require.NoError(t, err)

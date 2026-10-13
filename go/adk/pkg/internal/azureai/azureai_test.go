@@ -371,3 +371,37 @@ func TestResolveImplicitAuth(t *testing.T) {
 		}
 	})
 }
+
+func TestNewOpenAIClientV1(t *testing.T) {
+	var gotPath, gotQuery, gotAPIKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery, gotAPIKey = r.URL.Path, r.URL.RawQuery, r.Header.Get("Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"object":"list","data":[],"model":"m","usage":{"prompt_tokens":0,"total_tokens":0}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAIClient(ClientConfig{
+		Endpoint:   server.URL + "/",
+		Deployment: "dep",
+		APIVersion: "2024-10-21",
+		APIKey:     "secret",
+		V1:         true,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAIClient() error = %v", err)
+	}
+	_, _ = client.Embeddings.New(context.Background(), openai.EmbeddingNewParams{
+		Model: openai.EmbeddingModel("dep"),
+		Input: openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: []string{"x"}},
+	})
+	if gotPath != "/openai/v1/embeddings" {
+		t.Fatalf("path = %q, want the v1 path without the deployment", gotPath)
+	}
+	if gotQuery != "" {
+		t.Fatalf("query = %q, want no api-version on the v1 path", gotQuery)
+	}
+	if gotAPIKey != "secret" {
+		t.Fatalf("Api-Key = %q", gotAPIKey)
+	}
+}

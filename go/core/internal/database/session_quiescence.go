@@ -20,6 +20,21 @@ type SessionQuiescence struct {
 	ExecutorID uuid.UUID
 }
 
+// HasPendingSessionQuiescence includes ready sessions temporarily blocked by
+// dispatch, checkpoints, lifecycle operations, or row locks. Already claimed
+// work is excluded: its runtime outcome may be uncertain and cannot be retried
+// by another worker. Suspended/deleted sessions need no automatic runtime work.
+func (c *Client) HasPendingSessionQuiescence(ctx context.Context) (bool, error) {
+	return queryOne(ctx, c.db, `
+		SELECT EXISTS (
+			SELECT 1 FROM session_task_event e JOIN session_record i ON i.history_id = e.history_id
+			WHERE e.published AND e.quiescence_pending = TRUE
+			  AND e.quiescence_executor_id IS NULL
+			  AND i.state = 'RUNTIME_STATE_READY'
+		)
+	`, pgx.RowTo[bool])
+}
+
 // ClaimSessionQuiescence claims an idle session at its latest settled task
 // version. A new turn supersedes unclaimed idle work; a claim blocks task writes,
 // checkpoints, and explicit lifecycle operations until it finishes. Missing work

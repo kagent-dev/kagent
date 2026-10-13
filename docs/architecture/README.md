@@ -10,7 +10,7 @@ the agent processes.
 
 | Resource                      | Owner                                    | Purpose                                                                       |
 | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Explicit inline-or-reference template/Harness pairing, readiness, and revision selection |
+| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Inline-or-reference behavior paired with a referenced Harness, readiness, and revision selection |
 | `Harness`                     | Kubernetes (`api.kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
 | `AgentTemplate`               | Kubernetes (`api.kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | `SandboxTemplate` | Kubernetes (`api.kagent.dev/v1alpha3`) | Tools image, environment, and preparation policy for standalone sandboxes |
@@ -37,8 +37,8 @@ semantics; kagent does not maintain a parallel session or task API.
 
 ```mermaid
 flowchart LR
-    AGENT[Agent] --> AT[template or templateRef]
-    AGENT --> H[harness or harnessRef]
+    AGENT[Agent] --> AT[template: inline or ref]
+    AGENT --> H[harnessRef]
     AT --> R[resolve tree]
     H --> R
     R --> B[build harness inputs]
@@ -67,7 +67,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 ## Component boundaries
 
 - API types describe agent behavior without exposing backend mechanics.
-- The v2 translator resolves references and compiles explicit runtime inputs.
+- The translator resolves references and compiles explicit runtime inputs.
 - The controller reconciles compiled revisions to ate-api ActorTemplates.
 - Session and Sandbox services own their respective lifecycle orchestration.
 - The apiserver handles sandbox lifecycle and guest operations through one
@@ -84,6 +84,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [Client lifecycle retries](../lifecycle-retries.md)
 - [Standalone sandboxes](sandboxes.md)
 - [A2A gateway](a2a-gateway.md)
+- [A2A push notifications](a2a-push-notifications.md)
 - [A2A metadata](a2a-metadata.md)
 - [OIDC proxy authentication](oidc-proxy-authentication.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)

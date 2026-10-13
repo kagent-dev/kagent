@@ -25,6 +25,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+func TestSandboxExpirationRejectsInvalidInterval(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			service := &Service{config: Config{ExpirationPollInterval: interval}}
+			require.ErrorContains(t, service.Start(t.Context()), "interval must be positive")
+		})
+	}
+}
+
 type testSession string
 
 func (s testSession) Principal() auth.Principal {
@@ -122,7 +131,7 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	store := database.NewClient(pool)
+	store := database.NewClient(pool, "public")
 	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
@@ -135,7 +144,7 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	}).Build()
 	actors := &testActors{}
 	service, err := NewService(Config{Store: store, Kube: kube, Authorizer: auth.NoopAuthorizer{}, Actors: actors,
-		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour})
+		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour, ExpirationPollInterval: time.Second})
 	require.NoError(t, err)
 	return service, auth.AuthSessionTo(t.Context(), testSession("alice")), actors
 }

@@ -7,32 +7,21 @@
 // "technical_writer"), wraps them in a ParallelAgent, and exposes the result
 // as an A2A-compatible agent.
 //
-// The app builder uses these environment variables:
-//
-//   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
-//     scoping. Falls back to the agent card name.
-//   - KAGENT_PORT: the port to listen on (default "8080").
-//
-// Required environment variables:
-//
-//   - OPENAI_API_KEY: your OpenAI API key.
-//   - KAGENT_API_URL: the kagent API endpoint, supplied by the Harness compiler.
-//
-// Optional environment variables:
-//
-//   - MODEL_NAME: the OpenAI model to use (default "gpt-4o-mini").
-//
-// Deploy through a BYO Harness so the runtime receives its API endpoint and
-// projected actor identity. The app requires the central TaskStore for A2A work.
+// Deploy through a BYO Harness. Process settings are loaded from the root
+// runtime object in /config/config.json. OPENAI_API_KEY remains a provider
+// credential and MODEL_NAME selects this example's model (default gpt-4o-mini).
 package main
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -44,7 +33,21 @@ import (
 )
 
 func main() {
-	logger, _ := logging.New(os.Stderr, "info")
+	if err := config.MaterializeFromEnv("/config"); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	compiled, err := config.LoadAgentConfig("/config/config.json")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	runtime := compiled.ProcessConfig()
+	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	slog.SetDefault(logger)
 
 	modelName := os.Getenv("MODEL_NAME") //nolint:forbidigo // Application-specific setting in this standalone BYO example.
@@ -115,7 +118,7 @@ func main() {
 	}
 	executor := adka2a.NewExecutor(execConfig)
 
-	kagentApp, err := app.New(app.AppConfig{
+	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneURL, MaxContentLength: runtime.MaxContentLength,
 		AgentCard: a2atype.AgentCard{
 			Name:        "byo-parallel-agent",
 			Description: "A BYO agent that runs creative and technical writers in parallel",
@@ -136,7 +139,7 @@ func main() {
 				},
 			},
 		},
-		Port:   "8082",
+		Port:   cmp.Or(runtime.Port, "8082"),
 		Logger: logger,
 		Agent:  parallelAgent,
 	}, executor)

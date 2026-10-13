@@ -6,7 +6,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
@@ -29,7 +29,7 @@ type Collections struct {
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
-	ResolvedModelConfigs     krt.Collection[v2translator.ResolvedModelConfig]
+	ResolvedModelConfigs     krt.Collection[translator.ResolvedModelConfig]
 	AgentStatuses            krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus]
 }
 
@@ -38,7 +38,7 @@ type Collections struct {
 type AgentRuntimeObservation struct {
 	Namespace  string
 	AgentName  string
-	RevisionID v2translator.RevisionID
+	RevisionID translator.RevisionID
 	Template   *ateapipb.ActorTemplate
 	Failure    *ReconciliationFailure
 }
@@ -60,7 +60,7 @@ func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) Collections {
+func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings translator.CompilerSettings) Collections {
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
@@ -72,11 +72,11 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
-	compilerCollections := v2translator.Collections{
+	compilerCollections := translator.Collections{
 		Harnesses: harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
-	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts)
+	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{

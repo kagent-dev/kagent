@@ -325,11 +325,11 @@ Default values can be found in [helm/kagent/values.yaml](https://github.com/kage
 **Additional Configurations:**
 For production use, configure:
 
-- External PostgreSQL connection (set `database.postgres.bundled.enabled=false` and set either `database.postgres.url` or `database.postgres.urlFile`)
+- External PostgreSQL connection (configure `database.postgres.connectionStringSecretRef`)
 - LLM API keys via Secrets (`providers.openAI.apiKeySecretRef`)
 - TLS for external LLM connections (`modelConfig.tls`)
 - Resource limits based on workload (`agents.*.resources`)
-- OpenTelemetry endpoints (`otel.traces.enabled`, `otel.exporter.otlp.endpoint`)
+- OpenTelemetry endpoints (`config.runtimeDefaults.telemetry.traces`, `config.runtimeDefaults.telemetry.traces.endpoint`)
 - Network policies for pod isolation
 - RBAC policies per agent based on required permissions
 

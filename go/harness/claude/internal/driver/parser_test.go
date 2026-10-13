@@ -7,11 +7,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 
+	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
-const pinnedClaudeVersion = "2.1.260"
+const pinnedClaudeVersion = "2.1.285"
 
 func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	b, err := os.ReadFile("../../testdata/stream-success.jsonl")
@@ -20,7 +22,7 @@ func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	}
 	for _, reader := range []io.Reader{bytes.NewReader(b), &fragmentReader{data: b, size: 3}} {
 		var events []Event
-		if err := ParseJSONL(reader, 4096, func(event Event) error {
+		if err := ParseJSONL(t.Context(), reader, 4096, func(event Event) error {
 			events = append(events, event)
 			return nil
 		}); err != nil {
@@ -58,7 +60,7 @@ func TestParseJSONLBedrockTextAfterThinkingIsNotDuplicated(t *testing.T) {
 	}, "\n") + "\n"
 
 	var text strings.Builder
-	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
 		if event.Kind == EventTextDelta {
 			text.WriteString(event.Text)
 		}
@@ -77,7 +79,7 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var last Event
-	if err := ParseJSONL(bytes.NewReader(b), 4096, func(event Event) error { last = event; return nil }); err != nil {
+	if err := ParseJSONL(t.Context(), bytes.NewReader(b), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if last.Kind != EventCompleted || last.Category != runtime.LimitBudget || last.Usage == nil {
@@ -87,14 +89,14 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 		`{"type":"system","subtype":"init","session_id":"22222222-2222-4222-8222-222222222222"}`,
 		`{"type":"result","subtype":"error_max_turns","is_error":true,"result":"turn limit","total_cost_usd":0.25,"num_turns":3,"usage":{"input_tokens":120,"cache_read_input_tokens":3000,"cache_creation_input_tokens":500,"output_tokens":40},"session_id":"22222222-2222-4222-8222-222222222222"}`,
 	}
-	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
+	if err := ParseJSONL(t.Context(), strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if last.Kind != EventCompleted || last.Category != runtime.LimitTurns || last.Usage == nil || last.Usage.TotalCostUSD != 0.25 || last.Usage.NumTurns != 3 || last.Usage.InputTokens != 3620 || last.Usage.CachedTokens != 3000 || last.Usage.OutputTokens != 40 {
 		t.Fatalf("turn-limited result = %#v, usage %#v", last, last.Usage)
 	}
 	events[1] = `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","total_cost_usd":0.1,"num_turns":2,"usage":{"input_tokens":50,"output_tokens":7},"session_id":"22222222-2222-4222-8222-222222222222"}`
-	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
+	if err := ParseJSONL(t.Context(), strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if last.Kind != EventFailed || last.Category != "error_during_execution" {
@@ -111,7 +113,7 @@ func TestParseJSONLBudgetResultCountsModelUsage(t *testing.T) {
 		`{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":0.6,"num_turns":1,"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0},"modelUsage":{"claude-sonnet-4-6":{"inputTokens":2,"outputTokens":199,"cacheReadInputTokens":10,"cacheCreationInputTokens":71770,"costUSD":0.5},"claude-haiku-4-5":{"inputTokens":30,"outputTokens":5,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.1}},"session_id":"22222222-2222-4222-8222-222222222222"}`,
 	}
 	var last Event
-	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
+	if err := ParseJSONL(t.Context(), strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if last.Kind != EventCompleted || last.Category != runtime.LimitBudget || last.Usage == nil {
@@ -135,7 +137,7 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
 	}, "\n") + "\n"
 	var events []Event
-	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
 		events = append(events, event)
 		return nil
 	}); err != nil {
@@ -171,7 +173,7 @@ func TestParseJSONLIgnoresSubagentTaskNotificationResult(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"child done","origin":{"kind":"task-notification"}}`,
 	}, "\n") + "\n"
 	var terminal []Event
-	if err := ParseJSONL(strings.NewReader(input), 4096, func(event Event) error {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
 		if event.Kind == EventCompleted || event.Kind == EventFailed {
 			terminal = append(terminal, event)
 		}
@@ -210,7 +212,7 @@ func TestParseJSONLRejectsInvalidToolLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := strings.Join(tt.lines, "\n") + "\n"
-			err := ParseJSONL(strings.NewReader(input), 4096, func(Event) error { return nil })
+			err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("ParseJSONL() error = %v, want containing %q", err, tt.want)
 			}
@@ -231,7 +233,7 @@ func TestParseJSONLErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ParseJSONL(strings.NewReader(tt.input), tt.max, func(Event) error { return nil })
+			err := ParseJSONL(t.Context(), strings.NewReader(tt.input), tt.max, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("ParseJSONL() error = %v, want containing %q", err, tt.want)
 			}
@@ -242,7 +244,7 @@ func TestParseJSONLErrors(t *testing.T) {
 func TestParseJSONLPropagatesEmitterError(t *testing.T) {
 	want := errors.New("stop")
 	input := `{"type":"result","subtype":"success"}` + "\n"
-	if err := ParseJSONL(strings.NewReader(input), 1024, func(Event) error { return want }); !errors.Is(err, want) {
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), 1024, func(Event) error { return want }); !errors.Is(err, want) {
 		t.Fatalf("ParseJSONL() error = %v, want %v", err, want)
 	}
 }
@@ -260,4 +262,56 @@ func (r *fragmentReader) Read(p []byte) (int, error) {
 	copy(p, r.data[:n])
 	r.data = r.data[n:]
 	return n, nil
+}
+
+func TestParseJSONLReportsReadAndFlushErrors(t *testing.T) {
+	readErr, emitErr := errors.New("pipe broke"), errors.New("sink failed")
+	line := `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m"}}}` + "\n"
+	reader := io.MultiReader(strings.NewReader(line), iotest.ErrReader(readErr))
+	err := ParseJSONL(t.Context(), reader, 4096, func(event Event) error {
+		if event.Kind == EventModelCall {
+			return emitErr
+		}
+		return nil
+	})
+	if !errors.Is(err, readErr) || !errors.Is(err, emitErr) {
+		t.Fatalf("ParseJSONL() error = %v, want both the read and the flush error", err)
+	}
+}
+
+func TestClaudeFinishReason(t *testing.T) {
+	for stopReason, want := range map[string]string{
+		"end_turn":                      "stop",
+		"stop_sequence":                 "stop",
+		"tool_use":                      "tool_call",
+		"max_tokens":                    "length",
+		"model_context_window_exceeded": "length",
+		"refusal":                       "content_filter",
+		"pause_turn":                    "pause_turn",
+		"":                              "",
+	} {
+		if got := claudeFinishReason(stopReason); got != want {
+			t.Errorf("claudeFinishReason(%q) = %q, want %q", stopReason, got, want)
+		}
+	}
+}
+
+func TestParseJSONLToolResultWithImage(t *testing.T) {
+	image := strings.Repeat("A", 700_000)
+	result := `[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"` + image + `"}}]`
+	input := strings.Join([]string{
+		`{"type":"assistant","message":{"id":"msg_tool","content":[{"type":"tool_use","id":"tool-1","name":"mcp__kagent__read_sandbox_file","input":{}}]}}`,
+		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":` + result + `}]},"tool_use_result":` + result + `}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
+	}, "\n") + "\n"
+	var completed bool
+	if err := ParseJSONL(t.Context(), strings.NewReader(input), config.Production("", "").MaxEventBytes, func(event Event) error {
+		completed = completed || (event.Kind == EventToolActivity && event.ToolPhase == "completed")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !completed {
+		t.Fatal("the tool result carrying an image was not emitted")
+	}
 }

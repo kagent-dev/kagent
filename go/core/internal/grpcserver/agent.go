@@ -76,13 +76,13 @@ func (s *agentServer) UpdateAgent(ctx context.Context, request *apiv1alpha1.Upda
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
 	}
-	existing, err := s.service.GetForUpdate(ctx, ref)
+	existing, err := s.service.Get(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 	existing.Spec = *incoming.Spec.DeepCopy()
 	existing.Labels = maps.Clone(incoming.Labels)
-	result, err := s.service.SaveUpdate(ctx, existing)
+	result, err := s.service.Update(ctx, existing)
 	if err != nil {
 		return nil, err
 	}
