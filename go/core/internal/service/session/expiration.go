@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type expirationStore interface {

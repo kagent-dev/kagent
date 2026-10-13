@@ -6,13 +6,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 type runtimeRevisionGCStage string

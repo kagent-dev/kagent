@@ -4,10 +4,11 @@ import (
 	"runtime"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // DefaultCLI supplies defaults without consulting process environment.

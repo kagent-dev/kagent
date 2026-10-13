@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 )
 
 // TestBuildHTTPClient_InjectsTraceContext verifies that requests issued through

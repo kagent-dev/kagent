@@ -7,10 +7,11 @@ import (
 	"io"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 )
 
 // SandboxClient uses the control-plane connection for lifecycle and guest calls.

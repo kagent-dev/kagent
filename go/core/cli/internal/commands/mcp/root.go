@@ -3,9 +3,10 @@ package mcp
 import (
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	commonprompt "github.com/kagent-dev/kagent/go/core/cli/internal/common/prompt"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
-	"github.com/spf13/cobra"
 )
 
 // NewMCPCmd creates the root MCP command with all subcommands

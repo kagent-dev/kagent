@@ -6,10 +6,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/spf13/cobra"
 )
 
 func runVersion(clientSet *client.APIClientSet) {

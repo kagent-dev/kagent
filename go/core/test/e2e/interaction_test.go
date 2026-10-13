@@ -25,11 +25,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
-	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -45,6 +40,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 //go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json

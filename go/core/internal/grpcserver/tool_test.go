@@ -9,13 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
-	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc"
@@ -32,6 +25,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
+	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type toolGRPCDiscoveryStore struct {

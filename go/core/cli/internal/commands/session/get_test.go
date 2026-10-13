@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 const testSessionID = "707f3f49-fdc4-40c5-93c7-472d37c8d355"

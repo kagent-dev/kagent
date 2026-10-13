@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestApprovalBrokerAllowsAndDeniesProtectedCalls(t *testing.T) {

@@ -5,27 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
-	"log/slog"
-
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/jsonschema-go/jsonschema"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiadk "github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (

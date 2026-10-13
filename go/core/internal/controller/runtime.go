@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/core/internal/controller/apiclient"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/client-go/rest"
+
+	"github.com/kagent-dev/kagent/go/core/internal/controller/apiclient"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Runtime owns the Kubernetes client and common options shared by the KRT

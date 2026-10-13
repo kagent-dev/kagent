@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // Compiler resolves public API objects into a complete, immutable runtime

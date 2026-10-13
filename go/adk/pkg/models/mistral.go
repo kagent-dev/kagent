@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // DefaultMistralBaseURL is the default endpoint for the Mistral AI cloud API.

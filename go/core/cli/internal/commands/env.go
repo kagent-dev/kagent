@@ -3,8 +3,9 @@ package commands
 import (
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/spf13/cobra"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // NewEnvCmd returns a cobra command that generates environment variable documentation.

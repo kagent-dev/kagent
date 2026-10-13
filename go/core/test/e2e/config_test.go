@@ -3,8 +3,9 @@ package e2e_test
 import (
 	"testing"
 
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
+
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func TestInteractionTargetConfiguration(t *testing.T) {

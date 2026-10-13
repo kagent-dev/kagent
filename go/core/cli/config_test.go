@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 func executeConfig(t *testing.T, args ...string) (string, error) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 

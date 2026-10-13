@@ -4,19 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 
-	"log/slog"
-
-	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
-	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
-	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
-	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -27,6 +17,16 @@ import (
 	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
+	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
+	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // Default model names used when not specified in configuration

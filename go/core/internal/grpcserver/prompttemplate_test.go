@@ -5,10 +5,6 @@ import (
 	"net"
 	"testing"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -19,6 +15,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func TestPromptTemplateServiceGeneratedClient(t *testing.T) {

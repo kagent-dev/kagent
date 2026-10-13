@@ -7,10 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {

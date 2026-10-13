@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
-	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 // Role is the test database's login user. Test connections assume it as their

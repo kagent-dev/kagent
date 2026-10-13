@@ -3,10 +3,11 @@ package grpcserver
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type promptTemplateServer struct {

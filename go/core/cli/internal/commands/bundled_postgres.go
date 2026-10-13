@@ -24,8 +24,9 @@ import (
 
 	substratesetup "github.com/agent-substrate/substrate/pkg/postgressetup"
 	"github.com/google/go-containerregistry/pkg/name"
-	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
 
 const substrateNamespace = "ate-system"

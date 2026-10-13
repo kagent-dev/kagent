@@ -17,9 +17,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -29,6 +26,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestNativeInvocationOutlivesDisconnectDuringInitialSave(t *testing.T) {

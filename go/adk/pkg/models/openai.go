@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 )
 
 // OpenAI API format values (ModelConfig openAI.apiFormat).

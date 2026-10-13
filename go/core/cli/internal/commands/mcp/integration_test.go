@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	mcpinternal "github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	mcpinternal "github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
 )
 
 func newTestInitCfg(description string) *InitMcpCfg {

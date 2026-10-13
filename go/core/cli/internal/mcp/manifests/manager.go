@@ -147,38 +147,6 @@ func (m *Manager) Validate(manifest *ProjectManifest) error {
 	return nil
 }
 
-// AddTool adds a new tool to the manifest
-func (m *Manager) AddTool(manifest *ProjectManifest, name string, config ToolConfig) error {
-	if name == "" {
-		return fmt.Errorf("tool name is required")
-	}
-
-	if err := m.validateTool(name, config); err != nil {
-		return err
-	}
-
-	if manifest.Tools == nil {
-		manifest.Tools = make(map[string]ToolConfig)
-	}
-
-	manifest.Tools[name] = config
-	return nil
-}
-
-// RemoveTool removes a tool from the manifest
-func (m *Manager) RemoveTool(manifest *ProjectManifest, name string) error {
-	if manifest.Tools == nil {
-		return fmt.Errorf("tool %s not found", name)
-	}
-
-	if _, exists := manifest.Tools[name]; !exists {
-		return fmt.Errorf("tool %s not found", name)
-	}
-
-	delete(manifest.Tools, name)
-	return nil
-}
-
 // Private validation methods
 
 func (m *Manager) validateTool(_ string, tool ToolConfig) error {

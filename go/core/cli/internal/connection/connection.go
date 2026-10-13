@@ -13,9 +13,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/kagent-dev/kagent/go/api/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/kagent-dev/kagent/go/api/client"
 )
 
 var errServerConnection = errors.New("error connecting to server")

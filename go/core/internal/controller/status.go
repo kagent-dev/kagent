@@ -1,9 +1,10 @@
 package controller
 
 import (
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func newAgentStatuses(agents krt.Collection[*kagentv1alpha3.Agent], states krt.Collection[AgentReconciliation], opts krt.OptionsBuilder) krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus] {

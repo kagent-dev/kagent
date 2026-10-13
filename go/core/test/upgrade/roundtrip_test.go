@@ -24,11 +24,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pressly/goose/v3"
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
-	"github.com/pressly/goose/v3"
-	"github.com/stretchr/testify/require"
 )
 
 const (

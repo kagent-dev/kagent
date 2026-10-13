@@ -9,6 +9,13 @@ import (
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/spf13/cobra"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
+
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
@@ -16,12 +23,6 @@ import (
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
-	"github.com/spf13/cobra"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -255,34 +256,5 @@ func newAgentTemplateReadCmd(list bool) *cobra.Command {
 		cmd.Flags().Int64Var(&cfg.PageSize, "page-size", 0, "Number of AgentTemplates per page (0 uses 100; maximum 100)")
 		cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
 	}
-	return cmd
-}
-
-// NewApplyAgentTemplateCmd constructs the AgentTemplate apply command.
-func NewApplyAgentTemplateCmd() *cobra.Command {
-	return newAgentTemplateManifestCmd("apply -f FILE", "Create or update an AgentTemplate", applyAgentTemplate)
-}
-
-func newAgentTemplateManifestCmd(use, short string, operation agentTemplateManifestOperation) *cobra.Command {
-	cfg := &AgentTemplateManifestCfg{}
-	cmd := &cobra.Command{
-		Use:   use,
-		Short: short,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			options, err := connection.OptionsFromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			format, err := clioutput.FromCommand(cmd)
-			if err != nil {
-				return err
-			}
-			cfg.OutputFormat = format
-			return runAgentTemplateManifest(cmd.Context(), options, cfg, cmd.OutOrStdout(), operation)
-		},
-	}
-	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Path to AgentTemplate manifest")
-	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }

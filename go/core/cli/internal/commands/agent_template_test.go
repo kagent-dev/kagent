@@ -8,11 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -22,6 +17,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
+
+	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 func TestValidateAgentTemplateGetCfg(t *testing.T) {

@@ -13,11 +13,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/pressly/goose/v3"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 var twoMigrationFS = fstest.MapFS{

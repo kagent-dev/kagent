@@ -7,15 +7,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/db/migrate"
-	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
-
-// NewCommand returns the `db` parent command with `migrate` attached. The
-// given sources define the migration tracks the subcommands operate on, in
-// orchestrator registration order.
-func NewCommand(sources ...migrations.Source) *cobra.Command {
-	return newCommand(migrate.NewCommand(sources...))
-}
 
 // NewCommandFromFunc is NewCommand with deferred source resolution: fn runs
 // when a db subcommand executes, not while the command tree is constructed.

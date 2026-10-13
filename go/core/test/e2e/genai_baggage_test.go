@@ -12,8 +12,6 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/baggage"
@@ -22,6 +20,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // TestRuntimeGenAIBaggage verifies that the Go runtime's model and MCP calls

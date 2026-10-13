@@ -13,6 +13,15 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/google/uuid"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
@@ -22,14 +31,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/test/bufconn"
 )
 
 func TestSandboxTransports(t *testing.T) {

@@ -5,10 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -18,6 +14,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type denyAuthorizer struct{}

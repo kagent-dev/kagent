@@ -141,8 +141,15 @@ issues:
   max-same-issues: 0
 formatters:
   enable:
+    - gci
     - gofmt
-    - goimports
+  settings:
+    gci:
+      custom-order: true
+      sections:
+        - standard
+        - default
+        - prefix(github.com/kagent-dev/kagent)
   exclusions:
     generated: strict
     paths:

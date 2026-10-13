@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
-
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
 
 func TestRuntimeTelemetryValidate(t *testing.T) {

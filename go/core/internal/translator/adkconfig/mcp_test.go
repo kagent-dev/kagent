@@ -3,9 +3,10 @@ package adkconfig
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {

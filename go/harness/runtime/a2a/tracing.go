@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const runtimeScope = "github.com/kagent-dev/kagent/go/harness/runtime/a2a"

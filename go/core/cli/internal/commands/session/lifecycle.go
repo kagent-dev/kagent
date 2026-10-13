@@ -7,13 +7,14 @@ import (
 	"io"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 type lifecycleClient interface {

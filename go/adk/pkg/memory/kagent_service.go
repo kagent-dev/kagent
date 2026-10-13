@@ -7,16 +7,17 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/adk/v2/memory"
+	adkmodel "google.golang.org/adk/v2/model"
+	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"google.golang.org/adk/v2/memory"
-	adkmodel "google.golang.org/adk/v2/model"
-	adksession "google.golang.org/adk/v2/session"
-	"google.golang.org/genai"
 )
 
 // KagentMemoryService implements memory.Service by storing memories
