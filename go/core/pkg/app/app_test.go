@@ -259,9 +259,50 @@ func TestSetupLoggerRejectsBadLevel(t *testing.T) {
 func TestRunRequiresDatabaseURL(t *testing.T) {
 	t.Setenv("KAGENT_LOG_LEVEL", "info")
 	t.Setenv(kagentenv.PostgresDatabaseURL.Name(), "")
+	t.Setenv(kagentenv.PostgresDatabaseURLFile.Name(), "")
 	err := Run(t.Context(), Options{})
 	if want := "KAGENT_POSTGRES_DATABASE_URL is required"; err == nil || err.Error() != want {
 		t.Fatalf("Run() error = %v, want %q", err, want)
+	}
+}
+
+func TestDatabaseURL(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		path := dir + "/" + name
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	fromFile := write("uri", "postgres://owner@db:5432/kagent\n")
+	empty := write("empty", " \n")
+
+	for _, tc := range []struct {
+		name, url, urlFile, want, wantErr string
+	}{
+		{name: "url only", url: "postgres://u@db/kagent", want: "postgres://u@db/kagent"},
+		{name: "file wins over url", url: "postgres://u@db/kagent", urlFile: fromFile, want: "postgres://owner@db:5432/kagent"},
+		{name: "file only", urlFile: fromFile, want: "postgres://owner@db:5432/kagent"},
+		{name: "neither", wantErr: "KAGENT_POSTGRES_DATABASE_URL is required"},
+		{name: "empty file", url: "postgres://u@db/kagent", urlFile: empty, wantErr: "KAGENT_POSTGRES_DATABASE_URL_FILE " + empty + " is empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := databaseURL(tc.url, tc.urlFile)
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("databaseURL() error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("databaseURL() = %q, %v, want %q", got, err, tc.want)
+			}
+		})
+	}
+
+	if _, err := databaseURL("postgres://u@db/kagent", dir+"/missing"); err == nil {
+		t.Fatal("databaseURL() fell back to the URL for a missing file")
 	}
 }
 

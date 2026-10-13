@@ -108,12 +108,18 @@ database:
     connectionStringSecretRef:
       name: kagent-postgres
       key: connectionString
+    # -- Path to a file in the controller holding the PostgreSQL connection string, such as a
+    # mounted Secret key (mount it with controller.volumes and controller.volumeMounts). When set,
+    # it replaces connectionStringSecretRef, and an unset role assumes none.
+    urlFile: ""
     # -- Project the bundled PostgreSQL client certificate. The connection
     # string must reference the files under /run/postgres.podcert.ate.dev.
     clientCertificate:
       enabled: false
     # -- Role assumed on each Kagent connection. Set a distinct role for each install sharing a database.
-    role: kagent_owner
+    # Unset, it is kagent_owner, or none with urlFile; "" assumes none.
+    # @default -- kagent_owner, none with urlFile
+    role: null
     # -- Schema for Kagent tables. The Giant Swarm line keeps `public`, where every
     # installation before this release holds its tables; a clean install may set `kagent`.
     schema: public

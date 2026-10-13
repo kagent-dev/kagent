@@ -290,6 +290,19 @@ Controller gRPC observability Grafana dashboard ConfigMap name.
 {{- .Values.database.postgres.connectionStringSecretRef.name -}}
 {{- end -}}
 
+{{/*
+PostgreSQL role assumed on each connection. An unset role is kagent_owner, or none
+with urlFile: the URL's own user owns the tables there. "" assumes none.
+*/}}
+{{- define "kagent.postgres.role" -}}
+{{- $role := .Values.database.postgres.role -}}
+{{- if kindIs "string" $role -}}
+{{- $role -}}
+{{- else if not .Values.database.postgres.urlFile -}}
+kagent_owner
+{{- end -}}
+{{- end -}}
+
 {{/* Public A2A endpoint advertised by Session Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
 {{- if .Values.controller.a2aGatewayUrl -}}

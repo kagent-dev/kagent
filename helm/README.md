@@ -83,7 +83,9 @@ When the connection string names TLS certificate files, Kagent rereads them befo
 
 #### Migrating from `url` and `urlFile`
 
-Kagent 1.x removes `database.postgres.url` and `database.postgres.urlFile`. Move the connection string into a Secret and reference it:
+Kagent 1.x removes `database.postgres.url`. The Giant Swarm line keeps `database.postgres.urlFile` for consumers that mount the connection string as a file: when it is set, the controller reads the URL from that file instead of `connectionStringSecretRef`, and an unset `role` assumes none, since the URL's user owns the tables. Mount the file with `controller.volumes` and `controller.volumeMounts`.
+
+Otherwise, move the connection string into a Secret and reference it:
 
 ```yaml
 database:

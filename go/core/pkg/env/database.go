@@ -10,6 +10,10 @@ var (
 		"KAGENT_POSTGRES_DATABASE_URL", "",
 		"PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef.", ComponentDatabase, ComponentController, ComponentCLI,
 	)
+	PostgresDatabaseURLFile = RegisterStringVar(
+		"KAGENT_POSTGRES_DATABASE_URL_FILE", "",
+		"File containing the PostgreSQL connection URL; takes precedence over KAGENT_POSTGRES_DATABASE_URL in the controller. Helm sets it from database.postgres.urlFile.", ComponentDatabase, ComponentController,
+	)
 	PostgresDatabaseMaxConns        = registerPostgresDatabaseMaxConns()
 	PostgresDatabaseMinConns        = RegisterIntVar("KAGENT_POSTGRES_DATABASE_MIN_CONNS", 0, "Minimum size of the PostgreSQL connection pool", ComponentDatabase, ComponentController)
 	PostgresDatabaseMaxConnIdleTime = RegisterDurationVar("KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME", 30*time.Minute, "Duration after which an idle connection will be automatically closed", ComponentDatabase, ComponentController)

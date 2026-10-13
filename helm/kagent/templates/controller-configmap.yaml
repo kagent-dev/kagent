@@ -79,7 +79,10 @@ data:
   {{- end }}
   KAGENT_DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   KAGENT_SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
-  KAGENT_POSTGRES_DATABASE_ROLE: {{ .Values.database.postgres.role | quote }}
+  {{- with .Values.database.postgres.urlFile }}
+  KAGENT_POSTGRES_DATABASE_URL_FILE: {{ . | quote }}
+  {{- end }}
+  KAGENT_POSTGRES_DATABASE_ROLE: {{ include "kagent.postgres.role" . | quote }}
   KAGENT_POSTGRES_DATABASE_SCHEMA: {{ .Values.database.postgres.schema | quote }}
   KAGENT_POSTGRES_VECTOR_SCHEMA: {{ .Values.database.postgres.vectorSchema | quote }}
   {{- with .Values.database.postgres.pool }}

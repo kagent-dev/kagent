@@ -1,5 +1,5 @@
 {{- $databaseConnectionStringSecretRef := .Values.database.postgres.connectionStringSecretRef | default dict -}}
-{{- if not (get $databaseConnectionStringSecretRef "name") -}}
+{{- if not (or .Values.database.postgres.urlFile (get $databaseConnectionStringSecretRef "name")) -}}
 {{- fail "database.postgres.connectionStringSecretRef.name is required" -}}
 {{- end -}}
 apiVersion: apps/v1
@@ -126,11 +126,14 @@ spec:
             {{- /* Kubelet expands pod identity here; envFrom values are not expanded. */}}
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: {{ list (include "kagent.otel.resourceAttributes" .) "service.instance.id=$(K8S_POD_UID),k8s.pod.uid=$(K8S_POD_UID),k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(KAGENT_NAMESPACE),k8s.node.name=$(K8S_NODE_NAME),k8s.container.name=controller" | compact | join "," | quote }}
+            {{- /* urlFile is read by the controller from KAGENT_POSTGRES_DATABASE_URL_FILE (ConfigMap). */}}
+            {{- if not .Values.database.postgres.urlFile }}
             - name: KAGENT_POSTGRES_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "kagent.postgres.connectionStringSecretName" . }}
                   key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}

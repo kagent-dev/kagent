@@ -658,6 +658,57 @@ tests:
           content:
             name: POSTGRES_PASSWORD
 
+  - it: should read the connection string from urlFile without a Secret reference
+    template: controller-deployment.yaml
+    set:
+      database:
+        postgres:
+          connectionStringSecretRef: null
+          urlFile: /etc/cnpg/uri
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_POSTGRES_DATABASE_URL
+          any: true
+
+  - it: should pass urlFile to the controller and assume no role by default
+    template: controller-configmap.yaml
+    set:
+      database.postgres.urlFile: /etc/cnpg/uri
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_URL_FILE
+          value: /etc/cnpg/uri
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          value: ""
+
+  - it: should assume an explicit role with urlFile
+    template: controller-configmap.yaml
+    set:
+      database.postgres.urlFile: /etc/cnpg/uri
+      database.postgres.role: kagent_owner
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          value: kagent_owner
+
+  - it: should assume no role when it is set empty
+    template: controller-configmap.yaml
+    set:
+      database.postgres.role: ""
+    asserts:
+      - equal:
+          path: data.KAGENT_POSTGRES_DATABASE_ROLE
+          value: ""
+
+  - it: should not set urlFile without one
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.KAGENT_POSTGRES_DATABASE_URL_FILE
+
   - it: should project a PostgreSQL client certificate when enabled
     template: controller-deployment.yaml
     set:

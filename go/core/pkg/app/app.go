@@ -167,9 +167,9 @@ func Run(ctx context.Context, opts Options) error {
 	if quiescenceInterval <= 0 {
 		return fmt.Errorf("%s must be positive", kagentenv.SessionQuiescencePollInterval.Name())
 	}
-	dbURL := kagentenv.PostgresDatabaseURL.Get()
-	if dbURL == "" {
-		return fmt.Errorf("%s is required", kagentenv.PostgresDatabaseURL.Name())
+	dbURL, err := databaseURL(kagentenv.PostgresDatabaseURL.Get(), kagentenv.PostgresDatabaseURLFile.Get())
+	if err != nil {
+		return err
 	}
 	if err := database.ValidateURL(dbURL); err != nil {
 		return fmt.Errorf("validate database connection: %w", err)
@@ -512,6 +512,27 @@ func migrationSources(vectorEnabled bool, extra []migrations.Source) ([]migratio
 	}
 	builtins := migrations.BuiltinSourcesInSchema(vectorEnabled, kagentenv.DatabaseSchema.Get(), kagentenv.DatabaseVectorSchema.Get())
 	return append(builtins, extra...), nil
+}
+
+// databaseURL returns the connection URL read from urlFile when it is set, else url.
+// A set urlFile that is unreadable or empty is an error, never a fall back to url:
+// the file is how a mounted Secret (a CloudNativePG app Secret's uri) hands it over.
+func databaseURL(url, urlFile string) (string, error) {
+	if urlFile == "" {
+		if url == "" {
+			return "", fmt.Errorf("%s is required", kagentenv.PostgresDatabaseURL.Name())
+		}
+		return url, nil
+	}
+	content, err := os.ReadFile(urlFile)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", kagentenv.PostgresDatabaseURLFile.Name(), err)
+	}
+	fromFile := strings.TrimSpace(string(content))
+	if fromFile == "" {
+		return "", fmt.Errorf("%s %s is empty", kagentenv.PostgresDatabaseURLFile.Name(), urlFile)
+	}
+	return fromFile, nil
 }
 
 func postgresConfigFromEnv(source string, vectorEnabled bool) *database.PostgresConfig {
