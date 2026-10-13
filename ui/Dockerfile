@@ -52,14 +52,7 @@ COPY . .
 
 # Produces a static bundle in dist/. `yarn build` type-checks first, so a type
 # error fails the image build rather than shipping.
-#
-# The mock service worker is a development and e2e fixture. It is dropped here
-# rather than in the runtime COPY so it cannot reach the image at all: a worker
-# sitting at the production web root is one build-mode mistake away from being
-# registered and serving fixtures to real users. It stays in the repo, where dev
-# and Playwright need it.
-RUN yarn build \
-    && rm -f dist/mockServiceWorker.js
+RUN yarn build
 
 ### STAGE 3: Runtime
 # nginx only — the UI is a static bundle now, so there is no node process and no

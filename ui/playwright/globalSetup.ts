@@ -105,20 +105,4 @@ async function verifyLiveWiring(page: Page, baseUrl: string): Promise<void> {
         `controller at all. Unset it in ui/.env, or run the mock suite instead.`,
     );
   }
-
-  // A second way a live run can be a lie: the flag can be off while a worker from
-  // an earlier mock run is still installed and answering, which looks exactly like
-  // a working backend.
-  const workerCount = await page.evaluate(async () => {
-    if (!("serviceWorker" in navigator)) return 0;
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    return registrations.length;
-  });
-
-  if (workerCount > 0) {
-    throw new Error(
-      `${baseUrl} has ${workerCount} service worker(s) registered. The mock backend ` +
-        `is a service worker, so a live run cannot be trusted while one is installed.`,
-    );
-  }
 }

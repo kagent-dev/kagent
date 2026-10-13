@@ -43,7 +43,7 @@ Two consequences worth knowing before touching that code:
 
 ### Fixtures are opt-in
 
-`ENABLE_MOCK_UI=true` serves the whole API from an in-browser mock (MSW) with no
+`ENABLE_MOCK_UI=true` serves the whole API from an in-browser mock with no
 cluster at all, and `?mock=ok|empty|error|slow` picks which scenario the fixtures
 play. **It is off unless asked for**, in a dev server exactly as in a built image: a
 page that quietly serves fixtures when the backend is down looks healthy while

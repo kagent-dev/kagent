@@ -6,6 +6,7 @@ import { extensionBranding, extensionThemes } from "./appExtensions/selectors";
 import { loadExtensionStylesheets } from "./appExtensions/theme";
 import { applyExtensionBranding } from "./appExtensions/branding";
 import { AuthProvider } from "./auth";
+import type { AuthSource } from "./auth";
 import { App } from "./App";
 import { RootErrorBoundary, RootErrorFallback } from "./RootErrorBoundary";
 
@@ -24,9 +25,10 @@ async function bootstrap() {
   // here rather than re-derived: two independent readings of the same env var
   // can disagree, and the failure mode is a production build quietly answering
   // from fixtures.
+  let authSource: AuthSource | undefined;
   if (isMockMode) {
     const { startMockBackend } = await import("./mocks/startMockBackend");
-    await startMockBackend();
+    authSource = startMockBackend();
   }
 
   ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -35,7 +37,7 @@ async function bootstrap() {
           extension config's provider list belongs to whoever installs an
           extension, and core auth must exist whether or not one is present. */}
       <RootErrorBoundary>
-        <AuthProvider>
+        <AuthProvider source={authSource}>
           <App />
         </AuthProvider>
       </RootErrorBoundary>

@@ -46,10 +46,10 @@ function resolveApiMode(): ApiMode {
 
   const wantsMock = envFlag("ENABLE_MOCK_UI");
 
-  // The mock backend is a service worker that the release image deliberately
-  // does not ship, so a built bundle cannot honour this however it is set.
-  // Entering mock mode anyway would point every request at an address nothing
-  // is listening on — a wholly broken app, from a setting that looked supported.
+  // The mock backend is a development and e2e fixture, and a built bundle does
+  // not honour this however it is set: a release image that could be switched to
+  // fixtures by one setting would be one mistake away from serving them to real
+  // users.
   if (wantsMock && !import.meta.env.DEV) {
     console.warn(
       "ENABLE_MOCK_UI is set, but this build ships no mock backend. Using the real API.",
