@@ -86,9 +86,9 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 ## Idle expiration
 
 Sessions expire after seven days without task activity by default, using the same
-bounded deletion workflow as Sandboxes. `controller.sessionIdleTTL` in Helm sets
-`KAGENT_SESSION_IDLE_TTL` on the controller. Values use Go durations (`168h` for seven days,
-`720h` for thirty); `0` disables the worker, including retries, and negative values
+bounded deletion workflow as Sandboxes. `config.sessions.idleTtl` in Helm configures
+the controller. Values use protobuf durations (`604800s` for seven days,
+`2592000s` for thirty); `0s` disables the worker, including retries, and negative values
 are rejected. There is no per-agent override or maximum TTL.
 
 Idle time is measured from the later of session creation and the latest stored
@@ -150,7 +150,7 @@ After settlement commits, a bounded, nonblocking in-memory signal wakes the loca
 workers. Signals coalesce; four workers drain durable claims, handing off a wake-up
 before runtime I/O so a burst can use all four workers. PostgreSQL claims coordinate
 replicas. Each worker scans at startup and, when idle, every minute by default
-(`KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL`). A crash between commit and signaling can
+(`sessions.quiescenceRecoveryInterval` in controller config). A crash between commit and signaling can
 leave an actor running until a surviving replica's next recovery scan; increasing
 the interval increases that delay and the time until its snapshot is available.
 Ordinary committed settlements do not wait for the recovery interval.
@@ -213,10 +213,13 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Templates capture Full snapshots when paused and Data snapshots when suspended.
-Substrate v0.4.0-alpha1 resumes a Data snapshot by starting fresh containers from
-the OCI image with the saved durable directories. Data restores no longer combine
-Golden memory with the Actor's saved data.
+Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
+both the node-local snapshot taken on pause and the one uploaded on suspend.
+Templates use Full, so paused and suspended Actors keep their process memory, and
+their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
+scopes again. A Data snapshot resumes by starting fresh containers from the OCI
+image with the saved durable directories; Substrate still restores one as Data when
+the Actor's template changed after the snapshot was taken.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest

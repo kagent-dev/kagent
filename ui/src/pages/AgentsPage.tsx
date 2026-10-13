@@ -62,7 +62,7 @@ export function AgentsTab() {
   // Referenced templates carry the description a shared-template Agent shows.
   const templateNamespaces = useMemo(
     () => [...new Set((definitions.data?.agents ?? [])
-      .filter((agent) => agent.resource.spec.templateRef)
+      .filter((agent) => agent.resource.spec.template.ref)
       .map((agent) => agent.namespace))],
     [definitions.data],
   );
@@ -325,7 +325,9 @@ export function AgentsTab() {
         rowKey={(row) => row.ref}
         columns={columns}
         dataSource={loadFailure ? [] : filtered}
-        loading={definitions.isLoading}
+        // Held for the templates too: their descriptions grow rows, and a late
+        // shift moves a row out from under the pointer mid-click.
+        loading={definitions.isLoading || templates.isLoading}
         onChange={listTableChange<Agent>(view)}
         pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
         scroll={{ x: 960 }}

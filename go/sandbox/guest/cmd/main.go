@@ -24,9 +24,10 @@ func main() {
 	flag.StringVar(&cfg.ListenAddr, "listen", ":80", "address to serve the guest API on")
 	flag.StringVar(&cfg.Workspace, "workspace", "/data/workspace", "default process working directory and file API root")
 	flag.StringVar(&cfg.LogDir, "log-dir", "/data/guest-logs", "directory for process output logs")
+	logLevel := flag.String("log-level", "info", "logging level (debug, info, warn, error)")
 	flag.Parse()
 
-	logger, err := logging.NewFromEnv(os.Stderr)
+	logger, err := logging.New(os.Stderr, *logLevel)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

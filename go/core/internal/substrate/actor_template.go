@@ -11,6 +11,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
@@ -110,8 +111,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
-			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			// Substrate 0.5 applies one scope to pause and suspend. Keep process memory
+			// for both until lifecycle v2 separates them again.
+			OnCommit: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
@@ -160,11 +162,14 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 // digests the environment, so the compiler cannot render it.
 func withServiceVersion(environment []corev1.EnvVar, version string) []corev1.EnvVar {
 	for index, variable := range environment {
-		if variable.Name == tracing.ResourceEnvironmentVariable && variable.ValueFrom == nil {
-			environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+		if variable.Name == env.OTELResourceAttributes.Name() {
+			if variable.ValueFrom == nil {
+				environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+			}
+			return environment
 		}
 	}
-	return environment
+	return append(environment, corev1.EnvVar{Name: env.OTELResourceAttributes.Name(), Value: tracing.MergeResourceAttributes("", []attribute.KeyValue{semconv.ServiceVersion(version)})})
 }
 
 func revisionActorTemplateName(agentName string, revision translator.RevisionID) string {

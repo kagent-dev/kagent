@@ -335,6 +335,8 @@ func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			text := func(message *a2a.Message) a2a.Text { return message.Parts[0].Content.(a2a.Text) }
 			started, release := make(chan a2a.Text, 4), make(chan struct{})
+			releaseB := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(releaseB)
 			wrapper := (&Store{}).WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 				return func(yield func(a2a.Event, error) bool) {
 					started <- text(input.Message)
@@ -379,13 +381,21 @@ func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, a2a.Text("park"), receive(t, started))
 				reply.TaskID, reply.ContextID = parked.TaskInfo().TaskID, parked.TaskInfo().ContextID
+				// The in-memory store exposes the waiting event before SDK cleanup.
+				// Production replies wait for settlement, which releases this slot first.
+				require.Eventually(t, func() bool {
+					wrapper.mu.Lock()
+					defer wrapper.mu.Unlock()
+					return len(wrapper.pending) == 0 && wrapper.admitted == nil
+				}, 5*time.Second, time.Millisecond, "parked execution must release its slot before the reply")
 			}
-			_, _ = send(t.Context(), reply)
-			_, err := send(t.Context(), newMessage("busy"))
+			_, err := send(t.Context(), reply)
+			require.NoError(t, err)
+			_, err = send(t.Context(), newMessage("busy"))
 			require.ErrorIs(t, err, a2a.ErrUnsupportedOperation, "simultaneous sends must not both run")
 			require.Eventually(t, func() bool { return slices.Equal(tasks.saved(test.key), test.want) },
 				5*time.Second, 10*time.Millisecond, "the superseded send must reach a boundary without native work")
-			close(release)
+			releaseB()
 			require.NoError(t, receive(t, doneB))
 			require.Eventually(t, func() bool {
 				_, err := send(t.Context(), newMessage("C"))

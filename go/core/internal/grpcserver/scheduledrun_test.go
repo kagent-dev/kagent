@@ -177,7 +177,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
-	store := database.NewClient(db)
+	store := database.NewClient(db, "public")
 	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
 	require.NoError(t, store.UpsertAgentDefinition(t.Context(), pair))
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
@@ -187,7 +187,10 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	}, true))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
-	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "report"}, Spec: v1alpha3.AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "report"}, HarnessRef: &corev1.LocalObjectReference{Name: "runtime"}}}
+	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "report"}, Spec: v1alpha3.AgentSpec{
+		Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "report"}},
+		HarnessRef: corev1.LocalObjectReference{Name: "runtime"},
+	}}
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent).Build()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{

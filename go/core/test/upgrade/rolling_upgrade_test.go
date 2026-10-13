@@ -29,9 +29,6 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
 	waitForPostgresSchema(t, env, 3*time.Minute)
-	if !hasGooseMigrationTable(t, env) {
-		t.Skip("the baseline release does not use Goose")
-	}
 
 	// Run even when there is no migration delta: a rolling upgrade rolls the new
 	// image regardless of migrations, so the deploy can still break for
@@ -63,7 +60,7 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
 	defer cancel()
 	done := make(chan upgradeResult, 1)
-	cmd := helmUpgradeCommand(ctx, env)
+	cmd := upgradeCommand(ctx, env)
 	go func() {
 		out, err := cmd.CombinedOutput()
 		done <- upgradeResult{out: string(out), err: err}
@@ -71,19 +68,19 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 
 	// Wait until the target schema has landed while at least one previous-release
 	// controller pod is still ready. That is the rolling deploy hazard: old code
-	// can keep serving briefly after a new pod has applied migrations. Surface a
-	// helm upgrade failure immediately instead of letting it look like a
+	// can keep serving briefly after a new pod has applied migrations. Surface an
+	// upgrade failure immediately instead of letting it look like a
 	// schema-observation timeout.
-	var helmErr error
-	var helmOut string
+	var upgradeErr error
+	var upgradeOut string
 	require.Eventually(t, func() bool {
 		select {
 		case r := <-done:
 			if r.err != nil {
-				helmErr, helmOut = r.err, r.out
+				upgradeErr, upgradeOut = r.err, r.out
 				return true
 			}
-			// Helm finished successfully before we caught the window; put the
+			// The upgrade finished successfully before we caught the window; put the
 			// result back so the final read below still sees it, then keep polling.
 			done <- r
 		default:
@@ -94,7 +91,7 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 		}
 		return state.version == targetCoreVersion && anyPodsReady(t, env, oldPods)
 	}, 6*time.Minute, 500*time.Millisecond, "target schema was not observed while old controller pods were still ready")
-	require.NoError(t, helmErr, "helm upgrade failed before target schema was observed:\n%s", helmOut)
+	require.NoError(t, upgradeErr, "upgrade failed before target schema was observed:\n%s", upgradeOut)
 
 	// These SQL canaries intentionally use the pre-upgrade column shape. They do
 	// not prove every previous-release code path works, but they catch migrations
@@ -114,7 +111,7 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	)
 
 	result := <-done
-	require.NoError(t, result.err, "helm upgrade failed:\n%s", result.out)
+	require.NoError(t, result.err, "upgrade failed:\n%s", result.out)
 
 	kubectl(t, env, 3*time.Minute,
 		"rollout", "status", "deployment/kagent-controller",

@@ -161,7 +161,6 @@ func TestResolvePathContainment(t *testing.T) {
 
 func TestNewSkillExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("failed to create skill dir: %v", err)
@@ -174,7 +173,7 @@ description: Demo skill.
 		t.Fatalf("failed to write skill metadata: %v", err)
 	}
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir, true)
 	if err != nil {
 		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}
@@ -193,9 +192,8 @@ description: Demo skill.
 
 func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir, false)
 	if err != nil {
 		t.Fatalf("NewSkillExecutionTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
 	}
@@ -207,7 +205,7 @@ func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T)
 
 	for _, name := range []string{"read_file", "write_file", "edit_file", "bash"} {
 		if !got[name] {
-			t.Errorf("expected tool %q to be present even without KAGENT_ENABLE_FILE_SEARCH_TOOLS", name)
+			t.Errorf("expected tool %q to be present when file search tools are disabled", name)
 		}
 	}
 	if got["list_files"] {
@@ -233,8 +231,7 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 	}
 
 	t.Run("disabled by default", func(t *testing.T) {
-		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
-		tools, err := NewSkillExecutionTools(skillsDir)
+		tools, err := NewSkillExecutionTools(skillsDir, false)
 		if err != nil {
 			t.Fatalf("NewSkillExecutionTools() error = %v", err)
 		}
@@ -245,8 +242,7 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 	})
 
 	t.Run("mentioned when enabled", func(t *testing.T) {
-		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
-		tools, err := NewSkillExecutionTools(skillsDir)
+		tools, err := NewSkillExecutionTools(skillsDir, true)
 		if err != nil {
 			t.Fatalf("NewSkillExecutionTools() error = %v", err)
 		}
@@ -265,9 +261,8 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 
-	tools, err := NewSkillExecutionTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir, true)
 	if err != nil {
 		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}

@@ -15,9 +15,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
@@ -26,27 +24,27 @@ import (
 )
 
 type Compiler struct {
+	settings    translator.CompilerSettings
 	ctx         krt.HandlerContext
-	collections v2translator.Collections
+	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings translator.CompilerSettings) *Compiler {
+	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
+func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
 		return nil, fmt.Errorf("claude compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
 	model := input.Root.ResolvedModelConfig.Config
 	if strings.TrimSpace(model.Spec.Model) == "" {
-		return nil, v2translator.NewValidationError("Claude ModelConfig model is required")
+		return nil, translator.NewValidationError("Claude ModelConfig model is required")
 	}
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
-		return nil, v2translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
+		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
 	}
-	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
-	logConfig := telemetryConfig.Logs
+	telemetryConfig := c.settings.Telemetry
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
@@ -57,7 +55,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := v2translator.CompileSkillResources(input.Root.Template)
+	skillResources, skillEgress, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -67,30 +65,16 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
-	harnessAttributes := v2translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
-		if v2translator.IsResourceAttributesVariable(variable.Name) {
-			continue
-		}
-		if variable.Name == env.KagentAPIURL.Name() || claudeconfig.OwnsEnvironment(variable.Name) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
-			return nil, v2translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
+		if claudeconfig.OwnsEnvironment(variable.Name) {
+			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
-	environment = append(environment,
-		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	)
-	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
-	// The adapter derives Claude Code's own telemetry flags; raw bodies have no
-	// compiled field yet.
-	if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
-		environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
-	}
+
+	environment = append(environment, corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"})
 
 	localAgents, err := c.compileLocalAgents(input.Root)
 	if err != nil {
@@ -99,18 +83,21 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
+	config.ControlPlaneURL = c.settings.APIURL
+	config.MaxContentLength = c.settings.Process.MaxContentLength
+	config.LogLevel = c.settings.LogLevel
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
 	}
 	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
-		return nil, v2translator.NewValidationError("invalid compiled Claude configuration: %v", err)
+		return nil, translator.NewValidationError("invalid compiled Claude configuration: %v", err)
 	}
 	configJSON, err := json.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Claude config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Claude agent card: %w", err)
 	}
@@ -118,19 +105,19 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, err := v2translator.CompileCredentials(input, nil, environment)
+	environment, credentials, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
 
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
-	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	egress = append(egress, telemetryConfig.Destinations(environment)...)
+	egress = append(egress, c.settings.APIURL)
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
-	return &v2translator.CompileResult{
-		Revision: v2translator.Revision{
+	return &translator.CompileResult{
+		Revision: translator.Revision{
 			Namespace: template.Namespace,
 			Image:     harness.Spec.Workload.Image, Environment: environment,
 			ConfigJSON: configJSON, AgentCard: card,
@@ -142,7 +129,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	}, nil
 }
 
-func (c *Compiler) compileLocalAgents(root *v2translator.AgentInput) (map[string]claudeconfig.Agent, error) {
+func (c *Compiler) compileLocalAgents(root *translator.AgentInput) (map[string]claudeconfig.Agent, error) {
 	if len(root.Shared) == 0 {
 		return nil, nil
 	}
@@ -154,19 +141,19 @@ func (c *Compiler) compileLocalAgents(root *v2translator.AgentInput) (map[string
 		}
 		childModel := child.ResolvedModelConfig.Config
 		if len(child.MCPTools) != 0 || len(child.Shared) != 0 || len(child.Template.Spec.Tools) != 0 {
-			return nil, v2translator.NewValidationError("Claude local agent %q cannot contain MCP or nested agent tools yet", binding.Name)
+			return nil, translator.NewValidationError("Claude local agent %q cannot contain MCP or nested agent tools yet", binding.Name)
 		}
 		if len(child.Template.Spec.Skills) != 0 || len(child.Template.Spec.Plugins) != 0 {
-			return nil, v2translator.NewValidationError("Claude local agent %q cannot contain skills or plugins yet", binding.Name)
+			return nil, translator.NewValidationError("Claude local agent %q cannot contain skills or plugins yet", binding.Name)
 		}
 		if strings.TrimSpace(childModel.Spec.Model) == "" {
-			return nil, v2translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
+			return nil, translator.NewValidationError("Claude local agent %q ModelConfig model is required", binding.Name)
 		}
 		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, childModel.Spec) {
-			return nil, v2translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
+			return nil, translator.NewValidationError("Claude local agent %q must use the root agent's provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
-			return nil, v2translator.NewValidationError("duplicate Claude local agent name %q", binding.Name)
+			return nil, translator.NewValidationError("duplicate Claude local agent name %q", binding.Name)
 		}
 		agents[binding.Name] = claudeconfig.Agent{
 			Description: binding.Description,
@@ -195,7 +182,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				options.CacheTTL = ""
 			}
 			if !reflect.DeepEqual(options, v1alpha3.AnthropicConfig{}) {
-				return nil, nil, v2translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
+				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
 		}
 		if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
@@ -215,7 +202,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
-			return nil, nil, v2translator.NewValidationError("Claude Bedrock requires bedrock.region")
+			return nil, nil, translator.NewValidationError("Claude Bedrock requires bedrock.region")
 		}
 		options := *model.Spec.Bedrock
 		options.Region = ""
@@ -224,13 +211,13 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			options.CacheTTL = ""
 		}
 		if !reflect.DeepEqual(options, v1alpha3.BedrockConfig{}) {
-			return nil, nil, v2translator.NewValidationError("Claude does not support Bedrock provider options beyond region yet")
+			return nil, nil, translator.NewValidationError("Claude does not support Bedrock provider options beyond region yet")
 		}
 		if model.Spec.APIKeySecret == "" {
-			return nil, nil, v2translator.NewValidationError("Claude Bedrock requires apiKeySecret with AWS credentials")
+			return nil, nil, translator.NewValidationError("Claude Bedrock requires apiKeySecret with AWS credentials")
 		}
 		if model.Spec.APIKeySecretKey != "" {
-			return nil, nil, v2translator.NewValidationError("Claude Bedrock reads standard AWS keys from apiKeySecret; apiKeySecretKey must be empty")
+			return nil, nil, translator.NewValidationError("Claude Bedrock reads standard AWS keys from apiKeySecret; apiKeySecretKey must be empty")
 		}
 		secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
 		if err != nil {
@@ -242,7 +229,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		} else {
 			for _, key := range []string{claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName} {
 				if len(secret.Data[key]) == 0 {
-					return nil, nil, v2translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName, claudeconfig.AWSBedrockTokenEnvName)
+					return nil, nil, translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName, claudeconfig.AWSBedrockTokenEnvName)
 				}
 				environment = append(environment, secretEnvironment(key, secret.Name, key))
 			}
@@ -254,12 +241,12 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 
 	case v1alpha3.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil || strings.TrimSpace(model.Spec.AnthropicVertexAI.ProjectID) == "" || strings.TrimSpace(model.Spec.AnthropicVertexAI.Location) == "" {
-			return nil, nil, v2translator.NewValidationError("Claude Vertex requires anthropicVertexAI.projectID and location")
+			return nil, nil, translator.NewValidationError("Claude Vertex requires anthropicVertexAI.projectID and location")
 		}
 		options := *model.Spec.AnthropicVertexAI
 		options.ProjectID, options.Location = "", ""
 		if !reflect.DeepEqual(options, v1alpha3.AnthropicVertexAIConfig{}) {
-			return nil, nil, v2translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
+			return nil, nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
 		}
 		if err := c.requireGoogleCredentials(ctx, model); err != nil {
 			return nil, nil, err
@@ -270,21 +257,21 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
 		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
 	default:
-		return nil, nil, v2translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
+		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
 }
 
 func anthropicBaseURLOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", v2translator.NewValidationError("Claude Anthropic baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
+		return "", translator.NewValidationError("Claude Anthropic baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
 	}
 	return egress.Origin(parsed), nil
 }
 
 func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelConfig, name, key string, requireJSON bool) error {
 	if name == "" || key == "" {
-		return v2translator.NewValidationError("Claude %s requires apiKeySecret and apiKeySecretKey", model.Spec.Provider)
+		return translator.NewValidationError("Claude %s requires apiKeySecret and apiKeySecretKey", model.Spec.Provider)
 	}
 	secret, err := c.secret(ctx, model.Namespace, name)
 	if err != nil {
@@ -292,10 +279,10 @@ func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelCo
 	}
 	value, ok := secret.Data[key]
 	if !ok || len(value) == 0 {
-		return v2translator.NewValidationError("Claude credential Secret %q does not contain a non-empty key %q", name, key)
+		return translator.NewValidationError("Claude credential Secret %q does not contain a non-empty key %q", name, key)
 	}
 	if requireJSON && !json.Valid(value) {
-		return v2translator.NewValidationError("Claude Vertex credential Secret %q key %q must contain valid JSON", name, key)
+		return translator.NewValidationError("Claude Vertex credential Secret %q key %q must contain valid JSON", name, key)
 	}
 	return nil
 }
@@ -314,18 +301,18 @@ func (c *Compiler) requireGoogleCredentials(ctx context.Context, model *v1alpha3
 		TokenURI  string `json:"token_uri"`
 	}
 	if err := json.Unmarshal(secret.Data[model.Spec.APIKeySecretKey], &credentials); err != nil {
-		return v2translator.NewValidationError("decode Claude Vertex credentials: %v", err)
+		return translator.NewValidationError("decode Claude Vertex credentials: %v", err)
 	}
 	if credentials.Type != "service_account" {
-		return v2translator.NewValidationError("Claude Vertex credentials must be a service_account key in the first release")
+		return translator.NewValidationError("Claude Vertex credentials must be a service_account key in the first release")
 	}
 	if credentials.ProjectID != model.Spec.AnthropicVertexAI.ProjectID {
-		return v2translator.NewValidationError("Claude Vertex credential project_id must match anthropicVertexAI.projectID")
+		return translator.NewValidationError("Claude Vertex credential project_id must match anthropicVertexAI.projectID")
 	}
 	if credentials.TokenURI != "" {
 		parsed, err := url.Parse(credentials.TokenURI)
 		if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "oauth2.googleapis.com" {
-			return v2translator.NewValidationError("Claude Vertex credential token_uri must use https://oauth2.googleapis.com")
+			return translator.NewValidationError("Claude Vertex credential token_uri must use https://oauth2.googleapis.com")
 		}
 	}
 	return nil
@@ -366,13 +353,12 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	harness := input.Harness
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
-	}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {
@@ -383,8 +369,8 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		objects[identity] = struct{}{}
 		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), kind, name, uid, generation, content))
 	}
-	var addAgent func(*v2translator.AgentInput)
-	addAgent = func(agent *v2translator.AgentInput) {
+	var addAgent func(*translator.AgentInput)
+	addAgent = func(agent *translator.AgentInput) {
 		template, model := agent.Template, agent.ResolvedModelConfig.Config
 		if template.Source != nil {
 			addObject("AgentTemplate", template.Name, template.Source.UID, template.Source.Generation, template.Spec)
@@ -448,4 +434,4 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
 }
 
-var _ v2translator.HarnessCompiler = (*Compiler)(nil)
+var _ translator.HarnessCompiler = (*Compiler)(nil)

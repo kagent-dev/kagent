@@ -168,8 +168,8 @@ export const DeleteHarnessResponseSchema: GenMessage<DeleteHarnessResponse> = /*
 
 /**
  * HarnessService manages reusable runtime and execution configuration.
- * An Agent selects a Harness by reference or embeds its complete spec. Session
- * creation names that Agent and pins its latest successful revision.
+ * An Agent selects a Harness by reference. Session creation names that Agent
+ * and pins its latest successful revision.
  *
  * @generated from service kagent.api.v1alpha1.HarnessService
  */

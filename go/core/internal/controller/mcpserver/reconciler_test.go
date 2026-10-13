@@ -117,7 +117,7 @@ func TestReconcileUnchangedCatalogWithoutDatabaseConnection(t *testing.T) {
 	pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	store := database.NewClient(pool)
+	store := database.NewClient(pool, "public")
 	server := readyServer()
 	discoverer := &fakeDiscoverer{tools: []toolservice.MCPAppTool{{Name: "tool", Description: "original"}}}
 	reconciler := New(testClient(t, server), discoverer, store)

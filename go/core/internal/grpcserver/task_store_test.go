@@ -2,7 +2,6 @@ package grpcserver
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -117,13 +116,12 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
-	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "true")
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	dbtest.MigrateT(t, dsn, false)
 	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
-	store := &lostRuntimeSaveResponse{Client: database.NewClient(db), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}
+	store := &lostRuntimeSaveResponse{Client: database.NewClient(db, "public"), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}
 	session := createTaskStoreSession(t, store.Client)
 	id := session.Id
 	listener := bufconn.Listen(DefaultMaxMessageSize)
@@ -236,7 +234,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
-		interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil))
+		interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), true)
 		gateway := a2agateway.New(interactions, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
@@ -292,9 +290,9 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, store.RegisterSessionPushNotification(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL}))
 	workerCtx, stopWorker := context.WithCancel(t.Context())
 	workerDone := make(chan error, 1)
-	pushSigner, err := sessionsvc.NewPushJWTSigner(base64.StdEncoding.EncodeToString([]byte(strings.Repeat("s", 32))), "https://kagent.example")
+	pushSigner, err := sessionsvc.NewPushJWTSigner("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n", "https://kagent.example")
 	require.NoError(t, err)
-	worker := sessionsvc.NewPushWorker(database.NewClient(db), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner)
+	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner)
 	go func() { workerDone <- worker.Start(workerCtx) }()
 	t.Cleanup(func() { stopWorker(); require.NoError(t, <-workerDone) })
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
@@ -392,7 +390,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	storedConfigs, err := store.ListTaskPushConfigs(t.Context(), id, parkedID, "", 10)
 	require.NoError(t, err)
 	require.Len(t, storedConfigs, 2, "stored configs: %+v", storedConfigs)
-	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil))
+	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), true)
 	serviceCtx := auth.AuthSessionTo(publicCtx, &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "alice"}}})
 	servicePage, err := managedService.ListTaskPushConfigs(serviceCtx, types.NamespacedName{Namespace: "team-a", Name: "assistant"},
 		&a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID), PageSize: 1})

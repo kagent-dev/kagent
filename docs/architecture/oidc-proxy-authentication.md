@@ -6,9 +6,9 @@ upstream services; the React UI reads the browser session through the proxy's
 userinfo endpoint.
 
 Browser sign-in and controller authentication are separate boundaries. Set
-`controller.auth.mode: trusted-proxy` alongside oauth2-proxy to activate both.
+`config.server.auth.mode: trusted-proxy` alongside oauth2-proxy to activate both.
 The shipped [controller entrypoint](../../go/core/cmd/controller/main.go) reads
-`KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM` and supplies the authenticator
+`server.auth.mode` and `server.auth.userIdClaim` from the config file and supplies the authenticator
 through [app.Options](../../go/core/pkg/app/app.go). Unsupported modes fail
 startup. The default remains `insecure`; enabling oauth2-proxy alone does not
 change it. Authorization still defaults to `NoopAuthorizer`; library consumers
@@ -120,8 +120,8 @@ differs.
 | --- | --- | --- |
 | `oauth2-proxy.enabled` | `false` | Install the authentication proxy |
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
-| `controller.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
-| `controller.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
+| `config.server.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
+| `config.server.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 
 For a release named `kagent`, register
@@ -131,10 +131,12 @@ Secret named `kagent-oidc` in the release namespace with `client-id`,
 Install with these values and your normal model/runtime configuration:
 
 ```yaml
+config:
+  server:
+    auth:
+      mode: trusted-proxy
+      userIdClaim: email
 controller:
-  auth:
-    mode: trusted-proxy
-    userIdClaim: email
   service:
     type: ClusterIP
 ui:

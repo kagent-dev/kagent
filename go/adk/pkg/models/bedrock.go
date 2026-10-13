@@ -151,7 +151,7 @@ func (m *BedrockModel) Name() string {
 func NewBedrockModel(ctx context.Context, config *BedrockConfig) (*BedrockModel, error) {
 	logger := logging.FromContext(ctx)
 	if config.Model == "" {
-		return nil, fmt.Errorf("bedrock model name is required (e.g., anthropic.claude-3-sonnet-20240229-v1:0)")
+		return nil, fmt.Errorf("bedrock model name is required (e.g., global.anthropic.claude-sonnet-4-6)")
 	}
 
 	region := config.Region

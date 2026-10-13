@@ -79,16 +79,22 @@ export function stageFiles(
   return problems.length ? { files, error: problems.join(" ") } : { files };
 }
 
-// Files handed to a new conversation's page. In memory, not router state, which
-// survives a reload and would send them twice.
-const handedOff = new Map<string, File[]>();
-
-export function handOffFiles(conversationId: string, files: File[]): void {
-  if (files.length) handedOff.set(conversationId, files);
+/** The message a new conversation is created for, with its files. */
+export interface FirstMessage {
+  text: string;
+  files: File[];
 }
 
-export function takeHandedOffFiles(conversationId: string): File[] {
-  const files = handedOff.get(conversationId) ?? [];
+// Handed to the new conversation's page in memory, not router state, so Back,
+// forward and reload never send it again.
+const handedOff = new Map<string, FirstMessage>();
+
+export function handOffFirstMessage(conversationId: string, message: FirstMessage): void {
+  handedOff.set(conversationId, message);
+}
+
+export function takeFirstMessage(conversationId: string): FirstMessage | undefined {
+  const message = handedOff.get(conversationId);
   handedOff.delete(conversationId);
-  return files;
+  return message;
 }

@@ -166,8 +166,18 @@ spec:
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
                 properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects chatCompletions (default, the dated deployments path) or
+                      responses (the /openai/v1 surface, which needs no apiVersion and reads files by link).
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
                   apiVersion:
-                    description: API version for the Azure OpenAI API
+                    description: API version for the Azure OpenAI API. Required unless
+                      apiFormat is responses.
                     type: string
                   azureAdToken:
                     description: Azure AD token for authentication
@@ -188,9 +198,12 @@ spec:
                     description: Top-p sampling parameter
                     type: string
                 required:
-                - apiVersion
                 - azureEndpoint
                 type: object
+                x-kubernetes-validations:
+                - message: apiVersion is required unless apiFormat is responses
+                  rule: has(self.apiVersion) || (has(self.apiFormat) && self.apiFormat
+                    == 'responses')
               bedrock:
                 description: AWS Bedrock-specific configuration
                 properties:

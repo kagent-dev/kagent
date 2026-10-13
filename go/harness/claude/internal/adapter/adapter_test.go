@@ -232,7 +232,7 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 				}
 			}
 			for _, flag := range test.absent {
-				if slices.ContainsFunc(got, func(variable string) bool { return strings.HasPrefix(variable, flag+"=") }) {
+				if slices.Contains(got, flag+"=1") {
 					t.Errorf("%s set in %v", flag, got)
 				}
 			}

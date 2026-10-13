@@ -25,7 +25,7 @@ type lifecycleResource interface {
 // admission remains covered by their task/checkpoint and sandbox lifecycle tests.
 func TestRuntimeLifecycleContract(t *testing.T) {
 	t.Run("agent", func(t *testing.T) {
-		client := NewClient(setupTestDB(t))
+		client := NewClient(setupTestDB(t), "public")
 		sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 		instance, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", "conversation"), "create")
 		require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestRuntimeLifecycleContract(t *testing.T) {
 		})
 	})
 	t.Run("sandbox", func(t *testing.T) {
-		client := NewClient(setupTestDB(t))
+		client := NewClient(setupTestDB(t), "public")
 		input, options := sandboxFixture(t, client, "revision")
 		instance, _, err := client.CreateSandbox(t.Context(), input, "create", options)
 		require.NoError(t, err)

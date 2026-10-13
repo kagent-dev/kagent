@@ -30,6 +30,7 @@ type controllerTestCleanup struct {
 	controllerWorkflow
 	a2asrv.RequestHandler
 	task             *a2atype.Task
+	canceledTask     *a2atype.Task
 	err              error
 	deletes, expires int
 }
@@ -43,6 +44,9 @@ func (c *controllerTestCleanup) CancelTask(_ context.Context, request *a2atype.C
 	c.expires++
 	if c.err != nil {
 		return nil, c.err
+	}
+	if c.canceledTask != nil {
+		return c.canceledTask, nil
 	}
 	if c.task != nil {
 		return c.task, nil
@@ -101,6 +105,37 @@ func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
 	require.NoError(t, NewController(store, nil, gateway, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
+}
+
+func TestControllerDeadlineCancellationOutcome(t *testing.T) {
+	deadline := time.Now().Add(-time.Minute)
+	before := deadline.Add(-time.Second)
+	after := deadline.Add(time.Second)
+	for _, tc := range []struct {
+		name      string
+		state     a2atype.TaskState
+		timestamp *time.Time
+		want      apiv1alpha1.ScheduledRunExecutionState
+	}{
+		{"canceled with a slow runtime clock", a2atype.TaskStateCanceled, &before, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"canceled at deadline", a2atype.TaskStateCanceled, &deadline, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"canceled after deadline", a2atype.TaskStateCanceled, &after, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"canceled without timestamp", a2atype.TaskStateCanceled, nil, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"completed before cancellation", a2atype.TaskStateCompleted, &before, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED},
+		{"completed after deadline", a2atype.TaskStateCompleted, &after, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(deadline)}
+			store := controllerTestStore{session: &apiv1alpha1.Session{Id: "original"}}
+			gateway := &controllerTestCleanup{
+				task:         &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
+				canceledTask: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: tc.state, Timestamp: tc.timestamp}},
+			}
+			require.NoError(t, NewController(store, nil, gateway, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+			require.Equal(t, 1, gateway.expires)
+			require.Equal(t, tc.want, execution.State)
+		})
+	}
 }
 
 type taskLookupGateway struct {

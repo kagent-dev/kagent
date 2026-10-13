@@ -532,7 +532,6 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 
 func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
-	t.Setenv("KAGENT_SKILLS_FOLDER", "/does/not/exist")
 	model := func() adk.Model {
 		return &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4o"}, BaseUrl: "https://api.openai.com/v1"}
 	}
