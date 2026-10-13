@@ -79,7 +79,12 @@ func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(true),
 		}).
-		For(&v1alpha2.RemoteMCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// A label change does not bump the generation, and the discovery opt-out
+		// (kagent.dev/discovery=disabled) is a label: watch both so the opt-out
+		// and its removal apply at once instead of on the next periodic refresh.
+		For(&v1alpha2.RemoteMCPServer{}, builder.WithPredicates(predicate.Or[client.Object](
+			predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{},
+		))).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
