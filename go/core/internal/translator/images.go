@@ -1,27 +1,22 @@
 package translator
 
-import "github.com/kagent-dev/kagent/go/core/internal/image"
+import (
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/image"
+)
 
-// BuiltinImages supplies release images without performing registry I/O.
-// Missing entries only prevent compilation of agents that need that default.
-type BuiltinImages struct {
-	Kagent string
-	Claude string
-	Codex  string
-}
-
-func (b BuiltinImages) image(harness *HarnessConfiguration) (string, error) {
+func harnessImage(harness *HarnessConfiguration, images *apiv1.HarnessImagesConfig) (string, error) {
 	var selected string
 	if override := harness.Spec.Workload.Image; override != nil {
 		selected = *override
 	} else {
 		switch harnessType(harness) {
 		case HarnessTypeKagent:
-			selected = b.Kagent
+			selected = images.GetKagent()
 		case HarnessTypeClaude:
-			selected = b.Claude
+			selected = images.GetClaude()
 		case HarnessTypeCodex:
-			selected = b.Codex
+			selected = images.GetCodex()
 		case HarnessTypeBYO:
 			return "", NewValidationError("BYO harnesses must specify workload.image")
 		}

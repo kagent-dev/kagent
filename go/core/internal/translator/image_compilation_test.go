@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -17,9 +18,9 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 		spec  v1alpha3.HarnessSpec
 		image string
 	}{
-		{"kagent", v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}, testBuiltinImages.Kagent},
-		{"claude", v1alpha3.HarnessSpec{Claude: &v1alpha3.ClaudeHarness{}}, testBuiltinImages.Claude},
-		{"codex", v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}}, testBuiltinImages.Codex},
+		{"kagent", v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}, testHarnessImages.GetKagent()},
+		{"claude", v1alpha3.HarnessSpec{Claude: &v1alpha3.ClaudeHarness{}}, testHarnessImages.GetClaude()},
+		{"codex", v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}}, testHarnessImages.GetCodex()},
 	} {
 		t.Run(variant.name, func(t *testing.T) {
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: *variant.spec.DeepCopy()}
@@ -39,19 +40,19 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 				model.Spec.APIKeySecretKey = "key"
 			}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth", Namespace: "test"}, Data: map[string][]byte{"key": []byte("secret")}}
-			compile := func(images translator.BuiltinImages) *translator.CompileResult {
+			compile := func(images *apiv1.HarnessImagesConfig) *translator.CompileResult {
 				t.Helper()
 				result, err := compilerWithImages(t, images, model, secret, harness).CompileAgent(t.Context(), agent)
 				require.NoError(t, err)
 				return result
 			}
-			first := compile(testBuiltinImages)
+			first := compile(testHarnessImages)
 			require.Equal(t, variant.image, first.Image)
 			before, err := first.Digest()
 			require.NoError(t, err)
 			require.Nil(t, harness.Spec.Workload.Image, "compilation must not mutate source resources")
 			changed := "mirror/runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-			images := translator.BuiltinImages{Kagent: changed, Claude: changed, Codex: changed}
+			images := &apiv1.HarnessImagesConfig{Kagent: changed, Claude: changed, Codex: changed}
 			second := compile(images)
 			require.Equal(t, changed, second.Image)
 			require.JSONEq(t, string(first.Provenance), string(second.Provenance), "release defaults are not Kubernetes inputs")
@@ -60,7 +61,7 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 			require.NotEqual(t, before, after)
 			require.Equal(t, variant.image, first.Image, "already compiled revisions stay immutable")
 			harness.Spec.Workload.Image = new(variant.image)
-			explicit := compile(translator.BuiltinImages{})
+			explicit := compile(nil)
 			require.Equal(t, variant.image, explicit.Image)
 			unrelated := compile(images)
 			explicitID, err := explicit.Digest()

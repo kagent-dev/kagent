@@ -62,7 +62,7 @@ func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *apiv1.RuntimeDefaultsConfig, images translator.BuiltinImages) Collections {
+func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *apiv1.RuntimeDefaultsConfig, images *apiv1.HarnessImagesConfig) Collections {
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)

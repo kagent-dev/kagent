@@ -98,7 +98,7 @@ func newAgentReconciliations(
 	agentRuntimeObservations krt.Collection[AgentRuntimeObservation],
 	opts krt.OptionsBuilder,
 	settings *apiv1.RuntimeDefaultsConfig,
-	images translator.BuiltinImages,
+	images *apiv1.HarnessImagesConfig,
 ) krt.Collection[AgentReconciliation] {
 	return krt.NewCollection(agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *AgentReconciliation {
 		state := &AgentReconciliation{Agent: agent}

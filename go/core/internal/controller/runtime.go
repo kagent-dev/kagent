@@ -10,7 +10,6 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/apiclient"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Runtime owns the Kubernetes client and common options shared by the KRT
@@ -24,7 +23,7 @@ type Runtime struct {
 
 // NewRuntime creates the shared KRT client and collection graph. Handlers are
 // deliberately registered separately at the eventual application boundary.
-func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}, settings *apiv1.RuntimeDefaultsConfig, images translator.BuiltinImages) (*Runtime, error) {
+func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}, settings *apiv1.RuntimeDefaultsConfig, images *apiv1.HarnessImagesConfig) (*Runtime, error) {
 	client, err := apiclient.New(config)
 	if err != nil {
 		return nil, fmt.Errorf("create KRT Kubernetes client: %w", err)

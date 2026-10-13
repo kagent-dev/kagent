@@ -9,6 +9,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
@@ -18,7 +19,7 @@ type Compiler struct {
 	ctx              krt.HandlerContext
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
-	images           BuiltinImages
+	images           *apiv1.HarnessImagesConfig
 }
 
 // HarnessType identifies the runtime selected by a Harness.
@@ -89,7 +90,7 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images BuiltinImages) *Compiler {
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *apiv1.HarnessImagesConfig) *Compiler {
 	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images}
 }
 
@@ -155,7 +156,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 		return nil, err
 	}
 	input.AgentName = agentName
-	image, err := c.images.image(harness)
+	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
 	}
