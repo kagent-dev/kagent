@@ -108,7 +108,16 @@ type CodexHarness struct{}
 type ClaudeHarness struct{}
 
 // BYOHarness selects an image that implements kagent's private A2A contract.
-type BYOHarness struct{}
+type BYOHarness struct {
+	// Port is the TCP port the image serves its A2A endpoint on. The
+	// compiler advertises it in the agent card and injects it as the PORT
+	// environment variable so the card and the listener always agree.
+	// Omitted defaults to 80.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port *int32 `json:"port,omitempty"`
+}
 
 // HarnessWorkload identifies the immutable runtime image used by a Harness.
 type HarnessWorkload struct {
