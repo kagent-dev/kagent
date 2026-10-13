@@ -87,14 +87,12 @@ type parkedTask struct {
 	taskRef
 	pending runtime.PendingTurn
 	origin  trace.SpanContext
-	open    openTools
 }
 
 // continuedTurn is the parked turn handed to the request that continues it.
 type continuedTurn struct {
 	pending runtime.PendingTurn
 	origin  trace.SpanContext
-	open    openTools
 }
 
 // cancelingTask keeps the Actor occupied while PendingTurn.Cancel performs
@@ -102,6 +100,7 @@ type continuedTurn struct {
 type cancelingTask struct {
 	taskRef
 	done chan struct{}
+	err  error
 }
 
 func (*activeTask) isExecutorState()    {}
@@ -117,7 +116,6 @@ type executionSink struct {
 	textArtifactID a2atype.ArtifactID
 	lastPosition   time.Time
 	owner          spanOwner
-	paused         *spanOwner
 	tools          map[string]pendingTool
 	ended          *endedTools
 	// compiled names the model when the driver reports none.
@@ -292,13 +290,12 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			})
 			return finishedCanceled
 		}
-		park := func(pending runtime.PendingTurn, open openTools) bool {
+		park := func(pending runtime.PendingTurn) bool {
 			parked := false
 			finishOnce.Do(func() {
 				cancel()
-				parked = e.park(active, pending, origin, open)
+				parked = e.park(active, pending, origin)
 				if !parked {
-					sink.tools = open.tools
 					active.cancelErr = pending.Cancel(context.Background(), sink)
 					if e.deactivate(active) {
 						releaseCanceled()
@@ -325,11 +322,6 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if continued == nil {
 			outcome, runErr = e.runner.Run(runCtx, turn, sink)
 		} else {
-			decision, ok := turn.InputResponse.(*runtime.ApprovalDecision)
-			denied := ok && !decision.Approved
-			continued.open.resume(sink.owner, !denied)
-			sink.tools, sink.ended = continued.open.tools, continued.open.ended
-			sink.paused = &continued.open.owner
 			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
 		}
 		var cancellationErr *runtime.CancellationError
@@ -390,10 +382,13 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 				fail("invalid_input_request", err)
 				return
 			}
-			// Transfer the live native turn into executor state before telling the
+			// Reserve the durable continuation in executor state before telling the
 			// caller that it can submit a response or cancellation.
-			open := sink.pauseTools(outcome.Pending.Request())
-			if !park(outcome.Pending, open) {
+			// The gated call has not executed. Other open spans end at this boundary.
+			if approval, ok := outcome.Pending.Request().(*runtime.ApprovalRequest); ok {
+				delete(sink.tools, approval.CallID)
+			}
+			if !park(outcome.Pending) {
 				return
 			}
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
@@ -498,6 +493,9 @@ func (s *executionSink) ToolCall(event runtime.ToolCall) error {
 	part, err := toolCallPart(event)
 	if err != nil {
 		return err
+	}
+	if event.ParentToolID == "" || event.ParentToolID == event.ID {
+		s.toolCalls++
 	}
 	s.startToolSpan(event)
 	return s.emitToolArtifact(part)
@@ -656,22 +654,19 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.state = canceling
 			e.mu.Unlock()
 
-			// Cleanup errors are telemetry, so the task is still reported canceled.
-			if err := state.pending.Cancel(ctx, &executionSink{owner: state.open.owner, tools: state.open.tools, ended: state.open.ended, compiled: e.telemetry}); err != nil {
-				a2alog.Error(ctx, "failed to cancel the parked runtime turn", err)
-			}
-			state.open.recordUnfinished()
-			// No invocation ends on cancel to flush these spans, and the gateway may suspend the Actor once canceled.
-			if flushErr := state.open.owner.invocation.Flush(ctx); flushErr != nil {
-				a2alog.Error(ctx, "failed to flush runtime spans", flushErr)
+			sink := &executionSink{owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
+			err := state.pending.Cancel(ctx, sink)
+			if flushErr := tracing.InvocationFromContext(ctx).Flush(ctx); flushErr != nil {
+				a2alog.Error(ctx, "failed to flush cancellation traces", flushErr)
 			}
 			e.mu.Lock()
+			canceling.err = err
 			if e.state == canceling {
 				e.state = nil
 			}
 			close(canceling.done)
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, canceling.done, yield)
+			yieldCancellation(ctx, reqCtx, canceling.done, err, yield)
 			return
 		case *cancelingTask:
 			if !state.matches(ref) {
@@ -683,7 +678,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, done, yield)
+				yieldCancellation(ctx, reqCtx, done, state.err, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -698,9 +693,13 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 	}
 }
 
-func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, yield func(a2atype.Event, error) bool) {
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, knownErr error, yield func(a2atype.Event, error) bool) {
 	select {
 	case <-done:
+		if knownErr != nil {
+			yield(nil, knownErr)
+			return
+		}
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
 	case <-ctx.Done():
 		yield(nil, ctx.Err())
@@ -749,7 +748,7 @@ func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, er
 			return nil, fmt.Errorf("continuation does not match the parked task")
 		}
 		e.state = task
-		return &continuedTurn{pending: state.pending, origin: state.origin, open: state.open}, nil
+		return &continuedTurn{pending: state.pending, origin: state.origin}, nil
 	default:
 		return nil, errBusy
 	}
@@ -786,7 +785,7 @@ func (e *Executor) restorePending() error {
 	return nil
 }
 
-func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin trace.SpanContext, open openTools) bool {
+func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin trace.SpanContext) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.state != task {
@@ -797,7 +796,7 @@ func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin tr
 		// Keep the task active until the caller cancels the newly returned handle.
 		return false
 	}
-	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin, open: open}
+	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin}
 	return true
 }
 

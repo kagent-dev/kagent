@@ -273,8 +273,8 @@ func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage 
 	return nil
 }
 
-// waitingLines is how many lines can wait while an approval pause blocks the parser. Claude stops
-// printing once it asks; past this, reading pauses and later lines get the time the parser reads them.
+// waitingLines bounds the queue between the reader and parser. Beyond this limit,
+// reading pauses and later lines receive their timestamp when reading resumes.
 const waitingLines = 64
 
 type stampedLine struct {
@@ -283,8 +283,8 @@ type stampedLine struct {
 	err     error
 }
 
-// readStamped reads lines on its own goroutine and stamps each when it arrives. The parser
-// blocks on emit during an approval pause, so lines Claude already printed must not wait for it.
+// readStamped timestamps each line before queuing it for parsing.
+// The bounded queue still applies backpressure when the consumer falls behind.
 func readStamped(r io.Reader, max int, done <-chan struct{}) <-chan stampedLine {
 	lines := make(chan stampedLine, waitingLines)
 	go func() {

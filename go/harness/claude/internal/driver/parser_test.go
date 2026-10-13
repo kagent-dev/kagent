@@ -21,7 +21,7 @@ func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	}
 	for _, reader := range []io.Reader{bytes.NewReader(b), &fragmentReader{data: b, size: 3}} {
 		var events []Event
-		if err := parseJSONL(t.Context(), reader, 4096, nil, nil, func(event Event) error {
+		if err := parseJSONL(t.Context(), reader, 4096, map[string]modelUsage{}, nil, func(event Event) error {
 			events = append(events, event)
 			return nil
 		}); err != nil {
@@ -59,7 +59,7 @@ func TestParseJSONLBedrockTextAfterThinkingIsNotDuplicated(t *testing.T) {
 	}, "\n") + "\n"
 
 	var text strings.Builder
-	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, nil, nil, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		if event.Kind == EventTextDelta {
 			text.WriteString(event.Text)
 		}
@@ -78,7 +78,7 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var last Event
-	if err := parseJSONL(t.Context(), bytes.NewReader(b), 4096, nil, nil, func(event Event) error { last = event; return nil }); err != nil {
+	if err := parseJSONL(t.Context(), bytes.NewReader(b), 4096, map[string]modelUsage{}, nil, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if last.Kind != EventFailed || last.SafeMessage != "budget limit reached" {
@@ -99,7 +99,7 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
 	}, "\n") + "\n"
 	var events []Event
-	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, nil, nil, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		events = append(events, event)
 		return nil
 	}); err != nil {
@@ -135,7 +135,7 @@ func TestParseJSONLIgnoresSubagentTaskNotificationResult(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"child done","session_id":"child","origin":{"kind":"task-notification"}}`,
 	}, "\n") + "\n"
 	var terminal []Event
-	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, nil, nil, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		if event.Kind == EventCompleted || event.Kind == EventFailed {
 			terminal = append(terminal, event)
 		}
@@ -174,7 +174,7 @@ func TestParseJSONLRejectsInvalidToolLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := strings.Join(tt.lines, "\n") + "\n"
-			err := parseJSONL(t.Context(), strings.NewReader(input), 4096, nil, nil, func(Event) error { return nil })
+			err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("parseJSONL() error = %v, want containing %q", err, tt.want)
 			}
@@ -230,7 +230,7 @@ func TestParseJSONLReportsReadAndFlushErrors(t *testing.T) {
 	readErr, emitErr := errors.New("pipe broke"), errors.New("sink failed")
 	line := `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m"}}}` + "\n"
 	reader := io.MultiReader(strings.NewReader(line), iotest.ErrReader(readErr))
-	err := parseJSONL(t.Context(), reader, 4096, nil, nil, func(event Event) error {
+	err := parseJSONL(t.Context(), reader, 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		if event.Kind == EventModelCall {
 			return emitErr
 		}
@@ -281,7 +281,7 @@ func TestParseJSONLToolResultWithImage(t *testing.T) {
 func TestParseDeferredResultAndResumedToolResult(t *testing.T) {
 	deferred := `{"type":"result","subtype":"success","session_id":"session","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"mcp__protected__write","input":{"value":7}}}`
 	var events []Event
-	if err := parseJSONL(t.Context(), strings.NewReader(deferred), 4096, nil, nil, func(event Event) error { events = append(events, event); return nil }); err != nil {
+	if err := parseJSONL(t.Context(), strings.NewReader(deferred), 4096, map[string]modelUsage{}, nil, func(event Event) error { events = append(events, event); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if len(events) != 1 || events[0].Kind != EventDeferred || events[0].Deferred.ID != "call" {
@@ -303,7 +303,7 @@ func TestParseRejectsMalformedDeferredResult(t *testing.T) {
 		`{"type":"result","subtype":"success","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"write"}}`,
 		`{"type":"result","subtype":"success","is_error":true,"session_id":"session","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"write"}}`,
 	} {
-		if err := parseJSONL(t.Context(), strings.NewReader(line), 4096, nil, nil, func(Event) error { return nil }); err == nil {
+		if err := parseJSONL(t.Context(), strings.NewReader(line), 4096, map[string]modelUsage{}, nil, func(Event) error { return nil }); err == nil {
 			t.Fatalf("malformed deferred result accepted: %s", line)
 		}
 	}

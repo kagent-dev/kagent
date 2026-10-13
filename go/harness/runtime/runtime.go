@@ -109,6 +109,14 @@ const (
 	ToolUnfinished ToolStatus = "unfinished"
 )
 
+// ToolExecutionSink observes deferred execution without publishing another A2A tool artifact.
+// Drivers bracket deferred execution attempts; a proven non-execution suppresses the span.
+// Supplying a cached result is not another execution attempt.
+type ToolExecutionSink interface {
+	ToolExecutionStarted(ToolCall)
+	ToolExecutionFinished(ToolResult)
+}
+
 // ModelCall reports one model request. InputTokens includes cached tokens. UsagePartial
 // means the harness never reported final usage, so OutputTokens is a lower bound.
 type ModelCall struct {

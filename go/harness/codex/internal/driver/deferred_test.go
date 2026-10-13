@@ -147,7 +147,7 @@ func TestDeferredTurnPersistsExecutingBeforeToolAndDoesNotRetry(t *testing.T) {
 	require.Empty(t, taskID)
 	require.Empty(t, contextID)
 	require.Nil(t, pendingTurn)
-	require.ErrorIs(t, pending.Cancel(t.Context()), runtime.ErrSessionAbandoned)
+	require.ErrorIs(t, pending.Cancel(t.Context(), &recordingSink{}), runtime.ErrSessionAbandoned)
 	require.Equal(t, 1, calls)
 }
 

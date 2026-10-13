@@ -91,6 +91,13 @@ sequenceDiagram
 
 ## Key limitations
 
+- **Tool parenting is not retained across DATA suspension.** Resumed invocations
+  link to the task's original invocation. Deferred tool spans use the resumed
+  invocation and exclude approval wait time. Other tool spans still open when
+  input is published are settled as unfinished; previous tool parents are not
+  restored. Parenting within an execution segment is retained.
+  Reusing a saved MCP result does not create another execution span.
+
 - **One pending input at a time.** Only one approval or ask-user request survives
   DATA restore. Concurrent requests are canceled with the interrupted native
   turn; batch approval is not supported.

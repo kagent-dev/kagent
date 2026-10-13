@@ -81,6 +81,13 @@ describes the transcript-based continuation.
 
 ## Key limitations
 
+- **Tool parenting is not retained across DATA suspension.** Resumed invocations
+  link to the task's original invocation. Deferred tool spans use the resumed
+  invocation and exclude approval wait time. Other tool spans still open when
+  input is published are settled as unfinished; previous tool parents are not
+  restored. Parenting within an execution segment is retained.
+  Deferred span duration includes replay startup and is not exact tool-only time.
+
 - **Parallel approvals are not supported.** Protected calls that Claude cannot
   defer in a parallel batch are denied through the permission fallback. A
   remaining single call can still be deferred and approved.

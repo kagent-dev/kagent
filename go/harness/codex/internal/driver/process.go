@@ -316,7 +316,6 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 		} `json:"_meta"`
 		Message    string `json:"message"`
 		ServerName string `json:"serverName"`
-		ThreadID   string `json:"threadId"`
 	}
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, false, fmt.Errorf("decode Codex MCP approval request: %w", err)

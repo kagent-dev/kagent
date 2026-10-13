@@ -10,11 +10,13 @@ import (
 )
 
 type recordingSink struct {
-	text     strings.Builder
-	sessions []runtime.SessionStarted
-	calls    []runtime.ToolCall
-	results  []runtime.ToolResult
-	models   []runtime.ModelCall
+	executions []runtime.ToolCall
+	executed   []runtime.ToolResult
+	text       strings.Builder
+	sessions   []runtime.SessionStarted
+	calls      []runtime.ToolCall
+	results    []runtime.ToolResult
+	models     []runtime.ModelCall
 }
 
 func (s *recordingSink) SessionStarted(event runtime.SessionStarted) error {
@@ -280,4 +282,11 @@ func TestUsageReadsTheTokenBreakdown(t *testing.T) {
 	if len(sink.models) != 1 || sink.models[0].CacheWriteTokens != 3 || sink.models[0].CacheReadTokens != 4 || sink.models[0].ReasoningOutputTokens != 1 {
 		t.Fatalf("model calls = %+v, want cache write 3, cache read 4 and reasoning 1", sink.models)
 	}
+}
+
+func (s *recordingSink) ToolExecutionStarted(call runtime.ToolCall) {
+	s.executions = append(s.executions, call)
+}
+func (s *recordingSink) ToolExecutionFinished(result runtime.ToolResult) {
+	s.executed = append(s.executed, result)
 }

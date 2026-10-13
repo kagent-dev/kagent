@@ -22,7 +22,6 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 // ProcessConfig contains validated, compiler-owned inputs for one Claude Code
@@ -427,7 +426,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			}
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancellationCleanupTimeout)
 			defer cancel()
-			ctx, sink = cleanupCtx, discardSink{}
+			ctx, sink = cleanupCtx, discardSink{ModelCallSink: sink}
 		}
 	}
 }

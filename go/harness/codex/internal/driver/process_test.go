@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
@@ -93,7 +92,7 @@ func TestProcessDriverLetsAppServerExitAfterStdinEOF(t *testing.T) {
 	executable := filepath.Join(directory, "codex")
 	exitCapture := filepath.Join(directory, "exit")
 	script := `#!/bin/sh
-trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' TERM
+trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' INT TERM
 read initialize
 printf '%s\n' '{"id":1,"result":{}}'
 read initialized
@@ -599,6 +598,7 @@ printf graceful > "$EXIT_CAPTURE"
 		t.Fatalf("cached result replayed tool: calls=%d err=%v", calls, err)
 	}
 	require.Len(t, sink.results, 1)
+	require.Empty(t, sink.executions, "cached result must not look like another execution")
 	requests, err := os.ReadFile(capture)
 	if err != nil {
 		t.Fatal(err)
@@ -626,7 +626,7 @@ func TestDeferredTurnCancellationDuringNativeContinuationAdmitsNextTurn(t *testi
 	executable := filepath.Join(directory, "codex")
 	exitCapture := filepath.Join(directory, "exit")
 	script := `#!/bin/sh
-trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' TERM
+trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' INT TERM
 read initialize
 printf '%s\n' '{"id":1,"result":{}}'
 read initialized
@@ -638,10 +638,12 @@ case "$turn" in
   *toolOutput*)
     read interrupt
     printf '%s\n' '{"id":4,"result":{}}'
-    while read ignored; do :; done ;;
+    while read ignored; do :; done
+    printf graceful > "$EXIT_CAPTURE" ;;
   *)
     printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
-    while read ignored; do :; done ;;
+    while read ignored; do :; done
+    printf graceful > "$EXIT_CAPTURE" ;;
 esac
 `
 	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
@@ -739,7 +741,7 @@ while read ignored; do :; done
 			require.NotEmpty(t, request.ID)
 			sink := &recordingSink{}
 			if action == "cancel" {
-				require.NoError(t, pending.Cancel(t.Context()))
+				require.NoError(t, pending.Cancel(t.Context(), &recordingSink{}))
 				after, err := os.ReadFile(capture)
 				require.NoError(t, err)
 				require.Equal(t, before, after)
@@ -760,8 +762,13 @@ while read ignored; do :; done
 			}
 			if action == "approve" {
 				require.Equal(t, 1, calls)
+				require.Len(t, sink.executions, 1)
+				require.Len(t, sink.executed, 1)
+				require.Equal(t, "protected", sink.executions[0].MCPServer)
+				require.Equal(t, "write", sink.executions[0].MCPTool)
 			} else {
 				require.Zero(t, calls)
+				require.Empty(t, sink.executions)
 			}
 			_, _, restored, err := fresh.RestorePending()
 			require.NoError(t, err)

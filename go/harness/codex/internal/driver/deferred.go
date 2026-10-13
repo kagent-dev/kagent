@@ -207,8 +207,8 @@ func (d *ProcessDriver) deferInput(ctx context.Context, session *processSession,
 	return runtime.Outcome{Pending: &deferredTurn{driver: d, record: r}}, nil
 }
 
-// interruptForCheckpoint observes both the response and terminal notification;
-// rpcClient.call intentionally discards notifications and cannot do this job.
+// interruptForCheckpoint waits for both the RPC response and terminal notification.
+// An interrupt acknowledgement alone does not establish a checkpoint boundary.
 func (d *ProcessDriver) interruptForCheckpoint(ctx context.Context, session *processSession, callID string, sink runtime.EventSink) error {
 	ctx, cancel := context.WithTimeout(ctx, d.config.InterruptGrace)
 	defer cancel()
@@ -295,7 +295,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		if pending == nil {
 			pending = p
 		}
-		if err := pending.Cancel(context.WithoutCancel(ctx)); err != nil {
+		if err := pending.Cancel(context.WithoutCancel(ctx), sink); err != nil {
 			outcome = runtime.Outcome{}
 			returnErr = &runtime.CancellationError{Err: p.abandon(errors.Join(returnErr, err))}
 			return
@@ -340,10 +340,22 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 				if err := p.driver.savePending(r); err != nil {
 					return runtime.Outcome{}, err
 				}
+				telemetry, observed := sink.(runtime.ToolExecutionSink)
+				if observed {
+					telemetry.ToolExecutionStarted(runtime.ToolCall{ID: r.Approval.CallID, Name: r.Approval.Name, Arguments: r.Approval.Args, MCPServer: r.Server, MCPTool: r.Tool})
+				}
 				r.Result, err = p.driver.config.Tools.Call(ctx, r.Server, r.Tool, r.Approval.Args)
+				var notExecuted *toolNotExecutedError
+				didNotExecute := errors.As(err, &notExecuted)
+				if observed {
+					status := runtime.ToolRan
+					if didNotExecute {
+						status = runtime.ToolDeclined
+					}
+					telemetry.ToolExecutionFinished(runtime.ToolResult{ID: r.Approval.CallID, Name: r.Approval.Name, Result: r.Result, IsError: err != nil || r.Result != nil && r.Result.IsError, Status: status})
+				}
 				if err != nil {
-					var notExecuted *toolNotExecutedError
-					if errors.As(err, &notExecuted) {
+					if didNotExecute {
 						return p.repark(ctx, r, phaseWaiting, err)
 					}
 					return runtime.Outcome{}, fmt.Errorf("execute deferred Codex tool (outcome may be uncertain): %w", err)
@@ -370,6 +382,9 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		tool = &toolContinuation{
 			output: turnToolOutput{Name: r.Tool, Namespace: &namespace, Output: string(data)},
 			result: runtime.ToolResult{ID: r.Approval.CallID, Name: r.Approval.Name, Result: r.Result, IsError: r.Result.IsError},
+		}
+		if !r.Decision.Approved {
+			tool.result.Status = runtime.ToolDeclined
 		}
 	} else {
 		data, err := json.Marshal(struct {
@@ -430,7 +445,7 @@ func (p *deferredTurn) abandon(cause error) error {
 	return errors.Join(runtime.ErrSessionAbandoned, cause)
 }
 
-func (p *deferredTurn) Cancel(_ context.Context) error {
+func (p *deferredTurn) Cancel(_ context.Context, _ runtime.ModelCallSink) error {
 	r, err := p.current()
 	if err != nil {
 		return err

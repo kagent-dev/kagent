@@ -337,9 +337,19 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 			returnErr = p.abandon(returnErr)
 		}
 	}()
+	telemetry, observed := sink.(runtime.ToolExecutionSink)
+	executing := r.Decision == nil || r.Decision.Approved
+	if observed && executing {
+		server, tool := splitMCPName(r.Tool.Name)
+		telemetry.ToolExecutionStarted(runtime.ToolCall{ID: r.Tool.ID, Name: r.Tool.Name, Arguments: r.Tool.Input, MCPServer: server, MCPTool: tool})
+	}
+	sink = deferredResultSink{EventSink: sink, callID: r.Tool.ID, declined: !executing}
 	outcome, err = p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, sink, &r.Tool)
 	var startErr *processStartError
 	if errors.As(err, &startErr) {
+		if observed && executing {
+			telemetry.ToolExecutionFinished(runtime.ToolResult{ID: r.Tool.ID, Status: runtime.ToolDeclined})
+		}
 		b.mu.Lock()
 		defer b.mu.Unlock()
 		current, restoreErr := p.current()
@@ -390,7 +400,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 
 // Cancel resolves the native deferred call with a stop decision before writing
 // the tombstone, so the next task cannot revive the canceled call on --resume.
-func (p *deferredTurn) Cancel(ctx context.Context) (returnErr error) {
+func (p *deferredTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) (returnErr error) {
 	b := p.driver.config.ApprovalBroker
 	b.mu.Lock()
 	r, err := p.current()
@@ -410,7 +420,7 @@ func (p *deferredTurn) Cancel(ctx context.Context) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	outcome, err := p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, discardSink{}, &r.Tool)
+	outcome, err := p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, discardSink{ModelCallSink: sink}, &r.Tool)
 	var startErr *processStartError
 	if errors.As(err, &startErr) {
 		// No cleanup process ran, so even cancellation remains retryable.
@@ -461,7 +471,7 @@ func (p *deferredTurn) abandon(cause error) error {
 	return errors.Join(runtime.ErrSessionAbandoned, cause)
 }
 
-type discardSink struct{}
+type discardSink struct{ runtime.ModelCallSink }
 
 func (discardSink) SessionStarted(runtime.SessionStarted) error { return nil }
 func (discardSink) TextDelta(runtime.TextDelta) error           { return nil }
@@ -471,3 +481,16 @@ func (discardSink) ToolResult(runtime.ToolResult) error         { return nil }
 var _ runtime.EventSink = discardSink{}
 
 var _ runtime.PendingTurn = (*deferredTurn)(nil)
+
+type deferredResultSink struct {
+	runtime.EventSink
+	callID   string
+	declined bool
+}
+
+func (s deferredResultSink) ToolResult(result runtime.ToolResult) error {
+	if result.ID == s.callID && s.declined {
+		result.Status = runtime.ToolDeclined
+	}
+	return s.EventSink.ToolResult(result)
+}
