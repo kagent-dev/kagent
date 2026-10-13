@@ -8,6 +8,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/client-go/rest"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/apiclient"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
@@ -23,13 +24,13 @@ type Runtime struct {
 
 // NewRuntime creates the shared KRT client and collection graph. Handlers are
 // deliberately registered separately at the eventual application boundary.
-func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}, settings translator.CompilerSettings) (*Runtime, error) {
+func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}, settings *apiv1.RuntimeDefaultsConfig, images translator.BuiltinImages) (*Runtime, error) {
 	client, err := apiclient.New(config)
 	if err != nil {
 		return nil, fmt.Errorf("create KRT Kubernetes client: %w", err)
 	}
 	options := krt.NewOptionsBuilder(stop, "kagent", krt.GlobalDebugHandler)
-	collections := NewCollections(client, watchNamespaces, options, settings)
+	collections := NewCollections(client, watchNamespaces, options, settings, images)
 	return &Runtime{Client: client, Options: options, Collections: collections}, nil
 }
 

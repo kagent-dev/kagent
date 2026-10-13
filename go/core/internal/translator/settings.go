@@ -11,38 +11,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
-// CompilerSettings contains only deployment inputs needed by harness compilers.
-// It is resolved once at startup, independently of reconciliation and env.
-type CompilerSettings struct {
-	APIURL     string
-	GatewayURL string
-	LogLevel   string
-	Telemetry  TelemetryConfig
-	Process    *adk.RuntimeConfig
-	Images     BuiltinImages
-}
-
-func NewCompilerSettings(cfg *apiv1.RuntimeDefaultsConfig) (CompilerSettings, error) {
-	if cfg == nil {
-		return CompilerSettings{}, fmt.Errorf("runtime defaults are required")
-	}
-	if err := config.Validate(cfg); err != nil {
-		return CompilerSettings{}, err
-	}
-	telemetry, err := TelemetryConfigFromSettings(cfg.GetTelemetry())
-	if err != nil {
-		return CompilerSettings{}, err
-	}
-	return CompilerSettings{APIURL: cfg.GetControlPlaneUrl(), GatewayURL: cfg.GetGatewayUrl(), LogLevel: cfg.GetLogging().GetLevel(), Telemetry: telemetry, Process: &adk.RuntimeConfig{
-		// Preserve presence: nil selects the runtime default; zero disables the limit.
-		MaxContentLength: cfg.MaxContentLength,
-		FileSearchTools:  cfg.GetFileSearchTools(),
-		BashVenvPath:     cfg.GetBashVenvPath(),
-		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
-		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
-	}}, nil
-}
-
 func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, error) {
 	result := TelemetryConfig{Runtime: config.RuntimeTelemetry(cfg)}
 	if cfg == nil {
@@ -62,14 +30,16 @@ func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, e
 	return result, nil
 }
 
-// RuntimeConfig supplies process settings for root ADK and BYO JSON only.
-func (s CompilerSettings) RuntimeConfig(name, namespace string) *adk.RuntimeConfig {
-	result := proto.CloneOf(s.Process)
-	if result == nil {
-		result = &adk.RuntimeConfig{}
+// RuntimeConfig builds the per-agent ADK or BYO process configuration from the
+// controller's validated runtime defaults, without reading process environment.
+func RuntimeConfig(cfg *apiv1.RuntimeDefaultsConfig, name, namespace string) *adk.RuntimeConfig {
+	return &adk.RuntimeConfig{
+		ControlPlaneUrl: cfg.GetControlPlaneUrl(), GatewayUrl: cfg.GetGatewayUrl(),
+		Name: name, Namespace: namespace, LogLevel: cfg.GetLogging().GetLevel(), Port: new(uint32(80)),
+		// Preserve optional presence: zero disables the runtime's request limit.
+		MaxContentLength: cfg.MaxContentLength,
+		FileSearchTools:  cfg.GetFileSearchTools(), BashVenvPath: cfg.GetBashVenvPath(),
+		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
+		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
 	}
-	result.ControlPlaneUrl, result.GatewayUrl = s.APIURL, s.GatewayURL
-	result.Name, result.Namespace = name, namespace
-	result.LogLevel, result.Port = s.LogLevel, new(uint32(80))
-	return result
 }

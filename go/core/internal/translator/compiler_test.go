@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -208,10 +209,10 @@ func compilerWithImages(t *testing.T, images translator.BuiltinImages, objects .
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testCompilerSettings()),
-		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testCompilerSettings()),
-		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testCompilerSettings()),
-		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testCompilerSettings()),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
 	}, images)
 }
 
@@ -622,7 +623,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
 	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testCompilerSettings()),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testRuntimeDefaults()),
 	}, testBuiltinImages)
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
@@ -996,6 +997,6 @@ func TestResolveModelConfigMistral(t *testing.T) {
 	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
 }
 
-func testCompilerSettings() translator.CompilerSettings {
-	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
+func testRuntimeDefaults() *apiv1.RuntimeDefaultsConfig {
+	return &apiv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &apiv1.LoggingConfig{Level: new("info")}}
 }

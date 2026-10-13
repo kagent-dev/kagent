@@ -67,7 +67,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
@@ -185,11 +184,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	quiescenceInterval := cfg.GetSessions().GetQuiescenceRecoveryInterval().AsDuration()
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
-	compilerSettings, err := translator.NewCompilerSettings(cfg.GetRuntimeDefaults())
-	if err != nil {
-		return err
-	}
-	compilerSettings.Images, err = builtinImages(cfg.GetHarnessImages(), version.Version)
+	images, err := builtinImages(cfg.GetHarnessImages(), version.Version)
 	if err != nil {
 		return err
 	}
@@ -278,7 +273,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), compilerSettings)
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), images)
 	if err != nil {
 		return err
 	}

@@ -564,7 +564,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-	}, collections.AgentRuntimeObservations, opts, testCompilerSettings())
+	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), translator.BuiltinImages{})
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()

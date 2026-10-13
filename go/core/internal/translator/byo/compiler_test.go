@@ -11,11 +11,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestCompileOpaqueImage(t *testing.T) {
@@ -31,7 +30,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 		Description: "custom A2A agent", SystemPrompt: "be helpful",
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults()).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "runnable-agent",
 		Harness:   harness, Root: &translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
@@ -52,8 +51,8 @@ func TestCompileOpaqueImage(t *testing.T) {
 }
 
 func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
-	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{Traces: translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc"}, Runtime: tracing.RuntimeTelemetry{Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}}}}
+	settings := testRuntimeDefaults()
+	settings.Telemetry = &apiv1.TelemetryConfig{Traces: &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
 		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
@@ -82,19 +81,16 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.name=runnable-agent")
 }
 
-func testCompilerSettings() translator.CompilerSettings {
-	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
+func testRuntimeDefaults() *apiv1.RuntimeDefaultsConfig {
+	return &apiv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &apiv1.LoggingConfig{Level: new("info")}}
 }
 
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
-	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{
-		Traces: translator.SignalConfig{Enabled: true},
-		Runtime: tracing.RuntimeTelemetry{Exporters: &telemetry.Config{
-			Traces:  &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-			Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-			Logs:    &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-		}},
+	settings := testRuntimeDefaults()
+	settings.Telemetry = &apiv1.TelemetryConfig{
+		Traces:  &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+		Metrics: &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+		Logs:    &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
 	}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},

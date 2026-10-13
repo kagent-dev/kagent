@@ -24,10 +24,14 @@ func TestControllerConfig(t *testing.T) {
 		{"images JSON string", "harnessImages: '{}'", true},
 		{"duplicate", "logging:\n  level: info\n  level: debug", true},
 		{"unknown", "loging: {}", true},
-		{"null", "logging: null", true},
+		{"duplicate JSON", `{"logging":{"level":"info","level":"debug"}}`, true},
+		{"null list item", "kubernetes: {watchNamespaces: [null]}", true},
+		{"negative capture limit", "runtimeDefaults: {telemetry: {maxCaptureBytes: -1}}", true},
+		{"invalid telemetry endpoint", "runtimeDefaults: {telemetry: {traces: {endpoint: 'file:///private'}}}", true},
+		{"null", "logging: null", false},
 		{"type", "kubernetes: {leaderElection: 'false'}", true},
-		{"alias", "logging: &log {level: info}\nruntimeDefaults: {logging: *log}", true},
-		{"documents", "{}\n---\n{}", true},
+		{"alias", "logging: &log {level: info}\nruntimeDefaults: {logging: *log}", false},
+		{"documents", "{}\n---\n{}", false},
 		{"field aliases", "kubernetes: {leaderElection: true, leader_election: false}", true},
 		{"pool bounds", "database: {pool: {minConns: 9, maxConns: 4}}", true},
 		{"database schemas", "database: {schema: tenant, vectorSchema: public}", false},
@@ -95,7 +99,7 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 	require.Empty(t, cfg.Gateway.Push.SigningPrivateKeyFile)
 }
 
-func TestEmptyIsNotAbsent(t *testing.T) {
+func TestExplicitEmptyStringFailsSchemaValidation(t *testing.T) {
 	cfg := &apiv1.CLIConfig{}
 	require.NoError(t, config.Decode([]byte("connection: {userId: ''}"), cfg))
 	config.DefaultCLI(cfg)
@@ -130,4 +134,61 @@ func TestDatabaseLogins(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultingUsesProtoPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name, input    string
+		leaderElection bool
+		idleTTL        time.Duration
+		limit          *int64
+	}{
+		{name: "omitted", input: "{}", leaderElection: true, idleTTL: 7 * 24 * time.Hour},
+		{name: "null", input: "kubernetes: {leaderElection: null}\nsessions: {idleTtl: null}\nruntimeDefaults: {maxContentLength: null}\ndatabase: {pool: {minConns: null}}", leaderElection: true, idleTTL: 7 * 24 * time.Hour},
+		{name: "explicit zero", input: "kubernetes: {leaderElection: false}\nsessions: {idleTtl: 0s}\nruntimeDefaults: {maxContentLength: 0}\ndatabase: {pool: {minConns: 0}}", limit: new(int64(0))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &apiv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(tc.input), cfg))
+			config.DefaultController(cfg)
+			setLogins(cfg)
+			require.NoError(t, config.Validate(cfg))
+			require.Equal(t, tc.leaderElection, cfg.GetKubernetes().GetLeaderElection())
+			require.Equal(t, tc.idleTTL, cfg.GetSessions().GetIdleTtl().AsDuration())
+			require.Equal(t, tc.limit, cfg.GetRuntimeDefaults().MaxContentLength)
+			require.Zero(t, cfg.GetDatabase().GetPool().GetMinConns())
+			require.Zero(t, cfg.GetSessions().GetShareMaxTtl().AsDuration())
+		})
+	}
+}
+
+func TestYAMLConfigUsesLibraryScalarAndAliasSemantics(t *testing.T) {
+	cfg := &apiv1.ControllerConfig{}
+	require.NoError(t, config.Decode([]byte(`
+logging: &logging
+  level: debug
+runtimeDefaults:
+  logging:
+    <<: *logging
+kubernetes:
+  leaderElection: off
+database:
+  pool: {minConns: 0x10, maxConns: '32'}
+telemetry:
+  resourceAttributes: {123: 'off'}
+`), cfg))
+	config.DefaultController(cfg)
+	setLogins(cfg)
+	require.NoError(t, config.Validate(cfg))
+	require.Equal(t, "debug", cfg.GetRuntimeDefaults().GetLogging().GetLevel())
+	require.False(t, cfg.GetKubernetes().GetLeaderElection())
+	require.Equal(t, int32(16), cfg.GetDatabase().GetPool().GetMinConns())
+	require.Equal(t, int32(32), cfg.GetDatabase().GetPool().GetMaxConns())
+	require.Equal(t, map[string]string{"123": "off"}, cfg.GetTelemetry().GetResourceAttributes())
+}
+
+func TestYAMLConfigReadsOnlyFirstDocument(t *testing.T) {
+	cfg := &apiv1.ControllerConfig{}
+	require.NoError(t, config.Decode([]byte("logging: {level: debug}\n---\n["), cfg))
+	require.Equal(t, "debug", cfg.GetLogging().GetLevel())
 }

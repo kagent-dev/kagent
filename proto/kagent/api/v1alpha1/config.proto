@@ -178,9 +178,9 @@ message PostgresPoolConfig {
   option (buf.validate.message).cel = {
     id: "postgres_pool.bounds"
     message: "min_conns must not exceed max_conns"
-    expression: "!has(this.min_conns) || !has(this.max_conns) || this.min_conns <= this.max_conns"
+    expression: "!has(this.max_conns) || this.min_conns <= this.max_conns"
   };
-  optional int32 min_conns = 1 [(buf.validate.field).int32.gte = 0];
+  int32 min_conns = 1 [(buf.validate.field).int32.gte = 0];
   optional int32 max_conns = 2 [(buf.validate.field).int32.gt = 0];
   google.protobuf.Duration max_conn_idle_time = 3 [(buf.validate.field).duration = {
     gt: {}

@@ -9,12 +9,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
-	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
+	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults()).Compile(context.Background(), &translator.HarnessInput{
 		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 		Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}},
 	})
@@ -60,6 +61,6 @@ func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
 	}
 }
 
-func testCompilerSettings() translator.CompilerSettings {
-	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
+func testRuntimeDefaults() *apiv1.RuntimeDefaultsConfig {
+	return &apiv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &apiv1.LoggingConfig{Level: new("info")}}
 }
