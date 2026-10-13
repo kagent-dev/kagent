@@ -73,6 +73,7 @@ database:
   role: kagent_owner
   schema: kagent
   vectorSchema: extensions
+  skipMigrations: false
 gateway:
   publicUrl: https://kagent.example.com
   push:
@@ -85,6 +86,10 @@ runtimeDefaults:
   logging:
     level: info
 ```
+
+The controller applies database migrations at startup by default. Set
+`database.skipMigrations: true` when migrations are applied out-of-band. Startup
+still verifies that all required migrations are applied and fails if any are missing.
 
 Push JWT signing is optional: `gateway.push.signingPrivateKeyFile` names an
 unencrypted PKCS#8 Ed25519 PEM key when enabled. Helm projects the operator-managed

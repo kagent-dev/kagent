@@ -150,7 +150,9 @@ config:
     schema: kagent
     vectorSchema: extensions
     vectorEnabled: false
-    migrations: apply
+    # Skip applying migrations at controller startup; verify they are already applied.
+    # Apply migrations out-of-band before installing or upgrading when true.
+    skipMigrations: false
   gateway:
     push:
       allowHttp: false

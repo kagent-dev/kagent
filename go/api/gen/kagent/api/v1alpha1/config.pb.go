@@ -746,12 +746,14 @@ type DatabaseConfig struct {
 	UrlFile       string                 `protobuf:"bytes,1,opt,name=url_file,json=urlFile,proto3" json:"url_file,omitempty"`
 	Role          string                 `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
 	VectorEnabled bool                   `protobuf:"varint,3,opt,name=vector_enabled,json=vectorEnabled,proto3" json:"vector_enabled,omitempty"`
-	Migrations    *string                `protobuf:"bytes,4,opt,name=migrations,proto3,oneof" json:"migrations,omitempty"`
-	Pool          *PostgresPoolConfig    `protobuf:"bytes,5,opt,name=pool,proto3" json:"pool,omitempty"`
-	Schema        *string                `protobuf:"bytes,6,opt,name=schema,proto3,oneof" json:"schema,omitempty"`
-	VectorSchema  *string                `protobuf:"bytes,7,opt,name=vector_schema,json=vectorSchema,proto3,oneof" json:"vector_schema,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Skip applying migrations at controller startup. The controller still verifies
+	// that all required migrations are applied and fails to start if any are missing.
+	SkipMigrations bool                `protobuf:"varint,4,opt,name=skip_migrations,json=skipMigrations,proto3" json:"skip_migrations,omitempty"`
+	Pool           *PostgresPoolConfig `protobuf:"bytes,5,opt,name=pool,proto3" json:"pool,omitempty"`
+	Schema         *string             `protobuf:"bytes,6,opt,name=schema,proto3,oneof" json:"schema,omitempty"`
+	VectorSchema   *string             `protobuf:"bytes,7,opt,name=vector_schema,json=vectorSchema,proto3,oneof" json:"vector_schema,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DatabaseConfig) Reset() {
@@ -805,11 +807,11 @@ func (x *DatabaseConfig) GetVectorEnabled() bool {
 	return false
 }
 
-func (x *DatabaseConfig) GetMigrations() string {
-	if x != nil && x.Migrations != nil {
-		return *x.Migrations
+func (x *DatabaseConfig) GetSkipMigrations() bool {
+	if x != nil {
+		return x.SkipMigrations
 	}
-	return ""
+	return false
 }
 
 func (x *DatabaseConfig) GetPool() *PostgresPoolConfig {
@@ -1812,18 +1814,15 @@ const file_kagent_api_v1alpha1_config_proto_rawDesc = "" +
 	"\x14AuthenticationConfig\x127\n" +
 	"\x04mode\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19R\binsecureR\rtrusted-proxyH\x00R\x04mode\x88\x01\x01\x12\"\n" +
 	"\ruser_id_claim\x18\x02 \x01(\tR\vuserIdClaimB\a\n" +
-	"\x05_mode\"\x97\x03\n" +
+	"\x05_mode\"\xf6\x02\n" +
 	"\x0eDatabaseConfig\x12\x19\n" +
 	"\burl_file\x18\x01 \x01(\tR\aurlFile\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12%\n" +
-	"\x0evector_enabled\x18\x03 \x01(\bR\rvectorEnabled\x129\n" +
-	"\n" +
-	"migrations\x18\x04 \x01(\tB\x14\xbaH\x11r\x0fR\x05applyR\x06verifyH\x00R\n" +
-	"migrations\x88\x01\x01\x12;\n" +
+	"\x0evector_enabled\x18\x03 \x01(\bR\rvectorEnabled\x12'\n" +
+	"\x0fskip_migrations\x18\x04 \x01(\bR\x0eskipMigrations\x12;\n" +
 	"\x04pool\x18\x05 \x01(\v2'.kagent.api.v1alpha1.PostgresPoolConfigR\x04pool\x12>\n" +
-	"\x06schema\x18\x06 \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x01R\x06schema\x88\x01\x01\x12K\n" +
-	"\rvector_schema\x18\a \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x02R\fvectorSchema\x88\x01\x01B\r\n" +
-	"\v_migrationsB\t\n" +
+	"\x06schema\x18\x06 \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x00R\x06schema\x88\x01\x01\x12K\n" +
+	"\rvector_schema\x18\a \x01(\tB!\xbaH\x1er\x1c\x18?2\x18^[a-zA-Z_][a-zA-Z0-9_]*$H\x01R\fvectorSchema\x88\x01\x01B\t\n" +
 	"\a_schemaB\x10\n" +
 	"\x0e_vector_schema\"\xd0\x03\n" +
 	"\x12PostgresPoolConfig\x12)\n" +

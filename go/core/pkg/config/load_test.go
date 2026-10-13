@@ -24,6 +24,7 @@ func TestControllerConfig(t *testing.T) {
 		{"field aliases", "kubernetes: {leaderElection: true, leader_election: false}", true},
 		{"pool bounds", "database: {pool: {minConns: 9, maxConns: 4}}", true},
 		{"database schemas", "database: {schema: tenant, vectorSchema: public}", false},
+		{"invalid skip migrations type", "database: {skipMigrations: 'true'}", true},
 		{"empty database schema", "database: {schema: ''}", true},
 		{"invalid database schema", "database: {schema: 'tenant,public'}", true},
 		{"invalid vector schema", "database: {vectorSchema: 'extension;DROP'}", true},
@@ -48,6 +49,26 @@ func TestControllerConfig(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestDatabaseSkipMigrations(t *testing.T) {
+	for _, tc := range []struct {
+		name, input string
+		want        bool
+	}{
+		{"default", "{}", false},
+		{"apply", "database: {skipMigrations: false}", false},
+		{"verify", "database: {skipMigrations: true}", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &apiv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(tc.input), cfg))
+			config.DefaultController(cfg)
+			cfg.Database.UrlFile = "database-url"
+			require.NoError(t, config.Validate(cfg))
+			require.Equal(t, tc.want, cfg.GetDatabase().GetSkipMigrations())
 		})
 	}
 }

@@ -210,7 +210,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err != nil {
 		return err
 	}
-	if cfg.GetDatabase().GetMigrations() == "verify" {
+	if cfg.GetDatabase().GetSkipMigrations() {
 		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}

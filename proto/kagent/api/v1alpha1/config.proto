@@ -135,12 +135,9 @@ message DatabaseConfig {
   string url_file = 1;
   string role = 2;
   bool vector_enabled = 3;
-  optional string migrations = 4 [(buf.validate.field).string = {
-    in: [
-      "apply",
-      "verify"
-    ]
-  }];
+  // Skip applying migrations at controller startup. The controller still verifies
+  // that all required migrations are applied and fails to start if any are missing.
+  bool skip_migrations = 4;
   PostgresPoolConfig pool = 5;
   optional string schema = 6 [(buf.validate.field).string = {
     pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
