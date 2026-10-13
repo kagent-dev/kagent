@@ -58,23 +58,25 @@ func TestSessionPausedRuntimeSuspendsAfterTTL(t *testing.T) {
 	require.Contains(t, taskText(completed), "Using PostgreSQL")
 }
 
-// A paused Actor whose worker goes away cannot be resumed or suspended. The
-// next send marks the session FAILED with the reason RuntimeLost and answers
-// with that message instead of waiting out Substrate's parking budget again.
-func TestSessionRuntimeLostFailsTheSession(t *testing.T) {
+// A turn parked on input-required pauses its Actor, and a paused Actor holds
+// no worker: losing the worker it ran on loses nothing. The reply resumes the
+// Actor on its pool's replacement worker and the turn completes. A runtime that
+// is really gone — Substrate answers DataLoss on the resume — fails the session
+// with the reason RuntimeLost (the workflow's unit tests).
+func TestSessionSurvivesItsWorkersLoss(t *testing.T) {
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
 
 	pool := createIsolatedWorkerPool(t, kube)
-	harness := cloneHarness(t, kube, "kagent", "runtime-lost-", func(harness *v1alpha3.Harness) {
+	harness := cloneHarness(t, kube, "kagent", "worker-loss-", func(harness *v1alpha3.Harness) {
 		harness.Spec.Substrate.WorkerPoolRef.Name = pool
 	})
 	model := goADKHarness.createModel(t, kube, startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"), nil)
 	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{GenerateName: "runtime-lost-", Namespace: "kagent", Labels: goADKHarness.labels()},
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "worker-loss-", Namespace: "kagent", Labels: goADKHarness.labels()},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: model.Name},
-			Description: "Runtime loss E2E fixture", SystemPrompt: "Reply briefly.",
+			Description: "Worker loss E2E fixture", SystemPrompt: "Reply briefly.",
 		},
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
@@ -83,47 +85,74 @@ func TestSessionRuntimeLostFailsTheSession(t *testing.T) {
 
 	_, _, waiting := fixture.send(t, "Which database should we use for storage?")
 	require.Equal(t, a2atype.TaskStateInputRequired, waiting.Status.State)
-	// The premise: the Actor is paused, not running, when its worker goes away.
+	request := adka2a.GetAskUserRequest(waiting.Status.Message)
+	require.NotNil(t, request, "INPUT_REQUIRED task has no ask_user request")
 	waitForActorState(t, fixture, ateapipb.ActorState_ACTOR_STATE_PAUSED, 2*time.Minute)
 
 	actor, err := findSubstrateActor(fixture.ctx, fixture.system, "", substrate.ActorName(fixture.sessionID))
 	require.NoError(t, err)
 	require.NotNil(t, actor, "the paused session has no Actor")
-	assignment := actor.GetStatus().GetWorkerAssignment()
-	require.NotEmpty(t, assignment.GetWorkerPod(), "the paused Actor has no worker pod")
-	require.Equal(t, pool, assignment.GetWorkerPool(), "the Actor runs outside its isolated pool")
-	worker := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: assignment.GetWorkerNamespace(), Name: assignment.GetWorkerPod()}}
-	require.NoError(t, kube.Delete(fixture.ctx, worker, ctrlclient.GracePeriodSeconds(0)))
+	require.Empty(t, actor.GetStatus().GetWorkerAssignment().GetWorkerPod(), "the paused Actor still holds a worker")
 
-	// The first send after the loss asks the workflow whether the runtime is
-	// lost; Substrate needs a moment to notice the worker is gone. A send the
-	// dying sandbox still takes is answered with the loss once its stream
-	// breaks; should the gateway not know the runtime lost yet, the send's own
-	// deadline ends it, so one send cannot use up the window.
-	var lostErr error
-	err = wait.PollUntilContextTimeout(fixture.ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
-		sendCtx, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
-		message, request := newMessageRequest(t, "Are you still there?")
-		message.ContextID, request.Message.ContextId, request.Tenant = fixture.sessionID, fixture.sessionID, fixture.tenant
-		response, sendErr := fixture.client.SendMessage(sendCtx, request)
-		if lostErr = sendErr; sendErr == nil {
-			t.Logf("a send after the worker's loss was answered: %v", response)
-		}
-		return lostErr != nil && strings.Contains(lostErr.Error(), "runtime lost"), nil
+	replaced := deletePoolWorkers(t, kube, pool)
+	waitForPoolWorker(t, kube, pool, replaced)
+
+	reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL")), &apia2a.AskUserResponse{
+		Type: adka2a.HITLTypeAskUserResponse, ID: request.ID,
+		Answers: []apia2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 	})
-	require.NoErrorf(t, err, "a send after the worker's loss must report the runtime lost; the last send answered: %v", lostErr)
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
+	require.NoError(t, err, "resume after the worker's loss")
+	completed, ok := response.(*a2atype.Task)
+	require.True(t, ok, "resumed response = %T", response)
+	require.Equal(t, a2atype.TaskStateCompleted, completed.Status.State, taskText(completed))
+	require.Contains(t, taskText(completed), "Using PostgreSQL")
 
 	session, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, session.GetSession().GetState())
-	require.Equal(t, apia2a.FailureReasonRuntimeLost, session.GetSession().GetFailure().GetReason())
-	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, session.GetSession().GetOperation(), "the failure leaves no lifecycle operation pending")
+	require.NotEqual(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED, session.GetSession().GetState(), "the worker's loss failed the session")
+}
 
-	// The transcript stays readable and the session deletable; the fixture's
-	// cleanup deletes it.
-	_, err = fixture.sessions.ResumeSession(fixture.ctx, &apiv1alpha1.ResumeSessionRequest{SessionId: fixture.sessionID})
-	require.Error(t, err, "a lost runtime cannot be resumed")
+// deletePoolWorkers deletes the worker pods of the isolated pool and returns
+// their names.
+func deletePoolWorkers(t *testing.T, kube ctrlclient.Client, pool string) map[string]bool {
+	t.Helper()
+	pods := &corev1.PodList{}
+	require.NoError(t, kube.List(t.Context(), pods, ctrlclient.InNamespace("kagent")))
+	deleted := map[string]bool{}
+	for _, pod := range pods.Items {
+		if !strings.HasPrefix(pod.Name, pool+"-") {
+			continue
+		}
+		require.NoError(t, kube.Delete(t.Context(), &pod, ctrlclient.GracePeriodSeconds(0)))
+		deleted[pod.Name] = true
+	}
+	require.NotEmpty(t, deleted, "the isolated WorkerPool %s has no worker to lose", pool)
+	return deleted
+}
+
+// waitForPoolWorker waits for a ready worker of the pool other than the gone ones.
+func waitForPoolWorker(t *testing.T, kube ctrlclient.Client, pool string, gone map[string]bool) {
+	t.Helper()
+	err := wait.PollUntilContextTimeout(t.Context(), 2*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		pods := &corev1.PodList{}
+		if err := kube.List(ctx, pods, ctrlclient.InNamespace("kagent")); err != nil {
+			return false, err
+		}
+		for _, pod := range pods.Items {
+			if !strings.HasPrefix(pod.Name, pool+"-") || gone[pod.Name] || pod.DeletionTimestamp != nil {
+				continue
+			}
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	})
+	require.NoError(t, err, "the WorkerPool %s did not replace its worker", pool)
 }
 
 // waitForActorState polls the session's Substrate Actor until it reaches the
