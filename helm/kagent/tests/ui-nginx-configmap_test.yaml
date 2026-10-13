@@ -21,7 +21,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'location = /\.well-known/jwks\.json \{\s+proxy_pass http://kagent_backend/\.well-known/jwks\.json;'
+          pattern: 'location = /\.well-known/jwks\.json \{\s+proxy_pass http://\$kagent_backend;'
 
   - it: strips internal agent identity headers in trusted proxy mode even if opted in
     set:
@@ -99,6 +99,9 @@ tests:
       - notMatchRegex:
           path: data["nginx.conf"]
           pattern: 'upstream kagent_backend'
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_pass http://kagent_backend'
 
   - it: should resolve the controller per request without IPv6
     template: ui-nginx-configmap.yaml
