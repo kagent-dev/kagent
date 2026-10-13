@@ -1,0 +1,111 @@
+{
+  "anthropic": [
+    {
+      "name": "claude_approval_start",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": "Add 3 and 5 using the configured MCP server."}]
+        },
+        "tool_names": ["MCP_TOOL_NAME"]
+      },
+      "response": {
+        "id": "msg_claude_approval_add",
+        "type": "message",
+        "role": "assistant",
+        "content": [{
+          "type": "tool_use",
+          "id": "toolu_claude_approval_add",
+          "name": "MCP_TOOL_NAME",
+          "input": {"a": 3, "b": 5}
+        }],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 12, "output_tokens": 5}
+      }
+    },
+    {
+      "name": "claude_approval_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "tool_result", "tool_use_id": "toolu_claude_approval_add"}]
+        }
+      },
+      "response": {
+        "id": "msg_claude_approval_done",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "CLAUDE_APPROVAL_DONE result is 8"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 16, "output_tokens": 6}
+      }
+    },
+    {
+      "name": "claude_workspace_start",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": "- SKILL_NAME: SKILL_DESCRIPTION"}]
+        },
+        "tool_names": ["Bash"]
+      },
+      "response": {
+        "id": "msg_claude_workspace_write",
+        "type": "message",
+        "role": "assistant",
+        "content": [{
+          "type": "tool_use",
+          "id": "toolu_claude_workspace_write",
+          "name": "Bash",
+          "input": {"command": "WORKSPACE_COMMAND"}
+        }],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 12, "output_tokens": 5}
+      }
+    },
+    {
+      "name": "claude_workspace_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "tool_result", "tool_use_id": "toolu_claude_workspace_write"}]
+        }
+      },
+      "response": {
+        "id": "msg_claude_workspace_done",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "CLAUDE_WORKSPACE_READY"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 16, "output_tokens": 6}
+      }
+    },
+    {
+      "name": "claude_approval_auxiliary",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [{"type": "text", "text": ""}]
+        }
+      },
+      "response": {
+        "id": "msg_claude_approval_auxiliary",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "OK"}],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 2, "output_tokens": 1}
+      }
+    }
+  ]
+}
