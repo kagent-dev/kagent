@@ -1,8 +1,10 @@
 package agentplugins
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // commitFiles creates a git repository holding files and returns its path and HEAD commit.
@@ -337,5 +340,129 @@ func TestPathWithinCanonicalizesRootAliases(t *testing.T) {
 
 	if !pathWithin(alias, child) {
 		t.Fatalf("pathWithin(%q, %q) rejected a path under the aliased root", alias, child)
+	}
+}
+
+// restartPaths gives a start of the same agent: a fresh root filesystem for
+// packages and skills, the durable directory it shares with earlier starts.
+func restartPaths(t *testing.T, durable string) Paths {
+	t.Helper()
+	root := t.TempDir()
+	return Paths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills"), Durable: durable}
+}
+
+func capturingContext() (context.Context, *bytes.Buffer) {
+	var logs bytes.Buffer
+	return logging.IntoContext(context.Background(), slog.New(slog.NewTextHandler(&logs, nil))), &logs
+}
+
+// TestMaterializeUsesTheDurableCopyWhenTheSourceCannotBeFetched guards a
+// restored agent: its first start fetched the skill, the restart cannot reach
+// the source, and the copy on the durable volume keeps the agent starting,
+// logged with the source it stands in for.
+func TestMaterializeUsesTheDurableCopyWhenTheSourceCannotBeFetched(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{"SKILL.md": "# Self-awareness"})
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{
+		Name: "self-awareness", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}},
+	}}}
+	durable := t.TempDir()
+	if _, err := Materialize(context.Background(), resources, restartPaths(t, durable)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(repository, repository+".unreachable"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, logs := capturingContext()
+	paths := restartPaths(t, durable)
+	if _, err := Materialize(ctx, resources, paths); err != nil {
+		t.Fatalf("Materialize() failed although a durable copy exists: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "self-awareness", "SKILL.md")); err != nil || string(content) != "# Self-awareness" {
+		t.Fatalf("restored skill = %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.Skills, "self-awareness", ".git")); !os.IsNotExist(err) {
+		t.Fatalf("restored skill carries the source's .git: %v", err)
+	}
+	if !strings.Contains(logs.String(), "using the copy an earlier start materialized") || !strings.Contains(logs.String(), commit) {
+		t.Fatalf("fallback not logged with its source: %s", logs.String())
+	}
+}
+
+// TestMaterializeFailsWithoutADurableCopy guards the first start of an agent:
+// no earlier start left a copy, so a source that cannot be fetched fails it.
+func TestMaterializeFailsWithoutADurableCopy(t *testing.T) {
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{
+		Name: "self-awareness", Source: agentplugin.Source{Git: &agentplugin.GitSource{
+			URL: filepath.Join(t.TempDir(), "missing"), Commit: strings.Repeat("a", 40),
+		}},
+	}}}
+	if _, err := Materialize(context.Background(), resources, restartPaths(t, t.TempDir())); err == nil {
+		t.Fatal("Materialize() succeeded without a source or a durable copy")
+	}
+}
+
+// TestMaterializeUsesTheDurableCopyOfAPlugin covers plugins, whose MCP
+// configuration is read from the copy.
+func TestMaterializeUsesTheDurableCopyOfAPlugin(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{
+		"plugin.json":            `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"mcp.json":               `{"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json","mcpServers":{"local":{"type":"stdio","command":"server"}}}`,
+		"skills/review/SKILL.md": "# Review",
+	})
+	resources := agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}}, Skills: []string{"review"},
+	}}}
+	durable := t.TempDir()
+	if _, err := Materialize(context.Background(), resources, restartPaths(t, durable)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(repository, repository+".unreachable"); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := restartPaths(t, durable)
+	materialization, err := Materialize(context.Background(), resources, paths)
+	if err != nil {
+		t.Fatalf("Materialize() failed although a durable copy exists: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(paths.Skills, "review", "SKILL.md")); err != nil || string(content) != "# Review" {
+		t.Fatalf("restored plugin skill = %q, %v", content, err)
+	}
+	mcp, err := LoadMCP(context.Background(), materialization, t.TempDir())
+	if err != nil || len(mcp.Stdio) != 1 || mcp.Stdio[0].Command != "server" {
+		t.Fatalf("restored plugin MCP = %#v, %v", mcp, err)
+	}
+}
+
+// TestMaterializeDoesNotFallBackToAnotherVersion guards the version pin: a
+// start that pins a new commit it cannot fetch fails, rather than running the
+// copy of the commit it replaced, and a start that materializes every source
+// removes the copies it no longer names.
+func TestMaterializeDoesNotFallBackToAnotherVersion(t *testing.T) {
+	repository, commit := commitFiles(t, map[string]string{"SKILL.md": "# v1"})
+	skill := func(commit string) agentplugin.Resources {
+		return agentplugin.Resources{Skills: []agentplugin.Skill{{
+			Name: "self-awareness", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: repository, Commit: commit}},
+		}}}
+	}
+	durable := t.TempDir()
+	if _, err := Materialize(context.Background(), skill(commit), restartPaths(t, durable)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Materialize(context.Background(), skill(strings.Repeat("b", 40)), restartPaths(t, durable)); err == nil {
+		t.Fatal("Materialize() fell back to the copy of another commit")
+	}
+
+	newer, newerCommit := commitFiles(t, map[string]string{"SKILL.md": "# v2"})
+	resources := agentplugin.Resources{Skills: []agentplugin.Skill{{
+		Name: "self-awareness", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: newer, Commit: newerCommit}},
+	}}}
+	if _, err := Materialize(context.Background(), resources, restartPaths(t, durable)); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(durable, durableSourcesDir))
+	if err != nil || len(entries) != 1 || entries[0].Name() != durableKey(resources.Skills[0].Source) {
+		t.Fatalf("durable copies after the newer start = %v, %v", entries, err)
 	}
 }

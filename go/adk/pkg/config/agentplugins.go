@@ -10,11 +10,14 @@ import (
 )
 
 // AgentPluginPaths contains the ADK runtime destinations for Agent Plugin
-// packages, selected skills, and mutable MCP server data.
+// packages, selected skills, and mutable MCP server data. Durable, when set,
+// keeps a copy of every fetched artifact that a later start falls back to
+// when its source cannot be fetched (agentplugins.Paths).
 type AgentPluginPaths struct {
 	Packages string
 	Skills   string
 	Data     string
+	Durable  string
 }
 
 // MaterializeAgentPlugins materializes plugins independently for each agent
@@ -24,6 +27,7 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, 
 		materialization, err := agentplugins.Materialize(ctx, *agentConfig.AgentPlugins, agentplugins.Paths{
 			Packages: paths.Packages,
 			Skills:   paths.Skills,
+			Durable:  paths.Durable,
 		})
 		if err != nil {
 			return fmt.Errorf("materialize agent plugins: %w", err)
@@ -44,11 +48,19 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, 
 			Packages: filepath.Join(paths.Packages, childRoot),
 			Skills:   filepath.Join(paths.Skills, childRoot),
 			Data:     filepath.Join(paths.Data, childRoot),
+			Durable:  joinIfSet(paths.Durable, childRoot),
 		}); err != nil {
 			return fmt.Errorf("materialize sub-agent %q: %w", child.Name, err)
 		}
 	}
 	return nil
+}
+
+func joinIfSet(root, child string) string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, child)
 }
 
 func addMCPConfig(agentConfig *adk.AgentConfig, mcpConfig agentplugins.MCPConfig) {

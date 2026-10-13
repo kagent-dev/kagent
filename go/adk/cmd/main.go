@@ -29,6 +29,9 @@ const (
 	defaultPluginPackagesRoot = "/plugins"
 	defaultSkillsRoot         = "/skills"
 	defaultPluginDataRoot     = "/data/plugins"
+	// defaultPluginDurableRoot is on the durable /data of a Substrate actor,
+	// which outlives the actor's root filesystem.
+	defaultPluginDurableRoot = "/data/agent-plugins"
 )
 
 func main() {
@@ -74,6 +77,7 @@ func run(logger *slog.Logger, host, port, configDir string) error {
 			Packages: defaultPluginPackagesRoot,
 			Skills:   defaultSkillsRoot,
 			Data:     defaultPluginDataRoot,
+			Durable:  defaultPluginDurableRoot,
 		},
 	); err != nil {
 		return fmt.Errorf("materialize Agent Plugins: %w", err)

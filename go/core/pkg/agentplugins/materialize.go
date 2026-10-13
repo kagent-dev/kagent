@@ -2,6 +2,8 @@ package agentplugins
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -27,10 +29,14 @@ const (
 
 var pluginNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
 
-// Paths contains the package cache and selected-skill destinations.
+// Paths contains the package cache and selected-skill destinations. Durable,
+// when set, is a directory that outlives the process's root filesystem: every
+// fetched skill or plugin keeps a copy there, and a later start whose source
+// cannot be fetched uses that copy instead of failing.
 type Paths struct {
 	Packages string
 	Skills   string
+	Durable  string
 }
 
 // Materialization is the runtime-neutral result of materializing Agent Plugin
@@ -108,6 +114,39 @@ func LoadMCP(ctx context.Context, materialization Materialization, dataRoot stri
 }
 
 func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
+	plugins, err := materializeSources(ctx, resources, paths)
+	if err == nil && paths.Durable != "" {
+		pruneDurableCopies(ctx, paths.Durable, resources)
+	}
+	return plugins, err
+}
+
+// pruneDurableCopies removes the copies of sources the resources no longer
+// name, once a start has materialized all of them.
+func pruneDurableCopies(ctx context.Context, durable string, resources agentplugin.Resources) {
+	keep := make(map[string]struct{})
+	for _, skill := range resources.Skills {
+		keep[durableKey(skill.Source)] = struct{}{}
+	}
+	for _, plugin := range resources.Plugins {
+		keep[durableKey(plugin.Source)] = struct{}{}
+	}
+	sources := filepath.Join(durable, durableSourcesDir)
+	entries, err := os.ReadDir(sources)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if _, used := keep[entry.Name()]; used {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(sources, entry.Name())); err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "unable to remove an unused durable copy of an agent plugin artifact", "error", err, "copy", entry.Name())
+		}
+	}
+}
+
+func materializeSources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
 	selectedSkills := make([]string, 0, len(resources.Skills))
 	for _, skill := range resources.Skills {
 		selectedSkills = append(selectedSkills, skill.Name)
@@ -128,7 +167,7 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 
 	for i, skill := range resources.Skills {
 		root := filepath.Join(paths.Packages, fmt.Sprintf("standalone-%d", i))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
+		sourceRoot, err := fetchOrDurableCopy(ctx, skill.Source, root, paths.Durable, "SKILL.md")
 		if err != nil {
 			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
 		}
@@ -141,7 +180,7 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 	plugins := make([]materializedPlugin, 0, len(resources.Plugins))
 	for i, plugin := range resources.Plugins {
 		root := filepath.Join(paths.Packages, fmt.Sprintf("plugin-%d", i))
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json", claudeManifest)
+		pluginRoot, err := fetchOrDurableCopy(ctx, plugin.Source, root, paths.Durable, "plugin.json", claudeManifest)
 		if err != nil {
 			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
@@ -188,6 +227,92 @@ func validateSkillName(name string) error {
 }
 
 const claudeManifest = ".claude-plugin/plugin.json"
+
+// durableSourcesDir holds the copies under Paths.Durable, one directory per
+// source, so pruning never reaches anything else a caller keeps there.
+const durableSourcesDir = "sources"
+
+// durableSourceFile records, beside a durable copy, the source it was
+// materialized from.
+const durableSourceFile = "source.json"
+
+// fetchOrDurableCopy fetches source like fetchSource and keeps a copy of the
+// result under durable. When the fetch fails and an earlier start left a copy
+// of the same source location there, the copy is used and the failure is
+// logged: a restored agent keeps its conversation with a possibly stale skill
+// rather than crashing on a source that is unreachable for a moment. Without
+// a copy of that exact source, as on the first start of an agent or the first
+// start of a new version, the start fails with the fetch error.
+func fetchOrDurableCopy(ctx context.Context, source agentplugin.Source, destination, durable string, requiredFiles ...string) (string, error) {
+	logger := logging.FromContext(ctx)
+	root, fetchErr := fetchSource(ctx, source, destination, requiredFiles...)
+	if durable == "" {
+		return root, fetchErr
+	}
+	copyRoot := filepath.Join(durable, durableSourcesDir, durableKey(source))
+	if fetchErr == nil {
+		if err := replaceDurableCopy(root, copyRoot, source); err != nil {
+			logger.WarnContext(ctx, "unable to keep a durable copy of an agent plugin artifact", "error", err, "copy", copyRoot)
+		}
+		return root, nil
+	}
+	tree := filepath.Join(copyRoot, "tree")
+	if !hasRequiredFile(tree, requiredFiles) {
+		return "", fetchErr
+	}
+	logger.WarnContext(ctx, "agent plugin artifact could not be fetched; using the copy an earlier start materialized",
+		"error", fetchErr, "source", sourceDescription(source), "copy", tree)
+	return canonicalPath(tree), nil
+}
+
+// durableKey names a source's copy by the exact source, version included: a
+// start falls back only to a copy of the artifact it pins, never to an older
+// version a newer pin replaced.
+func durableKey(source agentplugin.Source) string {
+	sum := sha256.Sum256([]byte(sourceDescription(source)))
+	return hex.EncodeToString(sum[:16])
+}
+
+func sourceDescription(source agentplugin.Source) string {
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func hasRequiredFile(root string, requiredFiles []string) bool {
+	for _, requiredFile := range requiredFiles {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
+}
+
+// replaceDurableCopy replaces the copy under copyRoot with root, and records
+// the source it came from; an interrupted replacement leaves the previous
+// copy in place.
+func replaceDurableCopy(root, copyRoot string, source agentplugin.Source) error {
+	if err := os.MkdirAll(filepath.Dir(copyRoot), 0o755); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(copyRoot), filepath.Base(copyRoot)+".staging-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	if err := copyTree(root, filepath.Join(staging, "tree")); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(staging, durableSourceFile), []byte(sourceDescription(source)+"\n"), 0o644); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(copyRoot); err != nil {
+		return err
+	}
+	return os.Rename(staging, copyRoot)
+}
 
 func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
 	selected := 0
@@ -339,6 +464,12 @@ func copySkill(source, destination string) error {
 	if err := os.RemoveAll(destination); err != nil {
 		return err
 	}
+	return copyTree(source, destination)
+}
+
+// copyTree copies source to destination, keeping relative symlinks that stay
+// within source and refusing any other.
+func copyTree(source, destination string) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -358,18 +489,21 @@ func copySkill(source, destination string) error {
 				return err
 			}
 			if filepath.IsAbs(link) {
-				return fmt.Errorf("skill symlink %q must be relative", path)
+				return fmt.Errorf("symlink %q must be relative", path)
 			}
 			resolved, err := filepath.EvalSymlinks(path)
 			if err != nil {
 				return err
 			}
 			if !pathWithin(source, resolved) {
-				return fmt.Errorf("skill symlink %q escapes skill root", path)
+				return fmt.Errorf("symlink %q escapes its root", path)
 			}
 			return os.Symlink(link, target)
 		}
 		if entry.IsDir() {
+			if entry.Name() == ".git" && path != source {
+				return filepath.SkipDir
+			}
 			return os.MkdirAll(target, info.Mode().Perm())
 		}
 		data, err := os.ReadFile(path)
