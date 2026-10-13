@@ -71,9 +71,9 @@ func TestRootCommandsOwnIndependentFlagState(t *testing.T) {
 	assert.Equal(t, "kagent", second.PersistentFlags().Lookup("namespace").Value.String())
 }
 
-func TestRootCommandDoesNotValidateClientFlagsForIndependentCommand(t *testing.T) {
+func TestRootCommandVersionWorksWithoutConfig(t *testing.T) {
 	rootCmd := cli.Root()
-	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "env"})
+	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "version"})
 	rootCmd.SetOut(&bytes.Buffer{})
 
 	require.NoError(t, rootCmd.ExecuteContext(t.Context()))
@@ -202,7 +202,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 			err := rootCmd.ExecuteContext(t.Context())
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `unsupported output format "bogus"`)
+			assert.Contains(t, err.Error(), "output.format")
 		})
 	}
 }

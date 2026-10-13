@@ -220,7 +220,7 @@ named `<fullname>-api` (`kagent-api` for the standard release) in the controller
 namespace, pointing to the controller's `/mcp` endpoint. AgentTemplate MCP
 references are same-namespace; another namespace needs its own registration.
 Bind the required sandbox tools in the AgentTemplate's `spec.tools` (or an
-Agent's inline `spec.template.tools`):
+Agent's inline `spec.template.inline.tools`):
 
 ```yaml
 tools:
@@ -244,10 +244,12 @@ tools:
 
 Add `suspend_sandbox` and `resume_sandbox` when the agent needs that workflow.
 Sandbox ownership follows the identity authenticated by the MCP connection.
-For the Go kagent runtime, set `KAGENT_PROPAGATE_TOKEN=true` in the Harness's
-`spec.env` when its trusted MCP servers should receive the invoking caller's
-credentials. This opts configured servers into credential propagation; it is
-not a sandbox-specific permission. Do not assume this Go runtime setting applies
+For managed kagent runtimes, set `runtimeDefaults.tokenPropagation.enabled: true`
+in the controller config (Helm: `config.runtimeDefaults.tokenPropagation.enabled`)
+when their trusted MCP servers should receive the invoking caller's credentials.
+Standalone runtimes use `runtime.token_propagation.enabled: true` in their JSON
+config. This opts configured servers into credential propagation; it is
+not a sandbox-specific permission. Do not assume this kagent runtime setting applies
 to Codex or Claude. Session share tokens grant no sandbox access.
 
 Creating or changing a SandboxTemplate is a separate setup operation. It requires

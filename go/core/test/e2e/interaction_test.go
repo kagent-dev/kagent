@@ -679,9 +679,6 @@ func interactionTarget(t *testing.T) string {
 	t.Helper()
 	rawURL := kagentenv.E2EAPIURL.Get()
 	if rawURL == "" {
-		rawURL = kagentenv.KagentAPIURL.Get()
-	}
-	if rawURL == "" {
 		t.Skip("KAGENT_E2E_API_URL is not set")
 	}
 	parsed, err := url.Parse(rawURL)
@@ -817,19 +814,27 @@ func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, 
 // transport error may hide accepted work and must not cause another execution.
 func sendMessageWithRetry(ctx context.Context, client a2apb.A2AServiceClient, request *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
 	var response *a2apb.SendMessageResponse
-	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+	// Bound retries without shortening an accepted request's deadline.
+	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 30*time.Second, true, func(context.Context) (bool, error) {
 		var err error
 		response, err = client.SendMessage(ctx, request)
-		if status.Code(err) == codes.FailedPrecondition {
-			for _, detail := range status.Convert(err).Details() {
-				if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == a2atype.ProtocolDomain && info.Metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
-					return false, nil
-				}
-			}
+		if sendNotAccepted(err) {
+			return false, nil
 		}
 		return err == nil, err
 	})
 	return response, err
+}
+
+func sendNotAccepted(err error) bool {
+	if status.Code(err) == codes.FailedPrecondition {
+		for _, detail := range status.Convert(err).Details() {
+			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == a2atype.ProtocolDomain && info.Metadata["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newMessageRequest(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest) {
@@ -1250,8 +1255,8 @@ func createAndWaitInteractionTemplateForHarness(t *testing.T, kube ctrlclient.Cl
 	agent := &v1alpha3.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: template.Name, Namespace: template.Namespace},
 		Spec: v1alpha3.AgentSpec{
-			TemplateRef: &corev1.LocalObjectReference{Name: template.Name},
-			HarnessRef:  &corev1.LocalObjectReference{Name: harnessName},
+			Template:   v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
+			HarnessRef: corev1.LocalObjectReference{Name: harnessName},
 		},
 	}
 	if err := kube.Create(t.Context(), agent); err != nil {

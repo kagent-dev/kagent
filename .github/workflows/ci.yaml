@@ -58,9 +58,9 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.5.0-alpha2
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
-      # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
+      # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
       - name: Checkout repository
@@ -114,30 +114,6 @@ jobs:
         id: install-kagent
         env:
           OPENAI_API_KEY: fake
-          KAGENT_HELM_EXTRA_ARGS: >-
-            --set registry=localhost:5001
-            --set tag=${{ env.VERSION }}
-            --set imagePullPolicy=Always
-            --set controller.image.pullPolicy=Always
-            --set controller.service.type=LoadBalancer
-            --set ui.replicas=0
-            --set kmcp.enabled=false
-            --set kagent-tools.enabled=false
-            --set grafana-mcp.enabled=false
-            --set controller.push.allowHTTP=true
-            --set controller.push.allowPrivateNetworks=true
-            --set substrateWorkerPool.create=true
-            --set substrateWorkerPool.replicas=4
-            --set substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
-            --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
-            --set otel.traces.enabled=true
-            --set otel.metrics.enabled=true
-            --set otel.exporter.otlp.endpoint=http://e2e-otlp.kagent.svc.cluster.local:14317
-          KAGENT_SUBSTRATE_HELM_EXTRA_ARGS: >-
-            --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000
-            --set ateApi.extraArgs[0]=--template-resync-interval=250ms
-            --set credentialProvider.namespacePolicies[0].atespace=kagent
-            --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -154,9 +130,81 @@ jobs:
           # from the controller pod. Substrate rewrites registry pulls on workers.
           GUEST_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/sandbox-guest:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$GUEST_DIGEST"
-          export KAGENT_HELM_EXTRA_ARGS="${KAGENT_HELM_EXTRA_ARGS} --set controller.sandbox.guestImage.digest=${GUEST_DIGEST}"
           make build-cli-local helm-version
-          KAGENT_HELM_REPO=./helm/ KAGENT_HELM_VERSION="${VERSION}" ./go/core/bin/kagent-local install --namespace kagent
+          cat > "$RUNNER_TEMP/kagent-values.yaml" <<EOF
+          registry: localhost:5001
+          tag: "${VERSION}"
+          imagePullPolicy: Always
+          controller:
+            image:
+              pullPolicy: Always
+            service:
+              type: LoadBalancer
+            # Check startup promptly across restart tests, keeping a 60s budget.
+            startupProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
+              failureThreshold: 60
+            readinessProbe:
+              httpGet:
+                path: /health
+                port: http
+              periodSeconds: 1
+          config:
+            gateway:
+              push:
+                allowHttp: true
+                allowPrivateNetworks: true
+            sandboxes:
+              guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
+            telemetry:
+              traces:
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+              metrics:
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+            runtimeDefaults:
+              tokenPropagation:
+                enabled: true
+              telemetry:
+                traces:
+                  endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+                metrics:
+                  endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+          ui:
+            replicas: 0
+          kmcp:
+            enabled: false
+          kagent-tools:
+            enabled: false
+          grafana-mcp:
+            enabled: false
+          substrateWorkerPool:
+            create: true
+            replicas: 4
+            sandboxClass: ${{ matrix.sandbox_class }}
+            workerImage: ghcr.io/kagent-dev/substrate/ateom-${{ matrix.sandbox_class }}:v${{ env.SUBSTRATE_VERSION }}
+          EOF
+          cat > "$RUNNER_TEMP/substrate-values.yaml" <<EOF
+          atelet:
+            resources:
+              limits:
+                memory: 2Gi
+            extraArgs: [--localhost-registry-replacement=kind-registry:5000]
+          ateApi:
+            extraArgs: [--template-resync-interval=250ms]
+          EOF
+          cat > "$RUNNER_TEMP/kagent-cli.yaml" <<EOF
+          install:
+            kagent:
+              repository: "${GITHUB_WORKSPACE}/helm/"
+              version: "${VERSION}"
+              valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
+            substrate:
+              valuesFiles: ["${RUNNER_TEMP}/substrate-values.yaml"]
+          EOF
+          ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
 
@@ -196,12 +244,10 @@ jobs:
             sleep 5
           done
           test "$READY" = True
-          export KAGENT_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
-          export KAGENT_GATEWAY_URL="$KAGENT_API_URL"
-          echo "KAGENT_API_URL: $KAGENT_API_URL"
+          export KAGENT_E2E_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          echo "KAGENT_E2E_API_URL: $KAGENT_E2E_API_URL"
           make core/bin/kagent-local
           export KAGENT_E2E_CLI="$PWD/core/bin/kagent-local"
-          export KAGENT_E2E_API_URL="$KAGENT_API_URL"
           export KAGENT_E2E_LOCAL_HOST=172.17.0.1
           envsubst < core/test/e2e/manifests/tracing.yaml.tmpl | kubectl apply -f -
           # TestMain keeps the receiver alive for every runtime's response flush.

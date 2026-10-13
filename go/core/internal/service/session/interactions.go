@@ -45,13 +45,14 @@ type agentService interface {
 // state. It never connects to actors: the gateway owns dispatch and observation.
 // These operations form the persistence boundary for a separate API service.
 type InteractionService struct {
-	store    interactionStore
-	agents   agentService
-	sessions *Service
+	store         interactionStore
+	agents        agentService
+	sessions      *Service
+	allowPushHTTP bool
 }
 
-func NewInteractionService(store interactionStore, agents agentService, sessions *Service) *InteractionService {
-	return &InteractionService{store: store, agents: agents, sessions: sessions}
+func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP bool) *InteractionService {
+	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP}
 }
 
 // PreparedSend either grants a new dispatch or returns an already accepted task.
@@ -138,7 +139,7 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 // An initial-message retry returns its saved task without granting another send.
 func (s *InteractionService) PrepareSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*PreparedSend, error) {
 	initialID := initialMessageID(req)
-	pushConfig, err := initialPushConfig(agent, req)
+	pushConfig, err := initialPushConfig(agent, req, s.allowPushHTTP)
 	if err != nil {
 		return nil, err
 	}

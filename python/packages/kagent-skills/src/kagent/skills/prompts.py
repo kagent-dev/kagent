@@ -1,5 +1,4 @@
 from .models import Skill
-from .shell import file_search_tools_enabled
 
 
 def generate_skills_xml(skills: list[Skill]) -> str:
@@ -116,7 +115,7 @@ Usage:
 """
 
 
-def get_bash_description() -> str:
+def get_bash_description(file_search_tools: bool = False) -> str:
     """Returns the standardized description for the bash tool."""
     # This combines the useful parts from both ADK and OpenAI descriptions
     description = """Execute bash commands in the skills environment with sandbox protection.
@@ -145,7 +144,7 @@ Timeouts:
     # description above, so that long, free-form prose block stays a plain
     # string -- not an f-string where a stray '{'/'}' added later could
     # raise or silently corrupt output.
-    if file_search_tools_enabled():
+    if file_search_tools:
         description += (
             "\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command.\n"
         )

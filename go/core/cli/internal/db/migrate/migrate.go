@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
@@ -30,6 +30,7 @@ type SourcesFunc func(ctx context.Context) ([]migrations.Source, error)
 
 type commandState struct {
 	dbURL     string
+	dbURLFile string
 	dbRole    string
 	source    string
 	resolveFn SourcesFunc
@@ -89,9 +90,12 @@ func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
 		Use:   "migrate",
 		Short: "Apply, roll back, and inspect database migrations",
 		Long: `Apply, roll back, and inspect database migrations.
-Migrations run as the owner login. The command reads KAGENT_POSTGRES_OWNER_DATABASE_URL and KAGENT_POSTGRES_OWNER_ROLE when their flags are empty.`,
+Migrations run as the owner login. Connection settings come from database.owner in
+the CLI configuration or explicit database flags.`,
 	}
 	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL for the owner login")
+	command.PersistentFlags().StringVar(&state.dbURLFile, "db-url-file", "", "File containing the owner login's PostgreSQL connection URL")
+	command.MarkFlagsMutuallyExclusive("db-url", "db-url-file")
 	command.PersistentFlags().StringVar(&state.dbRole, "db-role", "", "Owner role to assume after authentication (required)")
 	command.PersistentFlags().StringVar(&state.source, sourceFlag, "", "Migration source for down, goto, or version")
 	command.AddCommand(newUpCmd(state))
@@ -103,27 +107,20 @@ Migrations run as the owner login. The command reads KAGENT_POSTGRES_OWNER_DATAB
 }
 
 func (s *commandState) role() (string, error) {
-	role := strings.TrimSpace(s.dbRole)
-	if role == "" {
-		role = strings.TrimSpace(env.PostgresOwnerRole.Get())
+	if role := strings.TrimSpace(s.dbRole); role != "" {
+		return role, nil
 	}
-	if role == "" {
-		return "", fmt.Errorf("set the database role with --db-role or %s", env.PostgresOwnerRole.Name())
-	}
-	return role, nil
+	return "", errors.New("database.owner.role or --db-role is required")
 }
 
 func (s *commandState) resolveDSN() (string, error) {
-	dsn := strings.TrimSpace(s.dbURL)
-	if dsn == "" {
-		if value, set := env.PostgresOwnerDatabaseURL.Lookup(); set {
-			dsn = value
-		}
+	if dsn := strings.TrimSpace(s.dbURL); dsn != "" {
+		return dsn, nil
 	}
-	if dsn == "" {
-		return "", fmt.Errorf("set the database URL with --db-url or %s", env.PostgresOwnerDatabaseURL.Name())
+	if s.dbURLFile != "" {
+		return config.ReadSecret(s.dbURLFile)
 	}
-	return dsn, nil
+	return "", errors.New("database.owner.urlFile, --db-url-file, or --db-url is required")
 }
 
 // poolConfig builds the migration connection from the database URL and role.

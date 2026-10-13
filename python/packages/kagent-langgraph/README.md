@@ -25,7 +25,7 @@ class State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], "The conversation history"]
 
 
-config = KAgentConfig()
+config = KAgentConfig.from_file()
 controller_client = AsyncControllerClient(
     config.grpc_url,
     agent_name=config.app_name,
@@ -72,15 +72,23 @@ The package mirrors the structure of `kagent-adk` but uses LangGraph instead of 
 
 ## Configuration
 
-Set both endpoints when running locally. A2A and MCP use `KAGENT_GATEWAY_URL`, while control-plane calls use `KAGENT_API_URL`.
+Set `runtime.control_plane_url` and `runtime.gateway_url` in `/config/config.json` when running locally.
 
 ```bash
-export KAGENT_API_URL=http://localhost:8083
-export KAGENT_GATEWAY_URL=http://localhost:8083
-export KAGENT_NAME=my-agent
-export KAGENT_NAMESPACE=default
+# Load process settings from /config/config.json (see Configuration).
 ```
 
 ## Deployment
 
 Use the same deployment pattern as kagent-adk samples with Docker and Kubernetes.
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

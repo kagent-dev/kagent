@@ -109,7 +109,7 @@ COPY agent.py .
 CMD ["uvicorn", "agent:fastapi_app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Set `KAGENT_API_URL` and `KAGENT_GATEWAY_URL` to connect to kagent.
+Load `/config/config.json` with `KAgentConfig.from_file()` to connect to kagent.
 
 ---
 
@@ -125,9 +125,6 @@ Set `KAGENT_API_URL` and `KAGENT_GATEWAY_URL` to connect to kagent.
 
 ## Environment Variables
 
-- `KAGENT_API_URL` - KAgent control-plane API URL
-- `KAGENT_GATEWAY_URL` - KAgent A2A and MCP gateway URL
-- `KAGENT_LOG_LEVEL` - Logging level (default: INFO)
 
 ---
 
@@ -151,3 +148,14 @@ See `samples/openai/` for complete examples:
 ## License
 
 See repository LICENSE file.
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

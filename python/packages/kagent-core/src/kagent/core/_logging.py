@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from datetime import datetime, timezone
 
 from opentelemetry import trace
@@ -31,11 +30,11 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(entry, default=str)
 
 
-def configure_logging() -> None:
-    """Configure logging based on KAGENT_LOG_LEVEL environment variable."""
+def configure_logging(level: str = "info") -> None:
+    """Configure logging from the resolved process settings."""
     global _logging_configured
 
-    log_level = os.getenv("KAGENT_LOG_LEVEL", "INFO").upper()
+    log_level = level.upper()
     formatter = JsonFormatter()
 
     if not logging.root.handlers:

@@ -16,9 +16,11 @@ const (
 // outcome the enumeration does not describe is recorded under its own name,
 // which the conventions permit.
 const (
-	FinishReasonStop     = "stop"
-	FinishReasonToolCall = "tool_call"
-	FinishReasonError    = "error"
+	FinishReasonStop          = "stop"
+	FinishReasonToolCall      = "tool_call"
+	FinishReasonLength        = "length"
+	FinishReasonContentFilter = "content_filter"
+	FinishReasonError         = "error"
 )
 
 type messagePart struct {

@@ -11,7 +11,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
@@ -19,7 +18,7 @@ import (
 )
 
 // validatePushConfig checks the fields supported by the OSS callback sender.
-func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig) (*a2a.PushConfig, error) {
+func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig, allowHTTP bool) (*a2a.PushConfig, error) {
 	if input == nil {
 		return nil, a2a.ErrInvalidParams
 	}
@@ -33,7 +32,7 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig) (*a2a
 	if config.Tenant != "" && config.Tenant != agent.Namespace+"/"+agent.Name {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "push tenant does not match Agent route")
 	}
-	if _, err := validatePushURL(config.URL, kagentenv.A2APushAllowHTTP.Get()); err != nil {
+	if _, err := validatePushURL(config.URL, allowHTTP); err != nil {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, err.Error())
 	}
 	return &config, nil
@@ -42,12 +41,12 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig) (*a2a
 func validatePushURL(raw string, allowHTTP bool) (*url.URL, error) {
 	endpoint, err := url.Parse(raw)
 	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "https" && (endpoint.Scheme != "http" || !allowHTTP)) || endpoint.User != nil || endpoint.Fragment != "" || strings.TrimSpace(raw) != raw {
-		return nil, fmt.Errorf("push URL must be an absolute HTTPS URL without credentials (HTTP requires KAGENT_A2A_PUSH_ALLOW_HTTP)")
+		return nil, fmt.Errorf("push URL must be an absolute HTTPS URL without credentials (HTTP requires gateway.push.allowHttp)")
 	}
 	return endpoint, nil
 }
 
-func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest) (*a2a.PushConfig, error) {
+func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest, allowHTTP bool) (*a2a.PushConfig, error) {
 	if req == nil || req.Config == nil || req.Config.PushConfig == nil {
 		return nil, nil
 	}
@@ -59,7 +58,7 @@ func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest) 
 	if req.Config.PushConfig.TaskID != "" {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "embedded push taskId is unsupported")
 	}
-	return validatePushConfig(agent, req.Config.PushConfig)
+	return validatePushConfig(agent, req.Config.PushConfig, allowHTTP)
 }
 
 type pushStore interface {

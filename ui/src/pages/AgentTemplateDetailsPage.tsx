@@ -113,7 +113,7 @@ export function AgentTemplateDetailsPage() {
 
   const agents = useAgentsAcrossNamespaces(namespace ? [namespace] : undefined);
   const templateAgents = useMemo(() => (agents.data?.agents ?? []).filter(agent =>
-    agent.resource.spec.templateRef?.name === name), [agents.data, name]);
+    agent.resource.spec.template.ref?.name === name), [agents.data, name]);
 
   /** Leaves edit mode, discarding the draft. Asks first when there is one to lose. */
   function stopEditing() {

@@ -41,6 +41,7 @@ type KAgentExecutorConfig struct {
 	Logger         *slog.Logger
 	Output         *apiadk.OutputConfig
 	Flush          func(context.Context) error
+	AgentName      string
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -52,6 +53,7 @@ type KAgentExecutor struct {
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
 	flush                   func(context.Context) error
+	agentName               string
 }
 
 type structuredOutput struct {
@@ -109,6 +111,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		logger:                  cfg.Logger.With("component", "kagent-executor"),
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
+		agentName:               cfg.AgentName,
 	}, nil
 }
 
@@ -256,6 +259,13 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
 		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
+		// The identity replaces any caller members of the same name, so a caller
+		// cannot impersonate another conversation downstream.
+		ctx = telemetry.WithBaggage(ctx,
+			attribute.String(tracing.AttributeAgentName, e.agentName),
+			attribute.String(tracing.AttributeConversationID, sessionID),
+			attribute.String(tracing.AttributeTaskID, string(reqCtx.TaskID)),
+		)
 
 		e.logger.InfoContext(ctx, "execute",
 			"task_id", reqCtx.TaskID,

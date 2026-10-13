@@ -26,6 +26,9 @@ var nativeNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // Config is compiler-owned input to the native adapter. Credential values are
 // supplied only through the process environment.
 type Config struct {
+	MaxContentLength     *int64                 `json:"max_content_length,omitempty"`
+	ControlPlaneURL      string                 `json:"control_plane_url"`
+	LogLevel             string                 `json:"log_level,omitempty"`
 	Version              int                    `json:"version"`
 	CodexExecutable      string                 `json:"codex_executable"`
 	ExpectedCodexVersion string                 `json:"expected_codex_version"`
@@ -106,6 +109,14 @@ func Parse(data []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.MaxContentLength != nil && *c.MaxContentLength < 0 {
+		return fmt.Errorf("max_content_length must be nonnegative")
+	}
+	switch c.LogLevel {
+	case "", "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("log_level must be debug, info, warn, or error")
+	}
 	if c.Version != Version {
 		return fmt.Errorf("unsupported config version %d (want %d)", c.Version, Version)
 	}

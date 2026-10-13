@@ -205,23 +205,23 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
   HTTP calls use `http.NewRequestWithContext`. Never drop a `cancel` function.
 - Context keys use unexported struct types, never strings.
 
-### Environment variables
+### Configuration
 
-- Read user-configurable settings through registered accessors in `core/pkg/env`.
-  Register each setting once, listing every consuming component.
-- Use `Get()` for the registered default and `Lookup()` when a caller must
-  distinguish unset values. Use boolean/integer `LookupWithError()` when invalid
-  input needs a diagnostic; it distinguishes invalid input from unset or empty.
-- Registered booleans accept `true`, `t`, `1`, `false`, `f`, and `0`, ignoring case
-  and surrounding whitespace. Upstream settings with a different grammar use
-  string registrations and their own parser.
+- CLI and controller settings belong in `proto/kagent/api/v1alpha1/config.proto`,
+  with Protovalidate rules. Load once at startup and pass resolved values to owners.
+- Runtime settings belong in the existing typed runtime JSON structures. Runtime
+  components must not read application settings from the process environment.
+- Standard `OTEL_*` settings override telemetry defaults for the receiving process
+  only. Controller overrides never become managed-runtime defaults.
+- Provider credentials, SDK trust, `KUBECONFIG`, and test harness inputs remain
+  external environment interfaces. Register these in `core/pkg/env` for discovery.
 - Direct process reads require an explained lint exception, such as resolving
   controller-generated payloads or arbitrary credential placeholders.
 
 ### Logging
 
 - Use standard-library `log/slog`. Binaries write JSON to stderr and read the
-  minimum level from `KAGENT_LOG_LEVEL` (`debug`, `info`, `warn`, or `error`).
+  minimum level from explicit config or flags (`debug`, `info`, `warn`, or `error`).
 - Carry loggers in `context.Context` with `pkg/logging`; do not add logger
   parameters, package-global loggers, or `NewXxxWithLogger` constructors.
 - Use `DebugContext`, `InfoContext`, `WarnContext`, or `ErrorContext` whenever

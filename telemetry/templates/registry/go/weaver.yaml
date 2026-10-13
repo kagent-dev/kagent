@@ -1,6 +1,6 @@
 params:
   # Attributes kagent writes that no attribute group can hold, since they are complex or span specific.
-  span_attributes: [gen_ai.operation.name, gen_ai.input.messages, gen_ai.output.messages]
+  span_attributes: [gen_ai.operation.name, gen_ai.input.messages, gen_ai.output.messages, gen_ai.tool.call.arguments, gen_ai.tool.call.result]
 templates:
   - pattern: conv_gen.go.j2
     file_name: conv_gen.go
@@ -13,7 +13,8 @@ templates:
       | ([.registry.attributes[]]
        + [.registry.attribute_groups[].attributes[]]
        + [(.registry.entities + .refinements.entities)[] | (.identity + .description)[]]
-       + [.refinements.spans[].attributes[] | select(.key as $k | $params.span_attributes | index($k))])
+       + [.refinements.spans[].attributes[] | select(.key as $k | $params.span_attributes | index($k))]
+       + [.refinements.metrics[] | select(.id | startswith("kagent.")) | (.attributes // [])[]])
       | if ([.[].key] | contains($params.span_attributes)) then . else error("a span_attributes entry is not on any span refinement") end
       | map(select(.key | test("^(kagent|a2a|gen_ai)\\.")) | select(.deprecated == null))
       | unique_by(.key)

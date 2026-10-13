@@ -1,7 +1,7 @@
 # End-to-end tests
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
-Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
+Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.
 It creates and cleans up its own SandboxTemplates. Run from `go/`:
@@ -22,6 +22,8 @@ The agent test uses the CLI-installed `kagent-api` RemoteMCPServer, a determinis
 local model, and a real Go ADK Session to create a sandbox through MCP as its
 invoking user. Install with `kagent install` in the test namespace; the test
 requires that registration and leaves it intact.
+Set `config.runtimeDefaults.tokenPropagation.enabled: true` in the test install
+so the agent forwards its caller identity to the MCP server.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
@@ -29,7 +31,7 @@ runtime and sandbox tools.
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets
-`KAGENT_SESSION_IDLE_TTL=30s` and `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=5s` on the
+`sessions.idleTtl: 30s` and `sessions.expirationInterval: 5s` in controller config on the
 controller Deployment and restores its environment afterward, rolling the
 controller both times and waiting for a
 fresh API connection after each rollout. Use a disposable test cluster and a
@@ -94,9 +96,22 @@ without an additional flag. Both runners allow 30 minutes and finish the matrix
 after a failure so all harness results are visible. Independent harness subtests
 run in parallel, sharing the suite's `-parallel` budget. Each case owns its mocks,
 configuration, Sessions, and cleanup; installed Harnesses are read-only fixtures.
+Push notification cases also share that budget, including their streaming and
+unary variants. Tests that replace controllers or change deployment settings
+keep sequential parents so they cannot disrupt independent scenarios. CI uses
+one-second controller startup/readiness probes to avoid waiting for the default
+probe intervals after each restart, with a 60-second startup failure budget.
+The CI job uses an eight-vCPU runner with four concurrent scenarios by default
+and a 2 GiB memory limit for atelet during parallel snapshot operations.
 The inline/referenced configuration matrix also runs its configuration cases in
 parallel. Steps that share a Session, such as the CLI output-format subtests,
 remain sequential within each harness.
+
+Send helpers retry only the gateway's explicit `KAGENT_SEND_NOT_ACCEPTED`
+rejection, preserving the request identity. Streaming helpers also inspect the
+first receive: gRPC can open a stream successfully and report rejection in its
+trailers. Once any event arrives, errors fail the test without resending input.
+Generic transport failures are never retried because they may hide accepted work.
 
 Independent sandbox scenarios, opaque BYO invocation, and completed-chat trace
 checks also run in parallel. Trace cases share the receiver but select spans by

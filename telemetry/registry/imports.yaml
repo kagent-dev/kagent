@@ -14,6 +14,8 @@ imports:
   metrics:
     - gen_ai.client.inference.*
     - gen_ai.invoke_agent.duration
+    - gen_ai.invoke_agent.inference_calls
+    - gen_ai.invoke_agent.tool_calls
     - gen_ai.invoke_workflow.duration
     - gen_ai.execute_tool.duration
     - http.server.*

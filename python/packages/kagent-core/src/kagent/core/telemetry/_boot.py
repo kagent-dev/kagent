@@ -14,6 +14,7 @@ from opentelemetry.sdk.resources import OTELResourceDetector
 from opentelemetry.semconv.attributes.service_attributes import SERVICE_NAME
 from opentelemetry.util._importlib_metadata import entry_points
 
+from .._runtime_config import ExporterConfig, RuntimeConfig
 from . import _defaults
 from ._conv import GEN_AI_AGENT_ID, GEN_AI_AGENT_NAME, KAGENT_RUNTIME, KagentRuntimeValues
 from ._profiles import COMMON_INSTRUMENTORS, Profile, profile_for
@@ -139,15 +140,25 @@ def _environment_propagator() -> CompositePropagator:
     )
 
 
-def _resource_attributes(identity: Identity) -> dict[str, str]:
-    environment = OTELResourceDetector().detect().attributes
-    attributes: dict[str, str] = {}
-    if identity.agent_name and SERVICE_NAME not in environment:
-        attributes[SERVICE_NAME] = identity.agent_name
-    if identity.agent_namespace and _SERVICE_NAMESPACE not in environment:
-        attributes[_SERVICE_NAMESPACE] = identity.agent_namespace
+def _resource_attributes(identity: Identity, config: ExporterConfig) -> dict[str, str]:
+    attributes = {SERVICE_NAME: identity.agent_name, _SERVICE_NAMESPACE: identity.agent_namespace}
+    attributes.update(config.resource_attributes)
+    attributes.update(OTELResourceDetector().detect().attributes)
     attributes[KAGENT_RUNTIME] = identity.runtime.value
     return attributes
+
+
+def _install_providers(identity: Identity, config: ExporterConfig) -> None:
+    if os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true":
+        return
+    try:
+        OpenTelemetryConfigurator().configure(
+            resource_attributes=_resource_attributes(identity, config),
+            span_processors=[KagentAttributesSpanProcessor()],
+            exporter_args_map=_exporter_args(),
+        )
+    except Exception:
+        logger.warning("Failed to configure OpenTelemetry providers", exc_info=True)
 
 
 def _instrument(names: tuple[str, ...], options: dict[str, dict[str, Any]]) -> None:
@@ -169,35 +180,24 @@ def bootstrap(
     runtime: KagentRuntimeValues,
     fallback_name: str | None = None,
     instrument_options: dict[str, dict[str, Any]] | None = None,
+    config: RuntimeConfig | None = None,
 ) -> Providers:
-    """Install the SDK from the environment and the runtime's instrumentations.
-
-    Identity follows the Go runtimes: KAGENT_NAME, else fallback_name, and
-    KAGENT_NAMESPACE, else "default". Configuration errors never stop startup.
-    """
+    """Install SDK providers and instrumentation from resolved process settings."""
     global _current
     if _current is not None:
         return _current
+    config = config or RuntimeConfig()
+    exporters = config.telemetry.exporters or ExporterConfig()
     profile = profile_for(runtime)
     identity = Identity(
         runtime=runtime,
-        agent_name=os.getenv("KAGENT_NAME") or fallback_name or "",
-        agent_namespace=os.getenv("KAGENT_NAMESPACE") or "default",
+        agent_name=config.name or fallback_name or "",
+        agent_namespace=config.namespace or "default",
     )
-    _current = Providers(identity=identity, profile=profile)
-    _defaults.apply()
+    _defaults.apply(config.telemetry)
     set_global_textmap(_environment_propagator())
-    if os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true":
-        return _current
-    try:
-        OpenTelemetryConfigurator().configure(
-            resource_attributes=_resource_attributes(identity),
-            span_processors=[KagentAttributesSpanProcessor()],
-            exporter_args_map=_exporter_args(),
-        )
-    except Exception:
-        logger.exception("Failed to configure OpenTelemetry; telemetry is disabled")
-        return _current
+    _install_providers(identity, exporters)
+    _current = Providers(identity=identity, profile=profile)
     if signal_enabled("TRACES") or signal_enabled("METRICS") or signal_enabled("LOGS"):
         _instrument(COMMON_INSTRUMENTORS + profile.instrumentors, instrument_options or {})
     return _current
@@ -206,7 +206,12 @@ def bootstrap(
 def instrument_app(app: FastAPI, **providers: Any) -> None:
     if not (signal_enabled("TRACES") or signal_enabled("METRICS")):
         return
-    FastAPIInstrumentor.instrument_app(app, exclude_spans=["receive", "send"], **providers)
+    FastAPIInstrumentor.instrument_app(
+        app,
+        exclude_spans=["receive", "send"],
+        excluded_urls=r"/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json",
+        **providers,
+    )
 
 
 def shutdown_lifespan(inner: Callable[[FastAPI], Any] | None = None):

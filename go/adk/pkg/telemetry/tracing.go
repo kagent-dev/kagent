@@ -11,7 +11,8 @@ import (
 // Init boots the process telemetry with the request attribute span processor.
 func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (*kagenttelemetry.Providers, error) {
 	return kagenttelemetry.Init(ctx, kagenttelemetry.Options{
-		Runtime:        string(telemetry.Runtime),
+		Identity:       telemetry.ResourceIdentity(),
+		Config:         telemetry.ExporterConfig(),
 		Defaults:       telemetry.ResourceDefaults(""),
 		SpanProcessors: []sdktrace.SpanProcessor{requestAttributesSpanProcessor{}},
 	})

@@ -384,8 +384,11 @@ func TestSandboxControllerRestart(t *testing.T) {
 	after, err := findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
 	require.NoError(t, err)
 	require.Equal(t, actor.GetMetadata().GetUid(), after.GetMetadata().GetUid(), "controller restart must preserve compute")
-	finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
-	require.NoError(t, err)
-	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, finished.Status)
+	// The replacement controller can become ready before the process's sleep
+	// finishes. Observe completion instead of using rollout time as a delay.
+	require.Eventually(t, func() bool {
+		finished, err := f.processes.GetProcess(f.guestContext(instance.Id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
+		return err == nil && finished.Status == guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+	}, 10*time.Second, 100*time.Millisecond, "process did not complete after controller replacement")
 	require.Equal(t, "once", string(f.read(t, instance.Id, "restart-count")))
 }
