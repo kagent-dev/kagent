@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,27 @@ func TestSessionRequestValidation(t *testing.T) {
 		{"missing target namespace", &apiv1alpha1.ListSessionsRequest{Agent: &apiv1alpha1.ResourceReference{Name: "assistant"}}, false},
 		{"leading whitespace", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
 		{"control character", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
+		{"volume source", createSessionWithVolume(func(*apiv1alpha1.SessionVolumeSource) {}), true},
+		{"volume source with one read-only mount", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts = s.Mounts[1:] }), true},
+		{"volume source without a volume", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Volume = nil }), false},
+		{"volume source with an uppercase driver", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.CsiDriver = "EFS.csi.aws.com" }), false},
+		{"volume source with an overlong driver", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.CsiDriver = strings.Repeat("a", 64) }), false},
+		{"volume source with an empty handle", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.VolumeHandle = "" }), false},
+		{"volume source with whitespace in the handle", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.VolumeHandle = "fs 01" }), false},
+		{"volume source with an overlong handle", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Volume.VolumeHandle = strings.Repeat("a", 1025) }), false},
+		{"volume source without mounts", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts = nil }), false},
+		{"volume source with an absolute sub-path", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].SubPath = "/sessions" }), false},
+		{"volume source with a parent sub-path", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].SubPath = "sessions/../mirrors" }), false},
+		{"volume source with an empty sub-path", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].SubPath = "" }), false},
+		{"volume source with a relative mount path", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].MountPath = "workspace" }), false},
+		{"volume source with a trailing slash mount path", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].MountPath = "/workspace/" }), false},
+		{"volume source mounted at the durable directory", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].MountPath = "/data" }), false},
+		{"volume source mounted under the durable directory", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[0].MountPath = "/data/workspace" }), false},
+		{"volume source with two read-write mounts", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[1].ReadOnly = false }), false},
+		{"volume source with two mounts at one path", createSessionWithVolume(func(s *apiv1alpha1.SessionVolumeSource) { s.Mounts[1].MountPath = "/workspace" }), false},
+		{"admission token", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", AdmissionToken: "eyJhbGciOiJFUzI1NiJ9.e30.sig"}, true},
+		{"admission token with whitespace", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", AdmissionToken: "two words"}, false},
+		{"overlong admission token", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", AdmissionToken: strings.Repeat("a", 16385)}, false},
 		{"invalid template filter", &apiv1alpha1.ListSessionsRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
 		{"valid rename", &apiv1alpha1.UpdateSessionNameRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
 		{"invalid rename id", &apiv1alpha1.UpdateSessionNameRequest{SessionId: "not-a-uuid", Name: "New title"}, false},
@@ -76,6 +98,22 @@ func TestSessionRequestValidation(t *testing.T) {
 				t.Fatalf("Validate() error = %v, valid = %t", err, test.valid)
 			}
 		})
+	}
+}
+
+// createSessionWithVolume is a valid create request on a volume source, with
+// mutate applied to the source.
+func createSessionWithVolume(mutate func(*apiv1alpha1.SessionVolumeSource)) *apiv1alpha1.CreateSessionRequest {
+	source := &apiv1alpha1.SessionVolumeSource{
+		Volume: &apiv1alpha1.SessionVolume{CsiDriver: "efs.csi.aws.com", VolumeHandle: "fs-0123456789abcdef0::fsap-0123456789abcdef0"},
+		Mounts: []*apiv1alpha1.SessionVolumeMount{
+			{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace"},
+			{SubPath: "mirrors", MountPath: "/mirrors", ReadOnly: true},
+		},
+	}
+	mutate(source)
+	return &apiv1alpha1.CreateSessionRequest{
+		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", VolumeSource: source,
 	}
 }
 

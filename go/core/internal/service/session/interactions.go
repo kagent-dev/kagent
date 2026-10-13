@@ -399,7 +399,9 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		}
 		// Session creation already deduplicates request IDs per authenticated creator.
 		requestID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("a2a/"+agent.Namespace+"/"+agent.Name+"/"+req.Message.ID)).String()
-		session, err = s.sessions.Create(ctx, &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, requestID, "")
+		session, err = s.sessions.Create(ctx, CreateRequest{
+			Agent: &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, RequestID: requestID,
+		})
 		if err != nil {
 			return nil, interactionError(ctx, err)
 		}
