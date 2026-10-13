@@ -35,58 +35,67 @@ func shareHarnessAgent(spec kagentv1alpha3.AgentSpec) *kagentv1alpha3.Agent {
 	return &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "coder"}, Spec: spec}
 }
 
-func TestServiceCreateShareRefusedWhenHarnessRunsSenderCode(t *testing.T) {
-	for name, spec := range map[string]kagentv1alpha3.AgentSpec{
-		"referenced Harness": {HarnessRef: &corev1.LocalObjectReference{Name: "claude"}},
-		"inline Harness":     {Harness: &kagentv1alpha3.HarnessSpec{Claude: &kagentv1alpha3.ClaudeHarness{}, RunsSenderCode: true}},
+func TestServiceCreateShareByHarnessRuntime(t *testing.T) {
+	for _, harnessRuntime := range []struct {
+		name    string
+		spec    kagentv1alpha3.HarnessSpec
+		allowed bool
+	}{
+		{name: "kagent", spec: kagentv1alpha3.HarnessSpec{Kagent: &kagentv1alpha3.KagentHarness{}}, allowed: true},
+		{name: "claude", spec: kagentv1alpha3.HarnessSpec{Claude: &kagentv1alpha3.ClaudeHarness{}}},
+		{name: "codex", spec: kagentv1alpha3.HarnessSpec{Codex: &kagentv1alpha3.CodexHarness{}}},
+		{name: "byo", spec: kagentv1alpha3.HarnessSpec{BYO: &kagentv1alpha3.BYOHarness{}}},
 	} {
-		t.Run(name, func(t *testing.T) {
-			agent := shareHarnessAgent(spec)
-			harness := &kagentv1alpha3.Harness{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "claude"},
-				Spec:       kagentv1alpha3.HarnessSpec{Claude: &kagentv1alpha3.ClaudeHarness{}, RunsSenderCode: true},
-			}
-			service, store := shareHarnessService(t, agent, agent, harness)
+		for source, spec := range map[string]kagentv1alpha3.AgentSpec{
+			"referenced Harness": {HarnessRef: &corev1.LocalObjectReference{Name: harnessRuntime.name}},
+			"inline Harness":     {Harness: harnessRuntime.spec.DeepCopy()},
+		} {
 			for _, permission := range []apiv1alpha1.SessionSharePermission{
 				apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
 				apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE,
 			} {
-				share, token, err := service.CreateShare(serviceTestContext("alice"), shareHarnessSessionID, permission, 0)
-				if !serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition) {
-					t.Fatalf("CreateShare(%s) error = %v, want FailedPrecondition", permission, err)
-				}
-				if share != nil || token != "" || store.tokenHash != nil {
-					t.Fatalf("refused share of %s returned or stored credentials", permission)
-				}
+				t.Run(harnessRuntime.name+"/"+source+"/"+permission.String(), func(t *testing.T) {
+					agent := shareHarnessAgent(spec)
+					harness := &kagentv1alpha3.Harness{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: harnessRuntime.name},
+						Spec:       harnessRuntime.spec,
+					}
+					service, store := shareHarnessService(t, agent, agent, harness)
+					share, token, err := service.CreateShare(serviceTestContext("alice"), shareHarnessSessionID, permission, 0)
+					if store.getID != shareHarnessSessionID || store.getCreator != "alice" {
+						t.Fatalf("session lookup = %q of %q, want the caller's session", store.getID, store.getCreator)
+					}
+					if harnessRuntime.allowed {
+						if err != nil {
+							t.Fatal(err)
+						}
+						if share.GetSessionId() != shareHarnessSessionID || token == "" || store.shareUserID != "alice" {
+							t.Fatalf("share = %+v (token %t) of %q, want a share of the caller's session", share, token != "", store.shareUserID)
+						}
+						return
+					}
+					if !serviceerrors.IsCode(err, serviceerrors.CodeFailedPrecondition) {
+						t.Fatalf("CreateShare error = %v, want FailedPrecondition", err)
+					}
+					if share != nil || token != "" || store.tokenHash != nil {
+						t.Fatal("refused share returned or stored credentials")
+					}
+				})
 			}
-			if store.getID != shareHarnessSessionID || store.getCreator != "alice" {
-				t.Fatalf("session lookup = %q of %q, want the caller's session", store.getID, store.getCreator)
-			}
-		})
+		}
 	}
 }
 
-func TestServiceCreateShareUnchangedWithoutSenderCode(t *testing.T) {
-	plain := &kagentv1alpha3.Harness{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "kagent"},
-		Spec:       kagentv1alpha3.HarnessSpec{Kagent: &kagentv1alpha3.KagentHarness{}},
+func TestServiceCreateShareRefusedWhenHarnessMissing(t *testing.T) {
+	agent := shareHarnessAgent(kagentv1alpha3.AgentSpec{HarnessRef: &corev1.LocalObjectReference{Name: "kagent"}})
+	service, store := shareHarnessService(t, agent, agent)
+	_, _, err := service.CreateShare(serviceTestContext("alice"), shareHarnessSessionID,
+		apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, 0)
+	if !serviceerrors.IsCode(err, serviceerrors.CodeUnavailable) {
+		t.Fatalf("CreateShare error = %v, want Unavailable", err)
 	}
-	for name, spec := range map[string]kagentv1alpha3.AgentSpec{
-		"referenced Harness without the field": {HarnessRef: &corev1.LocalObjectReference{Name: "kagent"}},
-		"inline Harness without the field":     {Harness: &kagentv1alpha3.HarnessSpec{Kagent: &kagentv1alpha3.KagentHarness{}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			agent := shareHarnessAgent(spec)
-			service, store := shareHarnessService(t, agent, agent, plain)
-			share, token, err := service.CreateShare(serviceTestContext("alice"), shareHarnessSessionID,
-				apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if share.GetSessionId() != shareHarnessSessionID || token == "" || store.shareUserID != "alice" {
-				t.Fatalf("share = %+v (token %t) of %q, want a share of the caller's session", share, token != "", store.shareUserID)
-			}
-		})
+	if store.tokenHash != nil {
+		t.Fatal("a share of a session whose Harness cannot be read was stored")
 	}
 }
 

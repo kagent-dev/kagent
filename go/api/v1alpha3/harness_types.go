@@ -178,15 +178,6 @@ type HarnessSpec struct {
 
 	// +required
 	Substrate RuntimeSubstratePolicy `json:"substrate"`
-
-	// RunsSenderCode states that the runtime runs code a turn brings with it,
-	// such as a repository's hooks, a build target or a process left running,
-	// so a Session of the Harness is never shared: what one sender's turn
-	// leaves behind would run under the next sender's credentials. Creating a
-	// share of such a Session is refused; reads, sends and existing shares are
-	// unchanged.
-	// +optional
-	RunsSenderCode bool `json:"runsSenderCode,omitempty"`
 }
 
 // HarnessCapabilities records behavior proven for a pinned adapter and runtime.

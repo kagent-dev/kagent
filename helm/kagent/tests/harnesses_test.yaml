@@ -180,26 +180,6 @@ tests:
             budgetUSD: "2.50"
             maxTurns: 40
 
-  - it: should render runsSenderCode when an entry sets it
-    set:
-      harnesses:
-        - name: claude
-          snapshotLocation: s3://snapshots/claude
-          runsSenderCode: true
-    asserts:
-      - equal:
-          path: spec.runsSenderCode
-          value: true
-
-  - it: should leave runsSenderCode unset by default
-    set:
-      harnesses:
-        - name: claude
-          snapshotLocation: s3://snapshots/claude
-    asserts:
-      - notExists:
-          path: spec.runsSenderCode
-
   - it: should fail on limits for a kagent entry
     set:
       harnesses:

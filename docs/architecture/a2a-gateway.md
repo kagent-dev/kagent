@@ -21,11 +21,11 @@ creates a conversation from that Agent. A context ID continues the corresponding
 session. A task ID alone resolves its session; if both IDs are present they must
 agree. Every operation verifies that the session belongs to the endpoint's Agent
 and that the caller owns it or holds an appropriate session share. A share cannot
-create conversations. A session whose Agent runs on a Harness with
-`spec.runsSenderCode` cannot be shared at all: `CreateSessionShare` refuses it with
-`FailedPrecondition`, because code one sender's turn leaves in the runtime (a
-repository hook, a build target, a background process) would run under the next
-sender's credentials. Reads, sends and shares that already exist are unchanged. Task-only get, cancel, and subscribe use globally unique task
+create conversations. A session whose Agent runs on a Harness other than
+the `kagent` runtime (`claude`, `codex` or `byo`) cannot be shared at all:
+`CreateSessionShare` refuses it with `FailedPrecondition`, because code one
+sender's turn leaves in the runtime (a repository hook, a build target) would run
+under the next sender's credentials. Reads, sends and shares that already exist are unchanged. Task-only get, cancel, and subscribe use globally unique task
 IDs. ListTasks without a context lists only authorized conversations of that Agent;
 a share restricts the list to its own conversation. Authorization precedes totals
 and pagination. Card discovery does not create a session.

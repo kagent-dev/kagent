@@ -44,15 +44,18 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 }
 
 // errShareRunsSenderCode is the refusal of a share of a Session whose Harness
-// runs code a turn brings with it. Every client shows it to the person who
+// may run code a turn brings with it. Every client shows it to the person who
 // asked, so it names the remedy.
 const errShareRunsSenderCode = "This Session cannot be shared: its agent runs code from each turn, " +
 	"which would then run with the next person's credentials. Ask the others to start a Session of their own."
 
-// refuseShareOfSenderCode refuses a share of the session when its Agent's
-// Harness runs code of the sender's turn. It is checked once the caller may
-// share the session, so it tells nobody else what the Agent runs. An Agent or
-// Harness that cannot be read refuses the share rather than mint it unchecked.
+// refuseShareOfSenderCode refuses a share of the session unless its Agent's
+// Harness, inline or referenced, is the kagent runtime: the claude, codex and
+// BYO runtimes run code a sender's turn leaves behind (a repository hook, a
+// build target), which would then run under the next sender's credentials. It
+// is checked once the caller may share the session, so it tells nobody else
+// what the Agent runs. An Agent or Harness that cannot be read refuses the
+// share rather than mint it unchecked.
 func (s *Service) refuseShareOfSenderCode(ctx context.Context, sessionID, userID string) error {
 	if s.agents == nil {
 		return nil
@@ -82,7 +85,7 @@ func (s *Service) refuseShareOfSenderCode(ctx context.Context, sessionID, userID
 		}
 		harness = &referenced.Spec
 	}
-	if harness != nil && harness.RunsSenderCode {
+	if harness == nil || harness.Kagent == nil {
 		return serviceerrors.NewFailedPrecondition(errShareRunsSenderCode, nil)
 	}
 	return nil

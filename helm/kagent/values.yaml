@@ -548,10 +548,8 @@ harness:
 # fails on a repeat. compaction on a claude entry fails the render. `limits`
 # (claude entries only, Harness.spec.claude.limits: `budgetUSD` as a decimal
 # string, `maxTurns`) bounds every turn of every agent on the Harness; on a
-# kagent entry it fails the render. `runsSenderCode: true`
-# (Harness.spec.runsSenderCode) states that the runtime runs code a turn brings
-# with it, so a share of a Session of an Agent on the Harness is refused. Each
-# entry's image is listed in the `<fullname>-images` ConfigMap.
+# kagent entry it fails the render. Each entry's image is listed in the
+# `<fullname>-images` ConfigMap.
 #
 # On the Claude harness, KAGENT_PROPAGATE_TOKEN forwards the turn caller's
 # credential on MCP calls. Keep each entry's snapshotLocation apart from the

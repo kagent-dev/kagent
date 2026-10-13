@@ -236,15 +236,6 @@ spec:
                         - message: modelConfigRef name must not be empty
                           rule: self.modelConfigRef.name.size() > 0
                     type: object
-                  runsSenderCode:
-                    description: |-
-                      RunsSenderCode states that the runtime runs code a turn brings with it,
-                      such as a repository's hooks, a build target or a process left running,
-                      so a Session of the Harness is never shared: what one sender's turn
-                      leaves behind would run under the next sender's credentials. Creating a
-                      share of such a Session is refused; reads, sends and existing shares are
-                      unchanged.
-                    type: boolean
                   substrate:
                     description: RuntimeSubstratePolicy contains the Substrate policy
                       shared by all runtime variants.
