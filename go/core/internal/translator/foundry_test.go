@@ -61,6 +61,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				harness.Spec.Kagent = nil
 				harness.Spec.BYO = &v1alpha3.BYOHarness{}
 			}
+			objects = append(objects, harness)
 
 			var previous translator.RevisionID
 			for _, host := range []string{"first.services.ai.azure.com", "second.services.ai.azure.com"} {

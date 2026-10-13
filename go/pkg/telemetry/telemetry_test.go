@@ -125,7 +125,7 @@ func TestInitLeavesDisabledSignalsOff(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if providers.TracesEnabled() || providers.meter != nil || providers.logger != nil {
+			if providers.TracesEnabled() || providers.meter.Load() != nil || providers.logger != nil {
 				t.Fatal("a disabled signal got a provider")
 			}
 			if err := providers.ForceFlush(t.Context()); err != nil {
@@ -229,9 +229,10 @@ func (e *countingMetricExporter) Shutdown(context.Context) error { return nil }
 
 func TestForceFlushExportsMetricsWithTracesOff(t *testing.T) {
 	exporter := &countingMetricExporter{}
-	providers := &Providers{meter: sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Hour))))}
+	providers := &Providers{}
+	providers.meter.Store(sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Hour)))))
 	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
-	counter, err := providers.meter.Meter("test").Int64Counter("turns")
+	counter, err := providers.meter.Load().Meter("test").Int64Counter("turns")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,5 +272,78 @@ func TestForceFlushSkipsAfterAFailureInTheSameRequest(t *testing.T) {
 	span.End()
 	if err := providers.ForceFlush(WithFlushRecord(t.Context())); err == nil {
 		t.Fatal("a new request must try to export again")
+	}
+}
+
+func TestStartMetricsGivesEachProcessItsOwnInstance(t *testing.T) {
+	restoreGlobals(t)
+	setExporters(t, "none", "none", "none")
+	instance := func() string {
+		reader := sdkmetric.NewManualReader()
+		providers, err := Init(t.Context(), Options{
+			Config:        Config{ResourceAttributes: map[string]string{"deployment.environment.name": "test"}},
+			Identity:      []attribute.KeyValue{conv.KagentRuntimeKey.String(conv.KagentRuntimeClaude)},
+			Defaults:      []attribute.KeyValue{semconv.ServiceName("assistant")},
+			MetricReaders: []sdkmetric.Reader{reader}, DeferMetrics: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
+		if providers.meter.Load() != nil {
+			t.Fatal("DeferMetrics installed a meter provider before StartMetrics")
+		}
+		providers.StartMetrics()
+		first := providers.meter.Load()
+		providers.StartMetrics()
+		if providers.meter.Load() != first {
+			t.Fatal("a second StartMetrics replaced the meter provider")
+		}
+		var metrics metricdata.ResourceMetrics
+		if err := reader.Collect(t.Context(), &metrics); err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range map[attribute.Key]string{
+			"deployment.environment.name": "test",
+			conv.KagentRuntimeKey:         conv.KagentRuntimeClaude,
+			semconv.ServiceNameKey:        "assistant",
+		} {
+			if value, ok := metrics.Resource.Set().Value(key); !ok || value.AsString() != want {
+				t.Errorf("deferred metric resource %s = %q, want %q", key, value.AsString(), want)
+			}
+		}
+		id, ok := metrics.Resource.Set().Value(semconv.ServiceInstanceIDKey)
+		if !ok || id.AsString() == "" {
+			t.Fatalf("resource %v has no service.instance.id", metrics.Resource)
+		}
+		return id.AsString()
+	}
+	if a, b := instance(), instance(); a == b {
+		t.Fatalf("two processes share service.instance.id %q", a)
+	}
+}
+
+func TestInitChecksTheDeferredMetricExporter(t *testing.T) {
+	tests := []struct {
+		name     string
+		exporter string
+		wantErr  bool
+	}{
+		{name: "bad exporter is reported at startup", exporter: "bogus", wantErr: true},
+		{name: "good exporter is built and released", exporter: "console"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restoreGlobals(t)
+			setExporters(t, "none", tt.exporter, "none")
+			providers, err := Init(t.Context(), Options{DeferMetrics: true})
+			if gotErr := err != nil && strings.Contains(err.Error(), "metrics"); gotErr != tt.wantErr {
+				t.Fatalf("error = %v, want metric exporter error %v", err, tt.wantErr)
+			}
+			t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
+			if providers.meter.Load() != nil {
+				t.Fatal("the startup check installed a meter provider")
+			}
+		})
 	}
 }

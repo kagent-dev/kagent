@@ -16,6 +16,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,6 +40,7 @@ type Executor struct {
 	runner       Runner
 	continuation ContinuationStore
 	telemetry    tracing.RuntimeTelemetry
+	metrics      genAIMetrics
 
 	mu sync.Mutex
 	// state serializes access to the Actor's one native conversation. It also
@@ -70,12 +72,14 @@ type parkedTask struct {
 	taskRef
 	pending runtime.PendingTurn
 	origin  trace.SpanContext
+	open    openTools
 }
 
 // continuedTurn is the parked turn handed to the request that continues it.
 type continuedTurn struct {
 	pending runtime.PendingTurn
 	origin  trace.SpanContext
+	open    openTools
 }
 
 // cancelingTask keeps the Actor occupied while PendingTurn.Cancel performs
@@ -83,7 +87,6 @@ type continuedTurn struct {
 type cancelingTask struct {
 	taskRef
 	done chan struct{}
-	err  error
 }
 
 func (*activeTask) isExecutorState()    {}
@@ -95,8 +98,17 @@ type executionSink struct {
 	yield          func(a2atype.Event, error) bool
 	continuation   ContinuationStore
 	capture        *tracing.TextCapture
+	captureLimit   int
 	textArtifactID a2atype.ArtifactID
 	lastPosition   time.Time
+	owner          spanOwner
+	paused         *spanOwner
+	tools          map[string]pendingTool
+	ended          *endedTools
+	// compiled names the model when the driver reports none.
+	compiled tracing.RuntimeTelemetry
+	// inferenceCalls and toolCalls count the agent's own calls in this segment.
+	inferenceCalls, toolCalls int64
 }
 
 var (
@@ -114,7 +126,12 @@ func New(runner Runner, continuation ContinuationStore, telemetry tracing.Runtim
 	if err := telemetry.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid runtime telemetry: %w", err)
 	}
-	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry}, nil
+	metrics, err := newGenAIMetrics(tracing.Meter(runtimeScope), telemetry.AgentName)
+	if err != nil {
+		// Missing metrics must not stop the runtime, so the error is only reported.
+		otel.Handle(fmt.Errorf("create GenAI metrics: %w", err))
+	}
+	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry, metrics: metrics}, nil
 }
 
 // Execute validates and serializes one A2A request onto the native Runner.
@@ -130,12 +147,27 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			// already completed the invocation.
 			invocation = nil
 		}
-		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation}
+		// The native process reports producer=runtime either way, so its spans are written even untraced.
+		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
 		result := tracing.Result{}
+		flushed, counted, ran := false, false, false
 		endInvocation := func() {
+			sink.endOpenTools()
+			// A request the agent never ran, such as one rejected as busy, has no calls to count.
+			if ran && !counted {
+				counted = true
+				e.metrics.recordInvocation(ctx, sink.inferenceCalls, sink.toolCalls)
+			}
 			invocation.SetAttributes(sink.captureAttributes(result)...)
 			if _, err := invocation.End(ctx, result); err != nil {
 				a2alog.Error(ctx, "failed to export A2A invocation traces", err)
+			}
+			// An invocation the transport already ended flushed before these spans existed.
+			if invocation == nil && !flushed {
+				flushed = true
+				if err := tracing.InvocationFromContext(ctx).Flush(ctx); err != nil {
+					a2alog.Error(ctx, "failed to flush runtime spans", err)
+				}
 			}
 		}
 		// Quiescent paths complete the invocation before yielding their event, so
@@ -176,7 +208,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		// approval or question carries a structured decision, not prompt text,
 		// so it records no input messages at all.
 		if limit := e.captureLimit(invocation); limit > 0 {
-			sink.capture = tracing.NewTextCapture(limit)
+			sink.capture, sink.captureLimit = tracing.NewTextCapture(limit), limit
 			if turn.Prompt != "" {
 				text, truncated := tracing.BoundedText(turn.Prompt, limit)
 				invocation.SetAttributes(
@@ -243,13 +275,17 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			})
 			return finishedCanceled
 		}
-		park := func(pending runtime.PendingTurn) bool {
+		park := func(pending runtime.PendingTurn, open openTools) bool {
 			parked := false
 			finishOnce.Do(func() {
 				cancel()
-				parked = e.park(active, pending, origin)
+				parked = e.park(active, pending, origin, open)
 				if !parked {
-					_ = pending.Cancel(context.Background())
+					// Restore before releaseCanceled so its flush covers the unfinished spans.
+					sink.tools = open.tools
+					if err := pending.Cancel(context.Background(), sink); err != nil {
+						a2alog.Error(ctx, "failed to cancel the runtime turn", err)
+					}
 					if e.deactivate(active) {
 						releaseCanceled()
 					}
@@ -269,9 +305,15 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		var runErr error
 		// activate returns a handle only when this request continues the task
 		// currently waiting for input. New turns enter through Runner.Run.
+		ran = true
 		if continued == nil {
 			outcome, runErr = e.runner.Run(runCtx, turn, sink)
 		} else {
+			decision, ok := turn.InputResponse.(*runtime.ApprovalDecision)
+			denied := ok && !decision.Approved
+			continued.open.resume(sink.owner, !denied)
+			sink.tools, sink.ended = continued.open.tools, continued.open.ended
+			sink.paused = &continued.open.owner
 			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
 		}
 		if errors.Is(runErr, errYieldStopped) {
@@ -304,7 +346,9 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			return
 		}
 		if outcome.Failure != nil && outcome.Pending != nil {
-			_ = outcome.Pending.Cancel(context.Background())
+			if err := outcome.Pending.Cancel(context.Background(), sink); err != nil {
+				a2alog.Error(ctx, "failed to cancel the runtime turn", err)
+			}
 			if finish() {
 				return
 			}
@@ -315,13 +359,16 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if outcome.Pending != nil {
 			message, err := inputRequiredMessage(reqCtx, outcome.Pending.Request())
 			if err != nil {
-				_ = outcome.Pending.Cancel(context.Background())
+				if err := outcome.Pending.Cancel(context.Background(), sink); err != nil {
+					a2alog.Error(ctx, "failed to cancel the runtime turn", err)
+				}
 				fail("invalid_input_request", err)
 				return
 			}
 			// Transfer the live native turn into executor state before telling the
 			// caller that it can submit a response or cancellation.
-			if !park(outcome.Pending) {
+			open := sink.pauseTools(outcome.Pending.Request())
+			if !park(outcome.Pending, open) {
 				return
 			}
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
@@ -427,6 +474,7 @@ func (s *executionSink) ToolCall(event runtime.ToolCall) error {
 	if err != nil {
 		return err
 	}
+	s.startToolSpan(event)
 	return s.emitToolArtifact(part)
 }
 
@@ -435,6 +483,7 @@ func (s *executionSink) ToolResult(event runtime.ToolResult) error {
 	if err != nil {
 		return err
 	}
+	s.endToolSpan(event)
 	return s.emitToolArtifact(part)
 }
 
@@ -550,7 +599,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			state.cancel()
 			done := state.done
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, done, nil, yield)
+			yieldCancellation(ctx, reqCtx, done, yield)
 			return
 		case *parkedTask:
 			if !state.matches(ref) {
@@ -562,15 +611,22 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.state = canceling
 			e.mu.Unlock()
 
-			err := state.pending.Cancel(ctx)
+			// Cleanup errors are telemetry, so the task is still reported canceled.
+			if err := state.pending.Cancel(ctx, &executionSink{owner: state.open.owner, tools: state.open.tools, ended: state.open.ended, compiled: e.telemetry}); err != nil {
+				a2alog.Error(ctx, "failed to cancel the parked runtime turn", err)
+			}
+			state.open.recordUnfinished()
+			// No invocation ends on cancel to flush these spans, and the gateway may suspend the Actor once canceled.
+			if flushErr := state.open.owner.invocation.Flush(ctx); flushErr != nil {
+				a2alog.Error(ctx, "failed to flush runtime spans", flushErr)
+			}
 			e.mu.Lock()
-			canceling.err = err
 			if e.state == canceling {
 				e.state = nil
 			}
 			close(canceling.done)
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, canceling.done, err, yield)
+			yieldCancellation(ctx, reqCtx, canceling.done, yield)
 			return
 		case *cancelingTask:
 			if !state.matches(ref) {
@@ -582,7 +638,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, done, state.err, yield)
+				yieldCancellation(ctx, reqCtx, done, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -597,13 +653,9 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 	}
 }
 
-func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, knownErr error, yield func(a2atype.Event, error) bool) {
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, yield func(a2atype.Event, error) bool) {
 	select {
 	case <-done:
-		if knownErr != nil {
-			yield(nil, knownErr)
-			return
-		}
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
 	case <-ctx.Done():
 		yield(nil, ctx.Err())
@@ -646,13 +698,13 @@ func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, er
 			return nil, fmt.Errorf("continuation does not match the parked task")
 		}
 		e.state = task
-		return &continuedTurn{pending: state.pending, origin: state.origin}, nil
+		return &continuedTurn{pending: state.pending, origin: state.origin, open: state.open}, nil
 	default:
 		return nil, errBusy
 	}
 }
 
-func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin trace.SpanContext) bool {
+func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin trace.SpanContext, open openTools) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.state != task {
@@ -663,7 +715,7 @@ func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin tr
 		// Keep the task active until the caller cancels the newly returned handle.
 		return false
 	}
-	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin}
+	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin, open: open}
 	return true
 }
 

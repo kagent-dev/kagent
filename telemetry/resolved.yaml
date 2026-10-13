@@ -12,6 +12,8 @@ imports:
   - gen_ai.client.inference.usage.reasoning.output_tokens
   - gen_ai.execute_tool.duration
   - gen_ai.invoke_agent.duration
+  - gen_ai.invoke_agent.inference_calls
+  - gen_ai.invoke_agent.tool_calls
   - gen_ai.invoke_workflow.duration
   - http.client.active_requests
   - http.client.connection.duration
@@ -161,7 +163,22 @@ refinements:
         conditionally_required: The runtime is a harness compiled against one model.
       stability: development
       type: string
-    - brief: The runtime that produces the model and tool spans of an agent.
+    - brief: The component that writes the GenAI model and tool spans of an agent.
+      key: kagent.genai.producer
+      note: |
+        Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The runtime is a native harness.
+      stability: development
+      type:
+        members:
+        - brief: The kagent harness runtime writes the model and tool spans.
+          id: runtime
+          stability: development
+          value: runtime
+    - brief: The framework or harness that runs an agent.
       key: kagent.runtime
       note: |
         Every runtime declares it on its resource. The name of a Harness object is not its runtime.
@@ -239,6 +256,2185 @@ refinements:
       - server_certificate_invalid
       - \u0027500\u0027
       key: error.type
+      note: The same bounded kagent vocabulary as on the chat span.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: The call failed.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The duration of one model call of a harness turn.
+    id: kagent.client.inference.duration
+    instrument: histogram
+    name: gen_ai.client.inference.duration
+    note: |
+      Recorded with the chat span, and equal to its duration. Not recorded for a zero-length call, such as a Codex call from a thread not known yet. Codex reports no call times, so its durations are estimates, as on the chat span.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: s
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The input tokens of one model call of a harness turn.
+    id: kagent.client.inference.operation.input_tokens
+    instrument: histogram
+    name: gen_ai.client.inference.operation.input_tokens
+    note: |
+      Recorded with each chat span that reports usage. The input count of a partial call is exact, so it is recorded too.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The output tokens of one model call of a harness turn.
+    id: kagent.client.inference.operation.output_tokens
+    instrument: histogram
+    name: gen_ai.client.inference.operation.output_tokens
+    note: |
+      Recorded with each chat span that reports usage. Not recorded for a partial call, since its output count is a lower bound.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: The modality of the tokens being counted.
+      examples:
+      - text
+      - image
+      - audio
+      key: gen_ai.token.modality
+      note: Always `unknown`, since the runtimes report no count by modality.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Text tokens.
+          id: text
+          stability: development
+          value: text
+        - brief: Image tokens.
+          id: image
+          stability: development
+          value: image
+        - brief: Audio tokens.
+          id: audio
+          stability: development
+          value: audio
+        - brief: The modality is not known.
+          id: unknown
+          stability: development
+          value: unknown
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The cache read input tokens of the model calls of harness turns.
+    id: kagent.client.inference.usage.cache_read.input_tokens
+    instrument: counter
+    name: gen_ai.client.inference.usage.cache_read.input_tokens
+    note: |
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: The modality of the tokens being counted.
+      examples:
+      - text
+      - image
+      - audio
+      key: gen_ai.token.modality
+      note: Always `unknown`, since the runtimes report no count by modality.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Text tokens.
+          id: text
+          stability: development
+          value: text
+        - brief: Image tokens.
+          id: image
+          stability: development
+          value: image
+        - brief: Audio tokens.
+          id: audio
+          stability: development
+          value: audio
+        - brief: The modality is not known.
+          id: unknown
+          stability: development
+          value: unknown
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The cache write input tokens of the model calls of harness turns.
+    id: kagent.client.inference.usage.cache_write.input_tokens
+    instrument: counter
+    name: gen_ai.client.inference.usage.cache_write.input_tokens
+    note: |
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: The modality of the tokens being counted.
+      examples:
+      - text
+      - image
+      - audio
+      key: gen_ai.token.modality
+      note: Always `unknown`, since the runtimes report no count by modality.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Text tokens.
+          id: text
+          stability: development
+          value: text
+        - brief: Image tokens.
+          id: image
+          stability: development
+          value: image
+        - brief: Audio tokens.
+          id: audio
+          stability: development
+          value: audio
+        - brief: The modality is not known.
+          id: unknown
+          stability: development
+          value: unknown
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The input tokens of the model calls of harness turns.
+    id: kagent.client.inference.usage.input_tokens
+    instrument: counter
+    name: gen_ai.client.inference.usage.input_tokens
+    note: |
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: The modality of the tokens being counted.
+      examples:
+      - text
+      - image
+      - audio
+      key: gen_ai.token.modality
+      note: Always `unknown`, since the runtimes report no count by modality.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Text tokens.
+          id: text
+          stability: development
+          value: text
+        - brief: Image tokens.
+          id: image
+          stability: development
+          value: image
+        - brief: Audio tokens.
+          id: audio
+          stability: development
+          value: audio
+        - brief: The modality is not known.
+          id: unknown
+          stability: development
+          value: unknown
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The output tokens of the model calls of harness turns.
+    id: kagent.client.inference.usage.output_tokens
+    instrument: counter
+    name: gen_ai.client.inference.usage.output_tokens
+    note: |
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: |
+        Semantic conventions for individual GenAI operations SHOULD clarify which
+        kinds of providers (e.g. inference, embeddings, retrieval, memory, hosted
+        agent providers) apply when it is not clear from context.
+
+        The attribute SHOULD be set based on the instrumentation\u0027s best knowledge
+        and may differ from the actual upstream provider. For example, a client SDK
+        may be configured against a proxy or hosting platform that transparently
+        relays requests to a different provider.
+
+        The `gen_ai.provider.name` attribute acts as a discriminator that
+        identifies the GenAI telemetry format flavor specific to that provider
+        within GenAI semantic conventions.
+        It SHOULD be set consistently with provider-specific attributes and signals.
+        For example, GenAI spans, metrics, and events related to AWS Bedrock
+        should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+        applicable `aws.bedrock.*` attributes and are not expected to include
+        `openai.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: |
+        The name of the GenAI model a request is being made to. If the model is supplied by a vendor, then the value must be the exact name of the model requested. If the model is a fine-tuned custom model, the value should have a more specific name than the base model that\u0027s been fine-tuned.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string
+    - brief: The modality of the tokens being counted.
+      examples:
+      - text
+      - image
+      - audio
+      key: gen_ai.token.modality
+      note: Always `unknown`, since the runtimes report no count by modality.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Text tokens.
+          id: text
+          stability: development
+          value: text
+        - brief: Image tokens.
+          id: image
+          stability: development
+          value: image
+        - brief: Audio tokens.
+          id: audio
+          stability: development
+          value: audio
+        - brief: The modality is not known.
+          id: unknown
+          stability: development
+          value: unknown
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      stability: stable
+      type: int
+    brief: The reasoning output tokens of the model calls of harness turns.
+    id: kagent.client.inference.usage.reasoning.output_tokens
+    instrument: counter
+    name: gen_ai.client.inference.usage.reasoning.output_tokens
+    note: |
+      Added with each chat span, with the same count. Not added when the count is zero. A partial call adds its counts, which are a lower bound. At the end of a Claude turn, the runtime also adds the tokens that Claude\u0027s own total shows but no chat span has, such as most of a subagent\u0027s output.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{token}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: double
+    attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: The same bounded kagent vocabulary as on the execute_tool span.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: The call failed or never got a result.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The human-readable name of the agent executing the tool.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: |
+        The compiled agent identity, `\u003cagent\u003e`. Absent on a subagent\u0027s tool, since Claude Code and Codex report no subagent name.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The tool is the agent\u0027s own, not a subagent\u0027s.
+      stability: development
+      type: string
+    - brief: Name of the tool utilized by the agent.
+      examples:
+      - Flights
+      key: gen_ai.tool.name
+      note: The plain MCP tool name, as on the execute_tool span.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: Type of the tool utilized by the agent
+      examples:
+      - function
+      - extension
+      - datastore
+      key: gen_ai.tool.type
+      note: |
+        Extension: A tool executed on the agent-side to directly call external APIs, bridging the gap between the agent and real-world systems.
+          Agent-side operations involve actions that are performed by the agent on the server or within the agent\u0027s controlled environment.
+        Function: A tool executed on the client-side, where the agent generates parameters for a predefined function, and the client executes the logic.
+          Client-side operations are actions taken on the user\u0027s end or within the client application.
+        Datastore: A tool used by the agent to access and query structured or unstructured external data for retrieval-augmented tasks or knowledge updates.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: If available.
+      stability: development
+      type: string
+    brief: The duration of one tool call of a harness turn.
+    id: kagent.execute_tool.duration
+    instrument: histogram
+    name: gen_ai.execute_tool.duration
+    note: |
+      Recorded with the execute_tool span, and equal to its duration. A declined call has no span, so it has no duration either.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: s
+  - annotations:
+      code_generation:
+        metric_value_type: double
+    attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
       note: The same bounded kagent vocabulary as on the span.
       provenance:
         source: https://opentelemetry.io/schemas/1.44.0
@@ -285,6 +2481,56 @@ refinements:
     requirement_level: recommended
     stability: development
     unit: s
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: Human-readable name of the GenAI agent provided by the application.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: The compiled agent identity, `\u003cagent\u003e`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    brief: The model calls of one execution segment of a harness agent.
+    id: kagent.invoke_agent.inference_calls
+    instrument: histogram
+    name: gen_ai.invoke_agent.inference_calls
+    note: |
+      Recorded when the invoke_agent span kagent opens ends, if the agent ran. Counts only the agent\u0027s own model calls, so a subagent\u0027s calls are not counted. A call that names an unknown parent tool is not counted either. A Codex call whose usage arrives after a pause counts in the later segment. A call reported when a paused turn is canceled is not counted.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+    unit: \u0027{inference_call}\u0027
+  - annotations:
+      code_generation:
+        metric_value_type: int
+    attributes:
+    - brief: Human-readable name of the GenAI agent provided by the application.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      note: The compiled agent identity, `\u003cagent\u003e`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    brief: The tool calls of one execution segment of a harness agent.
+    id: kagent.invoke_agent.tool_calls
+    instrument: histogram
+    name: gen_ai.invoke_agent.tool_calls
+    note: |
+      Recorded when the invoke_agent span kagent opens ends, if the agent ran. Counts only the agent\u0027s own tool calls, declined calls included, so a subagent\u0027s tools are not counted. A tool that names an unknown parent tool is not counted either.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+    unit: \u0027{tool_call}\u0027
   - attributes:
     - brief: |
         Describes a class of error the operation ended with.
@@ -632,6 +2878,1154 @@ refinements:
     requirement_level: recommended
     stability: development
     type: kagent.a2a.request
+  - attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        `tool_error` when the tool reported a failure, `unfinished` when its result never arrived. Never the tool output.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: The tool reported a failure or never finished.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The human-readable name of the agent executing the tool.
+      examples:
+      - Math Tutor
+      - Fiction Writer
+      key: gen_ai.agent.name
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: When applicable.
+      sampling_relevant: true
+      stability: development
+      type: string
+    - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
+      examples:
+      - conv_5j66UpCpwteGg4YSxUnt7lPY
+      key: gen_ai.conversation.id
+      note: The A2A context ID.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A context.
+      stability: development
+      type: string
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `execute_tool`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      sampling_relevant: true
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-tool-call-arguments.json
+      brief: Parameters passed to the tool call.
+      examples:
+      - |
+        {
+            "location": "San Francisco?",
+            "date": "2025-10-01"
+        }
+      key: gen_ai.tool.call.arguments
+      note: |
+        The tool input as JSON. It can hold sensitive data, so it is recorded only under `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. It is cut to the same byte budget as `gen_ai.input.messages`, so a cut value is not valid JSON.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: The tool call identifier.
+      examples:
+      - call_mszuSIzqtI65i1wAUOE8w5H4
+      key: gen_ai.tool.call.id
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-tool-call-result.json
+      brief: The result returned by the tool call (if any and if execution was successful).
+      examples:
+      - |
+        {
+          "temperature_range": {
+            "high": 75,
+            "low": 60
+          },
+          "conditions": "sunny"
+        }
+      key: gen_ai.tool.call.result
+      note: |
+        The tool result as JSON, which can hold sensitive data, under the same rule and budget. Absent when the call failed or never finished.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: The tool description.
+      examples:
+      - Multiply two numbers
+      key: gen_ai.tool.description
+      note: |
+        \u003e [!WARNING]
+        \u003e This attribute may contain sensitive information.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: If available.
+      stability: development
+      type: string
+    - brief: Name of the tool utilized by the agent.
+      examples:
+      - Flights
+      key: gen_ai.tool.name
+      note: For an MCP tool, the MCP tool name without the server.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      sampling_relevant: true
+      stability: development
+      type: string
+    - brief: Type of the tool utilized by the agent
+      examples:
+      - function
+      - extension
+      - datastore
+      key: gen_ai.tool.type
+      note: |
+        Extension: A tool executed on the agent-side to directly call external APIs, bridging the gap between the agent and real-world systems.
+          Agent-side operations involve actions that are performed by the agent on the server or within the agent\u0027s controlled environment.
+        Function: A tool executed on the client-side, where the agent generates parameters for a predefined function, and the client executes the logic.
+          Client-side operations are actions taken on the user\u0027s end or within the client application.
+        Datastore: A tool used by the agent to access and query structured or unstructured external data for retrieval-augmented tasks or knowledge updates.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: If available.
+      sampling_relevant: true
+      stability: development
+      type: string
+    - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
+      key: kagent.capture.input_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.tool.call.arguments is present.
+      stability: development
+      type: boolean
+    - brief: Whether the captured output messages or tool result were shortened to the capture budget.
+      key: kagent.capture.output_truncated
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: gen_ai.tool.call.result is present.
+      stability: development
+      type: boolean
+    - brief: The name of the MCP server that serves a tool call.
+      examples:
+      - kagent-tool-server
+      key: kagent.mcp.server.name
+      note: |
+        The value is the server name in the runtime\u0027s MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The tool is an MCP tool.
+      stability: development
+      type: string
+    brief: One tool call of a harness turn.
+    id: kagent.execute_tool.internal
+    kind: internal
+    name:
+      note: |
+        **Span name** SHOULD be `execute_tool {gen_ai.tool.name}`.
+    note: |
+      Named `execute_tool {gen_ai.tool.name}`. The span runs from the tool call to its result. A subagent tool goes under the execute_tool span of the tool call that started the subagent. Other tools go under the invoke_agent span. A call open across a pause starts no earlier than the segment its result arrives in. The call belongs to that segment, but a subagent tool stays under its parent tool span.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    type: gen_ai.execute_tool.internal
+  - attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        The error category from the harness, such as `rate_limit`, or `model_error` when the harness gives none. A canceled call keeps finish reason `error`, as the conventions require, but has no error status.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: The call ended with finish reason `error` and was not canceled.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: Indicates whether the effective conversation context used for this operation is a compacted view of a prior conversation.
+      examples:
+      - true
+      key: gen_ai.conversation.compacted
+      note: |
+        This attribute is a positive indicator of context compaction. Instrumentations
+        SHOULD set it to `true` only when they can reliably determine that context
+        compaction was applied. Instrumentations SHOULD NOT set it to `false`; they
+        SHOULD leave it unset otherwise.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: when available
+      stability: development
+      type: boolean
+    - brief: The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation.
+      examples:
+      - conv_5j66UpCpwteGg4YSxUnt7lPY
+      key: gen_ai.conversation.id
+      note: The A2A context ID.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The gateway assigned an A2A context.
+      stability: development
+      type: string
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-input-messages.json
+      brief: |
+        The chat history provided to the model as an input.
+      examples:
+      - |
+        [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text",
+                "content": "Weather in Paris?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "call_VSPygqKTWdrhaFErNvMV18Yl",
+                "name": "get_weather",
+                "arguments": {
+                  "location": "Paris"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "call_VSPygqKTWdrhaFErNvMV18Yl",
+                "response": "rainy, 57°F"
+              }
+            ]
+          }
+        ]
+      key: gen_ai.input.messages
+      note: Never set here. With content capture on, the turn content is on the invoke_agent span.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: The name of the operation being performed.
+      key: gen_ai.operation.name
+      note: Always `chat`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      sampling_relevant: true
+      stability: development
+      type:
+        members:
+        - brief: Chat completion operation such as [OpenAI Chat API](https://platform.openai.com/docs/api-reference/chat)
+          id: chat
+          stability: development
+          value: chat
+        - brief: Multimodal content generation operation such as [Gemini Generate Content](https://ai.google.dev/api/generate-content)
+          id: generate_content
+          stability: development
+          value: generate_content
+        - brief: Text completions operation such as [OpenAI Completions API (Legacy)](https://platform.openai.com/docs/api-reference/completions)
+          id: text_completion
+          stability: development
+          value: text_completion
+        - brief: Embeddings operation such as [OpenAI Create embeddings API](https://platform.openai.com/docs/api-reference/embeddings/create)
+          id: embeddings
+          stability: development
+          value: embeddings
+        - brief: Retrieval operation such as [OpenAI Search Vector Store API](https://platform.openai.com/docs/api-reference/vector-stores/search)
+          id: retrieval
+          stability: development
+          value: retrieval
+        - brief: Fetch a previously generated model response by its identifier, without performing inference, such as [OpenAI Get a model response](https://platform.openai.com/docs/api-reference/responses/get)
+          id: fetch_response
+          note: |
+            Instrumentations SHOULD NOT report token usage (as attributes or metrics) for this operation.
+          stability: development
+          value: fetch_response
+        - brief: Create GenAI agent
+          id: create_agent
+          stability: development
+          value: create_agent
+        - brief: Invoke GenAI agent
+          id: invoke_agent
+          stability: development
+          value: invoke_agent
+        - brief: Execute a tool
+          id: execute_tool
+          stability: development
+          value: execute_tool
+        - brief: Invoke GenAI workflow
+          id: invoke_workflow
+          stability: development
+          value: invoke_workflow
+        - brief: Agent planning or task decomposition phase
+          id: plan
+          stability: development
+          value: plan
+        - brief: Search/query memories from a memory store
+          id: search_memory
+          stability: development
+          value: search_memory
+        - brief: Create new memory records
+          id: create_memory
+          stability: development
+          value: create_memory
+        - brief: Update existing memory records
+          id: update_memory
+          stability: development
+          value: update_memory
+        - brief: Create or update memory records without the caller choosing which
+          id: upsert_memory
+          stability: development
+          value: upsert_memory
+        - brief: Delete memory records
+          id: delete_memory
+          stability: development
+          value: delete_memory
+        - brief: Create or initialize a memory store
+          id: create_memory_store
+          stability: development
+          value: create_memory_store
+        - brief: Delete or deprovision a memory store
+          id: delete_memory_store
+          stability: development
+          value: delete_memory_store
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-output-messages.json
+      brief: Messages returned by the model where each message represents a specific model response (choice, candidate).
+      examples:
+      - |
+        [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text",
+                "content": "The weather in Paris is currently rainy with a temperature of 57°F."
+              }
+            ]
+          }
+        ]
+      key: gen_ai.output.messages
+      note: Never set here. With content capture on, the turn content is on the invoke_agent span.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: Represents the content type requested by the client.
+      key: gen_ai.output.type
+      note: |
+        This attribute SHOULD be used when the client requests output of a specific type. The model may return zero or more outputs of this type.
+        This attribute specifies the output modality and not the actual output format. For example, if an image is requested, the actual output could be a URL pointing to an image file.
+        Additional output format details may be recorded in the future in the `gen_ai.output.{type}.*` attributes.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: When applicable and if the request includes an output format.
+      stability: development
+      type:
+        members:
+        - brief: Plain text
+          id: text
+          stability: development
+          value: text
+        - brief: JSON object with known or unknown schema
+          id: json
+          stability: development
+          value: json
+        - brief: Image
+          id: image
+          stability: development
+          value: image
+        - brief: Speech
+          id: speech
+          stability: development
+          value: speech
+    - brief: The name of the prompt that uniquely identifies it.
+      examples:
+      - analyze-code
+      key: gen_ai.prompt.name
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: when a named prompt template is used
+      stability: development
+      type: string
+    - brief: The variables supplied to the prompt template, the `\u003ckey\u003e` being the variable name, the value being the variable value.
+      examples:
+      - Alice
+      - French
+      key: gen_ai.prompt.variable
+      note: |
+        Prompt templates are parameterized with variables that are filled in
+        at runtime. This attribute records the variable values passed to the
+        template. The attribute name defines the variable name, and the
+        attribute value is the variable value serialized as a string.
+
+        Examples:
+
+        - A variable `user_name` with value `Alice` SHOULD be recorded as
+          the `gen_ai.prompt.variable.user_name` attribute with value `"Alice"`.
+        - A variable `language` with value `French` SHOULD be recorded as
+          the `gen_ai.prompt.variable.language` attribute with value `"French"`.
+
+        \u003e [!Warning]
+        \u003e This attribute may contain sensitive information.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: template[string]
+    - brief: The version of the prompt template used.
+      examples:
+      - 1.0.0
+      - 2025-05-01
+      - prod
+      - v2
+      key: gen_ai.prompt.version
+      note: |
+        The version string can follow any versioning scheme chosen by the
+        application (e.g., SemVer, date-based, or platform-specific tags).
+        When a prompt management system is in use, this SHOULD match the
+        version identifier used by that system.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: when `gen_ai.prompt.name` is set and a version is available
+      stability: development
+      type: string
+    - brief: The Generative AI provider as identified by the client or server instrumentation.
+      key: gen_ai.provider.name
+      note: The provider the agent is compiled against.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      sampling_relevant: true
+      stability: development
+      type:
+        members:
+        - brief: \u0027[OpenAI](https://openai.com/)\u0027
+          id: openai
+          stability: development
+          value: openai
+        - brief: Any Google generative AI endpoint
+          id: gcp.gen_ai
+          note: |
+            May be used when specific backend is unknown.
+          stability: development
+          value: gcp.gen_ai
+        - brief: \u0027[Vertex AI](https://cloud.google.com/vertex-ai)\u0027
+          id: gcp.vertex_ai
+          note: |
+            Used when accessing the \u0027aiplatform.googleapis.com\u0027 endpoint.
+          stability: development
+          value: gcp.vertex_ai
+        - brief: \u0027[Gemini](https://cloud.google.com/products/gemini)\u0027
+          id: gcp.gemini
+          note: |
+            Used when accessing the \u0027generativelanguage.googleapis.com\u0027 endpoint. Also known as the AI Studio API.
+          stability: development
+          value: gcp.gemini
+        - brief: \u0027[Anthropic](https://www.anthropic.com/)\u0027
+          id: anthropic
+          stability: development
+          value: anthropic
+        - brief: \u0027[Cohere](https://cohere.com/)\u0027
+          id: cohere
+          stability: development
+          value: cohere
+        - brief: Azure AI Inference
+          id: azure.ai.inference
+          stability: development
+          value: azure.ai.inference
+        - brief: \u0027[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)\u0027
+          id: azure.ai.openai
+          stability: development
+          value: azure.ai.openai
+        - brief: \u0027[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)\u0027
+          id: ibm.watsonx.ai
+          stability: development
+          value: ibm.watsonx.ai
+        - brief: \u0027[AWS Bedrock](https://aws.amazon.com/bedrock)\u0027
+          id: aws.bedrock
+          stability: development
+          value: aws.bedrock
+        - brief: \u0027[Perplexity](https://www.perplexity.ai/)\u0027
+          id: perplexity
+          stability: development
+          value: perplexity
+        - brief: \u0027[xAI](https://x.ai/)\u0027
+          id: x_ai
+          stability: development
+          value: x_ai
+        - brief: \u0027[DeepSeek](https://www.deepseek.com/)\u0027
+          id: deepseek
+          stability: development
+          value: deepseek
+        - brief: \u0027[Groq](https://groq.com/)\u0027
+          id: groq
+          stability: development
+          value: groq
+        - brief: \u0027[Mistral AI](https://mistral.ai/)\u0027
+          id: mistral_ai
+          stability: development
+          value: mistral_ai
+        - brief: \u0027[Moonshot AI](https://www.moonshot.ai/)\u0027
+          id: moonshot_ai
+          stability: development
+          value: moonshot_ai
+    - brief: The target number of candidate completions to return.
+      examples:
+      - 3
+      key: gen_ai.request.choice.count
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If available, in the request, and !=1.
+      stability: development
+      type: int
+    - brief: The frequency penalty setting for the GenAI request.
+      examples:
+      - 0.1
+      key: gen_ai.request.frequency_penalty
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: The maximum number of tokens the model generates for a request.
+      examples:
+      - 100
+      key: gen_ai.request.max_tokens
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The name of the GenAI model a request is being made to.
+      examples: gpt-4
+      key: gen_ai.request.model
+      note: The model the agent is compiled against.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: The runtime is a harness compiled against one model.
+      sampling_relevant: true
+      stability: development
+      type: string
+    - brief: The presence penalty setting for the GenAI request.
+      examples:
+      - 0.1
+      key: gen_ai.request.presence_penalty
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: The unique identifier of a previous response or interaction used to provide context for the current operation.
+      examples:
+      - resp_0123456789aBCdef
+      - interaction-123
+      key: gen_ai.request.previous_response.id
+      note: |
+        Instrumentations SHOULD populate this attribute when the request references a previous response or interaction identifier to continue a conversation or pass prior context.
+        For example, `previous_response_id` in [OpenAI Responses API](https://developers.openai.com/api/docs/guides/conversation-state#passing-context-from-the-previous-response)
+        or `previous_interaction_id` in [Google GenAI Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview).
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When available and if the request references a previous response.
+      stability: development
+      type: string
+    - brief: |
+        The reasoning or thinking effort level requested for a GenAI model.
+      examples:
+      - low
+      - medium
+      - high
+      key: gen_ai.request.reasoning.level
+      note: |
+        The value SHOULD be the exact string value sent to the provider.
+        Semantic conventions for individual providers SHOULD document which input parameter maps to this attribute.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: string
+    - brief: Requests with same seed value more likely to return same result.
+      examples:
+      - 100
+      key: gen_ai.request.seed
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If applicable and if the request includes a seed.
+      stability: development
+      type: int
+    - brief: List of sequences that the model will use to stop generating further tokens.
+      examples:
+      - - forest
+        - lived
+      key: gen_ai.request.stop_sequences
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: string[]
+    - brief: Indicates whether the GenAI request was made in streaming mode.
+      key: gen_ai.request.stream
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If and only if the request is streaming. If unset, the request is assumed to be non-streaming.
+      stability: development
+      type: boolean
+    - brief: The temperature setting for the GenAI request.
+      examples:
+      - 0.0
+      key: gen_ai.request.temperature
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: |
+        The top-K sampling setting for the GenAI request: restricts token generation at each step to the K most likely next tokens.
+      examples:
+      - 40
+      key: gen_ai.request.top_k
+      note: |
+        This is a decoding/sampling parameter (e.g., Anthropic `top_k`, Cohere `k`, Google `topK`), not an output-shaping parameter. In particular, OpenAI\u0027s `top_logprobs` controls how many per-token log-probabilities are returned in the response and does not change generation; it MUST NOT be reported as `gen_ai.request.top_k`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        conditionally_required: If applicable.
+      stability: development
+      type: int
+    - brief: The top_p sampling setting for the GenAI request.
+      examples:
+      - 1.0
+      key: gen_ai.request.top_p
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: double
+    - brief: Array of reasons the model stopped generating tokens, corresponding to each generation received.
+      examples:
+      - - stop
+      - - stop
+        - length
+      - - stop
+        - length
+        - error
+      key: gen_ai.response.finish_reasons
+      note: |
+        Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`. Codex calls have only `error`, set for a failed call.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string[]
+    - brief: The unique identifier for the completion.
+      examples:
+      - chatcmpl-123
+      key: gen_ai.response.id
+      note: The Claude message ID. Codex reports none.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
+    - brief: |
+        Time to first chunk in a streaming response, measured from request issuance, in seconds. The value is measured from when the client issues the generation request to when the first chunk is received in the response stream.
+      examples:
+      - 0.5
+      - 1.2
+      key: gen_ai.response.time_to_first_chunk
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: If the request was a streaming request.
+      stability: development
+      type: double
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-system-instructions.json
+      brief: The system message or instructions provided to the GenAI model separately from the chat history.
+      examples:
+      - |
+        [
+          {
+            "type": "text",
+            "content": "You are an Agent that greet users, always use greetings tool to respond"
+          }
+        ]
+      - |
+        [
+          {
+            "type": "text",
+            "content": "You are a language translator."
+          },
+          {
+            "type": "text",
+            "content": "Your mission is to translate text in English to French."
+          }
+        ]
+      key: gen_ai.system_instructions
+      note: |
+        This attribute SHOULD be used when the corresponding provider or API
+        allows to provide system instructions or messages separately from the
+        chat history.
+
+        Instructions that are part of the chat history SHOULD be recorded in
+        `gen_ai.input.messages` attribute instead.
+
+        Instrumentations MAY provide a way for users to filter or truncate
+        system instructions.
+
+        \u003e [!Warning]
+        \u003e This attribute may contain sensitive information.
+
+        See [Recording content on attributes](/docs/gen-ai/gen-ai-spans.md#recording-content-on-attributes)
+        section for more details.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - annotations:
+        type:
+          json_schema: model/gen-ai/gen-ai-tool-definitions.json
+      brief: The list of tool definitions available to the GenAI agent or model.
+      examples:
+      - |
+        [
+          {
+            "type": "function",
+            "name": "get_current_weather",
+            "description": "Get the current weather in a given location",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "location": {
+                  "type": "string",
+                  "description": "The city and state, e.g. San Francisco, CA"
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "celsius",
+                    "fahrenheit"
+                  ]
+                }
+              },
+              "required": [
+                "location",
+                "unit"
+              ]
+            }
+          }
+        ]
+      key: gen_ai.tool.definitions
+      note: |
+        \u003e [!WARNING]
+        \u003e This attribute may contain sensitive information.
+
+        Since this attribute could be large, it\u0027s NOT RECOMMENDED to populate
+        non-required properties by default. Instrumentations MAY provide a way
+        to enable populating optional properties.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: opt_in
+      stability: development
+      type: any
+    - brief: The number of audio input tokens served from a provider-managed cache.
+      examples:
+      - 60
+      key: gen_ai.usage.audio.cache_read.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.cache_read.input_tokens` and in `gen_ai.usage.audio.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of audio input tokens.
+      examples:
+      - 120
+      key: gen_ai.usage.audio.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of audio output tokens.
+      examples:
+      - 240
+      key: gen_ai.usage.audio.output_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.output_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of input tokens served from a provider-managed cache.
+      examples:
+      - 50
+      key: gen_ai.usage.cache_read.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The number of input tokens written to a provider-managed cache.
+      examples:
+      - 25
+      key: gen_ai.usage.cache_write.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The number of image input tokens served from a provider-managed cache.
+      examples:
+      - 128
+      key: gen_ai.usage.image.cache_read.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.cache_read.input_tokens` and in `gen_ai.usage.image.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of image input tokens.
+      examples:
+      - 258
+      key: gen_ai.usage.image.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of image output tokens.
+      examples:
+      - 1290
+      key: gen_ai.usage.image.output_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.output_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of tokens used in the GenAI input (prompt).
+      examples:
+      - 100
+      key: gen_ai.usage.input_tokens
+      note: Includes cached tokens. Absent when the runtime reported no usage.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The number of tokens used in the GenAI response (completion).
+      examples:
+      - 180
+      key: gen_ai.usage.output_tokens
+      note: Absent when the runtime reported no usage.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking).
+      examples:
+      - 50
+      key: gen_ai.usage.reasoning.output_tokens
+      note: Included in gen_ai.usage.output_tokens.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The number of text input tokens served from a provider-managed cache.
+      examples:
+      - 40
+      key: gen_ai.usage.text.cache_read.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.cache_read.input_tokens` and in `gen_ai.usage.text.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of text input tokens.
+      examples:
+      - 100
+      key: gen_ai.usage.text.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The number of text output tokens.
+      examples:
+      - 180
+      key: gen_ai.usage.text.output_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.output_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: When applicable.
+      stability: development
+      type: int
+    - brief: The provider\u0027s request ID of a model call.
+      examples:
+      - req_011CUa1b2c3d4e5f6g7h8i9j
+      key: kagent.inference.request_id
+      note: The Claude request ID. Codex reports none.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
+    - brief: How many times the harness retried a model call after a transient error.
+      key: kagent.inference.retry.count
+      note: |
+        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The harness retried the call.
+      stability: development
+      type: int
+    - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
+      key: kagent.inference.usage_partial
+      note: |
+        Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The call ended without final usage.
+      stability: development
+      type: boolean
+    - brief: GenAI server address.
+      examples:
+      - example.com
+      - 10.1.2.80
+      - /tmp/my.sock
+      key: server.address
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.address` SHOULD represent the server address behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level: recommended
+      sampling_relevant: true
+      stability: stable
+      type: string
+    - brief: GenAI server port.
+      examples:
+      - 80
+      - 8080
+      - 443
+      key: server.port
+      note: |
+        When observed from the client side, and when communicating through an intermediary, `server.port` SHOULD represent the server port behind any intermediaries, for example proxies, if it\u0027s available.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: If `server.address` is set.
+      sampling_relevant: true
+      stability: stable
+      type: int
+    brief: One model request of a harness turn.
+    id: kagent.inference.client
+    kind: client
+    name:
+      note: |
+        **Span name** SHOULD be `{gen_ai.operation.name} {gen_ai.request.model}`.
+        Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format
+        and MUST follow the overall [guidelines for span names](https://github.com/open-telemetry/opentelemetry-specification/blob/v1.56.0/specification/trace/api.md#span).
+    note: |
+      Named `chat {gen_ai.request.model}`, or `chat` when the request model is unknown. A subagent model call goes under the execute_tool span of the tool call that started the subagent. Examples are the Claude `Agent` tool and the Codex `spawnAgent` call. This rule also applies when the tool span is in a later segment. Other model calls go under the invoke_agent span. A subagent model call can start outside the time of its parent span. A Codex `spawnAgent` call ends when the subagent starts, so the subagent model calls start after that span ends. After a pause, the tool span starts in the later segment, so earlier subagent model calls start before it. A call that ended with finish reason `error` has an error status, unless it was canceled. One span covers a call and all its automatic retries, and only a final failure gives it an error status. A Claude call\u0027s token counts add up every attempt that the provider started. Codex reports usage only for the attempt that succeeded, and none for a call canceled mid-response. Codex errors of the `other` and `badRequest` categories can also come from outside a model request, and they still give a failed call. Codex reports no call times, so a Codex call starts at the previous call\u0027s usage report or final error. It ends when its first tool starts or the turn pauses for input, or else at its own usage report or final error. The first call of a Codex subagent starts when its `spawnAgent` call first names its thread.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    type: gen_ai.client.inference
   - attributes:
     - brief: The A2A method that started the invocation.
       key: a2a.method
@@ -1174,7 +4568,7 @@ refinements:
         by the provider or inferred by the instrumentation.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-      requirement_level: recommended
+      requirement_level: opt_in
       stability: development
       type: string[]
     - annotations:
@@ -1292,7 +4686,7 @@ refinements:
         - `gen_ai.usage.image.input_tokens`: 200
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-      requirement_level: recommended
+      requirement_level: opt_in
       stability: development
       type: int
     - brief: The number of tokens used in the GenAI response (completion).
@@ -1306,10 +4700,10 @@ refinements:
         value matches the units the customer is charged for.
       provenance:
         source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
-      requirement_level: recommended
+      requirement_level: opt_in
       stability: development
       type: int
-    - brief: Whether the captured input messages were shortened to the capture budget.
+    - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
       key: kagent.capture.input_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -1317,7 +4711,7 @@ refinements:
         conditionally_required: gen_ai.input.messages is present.
       stability: development
       type: boolean
-    - brief: Whether the captured output messages were shortened to the capture budget.
+    - brief: Whether the captured output messages or tool result were shortened to the capture budget.
       key: kagent.capture.output_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -1373,7 +4767,7 @@ refinements:
         When `gen_ai.agent.name` is not available, it SHOULD be `invoke_agent`.
         Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format.
     note: |
-      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`.
+      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`. Usage and finish reasons are only on inference spans, so they are opt-in here and never set.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
@@ -1382,7 +4776,7 @@ refinements:
 registry:
   attribute_groups:
   - attributes:
-    - brief: Whether the captured input messages were shortened to the capture budget.
+    - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
       key: kagent.capture.input_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -1390,7 +4784,7 @@ registry:
         conditionally_required: gen_ai.input.messages is present.
       stability: development
       type: boolean
-    - brief: Whether the captured output messages were shortened to the capture budget.
+    - brief: Whether the captured output messages or tool result were shortened to the capture budget.
       key: kagent.capture.output_truncated
       provenance:
         path: telemetry/registry/kagent.yaml
@@ -1523,6 +4917,137 @@ registry:
       type: string
     brief: The compiled agent an invocation belongs to.
     id: kagent.identity
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
+  - attributes:
+    - brief: Array of reasons the model stopped generating tokens, corresponding to each generation received.
+      examples:
+      - - stop
+      - - stop
+        - length
+      - - stop
+        - length
+        - error
+      key: gen_ai.response.finish_reasons
+      note: |
+        Claude stop reasons map to `stop`, `tool_call`, `length` or `content_filter`. Codex calls have only `error`, set for a failed call.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string[]
+    - brief: The unique identifier for the completion.
+      examples:
+      - chatcmpl-123
+      key: gen_ai.response.id
+      note: The Claude message ID. Codex reports none.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
+    - brief: The name of the model that generated the response.
+      examples:
+      - gpt-4-0613
+      key: gen_ai.response.model
+      note: The model the harness reported.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
+    - brief: The number of input tokens served from a provider-managed cache.
+      examples:
+      - 50
+      key: gen_ai.usage.cache_read.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The number of input tokens written to a provider-managed cache.
+      examples:
+      - 25
+      key: gen_ai.usage.cache_write.input_tokens
+      note: |
+        The value SHOULD be included in `gen_ai.usage.input_tokens`.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The number of tokens used in the GenAI input (prompt).
+      examples:
+      - 100
+      key: gen_ai.usage.input_tokens
+      note: Includes cached tokens. Absent when the runtime reported no usage.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The number of tokens used in the GenAI response (completion).
+      examples:
+      - 180
+      key: gen_ai.usage.output_tokens
+      note: Absent when the runtime reported no usage.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: recommended
+      stability: development
+      type: int
+    - brief: The number of output tokens used for reasoning (e.g. chain-of-thought, extended thinking).
+      examples:
+      - 50
+      key: gen_ai.usage.reasoning.output_tokens
+      note: Included in gen_ai.usage.output_tokens.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level:
+        recommended: The runtime reported a non-zero count.
+      stability: development
+      type: int
+    - brief: The provider\u0027s request ID of a model call.
+      examples:
+      - req_011CUa1b2c3d4e5f6g7h8i9j
+      key: kagent.inference.request_id
+      note: The Claude request ID. Codex reports none.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        recommended: The runtime reported it.
+      stability: development
+      type: string
+    - brief: How many times the harness retried a model call after a transient error.
+      key: kagent.inference.retry.count
+      note: |
+        Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The harness retried the call.
+      stability: development
+      type: int
+    - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
+      key: kagent.inference.usage_partial
+      note: |
+        Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The call ended without final usage.
+      stability: development
+      type: boolean
+    brief: What one model request returned.
+    id: kagent.inference
     provenance:
       path: telemetry/registry/signals.yaml
     stability: development
@@ -1828,7 +5353,7 @@ registry:
         conditionally_required: The runtime is a harness compiled against one model.
       stability: development
       type: string
-    - brief: The runtime that produces the model and tool spans of an agent.
+    - brief: The framework or harness that runs an agent.
       key: kagent.runtime
       note: |
         Every runtime declares it on its resource. The name of a Harness object is not its runtime.
@@ -1911,6 +5436,65 @@ registry:
     provenance:
       path: telemetry/registry/signals.yaml
     stability: development
+  - attributes:
+    - brief: |
+        Describes a class of error the operation ended with.
+      examples:
+      - timeout
+      - java.net.UnknownHostException
+      - server_certificate_invalid
+      - \u0027500\u0027
+      key: error.type
+      note: |
+        `tool_error` when the tool reported a failure, `unfinished` when its result never arrived. Never the tool output.
+      provenance:
+        source: https://opentelemetry.io/schemas/1.44.0
+      requirement_level:
+        conditionally_required: The tool reported a failure or never finished.
+      stability: stable
+      type:
+        members:
+        - brief: |
+            A fallback error value to be used when the instrumentation doesn\u0027t define a custom value.
+          id: other
+          stability: stable
+          value: _OTHER
+    - brief: The tool call identifier.
+      examples:
+      - call_mszuSIzqtI65i1wAUOE8w5H4
+      key: gen_ai.tool.call.id
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: Name of the tool utilized by the agent.
+      examples:
+      - Flights
+      key: gen_ai.tool.name
+      note: For an MCP tool, the MCP tool name without the server.
+      provenance:
+        source: https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev
+      requirement_level: required
+      stability: development
+      type: string
+    - brief: The name of the MCP server that serves a tool call.
+      examples:
+      - kagent-tool-server
+      key: kagent.mcp.server.name
+      note: |
+        The value is the server name in the runtime\u0027s MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes.
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level:
+        conditionally_required: The tool is an MCP tool.
+      stability: development
+      type: string
+    brief: One tool call of an invocation.
+    id: kagent.tool_call
+    provenance:
+      path: telemetry/registry/signals.yaml
+    stability: development
   attributes:
   - brief: The A2A method that started the invocation.
     key: a2a.method
@@ -1978,13 +5562,13 @@ registry:
         id: auth_required
         stability: development
         value: TASK_STATE_AUTH_REQUIRED
-  - brief: Whether the captured input messages were shortened to the capture budget.
+  - brief: Whether the captured input messages or tool arguments were shortened to the capture budget.
     key: kagent.capture.input_truncated
     provenance:
       path: telemetry/registry/kagent.yaml
     stability: development
     type: boolean
-  - brief: Whether the captured output messages were shortened to the capture budget.
+  - brief: Whether the captured output messages or tool result were shortened to the capture budget.
     key: kagent.capture.output_truncated
     provenance:
       path: telemetry/registry/kagent.yaml
@@ -2005,6 +5589,45 @@ registry:
         id: collection
         stability: development
         value: collection
+  - brief: The component that writes the GenAI model and tool spans of an agent.
+    key: kagent.genai.producer
+    note: |
+      Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: The kagent harness runtime writes the model and tool spans.
+        id: runtime
+        stability: development
+        value: runtime
+  - brief: The provider\u0027s request ID of a model call.
+    examples:
+    - req_011CUa1b2c3d4e5f6g7h8i9j
+    key: kagent.inference.request_id
+    note: |
+      Lets a backend join the call with the provider\u0027s logs. Claude only. A call canceled early can lack it.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: string
+  - brief: How many times the harness retried a model call after a transient error.
+    key: kagent.inference.retry.count
+    note: |
+      Set only when the call was retried. The chat span covers all attempts. Codex counts its reported retries, not the HTTP retries inside each one. Over a WebSocket, Codex does not report its first retry. Claude also counts a new stream that replaces one cut off mid-response.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: int
+  - brief: Whether the call ended without final usage, so its output tokens are a lower bound.
+    key: kagent.inference.usage_partial
+    note: |
+      Set only when true. Input tokens, when present, stay exact. Calls cut short and Claude subagent calls can set it.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: boolean
   - brief: How a segment stopped, when the task state does not say it.
     key: kagent.invocation.disposition
     provenance:
@@ -2054,7 +5677,17 @@ registry:
         id: resumed
         stability: development
         value: resumed
-  - brief: The runtime that produces the model and tool spans of an agent.
+  - brief: The name of the MCP server that serves a tool call.
+    examples:
+    - kagent-tool-server
+    key: kagent.mcp.server.name
+    note: |
+      The value is the server name in the runtime\u0027s MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes.
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type: string
+  - brief: The framework or harness that runs an agent.
     key: kagent.runtime
     note: |
       Every runtime declares it on its resource. The name of a Harness object is not its runtime.

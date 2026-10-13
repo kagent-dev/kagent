@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestProcessDriverRunsPinnedProtocol(t *testing.T) {
@@ -125,9 +127,23 @@ printf graceful > "$EXIT_CAPTURE"
 }
 
 func TestProcessDriverSharedAgentNotifications(t *testing.T) {
+	for _, tc := range []struct {
+		name, fixture string
+		wantChildTool bool
+	}{
+		{name: "spawn completes first", fixture: "app-server-shared-agent.jsonl", wantChildTool: true},
+		// The child's tool starts before the spawn names its thread, reuses the spawn's ID,
+		// and completes after the spawn.
+		{name: "child starts early with a reused ID", fixture: "app-server-shared-agent-early.jsonl"},
+	} {
+		t.Run(tc.name, func(t *testing.T) { testSharedAgentNotifications(t, tc.fixture, tc.wantChildTool) })
+	}
+}
+
+func testSharedAgentNotifications(t *testing.T, fixture string, wantChildTool bool) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "codex")
-	notifications, err := filepath.Abs("../../testdata/app-server-shared-agent.jsonl")
+	notifications, err := filepath.Abs("../../testdata/" + fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,8 +176,16 @@ while read ignored; do :; done
 	if outcome.Failure != nil || outcome.Pending != nil || sink.text.String() != "Bonjour, mon ami." {
 		t.Fatalf("outcome = %#v, text = %q", outcome, sink.text.String())
 	}
-	if len(sink.calls) != 1 || len(sink.results) != 1 {
-		t.Fatalf("tool events = %#v, %#v, want only parent delegation", sink.calls, sink.results)
+	// The child's text stays private, but its tools go under the spawn call.
+	wantTools := 1
+	if wantChildTool {
+		wantTools = 2
+	}
+	if len(sink.calls) != wantTools || len(sink.results) != wantTools {
+		t.Fatalf("tool events = %#v, %#v, want %d", sink.calls, sink.results, wantTools)
+	}
+	if wantChildTool && (sink.calls[1].ID != "child-command" || sink.calls[1].ParentToolID != "agent-1") {
+		t.Fatalf("child tool = %#v, want child-command under agent-1", sink.calls[1])
 	}
 	if sink.calls[0].ID != "agent-1" || sink.calls[0].Name != "Agent" || sink.results[0].ID != "agent-1" || sink.results[0].Name != "Agent" || sink.results[0].IsError {
 		t.Fatalf("delegation events = %#v, %#v", sink.calls[0], sink.results[0])
@@ -204,6 +228,7 @@ printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta
 read approval
 printf '%s\n' "$approval" > "$CAPTURE"
 printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 sleep 5
 `
@@ -234,11 +259,16 @@ sleep 5
 	if _, err := os.Stat(capture); !os.IsNotExist(err) {
 		t.Fatalf("MCP call was resolved before approval: %v", err)
 	}
+	resumed := time.Now()
 	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{
 		ID: "7", Approved: false, RejectionReason: "production is still serving traffic",
 	}, sink)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	// Usage arrives after the resume, but the call ended at its tool start before the pause.
+	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) || sink.models[0].Start.After(sink.models[0].End) {
+		t.Fatalf("model calls = %#v, resumed at %v", sink.models, resumed)
 	}
 	response, err := os.ReadFile(capture)
 	if err != nil {
@@ -246,6 +276,112 @@ sleep 5
 	}
 	if !bytes.Contains(response, []byte(`"id":7`)) || !bytes.Contains(response, []byte(`"action":"decline"`)) || bytes.Contains(response, []byte(`"rejection_reason"`)) || bytes.Contains(response, []byte(`"content"`)) {
 		t.Fatalf("approval response = %s", response)
+	}
+}
+
+// A subagent's approval matches the subagent's own tool, which goes under the spawn call.
+func TestProcessDriverParksMCPApprovalInsideASubagent(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-call","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
+printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"child","turnId":"child-turn"}}'
+read approval
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-call","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+sleep 5
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
+		Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
+		InterruptGrace: 100 * time.Millisecond, ApprovalServers: map[string]struct{}{"protected": {}},
+	})
+	sink := &recordingSink{}
+	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Pending == nil {
+		t.Fatal("Run() did not return a pending turn")
+	}
+	if request, ok := outcome.Pending.Request().(*runtime.ApprovalRequest); !ok || request.CallID != "child-call" || request.Name != "protected.write" {
+		t.Fatalf("pending request = %#v", outcome.Pending.Request())
+	}
+	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "7", Approved: true}, sink)
+	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
+		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	if len(sink.calls) != 2 || sink.calls[1].ID != "child-call" || sink.calls[1].ParentToolID != "spawn-1" {
+		t.Fatalf("tool calls = %#v, want the child's call under spawn-1", sink.calls)
+	}
+	if len(sink.results) != 2 || sink.results[1].ID != "child-call" || sink.results[1].IsError {
+		t.Fatalf("tool results = %#v", sink.results)
+	}
+}
+
+func TestProcessDriverAskUserThreads(t *testing.T) {
+	for _, tc := range []struct {
+		name, thread, turn string
+		wantErr            bool
+	}{
+		{name: "a spawned subagent", thread: "child", turn: "child-turn"},
+		{name: "an unknown thread", thread: "stranger", turn: "child-turn", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			directory := t.TempDir()
+			executable := filepath.Join(directory, "codex")
+			script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}'
+printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}'
+printf '%s\n' '{"id":8,"method":"item/tool/requestUserInput","params":{"threadId":"` + tc.thread + `","turnId":"` + tc.turn + `","itemId":"item-1","isBlocking":true,"questions":[{"id":"namespace","header":"Namespace","question":"Which namespace?","options":null,"isOther":true,"isSecret":false}]}}'
+read response
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+sleep 5
+`
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			driver := NewProcessDriver(ProcessConfig{
+				Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
+				Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
+			})
+			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "clean up"}, &recordingSink{})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("Run() outcome = %#v, want an error for a question from %s", outcome, tc.thread)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if request, ok := outcome.Pending.Request().(*runtime.AskUserRequest); !ok || request.ID != "8" {
+				t.Fatalf("pending request = %#v", outcome.Pending.Request())
+			}
+			outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{ID: "8", Answers: [][]string{{"default"}}}, &recordingSink{})
+			if err != nil || outcome.Pending != nil || outcome.Failure != nil {
+				t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+			}
+		})
 	}
 }
 
@@ -266,6 +402,7 @@ printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 printf '%s\n' '{"id":8,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"item-1","isBlocking":true,"questions":[{"id":"namespace","header":"Namespace","question":"Which namespace?","options":[{"label":"default","description":"Default namespace"}],"isOther":true,"isSecret":false},{"id":"cluster","header":"Cluster","question":"Which cluster?","options":null,"isOther":false,"isSecret":false}]}}'
 read response
 printf '%s\n' "$response" > "$RESPONSE_CAPTURE"
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 sleep 5
 `
@@ -300,11 +437,16 @@ sleep 5
 		t.Fatalf("experimental API was not enabled: %s", initialize)
 	}
 
+	resumed, sink := time.Now(), &recordingSink{}
 	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{
 		ID: "8", Answers: [][]string{{"default"}, {"production"}},
-	}, &recordingSink{})
+	}, sink)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	// The question starts no tool item, so the call that asked it ends at the pause.
+	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) || sink.models[0].Start.After(sink.models[0].End) {
+		t.Fatalf("model calls = %#v, resumed at %v", sink.models, resumed)
 	}
 	response, err := os.ReadFile(responseCapture)
 	if err != nil {
@@ -357,8 +499,10 @@ printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId"
 printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
 read approval
 printf '%s\n' "$approval" > "$APPROVAL_CAPTURE"
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 read interrupt
 printf '%s\n' "$interrupt" > "$INTERRUPT_CAPTURE"
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"id":4,"result":{}}'
 sleep 5
 `
@@ -379,8 +523,13 @@ sleep 5
 	if err != nil || outcome.Pending == nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
-	if err := outcome.Pending.Cancel(t.Context()); err != nil {
+	sink := &recordingSink{}
+	if err := outcome.Pending.Cancel(t.Context(), sink); err != nil {
 		t.Fatal(err)
+	}
+	// One usage was waiting before the interrupt and one arrived while Codex answered it.
+	if len(sink.models) != 2 {
+		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
 	}
 
 	approval, err := os.ReadFile(approvalCapture)
@@ -396,6 +545,141 @@ sleep 5
 	}
 	if !bytes.Contains(interrupt, []byte(`"method":"turn/interrupt"`)) || !bytes.Contains(interrupt, []byte(`"threadId":"thread-1"`)) || !bytes.Contains(interrupt, []byte(`"turnId":"turn-1"`)) {
 		t.Fatalf("interrupt request = %s", interrupt)
+	}
+}
+
+func TestProcessDriverCancellationKeepsReportedUsage(t *testing.T) {
+	directory := t.TempDir()
+	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+: > "$STARTED"
+read interrupt
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
+printf '%s\n' '{"id":4,"result":{}}'
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		// Cancel only once the turn is running, so the cancel reaches consume.
+		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	sink := &recordingSink{}
+	if _, err := driver.Run(ctx, runtime.Turn{Prompt: "work"}, sink); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	// Codex reports usage while it answers the interrupt and after it.
+	if len(sink.models) != 2 {
+		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
+	}
+}
+
+func TestProcessDriverCancellationRecordsTheCallCodexNeverReported(t *testing.T) {
+	directory := t.TempDir()
+	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+: > "$STARTED"
+read interrupt
+printf '%s\n' '{"id":4,"result":{}}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	sink := &recordingSink{}
+	if _, err := driver.Run(ctx, runtime.Turn{Prompt: "work"}, sink); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	if len(sink.models) != 1 {
+		t.Fatalf("model calls = %+v, want the 1 call the cancel cut short", sink.models)
+	}
+	call := sink.models[0]
+	if call.StopReason != tracing.FinishReasonError || !call.UsagePartial || !call.Canceled || call.InputTokens != 0 {
+		t.Fatalf("model call = %+v, want a canceled partial call with no counts", call)
+	}
+}
+
+func TestProcessDriverCancellationAfterTheTurnCompletedRecordsNoCall(t *testing.T) {
+	directory := t.TempDir()
+	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+: > "$STARTED"
+read interrupt
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+printf '%s\n' '{"id":4,"result":{}}'
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Environment: append(os.Environ(), "STARTED="+started), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		for _, err := os.Stat(started); err != nil; _, err = os.Stat(started) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		cancel()
+	}()
+	sink := &recordingSink{}
+	if _, err := driver.Run(ctx, runtime.Turn{Prompt: "work"}, sink); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	if len(sink.models) != 0 {
+		t.Fatalf("model calls = %+v, want none: the turn completed before the cancel", sink.models)
 	}
 }
 

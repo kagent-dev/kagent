@@ -264,10 +264,10 @@ test("agents: an agent links to its template, and a conversation links up to its
       "href",
       `/agent-templates/kagent/${agents.k8s.template}`,
     );
-    // Said on the page, because it is the thing a reader gets wrong: editing the
-    // template reaches every agent cut from it, not only this one.
+    // Said on the page, because readers need to distinguish inline templates from
+    // shared templates and understand that Harnesses always remain separate.
     await expect(page.getByTestId("agent-identity-note")).toContainText(
-      "Referenced templates and Harnesses can be shared",
+      "Templates may be inline or shared; Harnesses are always referenced",
     );
   });
 

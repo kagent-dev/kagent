@@ -220,7 +220,7 @@ named `<fullname>-api` (`kagent-api` for the standard release) in the controller
 namespace, pointing to the controller's `/mcp` endpoint. AgentTemplate MCP
 references are same-namespace; another namespace needs its own registration.
 Bind the required sandbox tools in the AgentTemplate's `spec.tools` (or an
-Agent's inline `spec.template.tools`):
+Agent's inline `spec.template.inline.tools`):
 
 ```yaml
 tools:

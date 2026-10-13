@@ -62,7 +62,7 @@ export function AgentsTab() {
   // Referenced templates carry the description a shared-template Agent shows.
   const templateNamespaces = useMemo(
     () => [...new Set((definitions.data?.agents ?? [])
-      .filter((agent) => agent.resource.spec.templateRef)
+      .filter((agent) => agent.resource.spec.template.ref)
       .map((agent) => agent.namespace))],
     [definitions.data],
   );

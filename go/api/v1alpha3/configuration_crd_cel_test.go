@@ -270,7 +270,8 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				var object ctrlclient.Object = template
 				if inline {
 					object = &Agent{ObjectMeta: template.ObjectMeta, Spec: AgentSpec{
-						Template: &template.Spec, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+						Template:   AgentTemplateSource{Inline: &template.Spec},
+						HarnessRef: corev1.LocalObjectReference{Name: "runner"},
 					}}
 				}
 				err := cl.Create(ctx, object)
@@ -282,7 +283,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				// Read back through the API so pruning a reference cannot masquerade as acceptance.
 				require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), object))
 				if agent, ok := object.(*Agent); ok {
-					require.Equal(t, binding, agent.Spec.Template.Tools[0].SubAgent)
+					require.Equal(t, binding, agent.Spec.Template.Inline.Tools[0].SubAgent)
 				} else {
 					require.Equal(t, binding, object.(*AgentTemplate).Spec.Tools[0].SubAgent)
 				}
@@ -291,55 +292,64 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	}
 
 	for _, inlineTemplate := range []bool{false, true} {
-		for _, inlineHarness := range []bool{false, true} {
-			name := fmt.Sprintf("agent-%t-%t", inlineTemplate, inlineHarness)
-			spec := AgentSpec{}
-			if inlineTemplate {
-				spec.Template = &AgentTemplateSpec{}
-			} else {
-				spec.TemplateRef = &corev1.LocalObjectReference{Name: "behavior"}
-			}
-			if inlineHarness {
-				spec.Harness = &validHarness(namespace, "runner", HarnessSpec{Kagent: &KagentHarness{}}).Spec
-			} else {
-				spec.HarnessRef = &corev1.LocalObjectReference{Name: "runner"}
-			}
-			t.Run(name, func(t *testing.T) {
-				agent := &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Spec: spec}
-				require.NoError(t, cl.Create(ctx, agent))
-				for _, field := range []string{"template", "harness"} {
-					invalid := agent.DeepCopy()
-					invalid.Name += "-both-" + field
-					invalid.ResourceVersion, invalid.UID = "", ""
-					if field == "template" {
-						invalid.Spec.Template = &AgentTemplateSpec{}
-						invalid.Spec.TemplateRef = &corev1.LocalObjectReference{Name: "behavior"}
-					} else {
-						invalid.Spec.Harness = &validHarness(namespace, "runner", HarnessSpec{Kagent: &KagentHarness{}}).Spec
-						invalid.Spec.HarnessRef = &corev1.LocalObjectReference{Name: "runner"}
-					}
-					require.ErrorContains(t, cl.Create(ctx, invalid), "exactly one of "+field)
-					invalid.Name = name + "-neither-" + field
-					if field == "template" {
-						invalid.Spec.Template = nil
-						invalid.Spec.TemplateRef = nil
-					} else {
-						invalid.Spec.Harness = nil
-						invalid.Spec.HarnessRef = nil
-					}
-					require.ErrorContains(t, cl.Create(ctx, invalid), "exactly one of "+field)
-				}
-			})
+		name := fmt.Sprintf("agent-inline-template-%t", inlineTemplate)
+		spec := AgentSpec{
+			HarnessRef: corev1.LocalObjectReference{Name: "runner"},
 		}
-	}
-	for _, field := range []string{"templateRef", "harnessRef"} {
-		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"}}
-		if field == "templateRef" {
-			spec.TemplateRef.Name = ""
+		if inlineTemplate {
+			spec.Template.Inline = &AgentTemplateSpec{}
 		} else {
-			spec.HarnessRef.Name = ""
+			spec.Template.Ref = &corev1.LocalObjectReference{Name: "behavior"}
 		}
-		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "empty-" + strings.ToLower(field)}, Spec: spec}), field+".name must not be empty")
+		t.Run(name, func(t *testing.T) {
+			agent := &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Spec: spec}
+			require.NoError(t, cl.Create(ctx, agent))
+
+			both := agent.DeepCopy()
+			both.Name += "-both"
+			both.ResourceVersion, both.UID = "", ""
+			both.Spec.Template = AgentTemplateSource{
+				Inline: &AgentTemplateSpec{}, Ref: &corev1.LocalObjectReference{Name: "behavior"},
+			}
+			require.ErrorContains(t, cl.Create(ctx, both), "exactly one of inline or ref")
+
+			neither := agent.DeepCopy()
+			neither.Name += "-neither"
+			neither.ResourceVersion, neither.UID = "", ""
+			neither.Spec.Template = AgentTemplateSource{}
+			require.ErrorContains(t, cl.Create(ctx, neither), "exactly one of inline or ref")
+		})
+	}
+	for _, field := range []string{"template", "harnessRef"} {
+		spec := map[string]any{
+			"template":   map[string]any{"ref": map[string]any{"name": "behavior"}},
+			"harnessRef": map[string]any{"name": "runner"},
+		}
+		delete(spec, field)
+		object := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": GroupVersion.String(), "kind": "Agent",
+			"metadata": map[string]any{"namespace": namespace, "name": "missing-" + field},
+			"spec":     spec,
+		}}
+		require.ErrorContains(t, cl.Create(ctx, object), field+": Required value")
+	}
+	for _, tc := range []struct {
+		name string
+		spec AgentSpec
+		want string
+	}{
+		{
+			name: "template",
+			spec: AgentSpec{Template: AgentTemplateSource{Ref: &corev1.LocalObjectReference{}}, HarnessRef: corev1.LocalObjectReference{Name: "runner"}},
+			want: "ref.name must not be empty",
+		},
+		{
+			name: "harness",
+			spec: AgentSpec{Template: AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "behavior"}}},
+			want: "harnessRef.name must not be empty",
+		},
+	} {
+		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "empty-" + tc.name + "-ref"}, Spec: tc.spec}), tc.want)
 	}
 
 	for _, tc := range cases {
@@ -362,12 +372,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}{
 			{kind: "Harness", object: harness, path: []string{"spec", "env"}},
 			{kind: "SandboxTemplate", object: sandboxTemplateForValidation(namespace, "env-sandbox", nil), path: []string{"spec", "env"}},
-			{kind: "Agent", object: &Agent{
-				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "env-agent"},
-				Spec: AgentSpec{
-					Harness: &harness.Spec, TemplateRef: &corev1.LocalObjectReference{Name: "behavior"},
-				},
-			}, path: []string{"spec", "harness", "env"}},
 		} {
 			for _, tc := range []struct {
 				name       string
