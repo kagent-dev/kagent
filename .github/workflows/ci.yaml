@@ -58,9 +58,9 @@ jobs:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.5.0-alpha2
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
-      # Keep the four-vCPU runner bounded; manual runs can compare higher concurrency.
+      # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 40
     steps:
       - name: Checkout repository
@@ -176,6 +176,9 @@ jobs:
           EOF
           cat > "$RUNNER_TEMP/substrate-values.yaml" <<EOF
           atelet:
+            resources:
+              limits:
+                memory: 2Gi
             extraArgs: [--localhost-registry-replacement=kind-registry:5000]
           ateApi:
             extraArgs: [--template-resync-interval=250ms]
