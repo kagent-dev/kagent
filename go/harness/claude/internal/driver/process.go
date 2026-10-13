@@ -377,8 +377,15 @@ func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate 
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
 	var approvalPending *PendingApprovalRequest
+	observedToolCalls := make(map[string]struct{})
 	for {
-		if approvalPending != nil && session.sessionID != "" {
+		// MCP can deliver an approval before stdout parsing catches up. Park only after
+		// the matching tool_use has been observed so the call boundary is timestamped first.
+		approvalToolObserved := false
+		if approvalPending != nil {
+			_, approvalToolObserved = observedToolCalls[approvalPending.request.CallID]
+		}
+		if approvalPending != nil && session.sessionID != "" && approvalToolObserved {
 			if !approvalPending.waiting() {
 				approvalPending = nil
 				continue
@@ -404,6 +411,9 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			if item.event != nil {
 				outcome, err := emitEvent(*item.event, sink, session.terminal != nil)
 				if err == nil {
+					if item.event.Kind == EventToolActivity && item.event.ToolPhase == "started" {
+						observedToolCalls[item.event.ToolID] = struct{}{}
+					}
 					if item.event.Kind == EventSessionStarted {
 						if session.sessionID != "" && session.sessionID != item.event.SessionID {
 							return runtime.Outcome{}, fmt.Errorf("Claude changed session ID during an active process")

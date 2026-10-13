@@ -473,6 +473,16 @@ func TestFailedAndRetriedModelCalls(t *testing.T) {
 			want:  []call{{errorType: "server_error", stop: "error", input: 7, partial: true, start: 100, end: 101}},
 		},
 		{
+			name:  "an API error after a tool request is a partial tool call",
+			tools: map[string]string{"call-1": "mcp__protected__write"},
+			lines: []string{
+				start("msg_1", 7),
+				`{"type":"assistant","message":{"id":"msg_1","model":"m","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}`,
+				apiError("", "server_error"),
+			},
+			want: []call{{stop: "tool_call", input: 7, partial: true, start: 100, end: 101}},
+		},
+		{
 			name:  "retries that end in a failure are one failed call",
 			lines: []string{init, apiRetry, apiRetry, apiError("", "overloaded_error")},
 			want:  []call{{errorType: "overloaded_error", stop: "error", partial: true, retries: 2, start: 100, end: 103}},

@@ -113,7 +113,14 @@ func TestProcessDriverParksAndResumesSequentialApprovals(t *testing.T) {
 	decisionOne := filepath.Join(dir, "decision-1")
 	decisionTwo := filepath.Join(dir, "decision-2")
 	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nwhile [ ! -f \"$DECISION_ONE\" ]; do sleep 0.01; done\nwhile [ ! -f \"$DECISION_TWO\" ]; do sleep 0.01; done\nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"id\":\"msg_warning\",\"content\":[{\"type\":\"text\",\"text\":\"API Error: Connection lost mid-response. The response above may be incomplete.\"}]}}' '{\"type\":\"assistant\",\"message\":{\"id\":\"msg_continued\",\"content\":[{\"type\":\"text\",\"text\":\"continued\"}]}}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\n"
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
+while [ ! -f "$DECISION_ONE" ]; do sleep 0.01; done
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_2","content":[{"type":"tool_use","id":"call-2","name":"mcp__protected__write","input":{}}]}}'
+while [ ! -f "$DECISION_TWO" ]; do sleep 0.01; done
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_warning","content":[{"type":"text","text":"API Error: Connection lost mid-response. The response above may be incomplete."}]}}' '{"type":"assistant","message":{"id":"msg_continued","content":[{"type":"text","text":"continued"}]}}' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
+`
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +174,8 @@ func TestResumeMarksTheDeniedResultDeclined(t *testing.T) {
 			executable := filepath.Join(dir, "claude")
 			script := `#!/bin/sh
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-while [ ! -f "$DECISION" ]; do sleep 0.01; done
 printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"tool_use","id":"call-1","name":"mcp__tools__write","input":{}}]}}'
+while [ ! -f "$DECISION" ]; do sleep 0.01; done
 printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"operator denied","is_error":true}]}}'
 printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
 `
@@ -294,7 +301,7 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-
 func TestProcessDriverCancelsParkedApproval(t *testing.T) {
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nwhile :; do :; done\n"
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"id\":\"msg_1\",\"content\":[{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"mcp__protected__write\",\"input\":{}}]}}'\nwhile :; do :; done\n"
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -316,8 +323,9 @@ func TestProcessDriverCancelsParkedApproval(t *testing.T) {
 func TestProcessDriverCancelsParkedApprovalKeepingBufferedModelCalls(t *testing.T) {
 	dir, executable := writeFakeClaude(t, `#!/bin/sh
 printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
-while [ ! -f "$RELEASE" ]; do sleep 0.01; done
 printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-5-5","usage":{"input_tokens":5}}}}'
+printf '%s\n' '{"type":"assistant","message":{"id":"msg_1","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"call-1","name":"mcp__protected__write","input":{}}]}}'
+while [ ! -f "$RELEASE" ]; do sleep 0.01; done
 printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":3}}}'
 touch "$PRINTED"
 exec sleep 30
