@@ -96,7 +96,10 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
       error?: unknown;
       status?: unknown;
     };
-    const payload = output ?? result ?? data ?? error ?? response;
+    const isDataEnvelope = "schema_version" in response || Object.keys(response).every(
+      (key) => ["data", "error", "status", "isError"].includes(key),
+    );
+    const payload = output ?? result ?? (isDataEnvelope ? data ?? error : undefined) ?? response;
 
     return {
       body: formatPayload(payload),
@@ -109,8 +112,14 @@ function describe(part: ChatDataPart): { body: string; failed: boolean } {
 function formatPayload(payload: unknown): string {
   if (typeof payload !== "string") return stableJson(payload);
   try {
-    const parsed: unknown = JSON.parse(payload);
-    if (parsed !== null && typeof parsed === "object") return stableJson(parsed);
+    let hasUnsafeNumber = false;
+    const parsed: unknown = JSON.parse(payload, (_key, value: unknown) => {
+      if (typeof value === "number" && Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+        hasUnsafeNumber = true;
+      }
+      return value;
+    });
+    if (!hasUnsafeNumber && parsed !== null && typeof parsed === "object") return stableJson(parsed);
   } catch {
     // Tool output can be plain text.
   }

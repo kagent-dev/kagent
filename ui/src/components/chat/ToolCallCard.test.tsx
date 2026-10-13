@@ -30,6 +30,8 @@ describe("ToolCallCard", () => {
   it.each([
     { output: '{"z":2,"a":1}' },
     { result: { z: 2, a: 1 } },
+    { data: { z: 2, a: 1 } },
+    { data: { z: 2, a: 1 }, error: null, status: "success" },
     { data: '{"z":2,"a":1}', error: null, schema_version: "robusta:v1.0.0" },
   ])("renders structured tool payloads without their envelope: %j", (response) => {
     render(
@@ -63,20 +65,74 @@ describe("ToolCallCard", () => {
     },
   );
 
-  it("keeps unrecognised result shapes visible", () => {
+  it.each([
+    [{ custom: "retained" }, '{\n  "custom": "retained"\n}'],
+    [
+      { data: ["observed alert"], meta: { total: 50 } },
+      '{\n  "data": [\n    "observed alert"\n  ],\n  "meta": {\n    "total": 50\n  }\n}',
+    ],
+    [
+      { error: "timeout", partial: ["observed alert"] },
+      '{\n  "error": "timeout",\n  "partial": [\n    "observed alert"\n  ]\n}',
+    ],
+  ])("keeps unrecognised result shapes visible: %j", (response, expected) => {
     render(
       <ThemeProvider theme={themeFor("dark")}>
         <ToolCallCard
           part={{
             kind: "data",
             dataKind: "tool_result",
-            data: { name: "lookup", response: { custom: "retained" } },
+            data: { name: "lookup", response },
           }}
         />
       </ThemeProvider>,
     );
 
-    expect(screen.getByTestId("chat-tool-payload").textContent).toBe('{\n  "custom": "retained"\n}');
+    expect(screen.getByTestId("chat-tool-payload").textContent).toBe(expected);
+  });
+
+  it.each([
+    '{"id":12345678901234567890}',
+    '{"id":-12345678901234567890}',
+    '{"items":[{"id":9007199254740993}]}',
+    '[9007199254740993]',
+    '{"id":1e20}',
+    '{"value":1e400}',
+  ])("preserves JSON strings with unsafe numbers: %s", (output) => {
+    render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ToolCallCard
+          part={{
+            kind: "data",
+            dataKind: "tool_result",
+            data: { name: "lookup", response: { output } },
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("chat-tool-payload").textContent).toBe(output);
+  });
+
+  it("formats safe integers and numeric strings", () => {
+    render(
+      <ThemeProvider theme={themeFor("dark")}>
+        <ToolCallCard
+          part={{
+            kind: "data",
+            dataKind: "tool_result",
+            data: {
+              name: "lookup",
+              response: { output: '{"text":"12345678901234567890","id":9007199254740991}' },
+            },
+          }}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("chat-tool-payload").textContent).toBe(
+      '{\n  "id": 9007199254740991,\n  "text": "12345678901234567890"\n}',
+    );
   });
 
   it("keeps invocation arguments in the tool call card", () => {
