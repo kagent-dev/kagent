@@ -136,6 +136,11 @@ cannot share its origin with static gateway credentials. Routing, framing,
 hop-by-hop, proxy-authentication, and Cookie headers cannot carry credentials.
 At most 16 credential headers are supported per origin.
 
+`RemoteMCPServer.spec.headersFrom` applies the same credential-header rules to
+Secret-backed entries during Kubernetes admission. Literal and ConfigMap-backed
+headers do not use gateway credential injection. A server may configure up to
+64 headers, with names of at most 256 characters.
+
 An exact credential-bearing rule wins over a matching wildcard rule. Credentials
 are never attached to wildcard rules or implicitly copied to other ports or
 schemes. HTTP and HTTPS cannot both use the same hostname pattern and port,
