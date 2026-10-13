@@ -42,29 +42,78 @@ The registry describes the contract the runtimes are moving to. The next section
 
 ## Enabling export
 
-Configuration uses the OpenTelemetry SDK variables only. The chart renders them into the controller from `otel.*`, the controller exports with them, and it compiles the same settings into every runtime revision.
+Controller telemetry is configured under `config.telemetry` in Helm.
+Managed runtime defaults live separately under `config.runtimeDefaults.telemetry`.
+Each contains optional `traces`, `metrics`, and `logs` exporters with `endpoint`,
+`protocol` (`grpc` or `http/protobuf`), and `timeout` (a protobuf duration such as
+`10s`). An absent signal is disabled unless its process explicitly enables it
+through OTEL environment variables. HTTP file endpoints include the signal path,
+for example `http://collector:4318/v1/traces`.
 
-| Chart value | Variable |
-| --- | --- |
-| `otel.traces.enabled`, `otel.metrics.enabled`, `otel.logs.enabled` | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `otlp` or `none`. `OTEL_SDK_DISABLED=true` when all are off and the controller `/metrics` is off |
-| `otel.exporter.otlp.endpoint`, `.protocol`, `.timeout` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL` (`grpc` or `http/protobuf`), `OTEL_EXPORTER_OTLP_TIMEOUT` in milliseconds |
-| `otel.<signal>.endpoint`, `.protocol` | `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` and `_PROTOCOL`, a full URL used as given |
-| `otel.capture.messageContent` | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`, `SPAN_ONLY` or `NO_CONTENT` |
-| `otel.capture.maxBytes` | `KAGENT_OTEL_MAX_CAPTURE_BYTES`, bytes kept per captured prompt and response. 16 KiB by default, 64 KiB at most |
-| `otel.capture.rawApiBodies` | `KAGENT_OTEL_CAPTURE_RAW_API_BODIES`, native raw provider body logging in Claude |
-| `otel.resourceAttributes` | `KAGENT_OTEL_RESOURCE_ATTRIBUTES`, added to the controller and every runtime |
+```yaml
+config:
+  telemetry:
+    traces:
+      endpoint: http://controller-collector:4317
+  runtimeDefaults:
+    telemetry:
+      traces:
+        endpoint: http://agent-collector:4317
+      captureContent: false
+      maxCaptureBytes: 16384
+```
 
-The chart has no sampler setting. Runtimes stay parent-based AlwaysOn and sampling belongs in the collector. An invalid value is reported as a warning and turns its signal off, so an observability setting cannot invalidate an AgentTemplate.
+Each process resolves defaults, file settings, then its own `OTEL_*` overrides.
+A signal-specific environment setting takes precedence over its generic OTLP
+equivalent, and either takes precedence over the file. Endpoint and protocol
+form one connection: overriding either replaces the file's pair, with an omitted
+counterpart taking the SDK default. Set both when changing transport or collector
+address. Generic HTTP endpoints are base URLs; signal-specific endpoints include
+the signal path. `OTEL_SDK_DISABLED=true`
+and `OTEL_<SIGNAL>_EXPORTER=none` disable export. Sampling, batching, headers, and
+trust settings use the upstream SDK's environment interface. File validation
+runs at startup; invalid file settings fail validation.
 
-Each runtime receives `OTEL_SERVICE_NAME=<agent>` and an `OTEL_RESOURCE_ATTRIBUTES` that carries `service.namespace`, `gen_ai.main_agent.name`, `gen_ai.main_agent.id`, the provider and model for a harness, the operator's attributes, and `service.version`, the short revision id added when the ActorTemplate is built. A `Harness.spec.env` `OTEL_RESOURCE_ATTRIBUTES` is kept, with the agent identity winning. The controller reports itself as `kagent-controller` with `service.instance.id` and `k8s.*` from the downward API.
+Keep SDK sampling parent-based AlwaysOn and perform sampling in the collector.
+Independent sampler settings on individual Harnesses can produce incomplete
+distributed traces. SDK sampler overrides remain supported for operators who
+intentionally need them. Exporter setup errors are logged without stopping the
+agent process; malformed file configuration still fails validation.
 
-kagent runtimes apply three defaults when the environment leaves them unset: `OTEL_PROPAGATORS=tracecontext`, so a caller's baggage never reaches tools or model providers, `OTEL_EXPORTER_OTLP_COMPRESSION=gzip`, and base-2 exponential histograms. The Go runtimes set them in `go/pkg/telemetry`, which also hands them to the Claude and Codex processes. The Python runtimes set them in `kagent.core`, which also defaults the exporters to `otlp`, adds `http` to `OTEL_SEMCONV_STABILITY_OPT_IN` so FastAPI and httpx report the stable HTTP conventions, sets `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED=false` to drop the a2a-sdk's internal spans, and excludes health and agent card paths through `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`. Each `kagent.*` framework package imports these defaults before the a2a-sdk, which reads its switch at import time. A BYO image gets them compiled in, together with the rest of the kagent telemetry, only while kagent telemetry is on, and its own `Harness.spec.env` values win, so an image that exports to its own backend keeps doing so. The Python ADK also defaults `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`, so captured content lands only on the GenAI convention keys and is not repeated in ADK's legacy `gcp.vertex.agent.*` keys, and the CrewAI package sets `CREWAI_DISABLE_TELEMETRY=true` before CrewAI loads, since CrewAI otherwise installs a global tracer provider that exports to its own endpoint.
+Controller overrides never change managed runtimes. Use `controller.env` or
+`controller.envFrom` for the controller and `Harness.spec.env` for a runtime.
+Compilers include a runtime's OTLP endpoint overrides in its egress destinations.
+The controller compiles file defaults into the existing runtime JSON contracts;
+opaque BYO SDKs receive corresponding OTEL defaults. Environment entries retain
+Substrate's limit of 32 variables, with at most 32,768 characters per value.
+The BYO environment omits the SDK's default timeout and shares a generic gRPC
+connection when all three signals use the same destination. HTTP endpoints keep
+their signal-specific paths.
 
-The Python runtimes build their providers with the SDK's environment configurator (`opentelemetry-distro`), the counterpart of Go's `autoexport`, and install a fixed set of instrumentations per runtime through their `opentelemetry_instrumentor` entry points. `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` switches any of them off. With `OTEL_CONFIG_FILE` set, the SDK ignores the configurator arguments, so the file must declare `kagent.runtime` itself.
+`resourceAttributes` supplies resource defaults. `OTEL_RESOURCE_ATTRIBUTES`
+overrides them per key and `OTEL_SERVICE_NAME` overrides the service name.
+Runtime file attributes cannot contain `service.name` or `service.namespace`:
+these default to the compiled agent name and namespace. Use `OTEL_SERVICE_NAME`
+for an explicit service-name override. Opaque BYO images receive the
+agent's service name as a resource default, so an image's own
+`OTEL_SERVICE_NAME` remains authoritative.
+Compiler-owned agent and runtime identity remains authoritative. The controller
+reports `kagent-controller`, its version, and pod identity from the downward API.
 
-Defaults live in the runtimes because a Substrate Actor holds at most 32 environment variables, and the ActorTemplate itself uses nine. The controller renders only what differs by installation, and `TestCompiledTelemetryFitsTheActorEnvironmentBudget` pins the worst case.
+Runtime defaults include `OTEL_PROPAGATORS=tracecontext`, gzip compression, and
+base-2 exponential histograms. The native Codex exporter does not support gzip;
+its adapter removes the generic compression setting. Python uses
+`opentelemetry-distro`, Go uses `autoexport`, and both delegate SDK options to
+upstream. Python respects `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` and defaults to
+stable HTTP and current GenAI conventions. Duplicate a2a-sdk spans are always disabled. Legacy ADK content keys
+default to off through the upstream ADK environment settings. CrewAI's independent anonymous exporter is
+also disabled before import.
 
-The capture variable is rendered whether or not the controller exports, so a runtime that reaches a collector through settings the controller did not render still follows it. It is controller-owned: the Claude and Codex compilers reject a `Harness.spec.env` entry with that name, and the kagent compiler replaces one. The harness runtimes carry the same decision in their compiled configuration. Other `OTEL_*` variables, such as `OTEL_BSP_*`, remain available for per-Harness tuning through `Harness.spec.env`. `OTEL_EXPORTER_OTLP_HEADERS` is not forwarded, because an Actor environment holds no secrets. Export to an in-cluster collector that adds them.
+`captureContent` defaults to false. A process can override it with
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY` or `NO_CONTENT`.
+`maxCaptureBytes` bounds captured prompts and responses to 16 KiB by default,
+with a 64 KiB maximum. `captureRawApiBodies` separately controls native Claude
+body logging; its own OTEL content switches can override the defaults.
 
 ## Metrics and logs
 
@@ -124,13 +173,11 @@ Absent output messages mean capture is disabled; a message with empty text means
 
 These attributes come from the Go wrapper, which is only one of the producers. Suppressing them does not establish privacy for native runtime events or log bodies, which have their own settings.
 
-## Rollout
+## Runtime images
 
-The controller hands each Claude Code and Codex Actor its compiled configuration as JSON, and that JSON carries a version number. The harness binary in the runtime image accepts only the version it was built with, and rejects anything else at startup with `unsupported config version N (want M)`. The telemetry section described above is one such change, since adding it moved the Claude version from 4 to 5 and the Codex version from 2 to 3.
-
-That makes upgrade order matter. A Harness selects its runtime image by digest in `spec.workload.image`. If the controller is upgraded to a build that includes a new version while a Harness still points at a harness image built before it, every new revision the controller compiles for that Harness carries the new version, the older binary refuses it, and the Actor exits before it can serve a request. The controller cannot catch this when it compiles, because it has no way to ask the pinned image which version it understands.
-
-Publish the controller image and the harness images from the same commit, and when one digest moves, move the others in the same change.
+Build the controller and native harness images from the same commit. Their
+private JSON contract version must match; the runtime rejects unknown versions
+before serving requests.
 
 ## Changing the contract
 

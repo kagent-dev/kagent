@@ -60,11 +60,11 @@ DOCUMENTATION:
   These values are ignored. Please remove them from your values override.
 
 {{- end }}
-{{- if .Values.database.postgres.skipMigrations }}
+{{- if .Values.config.database.skipMigrations }}
 ################################################################################
 # NOTE: STARTUP MIGRATIONS ARE DISABLED                                        #
 ################################################################################
-  database.postgres.skipMigrations is set: the controller will not run database
+  config.database.skipMigrations is true: the controller will not run database
   migrations at startup. It verifies the schema is already migrated and fails
   to start if it is not.
 

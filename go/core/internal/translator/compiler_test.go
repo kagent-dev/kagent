@@ -17,6 +17,7 @@ import (
 	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
@@ -70,7 +71,9 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
-			require.Contains(t, result.Environment, corev1.EnvVar{Name: "KAGENT_PORT", Value: "80"})
+			var process adk.AgentConfig
+			require.NoError(t, json.Unmarshal(result.ConfigJSON, &process))
+			require.Equal(t, "80", process.Runtime.Port)
 			for _, variable := range result.Environment {
 				require.NotEqual(t, "KAGENT_A2A_GRPC_ADDRESS", variable.Name)
 			}
@@ -193,10 +196,10 @@ func compiler(t *testing.T, objects ...any) *translator.Compiler {
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections),
-		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections),
-		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections),
-		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testCompilerSettings()),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testCompilerSettings()),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testCompilerSettings()),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testCompilerSettings()),
 	})
 }
 
@@ -604,7 +607,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
 	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret)),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testCompilerSettings()),
 	})
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
@@ -613,63 +616,6 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	require.Equal(t, firstDigest, nextDigest, "gateway credential rotation must not change runtime revision")
 	if !slices.Equal(spec.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443", "https://second-mcp.example.com:443"}) {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
-	}
-}
-
-func TestCompileAgentForwardsOtelEnvironment(t *testing.T) {
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "otlp")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4318/v1/logs")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/protobuf")
-	otherCollector := "http://other-collector:4317"
-	harness := &v1alpha3.Harness{
-		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
-		Spec: v1alpha3.HarnessSpec{
-			Env:    []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: otherCollector}},
-			Kagent: &v1alpha3.KagentHarness{},
-
-			Workload: v1alpha3.HarnessWorkload{Image: "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{
-				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
-				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
-			},
-		},
-	}
-	template := &v1alpha3.AgentTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
-		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &corev1.LocalObjectReference{Name: "default-model"},
-			SystemPrompt: "help",
-		},
-	}
-	spec, err := compiler(t, modelConfig(), harness).CompileAgent(context.Background(), inlineAgent(harness, template))
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := map[string]string{}
-	for _, variable := range spec.Environment {
-		found[variable.Name] = variable.Value
-	}
-	for name, value := range map[string]string{
-		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "otlp",
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
-		"OTEL_SERVICE_NAME":        "runnable-agent",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.main_agent.id=test/runnable-agent,gen_ai.main_agent.name=runnable-agent,service.namespace=test",
-	} {
-		if found[name] != value {
-			t.Errorf("environment[%s] = %q, want %q", name, found[name], value)
-		}
-	}
-	if _, overridden := found["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"]; overridden {
-		t.Errorf("Harness trace endpoint survived; egress only allows the controller's collector")
-	}
-	for _, hostname := range []string{"http://collector:4317", "http://logs:4318"} {
-		if !slices.Contains(spec.EgressDestinations, hostname) {
-			t.Errorf("%s missing from egress destinations: %v", hostname, spec.EgressDestinations)
-		}
 	}
 }
 
@@ -985,16 +931,19 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 						}
 						result, err := c.CompileAgent(t.Context(), agent)
 						require.NoError(t, err)
-						environment := map[string]string{}
-						for _, variable := range result.Environment {
-							environment[variable.Name] = variable.Value
+						if kind == translator.HarnessTypeKagent || kind == translator.HarnessTypeBYO {
+							var cfg adk.AgentConfig
+							require.NoError(t, json.Unmarshal(result.ConfigJSON, &cfg))
+							require.Equal(t, name, cfg.Runtime.Name)
+							require.Equal(t, agent.Namespace, cfg.Runtime.Namespace)
+						} else {
+							var cfg struct {
+								RuntimeTelemetry tracing.RuntimeTelemetry `json:"runtime_telemetry"`
+							}
+							require.NoError(t, json.Unmarshal(result.ConfigJSON, &cfg))
+							require.Equal(t, name, cfg.RuntimeTelemetry.AgentName)
+							require.Equal(t, agent.Namespace, cfg.RuntimeTelemetry.AgentNamespace)
 						}
-						if kind != translator.HarnessTypeBYO {
-							require.Equal(t, name, environment["KAGENT_NAME"])
-							require.Equal(t, agent.Namespace, environment["KAGENT_NAMESPACE"])
-						}
-						require.Equal(t, name, environment["OTEL_SERVICE_NAME"])
-						require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.id=test/"+name)
 						require.Equal(t, strings.ReplaceAll(name, "-", "_"), result.AgentCard.Name)
 						if kind == translator.HarnessTypeKagent {
 							var config adk.AgentConfig
@@ -1030,4 +979,8 @@ func TestResolveModelConfigMistral(t *testing.T) {
 
 	resolved = mockCollections(t, model).ResolvedModelConfigs.List()[0]
 	require.Equal(t, "APIKeySecretNotFound", resolved.Failure().Reason)
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }

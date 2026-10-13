@@ -99,7 +99,7 @@ agent_card = ParseDict(
     AgentCard(),
 )
 
-config = KAgentConfig()
+config = KAgentConfig.from_file()
 
 # Create KAgent app
 app = KAgentApp(

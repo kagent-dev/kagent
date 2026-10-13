@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
@@ -79,7 +81,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -121,118 +123,11 @@ func TestCompileProviderCredentials(t *testing.T) {
 				t.Fatalf("provenance contains gateway-managed Secret: %s", revision.Provenance)
 			}
 
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
 		})
-	}
-}
-
-func TestCompileTracing(t *testing.T) {
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
-	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-	}
-	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://collector:4317", "http://kagent-controller.kagent:8083", "https://api.anthropic.com:443"}) {
-		t.Fatalf("egress = %v", revision.EgressDestinations)
-	}
-	environment := map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for name, value := range map[string]string{
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://collector:4317",
-		"OTEL_EXPORTER_OTLP_PROTOCOL":        "grpc", "OTEL_TRACES_EXPORTER": "otlp",
-		"OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none",
-		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false",
-		"OTEL_SERVICE_NAME":        "runnable-agent",
-		"OTEL_RESOURCE_ATTRIBUTES": "gen_ai.main_agent.id=test/runnable-agent,gen_ai.main_agent.name=runnable-agent,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,service.namespace=test",
-		"KAGENT_NAME":              "runnable-agent",
-		"KAGENT_NAMESPACE":         "test",
-	} {
-		if environment[name] != value {
-			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
-		}
-	}
-	if _, redundant := environment["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"]; redundant {
-		t.Error("trace protocol rendered although it matches the shared protocol")
-	}
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	environment = map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	if config, err := claudeconfig.Parse(revision.ConfigJSON); err != nil || !config.RuntimeTelemetry.CaptureContent {
-		t.Errorf("compiled capture = %v, %v; the adapter derives Claude's content flags from it", config.RuntimeTelemetry.CaptureContent, err)
-	}
-	if got := environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"]; got != tracing.CaptureContentSpanOnly {
-		t.Errorf("capture environment = %q, want %q", got, tracing.CaptureContentSpanOnly)
-	}
-}
-
-func TestCompileLogging(t *testing.T) {
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
-	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "false")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://logs:4318")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-	}
-	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "http://logs:4318", "https://api.anthropic.com:443"}) {
-		t.Fatalf("egress = %v", revision.EgressDestinations)
-	}
-	environment := map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for name, value := range map[string]string{
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://logs:4318",
-		"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf", "OTEL_TRACES_EXPORTER": "none",
-		"OTEL_LOGS_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none",
-	} {
-		if environment[name] != value {
-			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
-		}
-	}
-	for _, name := range []string{"OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_TOOL_CONTENT", "OTEL_LOG_RAW_API_BODIES"} {
-		if _, exists := environment[name]; exists {
-			t.Fatalf("logging-only revision enables sensitive telemetry %s by default", name)
-		}
-	}
-
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
-	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "true")
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	environment = map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	if environment["OTEL_LOG_RAW_API_BODIES"] != "1" {
-		t.Errorf("raw API body environment = %q, want 1", environment["OTEL_LOG_RAW_API_BODIES"])
 	}
 }
 
@@ -255,7 +150,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, map[string][]byte{"api-key": []byte("secret"), claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte("secret"), "credentials.json": []byte(`{"type":"service_account"}`)})
-			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			var validation *translator.ValidationError
 			if !errors.As(err, &validation) {
 				t.Fatalf("Compile() error = %v, want validation error", err)
@@ -272,14 +167,14 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	var validation *translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
 	}
 }
 
-func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
+func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -288,14 +183,16 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	value := "http://other-collector:4317"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	var validation *translator.ValidationError
-	if !errors.As(err, &validation) {
-		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(result.EgressDestinations, value) {
+		t.Fatalf("missing runtime telemetry egress: %v", result.EgressDestinations)
 	}
 }
 
-func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
+func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -304,18 +201,12 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	value := "department=engineering"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var attributes []string
-	for _, variable := range revision.Environment {
-		if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
-			attributes = append(attributes, variable.Value)
-		}
-	}
-	if len(attributes) != 1 || !strings.HasPrefix(attributes[0], value+",") || !strings.Contains(attributes[0], "gen_ai.main_agent.name=runnable-agent") {
-		t.Fatalf("harness resource attributes = %q, want one value keeping them beside the identity", attributes)
+	if !slices.ContainsFunc(result.Environment, func(v corev1.EnvVar) bool { return v.Name == input.Harness.Spec.Env[0].Name && v.Value == value }) {
+		t.Fatal("runtime override missing")
 	}
 }
 
@@ -335,7 +226,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		Skills: []string{"deploy"},
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +244,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 	}
 
 	input.Root.Template.Spec.Plugins[0].Skills = []string{"review"}
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
 		t.Fatalf("duplicate skill Compile() error = %v", err)
 	}
 }
@@ -387,7 +278,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +329,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 	binding := v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: binding, Server: server}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("omitted selection Compile() error = %v", err)
 	}
@@ -447,7 +338,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("partial selection Compile() error = %v", err)
 	}
@@ -456,7 +347,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Status.ObservedGeneration = 0
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("stale discovery Compile() error = %v", err)
 	}
@@ -470,7 +361,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	server.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
 	server.Spec.Timeout = &metav1.Duration{Duration: time.Minute}
 	server.Spec.TerminateOnClose = &terminateOnClose
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unsupported MCP options Compile() error = %v", err)
 	}
@@ -484,7 +375,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocol("STDIO")
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 
@@ -494,7 +385,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	server.Spec.TerminateOnClose = nil
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
 	input.Root.MCPTools[0].Binding.RequireApproval = true
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("approval-required MCP binding Compile() error = %v", err)
 	}
@@ -541,7 +432,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +494,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			}
 			tt.mutate(&binding)
 			input.Root.Shared = []translator.AgentInputBinding{binding}
-			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Compile() error = %v, want containing %q", err, tt.want)
 			}
@@ -631,8 +522,6 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 }
 
 func TestCompileRuntimeTelemetry(t *testing.T) {
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -640,8 +529,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	input.Harness.Name = "fast"
 
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	settings := testCompilerSettings()
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -661,9 +550,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
-	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "4096")
-	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	settings.Telemetry.CaptureSensitiveContent = true
+	settings.Telemetry.MaxCaptureBytes = 4096
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,28 +582,10 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 }
 
-func TestCompileRejectsAnUnusableCaptureBudget(t *testing.T) {
-	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "-1")
-	config, warnings := translator.TelemetryConfigFromProcess()
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %v, want one", warnings)
-	}
-	if config.MaxCaptureBytes != 0 {
-		t.Fatalf("MaxCaptureBytes = %d, want the shared default", config.MaxCaptureBytes)
-	}
-}
-
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
-	for name, value := range map[string]string{
-		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "otlp", "OTEL_LOGS_EXPORTER": "otlp",
-		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_EXPORTER_OTLP_TIMEOUT": "10000",
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://traces:4317", "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "grpc",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4318/v1/logs", "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/protobuf",
-		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "SPAN_ONLY", "KAGENT_OTEL_CAPTURE_RAW_API_BODIES": "true",
-		"KAGENT_OTEL_RESOURCE_ATTRIBUTES": "deployment.environment.name=prod",
-	} {
-		t.Setenv(name, value)
-	}
+	settings := testCompilerSettings()
+	settings.Telemetry = translator.TelemetryConfig{CaptureSensitiveContent: true, CaptureRawAPIBodies: true, MaxCaptureBytes: 4096,
+		Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://traces:4317", Protocol: "grpc"}, Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}, Logs: &telemetry.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: "http/protobuf"}}}
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -733,7 +604,7 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	}}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -746,4 +617,8 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		t.Fatalf("worst-case Claude actor does not fit Substrate: %v", err)
 	}
 	t.Logf("worst-case Claude actor uses %d of 32 environment variables", len(template.GetContainers()[0].GetEnv()))
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }

@@ -5,6 +5,7 @@ import (
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/db"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
 	sandboxcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/sandbox"
+	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ func Root() *cobra.Command {
 	}
 	connection.RegisterFlags(rootCmd.PersistentFlags())
 	rootCmd.PersistentFlags().StringP(clioutput.FlagName, "o", string(clioutput.FormatTable), "Output format")
+	cliconfig.Register(rootCmd)
 
 	rootCmd.AddCommand(
 		commands.NewAgentCmd(),

@@ -15,7 +15,7 @@ import (
 )
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
-	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}).Compile(context.Background(), &translator.HarnessInput{
+	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
 		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 		Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}},
 	})
@@ -79,4 +79,8 @@ func TestAgentCardDeclaresUsage(t *testing.T) {
 	if declares(translator.ManagedAgentCard("pizza-agent", template)) {
 		t.Fatal("the shared managed card declares usage, which the Codex and Claude harnesses do not emit")
 	}
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }

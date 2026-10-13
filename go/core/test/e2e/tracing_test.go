@@ -131,16 +131,8 @@ func TestOTLPTraceReceiverFlush(t *testing.T) {
 	require.NoError(t, err)
 	receiver, stop := serveOTLPTraceReceiver(listener)
 	t.Cleanup(func() { require.NoError(t, stop()) })
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
-	// Only an explicit flush can deliver the span during this test.
-	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
 	previous := otel.GetTracerProvider()
-	providers, err := telemetry.Init(t.Context(), telemetry.Options{})
+	providers, err := telemetry.Init(t.Context(), telemetry.Options{Config: telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://" + listener.Addr().String(), Protocol: "grpc"}}})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		otel.SetTracerProvider(previous)

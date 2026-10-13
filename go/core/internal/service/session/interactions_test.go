@@ -53,7 +53,7 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			if test.accepted {
 				tasks.dispatchErr = database.ErrMessageAccepted
 			}
-			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil))
+			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			message.ID, message.ContextID, message.TaskID = original.ID, id, test.taskID
 			apia2a.SetTimelinePosition(message, time.Unix(1, 0))
@@ -205,7 +205,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				sessionStore := &serviceTestStore{getResult: stored}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
-				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil))
+				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false)
 				want := test.want
 				if test.name == "read-only share" && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
@@ -233,7 +233,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 }
 
 func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
-	service := NewInteractionService(nil, nil, nil)
+	service := NewInteractionService(nil, nil, nil, false)
 	for _, agent := range []types.NamespacedName{
 		{},
 		{Namespace: "team-a"},

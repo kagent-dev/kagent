@@ -224,7 +224,7 @@ images, and compatible worker hardware.
 - **Claude** emits Anthropic, Bedrock, or Vertex model setup, HTTP/SSE MCP
   servers, Shared agents, and skills.
 - **BYO** runs a digest-pinned user image that implements private A2A gRPC and
-  `/readyz`, and uses the private TaskStore at `KAGENT_API_URL` for task creation,
+  `/readyz`, and uses the private TaskStore at `runtime.control_plane_url` for task creation,
   persistence and settlement. The shared Go app and Python runtime builders
   provide this integration. Other images must implement the same TaskStore
   contract; an upstream A2A server with only an in-memory store is insufficient.
@@ -249,7 +249,7 @@ Dedicated agent bindings are not compiled yet.
 The Python ADK image's default entrypoint runs a named Python agent module. To
 consume the kagent compiler's configuration, set `spec.workload.command` to
 `["/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "8080"]`.
-The compiler sets `KAGENT_PORT=80` for private A2A traffic in both ADKs. Go uses
+The compiler sets `runtime.port="80"` for private A2A traffic in both ADKs. Go uses
 that port for its shared HTTP/gRPC listener; Python uses it for gRPC and keeps
 the HTTP port separate.
 

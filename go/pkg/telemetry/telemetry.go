@@ -1,4 +1,4 @@
-// Package telemetry boots the OpenTelemetry SDK from the SDK-spec environment.
+// Package telemetry boots the OpenTelemetry SDK from explicit configuration with standard OTEL environment overrides.
 package telemetry
 
 import (
@@ -25,39 +25,18 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
-
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 // FlushTimeout bounds one ForceFlush.
 const FlushTimeout = 3 * time.Second
 
-// Defaults keep baggage from leaking to tools and model providers, compress
-// exports, and give every runtime the same histogram buckets.
-var Defaults = []env.StringVar{
-	env.OtelPropagators,
-	env.OtelExporterOTLPCompression,
-	env.OtelExporterOTLPMetricsDefaultHistogramAggregation,
-}
-
-// WithDefaults adds each default that a child process environment leaves unset.
-func WithDefaults(environment []string) []string {
-	result := slices.Clone(environment)
-	for _, value := range Defaults {
-		if !slices.ContainsFunc(environment, func(variable string) bool {
-			current, found := strings.CutPrefix(variable, value.Name()+"=")
-			return found && current != ""
-		}) {
-			result = append(result, value.Name()+"="+value.DefaultValue())
-		}
-	}
-	return result
-}
-
-// Options identify the process. The environment wins over Defaults. MetricReaders are added
-// beside the environment's reader. DeferMetrics holds metrics back until StartMetrics.
+// Options identify the process. The environment wins over Defaults, but Identity
+// contains compiler-owned attributes that file and environment settings cannot override.
+// MetricReaders are added beside the reader the environment configures.
+// DeferMetrics holds metrics back until StartMetrics.
 type Options struct {
-	Runtime        string
+	Config         Config
+	Identity       []attribute.KeyValue
 	Defaults       []attribute.KeyValue
 	SpanProcessors []sdktrace.SpanProcessor
 	MetricReaders  []sdkmetric.Reader
@@ -75,21 +54,29 @@ type Providers struct {
 	metricReaders  []sdkmetric.Reader
 }
 
-// Init applies Defaults, then installs the global propagator and one provider
+// Init applies configuration defaults, then installs the global propagator and one provider
 // per enabled signal.
 // A signal that fails to configure stays off and is reported in the error.
 func Init(ctx context.Context, opts Options) (*Providers, error) {
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		slog.Default().ErrorContext(context.Background(), "opentelemetry", "error", err)
 	}))
-	for _, value := range Defaults {
-		if current, set := value.Lookup(); !set || current == "" {
-			_ = os.Setenv(value.Name(), value.DefaultValue())
+	providers := &Providers{}
+	if err := opts.Config.Validate(); err != nil {
+		return providers, err
+	}
+	// The SDK owns parsing OTEL_* (including headers, trust, sampling, and
+	// batching). Translate file settings into defaults once at startup.
+	for _, entry := range Environment(os.Environ(), opts.Config) {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && strings.HasPrefix(key, "OTEL_") {
+			if err := os.Setenv(key, value); err != nil {
+				return providers, fmt.Errorf("configure telemetry %s: %w", key, err)
+			}
 		}
 	}
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
-	providers := &Providers{}
-	if strings.EqualFold(strings.TrimSpace(env.OtelSDKDisabled.Get()), "true") {
+	if disabled, _ := env.OTELSDKDisabled.Lookup(); strings.EqualFold(strings.TrimSpace(disabled), "true") {
 		return providers, nil
 	}
 	var errs []error
@@ -142,11 +129,11 @@ func newResource(ctx context.Context, opts Options) (*resource.Resource, error) 
 	detectors := []resource.Option{
 		resource.WithAttributes(opts.Defaults...),
 		resource.WithTelemetrySDK(),
-		resource.WithFromEnv(),
 	}
-	if opts.Runtime != "" {
-		detectors = append(detectors, resource.WithAttributes(conv.KagentRuntimeKey.String(opts.Runtime)))
+	for key, value := range opts.Config.ResourceAttributes {
+		detectors = append(detectors, resource.WithAttributes(attribute.String(key, value)))
 	}
+	detectors = append(detectors, resource.WithFromEnv(), resource.WithAttributes(opts.Identity...))
 	return resource.New(ctx, detectors...)
 }
 

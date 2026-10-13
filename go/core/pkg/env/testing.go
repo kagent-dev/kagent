@@ -33,7 +33,7 @@ var (
 
 var (
 	TestPython                = RegisterStringVar("KAGENT_TEST_PYTHON", "", "Python executable enabling the Python TaskStore/PostgreSQL interoperability test. That subtest is not run when unset.", ComponentTesting)
-	E2EAPIURL                 = RegisterStringVar("KAGENT_E2E_API_URL", "", "Controller URL for Go E2E tests. Falls back to KAGENT_API_URL; tests skip when neither is set.", ComponentTesting)
+	E2EAPIURL                 = RegisterStringVar("KAGENT_E2E_API_URL", "", "Controller URL for Go E2E tests. Tests skip when it is unset.", ComponentTesting)
 	E2ECLI                    = RegisterStringVar("KAGENT_E2E_CLI", "", "CLI executable for catalog lifecycle E2E tests; make -C go e2e builds and supplies it.", ComponentTesting)
 	E2ERuntimeImage           = RegisterStringVar("KAGENT_E2E_RUNTIME_IMAGE", "", "Required digest-pinned Go ADK image for sandbox E2E tests and lifecycle manifests.", ComponentTesting)
 	_                         = RegisterStringVar("KAGENT_E2E_BYO_IMAGE", "", "Digest-pinned BYO image substituted into E2E lifecycle manifests.", ComponentTesting)

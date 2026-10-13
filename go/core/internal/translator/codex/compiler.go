@@ -15,8 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
@@ -38,16 +36,16 @@ const (
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
 }
 
 type Compiler struct {
+	settings    translator.CompilerSettings
 	ctx         krt.HandlerContext
 	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings translator.CompilerSettings) *Compiler {
+	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -61,7 +59,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough")
 	}
-	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
+	telemetryConfig := c.settings.Telemetry
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
@@ -82,23 +80,14 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	environment := append(providerEnvironment, mcp.environment...)
-	harnessAttributes := translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
-		if translator.IsResourceAttributesVariable(variable.Name) {
-			continue
-		}
 		_, reserved := ownedEnvironment[variable.Name]
-		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || translator.OwnsTelemetryEnvironment(variable.Name) {
+		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
-	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	)
-	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
+
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
@@ -106,6 +95,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	cfg.RuntimeTelemetry = runtimeTelemetry
+	cfg.ControlPlaneURL = c.settings.APIURL
+	cfg.MaxContentLength = c.settings.Process.MaxContentLength
+	cfg.LogLevel = c.settings.LogLevel
 	if traceConfig.Enabled || logConfig.Enabled {
 		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
 		if traceConfig.Enabled {
@@ -139,8 +131,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	}
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
-	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	egress = append(egress, telemetryConfig.Destinations(environment)...)
+	egress = append(egress, c.settings.APIURL)
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{

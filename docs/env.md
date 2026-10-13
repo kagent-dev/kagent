@@ -10,8 +10,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | String | `false` | Python Google ADK content on its legacy gcp.vertex.agent.* span keys, including tool arguments and results. kagent keeps it off; captured content uses the GenAI convention keys. |
-| `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN` | String | `2` | Python Google ADK telemetry schema version; set by kagent when absent. |
 | `ANTHROPIC_API_KEY` | String | `(none)` | API key for Anthropic. |
 | `AWS_ACCESS_KEY_ID` | String | `(none)` | AWS access key ID for IAM authentication with Bedrock. |
 | `AWS_BEARER_TOKEN_BEDROCK` | String | `(none)` | Bearer token for authentication with AWS Bedrock. |
@@ -22,7 +20,6 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_AD_TOKEN` | String | `(none)` | Azure Active Directory authentication token for Azure OpenAI. |
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `AZURE_OPENAI_ENDPOINT` | String | `(none)` | Endpoint URL for Azure OpenAI service. |
-| `CREWAI_DISABLE_TELEMETRY` | String | `true` | CrewAI anonymous telemetry, which exports to CrewAI's own endpoint; kagent turns it off when absent. |
 | `FOUNDRY_API_KEY` | String | `(none)` | API key for Azure AI Foundry. |
 | `FOUNDRY_API_VERSION` | String | `2024-10-21` | Azure AI Foundry OpenAI-compatible data-plane API version. |
 | `FOUNDRY_DEPLOYMENT` | String | `(none)` | Azure AI Foundry model deployment name. |
@@ -34,57 +31,68 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `GOOGLE_CLOUD_PROJECT` | String | `(none)` | Google Cloud project ID for Vertex AI. |
 | `GOOGLE_CLOUD_REGION` | String | `(none)` | Go ADK Vertex AI region fallback when GOOGLE_CLOUD_LOCATION is unset. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | String | `(none)` | When set to 'true', use Vertex AI for Gemini models. |
-| `KAGENT_A2A_MAX_CONTENT_LENGTH` | String | `10485760` | Maximum A2A request size in bytes for Go/Python servers. 0, none, or unlimited disables the limit; invalid values use the default. |
-| `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
-| `KAGENT_BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
-| `KAGENT_CONFIG_DIR` | String | `/config` | Go ADK configuration directory; --filepath takes precedence. |
-| `KAGENT_ENABLE_FILE_SEARCH_TOOLS` | Boolean | `false` | When true, t, or 1 (case-insensitive), enables the list_files and grep_file skills tools, which let an agent enumerate and search the filesystem under its session/skills roots without a shell. Disabled by default; set in Harness env to opt in. |
-| `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
-| `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `KAGENT_NAME` | String | `(none)` | Agent name for standalone runtimes. Required by Python runtimes; supplied by the controller in managed runtimes. |
-| `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |
-| `KAGENT_OPENAI_AGENTS_NATIVE_TRACING` | Boolean | `false` | Keep the OpenAI Agents SDK native tracing processor alongside kagent OpenTelemetry export in the Python OpenAI runtime. |
-| `KAGENT_PORT` | String | `(none)` | ADK A2A listen port: the Go HTTP/gRPC listener defaults to 8080; the Python gRPC listener defaults to 80. Explicit Go --port/AppConfig.Port or Python a2a_grpc_address takes precedence. The controller sets 80 for managed kagent runtimes. Python's HTTP --port is separate. |
-| `KAGENT_PROPAGATE_TOKEN` | String | `(none)` | Set to true to propagate authentication tokens to downstream services. Unset or any other value disables propagation. |
-| `KAGENT_SKILLS_FOLDER` | String | `/skills` | Skills directory for standalone Python skills tools. The Python ADK adds skills tools when set; managed Go ADK runtimes use their compiled skill configuration. |
-| `KAGENT_STS_AUDIENCE` | String | `(none)` | Comma-separated RFC 8693 audiences sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience. |
-| `KAGENT_STS_RESOURCE` | String | `(none)` | Comma-separated RFC 8707 resource indicators sent on STS token-exchange requests to scope issued tokens to target backends. |
-| `KAGENT_STS_WELL_KNOWN_URI` | String | `(none)` | Well-known endpoint for the Security Token Service (STS) used for token exchange. |
 | `MISTRAL_API_BASE` | String | `(none)` | Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1). |
 | `MISTRAL_API_KEY` | String | `(none)` | API key for Mistral AI. |
 | `OLLAMA_API_BASE` | String | `(none)` | Base URL for the Ollama API endpoint; falls back to http://localhost:11434 when model configuration and this variable are unset. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
-| `OPENAI_AGENTS_DISABLE_TRACING` | Boolean | `false` | Disable OpenAI Agents SDK tracing, including the kagent bridge. The Python OpenAI runtime accepts true or 1. |
+| `OPENAI_AGENTS_DISABLE_TRACING` | Boolean | `false` | Disable OpenAI Agents SDK tracing, including the OpenTelemetry bridge. |
 | `OPENAI_API_BASE` | String | `(none)` | Custom base URL for the OpenAI API. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
 | `OPENAI_API_VERSION` | String | `(none)` | Azure OpenAI API version. The Go and Python ADKs fall back to 2024-02-15-preview when model configuration and this variable are unset. |
 | `OPENAI_ORGANIZATION` | String | `(none)` | OpenAI organization identifier. |
-| `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `gzip` | OTLP compression default applied by kagent. The native Codex process has this variable removed because its exporter does not support gzip. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | `(none)` | OTLP endpoint for every signal. `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` overrides it for one signal. |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | String | `(none)` | Log endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
-| `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | String | `(none)` | Log protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
-| `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT` | String | `(none)` | Log SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
-| `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | String | `base2_exponential_bucket_histogram` | Default SDK histogram aggregation applied by kagent and supplied to managed runtimes. |
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | String | `(none)` | Metric endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
-| `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | String | `(none)` | Metric protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
-| `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | String | `(none)` | Metric SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | String | `grpc` | OTLP protocol, grpc or http/protobuf. `OTEL_EXPORTER_OTLP_<SIGNAL>_PROTOCOL` overrides it for one signal. |
-| `OTEL_EXPORTER_OTLP_TIMEOUT` | String | `(none)` | OTLP export timeout in milliseconds. The controller forwards positive integers; absent values use each SDK's default (normally 10000 ms). |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Trace endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
-| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Trace protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
-| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Trace SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
-| `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED` | String | `false` | Python a2a-sdk internal spans; kagent turns them off when absent. |
-| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `NO_CONTENT` | SPAN_ONLY records prompts and responses on agent spans. NO_CONTENT disables capture. Managed runtimes support these two modes; standalone Python ADK also recognizes SPAN_AND_EVENT. Captured content may be sensitive. |
-| `OTEL_LOGS_EXPORTER` | String | `(none)` | Log exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `OTEL_METRICS_EXPORTER` | String | `(none)` | Metric exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `OTEL_PROPAGATORS` | String | `tracecontext` | SDK trace propagators. Kagent defaults to W3C tracecontext without baggage and supplies that default to managed runtimes. |
+| `OTEL_EXPORTER_OTLP_CERTIFICATE` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_CLIENT_KEY` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_CLIENT_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_CLIENT_KEY` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_COMPRESSION` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | String | `(none)` | SDK histogram aggregation; defaults to base2_exponential_bucket_histogram. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_PROMETHEUS_HOST` | String | `(none)` | Claude Code telemetry readiness listener host, managed by the harness. |
+| `OTEL_EXPORTER_PROMETHEUS_PORT` | String | `(none)` | Claude Code telemetry readiness listener port, managed by the harness. |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `(none)` | Override runtime content capture: SPAN_ONLY enables prompts and responses; NO_CONTENT disables capture. |
+| `OTEL_LOGS_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_LOG_ASSISTANT_RESPONSES` | String | `(none)` | Claude Code response capture flag, managed by the harness content-capture configuration. |
+| `OTEL_LOG_RAW_API_BODIES` | String | `(none)` | Claude Code raw API body capture flag, managed by the harness captureRawAPIBodies configuration. |
+| `OTEL_LOG_TOOL_CONTENT` | String | `(none)` | Claude Code tool-content capture flag, managed by the harness content-capture configuration. |
+| `OTEL_LOG_TOOL_DETAILS` | String | `(none)` | Claude Code tool-detail capture flag, managed by the harness content-capture configuration. |
+| `OTEL_LOG_USER_PROMPTS` | String | `(none)` | Claude Code prompt capture flag, managed by the harness content-capture configuration. |
+| `OTEL_METRICS_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_PROPAGATORS` | String | `(none)` | SDK propagator selection; defaults to tracecontext without baggage. |
 | `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS` | String | `(none)` | Python instrumentation entry point names to skip, such as httpx or openai. |
-| `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS` | String | `/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json` | Python inbound HTTP paths left untraced; set by kagent when absent. |
-| `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated SDK resource attributes for the current process. Helm injects controller identity; kagent constructs runtime identity separately. Use KAGENT_OTEL_RESOURCE_ATTRIBUTES for attributes shared with managed agents. |
-| `OTEL_SDK_DISABLED` | String | `false` | Disable SDK telemetry and forwarding to managed runtimes when true (case-insensitive). Other values are treated as false. |
-| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `gen_ai_latest_experimental,http` | Python semantic-convention opt-in for GenAI and stable HTTP; set by kagent when absent. |
-| `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
-| `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
+| `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS` | String | `(none)` | Python inbound HTTP paths left untraced; defaults exclude health and agent-card endpoints. |
+| `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated key=value resource attributes. Override file attributes per key; compiler-owned runtime identity remains authoritative. |
+| `OTEL_SDK_DISABLED` | String | `(none)` | Disable all SDK telemetry for this process when true. |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` | String | `(none)` | Python semantic convention opt-in; defaults to gen_ai_latest_experimental,http. |
+| `OTEL_SERVICE_NAME` | String | `(none)` | Override the SDK service name for this process. |
+| `OTEL_TRACES_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_TRACES_SAMPLER` | String | `(none)` | SDK trace sampler selection. |
+| `OTEL_TRACES_SAMPLER_ARG` | String | `(none)` | SDK trace sampler argument. |
 | `SAP_AI_CORE_CLIENT_ID` | String | `(none)` | OAuth2 client ID for SAP AI Core authentication. |
 | `SAP_AI_CORE_CLIENT_SECRET` | String | `(none)` | OAuth2 client secret for SAP AI Core authentication. |
 
@@ -96,23 +104,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `GEMINI_API_KEY` | String | `(none)` | Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs. |
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
-| `KAGENT_BUNDLED_POSTGRES_IMAGE` | String | `postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15` | PostgreSQL image that kagent install deploys. Point it at a mirror for air-gapped clusters. |
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
-| `KAGENT_DEFAULT_MODEL_PROVIDER` | String | `openAI` | Default LLM provider for agents (e.g. openAI, anthropic, ollama, azureOpenAI). |
-| `KAGENT_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Kagent chart. |
-| `KAGENT_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/kagent/helm/` | Helm repository URL for kagent charts. |
-| `KAGENT_HELM_VERSION` | String | `(none)` | Helm chart version to deploy. When unset, the CLI uses its own version. |
-| `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
-| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
-| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
-| `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS` | String | `(none)` | Additional Helm --set overrides for the Substrate chart. |
-| `KAGENT_SUBSTRATE_HELM_REPO` | String | `oci://ghcr.io/kagent-dev/substrate/helm/` | Helm repository URL for Substrate charts. |
-| `KAGENT_SUBSTRATE_HELM_VERSION` | String | `(none)` | Substrate Helm chart version to deploy. When unset, the CLI uses its pinned Substrate version. |
-| `KAGENT_SUBSTRATE_PODCERT_HELM_REPO` | String | `(none)` | Helm repository URL for the Substrate PodCertificate chart. When unset, the CLI uses KAGENT_SUBSTRATE_HELM_REPO. |
-| `KAGENT_SUBSTRATE_PODCERT_HELM_VERSION` | String | `(none)` | Substrate PodCertificate Helm chart version to deploy. When unset, the CLI uses KAGENT_SUBSTRATE_HELM_VERSION or its pinned Substrate version. |
-| `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
+| `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
 
@@ -120,97 +112,55 @@ This reference covers user-configurable settings for the controller, CLI, standa
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `KAGENT_A2A_PUSH_ALLOW_HTTP` | Boolean | `false` | Allow HTTP A2A push callbacks. HTTPS is required by default. |
-| `KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS` | Boolean | `false` | Allow A2A push callbacks to private, loopback, and link-local destinations. |
-| `KAGENT_A2A_PUSH_ISSUER` | String | `(none)` | Stable issuer URL for push notification JWTs. Defaults to KAGENT_GATEWAY_URL. |
-| `KAGENT_A2A_PUSH_SIGNING_PRIVATE_KEY` | String | `(none)` | Unencrypted PKCS#8 PEM Ed25519 private key shared by controller replicas for push notification JWTs. Supply through a Kubernetes Secret. Empty disables JWT signing. |
-| `KAGENT_AUTH_MODE` | String | `insecure` | Controller authentication mode: insecure or trusted-proxy. trusted-proxy requires an upstream credential-validating proxy and network isolation preventing bypass. |
-| `KAGENT_AUTH_USER_ID_CLAIM` | String | `(none)` | JWT claim used for the caller identity in trusted-proxy mode. Empty uses sub; a missing or empty custom claim falls back to sub. |
-| `KAGENT_CONTROLLER_NAME` | String | `kagent-controller` | Name of the kagent controller service. |
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
-| `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |
-| `KAGENT_GRPC_REFLECTION` | Boolean | `false` | Enable gRPC server reflection on the controller. |
-| `KAGENT_HTTP_BIND_ADDRESS` | String | `:8083` | Listen address for the controller HTTP, gRPC, A2A, and MCP server. |
-| `KAGENT_LEADER_ELECT` | Boolean | `true` | Enable controller leader election, including during single-replica rolling updates. Required for sandbox lifecycle coordination. |
-| `KAGENT_LOG_LEVEL` | String | `info` | Logging level for the controller, CLI, and Go/Python runtimes, including the Python ADK HTTP server: debug, info, warn, or error. Python also accepts standard Python logging levels. |
-| `KAGENT_METRICS_BIND_ADDRESS` | String | `0` | Address the controller-runtime metrics server binds to, e.g. :8080. "0" (the default) serves no metrics, so an installation that does not set this is unchanged. The Helm chart renders this variable, and its ServiceMonitor, from controller.metrics. |
-| `KAGENT_METRICS_SECURE` | Boolean | `false` | Serve the metrics endpoint over HTTPS with authentication and authorization. A scraper then needs a token bound to the metrics-reader ClusterRole. |
-| `KAGENT_NAMESPACE` | String | `kagent` | Kubernetes namespace where kagent resources are deployed. The controller injects the agent namespace into runtimes; Python runtimes require it. |
-| `KAGENT_OTEL_CAPTURE_RAW_API_BODIES` | Boolean | `false` | Set to true, t, or 1 (case-insensitive) to enable native Claude raw API body logging when log export is enabled. Independent of span content capture; bodies may contain sensitive data. |
-| `KAGENT_OTEL_MAX_CAPTURE_BYTES` | Integer | `16384` | Per-input/output content capture budget in bytes when capture is enabled. Valid values are 1 through 65536; absent or invalid values use 16384. |
-| `KAGENT_OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Resource attributes, as key=value pairs, added to every agent runtime. |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
-| `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
-| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
-| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
-| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
-| `KAGENT_RUNTIME_REVISION_GC_INTERVAL` | Duration | `1m0s` | Interval between unreferenced runtime revision cleanup sweeps. Must be positive. |
-| `KAGENT_SANDBOX_CPU` | String | `1` | CPU limit for standalone sandbox runtimes. |
-| `KAGENT_SANDBOX_DEFAULT_TTL` | Duration | `1h0m0s` | Default standalone sandbox lifetime. |
-| `KAGENT_SANDBOX_EXPIRATION_POLL_INTERVAL` | Duration | `1s` | Interval between expired sandbox cleanup batches. Must be positive; longer intervals delay deletion after TTL expiry. |
-| `KAGENT_SANDBOX_GUEST_IMAGE` | String | `(none)` | Guest package image pinned by sha256 digest. Required for sandbox preparation and passed unchanged to Substrate. |
-| `KAGENT_SANDBOX_MAX_TTL` | Duration | `24h0m0s` | Maximum standalone sandbox lifetime, at most 24h. |
-| `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
-| `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
-| `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
-| `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between idle session expiration sweeps. Must be positive. |
-| `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
-| `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second. |
-| `KAGENT_SESSION_SHARE_MAX_TTL` | Duration | `0s` | Longest lifetime a session share may request. Shares created without a ttl receive it. Zero leaves shares unbounded. |
-| `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
-| `KAGENT_SUBSTRATE_ATENET_ROUTER_URL` | String | `http://atenet-router.ate-system.svc:80` | Substrate router endpoint for agent and sandbox guest traffic. |
-| `KAGENT_SUBSTRATE_ATE_API_CA_FILE` | String | `(none)` | PEM CA bundle used to verify the Substrate API server. Empty uses system trust roots. |
-| `KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE` | String | `(none)` | PEM bundle containing both the client certificate and private key for Substrate API mTLS. Reloaded for each TLS handshake. |
-| `KAGENT_SUBSTRATE_ATE_API_ENDPOINT` | String | `dns:///api.ate-system.svc:443` | Substrate control-plane gRPC endpoint. |
-| `KAGENT_WATCH_NAMESPACES` | String | `(none)` | Comma-separated namespaces to watch. Empty watches all namespaces. |
-| `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
-| `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `gzip` | OTLP compression default applied by kagent. The native Codex process has this variable removed because its exporter does not support gzip. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | `(none)` | OTLP endpoint for every signal. `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` overrides it for one signal. |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | String | `(none)` | Log endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
-| `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | String | `(none)` | Log protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
-| `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT` | String | `(none)` | Log SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
-| `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | String | `base2_exponential_bucket_histogram` | Default SDK histogram aggregation applied by kagent and supplied to managed runtimes. |
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | String | `(none)` | Metric endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
-| `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | String | `(none)` | Metric protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
-| `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | String | `(none)` | Metric SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | String | `grpc` | OTLP protocol, grpc or http/protobuf. `OTEL_EXPORTER_OTLP_<SIGNAL>_PROTOCOL` overrides it for one signal. |
-| `OTEL_EXPORTER_OTLP_TIMEOUT` | String | `(none)` | OTLP export timeout in milliseconds. The controller forwards positive integers; absent values use each SDK's default (normally 10000 ms). |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Trace endpoint override. Falls back to OTEL_EXPORTER_OTLP_ENDPOINT; an HTTP override must include its signal path. |
-| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Trace protocol override: grpc or http/protobuf. Falls back to OTEL_EXPORTER_OTLP_PROTOCOL. |
-| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Trace SDK timeout in milliseconds, overriding OTEL_EXPORTER_OTLP_TIMEOUT. Not forwarded by the controller. |
-| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | String | `NO_CONTENT` | SPAN_ONLY records prompts and responses on agent spans. NO_CONTENT disables capture. Managed runtimes support these two modes; standalone Python ADK also recognizes SPAN_AND_EVENT. Captured content may be sensitive. |
-| `OTEL_LOGS_EXPORTER` | String | `(none)` | Log exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `OTEL_METRICS_EXPORTER` | String | `(none)` | Metric exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-| `OTEL_PROPAGATORS` | String | `tracecontext` | SDK trace propagators. Kagent defaults to W3C tracecontext without baggage and supplies that default to managed runtimes. |
-| `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated SDK resource attributes for the current process. Helm injects controller identity; kagent constructs runtime identity separately. Use KAGENT_OTEL_RESOURCE_ATTRIBUTES for attributes shared with managed agents. |
-| `OTEL_SDK_DISABLED` | String | `false` | Disable SDK telemetry and forwarding to managed runtimes when true (case-insensitive). Other values are treated as false. |
-| `OTEL_SERVICE_NAME` | String | `(none)` | SDK service name for the current process. Defaults to kagent-controller in the controller; the controller supplies the agent name to managed runtimes. |
-| `OTEL_TRACES_EXPORTER` | String | `(none)` | Trace exporter, otlp or none. Managed runtime export requires explicit otlp and an endpoint; unset disables forwarding. Standalone SDKs may default to otlp. |
-
-## database
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `KAGENT_DATABASE_VECTOR_ENABLED` | Boolean | `false` | Enable vector database migrations and vector-backed database functionality. The controller defaults to false. When unset in the CLI, migrations read the controller ConfigMap and fall back to false if it is unavailable. |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONNS` | Integer | `Greater of 4 and number of CPUs` | Maximum size of the PostgreSQL connection pool |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME` | Duration | `30m0s` | Duration after which an idle connection will be automatically closed |
-| `KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME` | Duration | `1h0m0s` | Duration since creation after which a connection will be automatically closed |
-| `KAGENT_POSTGRES_DATABASE_MIN_CONNS` | Integer | `0` | Minimum size of the PostgreSQL connection pool |
-| `KAGENT_POSTGRES_DATABASE_ROLE` | String | `(none)` | Stable PostgreSQL role assumed after authentication. |
-| `KAGENT_POSTGRES_DATABASE_SCHEMA` | String | `kagent` | PostgreSQL schema for Kagent tables. |
-| `KAGENT_POSTGRES_DATABASE_URL` | String | `(none)` | PostgreSQL connection URL. Required by the controller; kagent db reads it when --db-url is empty. Helm sets it from database.postgres.connectionStringSecretRef. |
-| `KAGENT_POSTGRES_VECTOR_SCHEMA` | String | `extensions` | Schema where the shared pgvector extension is installed. |
-| `KAGENT_SKIP_MIGRATIONS` | Boolean | `false` | Verify required database migrations at startup without applying them. |
+| `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
+| `OTEL_EXPORTER_OTLP_CERTIFICATE` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_CLIENT_KEY` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_COMPRESSION` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_CLIENT_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_CLIENT_KEY` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_COMPRESSION` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_CLIENT_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | String | `(none)` | SDK histogram aggregation; defaults to base2_exponential_bucket_histogram. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | String | `(none)` | Generic OTLP SDK override for this process, ahead of file defaults. Timeouts are milliseconds. Native SDK support varies. |
+| `OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_COMPRESSION` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_EXPORTER_OTLP_TRACES_TIMEOUT` | String | `(none)` | Signal-specific SDK override; takes precedence over generic OTLP environment settings and file defaults. Timeouts are milliseconds; HTTP endpoints include the signal path. |
+| `OTEL_LOGS_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_METRICS_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_PROPAGATORS` | String | `(none)` | SDK propagator selection; defaults to tracecontext without baggage. |
+| `OTEL_RESOURCE_ATTRIBUTES` | String | `(none)` | Comma-separated key=value resource attributes. Override file attributes per key; compiler-owned runtime identity remains authoritative. |
+| `OTEL_SDK_DISABLED` | String | `(none)` | Disable all SDK telemetry for this process when true. |
+| `OTEL_SERVICE_NAME` | String | `(none)` | Override the SDK service name for this process. |
+| `OTEL_TRACES_EXPORTER` | String | `(none)` | Override the file's exporter selection for this process. none disables the signal; an endpoint or file exporter enables OTLP by default. |
+| `OTEL_TRACES_SAMPLER` | String | `(none)` | SDK trace sampler selection. |
+| `OTEL_TRACES_SAMPLER_ARG` | String | `(none)` | SDK trace sampler argument. |
 
 ## testing
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
-| `KAGENT_E2E_API_URL` | String | `(none)` | Controller URL for Go E2E tests. Falls back to KAGENT_API_URL; tests skip when neither is set. |
+| `KAGENT_E2E_API_URL` | String | `(none)` | Controller URL for Go E2E tests. Tests skip when it is unset. |
 | `KAGENT_E2E_BYO_IMAGE` | String | `(none)` | Digest-pinned BYO image substituted into E2E lifecycle manifests. |
 | `KAGENT_E2E_CLAUDE_IMAGE` | String | `(none)` | Digest-pinned Claude harness image substituted into E2E lifecycle manifests. |
 | `KAGENT_E2E_CLI` | String | `(none)` | CLI executable for catalog lifecycle E2E tests; make -C go e2e builds and supplies it. |
@@ -240,7 +190,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_TEST_STS_PORT` | String | `8091` | Port for the mock STS (Security Token Service) server. |
 | `KAGENT_TEST_UPDATE_GOLDEN` | Boolean | `false` | When true, update golden test files instead of comparing. |
 | `KAGENT_UI_VITE_API_MODE` | String | `(none)` | Build-time API mode override, mock or live, used by UI tests. Overrides KAGENT_UI_ENABLE_MOCK; leave unset for normal development. |
-| `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list for the controller, CLI Kubernetes operations, and tests. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
+| `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
 
 ## ui

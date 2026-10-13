@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -52,11 +53,10 @@ func OwnsEnvironment(name string) bool {
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
 		SandboxEnvName, "CLAUDE_CODE_ENABLE_TELEMETRY",
-		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "OTEL_TRACES_EXPORTER", "OTEL_METRICS_EXPORTER",
-		"OTEL_LOGS_EXPORTER", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT",
-		"OTEL_LOG_ASSISTANT_RESPONSES", "OTEL_LOG_RAW_API_BODIES", "TRACEPARENT", "TRACESTATE",
-		"OTEL_EXPORTER_PROMETHEUS_HOST", "OTEL_EXPORTER_PROMETHEUS_PORT",
-		"KAGENT_NAME", "KAGENT_NAMESPACE":
+		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", env.OTELTraces.Exporter.Name(), env.OTELMetrics.Exporter.Name(),
+		env.OTELLogs.Exporter.Name(), env.OTELLogUserPrompts.Name(), env.OTELLogToolDetails.Name(), env.OTELLogToolContent.Name(),
+		env.OTELLogAssistantResponses.Name(), env.OTELLogRawAPIBodies.Name(), "TRACEPARENT", "TRACESTATE",
+		env.OTELExporterPrometheusHost.Name(), env.OTELExporterPrometheusPort.Name():
 		return true
 	default:
 		return false
@@ -64,6 +64,9 @@ func OwnsEnvironment(name string) bool {
 }
 
 type Config struct {
+	MaxContentLength      *int64                 `json:"max_content_length,omitempty"`
+	ControlPlaneURL       string                 `json:"control_plane_url"`
+	LogLevel              string                 `json:"log_level,omitempty"`
 	Version               int                    `json:"version"`
 	ClaudeExecutable      string                 `json:"claude_executable"`
 	ExpectedClaudeVersion string                 `json:"expected_claude_version"`
@@ -132,6 +135,14 @@ func Parse(b []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.MaxContentLength != nil && *c.MaxContentLength < 0 {
+		return fmt.Errorf("max_content_length must be nonnegative")
+	}
+	switch c.LogLevel {
+	case "", "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("log_level must be debug, info, warn, or error")
+	}
 	if c.Version != Version {
 		return fmt.Errorf("unsupported config version %d (want %d)", c.Version, Version)
 	}

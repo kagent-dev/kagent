@@ -54,9 +54,6 @@ spec:
   workload:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
     command: ["/app"]
-  env:
-  - name: KAGENT_PORT
-    value: "80"
   substrate:
     workerPoolRef:
       name: kagent-default

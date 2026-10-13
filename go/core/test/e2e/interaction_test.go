@@ -679,9 +679,6 @@ func interactionTarget(t *testing.T) string {
 	t.Helper()
 	rawURL := kagentenv.E2EAPIURL.Get()
 	if rawURL == "" {
-		rawURL = kagentenv.KagentAPIURL.Get()
-	}
-	if rawURL == "" {
 		t.Skip("KAGENT_E2E_API_URL is not set")
 	}
 	parsed, err := url.Parse(rawURL)

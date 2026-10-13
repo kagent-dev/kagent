@@ -36,7 +36,7 @@ global:
   # this one value, so they cannot disagree. Prefer this value over the
   # per-surface keys. rbac.namespaces overrides it when the key is present. An
   # explicit empty rbac.namespaces restores cluster-scoped RBAC. Mixing in
-  # controller.watchNamespaces is validated: the watch must stay inside the RBAC
+  # config.kubernetes.watchNamespaces is validated: the watch must stay inside the RBAC
   # scope. A watched namespace without a Role is a permanent Forbidden loop at
   # runtime.
   watchNamespaces: []
@@ -112,30 +112,6 @@ database:
     # string must reference the files under /run/postgres.podcert.ate.dev.
     clientCertificate:
       enabled: false
-    # -- Role assumed on each Kagent connection. Set a distinct role for each install sharing a database.
-    role: kagent_owner
-    # -- Schema for Kagent tables.
-    schema: kagent
-    # -- Schema for the shared pgvector extension. Existing installations must match this value.
-    # Kagent needs USAGE on this schema; only trusted administrators should have CREATE on it.
-    vectorSchema: extensions
-    # -- Enable the pgvector migration
-    # Required to use features that depend on database vector capability. (e.g. long-term memory)
-    # Set to true when using an external PostgreSQL that has the pgvector extension installed.
-    vectorEnabled: false
-    # -- Skip running database migrations at controller startup.
-    # The controller instead verifies the database is already migrated and fails if it is not.
-    # Migrations must be applied out-of-band (e.g. from a CI/CD pipeline) before install/upgrade.
-    skipMigrations: false
-    # -- Optional pgxpool settings. Leave unset/null to keep pgx library defaults
-    # (MaxConns≈max(4,NumCPU), MinConns=0, MaxConnIdleTime=30m, MaxConnLifetime=1h).
-    pool:
-      maxConns: null
-      minConns: null
-      maxConnIdleTime: ""
-      # -- Maximum physical connection lifetime.
-      maxConnLifetime: ""
-
 # ==============================================================================
 # RBAC CONFIGURATION
 # ==============================================================================
@@ -146,8 +122,8 @@ rbac:
   # If that is also unset, the chart creates cluster-scoped ClusterRole and
   # ClusterRoleBinding resources, and the controller watches all namespaces.
   # If set, the chart creates a Role and a RoleBinding per listed namespace.
-  # The controller's KAGENT_WATCH_NAMESPACES derives from the same list, unless
-  # controller.watchNamespaces overrides it.
+  # The controller watches the same list, unless config.kubernetes.watchNamespaces
+  # overrides it.
   # An explicit empty list forces cluster-scoped RBAC, even under a parent that
   # sets global.watchNamespaces. This is why the key ships commented out: a
   # declared default [] would make every install look explicitly cluster-scoped,
@@ -156,23 +132,70 @@ rbac:
   {}
 
 # ==============================================================================
-# CONTROLLER CONFIGURATION
+# APPLICATION CONFIGURATION
+# ==============================================================================
+
+# Application settings use the ControllerConfig protobuf schema, with no
+# Kubernetes kind/version envelope. Durations use seconds (e.g. 3600s).
+# Namespace, listeners, endpoints and secret paths are supplied by the chart.
+config:
+  kubernetes: {}
+  server:
+    auth:
+      mode: insecure
+    grpcReflection: false
+  database:
+    role: kagent_owner
+    # PostgreSQL schema for Kagent tables and the shared pgvector extension.
+    schema: kagent
+    vectorSchema: extensions
+    vectorEnabled: false
+    # Skip applying migrations at controller startup; verify they are already applied.
+    # Apply migrations out-of-band before installing or upgrading when true.
+    skipMigrations: false
+  gateway:
+    push:
+      allowHttp: false
+      allowPrivateNetworks: false
+  sessions:
+    idleTtl: 604800s
+    shareMaxTtl: 0s
+  sandboxes:
+    guestImage: ""
+    cpu: "1"
+    memory: 1Gi
+    defaultTtl: 3600s
+    maxTtl: 86400s
+  substrate:
+    apiEndpoint: dns:///api.ate-system.svc:443
+    routerUrl: http://atenet-router.ate-system.svc:80
+  logging:
+    level: info
+  metrics:
+    bindAddress: ":8443"
+    secure: true
+  telemetry: {}
+  runtimeDefaults:
+    logging:
+      level: info
+    telemetry: {}
+
+# ==============================================================================
+# CONTROLLER DEPLOYMENT
 # ==============================================================================
 
 controller:
+  # Standard OTEL overrides and external SDK credentials for this process only.
+  env: []
+  envFrom: []
+  # Mount rotating Substrate PodIdentity/ServiceDNS credentials.
+  substrateClientCertificate:
+    enabled: false
   push:
-    # -- Allow plain HTTP callback URLs. HTTPS is required by default.
-    allowHTTP: false
-    # -- Allow callbacks to private, loopback, and link-local addresses.
-    allowPrivateNetworks: false
     signing:
-      # Name of the Secret containing `private-key.pem`, an unencrypted PKCS#8 Ed25519 PEM key.
-      # Optional: empty sends push notifications without JWT authentication.
-      # Operators manage key generation, persistence, and rotation.
+      # Optional operator-managed Secret with an unencrypted PKCS#8 Ed25519 key
+      # in private-key.pem. Empty disables push JWT signing.
       secretName: ""
-      # Stable URL that webhook receivers trust as the JWT issuer.
-      # Empty uses ui.externalUrl, then the in-cluster A2A gateway URL.
-      issuer: ""
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
     # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.
@@ -185,49 +208,6 @@ controller:
     # @default -- {} (no extra annotations)
     annotations: {}
   replicas: 1
-  loglevel: "info"
-  auth:
-    # -- Controller authentication: insecure or trusted-proxy.
-    # trusted-proxy requires a validating proxy and network isolation; see
-    # docs/architecture/oidc-proxy-authentication.md.
-    mode: insecure
-    # -- JWT identity claim. Empty uses sub; a missing custom claim falls back to sub.
-    userIdClaim: ""
-  # -- Public gateway base URL advertised by Session Agent Cards for gRPC and HTTP/JSON-RPC.
-  # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
-  a2aGatewayUrl: ""
-  # -- The image used for declarative agents.
-  agentImage:
-    registry: ""
-    repository: kagent-dev/kagent/golang-adk
-    tag: "" # Will default to global, then Chart version
-  # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
-  # internally. These values have no effect and will be removed in a future release.
-  streaming: null
-
-  # -- HTTP client timeout for A2A requests from the controller to agent pods.
-  # 0 (the default) means no timeout, which is correct for SSE-based streaming agents
-  # that can run for an arbitrarily long time. The previous implicit default was 3m
-  # (inherited from the a2a-go SDK), which caused `context deadline exceeded` errors
-  # for agents that take longer than 3 minutes to complete.
-  # Set a positive Go duration string (e.g. "30m", "1h") only if you need a hard
-  # upper bound on individual A2A calls.
-  # @default -- "" (no timeout)
-  a2aClientTimeout: ""
-
-  # -- Namespaces the controller should watch.
-  # If empty, the controller will watch ALL available namespaces.
-  # @default -- [] (watches all available namespaces)
-  watchNamespaces: []
-  #  - watch-ns-1
-  #  - watch-ns-2
-
-  # -- Rewrite RemoteMCPServer tool URLs and the controller's tool-discovery
-  # dial from `https://host[:port]` to `http://host:<port-or-443>` so MCP
-  # traffic egresses in plaintext to a proxy that originates TLS upstream
-  # off by default.
-  mcpEgressPlaintext: false
-
   # -- Additional annotations to add to the controller Deployment metadata
   annotations: {}
 
@@ -294,23 +274,10 @@ controller:
       port: 8083
       targetPort: 8083
     annotations: {}
-  # -- Prometheus-style /metrics endpoint for the controller manager.
-  # When enabled, provisions a dedicated metrics Service plus the
-  # ClusterRoles required for authenticated scrapes. Bind
-  # `<fullname>-metrics-reader` to your Prometheus ServiceAccount to grant
-  # scrape access. Use `bindAddress` for any port change: the Service
-  # `targetPort` and the pod `containerPort` are derived from it at
-  # template time, so overriding `KAGENT_METRICS_BIND_ADDRESS` via
-  # `controller.env` shifts only the runtime listener and leaves the
-  # rendered Service pointing at the chart-time port. Setting
-  # `bindAddress: "0"` (or empty) is treated as a disable signal —
-  # equivalent to `enabled: false` — to keep faith with the controller
-  # binary's documented contract for `--metrics-bind-address`.
-  # @default -- disabled
+  # Kubernetes packaging for the controller's Prometheus listener. Its address
+  # and TLS mode come from config.metrics.
   metrics:
     enabled: false
-    bindAddress: ":8443"
-    secureServing: true
     service:
       type: ClusterIP
       port: 8443
@@ -367,48 +334,6 @@ controller:
       # enabled, where the controller serves a self-signed certificate.
       # @default -- insecureSkipVerify: true
       tlsConfig: {}
-  # -- gRPC application API settings. Native gRPC, gRPC-Web, MCP, and health
-  # share the controller service port.
-  grpc:
-    reflection: false
-
-  # Extra controller environment variables, applied after ConfigMap defaults.
-  # Kept in the Deployment to support valueFrom and $(VAR_NAME) expansion.
-  env: []
-
-  # Session idle retention. Running tasks and turns waiting for input do not expire.
-  # 168h is seven days; 0 disables expiration. Audit history and checkpoints remain.
-  sessionIdleTTL: "168h"
-
-  # Longest lifetime a session share may request; shares created without one receive it.
-  # 0 leaves shares valid until revoked or the session is deleted.
-  sessionShareMaxTTL: "0"
-
-  # Standalone workspaces, enabled by default.
-  # Each SandboxTemplate supplies its own digest-pinned tools image.
-  sandbox:
-    # Supply a pinned guest image to prepare sandboxes.
-    guestImage:
-      registry: "" # Defaults to the top-level registry; global.imageRegistry overrides both.
-      repository: kagent-dev/kagent/sandbox-guest
-      digest: "" # Required for sandbox preparation: sha256:<digest>.
-    cpu: "1"
-    memory: "1Gi"
-    defaultTTL: "1h"
-    maxTTL: "24h"
-
-  # Agent Substrate. Requires ate-system installed. kagent creates ate-api
-  # ActorTemplates and references an existing Kubernetes WorkerPool.
-  substrate:
-    enabled: false
-    ateApiEndpoint: ""
-    atenetRouterURL: ""
-    # Example when enabled:
-    #   enabled: true
-    #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
-    #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
-  envFrom: []
-
   # Additional volumes on the output Deployment definition.
   volumes: []
   # - name: foo
@@ -853,7 +778,7 @@ grafana-mcp:
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================
 # Enable oauth2-proxy subchart for OIDC authentication
-# Set controller.auth.mode=trusted-proxy to authenticate controller requests; see
+# Set config.server.auth.mode=trusted-proxy to authenticate controller requests; see
 # docs/architecture/oidc-proxy-authentication.md.
 
 oauth2-proxy:
@@ -954,42 +879,6 @@ oauth2-proxy:
 # ==============================================================================
 # OBSERVABILITY
 # ==============================================================================
-
-otel:
-  exporter:
-    otlp:
-      # -- OTLP endpoint for every signal, as an http or https URL.
-      endpoint: ""
-      # -- OTLP protocol, `grpc` or `http/protobuf`.
-      protocol: grpc
-      # -- Export timeout in milliseconds. Empty keeps the SDK default.
-      timeout: ""
-  traces:
-    enabled: false
-    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for traces.
-    endpoint: ""
-    protocol: ""
-  metrics:
-    enabled: false
-    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for metrics.
-    endpoint: ""
-    protocol: ""
-  logs:
-    enabled: false
-    # -- Full URL that overrides `otel.exporter.otlp.endpoint` for logs.
-    endpoint: ""
-    protocol: ""
-  capture:
-    # -- Record prompts, tool details, and responses on agent telemetry.
-    # This may expose sensitive user or model content.
-    messageContent: false
-    # -- Bytes kept per captured prompt or response. Empty keeps the default.
-    maxBytes: ""
-    # -- Include complete provider API request and response bodies in Claude logs.
-    rawApiBodies: false
-  # -- Resource attributes added to the controller and every agent, such as
-  # `deployment.environment.name` or `k8s.cluster.name`.
-  resourceAttributes: {}
 
 # ==============================================================================
 # EXTRA OBJECTS

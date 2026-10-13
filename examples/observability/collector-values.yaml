@@ -3,7 +3,7 @@
 # docs/architecture/telemetry.md#reference-collector.
 #
 # Point kagent at it with
-#   --set-string otel.exporter.otlp.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317
+#   --set-string config.runtimeDefaults.telemetry.traces.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317
 # and set OTLP_ENDPOINT and OTLP_AUTHORIZATION (a Secret) for the backend.
 
 mode: statefulset
@@ -125,7 +125,7 @@ config:
           statements:
             - delete_matching_keys(span.attributes, "^gen_ai\\.(operation\\.name|system|request\\.model|response\\.finish_reasons|usage\\..*)$")
 
-    # Content backstop for an installation with otel.capture.messageContent
+    # Content backstop for an installation with config.runtimeDefaults.telemetry.captureContent
     # off. Remove it from the pipelines when capture is on. It also drops the
     # Go ADK tool payloads it writes regardless of capture (google/adk-go#1634).
     transform/genai_content:

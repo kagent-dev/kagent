@@ -20,7 +20,6 @@ import (
 )
 
 func TestEmbeddedPushConfig(t *testing.T) {
-	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "true")
 	agent := types.NamespacedName{Namespace: "team", Name: "agent"}
 	for _, test := range []struct {
 		name   string
@@ -55,7 +54,7 @@ func TestEmbeddedPushConfig(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			req := &a2a.SendMessageRequest{Message: &a2a.Message{ID: "input"}, Config: &a2a.SendMessageConfig{PushConfig: &a2a.PushConfig{URL: "http://receiver", Auth: &a2a.PushAuthInfo{Scheme: "Bearer"}}}}
 			test.change(req)
-			config, err := initialPushConfig(agent, req)
+			config, err := initialPushConfig(agent, req, true)
 			if !test.valid {
 				require.ErrorIs(t, err, a2a.ErrInvalidParams)
 				return
@@ -68,13 +67,12 @@ func TestEmbeddedPushConfig(t *testing.T) {
 }
 
 func TestPushRequiresHTTPSWhenHTTPDisabled(t *testing.T) {
-	t.Setenv("KAGENT_A2A_PUSH_ALLOW_HTTP", "false")
 	agent := types.NamespacedName{Namespace: "team", Name: "agent"}
 	config := &a2a.PushConfig{URL: "http://receiver/callback"}
-	_, err := validatePushConfig(agent, config)
+	_, err := validatePushConfig(agent, config, false)
 	require.ErrorIs(t, err, a2a.ErrInvalidParams)
 	config.URL = "https://receiver/callback"
-	_, err = validatePushConfig(agent, config)
+	_, err = validatePushConfig(agent, config, false)
 	require.NoError(t, err)
 }
 

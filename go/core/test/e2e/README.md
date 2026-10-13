@@ -1,7 +1,7 @@
 # End-to-end tests
 
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
-Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
+Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.
 It creates and cleans up its own SandboxTemplates. Run from `go/`:
@@ -22,6 +22,8 @@ The agent test uses the CLI-installed `kagent-api` RemoteMCPServer, a determinis
 local model, and a real Go ADK Session to create a sandbox through MCP as its
 invoking user. Install with `kagent install` in the test namespace; the test
 requires that registration and leaves it intact.
+Set `config.runtimeDefaults.tokenPropagation.enabled: true` in the test install
+so the agent forwards its caller identity to the MCP server.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
@@ -29,7 +31,7 @@ runtime and sandbox tools.
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets
-`KAGENT_SESSION_IDLE_TTL=30s` and `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL=5s` on the
+`sessions.idleTtl: 30s` and `sessions.expirationInterval: 5s` in controller config on the
 controller Deployment and restores its environment afterward, rolling the
 controller both times and waiting for a
 fresh API connection after each rollout. Use a disposable test cluster and a

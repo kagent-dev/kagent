@@ -8,14 +8,14 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	otel "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -75,7 +75,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	environment := setEnvironment(input.Environment, config.ClaudeConfigDirEnvName, claudeDir)
 	// The native runtime inherits the compiled identity through the standard
 	// resource variable, so no user-supplied marker is required.
-	environment, awaitTelemetry := nativeTelemetryEnvironment(telemetry.WithDefaults(tracing.ResourceEnvironment(environment, cfg.RuntimeTelemetry.ChildResource())), cfg.RuntimeTelemetry)
+	environment, awaitTelemetry := nativeTelemetryEnvironment(tracing.ResourceEnvironment(otel.Environment(environment, cfg.RuntimeTelemetry.ExporterConfig()), cfg.RuntimeTelemetry.ChildResource()), cfg.RuntimeTelemetry)
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
@@ -196,25 +196,30 @@ func materializeGoogleCredentials(environment []string, directory string) ([]str
 // controller exports, and its content flags when capture is on. It reports
 // whether telemetry is on.
 func nativeTelemetryEnvironment(environment []string, telemetry tracing.RuntimeTelemetry) ([]string, bool) {
-	exported := func(name string) bool {
-		return slices.Contains(environment, name+"=otlp")
+	telemetry = telemetry.WithEnvironment(environment)
+	traces, logs := otel.SignalEnabled(environment, "TRACES"), otel.SignalEnabled(environment, "LOGS")
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENABLE_TELEMETRY", "0")
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "0")
+	if telemetry.CaptureRawAPIBodies && logs {
+		environment = defaultEnvironment(environment, env.OTELLogRawAPIBodies.Name(), "1")
 	}
-	traces, logs := exported("OTEL_TRACES_EXPORTER"), exported("OTEL_LOGS_EXPORTER")
-	if !traces && !logs && !exported("OTEL_METRICS_EXPORTER") {
+	if !traces && !logs && !otel.SignalEnabled(environment, "METRICS") {
 		return environment, false
 	}
-	flags := []string{"CLAUDE_CODE_ENABLE_TELEMETRY", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"}
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+	environment = setEnvironment(environment, "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", "1")
+	var flags []string
 	if telemetry.CaptureContent {
-		flags = append(flags, "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS")
+		flags = append(flags, env.OTELLogUserPrompts.Name(), env.OTELLogToolDetails.Name())
 		if traces {
-			flags = append(flags, "OTEL_LOG_TOOL_CONTENT")
+			flags = append(flags, env.OTELLogToolContent.Name())
 		}
 		if logs {
-			flags = append(flags, "OTEL_LOG_ASSISTANT_RESPONSES")
+			flags = append(flags, env.OTELLogAssistantResponses.Name())
 		}
 	}
 	for _, flag := range flags {
-		environment = setEnvironment(environment, flag, "1")
+		environment = defaultEnvironment(environment, flag, "1")
 	}
 	return environment, true
 }
@@ -228,4 +233,13 @@ func setEnvironment(environment []string, name, value string) []string {
 		}
 	}
 	return append(result, prefix+value)
+}
+
+func defaultEnvironment(environment []string, name, value string) []string {
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, name+"=") {
+			return environment
+		}
+	}
+	return append(environment, name+"="+value)
 }

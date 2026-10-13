@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -29,7 +30,7 @@ const (
 func main() {
 	check := flag.Bool("check", false, "validate configuration and Codex version, then exit")
 	flag.Parse()
-	logger, err := logging.NewFromEnv(os.Stderr)
+	logger, err := logging.New(os.Stderr, "info")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -63,8 +64,14 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 	if err != nil {
 		return err
 	}
+	cfg.RuntimeTelemetry = cfg.RuntimeTelemetry.WithEnvironment(environment)
+	logger, err := logging.New(os.Stderr, cmp.Or(cfg.LogLevel, "info"))
+	if err != nil {
+		return err
+	}
+	ctx = logging.IntoContext(ctx, logger)
 	providers, err := telemetry.Init(ctx, telemetry.Options{
-		Runtime: string(cfg.RuntimeTelemetry.Runtime), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
+		Config: cfg.RuntimeTelemetry.ExporterConfig(), Identity: cfg.RuntimeTelemetry.ResourceIdentity(), Defaults: cfg.RuntimeTelemetry.ResourceDefaults(card.Name),
 		// Substrate restores every session from one snapshot taken after Init, so metrics started
 		// here would give all sessions one identity and their totals would overwrite each other.
 		DeferMetrics: true,
@@ -87,7 +94,7 @@ func run(ctx context.Context, check bool, getenv func(string) string, environmen
 		return nil
 	}
 	application, err := app.New(app.AppConfig{
-		AgentCard: card, Port: privatePort, AppName: card.Name,
+		AgentCard: card, Port: privatePort, AppName: card.Name, ControlPlaneURL: cfg.ControlPlaneURL, MaxContentLength: cfg.MaxContentLength,
 		Logger: logging.FromContext(ctx), Telemetry: cfg.RuntimeTelemetry, Flush: providers.ForceFlush,
 		HandlerOpts: []a2asrv.RequestHandlerOption{a2asrv.WithExecutorContextInterceptor(startMetrics(providers.StartMetrics))},
 	}, exec)

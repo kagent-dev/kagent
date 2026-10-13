@@ -680,6 +680,7 @@ type OutputConfig struct {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
+	Runtime         *RuntimeConfig         `json:"runtime,omitempty"`
 	Name            string                 `json:"name,omitempty"`
 	Model           Model                  `json:"model"`
 	Description     string                 `json:"description"`

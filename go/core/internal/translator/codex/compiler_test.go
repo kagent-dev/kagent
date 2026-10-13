@@ -54,7 +54,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input, reader := testInput(t, test.model, test.secret)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if test.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -89,7 +89,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("credential leaked into immutable revision")
 			}
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
@@ -97,68 +97,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	}
 }
 
-func TestCompileTracing(t *testing.T) {
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
-	responses := v1alpha3.OpenAIAPIFormatResponses
-	model := v1alpha3.ModelConfigSpec{
-		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
-		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
-		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
-	}
-	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cfg codexconfig.Config
-	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Telemetry == nil || cfg.Telemetry.Traces == nil || cfg.Telemetry.Traces.Endpoint != "http://collector:4318/v1/traces" || cfg.Telemetry.Traces.Protocol != "http/protobuf" || cfg.Telemetry.Logs == nil || cfg.Telemetry.Logs.Endpoint != "http://logs:4317" || cfg.Telemetry.Logs.Protocol != "grpc" || cfg.Telemetry.CaptureContent {
-		t.Fatalf("telemetry = %#v", cfg.Telemetry)
-	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://collector:4318", "http://kagent-controller.kagent:8083", "http://logs:4317", "https://api.openai.com:443"}) {
-		t.Fatalf("egress = %v", revision.EgressDestinations)
-	}
-	environment := map[string]string{}
-	for _, variable := range revision.Environment {
-		environment[variable.Name] = variable.Value
-	}
-	for name, value := range map[string]string{
-		"OTEL_TRACES_EXPORTER": "otlp", "OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "otlp",
-		"OTEL_EXPORTER_OTLP_ENDPOINT":      "http://collector:4318",
-		"OTEL_EXPORTER_OTLP_PROTOCOL":      "http/protobuf",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://logs:4317",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "grpc",
-		"OTEL_SERVICE_NAME":                "runnable-agent",
-		"KAGENT_NAME":                      "runnable-agent",
-		"KAGENT_NAMESPACE":                 "test",
-	} {
-		if environment[name] != value {
-			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
-		}
-	}
-
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Telemetry == nil || !cfg.Telemetry.CaptureContent {
-		t.Fatalf("sensitive-content telemetry = %#v", cfg.Telemetry)
-	}
-}
-
-func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
+func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
@@ -169,14 +108,16 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	value := "http://other-collector:4317"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
-	var validation *translator.ValidationError
-	if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
-		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(result.EgressDestinations, value) {
+		t.Fatalf("missing runtime telemetry egress: %v", result.EgressDestinations)
 	}
 }
 
-func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
+func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
@@ -187,12 +128,12 @@ func TestCompileAllowsUnmanagedOTELEnvironment(t *testing.T) {
 	value := "x-tenant=team-a"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(revision.Environment, corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}) {
-		t.Fatalf("unmanaged OTEL environment missing from revision: %#v", revision.Environment)
+	if !slices.ContainsFunc(result.Environment, func(v corev1.EnvVar) bool { return v.Name == input.Harness.Spec.Env[0].Name && v.Value == value }) {
+		t.Fatal("runtime override missing")
 	}
 }
 
@@ -206,7 +147,7 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	}
 	for _, model := range tests {
 		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret")})
-		_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+		_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 		var validation *translator.ValidationError
 		if !errors.As(err, &validation) {
 			t.Errorf("Compile(%s) error = %v, want validation", model.Provider, err)
@@ -231,7 +172,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 		},
 		Instruction: "Review carefully",
 	}}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +215,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
 
-	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
@@ -295,7 +236,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 }
@@ -320,8 +261,6 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 }
 
 func TestCompileRuntimeTelemetry(t *testing.T) {
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://collector:4317")
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
@@ -331,8 +270,9 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	input.Harness.Name = "fast"
 
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "NO_CONTENT")
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	settings := testCompilerSettings()
+	settings.Telemetry.Traces = translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc", Hostname: "collector"}
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,8 +292,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
-	captured, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	settings.Telemetry.CaptureSensitiveContent = true
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,4 +325,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	if before == after {
 		t.Fatal("changing the capture policy did not change the revision digest")
 	}
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }

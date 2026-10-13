@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 			Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 			RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 			Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-		}, collections.AgentRuntimeObservations, opts,
+		}, collections.AgentRuntimeObservations, opts, testCompilerSettings(),
 	)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 
@@ -177,7 +178,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 				Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: templates, ResolvedModelConfigs: resolvedModels,
 				RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 				ConfigMaps:       configMaps, Secrets: secrets, WorkerPools: workerPools,
-			}, observations, opts)
+			}, observations, opts, testCompilerSettings())
 			key := "team-a/assistant"
 			waitFor(t, func() bool {
 				state := reconciliations.GetKey(key)
@@ -254,6 +255,12 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 					}
 					expected := proto.CloneOf(gvisorTemplate)
 					expected.Metadata.Name = state.Target.ActorTemplate.GetMetadata().GetName()
+					// Changing the sandbox also changes the revision reported by telemetry.
+					for _, variable := range expected.Containers[0].Env {
+						if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+							variable.Value = strings.Replace(variable.Value, "service.version="+gvisorRevision.Short(), "service.version="+state.Target.RevisionID.Short(), 1)
+						}
+					}
 					if step.class == atev1alpha1.SandboxClassMicroVM {
 						require.NotEqual(t, gvisorRevision, state.Target.RevisionID)
 						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
@@ -312,7 +319,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts,
+		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testCompilerSettings(),
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -368,7 +375,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts,
+		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testCompilerSettings(),
 	)
 	waitFor(t, func() bool {
 		states := reconciliations.List()
@@ -421,7 +428,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 			RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 			ConfigMaps:       configMaps, Secrets: secrets,
 			WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts,
+		}, krttest.GetMockCollection[AgentRuntimeObservation](mock), opts, testCompilerSettings(),
 	)
 	var initial string
 	waitFor(t, func() bool {
@@ -470,4 +477,8 @@ func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.H
 		Template:   kagentv1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
 		HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
 	}}
+}
+
+func testCompilerSettings() translator.CompilerSettings {
+	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }
