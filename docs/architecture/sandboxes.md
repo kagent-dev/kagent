@@ -193,7 +193,8 @@ separate and retains its own snapshot and execution-claim rules.
 The guest uses `agent-substrate/env/guest` for process and filesystem services.
 Kagent owns its main function, flags, logging, listener, readiness, and shutdown.
 The tools image supplies installed programs; an image volume supplies the managed
-guest binary and replaces the tools image's entrypoint.
+guest binary and replaces the tools image's entrypoint. Harness tool images
+(`spec.workload.toolImages`) use the same image-volume mechanism.
 
 The Actor mounts a durable directory at `/data`. The guest creates
 `/data/workspace` before readiness and stores process output in `/data/guest-logs`.

@@ -91,7 +91,13 @@ export interface HarnessSpec {
   claude?: Record<string, never>;
   /** Bring your own: an image that serves kagent's A2A contract itself. */
   byo?: Record<string, never>;
-  workload: { image: string; command?: string[]; args?: string[] };
+  workload: {
+    image: string;
+    command?: string[];
+    args?: string[];
+    /** Digest-pinned images mounted read-only at /opt/kagent/tools/<name>; the controller puts their bin/ on KAGENT_TOOL_PATHS. */
+    toolImages?: { name: string; oci: string }[];
+  };
   substrate: {
     workerPoolRef: { name: string };
     snapshotPolicy: { location: string };

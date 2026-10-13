@@ -20,6 +20,9 @@ _ENV_TO_CONFIG_FILE = {
     "KAGENT_AGENT_CARD_JSON": "agent-card.json",
 }
 
+# Bin directories of the Harness tool images, colon-joined by the controller.
+_KAGENT_TOOL_PATHS_ENV = "KAGENT_TOOL_PATHS"
+
 # The bearer token is materialized to a fixed path outside the config dir, matching the Go ADK.
 _KAGENT_TOKEN_ENV = "KAGENT_TOKEN"
 _KAGENT_TOKEN_PATH = "/var/run/secrets/tokens/kagent-token"
@@ -67,3 +70,19 @@ def materialize_from_env(config_dir: str) -> None:
         _materialize_env_to_file(_KAGENT_TOKEN_ENV, _KAGENT_TOKEN_PATH)
     except OSError as e:
         logger.warning("Could not materialize %s to %s: %s", _KAGENT_TOKEN_ENV, _KAGENT_TOKEN_PATH, e)
+
+
+def extend_path_from_tool_images() -> None:
+    """Append the tool image bin directories to ``PATH`` so shell tools find them.
+
+    Appending keeps the image's own binaries ahead of the tools. No-op when the controller
+    mounted no tool images.
+    """
+    tool_paths = os.environ.get(_KAGENT_TOOL_PATHS_ENV, "")
+    if not tool_paths:
+        return
+    entries = [entry for entry in os.environ.get("PATH", "").split(":") if entry]
+    for entry in tool_paths.split(":"):
+        if entry and entry not in entries:
+            entries.append(entry)
+    os.environ["PATH"] = ":".join(entries)

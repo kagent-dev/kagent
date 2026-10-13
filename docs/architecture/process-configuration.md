@@ -250,7 +250,8 @@ an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 `parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
 `KAGENT_CONFIG_JSON` and `KAGENT_AGENT_CARD_JSON` payloads supplied by Substrate.
 Actor/session identity, credential projection, and private bootstrap paths keep
-their existing contracts. Substrate's limits remain 32 environment entries and
+their existing contracts. `KAGENT_TOOL_PATHS` is present only when the Harness
+lists tool images. Substrate's limits remain 32 environment entries and
 32,768 characters per value.
 
 ## OpenTelemetry
