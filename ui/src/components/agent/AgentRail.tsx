@@ -1549,7 +1549,7 @@ function ChatEntry({
           ellipsis={{
             tooltip: {
               title: conversationTitle(instance, autoTitle),
-              placement: "right",
+              placement: "top",
               styles: TITLE_TOOLTIP_STYLES,
             },
           }}
