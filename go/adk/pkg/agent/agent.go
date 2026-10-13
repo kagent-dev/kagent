@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"buf.build/go/protovalidate"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -36,19 +37,19 @@ const (
 	DefaultOllamaModel    = "llama3.2"
 )
 
-// CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
+// CreateGoogleADKAgent creates a Google ADK agent tree using the shared runtime settings.
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 // Optional stsPlugin can be provided for token propagation to MCP tools; pass
 // nil if token propagation is not needed.
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
-	if agentConfig == nil {
+func CreateGoogleADKAgent(ctx context.Context, config *adk.Config, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
+	if config.GetAgent() == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
-	if err := adk.ValidateRuntime(agentConfig); err != nil {
+	if err := protovalidate.Validate(config); err != nil {
 		return nil, err
 	}
-	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, adk.ProcessConfig(agentConfig), extraTools...)
+	return createGoogleADKAgent(ctx, config.Agent, agentName, stsPlugin, adk.ProcessConfig(config), extraTools...)
 }
 
 func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime *adk.RuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {

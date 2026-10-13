@@ -61,7 +61,7 @@ func main() {
 		}
 	}
 
-	bCfg, err := adk.Marshal(cfg)
+	bCfg, err := adk.Marshal(&adk.Config{Agent: cfg})
 	if err != nil {
 		logger.Error("failed to marshal agent config", "error", err)
 		return

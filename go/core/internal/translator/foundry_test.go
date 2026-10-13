@@ -72,17 +72,17 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}
 				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
-				var config adk.AgentConfig
+				var config adk.Config
 				require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
-				runtimeModel := config.Model
+				runtimeModel := config.Agent.Model
 				if location == "shared agent" {
-					require.Len(t, config.SubAgents, 1)
-					runtimeModel = config.SubAgents[0].Model
+					require.Len(t, config.Agent.SubAgents, 1)
+					runtimeModel = config.Agent.SubAgents[0].Model
 				}
 				if location == "memory" {
-					require.NotNil(t, config.Memory)
-					require.NotNil(t, config.Memory.Embedding)
-					require.Equal(t, endpoint, config.Memory.Embedding.Endpoint)
+					require.NotNil(t, config.Agent.Memory)
+					require.NotNil(t, config.Agent.Memory.Embedding)
+					require.Equal(t, endpoint, config.Agent.Memory.Embedding.Endpoint)
 				} else {
 					require.IsType(t, &adk.Model{Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{}}}, runtimeModel)
 					require.Equal(t, endpoint, runtimeModel.GetFoundry().Endpoint)

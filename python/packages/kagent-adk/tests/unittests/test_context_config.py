@@ -11,7 +11,7 @@ from kagent.adk.types import (
     ModelConfig,
     OpenAI,
     build_adk_context_configs,
-    parse_agent_config,
+    parse_config,
 )
 
 
@@ -23,7 +23,7 @@ def _make_agent_config_json(**context_kwargs) -> str:
     }
     if context_kwargs:
         config["context_config"] = context_kwargs
-    return json.dumps(config)
+    return json.dumps({"agent": config})
 
 
 def _get_prompt_template(summarizer):
@@ -36,21 +36,21 @@ def _get_prompt_template(summarizer):
 
 class TestContextConfigParsing:
     def test_no_context_config(self):
-        config = parse_agent_config(_make_agent_config_json())
+        config = parse_config(_make_agent_config_json()).agent
         assert not config.HasField("context_config")
 
     def test_empty_context_config(self):
         json_str = _make_agent_config_json()
         data = json.loads(json_str)
-        data["context_config"] = {}
-        config = parse_agent_config(data)
+        data["agent"]["context_config"] = {}
+        config = parse_config(data).agent
         assert config.HasField("context_config")
         assert not config.context_config.HasField("compaction")
 
     def test_compaction_only(self):
         data = json.loads(_make_agent_config_json())
-        data["context_config"] = {"compaction": {"compaction_interval": 5, "overlap_size": 2}}
-        config = parse_agent_config(data)
+        data["agent"]["context_config"] = {"compaction": {"compaction_interval": 5, "overlap_size": 2}}
+        config = parse_config(data).agent
         assert config.HasField("context_config")
         assert config.context_config.HasField("compaction")
         assert config.context_config.compaction.compaction_interval == 5
@@ -58,7 +58,7 @@ class TestContextConfigParsing:
 
     def test_compaction_with_all_fields(self):
         data = json.loads(_make_agent_config_json())
-        data["context_config"] = {
+        data["agent"]["context_config"] = {
             "compaction": {
                 "compaction_interval": 10,
                 "overlap_size": 3,
@@ -66,7 +66,7 @@ class TestContextConfigParsing:
                 "event_retention_size": 5,
             },
         }
-        config = parse_agent_config(data)
+        config = parse_config(data).agent
         assert config.context_config.compaction.compaction_interval == 10
         assert config.context_config.compaction.overlap_size == 3
         assert config.context_config.compaction.token_threshold == 1000
@@ -74,7 +74,7 @@ class TestContextConfigParsing:
 
     def test_compaction_with_summarizer_model(self):
         data = json.loads(_make_agent_config_json())
-        data["context_config"] = {
+        data["agent"]["context_config"] = {
             "compaction": {
                 "compaction_interval": 5,
                 "overlap_size": 2,
@@ -82,7 +82,7 @@ class TestContextConfigParsing:
                 "prompt_template": "Summarize: {{events}}",
             }
         }
-        config = parse_agent_config(data)
+        config = parse_config(data).agent
         comp = config.context_config.compaction
         assert comp.HasField("summarizer_model")
         assert comp.summarizer_model.WhichOneof("provider") == "openai"
@@ -91,14 +91,14 @@ class TestContextConfigParsing:
 
     def test_compaction_with_gemini_summarizer(self):
         data = json.loads(_make_agent_config_json())
-        data["context_config"] = {
+        data["agent"]["context_config"] = {
             "compaction": {
                 "compaction_interval": 5,
                 "overlap_size": 2,
                 "summarizer_model": {"model": "gemini-1.5-flash", "gemini": {}},
             }
         }
-        config = parse_agent_config(data)
+        config = parse_config(data).agent
         assert config.context_config.compaction.summarizer_model.WhichOneof("provider") == "gemini"
 
     def test_compaction_preserves_absent_overlap(self):
@@ -121,16 +121,16 @@ class TestContextConfigParsing:
 
     def test_network_config(self):
         data = json.loads(_make_agent_config_json())
-        data["network"] = {"allowed_domains": ["api.example.com", "*.example.org"]}
-        config = parse_agent_config(data)
+        data["agent"]["network"] = {"allowed_domains": ["api.example.com", "*.example.org"]}
+        config = parse_config(data).agent
         assert config.network is not None
         assert config.network.allowed_domains == ["api.example.com", "*.example.org"]
 
     def test_model_accepts_legacy_tls_insecure_skip_verify_field(self):
         data = json.loads(_make_agent_config_json())
-        data["model"]["tls_insecure_skip_verify"] = True
+        data["agent"]["model"]["tls_insecure_skip_verify"] = True
 
-        config = parse_agent_config(data)
+        config = parse_config(data).agent
 
         assert config.model.WhichOneof("provider") == "openai"
         assert config.model.tls_insecure_skip_verify is True

@@ -13,6 +13,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
+type Config = apiv1.ADKConfig
 type AgentConfig = apiv1.ADKAgentConfig
 type Model = apiv1.ADKModelConfig
 type OpenAI = apiv1.ADKOpenAI
@@ -85,7 +86,7 @@ func ModelType(m *Model) string {
 }
 
 // Marshal validates compiled runtime input before publishing it to an actor.
-func Marshal(cfg *AgentConfig) ([]byte, error) {
+func Marshal(cfg *Config) ([]byte, error) {
 	if err := protovalidate.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("failed to validate ADK config: %w", err)
 	}
@@ -102,8 +103,8 @@ func Marshal(cfg *AgentConfig) ([]byte, error) {
 }
 
 // Unmarshal accepts only the protobuf contract and leaves cfg intact on failure.
-func Unmarshal(data []byte, cfg *AgentConfig) error {
-	parsed := new(AgentConfig)
+func Unmarshal(data []byte, cfg *Config) error {
+	parsed := new(Config)
 	if err := protojson.Unmarshal(data, parsed); err != nil {
 		return fmt.Errorf("failed to parse ADK config: %w", err)
 	}

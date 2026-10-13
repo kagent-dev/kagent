@@ -51,11 +51,12 @@ func run(logLevel, host, port, configDir string) error {
 		return fmt.Errorf("materialize agent config in %s: %w", configDir, err)
 	}
 
-	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
+	compiled, agentCard, err := config.LoadAgentConfigs(configDir)
 	if err != nil {
 		return fmt.Errorf("load agent config from %s (model configuration is required): %w", configDir, err)
 	}
-	runtime := adk.ProcessConfig(agentConfig)
+	agentConfig := compiled.Agent
+	runtime := adk.ProcessConfig(compiled)
 	kagentAPIURL := runtime.ControlPlaneUrl
 	if kagentAPIURL == "" {
 		return fmt.Errorf("runtime.control_plane_url is required")
@@ -174,7 +175,7 @@ func run(logLevel, host, port, configDir string) error {
 		logger.Info("memory service enabled", "app_name", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, compiled, sessionService, appName, memoryService, controllerClient)
 	if err != nil {
 		return fmt.Errorf("create Google ADK Runner config: %w", err)
 	}

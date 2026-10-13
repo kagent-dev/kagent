@@ -174,34 +174,37 @@ func TestCompactionConfig(t *testing.T) {
 		// The context_config block as the controller compiles it from
 		// spec.declarative.context.compaction.
 		configJSON := `{
-  "model": {
-    "model": "gpt-4o",
-    "openai": {
-      "base_url": "http://127.0.0.1:1/v1"
-    }
-  },
-  "description": "Agent with context management",
-  "instruction": "You are a helpful assistant.",
-  "context_config": {
-    "compaction": {
-      "compaction_interval": 5,
-      "overlap_size": 2,
-      "summarizer_model": {
-        "model": "gpt-4o-mini",
-        "openai": {
-          "base_url": "http://127.0.0.1:1/v1"
-        }
-      },
-      "prompt_template": "Summarize the following conversation events concisely.\n\n{conversation_history}",
-      "token_threshold": 50000,
-      "event_retention_size": 10
+  "agent": {
+    "model": {
+      "model": "gpt-4o",
+      "openai": {
+        "base_url": "http://127.0.0.1:1/v1"
+      }
+    },
+    "description": "Agent with context management",
+    "instruction": "You are a helpful assistant.",
+    "context_config": {
+      "compaction": {
+        "compaction_interval": 5,
+        "overlap_size": 2,
+        "summarizer_model": {
+          "model": "gpt-4o-mini",
+          "openai": {
+            "base_url": "http://127.0.0.1:1/v1"
+          }
+        },
+        "prompt_template": "Summarize the following conversation events concisely.\n\n{conversation_history}",
+        "token_threshold": 50000,
+        "event_retention_size": 10
+      }
     }
   }
 }`
-		var agentConfig adk.AgentConfig
-		require.NoError(t, adk.Unmarshal([]byte(configJSON), &agentConfig))
+		var config adk.Config
+		require.NoError(t, adk.Unmarshal([]byte(configJSON), &config))
+		agentConfig := config.Agent
 
-		cfg, err := CompactionConfig(ctx, &agentConfig)
+		cfg, err := CompactionConfig(ctx, agentConfig)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Equal(t, 5, cfg.CompactionInterval)

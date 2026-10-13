@@ -11,22 +11,34 @@ import (
 )
 
 func TestAgentConfigRoundTrip(t *testing.T) {
-	cfg := &adk.AgentConfig{Runtime: &adk.RuntimeConfig{MaxContentLength: new(int64(0))}, Model: &adk.Model{Model: "gpt", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{Temperature: new(0.0)}}}, Stream: new(false)}
+	cfg := &adk.Config{
+		Runtime: &adk.RuntimeConfig{MaxContentLength: new(int64(0))},
+		Agent:   &adk.AgentConfig{Model: &adk.Model{Model: "gpt", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{Temperature: new(0.0)}}}, Stream: new(false)},
+	}
 	raw, err := adk.Marshal(cfg)
 	require.NoError(t, err)
-	parsed := new(adk.AgentConfig)
+	parsed := new(adk.Config)
 	require.NoError(t, adk.Unmarshal(raw, parsed))
 	require.True(t, proto.Equal(cfg, parsed))
-	require.NotNil(t, parsed.Stream)
+	require.NotNil(t, parsed.Agent.Stream)
 	require.NotNil(t, parsed.Runtime.MaxContentLength)
-	require.NotNil(t, parsed.Model.GetOpenai().Temperature)
+	require.NotNil(t, parsed.Agent.Model.GetOpenai().Temperature)
 }
 func TestAgentConfigRejectsInvalidInput(t *testing.T) {
-	for _, raw := range []string{`{"model":{}}`, `{"model":{"openai":{},"anthropic":{}}}`, `{"unknown":true}`, `{"sub_agents":[{"runtime":{}}]}`, `{"sub_agents":[{"sub_agents":[{"runtime":{}}]}]}`, `{"runtime":{"max_content_length":-1}}`} {
+	for _, raw := range []string{
+		`{"agent":{"model":{}}}`,
+		`{"agent":{"model":{"openai":{},"anthropic":{}}}}`,
+		`{"unknown":true}`,
+		`{"model":{"openai":{}}}`,
+		`{"agent":{"runtime":{}}}`,
+		`{"agent":{"sub_agents":[{"runtime":{}}]}}`,
+		`{"agent":{"sub_agents":[{"sub_agents":[{"runtime":{}}]}]}}`,
+		`{"runtime":{"max_content_length":-1}}`,
+	} {
 		t.Run(raw, func(t *testing.T) {
-			cfg := &adk.AgentConfig{Instruction: "original"}
+			cfg := &adk.Config{Agent: &adk.AgentConfig{Instruction: "original"}}
 			require.Error(t, adk.Unmarshal([]byte(raw), cfg))
-			require.Equal(t, "original", cfg.Instruction)
+			require.Equal(t, "original", cfg.Agent.Instruction)
 		})
 	}
 }
@@ -36,29 +48,28 @@ func TestAgentConfigRejectsInvalidInput(t *testing.T) {
 func TestSharedAgentContract(t *testing.T) {
 	raw, err := os.ReadFile("testdata/agent.json")
 	require.NoError(t, err)
-	cfg := new(adk.AgentConfig)
+	cfg := new(adk.Config)
 	require.NoError(t, adk.Unmarshal(raw, cfg))
-	require.Equal(t, int64(9007199254740993), cfg.Model.GetOpenai().GetSeed())
-	require.NotNil(t, cfg.Model.GetOpenai().Temperature)
-	require.Zero(t, cfg.Model.GetOpenai().GetTemperature())
-	require.NotNil(t, cfg.Stream)
-	require.False(t, cfg.GetStream())
-	require.NotNil(t, cfg.Model.TlsInsecureSkipVerify)
-	require.NotNil(t, cfg.HttpTools[0].Params.TerminateOnClose)
-	require.NotNil(t, cfg.ContextConfig.Compaction.OverlapSize)
-	require.Equal(t, `{"type":"object","properties":{"answer":{"type":"string"}}}`, string(cfg.Output.JsonSchema))
-	for _, child := range cfg.SubAgents {
+	require.Equal(t, int64(9007199254740993), cfg.Agent.Model.GetOpenai().GetSeed())
+	require.NotNil(t, cfg.Agent.Model.GetOpenai().Temperature)
+	require.Zero(t, cfg.Agent.Model.GetOpenai().GetTemperature())
+	require.NotNil(t, cfg.Agent.Stream)
+	require.False(t, cfg.Agent.GetStream())
+	require.NotNil(t, cfg.Agent.Model.TlsInsecureSkipVerify)
+	require.NotNil(t, cfg.Agent.HttpTools[0].Params.TerminateOnClose)
+	require.NotNil(t, cfg.Agent.ContextConfig.Compaction.OverlapSize)
+	require.Equal(t, `{"type":"object","properties":{"answer":{"type":"string"}}}`, string(cfg.Agent.Output.JsonSchema))
+	for _, child := range cfg.Agent.SubAgents {
 		require.Equal(t, child.Name, adk.ModelType(child.Model))
-		require.Nil(t, child.Runtime)
 	}
-	require.Equal(t, "version", cfg.AgentPlugins.Plugins[1].Source.GetS3().VersionId)
-	resources := adk.PluginResources(cfg.AgentPlugins)
-	require.True(t, proto.Equal(cfg.AgentPlugins, adk.PluginConfig(resources)))
+	require.Equal(t, "version", cfg.Agent.AgentPlugins.Plugins[1].Source.GetS3().VersionId)
+	resources := adk.PluginResources(cfg.Agent.AgentPlugins)
+	require.True(t, proto.Equal(cfg.Agent.AgentPlugins, adk.PluginConfig(resources)))
 	encoded, err := adk.Marshal(cfg)
 	require.NoError(t, err)
 	require.JSONEq(t, string(raw), string(encoded))
 	require.NotContains(t, string(encoded), "\n")
-	require.NoError(t, adk.Unmarshal(encoded, new(adk.AgentConfig)))
+	require.NoError(t, adk.Unmarshal(encoded, new(adk.Config)))
 }
 
 func TestModelToEmbeddingConfig(t *testing.T) {

@@ -22,13 +22,9 @@ func TestSharedRuntimeContract(t *testing.T) {
 	require.False(t, cfg.TokenPropagation.Enabled)
 	require.False(t, cfg.Telemetry.CaptureContent)
 	require.Equal(t, int64(1500), cfg.Telemetry.Traces.Timeout.AsDuration().Milliseconds())
-	root := &adk.AgentConfig{Runtime: &cfg, SubAgents: []*adk.AgentConfig{{}}}
-	require.NoError(t, adk.ValidateRuntime(root))
-	root.SubAgents[0].Runtime = &adk.RuntimeConfig{}
-	require.ErrorContains(t, adk.ValidateRuntime(root), "only allowed on the root")
-	root.SubAgents[0].Runtime = nil
-	root.SubAgents[0].SubAgents = []*adk.AgentConfig{{Runtime: &cfg}}
-	require.ErrorContains(t, adk.ValidateRuntime(root), "only allowed on the root")
+	root := &adk.Config{Runtime: &cfg, Agent: &adk.AgentConfig{SubAgents: []*adk.AgentConfig{{}}}}
+	require.NoError(t, protovalidate.Validate(root))
+	require.Same(t, &cfg, adk.ProcessConfig(root))
 }
 
 func TestRuntimeDefaultsAndValidation(t *testing.T) {

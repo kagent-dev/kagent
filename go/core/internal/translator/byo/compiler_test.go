@@ -42,11 +42,11 @@ func TestCompileOpaqueImage(t *testing.T) {
 		{Name: "MODE", Value: "production"},
 	}, revision.Environment)
 
-	var config adk.AgentConfig
+	var config adk.Config
 	require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
-	require.Nil(t, config.Model)
-	require.Equal(t, "be helpful", config.Instruction)
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDbUrl)
+	require.Nil(t, config.Agent.Model)
+	require.Equal(t, "be helpful", config.Agent.Instruction)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.Agent.SessionDbUrl)
 	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }
 

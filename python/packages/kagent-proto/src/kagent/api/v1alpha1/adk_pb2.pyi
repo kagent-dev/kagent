@@ -9,9 +9,16 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
-class ADKAgentConfig(_message.Message):
-    __slots__ = ("runtime", "name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "network", "agent_plugins", "context_config", "share_tools", "session_db_url", "skills_directory", "sub_agents", "output")
+class ADKConfig(_message.Message):
+    __slots__ = ("runtime", "agent")
     RUNTIME_FIELD_NUMBER: _ClassVar[int]
+    AGENT_FIELD_NUMBER: _ClassVar[int]
+    runtime: ADKRuntimeConfig
+    agent: ADKAgentConfig
+    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ...) -> None: ...
+
+class ADKAgentConfig(_message.Message):
+    __slots__ = ("name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "network", "agent_plugins", "context_config", "share_tools", "session_db_url", "skills_directory", "sub_agents", "output")
     NAME_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -30,7 +37,6 @@ class ADKAgentConfig(_message.Message):
     SKILLS_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     SUB_AGENTS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
-    runtime: ADKRuntimeConfig
     name: str
     model: ADKModelConfig
     description: str
@@ -49,7 +55,7 @@ class ADKAgentConfig(_message.Message):
     skills_directory: str
     sub_agents: _containers.RepeatedCompositeFieldContainer[ADKAgentConfig]
     output: ADKOutputConfig
-    def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., name: _Optional[str] = ..., model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., description: _Optional[str] = ..., instruction: _Optional[str] = ..., http_tools: _Optional[_Iterable[_Union[ADKHTTPMCPServerConfig, _Mapping]]] = ..., sse_tools: _Optional[_Iterable[_Union[ADKSSEMCPServerConfig, _Mapping]]] = ..., stdio_tools: _Optional[_Iterable[_Union[ADKStdioMCPServerConfig, _Mapping]]] = ..., remote_agents: _Optional[_Iterable[_Union[ADKRemoteAgentConfig, _Mapping]]] = ..., stream: _Optional[bool] = ..., memory: _Optional[_Union[ADKMemoryConfig, _Mapping]] = ..., network: _Optional[_Union[ADKNetworkConfig, _Mapping]] = ..., agent_plugins: _Optional[_Union[ADKAgentPlugins, _Mapping]] = ..., context_config: _Optional[_Union[ADKContextConfig, _Mapping]] = ..., share_tools: _Optional[bool] = ..., session_db_url: _Optional[str] = ..., skills_directory: _Optional[str] = ..., sub_agents: _Optional[_Iterable[_Union[ADKAgentConfig, _Mapping]]] = ..., output: _Optional[_Union[ADKOutputConfig, _Mapping]] = ...) -> None: ...
+    def __init__(self, name: _Optional[str] = ..., model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., description: _Optional[str] = ..., instruction: _Optional[str] = ..., http_tools: _Optional[_Iterable[_Union[ADKHTTPMCPServerConfig, _Mapping]]] = ..., sse_tools: _Optional[_Iterable[_Union[ADKSSEMCPServerConfig, _Mapping]]] = ..., stdio_tools: _Optional[_Iterable[_Union[ADKStdioMCPServerConfig, _Mapping]]] = ..., remote_agents: _Optional[_Iterable[_Union[ADKRemoteAgentConfig, _Mapping]]] = ..., stream: _Optional[bool] = ..., memory: _Optional[_Union[ADKMemoryConfig, _Mapping]] = ..., network: _Optional[_Union[ADKNetworkConfig, _Mapping]] = ..., agent_plugins: _Optional[_Union[ADKAgentPlugins, _Mapping]] = ..., context_config: _Optional[_Union[ADKContextConfig, _Mapping]] = ..., share_tools: _Optional[bool] = ..., session_db_url: _Optional[str] = ..., skills_directory: _Optional[str] = ..., sub_agents: _Optional[_Iterable[_Union[ADKAgentConfig, _Mapping]]] = ..., output: _Optional[_Union[ADKOutputConfig, _Mapping]] = ...) -> None: ...
 
 class ADKModelConfig(_message.Message):
     __slots__ = ("model", "headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "openai", "azure_openai", "anthropic", "gemini_vertex_ai", "gemini_anthropic", "ollama", "gemini", "bedrock", "sap_ai_core", "foundry", "mistral")

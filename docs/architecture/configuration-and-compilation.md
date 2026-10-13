@@ -274,15 +274,16 @@ images, and compatible worker hardware.
   Optional model, prompt, tool, skill, and plugin configuration is
   supplied in the ADK-shaped format when requested.
 
-The kagent and BYO compilers serialize the same `ADKAgentConfig` protobuf
+The kagent and BYO compilers serialize the same `ADKConfig` protobuf
 contract from `adk.proto` using ProtoJSON. Go and Python use generated messages;
 validation rules live in the schema. Model providers form a required `oneof`,
 while a BYO root can omit the model entirely.
-`adkconfig.Builder.Build` assembles the complete payload and its model
-dependencies, environment, and egress contributions. Harness compilers package
-that result into a revision without adding configuration fields afterward.
+`adkconfig.Builder.Build` assembles the agent tree and its model dependencies,
+environment, and egress contributions. Harness compilers place that tree under
+`agent` and process settings under `runtime` in the top-level `ADKConfig`.
+The recursive `ADKAgentConfig` has no runtime field.
 
-The builder compiles the shared agent tree, then applies root runtime settings.
+The builder compiles the shared agent tree, then applies root runner settings.
 Both harnesses receive the durable session URL at `/data/sessions.db`; kagent
 also receives its configured memory, compaction, and structured-output policy.
 Shared subagents use the root runner's session store and do not receive their

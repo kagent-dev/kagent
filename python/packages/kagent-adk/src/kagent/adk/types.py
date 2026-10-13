@@ -29,6 +29,9 @@ from kagent.api.v1alpha1.adk_pb2 import (
     ADKCompressionConfig as ContextCompressionSettings,
 )
 from kagent.api.v1alpha1.adk_pb2 import (
+    ADKConfig as Config,
+)
+from kagent.api.v1alpha1.adk_pb2 import (
     ADKContextConfig as ContextConfig,
 )
 from kagent.api.v1alpha1.adk_pb2 import (
@@ -252,8 +255,8 @@ def _build_tls_httpx_client_factory(
     return _factory
 
 
-def parse_agent_config(value: dict | str) -> AgentConfig:
-    config = Parse(value, AgentConfig()) if isinstance(value, str) else ParseDict(value, AgentConfig())
+def parse_config(value: dict | str) -> Config:
+    config = Parse(value, Config()) if isinstance(value, str) else ParseDict(value, Config())
     validate(config)
     return config
 

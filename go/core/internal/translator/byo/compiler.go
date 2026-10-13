@@ -35,8 +35,10 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	compiled.Config.Runtime = c.settings.RuntimeConfig(input.AgentName, template.Namespace)
-	configJSON, err := adk.Marshal(compiled.Config)
+	configJSON, err := adk.Marshal(&adk.Config{
+		Runtime: c.settings.RuntimeConfig(input.AgentName, template.Namespace),
+		Agent:   compiled.Config,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}

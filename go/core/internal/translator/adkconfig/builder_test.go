@@ -39,12 +39,12 @@ func TestBuildModelStreaming(t *testing.T) {
 			require.NoError(t, err)
 			// The runtime consumes serialized configuration. In particular, false
 			// must survive omitempty rather than reverting to the runtime default.
-			payload, err := adk.Marshal(result.Config)
+			payload, err := adk.Marshal(&adk.Config{Agent: result.Config})
 			require.NoError(t, err)
-			var config adk.AgentConfig
+			var config adk.Config
 			require.NoError(t, adk.Unmarshal(payload, &config))
-			require.NotNil(t, config.Stream)
-			require.Equal(t, tc.want, config.GetStream())
+			require.NotNil(t, config.Agent.Stream)
+			require.Equal(t, tc.want, config.Agent.GetStream())
 		})
 	}
 }

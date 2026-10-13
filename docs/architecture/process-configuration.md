@@ -128,12 +128,14 @@ Configuration changes require a process restart.
 
 ## Runtimes
 
-ADK and BYO configuration uses `ADKAgentConfig` from
+ADK and BYO configuration uses `ADKConfig` from
 [`adk.proto`](../../proto/kagent/api/v1alpha1/adk.proto), serialized as ProtoJSON
 in `config.json`. Go and Python consume generated messages and enforce the
 same Protovalidate rules. Agent, model, tool, memory, compaction, plugin, and
 process settings have one schema. Process settings live in the root `runtime`
-object; subagents inherit them.
+object. Agent behavior lives under `agent`, whose recursive `sub_agents`
+contain only `ADKAgentConfig` messages. Runtime fields cannot be set on any
+agent node; the entire tree shares the top-level process settings.
 Native Claude and Codex retain their harness-specific Go structs. The controller
 compiles `runtimeDefaults` into these payloads independently of its own settings.
 
@@ -156,7 +158,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
 Models select exactly one provider, for example:
 
 ```json
-{"model": {"model": "gpt-4o", "openai": {"temperature": 0}}}
+{"agent": {"model": {"model": "gpt-4o", "openai": {"temperature": 0}}}}
 ```
 
 Provider-specific fields live inside the selected provider; shared transport
@@ -173,7 +175,7 @@ the same `TelemetryConfig` as controller settings (including protobuf durations)
 An absent request size limit uses the runtime default; zero means unlimited.
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
-`parse_agent_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
+`parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
 `KAGENT_CONFIG_JSON` and `KAGENT_AGENT_CARD_JSON` payloads supplied by Substrate.
 Actor/session identity, credential projection, and private bootstrap paths keep
 their existing contracts. Substrate's limits remain 32 environment entries and

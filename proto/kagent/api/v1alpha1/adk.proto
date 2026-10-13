@@ -8,33 +8,35 @@ import "kagent/api/v1alpha1/config.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
-// ADKAgentConfig is the compiled configuration consumed by both ADK runtimes.
+// ADKConfig is the compiled configuration consumed by both ADK runtimes.
 // It is private runtime input, serialized with ProtoJSON in config.json.
+// Process settings are separate from the recursive agent definition.
+message ADKConfig {
+  ADKRuntimeConfig runtime = 1;
+  ADKAgentConfig agent = 2;
+}
+
+// ADKAgentConfig defines an agent and its subagents within one runtime.
 // A BYO root may omit model; declarative runtimes require one when building it.
 message ADKAgentConfig {
-  ADKRuntimeConfig runtime = 1;
-  string name = 2;
-  ADKModelConfig model = 3;
-  string description = 4;
-  string instruction = 5;
-  repeated ADKHTTPMCPServerConfig http_tools = 6;
-  repeated ADKSSEMCPServerConfig sse_tools = 7;
-  repeated ADKStdioMCPServerConfig stdio_tools = 8;
-  repeated ADKRemoteAgentConfig remote_agents = 9;
-  optional bool stream = 10;
-  ADKMemoryConfig memory = 11;
-  ADKNetworkConfig network = 12;
-  ADKAgentPlugins agent_plugins = 13;
-  ADKContextConfig context_config = 14;
-  optional bool share_tools = 15;
-  string session_db_url = 16;
-  string skills_directory = 17;
-  repeated ADKAgentConfig sub_agents = 18 [(buf.validate.field).repeated.items.cel = {
-    id: "adk.root_runtime"
-    message: "runtime settings are only allowed on the root agent"
-    expression: "!has(this.runtime)"
-  }];
-  ADKOutputConfig output = 19;
+  string name = 1;
+  ADKModelConfig model = 2;
+  string description = 3;
+  string instruction = 4;
+  repeated ADKHTTPMCPServerConfig http_tools = 5;
+  repeated ADKSSEMCPServerConfig sse_tools = 6;
+  repeated ADKStdioMCPServerConfig stdio_tools = 7;
+  repeated ADKRemoteAgentConfig remote_agents = 8;
+  optional bool stream = 9;
+  ADKMemoryConfig memory = 10;
+  ADKNetworkConfig network = 11;
+  ADKAgentPlugins agent_plugins = 12;
+  ADKContextConfig context_config = 13;
+  optional bool share_tools = 14;
+  string session_db_url = 15;
+  string skills_directory = 16;
+  repeated ADKAgentConfig sub_agents = 17;
+  ADKOutputConfig output = 18;
 }
 
 // ADKModelConfig shares transport settings across a single selected provider.
