@@ -98,6 +98,9 @@ func RunUpAsRole(ctx context.Context, url, role string, sources []Source) error 
 	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
 		return err
 	}
+	if err := relocateFromPublic(ctx, url, role, sources); err != nil {
+		return err
+	}
 	if err := runPrechecks(ctx, url, sources); err != nil {
 		return err
 	}
@@ -132,6 +135,9 @@ func VerifyMigratedAsRole(ctx context.Context, url, role string, sources []Sourc
 		return err
 	}
 	if err := checkResolvedSchemaCollisions(ctx, url, role, sources); err != nil {
+		return err
+	}
+	if err := verifyNotInPublic(ctx, url, role, sources); err != nil {
 		return err
 	}
 	if err := runPrechecks(ctx, url, sources); err != nil {
@@ -318,6 +324,17 @@ func ensureSchema(ctx context.Context, db *sql.DB, schema string) (retErr error)
 			retErr = errors.Join(retErr, tx.Rollback())
 		}
 	}()
+	if err := createSchema(ctx, tx, schema); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit schema %s: %w", schema, err)
+	}
+	return nil
+}
+
+// createSchema creates schema in tx when it is missing.
+func createSchema(ctx context.Context, tx *sql.Tx, schema string) error {
 	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", "kagent:create-schema:"+schema); err != nil {
 		return fmt.Errorf("lock schema %s: %w", schema, err)
 	}
@@ -329,9 +346,6 @@ func ensureSchema(ctx context.Context, db *sql.DB, schema string) (retErr error)
 		if _, err := tx.ExecContext(ctx, "CREATE SCHEMA IF NOT EXISTS "+quoteIdentifier(schema)); err != nil {
 			return fmt.Errorf("create schema %s: %w", schema, err)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit schema %s: %w", schema, err)
 	}
 	return nil
 }
