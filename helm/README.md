@@ -137,6 +137,33 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
+#### Admitting Session volume sources
+
+A Session created with a `volume_source` (an existing read-write-many volume
+and the mounts of it the Session's actor gets) needs an admission. The built-in
+one verifies a short-lived JWT grant the caller passes as `admission_token`:
+
+```yaml
+controller:
+  session:
+    admission:
+      jwt:
+        jwksURL: http://workspace-issuer.kagent.svc/.well-known/jwks.json
+        issuer: https://workspaces.example.com
+        audience: kagent
+        # Optional: the claims of the issuer's grants, when they are not
+        # volume, mounts and changed.
+        claims:
+          volume: workspace_volume
+```
+
+The chart renders `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`,
+`KAGENT_SESSION_ADMISSION_JWT_ISSUER` and `KAGENT_SESSION_ADMISSION_JWT_AUDIENCE`;
+all three are set together or not at all. A claim name that is set renders
+`KAGENT_SESSION_ADMISSION_JWT_{VOLUME,MOUNTS,CHANGED}_CLAIM`. Unset, every create that names a
+volume source is refused `FailedPrecondition`. The grant's claims are described
+in [Runtime and Lifecycle](../docs/architecture/runtime-and-lifecycle.md#session-volume-admission).
+
 ### Using Make
 
 ```bash

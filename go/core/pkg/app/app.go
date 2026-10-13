@@ -39,6 +39,7 @@ import (
 	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
+	"github.com/kagent-dev/kagent/go/core/internal/service/session/jwtadmission"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
@@ -336,7 +337,15 @@ func Run(ctx context.Context, opts Options) error {
 	if shareMaxTTL < 0 {
 		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
 	}
-	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
+	sessionOptions := []sessionsvc.Option{sessionsvc.WithShareMaxTTL(shareMaxTTL)}
+	volumeAdmission, err := sessionVolumeAdmission()
+	if err != nil {
+		return err
+	}
+	if volumeAdmission != nil {
+		sessionOptions = append(sessionOptions, sessionsvc.WithVolumeAdmission(volumeAdmission))
+	}
+	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionOptions...)
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		kagentenv.SubstrateAtenetRouterURL.Get(),
@@ -530,4 +539,28 @@ func namespaceCache(names []string) map[string]cache.Config {
 		result[name] = cache.Config{}
 	}
 	return result
+}
+
+// sessionVolumeAdmission is the jwt admission the environment configures, nil
+// when it configures none. A partial configuration fails startup rather than
+// leaving volume sources refused by surprise.
+func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
+	config := jwtadmission.Config{
+		JWKSURL:  kagentenv.SessionAdmissionJWTJWKSURL.Get(),
+		Issuer:   kagentenv.SessionAdmissionJWTIssuer.Get(),
+		Audience: kagentenv.SessionAdmissionJWTAudience.Get(),
+		Claims: jwtadmission.Claims{
+			Volume:  kagentenv.SessionAdmissionJWTVolumeClaim.Get(),
+			Mounts:  kagentenv.SessionAdmissionJWTMountsClaim.Get(),
+			Changed: kagentenv.SessionAdmissionJWTChangedClaim.Get(),
+		},
+	}
+	if config.JWKSURL == "" && config.Issuer == "" && config.Audience == "" {
+		return nil, nil
+	}
+	admission, err := jwtadmission.New(config, nil)
+	if err != nil {
+		return nil, fmt.Errorf("configure the Session admission (%s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
+	}
+	return admission, nil
 }

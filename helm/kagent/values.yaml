@@ -384,6 +384,26 @@ controller:
   # 0 leaves shares valid until revoked or the session is deleted.
   sessionShareMaxTTL: "0"
 
+  session:
+    # How a Session's volume source is admitted. With all three jwt values set,
+    # a create that names a volume source must carry a grant the issuer signed:
+    # verified against jwksURL (refetched on an unknown key id, so a key rotation
+    # needs no restart), with this iss and aud, naming the caller as sub, the
+    # volume and the mounts it allows. Unset, every create that names a volume
+    # source is refused.
+    admission:
+      jwt:
+        jwksURL: ""
+        issuer: ""
+        audience: ""
+        # The claims of the issuer's grants that carry the volume, the allowed
+        # mounts and the changed repositories. Empty keeps the default names
+        # volume, mounts and changed.
+        claims:
+          volume: ""
+          mounts: ""
+          changed: ""
+
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.
   sandbox:

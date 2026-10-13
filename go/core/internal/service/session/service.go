@@ -7,8 +7,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -42,6 +44,39 @@ type sessionWorkflow interface {
 	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 }
 
+// VolumeAdmission decides whether a caller may create a session on the volume
+// it names. An installation configures one; without it, every request that
+// names a volume is refused, so no caller mounts a volume of its choosing.
+type VolumeAdmission interface {
+	// Admit returns what the session is admitted with when token proves that
+	// caller may create a session on source, and the refusal otherwise.
+	Admit(ctx context.Context, caller string, source *apiv1alpha1.SessionVolumeSource, token string) (Admitted, error)
+}
+
+// Admitted is what an admission grants a session beside its volume source,
+// stored on the session and shown on get and list. It holds no credential.
+type Admitted struct {
+	// Changed lists the repositories, relative to the session's working
+	// directory, whose origin moved since the volume's last sync: the session's
+	// runtime fetches them before its first turn.
+	Changed []string
+}
+
+// CreateRequest is what a new conversation is created from.
+type CreateRequest struct {
+	Agent     *apiv1alpha1.ResourceReference
+	RequestID string
+	// Name is the optional display name. Empty leaves the conversation
+	// identified by its id.
+	Name string
+	// VolumeSource is the workspace volume the session works in and how its
+	// actor mounts it. Nil creates a session without one.
+	VolumeSource *apiv1alpha1.SessionVolumeSource
+	// AdmissionToken is the proof the configured admission verifies for
+	// VolumeSource. It is read by the admission and nowhere else.
+	AdmissionToken string
+}
+
 type ListRequest struct {
 	AllCreators bool
 	// Agent narrows the page to one agent's conversations.
@@ -62,10 +97,11 @@ type ShareListResult struct {
 }
 
 type Service struct {
-	store       store
-	authorizer  auth.Authorizer
-	workflow    sessionWorkflow
-	shareMaxTTL time.Duration
+	store           store
+	authorizer      auth.Authorizer
+	workflow        sessionWorkflow
+	shareMaxTTL     time.Duration
+	volumeAdmission VolumeAdmission
 }
 
 type Option func(*Service)
@@ -78,6 +114,15 @@ func WithShareMaxTTL(maxTTL time.Duration) Option {
 	}
 }
 
+// WithVolumeAdmission lets sessions be created on a volume source the
+// admission admits. Without one, every request that names a source or carries
+// an admission token is refused.
+func WithVolumeAdmission(admission VolumeAdmission) Option {
+	return func(service *Service) {
+		service.volumeAdmission = admission
+	}
+}
+
 func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflow, options ...Option) *Service {
 	service := &Service{store: store, authorizer: authorizer, workflow: workflow}
 	for _, option := range options {
@@ -86,11 +131,11 @@ func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflo
 	return service
 }
 
-// Create reserves and converges a new conversation. name is optional; an empty
-// name leaves the conversation identified by its id, which is how every session
-// created before names existed behaves.
-func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.Session, error) {
-	if err := validateCreate(agent, requestID); err != nil {
+// Create reserves and converges a new conversation. A request without a volume
+// source and admission token is handled as every session created before they
+// existed: an empty name leaves the conversation identified by its id.
+func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alpha1.Session, error) {
+	if err := validateCreate(request); err != nil {
 		return nil, err
 	}
 	creator, err := s.authorize(ctx, auth.VerbCreate, "")
@@ -101,14 +146,19 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 	if _, shared := auth.ShareContextFrom(ctx); shared {
 		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
 	}
+	admitted, err := s.admitVolume(ctx, creator, request)
+	if err != nil {
+		return nil, err
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
 	}
 	session, _, err := s.store.CreateSession(ctx, &apiv1alpha1.Session{
-		Id: id.String(), Creator: creator, Name: name,
-		Agent: agent,
-	}, requestID)
+		Id: id.String(), Creator: creator, Name: request.Name,
+		Agent: request.Agent, VolumeSource: request.VolumeSource,
+		Changed: admitted.Changed,
+	}, request.RequestID)
 	if errors.Is(err, database.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different Session", err)
 	}
@@ -132,6 +182,28 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 		return nil, serviceerrors.NewUnavailable("Failed to create Session", err)
 	}
 	return session, nil
+}
+
+// admitVolume refuses a volume source the installation's admission does not
+// admit, and returns what it admits otherwise. The admission token is handed
+// to the admission and to nothing else: it never reaches the store or a
+// response.
+func (s *Service) admitVolume(ctx context.Context, caller string, request CreateRequest) (Admitted, error) {
+	if request.VolumeSource == nil && request.AdmissionToken == "" {
+		return Admitted{}, nil
+	}
+	if s.volumeAdmission == nil {
+		return Admitted{}, serviceerrors.NewFailedPrecondition("this installation admits no Session volume", nil)
+	}
+	admitted, err := s.volumeAdmission.Admit(ctx, caller, request.VolumeSource, request.AdmissionToken)
+	var refusal *serviceerrors.Error
+	if errors.As(err, &refusal) {
+		return Admitted{}, err
+	}
+	if err != nil {
+		return Admitted{}, serviceerrors.NewPermissionDenied("Session volume source was not admitted", err)
+	}
+	return admitted, nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
@@ -433,8 +505,8 @@ func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceTyp
 	return principal.User.ID, nil
 }
 
-func validateCreate(agent *apiv1alpha1.ResourceReference, requestID string) error {
-	for _, ref := range []*apiv1alpha1.ResourceReference{agent} {
+func validateCreate(request CreateRequest) error {
+	for _, ref := range []*apiv1alpha1.ResourceReference{request.Agent} {
 		if problems := utilvalidation.IsDNS1123Label(ref.GetNamespace()); len(problems) > 0 {
 			return serviceerrors.NewInvalidArgument("target namespace is invalid: "+strings.Join(problems, "; "), nil)
 		}
@@ -442,10 +514,91 @@ func validateCreate(agent *apiv1alpha1.ResourceReference, requestID string) erro
 			return serviceerrors.NewInvalidArgument("target name is invalid: "+strings.Join(problems, "; "), nil)
 		}
 	}
-	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
+	if request.RequestID == "" || strings.TrimSpace(request.RequestID) != request.RequestID || len(request.RequestID) > 128 {
 		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
 	}
+	if request.VolumeSource != nil {
+		return validateVolumeSource(request.VolumeSource)
+	}
 	return nil
+}
+
+// A CSI driver is named like a Kubernetes CSIDriver object, which the CSI
+// specification bounds at 63 characters; a volume handle is the driver's own
+// and opaque, bounded only so a row cannot grow without limit. A source mounts
+// its volume a few times at most: the session's own directory and the shared
+// read-only directories.
+const (
+	maxCSIDriverLength    = 63
+	maxVolumeHandleLength = 1024
+	maxVolumeMounts       = 8
+	// durableDirectory is the actor's durable directory, which its snapshot
+	// tars on every commit: no volume is mounted there.
+	durableDirectory = "/data"
+)
+
+// validateVolumeSource checks what the transport's protobuf rules check for a
+// gRPC caller, so a direct caller of the service gets the same answer: the
+// volume by its driver and handle, and every mount of it from a clean relative
+// directory of the volume at a clean absolute path outside the durable
+// directory, with the session's own directory the one read-write mount.
+func validateVolumeSource(source *apiv1alpha1.SessionVolumeSource) error {
+	driver := source.GetVolume().GetCsiDriver()
+	if problems := utilvalidation.IsDNS1123Subdomain(driver); len(problems) > 0 || len(driver) > maxCSIDriverLength {
+		return serviceerrors.NewInvalidArgument("volume_source.volume.csi_driver must be a CSI driver name of at most 63 characters", nil)
+	}
+	handle := source.GetVolume().GetVolumeHandle()
+	if handle == "" || len(handle) > maxVolumeHandleLength || strings.ContainsFunc(handle, isSpaceOrControl) {
+		return serviceerrors.NewInvalidArgument("volume_source.volume.volume_handle must be 1-1024 characters without whitespace or control characters", nil)
+	}
+	mounts := source.GetMounts()
+	if len(mounts) == 0 || len(mounts) > maxVolumeMounts {
+		return serviceerrors.NewInvalidArgument(fmt.Sprintf("volume_source.mounts must name 1-%d mounts", maxVolumeMounts), nil)
+	}
+	readWrite := 0
+	mountPaths := make(map[string]struct{}, len(mounts))
+	for _, mount := range mounts {
+		if !isCleanRelativePath(mount.GetSubPath()) {
+			return serviceerrors.NewInvalidArgument("volume_source.mounts[].sub_path must be a clean relative path without . or .. segments", nil)
+		}
+		mountPath := mount.GetMountPath()
+		if !path.IsAbs(mountPath) || path.Clean(mountPath) != mountPath || mountPath == "/" || strings.ContainsFunc(mountPath, isSpaceOrControl) {
+			return serviceerrors.NewInvalidArgument("volume_source.mounts[].mount_path must be a clean absolute path", nil)
+		}
+		if mountPath == durableDirectory || strings.HasPrefix(mountPath, durableDirectory+"/") {
+			return serviceerrors.NewInvalidArgument("volume_source.mounts[].mount_path must be outside "+durableDirectory, nil)
+		}
+		if _, seen := mountPaths[mountPath]; seen {
+			return serviceerrors.NewInvalidArgument("volume_source.mounts[].mount_path must be unique", nil)
+		}
+		mountPaths[mountPath] = struct{}{}
+		if !mount.GetReadOnly() {
+			readWrite++
+		}
+	}
+	if readWrite > 1 {
+		return serviceerrors.NewInvalidArgument("volume_source.mounts may have one read-write mount, the session's own directory", nil)
+	}
+	return nil
+}
+
+// isCleanRelativePath reports whether p names a directory below a root
+// without leaving it: no leading slash and no empty, "." or ".." segment, and
+// no whitespace or control characters.
+func isCleanRelativePath(p string) bool {
+	if p == "" || strings.ContainsFunc(p, isSpaceOrControl) {
+		return false
+	}
+	for segment := range strings.SplitSeq(p, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func isSpaceOrControl(r rune) bool {
+	return unicode.IsSpace(r) || unicode.IsControl(r)
 }
 
 func validateIdentity(id string) error {
