@@ -372,14 +372,15 @@ write access.
   - **Close each lower pull request as carried**, with one line naming the merge (`Carried by #<n>,
     merged as <sha>`), never merged: its commits are already on `giantswarm`.
   - **No replacement pull request per base move.** The ruleset requires an up-to-date branch, so every
-    merge to `giantswarm` outdates the open pull requests. Bring a stack current by merging
-    `origin/giantswarm` into the top branch and pushing: the rebase merge drops the merge commit and lands
-    the stack's own commits, and nothing is re-filed. A change filed on its own that falls behind is
-    brought current the same way; a replacement is the last resort, for a branch a re-pin has stranded
-    (below).
+    merge to `giantswarm` outdates the open pull requests. Only the top of the stack is merged, so only it
+    has to be up to date: the lower pull requests are never merged, never refreshed and never re-filed,
+    and a queue of three costs one CI run, on the top's head. A top that falls behind before it merges is
+    replaced once, by a pull request from a fresh branch of `giantswarm` with the stack's commits on it in
+    order; the base is never merged into a branch, which a rebase merge would drop and so hide a conflict
+    until it lands.
   - **Never a force push on the line**, not with a lease: the ruleset forbids it on `giantswarm`, and on a
     branch it rewrites the commits a review and a green run were given for, so what merges is no longer
-    what ran. A branch behind `giantswarm` merges it and pushes.
+    what ran. A branch that is behind is replaced, as above.
 - **A personal fork** is for exploration that may never be proposed; the moment a change is meant for the
   platform it moves here.
 - **A patch lives here until upstream merges it**; the next re-pin drops it. A patch upstream rejects is
