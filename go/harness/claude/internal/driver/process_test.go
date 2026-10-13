@@ -14,6 +14,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -292,6 +293,81 @@ func TestProcessDriverWorksInTheDispatchedDirectory(t *testing.T) {
 			}
 			if len(sink.notices) != 0 {
 				t.Errorf("second turn notices = %#v, want none", sink.notices)
+			}
+		})
+	}
+}
+
+// A returning session, one that continues an earlier conversation, whose
+// directory has no setup record, such as after the volume's owner cleaned it
+// up, is told in its first status message that the directory was set up
+// again; a session's first-ever turn and a later turn are not.
+func TestProcessDriverTellsAReturningSessionOfAFreshDirectory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required")
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	origin := filepath.Join(dir, "origin")
+	mirrors := filepath.Join(dir, "mirrors")
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main", origin},
+		{"-C", origin, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "--allow-empty", "--message", "initial"},
+		{"clone", "--quiet", "--mirror", origin, filepath.Join(mirrors, "o", "r.git")},
+	} {
+		if output, err := exec.CommandContext(t.Context(), "git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: filepath.Join(dir, "data-workspace"), MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	const continuation = "11111111-1111-4111-8111-111111111111"
+	for _, test := range []struct {
+		name  string
+		turns []runtime.Turn
+		// want is the first status message of each turn, empty for none.
+		want []string
+	}{
+		{
+			name:  "first-ever turn",
+			turns: []runtime.Turn{{Prompt: "hello"}, {Prompt: "again", ContinuationID: continuation}},
+			want:  []string{"", ""},
+		},
+		{
+			name:  "returning session",
+			turns: []runtime.Turn{{Prompt: "back", ContinuationID: continuation}, {Prompt: "again", ContinuationID: continuation}},
+			want:  []string{workspace.FreshDirectoryNotice, ""},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// The volume creates a missing session directory empty.
+			sessionDirectory := t.TempDir()
+			ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+				adk.WorkingDirectoryHeader: {sessionDirectory}, adk.MirrorsDirectoryHeader: {mirrors},
+			}))
+			for i, turn := range test.turns {
+				sink := &recordingSink{}
+				if _, err := d.Run(ctx, turn, sink); err != nil {
+					t.Fatalf("turn %d: Run() error = %v", i, err)
+				}
+				var got []string
+				for _, notice := range sink.notices {
+					got = append(got, notice.Text)
+				}
+				if test.want[i] == "" && len(got) != 0 {
+					t.Errorf("turn %d: notices = %q, want none", i, got)
+				}
+				if test.want[i] != "" && !slices.Equal(got, []string{test.want[i]}) {
+					t.Errorf("turn %d: notices = %q, want %q", i, got, test.want[i])
+				}
+			}
+			if _, err := os.Stat(filepath.Join(sessionDirectory, workspace.StateFile)); err != nil {
+				t.Errorf("the setup is not recorded: %v", err)
 			}
 		})
 	}

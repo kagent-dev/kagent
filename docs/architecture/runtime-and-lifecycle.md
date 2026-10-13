@@ -76,8 +76,10 @@ it), and `.kagent/workspace.json` records the setup, so a later turn neither
 clones nor fetches again, and a resumed turn (a `claude` turn that continues
 its process, a Go ADK turn that answers a question or an approval) sets up
 nothing. A directory without the record, such as a fresh one after the
-volume's owner cleaned a session's directory up, is set up again; the Go ADK
-tells a session with earlier turns so in that turn's first status message. A
+volume's owner cleaned a session's directory up, is set up again; both
+runtimes tell a session with earlier turns (a Go ADK session with events, a
+`claude` turn that continues an earlier conversation) so in that turn's first
+status message, the one notice of `go/harness/workspace`. A
 clone or fetch that fails, such as a fetch the origin refuses, is the turn's
 first status message, naming the repository and the reason, and the turn runs.
 A harness that runs as root, as the `claude` image does, runs the setup as

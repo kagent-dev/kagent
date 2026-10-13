@@ -216,6 +216,20 @@ func TestKAgentExecutor_ResumedTurnSetsNothingUp(t *testing.T) {
 	}
 }
 
+// A session's first-ever turn sets its directory up and is told nothing.
+func TestKAgentExecutor_FirstTurnIsNotToldOfAFreshDirectory(t *testing.T) {
+	f := newWorkspaceForge(t, "e2e/alpha")
+	executor := &KAgentExecutor{builtin: &directoryRecorder{}, sessionService: adksession.InMemoryService(), appName: "app", logger: slog.New(slog.DiscardHandler)}
+
+	updates := runTurn(t, executor, dispatched(t, f.headers("")), newTurn())
+	if first := statusText(updates[0]); first != "" {
+		t.Errorf("first status message = %q, want none", first)
+	}
+	if _, err := os.Stat(filepath.Join(f.directory, workspace.StateFile)); err != nil {
+		t.Errorf("the setup is not recorded: %v", err)
+	}
+}
+
 // A returning session whose directory is set up again, such as after the
 // volume's owner cleaned it up, is told so in its first status message; a
 // later turn sets up nothing and says nothing.
@@ -233,8 +247,8 @@ func TestKAgentExecutor_ReturningSessionIsToldOfAFreshDirectory(t *testing.T) {
 	executor := &KAgentExecutor{builtin: &directoryRecorder{}, sessionService: sessions, appName: appName, logger: slog.New(slog.DiscardHandler)}
 
 	updates := runTurn(t, executor, dispatched(t, f.headers("")), newTurn())
-	if first := statusText(updates[0]); !strings.Contains(first, "set up again from the workspace's mirrors") {
-		t.Errorf("first status message = %q, want the fresh directory", first)
+	if first := statusText(updates[0]); first != workspace.FreshDirectoryNotice {
+		t.Errorf("first status message = %q, want %q", first, workspace.FreshDirectoryNotice)
 	}
 	if _, err := os.Stat(filepath.Join(f.directory, workspace.StateFile)); err != nil {
 		t.Errorf("the setup is not recorded: %v", err)

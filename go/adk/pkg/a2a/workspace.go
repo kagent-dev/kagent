@@ -4,22 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
-const (
-	// workspaceNotes is the file the setup explains a session directory in;
-	// the execution tools' working-directory rule points the model at it.
-	workspaceNotes = "AGENTS.md"
-	// freshDirectoryNotice tells a returning session that its directory was
-	// set up again from the workspace's mirrors, such as after the volume's
-	// owner cleaned up a directory nobody returned to.
-	freshDirectoryNotice = "Workspace setup: this session's directory was set up again from the workspace's mirrors. " +
-		"What was pushed is on the provider; what was not pushed is gone."
-)
+// workspaceNotes is the file the setup explains a session directory in; the
+// execution tools' working-directory rule points the model at it.
+const workspaceNotes = "AGENTS.md"
 
 // prepareTurnDirectory returns ctx with the directory the turn's tools work
 // in, the one its dispatch names, read per turn because a runtime restored
@@ -56,15 +48,5 @@ func (e *KAgentExecutor) prepareTurnDirectory(ctx context.Context, resumed, retu
 		e.logger.DebugContext(ctx, "session directory set up", "directory", dispatch.Directory,
 			"cloned", report.Cloned, "fetched", report.Fetched, "problems", len(report.Problems))
 	}
-	var notice []string
-	if err != nil {
-		notice = append(notice, "Workspace setup failed: "+err.Error())
-	}
-	if report.SetUp && returning {
-		notice = append(notice, freshDirectoryNotice)
-	}
-	if problems := report.Notice(); problems != "" {
-		notice = append(notice, problems)
-	}
-	return ctx, strings.Join(notice, "\n")
+	return ctx, report.TurnNotice(err, returning)
 }

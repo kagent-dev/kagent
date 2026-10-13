@@ -125,6 +125,29 @@ type Report struct {
 	Problems []Problem `json:"problems,omitempty"`
 }
 
+// FreshDirectoryNotice tells a returning session that its directory was set
+// up again from the workspace's mirrors, such as after the volume's owner
+// cleaned up a directory nobody returned to.
+const FreshDirectoryNotice = "Workspace setup: this session's directory was set up again from the workspace's mirrors. " +
+	"What was pushed is on the provider; what was not pushed is gone."
+
+// TurnNotice is the status message a turn starts with after its setup, or
+// empty: a setup that failed with err, the directory a returning session finds
+// set up again, and what could not be cloned or fetched.
+func (r Report) TurnNotice(err error, returning bool) string {
+	var notice []string
+	if err != nil {
+		notice = append(notice, "Workspace setup failed: "+err.Error())
+	}
+	if r.SetUp && returning {
+		notice = append(notice, FreshDirectoryNotice)
+	}
+	if problems := r.Notice(); problems != "" {
+		notice = append(notice, problems)
+	}
+	return strings.Join(notice, "\n")
+}
+
 // Notice is the one status line a turn reports for the report's problems, or
 // empty without any.
 func (r Report) Notice() string {

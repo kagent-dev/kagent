@@ -63,6 +63,32 @@ func TestReportNotice(t *testing.T) {
 	require.Contains(t, notice, "o/r: the origin refused the fetch: 403")
 }
 
+// A turn's notice names a failed setup, the directory a returning session
+// finds set up again, and the problems, in that order; a first-ever setup and
+// a directory set up before say nothing.
+func TestReportTurnNotice(t *testing.T) {
+	problems := Report{SetUp: true, Problems: []Problem{{Repository: "o/r", Reason: "the origin refused the fetch: 403"}}}
+	for _, test := range []struct {
+		name      string
+		report    Report
+		err       error
+		returning bool
+		want      []string
+	}{
+		{name: "set up before", report: Report{}, returning: true},
+		{name: "first-ever setup", report: Report{SetUp: true}},
+		{name: "returning session", report: Report{SetUp: true}, returning: true, want: []string{FreshDirectoryNotice}},
+		{
+			name: "returning session with a problem", report: problems, err: errors.New("disk full"), returning: true,
+			want: []string{"Workspace setup failed: disk full", FreshDirectoryNotice, problems.Notice()},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, strings.Join(test.want, "\n"), test.report.TurnNotice(test.err, test.returning))
+		})
+	}
+}
+
 // forge is a set of origins on the local filesystem and a workspace volume
 // with a bare mirror of each.
 type forge struct {
