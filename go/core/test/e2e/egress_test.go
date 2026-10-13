@@ -1,12 +1,15 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,15 +28,11 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
 		target := interactionTarget(t)
-		var reachedDenied atomic.Bool
-		origin := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func([]byte) error {
-			reachedDenied.Store(true)
-			return nil
-		})
-		denied, err := url.Parse(reachableModelURL(t, origin.URL))
+		mcpURL, mcpServer := startMCPMock(t)
+		denied, err := url.Parse(mcpURL)
 		require.NoError(t, err)
 		// Give the destination a distinct hostname even when host mocks use
-		// host.docker.internal. Keep the redirect visibly distinct from the model origin.
+		// host.docker.internal. It must not share the model or configured MCP origin.
 		kube := interactionKubeClient(t)
 		alias := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "denied-origin-", Namespace: "kagent"},
@@ -43,23 +42,51 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
 		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", denied.Port())
 
-		// First prove the destination is reachable and speaks this harness's
-		// model protocol when explicitly configured.
-		control := newInteractionFixture(t, harness, target, denied.String())
-		_, _, task := control.send(t, "What is 2+2?")
+		toolCalls := func() int {
+			calls := 0
+			for _, request := range mcpServer.Requests() {
+				var message struct {
+					Method string `json:"method"`
+				}
+				if json.Unmarshal(request.Body, &message) == nil && message.Method == "tools/call" {
+					calls++
+				}
+			}
+			return calls
+		}
+		const prompt = "Add 3 and 5 using the configured MCP server."
+		// Prove the destination is reachable when explicitly configured.
+		controlName, _ := createMCPInteractionTemplate(t, harness, denied.String(), false)
+		control := newInteractionFixtureForTemplate(t, harness, target, controlName)
+		_, _, task := control.send(t, prompt)
 		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
-		require.Contains(t, taskText(task), "The answer is 4.")
-		require.True(t, reachedDenied.Load())
-		reachedDenied.Store(false)
+		require.Contains(t, taskText(task), "result is 8")
+		controlCalls := toolCalls()
+		require.Positive(t, controlCalls)
 
-		var reachedAllowed atomic.Bool
+		upstream := *denied
+		upstream.Host, upstream.Path = net.JoinHostPort("127.0.0.1", denied.Port()), ""
+		proxy := httputil.NewSingleHostReverseProxy(&upstream)
+		var redirects atomic.Int64
 		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			reachedAllowed.Store(true)
-			// The model host is allowed, but its redirect must not expand the
-			// Actor's policy to another reachable, unconfigured destination.
-			redirect := *denied
-			redirect.Path, redirect.RawQuery = r.URL.Path, r.URL.RawQuery
-			http.Redirect(w, r, redirect.String(), http.StatusTemporaryRedirect)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = r.Body.Close()
+			var message struct {
+				Method string `json:"method"`
+			}
+			if json.Unmarshal(body, &message) == nil && message.Method == "tools/call" {
+				redirects.Add(1)
+				http.Redirect(w, r, denied.String(), http.StatusTemporaryRedirect)
+				return
+			}
+			// Keep initialization and discovery on the configured endpoint so
+			// only the runtime's tool call exercises the additional destination.
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			proxy.ServeHTTP(w, r)
 		}))
 		_ = server.Listener.Close()
 		listener, err := net.Listen("tcp", "0.0.0.0:0")
@@ -69,13 +96,11 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 		server.Listener = listener
 		server.Start()
 		t.Cleanup(server.Close)
-		fixture := newInteractionFixture(t, harness, target, reachableModelURL(t, server.URL))
-		_, _, task = fixture.send(t, "What is 2+2?")
-		if !reachedAllowed.Load() {
-			t.Fatal("the configured model destination was not reached")
-		}
-		require.Equal(t, a2atype.TaskStateFailed, task.Status.State, "redirect task text = %q", taskText(task))
-		require.False(t, reachedDenied.Load(), "redirect reached an unconfigured destination")
+		name, _ := createMCPInteractionTemplate(t, harness, reachableServerURL(t, server.URL, denied.Path), false)
+		fixture := newInteractionFixtureForTemplate(t, harness, target, name)
+		fixture.send(t, prompt)
+		require.Positive(t, redirects.Load(), "the runtime must attempt the MCP tool call")
+		require.Equal(t, controlCalls, toolCalls(), "redirect reached an unconfigured destination")
 
 		grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "redirect-access-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{
 			Destinations: []v1alpha3.EgressDestination{{Origin: denied.Scheme + "://" + denied.Host}},
@@ -83,7 +108,6 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 		require.NoError(t, kube.Create(t.Context(), grant))
 		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), grant)) })
 		agent := &v1alpha3.Agent{}
-		name := strings.TrimPrefix(fixture.tenant, "kagent/")
 		key := ctrlclient.ObjectKey{Namespace: "kagent", Name: name}
 		require.NoError(t, kube.Get(t.Context(), key, agent))
 		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: grant.Name}}
@@ -100,12 +124,14 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 			return false, nil
 		}))
 		allowed := newInteractionFixtureForTemplate(t, harness, target, name)
-		_, _, task = allowed.send(t, "What is 2+2?")
+		_, _, task = allowed.send(t, prompt)
 		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "policy-granted redirect text = %q", taskText(task))
-		require.True(t, reachedDenied.Load())
-		reachedDenied.Store(false)
-		_, _, task = fixture.send(t, "What is 2+2?")
-		require.Equal(t, a2atype.TaskStateFailed, task.Status.State)
-		require.False(t, reachedDenied.Load(), "existing session must retain its earlier grant")
+		require.Contains(t, taskText(task), "result is 8")
+		allowedCalls := toolCalls()
+		require.Greater(t, allowedCalls, controlCalls, "the new session must reach the policy-granted destination")
+		before := redirects.Load()
+		fixture.send(t, prompt)
+		require.Greater(t, redirects.Load(), before, "the existing session must retry the tool call")
+		require.Equal(t, allowedCalls, toolCalls(), "existing session must retain its earlier grant")
 	})
 }
