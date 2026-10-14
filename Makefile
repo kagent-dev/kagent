@@ -558,7 +558,7 @@ helm-install-provider: helm-dev check-api-key
 .PHONY: helm-install
 helm-install: ## Build all images then install kagent onto the kind cluster
 helm-install: build
-helm-install: helm-install-provider
+	$(MAKE) helm-install-provider
 
 .PHONY: helm-test-install
 helm-test-install: ## Dry-run helm install to validate chart rendering (pipe to tee for inspection)
