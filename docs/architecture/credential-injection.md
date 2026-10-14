@@ -86,33 +86,15 @@ the caller's authentication.
 
 ## Controller credential extension
 
-Embedded controllers can supply `app.Options.EgressCredentialBinder` to add
-credential references during compilation. Nil preserves the built-in behavior.
-The [CredentialBinder contract](../../go/core/pkg/egressext/credentials.go) defines
-`Bindings(targets, existing)` and its concurrency, determinism, and no-I/O requirements.
+Embedded controllers can set `app.Options.EgressCredentialBinder` to add gateway
+credential references for eligible model and MCP destinations. EgressPolicy
+grants are live authorization, not targets. Nil preserves built-in behavior. See [CredentialBinder](../../go/core/pkg/egressext/credentials.go)
+for the contract. Core validates contributions, preserves explicit authentication,
+and adds model/MCP placeholders without expanding network access.
 
-Targets are exact HTTPS origins from resolved models and MCP servers. EgressPolicy
-grants are live authorization, not pinned targets. The compiler excludes origins with passthrough, model default
-headers, literal Harness model keys, or literal or ConfigMap MCP headers.
-Bindings cannot expand network access or replace existing bindings. Model bindings
-must match the supplied header and prefix. Invalid results fail Agent preparation.
-
-References use `ate-secret://<provider>/<provider-specific-path>` with a lowercase,
-port-free provider authority. Kubernetes references retain the
-`k8s.io/default/<namespace>/<Secret>/<key>` path. Substrate owns provider
-registration, gateway authentication, and caching. The binder returns references,
-never credential values.
-
-The built-in compilers add model and MCP placeholders for contributed bindings.
-For keyless models, this selects API-key or bearer-token authentication, including
-Bedrock and Foundry. Arbitrary clients must send the bound header themselves.
-Headerless requests do not trigger credential resolution. Changed bindings create
-a new revision. Existing sessions retain their pinned bindings.
-
-Keyless Gemini support is deferred. Its origins are excluded until runtime
-support is added. Secret-backed Gemini keeps its existing behavior. Controller
-and telemetry destinations, direct A2A delegation, and standalone sandboxes are
-outside this extension's target scope.
+References use `ate-secret://<provider>/<path>` with a lowercase, port-free
+provider name registered in Substrate. Arbitrary clients must send the bound
+header to trigger injection. Keyless Gemini support remains a follow-up.
 
 ## Deferred API fields
 
