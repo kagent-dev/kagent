@@ -38,6 +38,11 @@ ADK-specific context settings are not translated. DSH keeps its own built-in
 tools and plugin composition; those are not equivalent to kagent Agent Plugins.
 The first version accepts text input and output only.
 
+Known limitation: a tool call whose ACP `rawInput` is a JSON array or scalar
+aborts the turn because the shared runtime currently requires an argument object.
+The malformed-JSON recovery test does not cover this case; preserving these values
+through the tool-error recovery flow remains an acceptance gap.
+
 ## State and process lifetime
 
 Each turn starts a DSH ACP process and creates or resumes the Actor's private
