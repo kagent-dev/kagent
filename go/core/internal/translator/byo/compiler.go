@@ -82,6 +82,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Namespace: template.Namespace,
 		Command:   harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil

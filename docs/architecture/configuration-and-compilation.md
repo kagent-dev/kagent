@@ -259,6 +259,47 @@ images, and compatible worker hardware.
 
 ## Harness-specific output
 
+### OCI skill delivery
+
+OCI sources in `spec.skills` and `spec.plugins` are digest-pinned container
+images. Compilation normalizes each reference and emits both a Substrate image
+volume and a runtime source directory. The public `source.oci` and optional
+`source.path` fields are unchanged. The directory in the internal runtime
+contract replaces the former OCI download reference.
+
+Substrate pulls and mounts the whole image read-only before starting the golden
+runtime, and prepares the image volume again when restoring an Actor. It uses
+the same worker image cache and registry credential path as workload images.
+Private registries therefore use the existing Substrate worker credentials;
+kagent neither copies those credentials into agent configuration nor adds
+registry destinations to agent egress. Kubernetes pod `imagePullSecrets` alone
+do not configure worker-side pulls.
+
+Images shared by standalone skills, plugins, or Go ADK shared subagents produce
+one volume per normalized reference, mounted at
+`/run/kagent/artifacts/<reference-hash>`. Different repositories remain distinct
+even when their digests match. Sorted image inputs participate in revision
+identity. Substrate currently limits each ActorTemplate to 32 volumes and each
+container to 32 mounts; the three runtime volumes leave room for 29 distinct
+skill images. Exceeding that limit fails ActorTemplate construction.
+
+The shared materializer validates the mounted package and resolves `source.path`
+inside it. It copies selected standalone and Agent Plugins skills to the
+harness's existing discovery directory: `/skills` for Go ADK,
+`/data/codex/skills` for Codex, and `/data/generated/claude/.claude/skills` for
+Claude. Unselected Agent Plugins skills are not installed. Claude-format plugin
+roots can use the mounted directory directly. Mounted sources do not use the
+download cache or fall back to an in-runtime OCI pull.
+
+Package limits and path/symlink validation still apply. Build skill images from
+scratch with just package contents; arbitrary ORAS artifact layouts are not
+supported. Existing Git and S3 fetches remain runtime operations and retain
+their golden-runtime networking limitations. The Python ADK does not yet consume
+the `agent_plugins` runtime contract. BYO images must consume that contract to
+load these skills; the Go ADK BYO fixture does so.
+
+### Runtime configuration
+
 - **kagent** emits configuration for the Go or Python ADK, the Harness's memory and context
   compaction policy, Shared native subagents, and the kagent HITL extension.
 - **Codex** emits native App Server configuration, OpenAI or Bedrock model setup,

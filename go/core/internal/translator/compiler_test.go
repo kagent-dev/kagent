@@ -180,11 +180,14 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.GetGit().Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", plugins)
 	}
-	for _, host := range []string{"https://ghcr.io:443", "https://registry-1.docker.io:443", "https://github.com:443", "https://objects.example.com:443"} {
+	for _, host := range []string{"https://github.com:443", "https://objects.example.com:443"} {
 		if !slices.Contains(spec.EgressDestinations, host) {
 			t.Fatalf("egress destinations %v do not contain %q", spec.EgressDestinations, host)
 		}
 	}
+	require.NotContains(t, spec.EgressDestinations, "https://ghcr.io:443")
+	require.NotContains(t, spec.EgressDestinations, "https://registry-1.docker.io:443")
+	require.Len(t, spec.SkillImages, 2)
 }
 
 func remoteMCPServer(name, url string) *v1alpha3.RemoteMCPServer {
@@ -690,7 +693,10 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			require.Equal(t, []string{"lookup"}, config.Agent.SubAgents[0].HttpTools[0].Tools)
 			require.Equal(t, "review", config.Agent.SubAgents[0].AgentPlugins.Skills[0].Name)
 			require.Contains(t, revision.EgressDestinations, "https://search.example.com:443")
-			require.Contains(t, revision.EgressDestinations, "https://ghcr.io:443")
+			require.NotContains(t, revision.EgressDestinations, "https://ghcr.io:443")
+			require.Equal(t, []translator.SkillImage{translator.SkillImage(child.Spec.Skills[0].Source.OCI)}, revision.SkillImages)
+			require.Equal(t, revision.SkillImages[0].MountPath(), config.Agent.SubAgents[0].AgentPlugins.Skills[0].Source.GetDirectory())
+			require.Equal(t, config.Agent.AgentPlugins.Skills[0].Source.GetDirectory(), config.Agent.SubAgents[0].AgentPlugins.Skills[0].Source.GetDirectory())
 			require.Contains(t, string(revision.Provenance), `"name":"researcher"`)
 
 			require.Equal(t, "coordinate", config.Agent.Instruction)

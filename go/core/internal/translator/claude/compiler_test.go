@@ -239,7 +239,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		len(cfg.SkillResources.Plugins) != 1 || !reflect.DeepEqual(cfg.SkillResources.Plugins[0].Skills, []string{"deploy"}) {
 		t.Fatalf("compiled skills = %#v", cfg.SkillResources)
 	}
-	wantEgress := []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://git.example.com:443", "https://registry.example.com:443"}
+	wantEgress := []string{"http://kagent-controller.kagent:8083", "https://api.anthropic.com:443", "https://git.example.com:443"}
 	if !reflect.DeepEqual(revision.EgressDestinations, wantEgress) {
 		t.Fatalf("egress = %v, want %v", revision.EgressDestinations, wantEgress)
 	}

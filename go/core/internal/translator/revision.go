@@ -52,8 +52,9 @@ type Revision struct {
 	Environment []corev1.EnvVar
 	// ConfigJSON is injected into the runtime container verbatim.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
-	ConfigJSON []byte
-	AgentCard  *a2apb.AgentCard
+	ConfigJSON  []byte
+	AgentCard   *a2apb.AgentCard
+	SkillImages []SkillImage
 
 	// WorkerPoolName, SandboxClass and SnapshotLocation control Substrate placement and state.
 	WorkerPoolName   string
@@ -99,6 +100,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Args               []string                 `json:"args,omitempty"`
 		Environment        []corev1.EnvVar          `json:"environment"`
 		ConfigJSON         json.RawMessage          `json:"config"`
+		SkillImages        []SkillImage             `json:"skillImages,omitempty"`
 		WorkerPoolName     string                   `json:"workerPoolName"`
 		SnapshotLocation   string                   `json:"snapshotLocation"`
 		Provenance         json.RawMessage          `json:"provenance"`
@@ -112,6 +114,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 	}{
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
+		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,

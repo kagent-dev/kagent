@@ -226,6 +226,18 @@ input continuation, and cancellation.
 
 `mocks/` contains the deterministic LLM responses used by interaction tests.
 
+`TestOCISkillsSurviveSuspension` publishes a tiny skill image to the local
+registry named by `KAGENT_E2E_RUNTIME_IMAGE`. It exercises golden preparation,
+standalone and selected plugin skills, executable file modes, and execution
+after suspend/resume across the harness matrix. It checks discovery metadata,
+then uses Go ADK's `load_skill`, Claude's `Skill`, or Codex's `shell_command` to
+load each `SKILL.md` before execution. Assertions require fresh instructions and
+script output to reach the model in both turns, and unselected skills must be
+absent. The deterministic model verifies runtime wiring, not real-model skill
+selection quality. The registry must accept pushes from the test runner and be
+reachable by Substrate workers through their existing registry rewrite.
+Private-registry credentials are not required.
+
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
 persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`

@@ -50,6 +50,7 @@ import (
 )
 
 //go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json mocks/invoke_native_ask_user.json
+//go:embed mocks/invoke_mounted_skills.json
 var interactionMocks embed.FS
 
 const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string"}},"required":["answer","explanation"],"additionalProperties":false}`

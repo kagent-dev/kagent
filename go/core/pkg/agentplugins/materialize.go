@@ -191,7 +191,7 @@ const claudeManifest = ".claude-plugin/plugin.json"
 
 func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
 	selected := 0
-	if source.OCI != "" {
+	if source.Directory != "" {
 		selected++
 	}
 	if source.Git != nil {
@@ -202,6 +202,15 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	}
 	if selected != 1 {
 		return "", fmt.Errorf("exactly one artifact source is required")
+	}
+	if source.Directory != "" {
+		if !filepath.IsAbs(source.Directory) {
+			return "", fmt.Errorf("mounted artifact directory %q must be absolute", source.Directory)
+		}
+		if err := validatePackage(source.Directory); err != nil {
+			return "", fmt.Errorf("validate mounted artifact: %w", err)
+		}
+		return containedPath(source.Directory, source.Path)
 	}
 	if _, err := os.Stat(destination); err == nil {
 		if err := validatePackage(destination); err != nil {
@@ -226,10 +235,6 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		return "", err
 	}
 	switch {
-	case source.OCI != "":
-		if err := skillsinit.FetchOCI(skillsinit.OCIRef{Image: source.OCI, Dest: destination}, false); err != nil {
-			return "", err
-		}
 	case source.Git != nil:
 		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, destination); err != nil {
 			return "", err
@@ -271,6 +276,9 @@ func validatePackage(root string) error {
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+		if !info.Mode().IsRegular() && !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("artifact contains unsupported file %q (%s)", path, info.Mode())
 		}
 		if info.Mode().IsRegular() {
 			bytes += info.Size()

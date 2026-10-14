@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,32 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
+
+func TestActorTemplateSkillVolumeLimit(t *testing.T) {
+	for _, count := range []int{0, 29, 30} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			spec := &translator.Revision{Namespace: "test", AgentName: "skills", AgentCard: &a2apb.AgentCard{
+				Name: "skills", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+				DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
+				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			}}
+			for i := range count {
+				spec.SkillImages = append(spec.SkillImages, translator.SkillImage(fmt.Sprintf("example.com/skills-%d@sha256:%064x", i, i)))
+			}
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			actor, err := ActorTemplateForRevision(spec, id)
+			if count > 29 {
+				require.ErrorContains(t, err, "32-volume or mount limit")
+				require.Nil(t, actor)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, actor.Volumes, count+3)
+			require.Len(t, actor.Containers[0].VolumeMounts, count+3)
+		})
+	}
+}
 
 func TestActorTemplateSandboxClass(t *testing.T) {
 	for _, tt := range []struct {

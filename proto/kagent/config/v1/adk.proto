@@ -362,9 +362,11 @@ message ADKPluginBundle {
 message ADKPluginSource {
   oneof source {
     option (buf.validate.oneof).required = true;
-    string oci = 1;
+    // OCI artifacts are mounted by Substrate; use directory in runtime config.
+    string oci = 1 [deprecated = true];
     ADKPluginGitSource git = 2;
     ADKPluginS3Source s3 = 3;
+    string directory = 5;
   }
   string path = 4;
 }

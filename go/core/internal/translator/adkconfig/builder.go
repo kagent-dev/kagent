@@ -50,6 +50,7 @@ type Result struct {
 	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
+	SkillImages []translator.SkillImage
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
@@ -110,12 +111,12 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		stream = modelConfig.Spec.Stream
 	}
 	cfg := &configv1.ADKAgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
+	plugins, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = runtimeconfig.PluginConfig(pluginConfig)
+	if len(plugins.Resources.Skills) > 0 || len(plugins.Resources.Plugins) > 0 {
+		cfg.AgentPlugins = runtimeconfig.PluginConfig(plugins.Resources)
 	}
 	for _, tool := range input.MCPTools {
 		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
@@ -132,7 +133,8 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	result := &Result{
 		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), plugins.Egress...),
+		SkillImages: plugins.Images,
 	}
 	if modelConfig != nil {
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
@@ -148,6 +150,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		result.Templates = append(result.Templates, child.Templates...)
 		result.Environment = append(result.Environment, child.Environment...)
 		result.Egress = append(result.Egress, child.Egress...)
+		result.SkillImages = append(result.SkillImages, child.SkillImages...)
 	}
 	return result, nil
 }

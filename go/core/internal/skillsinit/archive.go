@@ -7,71 +7,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
-
-	"github.com/google/go-containerregistry/pkg/crane"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
-
-// FetchOCI pulls the named image, exports its flattened filesystem, and
-// extracts it into ref.Dest. It is the in-process replacement for the old
-// `krane export | tar xf -` pipeline.
-//
-// Auth comes from the standard DOCKER_CONFIG mechanism. Platform follows the
-// host arch.
-func FetchOCI(ref OCIRef, insecure bool) error {
-	platform, err := hostPlatform()
-	if err != nil {
-		return err
-	}
-
-	opts := []crane.Option{crane.WithPlatform(platform)}
-	if insecure {
-		opts = append(opts, crane.Insecure)
-	}
-
-	img, err := crane.Pull(ref.Image, opts...)
-	if err != nil {
-		return fmt.Errorf("pull %s: %w", ref.Image, err)
-	}
-
-	if err := os.MkdirAll(ref.Dest, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", ref.Dest, err)
-	}
-
-	pr, pw := io.Pipe()
-	errCh := make(chan error, 1)
-	go func() {
-		exportErr := crane.Export(img, pw)
-		_ = pw.CloseWithError(exportErr)
-		errCh <- exportErr
-	}()
-
-	if err := extractTar(pr, ref.Dest); err != nil {
-		// Abort the export promptly; don't drain potentially large images.
-		_ = pr.CloseWithError(err)
-		<-errCh
-		return fmt.Errorf("extract %s: %w", ref.Image, err)
-	}
-	if err := <-errCh; err != nil {
-		return fmt.Errorf("export %s: %w", ref.Image, err)
-	}
-	return nil
-}
-
-func hostPlatform() (*v1.Platform, error) {
-	var arch string
-	switch runtime.GOARCH {
-	case "amd64":
-		arch = "amd64"
-	case "arm64":
-		arch = "arm64"
-	default:
-		return nil, fmt.Errorf("unsupported architecture for OCI export: %s", runtime.GOARCH)
-	}
-	return &v1.Platform{OS: "linux", Architecture: arch}, nil
-}
 
 // extractTar writes the tar stream into dst. All filesystem operations go
 // through an os.Root anchored at dst, so any path or symlink that would
@@ -108,7 +45,7 @@ func extractTar(r io.Reader, dst string) error {
 			if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 				return err
 			}
-			// OCI layers can overwrite read-only files from earlier layers.
+			// Archives can contain repeated entries for read-only files.
 			// Removing first avoids EACCES when O_TRUNC would otherwise fail.
 			_ = root.Remove(rel)
 			f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(hdr.Mode)&0o777)

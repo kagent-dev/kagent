@@ -60,9 +60,7 @@ func Test_extractTar_rejectsPathTraversalEntry(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "sibling file must not exist")
 }
 
-// Test_extractTar_rejectsAbsoluteSymlink mirrors the OCI test corpus the
-// previous container shipped (e.g. distroless's /etc/localtime symlink).
-// We refuse rather than risk writing outside the volume.
+// Absolute symlinks must not allow archive extraction outside the destination.
 func Test_extractTar_rejectsAbsoluteSymlink(t *testing.T) {
 	dst := t.TempDir()
 	buf := tarOf(t, tarEntry{

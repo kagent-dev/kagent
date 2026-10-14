@@ -60,7 +60,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := translator.CompileSkillResources(input.Root.Template)
+	skills, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +91,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
 	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
 	config.LogLevel = c.settings.GetLogging().GetLevel()
-	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
-		config.SkillResources = &skillResources
+	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
+		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
@@ -115,7 +115,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 
-	egress = append(egress, skillEgress...)
+	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations(environment)...)
 	egress = append(egress, c.settings.GetControlPlaneUrl())
@@ -124,6 +124,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	return &translator.CompileResult{
 		Revision: translator.Revision{
 			Namespace:   template.Namespace,
+			SkillImages: skills.Images,
 			Environment: environment,
 			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,

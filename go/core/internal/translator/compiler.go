@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
@@ -172,6 +173,10 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	result.AgentName = agentName
 	result.Image = image
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	// Shared agents and plugin selections can contribute the same image.
+	// Normalize once after the complete harness configuration has been compiled.
+	slices.Sort(result.SkillImages)
+	result.SkillImages = slices.Compact(result.SkillImages)
 	return result, nil
 }
 

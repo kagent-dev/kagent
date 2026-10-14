@@ -129,6 +129,18 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			}}},
 		},
 	}
+	for i, image := range spec.SkillImages {
+		name := fmt.Sprintf("skill-%d", i)
+		template.Volumes = append(template.Volumes, &ateapipb.Volume{
+			Name: name, Image: &ateapipb.ImageVolumeSource{Reference: string(image)},
+		})
+		template.Containers[0].VolumeMounts = append(template.Containers[0].VolumeMounts, &ateapipb.VolumeMount{
+			Name: name, MountPath: image.MountPath(),
+		})
+	}
+	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
+		return nil, fmt.Errorf("runtime revision exceeds Substrate's 32-volume or mount limit with %d distinct skill images", len(spec.SkillImages))
+	}
 	return template, nil
 }
 
