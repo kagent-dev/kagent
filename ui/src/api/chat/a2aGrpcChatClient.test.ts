@@ -25,6 +25,7 @@ import {
 } from "@/generated/a2a_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
 
@@ -154,6 +155,33 @@ function textOf(message: ChatMessage): string {
     .join("");
 }
 
+/** Captures the request the client built, and ends the turn. */
+async function sentRequest(
+  input: Partial<Parameters<A2AGrpcChatClient["send"]>[0]> = {},
+): Promise<SendMessageRequest> {
+  let captured: SendMessageRequest | undefined;
+  serve(({ service }) => {
+    service(A2AService, {
+      // The turn ends without frames, which is what leaves the request itself as
+      // the only thing to assert on.
+      // eslint-disable-next-line require-yield
+      sendStreamingMessage: async function* (request) {
+        captured = request;
+      },
+    });
+  });
+  // Drained so the generator runs to completion; the frames are not the subject.
+  for await (const event of new A2AGrpcChatClient().send({
+    conversation: CONVERSATION,
+    text: "Medium",
+    ...input,
+  })) {
+    void event;
+  }
+  if (!captured) throw new Error("the client sent nothing");
+  return captured;
+}
+
 /**
  * What actually goes on the wire when a question is answered.
  *
@@ -163,33 +191,6 @@ function textOf(message: ChatMessage): string {
  * thing that can be measured.
  */
 describe("A2AGrpcChatClient.send, answering a question", () => {
-  /** Captures the request the client built, and ends the turn. */
-  async function sentRequest(
-    input: Partial<Parameters<A2AGrpcChatClient["send"]>[0]> = {},
-  ): Promise<SendMessageRequest> {
-    let captured: SendMessageRequest | undefined;
-    serve(({ service }) => {
-      service(A2AService, {
-        // The turn ends without frames, which is what leaves the request itself as
-        // the only thing to assert on.
-        // eslint-disable-next-line require-yield
-        sendStreamingMessage: async function* (request) {
-          captured = request;
-        },
-      });
-    });
-    // Drained so the generator runs to completion; the frames are not the subject.
-    for await (const event of new A2AGrpcChatClient().send({
-      conversation: CONVERSATION,
-      text: "Medium",
-      ...input,
-    })) {
-      void event;
-    }
-    if (!captured) throw new Error("the client sent nothing");
-    return captured;
-  }
-
   it("activates the extension on the call, which is what makes a question answerable at all", async () => {
     /*
      * Measured on a cluster, and the least obvious thing here: the header matters on
@@ -1503,6 +1504,14 @@ describe("A2AGrpcChatClient files", () => {
     expect(part?.filename).toBe("notes.md");
     expect(part?.mediaType).toBe("text/markdown");
     expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
+  });
+
+  it("sends a pasted link as a url part, with no bytes", async () => {
+    const link = "https://files.example/a/photo.png?sig=abc";
+    const part = (await sentRequest({ text: "", files: [new LinkFile(link)] })).message?.parts[0];
+    expect(part?.content).toEqual({ case: "url", value: link });
+    expect(part?.filename).toBe("photo.png");
+    expect(part?.mediaType).toBe("image/png");
   });
 
   it("renders a file the agent sent rather than dropping it", async () => {

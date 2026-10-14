@@ -68,7 +68,7 @@ import {
   readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
-import { mediaTypeOf } from "./attachments";
+import { fileNameFromUrl, isHttpUrl, LinkFile, mediaTypeOf } from "./attachments";
 import { agentInstanceShareToken } from "../shareToken";
 import { interleaveTaskMessages } from "./transcriptOrder";
 import { serviceClient } from "../transport";
@@ -214,24 +214,6 @@ function toPart(part: A2APart): ChatPart | undefined {
     };
   }
   return undefined;
-}
-
-function isHttpUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-// Last path segment, so a query string or fragment never becomes the name.
-function fileNameFromUrl(url: string): string {
-  try {
-    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
-  } catch {
-    return "file";
-  }
 }
 
 /**
@@ -456,9 +438,12 @@ export class A2AGrpcChatClient implements ChatClient {
     const client = serviceClient(A2AService);
     const fileParts = await Promise.all(
       (input.files ?? []).map(async (file) => ({
-        content: { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
+        content:
+          file instanceof LinkFile
+            ? { case: "url" as const, value: file.url }
+            : { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
         filename: file.name,
-        mediaType: mediaTypeOf(file),
+        mediaType: file instanceof LinkFile ? file.type : mediaTypeOf(file),
       })),
     );
 

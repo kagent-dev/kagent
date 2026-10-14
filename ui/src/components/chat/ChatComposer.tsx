@@ -4,7 +4,7 @@ import type { TextAreaRef } from "antd/es/input/TextArea";
 import { useTheme } from "@emotion/react";
 import { Paperclip, Save, Send, Square } from "lucide-react";
 import type { ChatController } from "@/api";
-import { ACCEPTED_FILES, mediaTypeOf, stageFiles } from "@/api/chat/attachments";
+import { ACCEPTED_FILES, LinkFile, mediaTypeOf, pastedLink, stageFiles } from "@/api/chat/attachments";
 import { randomId } from "@/api/randomId";
 import { AttachmentChip } from "./AttachmentChip";
 import { WindowFileDrop } from "./WindowFileDrop";
@@ -165,7 +165,11 @@ export function ChatComposer({
           {files.map((file, index) => (
             <AttachmentChip
               key={fileKey(file)}
-              file={{ name: file.name, mediaType: mediaTypeOf(file), size: file.size }}
+              file={{
+                name: file.name,
+                mediaType: mediaTypeOf(file),
+                ...(file instanceof LinkFile ? { url: file.url } : { size: file.size }),
+              }}
               onRemove={() => removeFile(file, index)}
             />
           ))}
@@ -218,9 +222,10 @@ export function ChatComposer({
           onPaste={(event) => {
             // Office pastes carry text plus an image rendering of it; keep the text.
             const { files: pasted, types } = event.clipboardData;
-            if (!canAttach || !pasted.length || types.includes("text/plain")) return;
+            const link = canAttach ? pastedLink(event.clipboardData.getData("text/plain")) : undefined;
+            if (!link && (!canAttach || !pasted.length || types.includes("text/plain"))) return;
             event.preventDefault();
-            addFiles([...pasted]);
+            addFiles(link ? [new LinkFile(link)] : [...pasted]);
           }}
           onPressEnter={(event) => {
             // Enter sends, Shift+Enter breaks the line — the convention every

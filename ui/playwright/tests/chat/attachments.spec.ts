@@ -134,6 +134,36 @@ test("chat: files dropped anywhere on the page are staged", async ({ page }) => 
   });
 });
 
+/** Fires one paste of `text` on the chat box. */
+const paste = (page: Page, text: string) =>
+  page.getByTestId("chat-input").evaluate((box, text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, text);
+
+test("chat: a pasted link is staged as a link, and other pasted text is not", async ({ page }) => {
+  const staged = page.getByTestId("chat-staged-files").getByTestId("attachment-chip");
+  await loadPage(page, agentChat(instances.ready));
+  await expect(page.getByRole("button", { name: "Attach files" })).toBeVisible({ timeout: 30_000 });
+
+  await paste(page, "https://files.example/docs/report.pdf");
+  await expect(staged.getByTestId("attachment-name")).toHaveText(["report.pdf"]);
+  await expect(staged).toContainText("files.example");
+
+  await paste(page, "see https://files.example/docs/other.pdf");
+  await expect(staged).toHaveCount(1);
+
+  // Sent as a link, and still a link after a reload.
+  const link = page.getByRole("link", { name: "Open report.pdf" });
+  const turn = await beginTurn(page);
+  await page.getByTestId("chat-send").click();
+  await expectTurnFinished(page, turn);
+  await expect(link).toHaveAttribute("href", "https://files.example/docs/report.pdf");
+  await page.reload();
+  await expect(link).toHaveAttribute("href", "https://files.example/docs/report.pdf");
+});
+
 test("chat: a harness that cannot read files offers no attach control", async ({ page }) => {
   // fast-lane runs Codex, which takes one text part only.
   await loadPage(page, agentNewChat(agents.sharedOnFastLane));
@@ -144,5 +174,8 @@ test("chat: a harness that cannot read files offers no attach control", async ({
   await drag(page, "dragenter", ["a.txt"]);
   expect(await drag(page, "drop", ["a.txt"])).toBe(true);
   await expect(page.getByTestId("chat-drop-overlay")).toHaveCount(0);
+  await expect(page.getByTestId("chat-staged-files")).toHaveCount(0);
+
+  await paste(page, "https://files.example/docs/report.pdf");
   await expect(page.getByTestId("chat-staged-files")).toHaveCount(0);
 });

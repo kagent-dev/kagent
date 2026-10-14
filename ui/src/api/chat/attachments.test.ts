@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_TOTAL_BYTES, isAllowedFile, mediaTypeOf, stageFiles } from "./attachments";
+import { MAX_TOTAL_BYTES, isAllowedFile, linkMediaType, mediaTypeOf, pastedLink, stageFiles } from "./attachments";
 
 const sized = (name: string, type: string, size: number) =>
   ({ name, type, size }) as File;
@@ -15,6 +15,29 @@ describe("mediaTypeOf", () => {
     ["photo.JPG", "image/jpeg", "image/jpeg"],
   ])("%s (%j) is %s", (name, type, expected) => {
     expect(mediaTypeOf({ name, type })).toBe(expected);
+  });
+});
+
+describe("linkMediaType", () => {
+  it.each([
+    ["https://example.com/photo.JPG?sig=abc#x", "image/jpeg"],
+    ["https://arxiv.org/pdf/1512.03385", ""],
+    ["https://example.com/logo.svg", ""],
+  ])("%s is %j", (url, expected) => {
+    expect(linkMediaType(url)).toBe(expected);
+  });
+});
+
+describe("pastedLink", () => {
+  it.each([
+    ["  https://example.com/a.pdf\n", "https://example.com/a.pdf"],
+    ["http://example.com", "http://example.com/"],
+    ["see https://example.com/a.pdf", undefined],
+    ["ftp://example.com/a.pdf", undefined],
+    ["example.com/a.pdf", undefined],
+    ["", undefined],
+  ])("%j is %j", (text, expected) => {
+    expect(pastedLink(text)).toBe(expected);
   });
 });
 

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type FocusEvent, type ReactElement } from "react";
 import { Tooltip } from "antd";
 import { useTheme } from "@emotion/react";
-import { Download, FileText, X } from "lucide-react";
+import { Download, ExternalLink, FileText, LinkIcon, X } from "lucide-react";
 import type { ChatFilePart } from "@/api";
 import { formatBytes } from "@/api/chat/attachments";
 
@@ -14,6 +14,8 @@ export function AttachmentChip({
   onRemove?: () => void;
 }) {
   const theme = useTheme();
+  // A link has a URL and no bytes; its host shows in place of a size.
+  const isLink = file.url != undefined;
   // Object URL made per element and revoked when it goes, so re-reads don't leak blobs.
   const withBlobUrl = useCallback(
     (element: HTMLImageElement | HTMLAnchorElement | null) => {
@@ -25,12 +27,12 @@ export function AttachmentChip({
     },
     [file.blob],
   );
-  // Full name in a tooltip, on hover or focus, only when the chip cuts it off.
+  // Full name in a tooltip, on hover or focus, when the chip cuts it off; a link always shows its URL.
   const nameRef = useRef<HTMLSpanElement>(null);
   const [tipOpen, setTipOpen] = useState(false);
   const showTip = () => {
     const el = nameRef.current;
-    setTipOpen(Boolean(el && el.scrollWidth > el.clientWidth));
+    setTipOpen(isLink || Boolean(el && el.scrollWidth > el.clientWidth));
   };
   const hideTip = () => setTipOpen(false);
   const tipHandlers = {
@@ -43,13 +45,16 @@ export function AttachmentChip({
     onBlur: hideTip,
   };
   const withTooltip = (chipElement: ReactElement) => (
-    <Tooltip title={file.name} open={tipOpen}>
+    <Tooltip title={isLink ? file.url : file.name} open={tipOpen}>
       {chipElement}
     </Tooltip>
   );
   const hasBytes = Boolean(file.blob || file.url);
   const isImage = file.mediaType.startsWith("image/") && Boolean(file.blob);
   const canDownload = hasBytes && !onRemove;
+  const TypeIcon = isLink ? LinkIcon : FileText;
+  const ActionIcon = isLink ? ExternalLink : Download;
+  const detail = file.size !== undefined ? formatBytes(file.size) : file.url && new URL(file.url).host;
 
   const trailingIcon = { flexShrink: 0, marginLeft: theme.space(2) } as const;
   const focusRing = {
@@ -65,7 +70,7 @@ export function AttachmentChip({
           css={{ width: 28, height: 28, objectFit: "cover", borderRadius: theme.radius.sm - 4 }}
         />
       ) : (
-        <FileText size={16} aria-hidden css={{ flexShrink: 0, color: theme.color.textMuted }} />
+        <TypeIcon size={16} aria-hidden css={{ flexShrink: 0, color: theme.color.textMuted }} />
       )}
       <span css={{ display: "grid", minWidth: 0, lineHeight: 1.3 }}>
         <span
@@ -75,17 +80,13 @@ export function AttachmentChip({
         >
           {file.name}
         </span>
-        {file.size !== undefined ? (
-          <span css={{ fontSize: 11, color: theme.color.textMuted }}>
-            {formatBytes(file.size)}
-          </span>
-        ) : null}
+        {detail ? <span css={{ fontSize: 11, color: theme.color.textMuted }}>{detail}</span> : null}
       </span>
       {canDownload ? (
-        <Download
+        <ActionIcon
           size={14}
           aria-hidden
-          className="attachment-download"
+          className="attachment-action"
           css={{ ...trailingIcon, color: theme.color.textMuted, transition: "color 120ms" }}
         />
       ) : null}
@@ -114,9 +115,8 @@ export function AttachmentChip({
         data-testid="attachment-chip"
         ref={withBlobUrl}
         href={file.url}
-        download={file.name}
-        {...(file.url && !file.blob ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-        aria-label={`Download ${file.name}`}
+        {...(isLink ? { target: "_blank", rel: "noopener noreferrer" } : { download: file.name })}
+        aria-label={`${isLink ? "Open" : "Download"} ${file.name}`}
         css={{
           ...chip,
           textDecoration: "none",
@@ -125,7 +125,7 @@ export function AttachmentChip({
             color: theme.color.text,
             borderColor: theme.color.primaryText,
             background: theme.color.accentBg,
-            "& .attachment-download": { color: theme.color.primaryText },
+            "& .attachment-action": { color: theme.color.primaryText },
           },
           "&:active": {
             color: theme.color.text,

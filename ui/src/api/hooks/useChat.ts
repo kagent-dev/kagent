@@ -43,7 +43,7 @@ import { getChatClient } from "../chat";
 import { runtimeConfig } from "../runtimeConfig";
 import { randomId } from "../randomId";
 import { conversationKey } from "../chat/types";
-import { mediaTypeOf } from "../chat/attachments";
+import { LinkFile, mediaTypeOf } from "../chat/attachments";
 import {
   IDLE_TURN,
   isActive,
@@ -324,8 +324,7 @@ export function useChat(
                 kind: "file",
                 name: file.name,
                 mediaType: mediaTypeOf(file),
-                size: file.size,
-                blob: file,
+                ...(file instanceof LinkFile ? { url: file.url } : { size: file.size, blob: file }),
               }),
             ),
           ],

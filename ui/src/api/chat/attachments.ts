@@ -48,7 +48,49 @@ export function mediaTypeOf(file: Pick<File, "name" | "type">): string {
 }
 
 export function isAllowedFile(file: Pick<File, "name" | "type">): boolean {
-  return ALLOWED_TYPES.has(mediaTypeOf(file));
+  return file instanceof LinkFile || ALLOWED_TYPES.has(mediaTypeOf(file));
+}
+
+/** A pasted http(s) link, staged like a file but sent as an A2A url part, with no bytes. */
+export class LinkFile extends File {
+  constructor(readonly url: string) {
+    super([], fileNameFromUrl(url), { type: linkMediaType(url) });
+  }
+}
+
+/** The pasted text as a link, when it is one http(s) URL and nothing else. */
+export function pastedLink(text: string): string | undefined {
+  const trimmed = text.trim();
+  return !/\s/.test(trimmed) && isHttpUrl(trimmed) ? new URL(trimmed).href : undefined;
+}
+
+export function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The media type sent with a link part, by the path's extension, since the browser
+ * cannot read another origin's Content-Type. "" for no known extension.
+ *
+ * A Responses API model sends image/* as input_image and anything else as input_file,
+ * and the provider fetches the URL itself.
+ */
+export function linkMediaType(url: string): string {
+  return TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))] ?? "";
+}
+
+// Last path segment, so a query string or fragment never becomes the name.
+export function fileNameFromUrl(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
+  } catch {
+    return "file";
+  }
 }
 
 export function formatBytes(bytes: number): string {

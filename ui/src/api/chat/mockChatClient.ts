@@ -27,7 +27,7 @@ import type {
   ChatPart,
   SendMessageInput,
 } from "./types";
-import { mediaTypeOf } from "./attachments";
+import { LinkFile, mediaTypeOf } from "./attachments";
 
 const TIMING = {
   ok: { step: 300, word: 45 },
@@ -277,7 +277,7 @@ export class MockChatClient implements ChatClient {
         kind: "file",
         name: file.name,
         mediaType: mediaTypeOf(file),
-        size: file.size,
+        ...(file instanceof LinkFile ? { url: file.url } : { size: file.size }),
       }),
     );
     userMessage.parts = [...(text ? userMessage.parts : []), ...files];
