@@ -29,14 +29,14 @@ type frame struct {
 }
 
 type wire struct {
-	writer   io.Writer
+	writer   io.WriteCloser
 	mu       sync.Mutex
 	frames   chan frame
 	done     chan struct{}
 	readDone chan struct{}
 }
 
-func newWire(writer io.Writer, reader io.Reader) *wire {
+func newWire(writer io.WriteCloser, reader io.Reader) *wire {
 	w := &wire{writer: writer, frames: make(chan frame, 16), done: make(chan struct{}), readDone: make(chan struct{})}
 	go w.read(reader)
 	return w
@@ -72,7 +72,7 @@ func (w *wire) deliver(f frame) bool {
 	}
 }
 
-func (w *wire) send(m message, params any) error {
+func (w *wire) send(ctx context.Context, m message, params any) error {
 	if params != nil {
 		data, err := json.Marshal(params)
 		if err != nil {
@@ -84,20 +84,38 @@ func (w *wire) send(m message, params any) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode ACP message: %w", err)
 	}
+	// Canceling a partially written frame invalidates the stream. Closing stdin
+	// also interrupts a blocked pipe write; the process owner then reaps DSH.
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = w.writer.Close()
+		close(interrupted)
+	})
+	defer func() {
+		if !stop() {
+			<-interrupted
+		}
+	}()
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, err := w.writer.Write(append(data, '\n')); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return fmt.Errorf("failed to write ACP message: %w", err)
 	}
-	return nil
+	return ctx.Err()
 }
 
-func (w *wire) respond(id json.RawMessage, result any) error {
+func (w *wire) respond(ctx context.Context, id json.RawMessage, result any) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("failed to encode ACP response: %w", err)
 	}
-	return w.send(message{JSONRPC: "2.0", ID: id, Result: data}, nil)
+	return w.send(ctx, message{JSONRPC: "2.0", ID: id, Result: data}, nil)
 }
 
 func (w *wire) next(ctx context.Context) (message, error) {
@@ -114,7 +132,7 @@ func (w *wire) next(ctx context.Context) (message, error) {
 
 // Setup calls have no active turn, so requests are rejected and updates ignored.
 func (w *wire) call(ctx context.Context, id string, method string, params any) (json.RawMessage, error) {
-	if err := w.send(message{JSONRPC: "2.0", ID: json.RawMessage(id), Method: method}, params); err != nil {
+	if err := w.send(ctx, message{JSONRPC: "2.0", ID: json.RawMessage(id), Method: method}, params); err != nil {
 		return nil, err
 	}
 	for {

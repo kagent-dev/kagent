@@ -45,6 +45,10 @@ DSH session. A pending permission request retains that process until the
 decision arrives. Completion closes the session and stdin so DSH can flush its
 state; cancellation is followed by bounded process-group cleanup.
 
+Cancellation interrupts blocked ACP writes by closing stdin. Forced process-group
+cleanup does not yet prove that DSH tools in separate process groups have exited;
+this remains a lifecycle acceptance gap before release.
+
 `/data/adapter/state.json` binds the Actor to one native session. DSH session
 logs and storage live under `/data/dsh`, and the workspace is `/data/workspace`.
 The CLI profile and compiled overlay use a disposable home outside `/data`.
@@ -66,7 +70,10 @@ docker push YOUR_REGISTRY/kagent-dsh-byo:dev
 Record the pushed image's manifest digest. The example requires the full
 `YOUR_REGISTRY/kagent-dsh-byo@sha256:...` reference, not its tag.
 
-Use a clean kagent 1.x alpha installation with a configured `kagent-default`
+Use a clean kagent installation whose Agent CRD supports `spec.template.inline`.
+This example targets the API at source commit `b42a6c53`; `1.0.0-alpha9` uses
+the earlier `templateRef` shape and rejects this Agent manifest. Cluster acceptance
+against a compatible release is still required. Configure a `kagent-default`
 WorkerPool, snapshot storage, and Substrate credential gateway. In namespace
 `kagent`, create the Secret `deepseek-api-key` with an `OPENAI_API_KEY` entry
 using your normal secret-management workflow. Grant the Substrate atespace

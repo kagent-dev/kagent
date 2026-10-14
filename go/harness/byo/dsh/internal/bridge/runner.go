@@ -188,7 +188,7 @@ func (r *Runner) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventS
 	if err := sink.SessionStarted(runtime.SessionStarted{ContinuationID: id}); err != nil {
 		return out, err
 	}
-	if err := p.wire.send(message{JSONRPC: "2.0", ID: json.RawMessage(promptID), Method: "session/prompt"}, struct {
+	if err := p.wire.send(ctx, message{JSONRPC: "2.0", ID: json.RawMessage(promptID), Method: "session/prompt"}, struct {
 		SessionID string    `json:"sessionId"`
 		Prompt    []content `json:"prompt"`
 	}{SessionID: id, Prompt: []content{{Type: "text", Text: turn.Prompt}}}); err != nil {
@@ -296,23 +296,25 @@ func (p *pending) Resume(ctx context.Context, response runtime.InputResponse, si
 		tool.declined = true
 		p.process.events.tools[p.request.CallID] = tool
 	}
-	if err := p.process.wire.respond(p.id, permissionResponse{Outcome: permissionOutcome{Outcome: "selected", OptionID: option}}); err != nil {
+	if err := p.process.wire.respond(ctx, p.id, permissionResponse{Outcome: permissionOutcome{Outcome: "selected", OptionID: option}}); err != nil {
 		return out, err
 	}
 	return p.process.collect(ctx, sink)
 }
 
 func (p *pending) Cancel(_ context.Context, _ runtime.ModelCallSink) error {
-	err := p.process.wire.respond(p.id, permissionResponse{Outcome: permissionOutcome{Outcome: "cancelled"}})
+	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancel()
+	err := p.process.wire.respond(ctx, p.id, permissionResponse{Outcome: permissionOutcome{Outcome: "cancelled"}})
 	return errors.Join(err, p.process.cancel(), p.process.stop())
 }
 
 func (p *process) cancel() error {
-	if err := p.wire.send(message{JSONRPC: "2.0", Method: "session/cancel"}, sessionParams{SessionID: p.events.sessionID}); err != nil {
-		return err
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 	defer cancel()
+	if err := p.wire.send(ctx, message{JSONRPC: "2.0", Method: "session/cancel"}, sessionParams{SessionID: p.events.sessionID}); err != nil {
+		return err
+	}
 	for {
 		m, err := p.wire.next(ctx)
 		if err != nil {
@@ -325,7 +327,7 @@ func (p *process) cancel() error {
 			if m.Method != "session/request_permission" {
 				return fmt.Errorf("unsupported ACP request during cancellation")
 			}
-			if err := p.wire.respond(m.ID, permissionResponse{Outcome: permissionOutcome{Outcome: "cancelled"}}); err != nil {
+			if err := p.wire.respond(ctx, m.ID, permissionResponse{Outcome: permissionOutcome{Outcome: "cancelled"}}); err != nil {
 				return err
 			}
 		}
@@ -336,6 +338,9 @@ func (p *process) cancel() error {
 func (p *process) stop() error {
 	close(p.wire.done)
 	err := p.stdin.Close()
+	if errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
+		err = nil
+	}
 	select {
 	case <-p.done:
 	case <-time.After(stopTimeout):
