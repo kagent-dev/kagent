@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/codex/config"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // ToolCaller executes the exact saved MCP operation after human approval.

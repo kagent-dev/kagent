@@ -3,17 +3,21 @@ package driver
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 func newTestBroker(t *testing.T) *ApprovalBroker {
@@ -340,6 +344,74 @@ func TestDeferredFailureAbandonsSession(t *testing.T) {
 			require.Empty(t, taskID)
 			require.Empty(t, contextID)
 			require.Nil(t, pending)
+		})
+	}
+}
+
+func TestDeferredInvalidAnswerAbandonsSessionBeforeReplay(t *testing.T) {
+	for _, answers := range [][][]string{{{}}, {{"PostgreSQL", "MySQL"}}} {
+		t.Run(fmt.Sprint(answers), func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Tool.Name = "AskUserQuestion"
+			r.Tool.Input = map[string]any{"questions": []any{map[string]any{"question": "Which database?", "multiSelect": false}}}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			d := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20, Executable: "must-not-run"})
+			_, _, pending, err := d.RestorePending()
+			require.NoError(t, err)
+			_, err = pending.Resume(t.Context(), &runtime.AskUserResponse{ID: r.RequestID, Answers: answers}, &recordingSink{})
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			fresh := NewProcessDriver(d.config)
+			_, _, restored, err := fresh.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Nil(t, restored)
+		})
+	}
+}
+
+func TestApprovalPersistenceErrorsDenyAndLogCause(t *testing.T) {
+	for _, failure := range []string{"read", "write", "hook"} {
+		t.Run(failure, func(t *testing.T) {
+			b := newTestBroker(t)
+			r := testRecord()
+			r.Phase, r.Decision = phaseExecuting, &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
+			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
+			if failure == "write" {
+				// Reads through a directory symlink succeed, but private writes
+				// reject it before replacing the journal.
+				link := filepath.Join(t.TempDir(), "journal")
+				require.NoError(t, os.Symlink(b.directory, link))
+				b.directory = link
+			} else {
+				require.NoError(t, os.WriteFile(filepath.Join(b.directory, "claude-pending.json"), []byte("{"), 0o600))
+			}
+			var logs bytes.Buffer
+			logger, err := logging.New(&logs, "error")
+			require.NoError(t, err)
+			ctx := logging.IntoContext(t.Context(), logger)
+			if failure == "hook" {
+				request := httptest.NewRequest(http.MethodPost, "/hook", strings.NewReader(`{"session_id":"session","hook_event_name":"PreToolUse","tool_use_id":"call","tool_name":"mcp__protected__write"}`)).WithContext(ctx)
+				response := httptest.NewRecorder()
+				b.handleHook(response, request)
+				require.Equal(t, http.StatusOK, response.Code)
+				var output hookOutput
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output))
+				require.Equal(t, "deny", output.Specific.Decision)
+			} else {
+				result, _, err := b.handlePermission(ctx, nil, &permissionPromptInput{ToolName: r.Tool.Name, ToolUseID: r.Tool.ID, Input: r.Tool.Input})
+				require.NoError(t, err)
+				var output permissionPromptOutput
+				require.NoError(t, json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &output))
+				require.Equal(t, "deny", output.Behavior)
+				require.NotContains(t, output.Message, "single tool call")
+			}
+			require.Contains(t, logs.String(), `"error":`)
+			if failure == "write" {
+				require.Contains(t, logs.String(), "persist Claude deferred input")
+			} else {
+				require.Contains(t, logs.String(), "decode Claude deferred input")
+			}
+			require.NotContains(t, logs.String(), b.token)
 		})
 	}
 }

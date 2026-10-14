@@ -132,9 +132,9 @@ level with `session_id` and `idle_time`.
 
 The runtime stages a final task update and acknowledges it after native cleanup.
 That acknowledgement publishes task state and history atomically, without waiting
-for pause/suspend. A Session lifecycle worker independently claims the idle
-boundary in PostgreSQL. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
-terminal work suspends it and records the exact external snapshot. Waiting tasks
+for suspension. A Session lifecycle worker independently claims the idle
+boundary in PostgreSQL. Both INPUT_REQUIRED/AUTH_REQUIRED and terminal work
+suspend the Actor and record the exact external DATA snapshot. Waiting tasks
 are not forkable. The Session stays logically READY, and Substrate ingress
 resumes it when another authorized interaction arrives.
 
@@ -193,8 +193,8 @@ sequenceDiagram
     Gateway-->>Client: current public task
     Note over Worker,DB: Idle lifecycle runs independently of the client response
     Worker->>DB: claim idle boundary unless new execution superseded it
-    Worker->>Actor: pause or suspend
-    Actor-->>Worker: settled native boundary
+    Worker->>Actor: suspend with DATA snapshot
+    Actor-->>Worker: suspended Actor and external DATA snapshot
     Worker->>DB: record snapshot and finish idle claim
 ```
 

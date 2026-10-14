@@ -15,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const ApprovalToolName = "approve"
@@ -92,30 +94,46 @@ func NewApprovalBroker(protectedServers []string, directory string, maxBodyBytes
 
 // handlePermission honors explicit ask rules after the hook allowed the call.
 // An unmatched request (including ignored parallel defer) is denied immediately.
-func (b *ApprovalBroker) handlePermission(_ context.Context, _ *mcp.CallToolRequest, input *permissionPromptInput) (*mcp.CallToolResult, any, error) {
-	output := permissionPromptOutput{Behavior: "deny", Message: "This call could not be durably deferred; retry it as a single tool call."}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	r, err := loadDeferred(b.directory, int(b.maxBody))
-	if err == nil && r != nil && r.Phase == "executing" && input != nil && b.protects(input.ToolName) && input.ToolUseID == r.Tool.ID && input.ToolName == r.Tool.Name {
-		decision, updated, decisionErr := r.hookDecision()
-		if decisionErr == nil && (equalArguments(input.Input, r.Tool.Input) || equalArguments(input.Input, updated)) {
-			r.Phase = "released"
-			if err := saveDeferred(b.directory, int(b.maxBody), r); err == nil {
-				output.Behavior, output.UpdatedInput = decision, updated
-				if r.Decision != nil && !r.Decision.Approved {
-					output.Message = r.Decision.RejectionReason
-				} else {
-					output.Message = ""
-				}
-			}
-		}
+func (b *ApprovalBroker) handlePermission(ctx context.Context, _ *mcp.CallToolRequest, input *permissionPromptInput) (*mcp.CallToolResult, any, error) {
+	output, err := b.permissionDecision(input)
+	if err != nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to resolve claude permission", "error", err)
+		output = permissionPromptOutput{Behavior: "deny", Message: "Durable approval could not be resolved."}
 	}
 	raw, err := json.Marshal(output)
 	if err != nil {
 		return nil, nil, err
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
+}
+
+func (b *ApprovalBroker) permissionDecision(input *permissionPromptInput) (permissionPromptOutput, error) {
+	output := permissionPromptOutput{Behavior: "deny", Message: "This call could not be durably deferred; retry it as a single tool call."}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, err := loadDeferred(b.directory, int(b.maxBody))
+	if err != nil {
+		return output, err
+	}
+	if r == nil || r.Phase != phaseExecuting || input == nil || !b.protects(input.ToolName) || input.ToolUseID != r.Tool.ID || input.ToolName != r.Tool.Name {
+		return output, nil
+	}
+	decision, updated, err := r.hookDecision()
+	if err != nil {
+		return output, err
+	}
+	if !equalArguments(input.Input, r.Tool.Input) && !equalArguments(input.Input, updated) {
+		return output, nil
+	}
+	r.Phase = phaseReleased
+	if err := saveDeferred(b.directory, int(b.maxBody), r); err != nil {
+		return output, err
+	}
+	output.Behavior, output.UpdatedInput, output.Message = decision, updated, ""
+	if r.Decision != nil && !r.Decision.Approved {
+		output.Message = r.Decision.RejectionReason
+	}
+	return output, nil
 }
 
 func (b *ApprovalBroker) URL() string { return "http://" + b.listener.Addr().String() + "/mcp" }
@@ -191,6 +209,7 @@ func (b *ApprovalBroker) handleHook(w http.ResponseWriter, r *http.Request) {
 	// Errors are expressed as a successful hook denial: HTTP errors are
 	// nonblocking in Claude's hook protocol.
 	if err := b.resolveHook(r, &output); err != nil {
+		logging.FromContext(r.Context()).ErrorContext(r.Context(), "failed to resolve claude hook", "error", err)
 		output.Specific.Reason = "Durable approval could not be resolved."
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -215,7 +234,7 @@ func (b *ApprovalBroker) resolveHook(r *http.Request, output *hookOutput) error 
 	if err != nil {
 		return err
 	}
-	if record != nil && record.Canceling && record.Phase != "canceled" && record.SessionID == input.SessionID && (record.Tool.ID != input.ToolID || record.Tool.Name != input.ToolName || !equalArguments(record.Tool.Input, input.Input)) {
+	if record != nil && record.Canceling && record.Phase != phaseCanceled && record.SessionID == input.SessionID && (record.Tool.ID != input.ToolID || record.Tool.Name != input.ToolName || !equalArguments(record.Tool.Input, input.Input)) {
 		stop := false
 		output.Continue = &stop
 		output.StopReason = "The task was canceled."
@@ -226,38 +245,38 @@ func (b *ApprovalBroker) resolveHook(r *http.Request, output *hookOutput) error 
 		output.Specific.Decision = ""
 		return nil
 	}
-	if record != nil && (record.Phase == "complete" || record.Phase == "canceled") && record.SessionID == input.SessionID && record.Tool.ID == input.ToolID {
+	if record != nil && (record.Phase == phaseComplete || record.Phase == phaseCanceled) && record.SessionID == input.SessionID && record.Tool.ID == input.ToolID {
 		output.Specific.Reason = "The deferred call is already resolved."
-		if record.Phase == "canceled" {
+		if record.Phase == phaseCanceled {
 			stop := false
 			output.Continue = &stop
 			output.StopReason = "The task was canceled."
 		}
 		return nil
 	}
-	if record == nil || record.Phase == "complete" || record.Phase == "canceled" {
+	if record == nil || record.Phase == phaseComplete || record.Phase == phaseCanceled {
 		output.Specific.Decision = "defer"
 		return nil
 	}
 	if record.SessionID != input.SessionID || record.Tool.ID != input.ToolID || record.Tool.Name != input.ToolName || !equalArguments(record.Tool.Input, input.Input) {
-		if record.Phase == "executing" || record.Phase == "released" {
+		if record.Phase == phaseExecuting || record.Phase == phaseReleased {
 			output.Specific.Decision = "defer"
 			return nil
 		} // A subsequent input within the same turn.
 		return fmt.Errorf("Claude deferred tool changed")
 	}
-	if record.Phase == "waiting" {
+	if record.Phase == phaseWaiting {
 		output.Specific.Decision = "defer"
 		return nil
 	}
-	if record.Phase != "resuming" {
+	if record.Phase != phaseResuming {
 		return fmt.Errorf("Claude decision has already been released")
 	}
 	decision, updated, err := record.hookDecision()
 	if err != nil {
 		return err
 	}
-	record.Phase = "executing"
+	record.Phase = phaseExecuting
 	if err := saveDeferred(b.directory, int(b.maxBody), record); err != nil {
 		return err
 	}
@@ -284,7 +303,7 @@ func (b *ApprovalBroker) handleFailure(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&input); err == nil && (input.Event == "PostToolUseFailure" || input.Event == "PostToolUse") {
 		b.mu.Lock()
 		record, err := loadDeferred(b.directory, int(b.maxBody))
-		if err == nil && record != nil && record.Canceling && record.SessionID == input.SessionID && record.Phase != "canceled" {
+		if err == nil && record != nil && record.Canceling && record.SessionID == input.SessionID && record.Phase != phaseCanceled {
 			stop := false
 			output.Continue = &stop
 			output.StopReason = "The task was canceled."

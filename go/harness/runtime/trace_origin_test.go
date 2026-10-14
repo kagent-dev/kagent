@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 func TestTraceOriginRoundTrip(t *testing.T) {

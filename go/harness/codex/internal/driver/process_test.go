@@ -12,10 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 func TestProcessDriverRunsPinnedProtocol(t *testing.T) {
@@ -514,33 +515,7 @@ func TestDeferredTurnExitsBeforePublishingPendingAndReusesSavedResult(t *testing
 	directory := t.TempDir()
 	executable, capture := filepath.Join(directory, "codex"), filepath.Join(directory, "requests")
 	exitCapture := filepath.Join(directory, "exit")
-	script := `#!/bin/sh
-read initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read initialized
-read thread
-printf '%s\n' "$thread" >> "$CAPTURE"
-printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read -r turn
-printf '%s\n' "$turn" >> "$CAPTURE"
-printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
-case "$turn" in
-  *toolOutput*)
-    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
-  *)
-    printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
-    printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Approve?","serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
-    read interrupt
-    printf '%s\n' "$interrupt" >> "$CAPTURE"
-    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}'
-    printf '%s\n' '{"id":4,"result":{}}' ;;
-esac
-while read ignored; do :; done
-printf graceful > "$EXIT_CAPTURE"
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	writeDeferredAppServer(t, executable, true)
 	calls := 0
 	cfg := ProcessConfig{Executable: executable, Workspace: directory, Model: "model", Provider: "provider", PendingDir: directory,
 		Environment: append(os.Environ(), "CAPTURE="+capture, "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096, MaxStderrBytes: 4096,
@@ -683,30 +658,7 @@ func TestDeferredApprovalResolutionAfterRestart(t *testing.T) {
 			directory := t.TempDir()
 			executable := filepath.Join(directory, "codex")
 			capture := filepath.Join(directory, "requests")
-			script := `#!/bin/sh
-read initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read initialized
-read thread
-printf '%s\n' "$thread" >> "$CAPTURE"
-printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read -r turn
-printf '%s\n' "$turn" >> "$CAPTURE"
-printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
-case "$turn" in
-  *toolOutput*)
-    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
-  *)
-    printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
-    printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Approve?","serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
-    read interrupt
-    printf '%s\n' "$interrupt" >> "$CAPTURE"
-    printf '%s\n' '{"id":4,"result":{}}'
-    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}' ;;
-esac
-while read ignored; do :; done
-`
-			require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+			writeDeferredAppServer(t, executable, false)
 			calls := 0
 			cfg := ProcessConfig{Executable: executable, Workspace: directory, PendingDir: directory,
 				Environment: append(os.Environ(), "CAPTURE="+capture), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
@@ -775,4 +727,81 @@ while read ignored; do :; done
 			require.Nil(t, restored)
 		})
 	}
+}
+
+// writeDeferredAppServer supports both interruption orderings and always exits
+// on stdin EOF. Tests decide whether to assert the graceful-exit marker.
+func writeDeferredAppServer(t *testing.T, executable string, terminalFirst bool) {
+	t.Helper()
+	ack := `printf '%s\n' '{"id":4,"result":{}}'`
+	terminal := `printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}'`
+	interrupt := ack + "\n" + terminal
+	if terminalFirst {
+		interrupt = terminal + "\n" + ack
+	}
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' "$thread" >> "$CAPTURE"
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read -r turn
+printf '%s\n' "$turn" >> "$CAPTURE"
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+case "$turn" in
+  *toolOutput*)
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
+  *)
+    printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
+    printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Approve?","serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
+    read interrupt
+    printf '%s\n' "$interrupt" >> "$CAPTURE"
+` + interrupt + `
+    ;;
+esac
+while read ignored; do :; done
+if [ -n "$EXIT_CAPTURE" ]; then printf graceful > "$EXIT_CAPTURE"; fi
+`
+	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+}
+
+func TestProcessDriverDeclinesChildApprovalAndCompletesParent(t *testing.T) {
+	directory := t.TempDir()
+	executable, capture := filepath.Join(directory, "codex"), filepath.Join(directory, "response")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child-1"],"status":"inProgress"}}}'
+printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"threadId":"child-1","turnId":"child-turn","serverName":"protected","_meta":{"codex_approval_kind":"mcp_tool_call"}}}'
+read response
+printf '%s\n' "$response" > "$CAPTURE"
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+while read ignored; do :; done
+`
+	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: directory, PendingDir: directory,
+		Environment: append(os.Environ(), "CAPTURE="+capture), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+		ApprovalServers: map[string]struct{}{"protected": {}}})
+	outcome, err := d.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "delegate"}, &recordingSink{})
+	require.NoError(t, err)
+	require.Nil(t, outcome.Failure)
+	require.Nil(t, outcome.Pending)
+	data, err := os.ReadFile(capture)
+	require.NoError(t, err)
+	var response struct {
+		Result struct {
+			Action string `json:"action"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(data, &response))
+	require.Equal(t, "decline", response.Result.Action)
+	_, _, pending, err := d.RestorePending()
+	require.NoError(t, err)
+	require.Nil(t, pending)
 }

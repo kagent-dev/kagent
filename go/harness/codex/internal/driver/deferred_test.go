@@ -12,11 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/codex/config"
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 type fakeToolCaller struct {
@@ -112,6 +113,13 @@ func TestDeferredTurnRejectsUncertainAndChangedResponses(t *testing.T) {
 			if _, err := pending.Resume(t.Context(), response, &recordingSink{}); err == nil || calls != 0 {
 				t.Fatalf("unsafe replay: calls=%d err=%v", calls, err)
 			}
+			_, _, restored, err := driver.RestorePending()
+			if phase == phaseComplete || phase == phaseCanceled {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			}
+			require.Nil(t, restored, "terminal failure must never restore a pending task")
 		})
 	}
 }
@@ -286,4 +294,46 @@ func TestDeferredMCPKeepsReceivedResultWhenSessionCloseFails(t *testing.T) {
 	require.Equal(t, "committed", result.Content[0].(*mcp.TextContent).Text)
 	require.EqualValues(t, 1, calls.Load())
 	require.Positive(t, deletes.Load(), "fixture did not exercise session termination")
+}
+
+func TestDeferredTurnAbandonsChangedCachedAnswerAfterStartupFailure(t *testing.T) {
+	for _, question := range []bool{false, true} {
+		name := "approval"
+		if question {
+			name = "question"
+		}
+		t.Run(name, func(t *testing.T) {
+			r := waitingRecord()
+			r.Phase = phaseResult
+			var response runtime.InputResponse
+			if question {
+				r.Server, r.Tool, r.Approval = "", "", nil
+				r.Question = &runtime.AskUserRequest{ID: "question", Questions: []runtime.AskUserQuestion{{ID: "database", Question: "Which database?"}}}
+				r.Answer = &runtime.AskUserResponse{ID: "question", Answers: [][]string{{"PostgreSQL"}}}
+				response = r.Answer
+			} else {
+				r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+				r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "committed"}}}
+				response = r.Decision
+			}
+			d := NewProcessDriver(ProcessConfig{PendingDir: t.TempDir(), Workspace: t.TempDir(), Executable: "missing-codex", MaxFrameBytes: 4096})
+			require.NoError(t, d.savePending(&r))
+			_, _, pending, err := d.RestorePending()
+			require.NoError(t, err)
+			outcome, err := pending.Resume(t.Context(), response, &recordingSink{})
+			require.NoError(t, err)
+			require.NotNil(t, outcome.Pending)
+			if question {
+				response = &runtime.AskUserResponse{ID: "question", Answers: [][]string{{"MySQL"}}}
+			} else {
+				response = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: false}
+			}
+			_, err = outcome.Pending.Resume(t.Context(), response, &recordingSink{})
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			fresh := NewProcessDriver(d.config)
+			_, _, restored, err := fresh.RestorePending()
+			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.Nil(t, restored)
+		})
+	}
 }

@@ -15,13 +15,13 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -541,6 +541,19 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 			State: a2atype.TaskStateInputRequired, Message: update.Status.Message,
 		}},
 	}
+	invalid := a2atype.NewMessage(a2atype.MessageRoleUser)
+	require.NoError(t, apia2a.AttachHITL(invalid, apia2a.AskUserResponse{
+		Type: apia2a.HITLTypeAskUserResponse, ID: "ask-1", Answers: []apia2a.AskUserAnswer{{}},
+	}))
+	second.Message = invalid
+	invalidEvents, invalidErrs := collect(executor.Execute(t.Context(), second))
+	require.Empty(t, invalidEvents, "invalid response must not move the task to WORKING or FAILED")
+	require.Len(t, invalidErrs, 1)
+	require.Nil(t, response, "invalid response must not start native replay")
+	reserved, err := executor.ReservedTaskID()
+	require.NoError(t, err)
+	require.Equal(t, first.TaskID, reserved)
+	second.Message = answer
 	_, errs = collect(executor.Execute(t.Context(), second))
 	if len(errs) != 0 || response == nil || response.ID != "ask-1" || !reflect.DeepEqual(response.Answers, [][]string{{"default"}}) {
 		t.Fatalf("ask-user response = %#v, errors = %v", response, errs)

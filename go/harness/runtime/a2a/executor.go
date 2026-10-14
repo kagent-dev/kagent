@@ -639,7 +639,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, done, state.cancelErr, yield)
+				yieldCancellation(ctx, reqCtx, state.cancelErr, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -666,7 +666,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			}
 			close(canceling.done)
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, canceling.done, err, yield)
+			yieldCancellation(ctx, reqCtx, err, yield)
 			return
 		case *cancelingTask:
 			if !state.matches(ref) {
@@ -678,7 +678,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, done, state.err, yield)
+				yieldCancellation(ctx, reqCtx, state.err, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -693,17 +693,16 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 	}
 }
 
-func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, done <-chan struct{}, knownErr error, yield func(a2atype.Event, error) bool) {
-	select {
-	case <-done:
-		if knownErr != nil {
-			yield(nil, knownErr)
-			return
-		}
-		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
-	case <-ctx.Done():
-		yield(nil, ctx.Err())
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, knownErr error, yield func(a2atype.Event, error) bool) {
+	if err := ctx.Err(); err != nil {
+		yield(nil, err)
+		return
 	}
+	if knownErr != nil {
+		yield(nil, knownErr)
+		return
+	}
+	yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
 }
 
 func (r taskRef) matches(other taskRef) bool {

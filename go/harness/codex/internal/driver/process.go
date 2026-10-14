@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -320,7 +321,8 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, false, fmt.Errorf("decode Codex MCP approval request: %w", err)
 	}
-	if params.ThreadID != translator.threadID || params.TurnID != nil && *params.TurnID != translator.turnID {
+	_, child := translator.spawnedBy[params.ThreadID]
+	if !child && (params.ThreadID != translator.threadID || params.TurnID != nil && *params.TurnID != translator.turnID) {
 		return nil, false, fmt.Errorf("Codex MCP request does not match the active turn")
 	}
 	if params.Meta.Kind != "mcp_tool_call" {
@@ -329,6 +331,11 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	}
 	if _, protected := d.config.ApprovalServers[params.ServerName]; !protected {
 		return nil, false, client.respond(message.ID, map[string]any{"action": "accept", "content": map[string]any{}})
+	}
+	if child {
+		// DATA continuation currently resumes only the root thread. Decline a
+		// child callback without releasing a protected call or failing its parent.
+		return nil, false, client.respond(message.ID, map[string]any{"action": "decline", "content": map[string]any{}})
 	}
 	callID, name, err := translator.approvalTool(params.ThreadID, params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
 	if err != nil {

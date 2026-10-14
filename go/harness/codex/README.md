@@ -98,6 +98,9 @@ sequenceDiagram
   restored. Parenting within an execution segment is retained.
   Reusing a saved MCP result does not create another execution span.
 
+- **Child-thread MCP approvals are declined.** Durable approval continuation
+  resumes only the root thread. Shared subagents must return protected tool work
+  to the root agent; a child approval callback does not fail the parent task.
 - **One pending input at a time.** Only one approval or ask-user request survives
   DATA restore. Concurrent requests are canceled with the interrupted native
   turn; batch approval is not supported.

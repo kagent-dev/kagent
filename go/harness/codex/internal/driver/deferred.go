@@ -11,10 +11,11 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type pendingPhase string
@@ -302,6 +303,11 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		}
 		outcome, returnErr = runtime.Outcome{}, context.Canceled
 	}()
+	defer func() {
+		if returnErr != nil && ctx.Err() == nil {
+			returnErr = p.abandon(returnErr)
+		}
+	}()
 	r, err := p.current()
 	if err != nil {
 		return runtime.Outcome{}, err
@@ -323,11 +329,6 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 			return runtime.Outcome{}, fmt.Errorf("Codex answer changed after resolution")
 		}
 	}
-	defer func() {
-		if returnErr != nil && ctx.Err() == nil {
-			returnErr = p.abandon(returnErr)
-		}
-	}()
 	if r.Phase != phaseResult {
 		switch response := response.(type) {
 		case *runtime.ApprovalDecision:
@@ -437,6 +438,9 @@ func (p *deferredTurn) abandon(cause error) error {
 	r, err := p.current()
 	if err != nil {
 		return errors.Join(cause, err)
+	}
+	if r.Phase == phaseComplete || r.Phase == phaseCanceled {
+		return cause
 	}
 	r.Phase = phaseAbandoned
 	if err := p.driver.savePending(r); err != nil {

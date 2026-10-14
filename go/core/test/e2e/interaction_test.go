@@ -48,7 +48,7 @@ import (
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
-//go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json
+//go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json mocks/invoke_native_ask_user.json
 var interactionMocks embed.FS
 
 const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string"}},"required":["answer","explanation"],"additionalProperties":false}`
@@ -149,11 +149,7 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		switch harness.name {
-		case codexE2EHarness, claudeE2EHarness:
-			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
-		}
-		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startAskUserMock(t, harness))
 		fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
 		_, _, waiting := fixture.send(t, "Which database should we use for storage?")
 		if waiting.Status.State != a2atype.TaskStateInputRequired {
@@ -163,6 +159,7 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 		if request == nil {
 			t.Fatal("INPUT_REQUIRED task has no ask_user request")
 		}
+		assertActorSuspended(t, fixture)
 		reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL")), &kagenta2a.AskUserResponse{
 			Type: adka2a.HITLTypeAskUserResponse, ID: request.ID,
 			Answers: []kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
@@ -173,13 +170,13 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 			t.Fatalf("resume A2A task: %v", err)
 		}
 		completed, ok := response.(*a2atype.Task)
-		if !ok || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
+		if !ok || completed.ID != waiting.ID || completed.ContextID != waiting.ContextID || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
 			t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
 		}
 	})
 }
 
-func sendApprovedToolRequest(t *testing.T, fixture *interactionFixture, prompt, wantTool string) *a2atype.Task {
+func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantTool string, approved bool) *a2atype.Task {
 	t.Helper()
 	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), kagenta2a.HITLExtensionURI)
 	_, _, waiting := fixture.send(t, prompt)
@@ -197,14 +194,16 @@ func sendApprovedToolRequest(t *testing.T, fixture *interactionFixture, prompt, 
 		t.Fatalf("tool approval request = %+v, want one request for %q", request.Tools, wantTool)
 	}
 
-	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
+	assertActorSuspended(t, fixture)
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser)
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	decision := kagenta2a.ToolApproval{ID: request.Tools[0].ID, Approved: approved}
+	if !approved {
+		decision.RejectionReason = "production is serving traffic"
+	}
 	if err := kagenta2a.AttachHITL(reply, kagenta2a.ToolApprovalResponse{
-		Type: kagenta2a.HITLTypeToolApprovalResponse,
-		Approvals: []kagenta2a.ToolApproval{{
-			ID:       request.Tools[0].ID,
-			Approved: true,
-		}},
+		Type:      kagenta2a.HITLTypeToolApprovalResponse,
+		Approvals: []kagenta2a.ToolApproval{decision},
 	}); err != nil {
 		t.Fatalf("attach tool approval response: %v", err)
 	}
@@ -445,21 +444,73 @@ func TestMCPToolApproval(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		target := interactionTarget(t)
-		mcpURL, mcpServer := startMCPMock(t)
-		template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true)
-		fixture := newInteractionFixtureForTemplate(t, harness, target, template)
-		completed := sendApprovedToolRequest(t, fixture, "Add 3 and 5 using the configured MCP server.", toolName)
-		if completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "result is 8") {
-			t.Fatalf("approved MCP task state = %s, text = %q", completed.Status.State, taskText(completed))
+		for _, action := range []string{"approve", "deny", "cancel"} {
+			t.Run(action, func(t *testing.T) {
+				target := interactionTarget(t)
+				mcpURL, mcpServer := startMCPMock(t)
+				template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, true)
+				fixture := newInteractionFixtureForTemplate(t, harness, target, template)
+				const prompt = "Add 3 and 5 using the configured MCP server."
+				if action == "cancel" {
+					fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), kagenta2a.HITLExtensionURI)
+					_, _, waiting := fixture.send(t, prompt)
+					if waiting.Status.State != a2atype.TaskStateInputRequired {
+						t.Fatalf("task state = %s, want INPUT_REQUIRED", waiting.Status.State)
+					}
+					assertActorSuspended(t, fixture)
+					request, err := pbconv.ToProtoCancelTaskRequest(&a2atype.CancelTaskRequest{Tenant: fixture.tenant, ID: waiting.ID})
+					if err != nil {
+						t.Fatal(err)
+					}
+					response, err := fixture.client.CancelTask(fixture.ctx, request)
+					if err != nil {
+						t.Fatal(err)
+					}
+					canceled, err := pbconv.FromProtoTask(response)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if canceled.ID != waiting.ID || canceled.ContextID != waiting.ContextID || canceled.Status.State != a2atype.TaskStateCanceled {
+						t.Fatalf("cancel result = %#v", canceled)
+					}
+					persisted := getTask(t, fixture, waiting.ID)
+					if persisted.Status.State != a2atype.TaskStateCanceled {
+						t.Fatalf("persisted cancellation state = %s", persisted.Status.State)
+					}
+				} else {
+					completed := sendToolDecision(t, fixture, prompt, toolName, action == "approve")
+					if completed.Status.State != a2atype.TaskStateCompleted {
+						t.Fatalf("MCP task state = %s, text = %q", completed.Status.State, taskText(completed))
+					}
+					if action == "approve" && !strings.Contains(taskText(completed), "result is 8") {
+						t.Fatalf("approved MCP result = %q", taskText(completed))
+					}
+					assertToolEvents(t, taskToolEvents(getTask(t, fixture, completed.ID)), toolName)
+				}
+				calls := 0
+				for _, request := range mcpServer.Requests() {
+					if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
+						calls++
+					}
+				}
+				want := 0
+				if action == "approve" {
+					want = 1
+				}
+				if calls != want {
+					t.Fatalf("MCP executions = %d, want %d", calls, want)
+				}
+			})
 		}
-		for _, request := range mcpServer.Requests() {
-			if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
-				return
-			}
-		}
-		t.Fatal("approved MCP tool did not execute")
 	})
+}
+
+func startAskUserMock(t *testing.T, harness testHarness) string {
+	t.Helper()
+	if harness.name == codexE2EHarness || harness.name == claudeE2EHarness {
+		return startMockLLM(t, "mocks/invoke_native_ask_user.json")
+	}
+	return startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json")
 }
 
 func TestSharedAgentInteraction(t *testing.T) {

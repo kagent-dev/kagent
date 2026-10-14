@@ -23,16 +23,13 @@ func TestSessionPausedTaskCheckpointRejected(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		switch harness.name {
-		case codexE2EHarness, claudeE2EHarness:
-			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
-		}
-		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startAskUserMock(t, harness))
 		fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
 		_, _, waiting := fixture.send(t, "Which database should we use for storage?")
 		require.Equal(t, a2atype.TaskStateInputRequired, waiting.Status.State)
 		require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
 
+		assertActorSuspended(t, fixture)
 		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1.CreateCheckpointRequest{
 			SessionId: fixture.sessionID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
 		})

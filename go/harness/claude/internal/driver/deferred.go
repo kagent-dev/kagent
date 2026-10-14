@@ -13,9 +13,20 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+)
+
+const (
+	phaseWaiting   = "waiting"
+	phaseResuming  = "resuming"
+	phaseExecuting = "executing"
+	phaseReleased  = "released"
+	phaseComplete  = "complete"
+	phaseCanceled  = "canceled"
+	phaseAbandoned = "abandoned"
 )
 
 // DeferredTool is Claude's native deferred_tool_use payload, before execution.
@@ -110,15 +121,15 @@ func (r *deferredRecord) validate() error {
 		}
 	}
 	switch r.Phase {
-	case "waiting":
+	case phaseWaiting:
 		if r.Decision != nil || r.Answer != nil || r.Canceling {
 			return fmt.Errorf("waiting Claude input already has a response")
 		}
-	case "resuming", "executing", "released", "complete":
+	case phaseResuming, phaseExecuting, phaseReleased, phaseComplete:
 		if r.Decision == nil && r.Answer == nil && !r.Canceling {
 			return fmt.Errorf("Claude continuation has no response")
 		}
-	case "canceled", "abandoned":
+	case phaseCanceled, phaseAbandoned:
 	default:
 		return fmt.Errorf("unknown Claude deferred phase %q", r.Phase)
 	}
@@ -223,10 +234,10 @@ func (d *ProcessDriver) RestorePending() (string, string, runtime.PendingTurn, e
 	if err != nil || r == nil {
 		return "", "", nil, err
 	}
-	if r.Phase == "complete" || r.Phase == "canceled" {
+	if r.Phase == phaseComplete || r.Phase == phaseCanceled {
 		return "", "", nil, nil
 	}
-	if r.Phase == "abandoned" || r.Phase == "resuming" || r.Phase == "executing" || r.Phase == "released" {
+	if r.Phase == phaseAbandoned || r.Phase == phaseResuming || r.Phase == phaseExecuting || r.Phase == phaseReleased {
 		return "", "", nil, runtime.ErrSessionAbandoned
 	}
 	if !b.protects(r.Tool.Name) {
@@ -244,7 +255,7 @@ func (d *ProcessDriver) parkDeferred(turn runtime.Turn, session string, tool *De
 	if b == nil || !b.protects(tool.Name) {
 		return runtime.Outcome{}, fmt.Errorf("unsupported Claude deferred tool")
 	}
-	r := deferredRecord{Version: 1, TaskID: turn.TaskID, ContextID: turn.ContextID, SessionID: session, RequestID: uuid.NewString(), Origin: turn.Origin, Phase: "waiting", Tool: *tool}
+	r := deferredRecord{Version: 1, TaskID: turn.TaskID, ContextID: turn.ContextID, SessionID: session, RequestID: uuid.NewString(), Origin: turn.Origin, Phase: phaseWaiting, Tool: *tool}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := saveDeferred(b.directory, d.config.MaxEventBytes, &r); err != nil {
@@ -297,6 +308,55 @@ func (d *ProcessDriver) cancelReplay(tool *DeferredTool) error {
 	return saveDeferred(b.directory, d.config.MaxEventBytes, r)
 }
 
+// beginResume commits the response before native replay. Its lock covers only
+// the journal transition; process execution and failure cleanup happen outside it.
+func (p *deferredTurn) beginResume(response runtime.InputResponse) (*deferredRecord, error) {
+	b := p.driver.config.ApprovalBroker
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, err := p.current()
+	if err != nil {
+		return nil, err
+	}
+	if r.Phase != phaseWaiting {
+		return nil, fmt.Errorf("Claude continuation is resolved or uncertain; automatic replay is disabled")
+	}
+	switch value := response.(type) {
+	case *runtime.ApprovalDecision:
+		r.Decision = value
+	case *runtime.AskUserResponse:
+		r.Answer = value
+	default:
+		return nil, fmt.Errorf("unsupported Claude deferred response %T", response)
+	}
+	r.Phase = phaseResuming
+	if err := saveDeferred(b.directory, p.driver.config.MaxEventBytes, r); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// beginCancel retains the previous state so a proven process-start failure can
+// leave cancellation retryable without holding the journal lock during replay.
+func (p *deferredTurn) beginCancel() (*deferredRecord, deferredRecord, error) {
+	b := p.driver.config.ApprovalBroker
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, err := p.current()
+	if err != nil {
+		return nil, deferredRecord{}, err
+	}
+	if r.Phase == phaseComplete || r.Phase == phaseCanceled || r.Phase == phaseAbandoned {
+		return nil, deferredRecord{}, fmt.Errorf("Claude continuation is already resolved")
+	}
+	previous := *r
+	r.Phase, r.Canceling, r.Decision, r.Answer = phaseResuming, true, nil, nil
+	if err := saveDeferred(b.directory, p.driver.config.MaxEventBytes, r); err != nil {
+		return nil, deferredRecord{}, err
+	}
+	return r, previous, nil
+}
+
 func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (outcome runtime.Outcome, returnErr error) {
 	defer func() {
 		// Only the explicit successful tombstone path returns context.Canceled.
@@ -308,35 +368,16 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 			}
 		}
 	}()
-	b := p.driver.config.ApprovalBroker
-	b.mu.Lock()
-	r, err := p.current()
-	if err == nil && r.Phase != "waiting" {
-		err = fmt.Errorf("Claude continuation is resolved or uncertain; automatic replay is disabled")
-	}
-	if err == nil {
-		switch value := response.(type) {
-		case *runtime.ApprovalDecision:
-			r.Decision = value
-		case *runtime.AskUserResponse:
-			r.Answer = value
-		default:
-			err = fmt.Errorf("unsupported Claude deferred response %T", response)
-		}
-	}
-	if err == nil {
-		r.Phase = "resuming"
-		err = saveDeferred(b.directory, p.driver.config.MaxEventBytes, r)
-	}
-	b.mu.Unlock()
-	if err != nil {
-		return runtime.Outcome{}, err
-	}
 	defer func() {
 		if returnErr != nil && returnErr != context.Canceled {
 			returnErr = p.abandon(returnErr)
 		}
 	}()
+	r, err := p.beginResume(response)
+	if err != nil {
+		return runtime.Outcome{}, err
+	}
+	b := p.driver.config.ApprovalBroker
 	telemetry, observed := sink.(runtime.ToolExecutionSink)
 	executing := r.Decision == nil || r.Decision.Approved
 	if observed && executing {
@@ -356,10 +397,10 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		if restoreErr != nil {
 			return runtime.Outcome{}, errors.Join(err, restoreErr)
 		}
-		if current.Phase != "resuming" {
+		if current.Phase != phaseResuming {
 			return runtime.Outcome{}, fmt.Errorf("Claude input changed before process launch: %w", err)
 		}
-		current.Phase, current.Decision, current.Answer, current.Canceling = "waiting", nil, nil, false
+		current.Phase, current.Decision, current.Answer, current.Canceling = phaseWaiting, nil, nil, false
 		if restoreErr := saveDeferred(b.directory, p.driver.config.MaxEventBytes, current); restoreErr != nil {
 			return runtime.Outcome{}, errors.Join(err, restoreErr)
 		}
@@ -376,15 +417,15 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		return runtime.Outcome{}, err
 	}
 	// A completed process must have consumed the decision through its exact hook.
-	if current.Phase != "executing" && current.Phase != "released" {
+	if current.Phase != phaseExecuting && current.Phase != phaseReleased {
 		if current.Canceling || ctx.Err() != nil {
 			return runtime.Outcome{}, &runtime.CancellationError{Err: fmt.Errorf("Claude did not consume its cancellation")}
 		}
 		return runtime.Outcome{}, fmt.Errorf("Claude did not consume its deferred decision")
 	}
-	current.Phase = "complete"
+	current.Phase = phaseComplete
 	if current.Canceling || ctx.Err() != nil {
-		current.Phase, current.Canceling = "canceled", true
+		current.Phase, current.Canceling = phaseCanceled, true
 	}
 	if err := saveDeferred(b.directory, p.driver.config.MaxEventBytes, current); err != nil {
 		if current.Canceling {
@@ -401,25 +442,11 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 // Cancel resolves the native deferred call with a stop decision before writing
 // the tombstone, so the next task cannot revive the canceled call on --resume.
 func (p *deferredTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) (returnErr error) {
-	b := p.driver.config.ApprovalBroker
-	b.mu.Lock()
-	r, err := p.current()
-	var previous deferredRecord
-	if err == nil && (r.Phase == "complete" || r.Phase == "canceled" || r.Phase == "abandoned") {
-		err = fmt.Errorf("Claude continuation is already resolved")
-	}
-	if err == nil {
-		previous = *r
-		r.Phase = "resuming"
-		r.Canceling = true
-		r.Decision = nil
-		r.Answer = nil
-		err = saveDeferred(b.directory, p.driver.config.MaxEventBytes, r)
-	}
-	b.mu.Unlock()
+	r, previous, err := p.beginCancel()
 	if err != nil {
 		return err
 	}
+	b := p.driver.config.ApprovalBroker
 	outcome, err := p.driver.run(ctx, runtime.Turn{TaskID: r.TaskID, ContextID: r.ContextID, ContinuationID: r.SessionID, Origin: r.Origin}, discardSink{ModelCallSink: sink}, &r.Tool)
 	var startErr *processStartError
 	if errors.As(err, &startErr) {
@@ -448,10 +475,10 @@ func (p *deferredTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) (
 	if err != nil {
 		return err
 	}
-	if current.Phase != "executing" && current.Phase != "released" {
+	if current.Phase != phaseExecuting && current.Phase != phaseReleased {
 		return fmt.Errorf("Claude did not consume its cancellation")
 	}
-	current.Phase = "canceled"
+	current.Phase = phaseCanceled
 	return saveDeferred(b.directory, p.driver.config.MaxEventBytes, current)
 }
 
@@ -464,7 +491,10 @@ func (p *deferredTurn) abandon(cause error) error {
 	if err != nil {
 		return errors.Join(cause, err)
 	}
-	r.Phase = "abandoned"
+	if r.Phase == phaseComplete || r.Phase == phaseCanceled {
+		return cause
+	}
+	r.Phase = phaseAbandoned
 	if err := saveDeferred(b.directory, p.driver.config.MaxEventBytes, r); err != nil {
 		return errors.Join(cause, err)
 	}
