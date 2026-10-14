@@ -83,63 +83,82 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 }
 
 func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
-	ctx := t.Context()
-	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
-	require.NoError(t, err)
-	_, err = markSessionReady(ctx, client, session.GetId(), "runtime")
-	require.NoError(t, err)
-	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+	for _, tc := range []struct {
+		name, tagUID, snapshotURI, failure string
+	}{
+		{name: "ready", tagUID: "tag-uid", snapshotURI: "s3://tags/checkpoint"},
+		{name: "failed", failure: "tag creation failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			ctx := t.Context()
+			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
+			require.NoError(t, err)
+			_, err = markSessionReady(ctx, client, session.GetId(), "runtime")
+			require.NoError(t, err)
+			require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 
-	assertRetained := func() {
-		t.Helper()
-		revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
-		require.NoError(t, err)
-		require.Empty(t, revisions)
+			assertRetained := func() {
+				t.Helper()
+				revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+				require.NoError(t, err)
+				require.Empty(t, revisions)
 
-		claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
-		require.NoError(t, err)
-		require.Nil(t, claimed)
-		require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
-		_, err = client.GetRuntimeRevision(ctx, "revision")
-		require.NoError(t, err)
+				claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+				require.NoError(t, err)
+				require.Nil(t, claimed)
+				require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+				_, err = client.GetRuntimeRevision(ctx, "revision")
+				require.NoError(t, err)
+			}
+			assertRetained()
+			task := newSessionTask("task", "message")
+			task.ContextID = session.GetContextId()
+			_, err = client.CreateRuntimeTask(ctx, session.GetId(), taskMutationHash("request"), task, "")
+			require.NoError(t, err)
+			task.Status.State = a2a.TaskStateCompleted
+			require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
+				&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
+			checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
+				Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
+			}, "alice", "checkpoint")
+			require.NoError(t, err)
+			require.ErrorIs(t, deleteSession(ctx, client, session.GetId()), ErrConflict)
+
+			// A checkpoint retains the runtime throughout creation, use, and deletion,
+			// even after the source session and active template pair are gone.
+			assertRetained()
+			_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+			require.ErrorIs(t, err, ErrNotFound, "an in-flight checkpoint must not be deleted")
+			_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), tc.tagUID, tc.snapshotURI, tc.failure)
+			require.NoError(t, err)
+			require.NoError(t, deleteSession(ctx, client, session.GetId()))
+			assertRetained()
+			_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "mallory")
+			require.ErrorIs(t, err, ErrNotFound, "only the owner can delete the checkpoint")
+			_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+			require.NoError(t, err)
+			assertRetained()
+			// A new store instance must resume a deletion without losing its references.
+			restarted := NewClient(sharedDB, "public")
+			_, tagUID, err := restarted.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+			require.NoError(t, err)
+			require.Equal(t, tc.tagUID, tagUID)
+			assertRetained()
+			require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"))
+			revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
+			require.NoError(t, err)
+			require.Len(t, revisions, 1)
+
+			claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+			require.NoError(t, err)
+			require.NotNil(t, claimed)
+			require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
+			_, err = client.GetRuntimeRevision(ctx, "revision")
+			require.ErrorIs(t, err, ErrNotFound)
+		})
 	}
-	assertRetained()
-	task := newSessionTask("task", "message")
-	task.ContextID = session.GetContextId()
-	_, err = client.CreateRuntimeTask(ctx, session.GetId(), taskMutationHash("request"), task, "")
-	require.NoError(t, err)
-	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
-		Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
-	}, "alice", "checkpoint")
-	require.NoError(t, err)
-	require.ErrorIs(t, deleteSession(ctx, client, session.GetId()), ErrConflict)
-
-	// A checkpoint retains the runtime throughout creation, use, and deletion,
-	// even after the source session and active template pair are gone.
-	assertRetained()
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
-	require.NoError(t, err)
-	require.NoError(t, deleteSession(ctx, client, session.GetId()))
-	assertRetained()
-	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
-	require.NoError(t, err)
-	assertRetained()
-	require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"))
-	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
-	require.NoError(t, err)
-	require.Len(t, revisions, 1)
-
-	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
-	require.NoError(t, err)
-	require.NotNil(t, claimed)
-	require.NoError(t, client.DeleteRuntimeRevision(ctx, "revision", "revision-actor-uid"))
-	_, err = client.GetRuntimeRevision(ctx, "revision")
-	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestRuntimeRevisionPairReplacement(t *testing.T) {
