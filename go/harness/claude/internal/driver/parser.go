@@ -84,6 +84,8 @@ type modelUsage struct {
 	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
 	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
 	ThinkingTokens           int64 `json:"thinkingTokens"`
+	// CostUSD is this model's share of total_cost_usd.
+	CostUSD float64 `json:"costUSD"`
 }
 
 func (u *modelUsage) add(call *runtime.ModelCall) {
@@ -97,7 +99,7 @@ func (u *modelUsage) add(call *runtime.ModelCall) {
 func (u modelUsage) plus(o modelUsage) modelUsage {
 	return modelUsage{u.InputTokens + o.InputTokens, u.OutputTokens + o.OutputTokens,
 		u.CacheReadInputTokens + o.CacheReadInputTokens, u.CacheCreationInputTokens + o.CacheCreationInputTokens,
-		u.ThinkingTokens + o.ThinkingTokens}
+		u.ThinkingTokens + o.ThinkingTokens, u.CostUSD + o.CostUSD}
 }
 
 // merge overlays the non-zero fields of a message_delta usage on its message_start usage.
@@ -324,13 +326,21 @@ func readBoundedLine(r *bufio.Reader, max int) ([]byte, error) {
 
 func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) error) error {
 	var envelope struct {
-		Type      string          `json:"type"`
-		Subtype   string          `json:"subtype"`
-		Status    string          `json:"status"`
-		SessionID string          `json:"session_id"`
-		IsError   bool            `json:"is_error"`
-		Result    string          `json:"result"`
-		Event     json.RawMessage `json:"event"`
+		Type      string  `json:"type"`
+		Subtype   string  `json:"subtype"`
+		Status    string  `json:"status"`
+		SessionID string  `json:"session_id"`
+		IsError   bool    `json:"is_error"`
+		Result    string  `json:"result"`
+		Cost      float64 `json:"total_cost_usd"`
+		NumTurns  int     `json:"num_turns"`
+		Usage     struct {
+			InputTokens         int `json:"input_tokens"`
+			CacheReadTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationTokens int `json:"cache_creation_input_tokens"`
+			OutputTokens        int `json:"output_tokens"`
+		} `json:"usage"`
+		Event json.RawMessage `json:"event"`
 		// ModelUsage is the session's totals so far, including subagents and earlier processes.
 		ModelUsage map[string]modelUsage `json:"modelUsage"`
 		Message    json.RawMessage       `json:"message"`
@@ -391,14 +401,48 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 			return err
 		}
 		p.terminal = true
+		// total_cost_usd and modelUsage are session totals that a resumed session starts from
+		// the ones it saved, so the turn's usage is what they grew by in this process. With the
+		// totals at the start unknown, so is the turn's share, and the turn reports none.
+		var usage *runtime.Usage
+		if p.startUsage != nil {
+			usage = &runtime.Usage{
+				TotalCostUSD: envelope.Cost, NumTurns: envelope.NumTurns,
+				InputTokens:  envelope.Usage.InputTokens + envelope.Usage.CacheReadTokens + envelope.Usage.CacheCreationTokens,
+				CachedTokens: envelope.Usage.CacheReadTokens,
+				OutputTokens: envelope.Usage.OutputTokens,
+			}
+			for _, start := range p.startUsage {
+				usage.TotalCostUSD -= start.CostUSD
+			}
+			usage.TotalCostUSD = max(usage.TotalCostUSD, 0)
+			// modelUsage counts every model the turn called, as total_cost_usd
+			// prices them; a budget-stopped result reports zeros under usage.
+			if len(envelope.ModelUsage) > 0 {
+				usage.InputTokens, usage.CachedTokens, usage.OutputTokens = 0, 0, 0
+				for model, total := range envelope.ModelUsage {
+					start := p.startUsage[model]
+					cached := max(total.CacheReadInputTokens-start.CacheReadInputTokens, 0)
+					usage.InputTokens += int(max(total.InputTokens-start.InputTokens, 0) + cached + max(total.CacheCreationInputTokens-start.CacheCreationInputTokens, 0))
+					usage.CachedTokens += int(cached)
+					usage.OutputTokens += int(max(total.OutputTokens-start.OutputTokens, 0))
+				}
+			}
+		}
+		// A turn that reached one of its own limits is a completed turn: the work
+		// so far is kept, the session continues on the next turn, and the limit
+		// is reported rather than raised as a failure.
+		if stopped, ok := runtime.LimitReached(envelope.Subtype); ok {
+			return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result, Category: stopped, Usage: usage})
+		}
 		if envelope.IsError || envelope.Subtype != "success" {
 			message := envelope.Result
 			if message == "" {
 				message = "Claude execution failed"
 			}
-			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message})
+			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message, Usage: usage})
 		}
-		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result})
+		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result, Usage: usage})
 	}
 	return nil
 }

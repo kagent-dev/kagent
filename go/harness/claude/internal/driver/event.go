@@ -32,4 +32,5 @@ type Event struct {
 	SafeMessage  string
 	Result       string
 	ModelCall    *runtime.ModelCall
+	Usage        *runtime.Usage
 }
