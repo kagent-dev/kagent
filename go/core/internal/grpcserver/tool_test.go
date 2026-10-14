@@ -128,6 +128,9 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if len(listedTools.GetTools()) != 1 {
 		t.Fatalf("ListTools() count = %d, want 1", len(listedTools.GetTools()))
 	}
+	if got := listedTools.GetTools()[0].GetResource().GetApiVersion(); got != "kagent.api/v1" {
+		t.Errorf("Tool apiVersion = %q, want %q", got, "kagent.api/v1")
+	}
 	decodedTool := &database.Tool{}
 	if err := structuredobject.ToGo(listedTools.GetTools()[0].GetResource(), toolKind, decodedTool, DefaultMaxMessageSize); err != nil {
 		t.Fatalf("decode listed Tool: %v", err)

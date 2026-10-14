@@ -317,7 +317,7 @@ describe("tool servers and tools", () => {
           tools: [
             {
               resource: {
-                apiVersion: "kagent.api/v1alpha1",
+                apiVersion: "kagent.api/v1",
                 kind: "Tool",
                 value: {
                   id: "k8s_get_resources",
