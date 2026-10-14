@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -489,7 +490,13 @@ func TestMCPToolApproval(t *testing.T) {
 					if action == "approve" && !strings.Contains(taskText(completed), "result is 8") {
 						t.Fatalf("approved MCP result = %q", taskText(completed))
 					}
-					assertToolEvents(t, taskToolEvents(getTask(t, fixture, completed.ID)), toolName)
+					// ADK emits a confirmation-required response before suspension,
+					// then the actual result on resume. Only resolved responses count
+					// here; duplicate executions or resolved results still fail.
+					events := slices.DeleteFunc(taskToolEvents(getTask(t, fixture, completed.ID)), func(event toolEvent) bool {
+						return event.awaitingConfirmation
+					})
+					assertToolEvents(t, events, toolName)
 				}
 				calls := 0
 				for _, request := range mcpServer.Requests() {

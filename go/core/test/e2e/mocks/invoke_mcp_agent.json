@@ -67,7 +67,7 @@
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "production is serving traffic",
+          "content": "call is rejected",
           "role": "tool",
           "tool_call_id": "call_1"
         }

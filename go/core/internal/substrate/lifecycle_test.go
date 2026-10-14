@@ -191,7 +191,7 @@ func TestActorSuspendRequiresDataSnapshot(t *testing.T) {
 			actors := &transitionActors{suspendSnapshot: test.snapshot}
 			_, err := actors.CreateActor(t.Context(), "team", "instance", "team", "revision")
 			require.NoError(t, err)
-			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
+			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
 			require.NoError(t, err)
 			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "external DATA snapshot")
 		})
