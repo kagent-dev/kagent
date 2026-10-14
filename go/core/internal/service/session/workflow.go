@@ -42,12 +42,14 @@ type workflowStore interface {
 	FailSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, *apiv1alpha1.Failure) (*apiv1alpha1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
 	GetCurrentSessionOperation(context.Context, string) (*database.SessionOperation, error)
+	HasSessionTasks(context.Context, string) (bool, error)
 }
 
 type actorClient interface {
 	substrate.LifecycleClient
 	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
 	RepointActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
+	RevertActor(context.Context, string, string) (*ateapipb.Actor, error)
 	ReplaceActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error
 	ListAllWorkers(context.Context) ([]*ateapipb.Worker, error)
 }
@@ -317,7 +319,9 @@ func (e *RuntimeLossError) Unwrap() error { return e.Err }
 // RuntimeLost reports whether the session's Actor crashed and whether its
 // runtime can no longer take a turn. The runtime is lost when the Actor is
 // gone, or Substrate reports it CRASHED without a durable snapshot to return it
-// to, so every later message would fail the way the last one did. A crashed
+// to, so every later message would fail the way the last one did, unless the
+// session holds no task: its runtime kept nothing, and the resume reverts the
+// Actor to the snapshot it started from (AwaitRuntime). A crashed
 // Actor that holds an external snapshot is not lost: Substrate returns such an
 // Actor to that snapshot when its crash was the worker going away under it (a
 // drain, a replaced pod, an unreachable ateom), the resume recovers it
@@ -370,13 +374,30 @@ func (w *ActorWorkflow) actorCrash(ctx context.Context, session *apiv1alpha1.Ses
 		return "", false, state, nil
 	}
 	if actor.GetStatus().GetExternalSnapshot().GetSnapshotUri() == "" {
-		return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, state, nil
+		untouched, err := w.untouchedRuntime(ctx, session)
+		if err != nil {
+			return "", false, state, err
+		}
+		if !untouched {
+			return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, state, nil
+		}
 	}
 	cause := fmt.Sprintf("Actor %s/%s crashed", atespace, name)
 	if message := actor.GetStatus().GetCrash().GetMessage(); message != "" {
 		cause += ": " + message
 	}
 	return cause, false, state, nil
+}
+
+// untouchedRuntime reports whether the session holds no task, so its runtime
+// was given nothing to keep: a revert returns its Actor to the snapshot it
+// started from, its template's golden or a fork's tag, and loses nothing.
+func (w *ActorWorkflow) untouchedRuntime(ctx context.Context, session *apiv1alpha1.Session) (bool, error) {
+	has, err := w.store.HasSessionTasks(ctx, session.GetId())
+	if err != nil {
+		return false, fmt.Errorf("check session tasks: %w", err)
+	}
+	return !has, nil
 }
 
 // AwaitRuntime resumes the session's Actor, waiting while Substrate answers
@@ -390,6 +411,12 @@ func (w *ActorWorkflow) actorCrash(ctx context.Context, session *apiv1alpha1.Ses
 // answer is a RuntimeLossError with the cause for the session to record. Any
 // other answer, or an Actor Substrate still defers at the bound, is returned
 // as the error it is.
+//
+// A session that holds no task gave its runtime nothing to keep, so its
+// crashed Actor is reverted to the snapshot it started from and resumed once
+// more: a restore of the template's golden snapshot that never brings the
+// runtime up crashes the Actor on a conversation's first turn, and the
+// conversation goes on. A second crash is the loss above.
 func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
@@ -398,24 +425,41 @@ func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.S
 	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
 	ctx, cancel := context.WithTimeout(ctx, w.busyWait)
 	defer cancel()
-	err = w.awaitResume(ctx, func() error {
-		_, err := w.actors.ResumeActor(ctx, atespace, name)
-		return err
-	})
-	if err == nil {
-		return nil
-	}
-	err = fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
-	if status.Code(err) != codes.FailedPrecondition {
-		return err
-	}
-	actor, getErr := w.actors.GetActor(ctx, atespace, name)
-	if getErr != nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_CRASHED {
-		return err
-	}
-	return &RuntimeLossError{
-		Cause: fmt.Sprintf("Actor %s/%s crashed and cannot be resumed", atespace, name),
-		Err:   fmt.Errorf("%w; crash: %s", err, actor.GetStatus().GetCrash().GetMessage()),
+	for reverted := false; ; reverted = true {
+		err = w.awaitResume(ctx, func() error {
+			_, err := w.actors.ResumeActor(ctx, atespace, name)
+			return err
+		})
+		if err == nil {
+			return nil
+		}
+		err = fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
+		if status.Code(err) != codes.FailedPrecondition {
+			return err
+		}
+		actor, getErr := w.actors.GetActor(ctx, atespace, name)
+		if getErr != nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_CRASHED {
+			return err
+		}
+		crash := actor.GetStatus().GetCrash().GetMessage()
+		if !reverted {
+			untouched, taskErr := w.untouchedRuntime(ctx, session)
+			if taskErr != nil {
+				return errors.Join(err, taskErr)
+			}
+			if untouched {
+				logging.FromContext(ctx).WarnContext(ctx, "the crashed Actor of a session without a task is reverted and resumed again",
+					"session_id", session.GetId(), "actor", atespace+"/"+name, "crash", crash)
+				if _, revertErr := w.actors.RevertActor(ctx, atespace, name); revertErr != nil {
+					return errors.Join(err, fmt.Errorf("revert Actor %s/%s: %w", atespace, name, revertErr))
+				}
+				continue
+			}
+		}
+		return &RuntimeLossError{
+			Cause: fmt.Sprintf("Actor %s/%s crashed and cannot be resumed", atespace, name),
+			Err:   fmt.Errorf("%w; crash: %s", err, crash),
+		}
 	}
 }
 

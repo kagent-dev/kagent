@@ -251,6 +251,19 @@ func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*a
 	return resp.GetActor(), nil
 }
 
+// RevertActor discards an Actor's current execution, a crashed one included,
+// and returns it to SUSPENDED at its external snapshot, or at its template's
+// golden snapshot when it holds none; the next resume restores from there.
+func (c *Client) RevertActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.RevertActor(ctx, &ateapipb.RevertActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetActor(), nil
+}
+
 func (c *Client) GetTag(ctx context.Context, atespace, name string) (*ateapipb.Tag, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()

@@ -123,7 +123,11 @@ once more. A crashed Actor whose resume Substrate refuses (`FailedPrecondition`,
 the Actor still crashed: a crash on a live worker, which Substrate does not
 recover from) is lost at that resume: the session records the loss as it would
 for a missing Actor, the send ends with it, and later sends are refused with it
-without a dial. Any other answer, or an Actor Substrate still cannot resume at
+without a dial. A session that holds no task is the exception: its runtime kept
+nothing, so the wait reverts its crashed Actor to the snapshot it started from
+and resumes it once more, and only a second crash is the loss; a
+conversation's first send survives a golden restore whose runtime never came
+up. Any other answer, or an Actor Substrate still cannot resume at
 the bound, keeps the retryable refusal. The gateway waits once per turn, and
 holds no dispatch reservation while it waits. An explicit `ResumeSession` waits
 the same way within its attempt.

@@ -93,6 +93,30 @@ func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
 	}
 }
 
+// A session holds a task once its runtime takes one; a missing session is
+// not found rather than one without tasks.
+func TestHasSessionTasks(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	const sessionID = "11111111-1111-4111-8111-111111111111"
+	insertReadySessionFixture(t, db, sessionID, "request-1", []byte{})
+	client := NewClient(db, "public")
+
+	has, err := client.HasSessionTasks(ctx, sessionID)
+	require.NoError(t, err)
+	require.False(t, has, "a new session holds no task")
+
+	task := &a2a.Task{ID: "task-1", ContextID: sessionID, Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
+	_, err = client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("request-1"), task, "")
+	require.NoError(t, err)
+	has, err = client.HasSessionTasks(ctx, sessionID)
+	require.NoError(t, err)
+	require.True(t, has, "a session holds the task its runtime took")
+
+	_, err = client.HasSessionTasks(ctx, "22222222-2222-4222-8222-222222222222")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()

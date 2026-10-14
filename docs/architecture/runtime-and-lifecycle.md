@@ -232,7 +232,12 @@ Actor its worker's departure crashed (under a resume, a suspend or a turn) to
 that snapshot on the next resume, so the session stays usable and the next
 send resumes it from there (the [A2A gateway](a2a-gateway.md)); a crashed
 Actor without a snapshot, or one whose resume Substrate refuses, is lost, and
-the session records it `FAILED` with reason `RuntimeLost`. Conflicting Session lifecycle, task, and checkpoint
+the session records it `FAILED` with reason `RuntimeLost`, unless the session
+holds no task. Such a session gave its runtime nothing to keep: its first resume
+restores the template's golden snapshot (or a fork's tag), and a restore whose
+runtime never comes up crashes the Actor with nothing of the session's in it.
+The resume reverts that Actor to the snapshot it started from (Substrate's
+`RevertActor`) and resumes it once more; only a second crash is the loss. Conflicting Session lifecycle, task, and checkpoint
 work remains blocked until the pending operation completes. Releasing an attempt
 never clears its durable intent or makes uncertain work an unissued preparation.
 

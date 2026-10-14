@@ -558,6 +558,32 @@ func (c *Client) ListSessionTasks(ctx context.Context, sessionID, afterID string
 	return tasks, int(total), nil
 }
 
+// HasSessionTasks reports whether the session's history holds a task: one its
+// runtime took, or one a fork carried over from its source. A session without
+// one has given its runtime nothing to keep. A missing or deleted session is
+// ErrNotFound. Callers authorize session access.
+func (c *Client) HasSessionTasks(ctx context.Context, sessionID string) (bool, error) {
+	has, err := queryOne(ctx, c.db, `
+		SELECT EXISTS (
+		    SELECT 1 FROM session_task t
+		    JOIN session_record s ON s.history_id = t.history_id
+		    WHERE s.id = $1 AND s.state <> 'RUNTIME_STATE_DELETED'
+		), EXISTS (
+		    SELECT 1 FROM session_record WHERE id = $1 AND state <> 'RUNTIME_STATE_DELETED'
+		)
+	`, pgx.RowToStructByPos[struct {
+		Tasks  bool
+		Exists bool
+	}], sessionID)
+	if err != nil {
+		return false, fmt.Errorf("check Session tasks: %w", err)
+	}
+	if !has.Exists {
+		return false, ErrNotFound
+	}
+	return has.Tasks, nil
+}
+
 // unmarshalSessionTaskEvent decodes a stored A2A event, returning an error for
 // malformed or unsupported payloads.
 func unmarshalSessionTaskEvent(data []byte) (a2a.Event, error) {

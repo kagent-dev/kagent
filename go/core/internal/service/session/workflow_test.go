@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -235,6 +236,18 @@ type lifecycleTestStore struct {
 	*database.Client
 	pool     *pgxpool.Pool
 	revision *database.RuntimeRevision
+	// untouched answers HasSessionTasks for a store without a database: the
+	// session holds no task. Without it the session holds one.
+	untouched bool
+}
+
+// HasSessionTasks reads the fixture's database, or answers untouched when
+// the store has none.
+func (s *lifecycleTestStore) HasSessionTasks(ctx context.Context, sessionID string) (bool, error) {
+	if s.Client == nil {
+		return !s.untouched, nil
+	}
+	return s.Client.HasSessionTasks(ctx, sessionID)
 }
 
 // GetRuntimeRevision answers the fixture's revision; another revision the
@@ -259,6 +272,8 @@ type lifecycleTestActors struct {
 	policyCalls      int
 	repointErr       error
 	repointCalls     int
+	revertErr        error
+	reverts          int
 	replacedPolicies int
 	// existing records the existing volumes each Actor was created with.
 	existing map[string][]*ateapipb.ExistingVolume
@@ -284,6 +299,29 @@ func (a *lifecycleTestActors) RepointActor(_ context.Context, atespace, name, te
 	}
 	actor.ActorTemplate = &ateapipb.ObjectRef{Atespace: templateAtespace, Name: templateName}
 	a.repointCalls++
+	return proto.CloneOf(actor), nil
+}
+
+// RevertActor returns a crashed, running or paused Actor to SUSPENDED at the
+// snapshot it holds, as Substrate does.
+func (a *lifecycleTestActors) RevertActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.revertErr != nil {
+		return nil, a.revertErr
+	}
+	actor := a.actors[actorKey(atespace, name)]
+	if actor == nil {
+		return nil, status.Error(codes.NotFound, "missing")
+	}
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_PAUSED:
+	default:
+		return nil, status.Error(codes.FailedPrecondition, "actor is not in a revertable state")
+	}
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	actor.Status.Crash = nil
+	a.reverts++
 	return proto.CloneOf(actor), nil
 }
 
@@ -907,7 +945,6 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 
 func TestRuntimeLost(t *testing.T) {
 	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
-	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
 	name := substrate.ActorName(session.Id)
 	for _, test := range []struct {
 		name      string
@@ -915,6 +952,7 @@ func TestRuntimeLost(t *testing.T) {
 		snapshot  bool
 		crash     string
 		missing   bool
+		untouched bool
 		getErr    error
 		wantCause string
 		wantLost  bool
@@ -922,6 +960,9 @@ func TestRuntimeLost(t *testing.T) {
 	}{
 		{name: "missing", missing: true, wantCause: "Actor team-a/" + name + " not found", wantLost: true},
 		{name: "crashed without a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, wantCause: "Actor team-a/" + name + " crashed with no snapshot to return to", wantLost: true},
+		// A session without a task gave its runtime nothing to keep: the
+		// resume reverts the Actor to where it started.
+		{name: "crashed without a snapshot, no task", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, untouched: true, crash: restoreCrash, wantCause: "Actor team-a/" + name + " crashed: " + restoreCrash},
 		// Substrate returns a crashed Actor to its durable snapshot; the resume
 		// tells whether it can. The crash is reported, the runtime is not lost.
 		{name: "crashed with a snapshot", state: ateapipb.ActorState_ACTOR_STATE_CRASHED, snapshot: true, wantCause: "Actor team-a/" + name + " crashed"},
@@ -932,6 +973,7 @@ func TestRuntimeLost(t *testing.T) {
 		{name: "unknown", getErr: status.Error(codes.Unavailable, "ate-api is rolling"), wantErr: "ate-api is rolling"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}, untouched: test.untouched}
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, getErr: test.getErr}
 			if !test.missing {
 				actor := &ateapipb.Actor{
@@ -1043,11 +1085,28 @@ func (a *heldActors) ResumeActor(ctx context.Context, atespace, name string) (*a
 			a.answers = a.answers[1:]
 		}
 	}
+	if errors.Is(err, errRestoreCrashed) {
+		a.mu.Lock()
+		actor := a.actors[actorKey(atespace, name)]
+		actor.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
+		actor.Status.Crash = &ateapipb.ActorCrash{Message: restoreCrash}
+		a.mu.Unlock()
+		err = errCrashedForGood
+	}
 	if err != nil {
 		return nil, err
 	}
 	return a.lifecycleTestActors.ResumeActor(ctx, atespace, name)
 }
+
+// restoreCrash is the crash Substrate records for a restore whose runtime
+// never came up.
+const restoreCrash = `resume failed: atelet Restore: while calling ateom.RestoreWorkload: rpc error: code = Internal desc = while waiting for container wakeup probe: wakeup probe for "kagent" never returned 200 within 30s`
+
+// errRestoreCrashed makes heldActors crash the Actor under the resume, as
+// Substrate does when the restored runtime never comes up, and answer the
+// resume the way ate-api then does.
+var errRestoreCrashed = errors.New("the restore crashes the Actor")
 
 var (
 	// The answers ate-api gives a resume it cannot perform yet: the worker
@@ -1065,15 +1124,19 @@ var (
 
 func TestAwaitRuntime(t *testing.T) {
 	session := &apiv1alpha1.Session{Id: "session-1", PreparedRevision: "revision-1"}
-	store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}}
 	name := substrate.ActorName(session.GetId())
 	for _, test := range []struct {
 		name        string
 		crashed     bool
+		noSnapshot  bool
+		untouched   bool
 		answers     []error
+		revertErr   error
 		wantResumes int
+		wantReverts int
 		wantErr     string
 		wantLost    bool
+		wantCrash   string
 	}{
 		{name: "free", wantResumes: 1},
 		{name: "held, then free", answers: []error{errActorHeld, errActorHeld, errActorHeld, nil}, wantResumes: 4},
@@ -1087,18 +1150,30 @@ func TestAwaitRuntime(t *testing.T) {
 		{name: "crashed, returned to its snapshot", crashed: true, answers: []error{errCrashRecovering, errNoFreeWorker, nil}, wantResumes: 3},
 		{name: "crashed for good", crashed: true, answers: []error{errCrashedForGood}, wantResumes: 1, wantErr: "Actor team-a/" + name + " crashed and cannot be resumed", wantLost: true},
 		{name: "refused, not crashed", answers: []error{errCrashedForGood}, wantResumes: 1, wantErr: "AssignWorker prerequisite not met"},
+		// The first resume of a session restores its template's golden
+		// snapshot. A restore whose runtime never comes up crashes the Actor
+		// with nothing of the session's in it: it is reverted and resumed
+		// again, once.
+		{name: "first restore crashed, session without a task", noSnapshot: true, untouched: true, answers: []error{errRestoreCrashed, nil}, wantResumes: 2, wantReverts: 1},
+		{name: "first restore crashed twice", noSnapshot: true, untouched: true, answers: []error{errRestoreCrashed, errRestoreCrashed}, wantResumes: 2, wantReverts: 1, wantErr: "Actor team-a/" + name + " crashed and cannot be resumed", wantLost: true, wantCrash: "crash: " + restoreCrash},
+		{name: "restore crashed, session with a task", noSnapshot: true, answers: []error{errRestoreCrashed}, wantResumes: 1, wantErr: "Actor team-a/" + name + " crashed and cannot be resumed", wantLost: true, wantCrash: "crash: " + restoreCrash},
+		{name: "revert refused", noSnapshot: true, untouched: true, answers: []error{errRestoreCrashed}, revertErr: status.Error(codes.Aborted, "concurrent update conflict"), wantResumes: 1, wantErr: "revert Actor team-a/" + name + ": rpc error: code = Aborted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			store := &lifecycleTestStore{revision: &database.RuntimeRevision{ActorTemplateAtespace: "team-a"}, untouched: test.untouched}
 			key := actorKey("team-a", name)
 			actor := &ateapipb.Actor{Status: &ateapipb.ActorStatus{
 				State:            ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
 				ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/" + name + "/last"},
 			}}
+			if test.noSnapshot {
+				actor.Status.ExternalSnapshot = nil
+			}
 			if test.crashed {
 				actor.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
 				actor.Status.Crash = &ateapipb.ActorCrash{Message: "suspend failed: atelet Checkpoint: worker unreachable while tearing down the failed actor"}
 			}
-			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{key: actor}}, answers: test.answers}
+			actors := &heldActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{key: actor}, revertErr: test.revertErr}, answers: test.answers}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			workflow.busyWait, workflow.busyRetry = 200*time.Millisecond, time.Millisecond
 			err := workflow.AwaitRuntime(t.Context(), session)
@@ -1113,7 +1188,11 @@ func TestAwaitRuntime(t *testing.T) {
 				var loss *RuntimeLossError
 				require.ErrorAs(t, err, &loss)
 				require.Equal(t, "Actor team-a/"+name+" crashed and cannot be resumed", loss.Cause)
-				require.ErrorContains(t, err, "crash: suspend failed: atelet Checkpoint", "the crash is kept for the log")
+				wantCrash := test.wantCrash
+				if wantCrash == "" {
+					wantCrash = "crash: suspend failed: atelet Checkpoint"
+				}
+				require.ErrorContains(t, err, wantCrash, "the crash is kept for the log")
 				require.ErrorIs(t, err, errCrashedForGood)
 			} else {
 				require.NotErrorIs(t, err, ErrRuntimeLost)
@@ -1123,6 +1202,7 @@ func TestAwaitRuntime(t *testing.T) {
 			} else {
 				require.Greater(t, actors.resumes, 1, "an Actor Substrate cannot resume yet is resumed again within the bound")
 			}
+			require.Equal(t, test.wantReverts, actors.reverts)
 		})
 	}
 }
