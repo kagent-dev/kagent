@@ -227,17 +227,17 @@ transient cause (a worker drained under the restore) leaves its Actor crashed
 until Substrate returns it to rest; a delete that finds such a resume held, with
 no attempt running, claims it and ends it once the Actor rests suspended where
 the operation found it, or is gone, then deletes the session. A crashed Actor
-is not a lost runtime while it holds a durable snapshot: Substrate returns an
+is not a lost runtime while it holds a durable snapshot, the last one it
+suspended to or the template's golden it started from: Substrate returns an
 Actor its worker's departure crashed (under a resume, a suspend or a turn) to
-that snapshot on the next resume, so the session stays usable and the next
-send resumes it from there (the [A2A gateway](a2a-gateway.md)); a crashed
-Actor without a snapshot, or one whose resume Substrate refuses, is lost, and
-the session records it `FAILED` with reason `RuntimeLost`, unless the session
-holds no task. Such a session gave its runtime nothing to keep: its first resume
-restores the template's golden snapshot (or a fork's tag), and a restore whose
-runtime never comes up crashes the Actor with nothing of the session's in it.
-The resume reverts that Actor to the snapshot it started from (Substrate's
-`RevertActor`) and resumes it once more; only a second crash is the loss. Conflicting Session lifecycle, task, and checkpoint
+that snapshot on the next resume, and the resume reverts one Substrate refuses
+to resume (a sandbox that died under its runtime, a restore whose runtime never
+came up) to it (Substrate's `RevertActor`) and resumes it once more. The
+session stays usable and the next send resumes it from there (the
+[A2A gateway](a2a-gateway.md)). A crashed Actor without a snapshot is lost
+unless the session holds no task, which gave its runtime nothing to keep; it is
+reverted the same way. A second crash is the loss, and the session records it
+`FAILED` with reason `RuntimeLost`. Conflicting Session lifecycle, task, and checkpoint
 work remains blocked until the pending operation completes. Releasing an attempt
 never clears its durable intent or makes uncertain work an unissued preparation.
 

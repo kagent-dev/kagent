@@ -1146,9 +1146,12 @@ func TestAwaitRuntime(t *testing.T) {
 		{name: "no free worker past the bound", answers: []error{errNoFreeWorker}, wantErr: "no free workers available"},
 		{name: "not transient", answers: []error{errActorHeld, status.Error(codes.PermissionDenied, "denied")}, wantResumes: 2, wantErr: "denied"},
 		// A crashed Actor with a snapshot is resumed from it once Substrate
-		// has returned it there; one Substrate refuses to resume is lost.
+		// has returned it there. One Substrate refuses to resume, its sandbox
+		// dead under the runtime, is reverted to that snapshot and resumed
+		// again, once: the conversation goes on from the snapshot.
 		{name: "crashed, returned to its snapshot", crashed: true, answers: []error{errCrashRecovering, errNoFreeWorker, nil}, wantResumes: 3},
-		{name: "crashed for good", crashed: true, answers: []error{errCrashedForGood}, wantResumes: 1, wantErr: "Actor team-a/" + name + " crashed and cannot be resumed", wantLost: true},
+		{name: "crashed, reverted to its snapshot", crashed: true, answers: []error{errCrashedForGood}, wantResumes: 2, wantReverts: 1},
+		{name: "crashed again after the revert", answers: []error{errRestoreCrashed, errRestoreCrashed}, wantResumes: 2, wantReverts: 1, wantErr: "Actor team-a/" + name + " crashed and cannot be resumed", wantLost: true, wantCrash: "crash: " + restoreCrash},
 		{name: "refused, not crashed", answers: []error{errCrashedForGood}, wantResumes: 1, wantErr: "AssignWorker prerequisite not met"},
 		// The first resume of a session restores its template's golden
 		// snapshot. A restore whose runtime never comes up crashes the Actor

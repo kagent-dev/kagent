@@ -322,11 +322,8 @@ func (e *RuntimeLossError) Unwrap() error { return e.Err }
 // to, so every later message would fail the way the last one did, unless the
 // session holds no task: its runtime kept nothing, and the resume reverts the
 // Actor to the snapshot it started from (AwaitRuntime). A crashed
-// Actor that holds an external snapshot is not lost: Substrate returns such an
-// Actor to that snapshot when its crash was the worker going away under it (a
-// drain, a replaced pod, an unreachable ateom), the resume recovers it
-// (AwaitRuntime), and the conversation goes on from the snapshot; a crash
-// Substrate does not recover from is settled by the resume it refuses. The
+// Actor that holds an external snapshot is not lost: the resume returns it to
+// that snapshot (AwaitRuntime), and the conversation goes on from there. The
 // cause, empty while the Actor has not crashed, names the Actor and what became
 // of it, with the crash's message when Substrate recorded one. An answer
 // Substrate cannot give is returned as the error it is: not knowing is not the
@@ -373,14 +370,12 @@ func (w *ActorWorkflow) actorCrash(ctx context.Context, session *apiv1alpha1.Ses
 	if state != ateapipb.ActorState_ACTOR_STATE_CRASHED {
 		return "", false, state, nil
 	}
-	if actor.GetStatus().GetExternalSnapshot().GetSnapshotUri() == "" {
-		untouched, err := w.untouchedRuntime(ctx, session)
-		if err != nil {
-			return "", false, state, err
-		}
-		if !untouched {
-			return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, state, nil
-		}
+	revertible, err := w.revertible(ctx, session, actor)
+	if err != nil {
+		return "", false, state, err
+	}
+	if !revertible {
+		return fmt.Sprintf("Actor %s/%s crashed with no snapshot to return to", atespace, name), true, state, nil
 	}
 	cause := fmt.Sprintf("Actor %s/%s crashed", atespace, name)
 	if message := actor.GetStatus().GetCrash().GetMessage(); message != "" {
@@ -389,10 +384,15 @@ func (w *ActorWorkflow) actorCrash(ctx context.Context, session *apiv1alpha1.Ses
 	return cause, false, state, nil
 }
 
-// untouchedRuntime reports whether the session holds no task, so its runtime
-// was given nothing to keep: a revert returns its Actor to the snapshot it
-// started from, its template's golden or a fork's tag, and loses nothing.
-func (w *ActorWorkflow) untouchedRuntime(ctx context.Context, session *apiv1alpha1.Session) (bool, error) {
+// revertible reports whether a revert returns the session's crashed Actor to
+// a snapshot the conversation goes on from: the external snapshot it holds, the
+// last one it suspended to or the template's golden it started from, or, for an
+// Actor without one, the snapshot it started from when the session holds no
+// task, so its runtime was given nothing to keep.
+func (w *ActorWorkflow) revertible(ctx context.Context, session *apiv1alpha1.Session, actor *ateapipb.Actor) (bool, error) {
+	if actor.GetStatus().GetExternalSnapshot().GetSnapshotUri() != "" {
+		return true, nil
+	}
 	has, err := w.store.HasSessionTasks(ctx, session.GetId())
 	if err != nil {
 		return false, fmt.Errorf("check session tasks: %w", err)
@@ -404,19 +404,17 @@ func (w *ActorWorkflow) untouchedRuntime(ctx context.Context, session *apiv1alph
 // that it cannot yet (resumeLater): the worker pool rolls, another operation
 // holds the Actor, such as a repoint onto a newer template, or Substrate is
 // returning the crashed Actor to its snapshot, and each finishes on its own,
-// after which the resume goes through. The wait is bounded by busyWait. A
-// crashed Actor whose resume Substrate refuses (FailedPrecondition, the Actor
-// still crashed) is lost: Substrate recovers a crash its worker's departure
-// caused and refuses the rest, a crash on a live worker for one, and the
-// answer is a RuntimeLossError with the cause for the session to record. Any
-// other answer, or an Actor Substrate still defers at the bound, is returned
-// as the error it is.
+// after which the resume goes through. The wait is bounded by busyWait.
 //
-// A session that holds no task gave its runtime nothing to keep, so its
-// crashed Actor is reverted to the snapshot it started from and resumed once
-// more: a restore of the template's golden snapshot that never brings the
-// runtime up crashes the Actor on a conversation's first turn, and the
-// conversation goes on. A second crash is the loss above.
+// Substrate refuses to resume a crashed Actor (FailedPrecondition, the Actor
+// still crashed): a sandbox that died under its runtime, a restore whose
+// runtime never came up. Such an Actor is reverted (RevertActor) and resumed
+// once more when the revert returns it to a snapshot the conversation goes on
+// from (revertible): the turn the crash ended is gone, the conversation is
+// not. A second crash, or a crashed Actor with nothing to return to, is lost:
+// the answer is a RuntimeLossError with the cause for the session to record.
+// Any other answer, or an Actor Substrate still defers at the bound, is
+// returned as the error it is.
 func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.Session) error {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
@@ -443,12 +441,12 @@ func (w *ActorWorkflow) AwaitRuntime(ctx context.Context, session *apiv1alpha1.S
 		}
 		crash := actor.GetStatus().GetCrash().GetMessage()
 		if !reverted {
-			untouched, taskErr := w.untouchedRuntime(ctx, session)
+			revertible, taskErr := w.revertible(ctx, session, actor)
 			if taskErr != nil {
 				return errors.Join(err, taskErr)
 			}
-			if untouched {
-				logging.FromContext(ctx).WarnContext(ctx, "the crashed Actor of a session without a task is reverted and resumed again",
+			if revertible {
+				logging.FromContext(ctx).WarnContext(ctx, "the crashed Actor is reverted to its snapshot and resumed again",
 					"session_id", session.GetId(), "actor", atespace+"/"+name, "crash", crash)
 				if _, revertErr := w.actors.RevertActor(ctx, atespace, name); revertErr != nil {
 					return errors.Join(err, fmt.Errorf("revert Actor %s/%s: %w", atespace, name, revertErr))

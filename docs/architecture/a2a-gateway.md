@@ -120,14 +120,15 @@ to; the [lifecycle workflow](runtime-and-lifecycle.md)), therefore makes the
 gateway resume the Actor itself, waiting while ate-api gives one of those
 answers (backoff from 500 ms to 5 s, at most two minutes), and run the send
 once more. A crashed Actor whose resume Substrate refuses (`FailedPrecondition`,
-the Actor still crashed: a crash on a live worker, which Substrate does not
-recover from) is lost at that resume: the session records the loss as it would
-for a missing Actor, the send ends with it, and later sends are refused with it
-without a dial. A session that holds no task is the exception: its runtime kept
-nothing, so the wait reverts its crashed Actor to the snapshot it started from
-and resumes it once more, and only a second crash is the loss; a
-conversation's first send survives a golden restore whose runtime never came
-up. Any other answer, or an Actor Substrate still cannot resume at
+the Actor still crashed: a crash on a live worker, such as a sandbox that died
+under its runtime or a golden restore whose runtime never came up) is reverted
+by the wait to the snapshot it holds (Substrate's `RevertActor`) and resumed
+once more, and the conversation goes on from that snapshot. An Actor without
+one is reverted only when its session holds no task, whose runtime kept
+nothing. A second crash, or a crashed Actor with nothing to return to, is lost
+at that resume: the session records the loss as it would for a missing Actor,
+the send ends with it, and later sends are refused with it without a dial. Any
+other answer, or an Actor Substrate still cannot resume at
 the bound, keeps the retryable refusal. The gateway waits once per turn, and
 holds no dispatch reservation while it waits. An explicit `ResumeSession` waits
 the same way within its attempt.
@@ -200,10 +201,10 @@ crashed Actor saves nothing more for the turn, whether or not it comes back,
 so the turn ends `FAILED` at once rather than waiting for a boundary that never
 comes. A missing Actor, or one crashed without a snapshot to return to, is a
 lost runtime: the turn ends with the loss's message, the session records the
-loss, and the send is answered with it. A crashed Actor Substrate returns to
-its snapshot ends the turn with the crash's message, the session stays `READY`,
-the send is answered with the ended turn, and the next send resumes the Actor
-from its snapshot. Substrate marks the Actor crashed only once it notices the
+loss, and the send is answered with it. A crashed Actor that holds a snapshot
+ends the turn with the crash's message, the session stays `READY`, the send is
+answered with the ended turn, and the next send returns the Actor to its
+snapshot and resumes it. Substrate marks the Actor crashed only once it notices the
 worker is gone, so an Actor still `RUNNING` is asked about again, every second
 for at most 15 seconds. An Actor that has not crashed by then, or whose state
 cannot be read, keeps the turn, which the stalled-turn sweep ends if the
