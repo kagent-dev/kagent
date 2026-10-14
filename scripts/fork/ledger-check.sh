@@ -28,9 +28,9 @@ check_pin() {
   chart=$(sed -n 's/^SUBSTRATE_VERSION=//p' <<<"$pins")
   module=$(sed -n 's/^SUBSTRATE_MODULE_VERSION=//p' <<<"$pins")
   [ -n "$chart" ] && [ -n "$module" ] || { echo "ERROR: cannot read the Substrate pin from the Makefile" >&2; exit 1; }
-  /usr/bin/grep -qF "| Substrate version the pin runs with | \`${chart}\` " "$fork" ||
+  grep -qF "| Substrate version the pin runs with | \`${chart}\` " "$fork" ||
     problems+=("the \"Substrate version the pin runs with\" row of ${fork} does not open with the charts' SUBSTRATE_VERSION \`${chart}\`")
-  /usr/bin/grep -F "| Substrate the pin runs with |" "$fork" | /usr/bin/grep -qF "github.com/giantswarm/substrate ${module}" ||
+  grep -F "| Substrate the pin runs with |" "$fork" | grep -qF "github.com/giantswarm/substrate ${module}" ||
     problems+=("the \"Substrate the pin runs with\" row of ${fork} does not name the go.mod replace target github.com/giantswarm/substrate ${module}")
 }
 
@@ -42,7 +42,7 @@ check_releases() {
     [[ "$version" =~ $stable ]] || continue
     [ "$(printf '%s\n%s\n' "$ledger_from" "$version" | sort -V | head -1)" = "$ledger_from" ] || continue
     [ "$(printf '%s\n%s\n' "$version" "$release" | sort -V | head -1)" = "$version" ] && [ "$version" != "$release" ] || continue
-    /usr/bin/grep -qF "| \`${version}\` | \`v${version}\` " "$fork" ||
+    grep -qF "| \`${version}\` | \`v${version}\` " "$fork" ||
       problems+=("the Releases table of ${fork} has no row for ${version}")
   done < <(git tag -l 'v*')
 }
