@@ -2793,6 +2793,7 @@ type ADKRuntimeConfig struct {
 	BashVenvPath     string                  `protobuf:"bytes,10,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
 	FileSearchTools  bool                    `protobuf:"varint,11,opt,name=file_search_tools,json=fileSearchTools,proto3" json:"file_search_tools,omitempty"`
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,12,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
+	A2ARetry         *A2ARetryConfig         `protobuf:"bytes,13,opt,name=a2a_retry,json=a2aRetry,proto3" json:"a2a_retry,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2907,6 +2908,13 @@ func (x *ADKRuntimeConfig) GetFileSearchTools() bool {
 func (x *ADKRuntimeConfig) GetTelemetry() *TelemetryConfig {
 	if x != nil {
 		return x.Telemetry
+	}
+	return nil
+}
+
+func (x *ADKRuntimeConfig) GetA2ARetry() *A2ARetryConfig {
+	if x != nil {
+		return x.A2ARetry
 	}
 	return nil
 }
@@ -3228,7 +3236,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x1d\n" +
 	"\n" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x16\n" +
-	"\x06region\x18\x05 \x01(\tR\x06region\"\x8a\a\n" +
+	"\x06region\x18\x05 \x01(\tR\x06region\"\xc9\a\n" +
 	"\x10ADKRuntimeConfig\x12J\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\x0fcontrolPlaneUrl\x12?\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\n" +
@@ -3244,7 +3252,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	" \x01(\tR\fbashVenvPath\x12*\n" +
 	"\x11file_search_tools\x18\v \x01(\bR\x0ffileSearchTools\x12\xb7\x02\n" +
 	"\ttelemetry\x18\f \x01(\v2!.kagent.config.v1.TelemetryConfigB\xf5\x01\xbaH\xf1\x01\xba\x01\xed\x01\n" +
-	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetryB\a\n" +
+	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12=\n" +
+	"\ta2a_retry\x18\r \x01(\v2 .kagent.config.v1.A2ARetryConfigR\ba2aRetryB\a\n" +
 	"\x05_portB\x15\n" +
 	"\x13_max_content_lengthBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
 
@@ -3307,6 +3316,7 @@ var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
 	(*TokenPropagationConfig)(nil),     // 43: kagent.config.v1.TokenPropagationConfig
 	(*TelemetryConfig)(nil),            // 44: kagent.config.v1.TelemetryConfig
+	(*A2ARetryConfig)(nil),             // 45: kagent.config.v1.A2ARetryConfig
 }
 var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	35, // 0: kagent.config.v1.ADKConfig.runtime:type_name -> kagent.config.v1.ADKRuntimeConfig
@@ -3365,11 +3375,12 @@ var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	34, // 53: kagent.config.v1.ADKPluginSource.s3:type_name -> kagent.config.v1.ADKPluginS3Source
 	43, // 54: kagent.config.v1.ADKRuntimeConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
 	44, // 55: kagent.config.v1.ADKRuntimeConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	56, // [56:56] is the sub-list for method output_type
-	56, // [56:56] is the sub-list for method input_type
-	56, // [56:56] is the sub-list for extension type_name
-	56, // [56:56] is the sub-list for extension extendee
-	0,  // [0:56] is the sub-list for field type_name
+	45, // 56: kagent.config.v1.ADKRuntimeConfig.a2a_retry:type_name -> kagent.config.v1.A2ARetryConfig
+	57, // [57:57] is the sub-list for method output_type
+	57, // [57:57] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_adk_proto_init() }

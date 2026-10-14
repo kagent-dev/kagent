@@ -22,6 +22,9 @@ func TestSharedRuntimeContract(t *testing.T) {
 	require.False(t, cfg.TokenPropagation.Enabled)
 	require.False(t, cfg.Telemetry.CaptureContent)
 	require.Equal(t, int64(1500), cfg.Telemetry.Traces.Timeout.AsDuration().Milliseconds())
+	require.False(t, cfg.A2ARetry.Enabled)
+	require.Equal(t, uint32(3), cfg.A2ARetry.GetMaxAttempts())
+	require.Equal(t, int64(250), cfg.A2ARetry.BaseDelay.AsDuration().Milliseconds())
 	root := &adk.Config{Runtime: &cfg, Agent: &adk.AgentConfig{SubAgents: []*adk.AgentConfig{{}}}}
 	require.NoError(t, protovalidate.Validate(root))
 	require.Same(t, &cfg, adk.ProcessConfig(root))
@@ -36,6 +39,8 @@ func TestRuntimeDefaultsAndValidation(t *testing.T) {
 		`{"token_propagation":{"resources":[""]}}`, `{"telemetry":{"max_capture_bytes":-1}}`,
 		`{"telemetry":{"resource_attributes":{"service.name":"shared"}}}`,
 		`{"telemetry":{"resource_attributes":{"service.namespace":"shared"}}}`,
+		`{"a2a_retry":{"max_attempts":0}}`, `{"a2a_retry":{"max_attempts":11}}`,
+		`{"a2a_retry":{"base_delay":"0s"}}`, `{"a2a_retry":{"base_delay":"61s"}}`,
 	} {
 		cfg = adk.RuntimeConfig{}
 		require.NoError(t, protojson.Unmarshal([]byte(data), &cfg))

@@ -17,6 +17,9 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 // roundTripFunc adapts a function to the http.RoundTripper interface.
@@ -273,27 +276,27 @@ func TestWithRetryTransport(t *testing.T) {
 	custom := roundTripFunc(func(*http.Request) (*http.Response, error) { return okResponse(), nil })
 	for _, test := range []struct {
 		name      string
-		env       map[string]string
+		cfg       *adk.A2ARetryConfig
 		transport http.RoundTripper
 		wantWrap  bool
 		wantSteps int
 		wantDelay time.Duration
 	}{
 		{name: "disabled by default"},
-		{name: "explicitly disabled", env: map[string]string{"KAGENT_A2A_RETRY_ENABLED": "false"}},
+		{name: "explicitly disabled", cfg: &adk.A2ARetryConfig{Enabled: false, MaxAttempts: new(uint32(5))}},
 		{
 			name:      "default transport",
-			env:       map[string]string{"KAGENT_A2A_RETRY_ENABLED": "true"},
+			cfg:       &adk.A2ARetryConfig{Enabled: true},
 			wantWrap:  true,
 			wantSteps: defaultRetryMaxAttempts,
 			wantDelay: defaultRetryBaseDelay,
 		},
 		{
 			name: "configured",
-			env: map[string]string{
-				"KAGENT_A2A_RETRY_ENABLED":      "true",
-				"KAGENT_A2A_RETRY_MAX_ATTEMPTS": "5",
-				"KAGENT_A2A_RETRY_BASE_DELAY":   "10ms",
+			cfg: &adk.A2ARetryConfig{
+				Enabled:     true,
+				MaxAttempts: new(uint32(5)),
+				BaseDelay:   durationpb.New(10 * time.Millisecond),
 			},
 			transport: custom,
 			wantWrap:  true,
@@ -302,11 +305,8 @@ func TestWithRetryTransport(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			for k, v := range test.env {
-				t.Setenv(k, v)
-			}
 			c := &http.Client{Transport: test.transport, Timeout: 5 * time.Second}
-			wrapped := withRetryTransport(c)
+			wrapped := withRetryTransport(c, test.cfg)
 			if !test.wantWrap {
 				if wrapped != c {
 					t.Fatal("client changed while retry is disabled")

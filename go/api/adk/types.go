@@ -55,6 +55,7 @@ type AgentCompressionConfig = configv1.ADKCompressionConfig
 type OutputConfig = configv1.ADKOutputConfig
 type RuntimeConfig = configv1.ADKRuntimeConfig
 type TokenPropagationConfig = configv1.TokenPropagationConfig
+type A2ARetryConfig = configv1.A2ARetryConfig
 
 const (
 	ModelTypeOpenAI           = "openai"

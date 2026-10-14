@@ -21,6 +21,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -215,15 +216,14 @@ type remoteA2AResponse struct {
 //
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
 // If httpClient is nil, a default client is created. The client's transport
-// is optionally wrapped with retryTransport (opt-in via
-// KAGENT_A2A_RETRY_ENABLED), which only resends requests that cannot have
-// reached the agent, and then with otelhttp to propagate W3C trace context
-// to subagents.
-func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken, isolateSessions bool) (tool.Tool, error) {
+// is optionally wrapped with retryTransport (opt-in via retry.enabled), which
+// only resends requests that cannot have reached the agent, and then with
+// otelhttp to propagate W3C trace context to subagents.
+func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken, isolateSessions bool, retry *adk.A2ARetryConfig) (tool.Tool, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	httpClient = withRetryTransport(httpClient)
+	httpClient = withRetryTransport(httpClient, retry)
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
 		name:            name,

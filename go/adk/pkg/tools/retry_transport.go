@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-// Fallback values for env.KagentA2ARetryMaxAttempts and
-// env.KagentA2ARetryBaseDelay.
+// Fallback values for unset A2ARetryConfig max_attempts and base_delay.
 const (
 	defaultRetryMaxAttempts = 3
 	defaultRetryBaseDelay   = 250 * time.Millisecond
@@ -168,23 +168,27 @@ func isIdempotentMethod(method string) bool {
 }
 
 // withRetryTransport returns a shallow copy of c whose transport applies
-// retryTransport, or c unchanged when KAGENT_A2A_RETRY_ENABLED is false.
+// retryTransport, or c unchanged when retry is not enabled.
 //
 // Composed before withOTelTransport so one logical A2A call produces one
 // span, whatever retries happen underneath.
-func withRetryTransport(c *http.Client) *http.Client {
-	if !env.KagentA2ARetryEnabled.Get() {
+func withRetryTransport(c *http.Client, cfg *adk.A2ARetryConfig) *http.Client {
+	if !cfg.GetEnabled() {
 		return c
+	}
+	maxAttempts := defaultRetryMaxAttempts
+	if cfg.MaxAttempts != nil {
+		maxAttempts = int(cfg.GetMaxAttempts())
+	}
+	baseDelay := defaultRetryBaseDelay
+	if cfg.BaseDelay != nil {
+		baseDelay = cfg.GetBaseDelay().AsDuration()
 	}
 	cp := *c
 	transport := cp.Transport
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	cp.Transport = newRetryTransport(
-		transport,
-		env.KagentA2ARetryMaxAttempts.Get(),
-		env.KagentA2ARetryBaseDelay.Get(),
-	)
+	cp.Transport = newRetryTransport(transport, maxAttempts, baseDelay)
 	return &cp
 }

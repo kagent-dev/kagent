@@ -171,10 +171,19 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "port": 80,
     "max_content_length": "0",
     "file_search_tools": false,
-    "token_propagation": {"enabled": false}
+    "token_propagation": {"enabled": false},
+    "a2a_retry": {"enabled": true, "max_attempts": 3, "base_delay": "0.250s"}
   }
 }
 ```
+
+`a2a_retry` is read by the Go ADK for outbound remote-agent calls and is
+disabled by default. When enabled, it resends a request only when the connection
+was never established (connection refused, DNS failure), and retries bodyless
+agent card discovery on any connection failure. A send that fails after delivery
+is never resent at the transport level. `max_attempts` (1-10, default 3) counts
+the first attempt; `base_delay` (1ms-60s, default 250ms) doubles after each retry.
+Set it for managed runtimes through `config.runtimeDefaults.a2aRetry`.
 
 Models select exactly one provider, for example:
 
