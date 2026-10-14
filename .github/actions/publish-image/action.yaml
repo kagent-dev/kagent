@@ -33,7 +33,8 @@ runs:
       DOCKER_BUILDER: docker buildx build
       DOCKER_REGISTRY: ghcr.io
     run: |
-      export DOCKER_BUILD_ARGS="--push --platform linux/amd64,linux/arm64 --metadata-file $RUNNER_TEMP/$IMAGE.json"
+      export DOCKER_BUILD_ARGS="--push --platform linux/amd64,linux/arm64"
+      export RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP"
       make "build-$IMAGE"
   - uses: actions/upload-artifact@v7
     if: contains(fromJSON('["golang-adk", "claude-harness", "codex-harness"]'), inputs.image)

@@ -503,7 +503,7 @@ helm-version: helm-cleanup helm-tools
 
 .PHONY: helm-dev
 helm-dev: ## Prepare development charts with the images published by local builds
-helm-dev: build-golang-adk build-claude-harness build-codex-harness
+	@test -d "$(RUNTIME_BUILD_METADATA_DIR)" || { echo "Missing runtime image metadata. Run make build before preparing development charts." >&2; exit 1; }
 	bash scripts/harness-image-catalog.sh "$(VERSION)" "$(RUNTIME_BUILD_METADATA_DIR)" "$(GOLANG_ADK_IMG)" "$(CLAUDE_HARNESS_IMG)" "$(CODEX_HARNESS_IMG)" > "$(RUNTIME_BUILD_METADATA_DIR)/builtin-harness-images.json"
 	mkdir -p "$(HELM_SOURCE_DIR)/kagent/files"
 	cp "$(RUNTIME_BUILD_METADATA_DIR)/builtin-harness-images.json" "$(HELM_SOURCE_DIR)/kagent/files/builtin-harness-images.json"

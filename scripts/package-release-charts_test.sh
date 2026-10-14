@@ -131,9 +131,13 @@ cat > "$scratch/bin/container-fixture" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 runtime="${0##*/}"
+echo "$runtime $*" >> "$CONTAINER_LOG"
 command="$1"
 shift
 if [[ "$runtime" == docker ]]; then
+  if [[ "$command" == buildx && "$1" != build ]]; then
+    exit 0
+  fi
   [[ "$command" == buildx && "$1" == build ]]
   shift
 else
@@ -166,9 +170,15 @@ chmod +x "$scratch/bin/container-fixture"
 for runtime in docker podman; do
   ln -s container-fixture "$scratch/bin/$runtime"
   check="development chart defaults with $runtime"
-  PATH="$scratch/bin:$PATH" release helm-dev -o buildx-create BUILD_PROTO_GENERATE= \
+  export CONTAINER_LOG="$scratch/container.log"
+  PATH="$scratch/bin:$PATH" release build-golang-adk build-claude-harness build-codex-harness -o buildx-create BUILD_PROTO_GENERATE= \
     CONTAINER_RUNTIME="$runtime" DOCKER_REGISTRY=localhost:5001 DOCKER_REPO=dev/custom \
     CLAUDE_HARNESS_IMG=other.example/team/claude:dev CODEX_HARNESS_IMAGE_NAME=my-codex
+  cp "$CONTAINER_LOG" "$scratch/container-before.log"
+  PATH="$scratch/bin:$PATH" release helm-dev \
+    CONTAINER_RUNTIME="$runtime" DOCKER_REGISTRY=localhost:5001 DOCKER_REPO=dev/custom \
+    CLAUDE_HARNESS_IMG=other.example/team/claude:dev CODEX_HARNESS_IMAGE_NAME=my-codex
+  diff "$scratch/container-before.log" "$CONTAINER_LOG"
   for chart in "$source_dir/kagent" "$output_dir/kagent-$version.tgz"; do
     render_images "$chart"
     jq -e --arg version "$version" \
@@ -180,5 +190,27 @@ for runtime in docker podman; do
     ' "$scratch/rendered.json" >/dev/null
   done
 done
+
+check="publish action writes metadata to the artifact upload path"
+for image in golang-adk claude-harness codex-harness; do
+  rm "$metadata_dir/$image.json"
+  PATH="$scratch/bin:$PATH" CI=true AWK=awk RUNNER_TEMP="$metadata_dir" IMAGE="$image" \
+    VERSION="$version" DOCKER_BUILDER='docker buildx build' \
+    bash -c 'cd "$1"; eval "$2"' _ "$root" \
+    "$(yq '.runs.steps[] | select(.name == "Build and push image") | .run' "$root/.github/actions/publish-image/action.yaml")" > "$scratch/command.log" 2>&1
+  jq -e '.["containerimage.digest"] | startswith("sha256:")' "$metadata_dir/$image.json" >/dev/null
+done
+
+check="dry-run chart install does not build images"
+PATH="$scratch/bin:$PATH" release -n helm-test-install
+if rg 'docker build|podman build|docker push|podman push' "$scratch/command.log"; then
+  exit 1
+fi
+
+check="development chart preparation reports missing metadata"
+if release helm-dev RUNTIME_IMAGE_METADATA_DIR="$scratch/missing"; then
+  exit 1
+fi
+rg -q 'Run make build' "$scratch/command.log"
 
 echo 'Release and development chart packaging tests passed.'
