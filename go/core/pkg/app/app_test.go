@@ -181,6 +181,33 @@ func TestRunRejectsInvalidConfigBeforeIO(t *testing.T) {
 	require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "quiescence_recovery_interval")
 }
 
+func TestRunRejectsInvalidRuntimeTelemetryBeforeIO(t *testing.T) {
+	for _, endpoint := range []string{"http://:4317", "https://%20"} {
+		for _, test := range []struct {
+			name      string
+			telemetry *apiv1.TelemetryConfig
+		}{
+			{name: "traces", telemetry: &apiv1.TelemetryConfig{Traces: &apiv1.OTLPConfig{Endpoint: endpoint}}},
+			{name: "metrics", telemetry: &apiv1.TelemetryConfig{Metrics: &apiv1.OTLPConfig{Endpoint: endpoint}}},
+			{name: "logs", telemetry: &apiv1.TelemetryConfig{Logs: &apiv1.OTLPConfig{Endpoint: endpoint}}},
+		} {
+			t.Run(test.name+"/"+endpoint, func(t *testing.T) {
+				cfg := &apiv1.ControllerConfig{
+					Database: &apiv1.DatabaseConfig{
+						SkipMigrations: true,
+						ReadWrite: &apiv1.DatabaseLoginConfig{
+							UrlFile: filepath.Join(t.TempDir(), "missing-secret"), Role: "kagent_readwrite",
+						},
+					},
+					RuntimeDefaults: &apiv1.RuntimeDefaultsConfig{Telemetry: test.telemetry},
+				}
+				require.EqualError(t, Run(t.Context(), cfg, Options{}),
+					"runtimeDefaults: telemetry."+test.name+".endpoint must be an HTTP(S) URL")
+			})
+		}
+	}
+}
+
 // With migrations skipped the owner login is never read, so Run gets past its
 // configuration and fails only when the read/write login cannot connect.
 func TestRunSkippingMigrationsNeedsNoOwner(t *testing.T) {

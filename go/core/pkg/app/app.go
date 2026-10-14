@@ -159,6 +159,9 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
+	if err := config.Telemetry(cfg.GetRuntimeDefaults().GetTelemetry()).Validate(); err != nil {
+		return fmt.Errorf("runtimeDefaults: %w", err)
+	}
 	// The read/write login serves every runtime query and verifies migrations
 	// when they are skipped. The owner login only creates the schema and migrates.
 	readWriteConfig, err := databasePoolConfig("database.readWrite", cfg.GetDatabase().GetReadWrite())
