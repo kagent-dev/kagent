@@ -206,7 +206,7 @@ type AnthropicConfig struct {
 
 // OpenAIConfig contains OpenAI-specific configuration options
 //
-// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
+// +kubebuilder:validation:AtMostOneOf=maxTokens;maxCompletionTokens
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
 	// +optional

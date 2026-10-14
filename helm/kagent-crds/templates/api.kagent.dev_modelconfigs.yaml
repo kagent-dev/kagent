@@ -535,8 +535,10 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-validations:
-                - message: maxTokens and maxCompletionTokens are mutually exclusive
-                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+                - message: at most one of the fields in [maxTokens maxCompletionTokens]
+                    may be set
+                  rule: (has(self.maxTokens)?1:0)+(has(self.maxCompletionTokens)?1:0)
+                    <= 1
               provider:
                 default: OpenAI
                 description: The provider of the model

@@ -65,6 +65,7 @@ For SQL and store changes, follow [database guidance](../../../go/core/internal/
 
 ## CRD changes
 
+- Follow [Kubernetes API conventions](../../../docs/kubernetes-api.md) for field presence, validation markers, and unions.
 - Modify only the intended v1alpha3 type and its validation.
 - Use explicit typed fields; avoid extension maps and speculative options.
 - Regenerate deepcopy code, CRDs, Helm CRDs, and RBAC when affected.

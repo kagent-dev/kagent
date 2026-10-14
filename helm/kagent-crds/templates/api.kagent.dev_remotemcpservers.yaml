@@ -161,9 +161,9 @@ spec:
                   - name
                   type: object
                   x-kubernetes-validations:
-                  - message: Exactly one of value or valueFrom must be specified
-                    rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
-                      && has(self.valueFrom))
+                  - message: exactly one of the fields in [value valueFrom] must be
+                      set
+                    rule: (has(self.value)?1:0)+(has(self.valueFrom)?1:0) == 1
                 type: array
               protocol:
                 default: STREAMABLE_HTTP

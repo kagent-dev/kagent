@@ -150,13 +150,14 @@ spec:
                         type: integer
                     type: object
                     x-kubernetes-validations:
-                    - message: compactionInterval or tokenThreshold must be specified
-                      rule: has(self.compactionInterval) || has(self.tokenThreshold)
                     - message: tokenThreshold and eventRetentionSize must be specified
                         together
                       rule: has(self.tokenThreshold) == has(self.eventRetentionSize)
                     - message: overlapSize requires compactionInterval
                       rule: '!has(self.overlapSize) || has(self.compactionInterval)'
+                    - message: at least one of the fields in [compactionInterval tokenThreshold]
+                        must be set
+                      rule: has(self.compactionInterval)||has(self.tokenThreshold)
                   memory:
                     description: Memory enables long-term memory for agents using
                       this Harness.
@@ -252,14 +253,15 @@ spec:
             - substrate
             type: object
             x-kubernetes-validations:
-            - message: exactly one of kagent, codex, claude, or byo must be specified
-              rule: '(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude)
-                ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1'
             - message: BYO harnesses must specify workload.command
               rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command)
                 && size(self.workload.command) > 0)'
             - message: BYO harnesses must specify workload.image
               rule: '!has(self.byo) || (has(self.workload) && has(self.workload.image))'
+            - message: exactly one of the fields in [kagent codex claude byo] must
+                be set
+              rule: (has(self.kagent)?1:0)+(has(self.codex)?1:0)+(has(self.claude)?1:0)+(has(self.byo)?1:0)
+                == 1
           status:
             description: HarnessStatus reports controller-derived capabilities and
               current health.

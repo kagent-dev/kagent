@@ -176,7 +176,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "Harness requires one runtime",
 			object:     validHarness(namespace, "harness-no-runtime", HarnessSpec{}),
-			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
+			wantReject: "exactly one of the fields in [kagent codex claude byo] must be set",
 		},
 		{
 			name: "Harness rejects multiple runtimes",
@@ -184,7 +184,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Kagent: &KagentHarness{},
 				Codex:  &CodexHarness{},
 			}),
-			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
+			wantReject: "exactly one of the fields in [kagent codex claude byo] must be set",
 		},
 		{
 			name: "Harness rejects tag-only image",
@@ -233,7 +233,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "AgentTemplate tool requires one source",
 			object:     validAgentTemplate(namespace, "template-empty-tool", []ToolBinding{{}}),
-			wantReject: "exactly one of mcp or subAgent must be specified",
+			wantReject: "exactly one of the fields in [mcp subAgent] must be set",
 		},
 		{
 			name: "AgentTemplate tool rejects two sources",
@@ -246,7 +246,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					Name: "helper", Description: "delegate work", TemplateRef: &corev1.LocalObjectReference{Name: "helper"},
 				},
 			}}),
-			wantReject: "exactly one of mcp or subAgent must be specified",
+			wantReject: "exactly one of the fields in [mcp subAgent] must be set",
 		},
 		{
 			name: "AgentTemplate accepts a subagent template reference",
@@ -282,7 +282,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			object: compactionHarness(namespace, "compaction-no-strategy", KagentHarnessCompaction{
 				Summarizer: &KagentHarnessSummarizer{PromptTemplate: "Summarize.\n\n{conversation_history}"},
 			}),
-			wantReject: "compactionInterval or tokenThreshold must be specified",
+			wantReject: "at least one of the fields in [compactionInterval tokenThreshold] must be set",
 		},
 		{
 			name:       "Harness compaction pairs tokenThreshold with eventRetentionSize",
@@ -410,13 +410,13 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			both.Spec.Template = AgentTemplateSource{
 				Inline: &AgentTemplateSpec{}, Ref: &corev1.LocalObjectReference{Name: "behavior"},
 			}
-			require.ErrorContains(t, cl.Create(ctx, both), "exactly one of inline or ref")
+			require.ErrorContains(t, cl.Create(ctx, both), "exactly one of the fields in [inline ref] must be set")
 
 			neither := agent.DeepCopy()
 			neither.Name += "-neither"
 			neither.ResourceVersion, neither.UID = "", ""
 			neither.Spec.Template = AgentTemplateSource{}
-			require.ErrorContains(t, cl.Create(ctx, neither), "exactly one of inline or ref")
+			require.ErrorContains(t, cl.Create(ctx, neither), "exactly one of the fields in [inline ref] must be set")
 		})
 	}
 	for _, field := range []string{"template", "harnessRef"} {

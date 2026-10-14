@@ -40,7 +40,7 @@ type KagentHarness struct {
 // (tokenThreshold, eventRetentionSize) bounds the prompt by summarizing
 // everything but the most recent events once the prompt grows past a token
 // count. At least one strategy must be configured.
-// +kubebuilder:validation:XValidation:rule="has(self.compactionInterval) || has(self.tokenThreshold)",message="compactionInterval or tokenThreshold must be specified"
+// +kubebuilder:validation:AtLeastOneOf=compactionInterval;tokenThreshold
 // +kubebuilder:validation:XValidation:rule="has(self.tokenThreshold) == has(self.eventRetentionSize)",message="tokenThreshold and eventRetentionSize must be specified together"
 // +kubebuilder:validation:XValidation:rule="!has(self.overlapSize) || has(self.compactionInterval)",message="overlapSize requires compactionInterval"
 type KagentHarnessCompaction struct {
@@ -131,7 +131,7 @@ type HarnessWorkload struct {
 
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
-// +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
+// +kubebuilder:validation:ExactlyOneOf=kagent;codex;claude;byo
 // +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.command) && size(self.workload.command) > 0)",message="BYO harnesses must specify workload.command"
 // +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.image))",message="BYO harnesses must specify workload.image"
 type HarnessSpec struct {

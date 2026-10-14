@@ -33,7 +33,7 @@ import (
 // TestOpenAIConfigValidation pins the OpenAIConfig admission rules against a
 // real kube-apiserver loaded with the shipped CRDs:
 //   - maxTokens and maxCompletionTokens are mutually exclusive (type-level
-//     XValidation), because native OpenAI reasoning models reject max_tokens
+//     AtMostOneOf), because native OpenAI reasoning models reject max_tokens
 //     while some OpenAI-compatible endpoints reject max_completion_tokens, so
 //     sending both risks hard 400s.
 //   - both fields carry Minimum=1, so a non-positive value is rejected at
@@ -77,7 +77,7 @@ func TestOpenAIConfigValidation(t *testing.T) {
 					},
 				}
 			},
-			wantReject: "maxTokens and maxCompletionTokens are mutually exclusive",
+			wantReject: "at most one of the fields in [maxTokens maxCompletionTokens] may be set",
 		},
 		{
 			name: "maxTokens below minimum rejected",

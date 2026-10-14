@@ -55,7 +55,7 @@ type AgentSpec struct {
 }
 
 // AgentTemplateSource selects portable behavior inline or by local reference.
-// +kubebuilder:validation:XValidation:rule="has(self.inline) != has(self.ref)",message="exactly one of inline or ref must be specified"
+// +kubebuilder:validation:ExactlyOneOf=inline;ref
 type AgentTemplateSource struct {
 	// Inline defines the Agent's portable behavior directly. It cannot be set
 	// together with Ref.
