@@ -9,6 +9,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -28,7 +29,7 @@ type defaultCredentialBinder struct{ uri string }
 
 var _ egressext.CredentialBinder = defaultCredentialBinder{}
 
-func (d defaultCredentialBinder) Bindings(targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
+func (d defaultCredentialBinder) Bindings(_ types.NamespacedName, targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
 	if d.uri == "" {
 		return nil, nil
 	}
@@ -44,6 +45,57 @@ func (d defaultCredentialBinder) Bindings(targets []egressext.CredentialTarget, 
 		added = append(added, egressext.Credential{Origin: target.Origin, Header: header, Prefix: prefix, URI: d.uri})
 	}
 	return added, nil
+}
+
+type agentCredentialBinder map[types.NamespacedName]string
+
+var _ egressext.CredentialBinder = agentCredentialBinder(nil)
+
+func (a agentCredentialBinder) Bindings(agent types.NamespacedName, targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
+	return defaultCredentialBinder{uri: a[agent]}.Bindings(agent, targets, existing)
+}
+
+func TestCompileCredentialsUsesRunnableAgentIdentity(t *testing.T) {
+	binder := agentCredentialBinder{
+		{Namespace: "team-a", Name: "researcher"}: "ate-secret://provider.example/team-a/researcher",
+		{Namespace: "team-a", Name: "reviewer"}:   "ate-secret://provider.example/team-a/reviewer",
+		{Namespace: "team-b", Name: "researcher"}: "ate-secret://provider.example/team-b/researcher",
+		{Namespace: "team-b", Name: "reviewer"}:   "ate-secret://provider.example/team-b/reviewer",
+	}
+	for _, namespace := range []string{"team-a", "team-b"} {
+		harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: namespace}, Spec: v1alpha3.HarnessSpec{
+			Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		}}
+		model := modelConfig()
+		model.Namespace = namespace
+		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "shared-behavior", Namespace: namespace}, Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help",
+		}}
+		pool := defaultWorkerPool()
+		pool.Namespace = namespace
+		collections := mockCollections(t, harness, model, template, pool)
+		settings := testRuntimeDefaults()
+		ctx := krt.TestingDummyContext{}
+		compiler := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
+			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings, binder),
+		}, nil)
+		for _, source := range []string{"inline", "reference"} {
+			for _, name := range []string{"researcher", "reviewer"} {
+				t.Run(namespace+"/"+source+"/"+name, func(t *testing.T) {
+					agent := inlineAgent(harness, template)
+					agent.Name = name
+					if source == "reference" {
+						agent.Spec.Template = v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}}
+					}
+					result, err := compiler.CompileAgent(t.Context(), agent)
+					require.NoError(t, err)
+					require.Len(t, result.Credentials, 1)
+					require.Equal(t, binder[types.NamespacedName{Namespace: namespace, Name: name}], result.Credentials[0].URI)
+				})
+			}
+		}
+	}
 }
 
 func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {

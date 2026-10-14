@@ -7,16 +7,17 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
-type credentialBinderFunc func([]egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error)
+type credentialBinderFunc func(types.NamespacedName, []egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error)
 
-func (f credentialBinderFunc) Bindings(targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
-	return f(targets, existing)
+func (f credentialBinderFunc) Bindings(agent types.NamespacedName, targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
+	return f(agent, targets, existing)
 }
 
 var _ egressext.CredentialBinder = credentialBinderFunc(nil)
@@ -28,7 +29,7 @@ func TestEgressCredentialBinderTargets(t *testing.T) {
 		{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: "http://local.example.com/tools"}}},
 	}
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic}).Root}}
-	binder := credentialBinderFunc(func(targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
+	binder := credentialBinderFunc(func(_ types.NamespacedName, targets []egressext.CredentialTarget, existing []egressext.Credential) ([]egressext.Credential, error) {
 		require.Equal(t, []egressext.CredentialTarget{
 			{Origin: "https://api.anthropic.com:443", Header: "x-api-key"},
 			{Origin: "https://api.openai.com:443", Header: "authorization", Prefix: "Bearer "},
@@ -74,14 +75,14 @@ func TestEgressCredentialBinderPreservesExplicitAuthentication(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI})
 			test.configure(input)
-			binder := credentialBinderFunc(func(targets []egressext.CredentialTarget, _ []egressext.Credential) ([]egressext.Credential, error) {
+			binder := credentialBinderFunc(func(_ types.NamespacedName, targets []egressext.CredentialTarget, _ []egressext.Credential) ([]egressext.Credential, error) {
 				require.Empty(t, targets)
 				return nil, nil
 			})
 			_, bindings, _, _, err := CompileCredentials(input, nil, nil, binder)
 			require.NoError(t, err)
 			require.Empty(t, bindings)
-			binder = credentialBinderFunc(func([]egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error) {
+			binder = credentialBinderFunc(func(types.NamespacedName, []egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error) {
 				return []egressext.Credential{{Origin: "https://api.openai.com", Header: "authorization", URI: "ate-secret://provider.example/token"}}, nil
 			})
 			_, bindings, _, _, err = CompileCredentials(input, nil, nil, binder)
@@ -113,7 +114,7 @@ func TestEgressCredentialBinderRejectsInvalidBindings(t *testing.T) {
 			input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token"})
 			binding := base
 			test.change(&binding)
-			binder := credentialBinderFunc(func([]egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error) {
+			binder := credentialBinderFunc(func(types.NamespacedName, []egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error) {
 				return []egressext.Credential{binding}, nil
 			})
 			_, bindings, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")}, binder)
@@ -123,7 +124,7 @@ func TestEgressCredentialBinderRejectsInvalidBindings(t *testing.T) {
 	}
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI})
 	failure := errors.New("binder unavailable")
-	_, bindings, _, _, err := CompileCredentials(input, nil, nil, credentialBinderFunc(func([]egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error) {
+	_, bindings, _, _, err := CompileCredentials(input, nil, nil, credentialBinderFunc(func(types.NamespacedName, []egressext.CredentialTarget, []egressext.Credential) ([]egressext.Credential, error) {
 		return nil, failure
 	}))
 	require.ErrorIs(t, err, failure)
@@ -133,7 +134,7 @@ func TestEgressCredentialBinderRejectsInvalidBindings(t *testing.T) {
 func TestEgressCredentialBinderExtraModels(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI})
 	embedding := &ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "embedding", Namespace: "team"}, Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://embeddings.example.com/v1"}}}}
-	binder := credentialBinderFunc(func(targets []egressext.CredentialTarget, _ []egressext.Credential) ([]egressext.Credential, error) {
+	binder := credentialBinderFunc(func(_ types.NamespacedName, targets []egressext.CredentialTarget, _ []egressext.Credential) ([]egressext.Credential, error) {
 		require.Equal(t, []egressext.CredentialTarget{{Origin: "https://api.openai.com:443", Header: "authorization", Prefix: "Bearer "}, {Origin: "https://embeddings.example.com:443", Header: "authorization", Prefix: "Bearer "}}, targets)
 		return nil, nil
 	})
@@ -168,7 +169,7 @@ func TestEgressCredentialBinderCannotMutateValidationTargets(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI})
-			binder := credentialBinderFunc(func(targets []egressext.CredentialTarget, _ []egressext.Credential) ([]egressext.Credential, error) {
+			binder := credentialBinderFunc(func(_ types.NamespacedName, targets []egressext.CredentialTarget, _ []egressext.Credential) ([]egressext.Credential, error) {
 				require.Len(t, targets, 1)
 				test.change(&targets[0])
 				return []egressext.Credential{{Origin: targets[0].Origin, Header: targets[0].Header, Prefix: targets[0].Prefix, URI: "ate-secret://provider.example/token"}}, nil

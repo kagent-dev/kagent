@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
@@ -33,8 +35,9 @@ func contributeCredentials(input *HarnessInput, models []*ResolvedModelConfig, e
 	for i, binding := range existing {
 		current[i] = egressext.Credential(binding)
 	}
+	agent := types.NamespacedName{Namespace: input.Harness.Namespace, Name: input.AgentName}
 	// Extension mutations must not change the compiler's bindings or validation targets.
-	contributed, err := binder.Bindings(slices.Clone(targets), current)
+	contributed, err := binder.Bindings(agent, slices.Clone(targets), current)
 	if err != nil {
 		return nil, fmt.Errorf("failed to contribute credentials: %w", err)
 	}
