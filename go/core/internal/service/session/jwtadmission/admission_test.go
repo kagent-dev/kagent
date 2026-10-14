@@ -3,6 +3,7 @@ package jwtadmission
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -304,12 +305,23 @@ func TestNewRequiresHTTPSUnlessHTTPIsAllowed(t *testing.T) {
 
 	_, err := New(Config{JWKSURL: plain, Issuer: issuer, Audience: audience}, nil)
 	require.ErrorContains(t, err, "plain http")
+	require.ErrorIs(t, err, ErrPlainHTTP)
 
 	_, err = New(Config{JWKSURL: plain, AllowHTTP: true, Issuer: issuer, Audience: audience}, nil)
 	require.NoError(t, err, "http is admitted with the explicit opt-in")
 
 	_, err = New(Config{JWKSURL: secure, Issuer: issuer, Audience: audience}, nil)
 	require.NoError(t, err)
+}
+
+// The admission a refused configuration leaves refuses every grant, valid or
+// not, as a failed precondition carrying the cause.
+func TestRefusedAdmitsNothing(t *testing.T) {
+	signer := newSigner(t, issuer, audience)
+	cause := fmt.Errorf("JWKS URL is plain http: %w", ErrPlainHTTP)
+	_, err := Refused{Cause: cause}.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(err))
+	require.ErrorIs(t, err, ErrPlainHTTP)
 }
 
 // A grant verified against keys fetched over plain http is admitted once http

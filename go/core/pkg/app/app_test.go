@@ -13,6 +13,7 @@ import (
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/session/jwtadmission"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -354,4 +355,40 @@ func TestMergePolicies(t *testing.T) {
 			t.Fatalf("mergePolicies(nil) = %v, %v", merged, err)
 		}
 	})
+}
+
+// A plain http JWKS URL without the opt-in leaves the controller running on an
+// admission that refuses every volume source; any other bad configuration
+// still fails startup.
+func TestSessionVolumeAdmissionRefusesPlainHTTPWithoutStopping(t *testing.T) {
+	setAdmission := func(jwksURL, allowHTTP, issuer string) {
+		t.Setenv(kagentenv.SessionAdmissionJWTJWKSURL.Name(), jwksURL)
+		t.Setenv(kagentenv.SessionAdmissionJWTAllowHTTP.Name(), allowHTTP)
+		t.Setenv(kagentenv.SessionAdmissionJWTIssuer.Name(), issuer)
+		t.Setenv(kagentenv.SessionAdmissionJWTAudience.Name(), "kagent")
+	}
+	const plain = "http://workspace-manager.agent-platform.svc:8080/.well-known/jwks.json"
+
+	setAdmission(plain, "false", "https://workspaces.example.test")
+	admission, err := sessionVolumeAdmission()
+	if err != nil {
+		t.Fatalf("a plain http JWKS URL without the opt-in stopped the controller: %v", err)
+	}
+	if _, ok := admission.(jwtadmission.Refused); !ok {
+		t.Fatalf("admission = %T, want jwtadmission.Refused", admission)
+	}
+
+	setAdmission(plain, "true", "https://workspaces.example.test")
+	admission, err = sessionVolumeAdmission()
+	if err != nil {
+		t.Fatalf("the opted-in plain http JWKS URL: %v", err)
+	}
+	if _, ok := admission.(*jwtadmission.Admission); !ok {
+		t.Fatalf("admission = %T, want *jwtadmission.Admission", admission)
+	}
+
+	setAdmission(plain, "true", "")
+	if _, err := sessionVolumeAdmission(); err == nil {
+		t.Fatal("a partial configuration started the controller")
+	}
 }

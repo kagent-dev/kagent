@@ -58,6 +58,22 @@ type Admission struct {
 	keys             *keySet
 }
 
+// ErrPlainHTTP is New's refusal of a plain http JWKS URL the configuration
+// does not allow.
+var ErrPlainHTTP = errors.New("the keys could be replaced in transit; use https, or allow http explicitly")
+
+// Refused is the admission a configuration New refused leaves the controller
+// with: it refuses every grant with Cause, so a misconfigured admission
+// refuses Session volume sources and stops nothing else.
+type Refused struct {
+	Cause error
+}
+
+// Admit refuses the grant: the installation's admission is misconfigured.
+func (r Refused) Admit(context.Context, string, *apiv1alpha1.SessionVolumeSource, string) (session.Admitted, error) {
+	return session.Admitted{}, serviceerrors.NewFailedPrecondition("this installation's Session admission is misconfigured and admits no volume source", r.Cause)
+}
+
 // New returns the admission for config. It fetches no key until the first
 // grant arrives, so an unreachable issuer never stops the controller.
 func New(config Config, client *http.Client) (*Admission, error) {
@@ -66,7 +82,7 @@ func New(config Config, client *http.Client) (*Admission, error) {
 		return nil, fmt.Errorf("JWKS URL %q is not an absolute https URL", config.JWKSURL)
 	}
 	if location.Scheme == "http" && !config.AllowHTTP {
-		return nil, fmt.Errorf("JWKS URL %q is plain http: the keys could be replaced in transit; use https, or allow http explicitly", config.JWKSURL)
+		return nil, fmt.Errorf("JWKS URL %q is plain http: %w", config.JWKSURL, ErrPlainHTTP)
 	}
 	if config.Issuer == "" || config.Audience == "" {
 		return nil, errors.New("a JWT admission needs an issuer and an audience")

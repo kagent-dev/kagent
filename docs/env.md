@@ -161,7 +161,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
 | `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
 | `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
-| `KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP` | Boolean | `false` | Allow a plain HTTP KAGENT_SESSION_ADMISSION_JWT_JWKS_URL, for an in-cluster issuer that serves no TLS. HTTPS is required by default. |
+| `KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP` | Boolean | `false` | Allow a plain HTTP KAGENT_SESSION_ADMISSION_JWT_JWKS_URL, for an in-cluster issuer that serves no TLS. HTTPS is required by default: a plain HTTP URL without it is logged as an error and every create that names a volume source or carries an admission token is refused; the controller keeps running. |
 | `KAGENT_SESSION_ADMISSION_JWT_AUDIENCE` | String | `(none)` | Required aud of a Session admission grant: this kagent. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL. |
 | `KAGENT_SESSION_ADMISSION_JWT_BROKERS` | String | `(none)` | Comma-separated names of the token brokers the egress gateway knows; a grant whose provider names another is refused. Empty admits any broker name. |
 | `KAGENT_SESSION_ADMISSION_JWT_ISSUER` | String | `(none)` | Required iss of a Session admission grant. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL. |

@@ -12,6 +12,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -582,7 +583,10 @@ func namespaceCache(names []string) map[string]cache.Config {
 
 // sessionVolumeAdmission is the jwt admission the environment configures, nil
 // when it configures none. A partial configuration fails startup rather than
-// leaving volume sources refused by surprise.
+// leaving volume sources refused by surprise. A plain http JWKS URL without
+// KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP is logged and refuses every volume
+// source instead: a consumer that has not set the opt-in yet keeps a running
+// controller and loses only the volume sources.
 func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
 	config := jwtadmission.Config{
 		JWKSURL:   kagentenv.SessionAdmissionJWTJWKSURL.Get(),
@@ -600,7 +604,12 @@ func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
 	}
 	admission, err := jwtadmission.New(config, nil)
 	if err != nil {
-		return nil, fmt.Errorf("configure the Session admission (%s, %s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTAllowHTTP.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
+		err = fmt.Errorf("configure the Session admission (%s, %s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTAllowHTTP.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
+		if errors.Is(err, jwtadmission.ErrPlainHTTP) {
+			slog.Error("the Session admission refuses every volume source", "error", err)
+			return jwtadmission.Refused{Cause: err}, nil
+		}
+		return nil, err
 	}
 	return admission, nil
 }

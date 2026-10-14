@@ -416,8 +416,10 @@ controller:
     # needs no restart), with this iss and aud, naming the caller as sub, the
     # volume and the mounts it allows. Unset, every create that names a volume
     # source is refused. jwksURL must be https: whoever can rewrite the keys in
-    # transit can sign grants. allowHTTP admits a plain http jwksURL, for an
-    # in-cluster issuer that serves no TLS yet. brokers names the token brokers
+    # transit can sign grants; a plain http jwksURL without allowHTTP is logged
+    # by the controller and refuses every volume source. allowHTTP admits a
+    # plain http jwksURL, for an in-cluster issuer that serves no TLS yet.
+    # brokers names the token brokers
     # the egress gateway knows: a grant whose provider names another is
     # refused; empty admits any name.
     admission:
