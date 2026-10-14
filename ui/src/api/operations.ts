@@ -61,7 +61,6 @@ import type {
 import type {
   AgentInstance,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
 import type { Checkpoint } from "./domain/checkpoints";
@@ -279,7 +278,7 @@ export interface OperationMap {
     output: AgentInstanceShare[];
   };
   "agentInstances.shares.create": {
-    input: AgentInstanceRef & { permission: AgentInstanceSharePermission };
+    input: AgentInstanceRef;
     output: CreatedAgentInstanceShare;
   };
 

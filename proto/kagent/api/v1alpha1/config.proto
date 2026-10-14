@@ -85,12 +85,17 @@ message ChartConfig {
 }
 
 // ControllerConfig configures one controller process. Runtime defaults are
-// compiled into the existing harness Go/JSON contracts, not protobuf payloads.
+// compiled into the ADK protobuf contract or native Harness configuration.
 message ControllerConfig {
   option (buf.validate.message).cel = {
-    id: "controller.database_url"
-    message: "database.url_file is required"
-    expression: "has(this.database) && this.database.url_file != ''"
+    id: "controller.database_read_write"
+    message: "database.read_write.url_file and database.read_write.role are required"
+    expression: "has(this.database) && this.database.read_write.url_file != '' && this.database.read_write.role != ''"
+  };
+  option (buf.validate.message).cel = {
+    id: "controller.database_owner"
+    message: "database.owner.url_file and database.owner.role are required unless database.skip_migrations is true"
+    expression: "!has(this.database) || this.database.skip_migrations || (this.database.owner.url_file != '' && this.database.owner.role != '')"
   };
   KubernetesConfig kubernetes = 1;
   ControllerServerConfig server = 2;
@@ -105,6 +110,17 @@ message ControllerConfig {
   LoggingConfig logging = 11;
   TelemetryConfig telemetry = 12;
   RuntimeDefaultsConfig runtime_defaults = 13;
+  HarnessImagesConfig harness_images = 14;
+}
+
+// HarnessImagesConfig supplies release defaults for built-in Harnesses. Empty
+// images disable that default; explicit workload.image values take precedence.
+message HarnessImagesConfig {
+  // When set, this must match the controller release. Empty permits local builds.
+  string release = 1;
+  string kagent = 2 [(buf.validate.field).string.pattern = "^$|^[^\\s@]+@sha256:[a-f0-9]{64}$"];
+  string claude = 3 [(buf.validate.field).string.pattern = "^$|^[^\\s@]+@sha256:[a-f0-9]{64}$"];
+  string codex = 4 [(buf.validate.field).string.pattern = "^$|^[^\\s@]+@sha256:[a-f0-9]{64}$"];
 }
 
 message KubernetesConfig {
@@ -129,14 +145,16 @@ message AuthenticationConfig {
   string user_id_claim = 2;
 }
 
-// DatabaseConfig references a local secret file. The CLI requires the file only
-// for commands which connect to PostgreSQL; the controller always requires it.
+// DatabaseConfig names two PostgreSQL logins. The owner applies migrations; the
+// read/write login serves runtime queries. The CLI's database commands use only
+// the owner and require it only when they connect.
 message DatabaseConfig {
-  string url_file = 1;
-  string role = 2;
+  DatabaseLoginConfig owner = 1;
+  DatabaseLoginConfig read_write = 2;
   bool vector_enabled = 3;
-  // Skip applying migrations at controller startup. The controller still verifies
-  // that all required migrations are applied and fails to start if any are missing.
+  // Skip applying migrations at controller startup. The controller still verifies,
+  // through the read/write login, that all required migrations are applied and
+  // fails to start if any are missing. The owner login is then not needed.
   bool skip_migrations = 4;
   PostgresPoolConfig pool = 5;
   optional string schema = 6 [(buf.validate.field).string = {
@@ -147,6 +165,13 @@ message DatabaseConfig {
     pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
     max_len: 63
   }];
+}
+
+// DatabaseLoginConfig is one login: a local secret file holding its connection
+// string, and the role it assumes after connecting.
+message DatabaseLoginConfig {
+  string url_file = 1;
+  string role = 2;
 }
 
 message PostgresPoolConfig {

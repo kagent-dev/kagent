@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -85,7 +86,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 	}
 	// The Python runtime needs an async SQLite driver; the Go runtime accepts
 	// this URL and strips the driver before opening the same durable database.
-	result.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
+	result.Config.SessionDbUrl = "sqlite+aiosqlite:////data/sessions.db"
 	return result, nil
 }
 
@@ -113,7 +114,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		return nil, err
 	}
 	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = &pluginConfig
+		cfg.AgentPlugins = adk.PluginConfig(pluginConfig)
 	}
 	for _, tool := range input.MCPTools {
 		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
@@ -302,7 +303,7 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 // agentConfigDestinations extracts the network allowlist required by the
 // resolved model and MCP configuration. Provider defaults are included when
 // no explicit endpoint appears in the serialized model.
-func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
+func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model *adk.Model) []string {
 	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
 	for _, tool := range cfg.HttpTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
@@ -310,7 +311,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	for _, tool := range cfg.SseTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
-	modelJSON, _ := json.Marshal(model)
+	modelJSON, _ := protojson.Marshal(model)
 	var values any
 	if json.Unmarshal(modelJSON, &values) == nil {
 		destinations = appendURLValues(destinations, values)

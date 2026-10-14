@@ -506,7 +506,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*translator.HarnessInput, translator.Collections) {
 	t.Helper()
 	harness := &translator.HarnessConfiguration{Name: "claude", Namespace: "test", Source: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
-		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
@@ -551,8 +551,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	settings.Telemetry.CaptureSensitiveContent = true
-	settings.Telemetry.MaxCaptureBytes = 4096
+	settings.Telemetry.Runtime.CaptureContent = true
+	settings.Telemetry.Runtime.MaxCaptureBytes = 4096
 	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -585,8 +585,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{CaptureSensitiveContent: true, CaptureRawAPIBodies: true, MaxCaptureBytes: 4096,
-		Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://traces:4317", Protocol: "grpc"}, Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}, Logs: &telemetry.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: "http/protobuf"}}}
+	settings.Telemetry = translator.TelemetryConfig{Runtime: tracing.RuntimeTelemetry{CaptureContent: true, CaptureRawAPIBodies: true, MaxCaptureBytes: 4096,
+		Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://traces:4317", Protocol: "grpc"}, Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}, Logs: &telemetry.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: "http/protobuf"}}}}
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",

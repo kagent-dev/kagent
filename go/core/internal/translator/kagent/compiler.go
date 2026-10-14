@@ -2,15 +2,17 @@ package kagent
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
+	"buf.build/go/protovalidate"
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 )
@@ -34,9 +36,15 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	compiled.Config.Runtime = c.settings.RuntimeConfig(input.AgentName, template.Namespace)
-	configJSON, err := json.Marshal(compiled.Config)
+	configJSON, err := adk.Marshal(&adk.Config{
+		Runtime: c.settings.RuntimeConfig(input.AgentName, template.Namespace),
+		Agent:   compiled.Config,
+	})
 	if err != nil {
+		var invalid *protovalidate.ValidationError
+		if errors.As(err, &invalid) {
+			return nil, translator.NewValidationError("invalid agent config: %w", err)
+		}
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 	card, err := pbconv.ToProtoAgentCard(agentCard(input.AgentName, template))
@@ -61,7 +69,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &translator.CompileResult{Revision: translator.Revision{
 		Namespace: template.Namespace,
-		Image:     harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+		Command:   slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,

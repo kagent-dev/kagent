@@ -8,6 +8,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -20,13 +21,9 @@ func main() {
 		os.Exit(1)
 	}
 	cfg := &adk.AgentConfig{
-		Model: &adk.OpenAI{
-			BaseModel: adk.BaseModel{
-				Type:  "openai",
-				Model: "gpt-4.1-mini",
-			},
-			BaseUrl: "http://127.0.0.1:8090/v1",
-		},
+		Model: &adk.Model{
+			Model: "gpt-4.1-mini", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{
+				BaseUrl: "http://127.0.0.1:8090/v1"}}},
 		Instruction: "You are a test agent. The system prompt doesn't matter because we're using a mock server.",
 	}
 	card := &a2atype.AgentCard{
@@ -53,19 +50,19 @@ func main() {
 	// do we have mcp everything port open?
 	if c, err := net.DialTimeout("tcp", "127.0.0.1:3001", time.Second); err == nil {
 		c.Close()
-		cfg.HttpTools = []adk.HttpMcpServerConfig{
+		cfg.HttpTools = []*adk.HttpMcpServerConfig{
 			{
-				Params: adk.StreamableHTTPConnectionParams{
+				Params: &adk.StreamableHTTPConnectionParams{
 					Url:     "http://127.0.0.1:3001/mcp",
 					Headers: map[string]string{},
-					Timeout: new(30.0),
+					Timeout: durationpb.New(30 * time.Second),
 				},
 				Tools: []string{},
 			},
 		}
 	}
 
-	bCfg, err := json.MarshalIndent(cfg, "", "  ")
+	bCfg, err := adk.Marshal(&adk.Config{Agent: cfg})
 	if err != nil {
 		logger.Error("failed to marshal agent config", "error", err)
 		return

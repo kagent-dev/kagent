@@ -220,7 +220,7 @@ func TestKagentMemoryServiceSearchUsesGRPC(t *testing.T) {
 func TestStoreMemoryPreservesTTLAndReturnsRPCError(t *testing.T) {
 	tests := []struct {
 		name    string
-		ttlDays int
+		ttlDays int64
 		rpcErr  error
 	}{
 		{name: "server default TTL"},

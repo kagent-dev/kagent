@@ -36,7 +36,8 @@ func TestConfigFileAndFlagPrecedence(t *testing.T) {
 output:
   format: json
 database:
-  urlFile: secret-not-present
+  owner:
+    urlFile: secret-not-present
 install:
   substrate:
     version: v1.2.3
@@ -52,7 +53,7 @@ install:
 	require.Equal(t, filepath.Join(dir, "ca.pem"), cfg.GetConnection().GetCaFile())
 	require.Equal(t, "json", cfg.GetOutput().GetFormat())
 	require.Equal(t, "v1.2.3", cfg.GetInstall().GetPodCertificate().GetVersion())
-	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.GetDatabase().GetUrlFile())
+	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.GetDatabase().GetOwner().GetUrlFile())
 	_, err = executeConfig(t, "--config", path, "config", "validate")
 	require.NoError(t, err)
 }
@@ -87,7 +88,7 @@ func TestDatabasePreRunLoadsRootConfig(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, []byte("unexpected: true"), 0600))
 			_, err := executeConfig(t, "--config", path, "db", "migrate", command)
 			require.ErrorContains(t, err, "unknown field")
-			require.NoError(t, os.WriteFile(path, []byte("database: {urlFile: missing-url}"), 0600))
+			require.NoError(t, os.WriteFile(path, []byte("database: {owner: {urlFile: missing-url}}"), 0600))
 			_, err = executeConfig(t, "--config", path, "db", "migrate", command)
 			require.ErrorContains(t, err, "missing-url")
 		})

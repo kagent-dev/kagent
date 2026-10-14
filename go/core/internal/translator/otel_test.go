@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -28,7 +29,22 @@ func TestCompilerSettingsIgnoreProcessEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first, second)
 	require.Equal(t, []string{"http://collector:4317"}, first.Telemetry.Destinations(nil))
-	require.Equal(t, int64(1000), first.Telemetry.Exporters.Traces.TimeoutMillis)
+	require.Equal(t, int64(1000), first.Telemetry.Runtime.Exporters.Traces.TimeoutMillis)
+}
+
+func TestCompilerPreservesSharedRuntimeTelemetry(t *testing.T) {
+	cfg := &apiv1.TelemetryConfig{
+		CaptureContent: true, CaptureRawApiBodies: true, OpenaiNativeTracing: true, MaxCaptureBytes: new(int32(4096)),
+		ResourceAttributes: map[string]string{"deployment.environment.name": "test"},
+		Traces:             &apiv1.OTLPConfig{Endpoint: "http://collector:4317", Timeout: durationpb.New(time.Second)},
+	}
+	compiled, err := translator.TelemetryConfigFromSettings(cfg)
+	require.NoError(t, err)
+	want := config.RuntimeTelemetry(cfg)
+	want.Runtime, want.AgentName, want.AgentNamespace = tracing.RuntimeADKGo, "assistant", "team"
+	want.Provider, want.Model = "openai", "gpt-4"
+	actual := compiled.RuntimeTelemetry(tracing.RuntimeADKGo, "assistant", "team", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4"})
+	require.Equal(t, want, actual)
 }
 
 func TestBYOTelemetryGenericEnvironmentOverridesFileDefaults(t *testing.T) {
@@ -91,7 +107,7 @@ func TestBYOTelemetryServiceNameDefault(t *testing.T) {
 			name, ok := res.Set().Value(semconv.ServiceNameKey)
 			require.True(t, ok)
 			require.Equal(t, tc.want, name.AsString())
-			require.Equal(t, map[string]string{"deployment.environment.name": "production"}, settings.Telemetry.Exporters.ResourceAttributes)
+			require.Equal(t, map[string]string{"deployment.environment.name": "production"}, settings.Telemetry.Runtime.Exporters.ResourceAttributes)
 		})
 	}
 }

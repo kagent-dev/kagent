@@ -2,7 +2,6 @@ package byo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -16,12 +15,13 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
+		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}, Args: []string{"serve"}},
 		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: "production"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -43,20 +43,20 @@ func TestCompileOpaqueImage(t *testing.T) {
 		{Name: "MODE", Value: "production"},
 	}, revision.Environment)
 
-	var config adk.AgentConfig
-	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-	require.Nil(t, config.Model)
-	require.Equal(t, "be helpful", config.Instruction)
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+	var config adk.Config
+	require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+	require.Nil(t, config.Agent.Model)
+	require.Equal(t, "be helpful", config.Agent.Instruction)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.Agent.SessionDbUrl)
 	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }
 
 func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{Traces: translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc"}, Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}}}
+	settings.Telemetry = translator.TelemetryConfig{Traces: translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc"}, Runtime: tracing.RuntimeTelemetry{Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}}}}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Env: []v1alpha3.RuntimeEnvVar{
 			{Name: "OTEL_SERVICE_NAME", Value: "my-langgraph"},
 			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "https://otlp.example.com"},
@@ -90,15 +90,15 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	settings := testCompilerSettings()
 	settings.Telemetry = translator.TelemetryConfig{
 		Traces: translator.SignalConfig{Enabled: true},
-		Exporters: &telemetry.Config{
+		Runtime: tracing.RuntimeTelemetry{Exporters: &telemetry.Config{
 			Traces:  &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
 			Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
 			Logs:    &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-		},
+		}},
 	}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},
-		Workload:  v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
+		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	// All three signals must leave room for fourteen user settings. The final

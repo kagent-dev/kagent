@@ -20,6 +20,7 @@ import (
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/jackc/pgx/v5/pgxpool"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -71,6 +72,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
@@ -158,12 +160,17 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := config.Validate(cfg); err != nil {
 		return err
 	}
-	dbURL, err := config.ReadSecret(cfg.GetDatabase().GetUrlFile())
+	// The read/write login serves every runtime query and verifies migrations
+	// when they are skipped. The owner login only creates the schema and migrates.
+	readWriteConfig, err := databasePoolConfig("database.readWrite", cfg.GetDatabase().GetReadWrite())
 	if err != nil {
-		return fmt.Errorf("database.urlFile: %w", err)
+		return err
 	}
-	if err := database.ValidateURL(dbURL); err != nil {
-		return fmt.Errorf("invalid database connection configuration")
+	var ownerConfig *pgxpool.Config
+	if !cfg.GetDatabase().GetSkipMigrations() {
+		if ownerConfig, err = databasePoolConfig("database.owner", cfg.GetDatabase().GetOwner()); err != nil {
+			return err
+		}
 	}
 	var pushPrivateKey string
 	if cfg.GetGateway().GetPush().GetSigningPrivateKeyFile() != "" {
@@ -179,6 +186,10 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
 	compilerSettings, err := translator.NewCompilerSettings(cfg.GetRuntimeDefaults())
+	if err != nil {
+		return err
+	}
+	compilerSettings.Images, err = builtinImages(cfg.GetHarnessImages(), version.Version)
 	if err != nil {
 		return err
 	}
@@ -206,19 +217,15 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		}
 	}()
 
-	dbRole := cfg.GetDatabase().GetRole()
-	sources, err := migrationSources(cfg.GetDatabase(), opts.ExtraMigrations)
-	if err != nil {
-		return err
-	}
+	sources := migrationSources(cfg.GetDatabase(), opts.ExtraMigrations)
 	if cfg.GetDatabase().GetSkipMigrations() {
-		if err := migrations.VerifyMigratedAsRole(ctx, dbURL, dbRole, sources); err != nil {
+		if err := migrations.VerifyMigrated(ctx, readWriteConfig, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
-	} else if err := migrations.RunUpAsRole(ctx, dbURL, dbRole, sources); err != nil {
+	} else if err := migrations.RunUp(ctx, ownerConfig, sources); err != nil {
 		return fmt.Errorf("run database migrations: %w", err)
 	}
-	db, err := database.Connect(ctx, postgresConfig(cfg.GetDatabase(), dbURL))
+	db, err := database.Connect(ctx, postgresConfig(cfg.GetDatabase(), readWriteConfig))
 	if err != nil {
 		return err
 	}
@@ -464,23 +471,32 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 	return merged, nil
 }
 
-func postgresConfig(cfg *apiv1.DatabaseConfig, source string) *database.PostgresConfig {
-	return &database.PostgresConfig{URL: source, Role: cfg.GetRole(), VectorEnabled: cfg.GetVectorEnabled(),
+func postgresConfig(cfg *apiv1.DatabaseConfig, pool *pgxpool.Config) *database.PostgresConfig {
+	return &database.PostgresConfig{Pool: pool, VectorEnabled: cfg.GetVectorEnabled(),
 		Schema: cfg.GetSchema(), VectorSchema: cfg.GetVectorSchema(),
 		MaxConns: new(cfg.GetPool().GetMaxConns()), MinConns: new(cfg.GetPool().GetMinConns()),
 		MaxConnIdleTime: new(cfg.GetPool().GetMaxConnIdleTime().AsDuration()), MaxConnLifetime: new(cfg.GetPool().GetMaxConnLifetime().AsDuration())}
 }
 
-// The built-in tracks must finish before extra sources, which must explicitly
-// name their schemas instead of relying on the connection's search path.
-func migrationSources(cfg *apiv1.DatabaseConfig, extra []migrations.Source) ([]migrations.Source, error) {
-	for _, src := range extra {
-		if src.Schema == "" {
-			return nil, fmt.Errorf("extra migration source %q must set Schema", src.Name)
-		}
-	}
+// migrationSources appends extra after the built-in tracks: the built-ins must reach
+// their final version before a library consumer's tables, which may reference them.
+func migrationSources(cfg *apiv1.DatabaseConfig, extra []migrations.Source) []migrations.Source {
 	builtins := migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema())
-	return append(builtins, extra...), nil
+	return append(builtins, extra...)
+}
+
+// databasePoolConfig reads one login's connection string and builds its pool
+// configuration. field names the login in errors.
+func databasePoolConfig(field string, login *apiv1.DatabaseLoginConfig) (*pgxpool.Config, error) {
+	url, err := config.ReadSecret(login.GetUrlFile())
+	if err != nil {
+		return nil, fmt.Errorf("%s.urlFile: %w", field, err)
+	}
+	pool, err := postgres.PoolConfig(url, login.GetRole())
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", field, err)
+	}
+	return pool, nil
 }
 
 func namespaceCache(names []string) map[string]cache.Config {

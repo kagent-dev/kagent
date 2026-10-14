@@ -27,7 +27,7 @@ import (
 // Exercise the real registered SandboxTemplate informer, API resource versions,
 // status writes, and restart cleanup. Only the external DB/Substrate work is fake.
 func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
-	testEnv := &envtest.Environment{CRDDirectoryPaths: []string{"../../../api/config/crd/bases/api.kagent.dev_sandboxtemplates.yaml"}, ErrorIfCRDPathMissing: true}
+	testEnv := &envtest.Environment{CRDDirectoryPaths: []string{"../../../../helm/kagent-crds/templates"}, ErrorIfCRDPathMissing: true}
 	config, err := testEnv.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, testEnv.Stop()) })

@@ -111,9 +111,9 @@ schema](https://learn.chatgpt.com/docs/app-server#message-schema).
 
 The platform-managed `Harness` selects the Codex runtime, and the `Agent`
 references it while defining behavior inline. The referenced ModelConfig and
-RemoteMCPServer must already exist in `kagent`. Replace
-`${KAGENT_CODEX_IMAGE_DIGEST}` with the full harness image reference, including
-its `@sha256:` digest.
+RemoteMCPServer must already exist in `kagent`. The installed release supplies
+the default Harness image. To override it, set `workload.image` to a full
+`@sha256:`-pinned reference.
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -123,8 +123,6 @@ metadata:
   namespace: kagent
 spec:
   codex: {}
-  workload:
-    image: ${KAGENT_CODEX_IMAGE_DIGEST}
   substrate:
     workerPoolRef:
       name: kagent-default

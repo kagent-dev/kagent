@@ -28,14 +28,6 @@ service SessionService {
   rpc RevokeSessionShare(RevokeSessionShareRequest) returns (RevokeSessionShareResponse);
 }
 
-enum SessionSharePermission {
-  SESSION_SHARE_PERMISSION_UNSPECIFIED = 0;
-  // Allows A2A get, list, and subscribe operations.
-  SESSION_SHARE_PERMISSION_READ_ONLY = 1;
-  // Also allows A2A send and cancel operations.
-  SESSION_SHARE_PERMISSION_READ_WRITE = 2;
-}
-
 message Failure {
   string reason = 1;
   string message = 2;
@@ -146,25 +138,21 @@ message DeleteSessionResponse {
   Session session = 1;
 }
 
+// Grants read-only access to a session, including A2A get, list, and subscribe.
 message SessionShare {
   string id = 1;
   string session_id = 2;
-  SessionSharePermission permission = 3;
-  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp created_at = 3;
   // When the share's token stops granting access. Unset means never.
-  google.protobuf.Timestamp expires_at = 5;
+  google.protobuf.Timestamp expires_at = 4;
 }
 
 message CreateSessionShareRequest {
   string session_id = 1 [(buf.validate.field).string.uuid = true];
-  SessionSharePermission permission = 2 [(buf.validate.field).enum = {
-    defined_only: true
-    not_in: 0
-  }];
   // How long the share's token grants access, from its creation. Unset takes the
   // controller's maximum share lifetime; without one, the share grants access
   // until it is revoked or the session deleted.
-  google.protobuf.Duration ttl = 3 [(buf.validate.field).duration.gt = {}];
+  google.protobuf.Duration ttl = 2 [(buf.validate.field).duration.gt = {}];
 }
 
 message CreateSessionShareResponse {

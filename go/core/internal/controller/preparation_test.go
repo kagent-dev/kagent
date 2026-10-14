@@ -43,7 +43,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			ctx := t.Context()
 			dsn := dbtest.StartT(ctx, t)
 			dbtest.MigrateT(t, dsn, false)
-			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+			pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
 			store := database.NewClient(pool, "public")
@@ -537,7 +537,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
-	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
 	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},

@@ -154,7 +154,7 @@ func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespa
 }
 
 // ValueRef represents a configuration value
-// +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
+// +kubebuilder:validation:ExactlyOneOf=value;valueFrom
 type ValueRef struct {
 	// +required
 	Name string `json:"name"`

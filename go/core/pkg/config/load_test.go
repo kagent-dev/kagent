@@ -16,6 +16,12 @@ func TestControllerConfig(t *testing.T) {
 		invalid     bool
 	}{
 		{"defaults", "{}", false},
+		{"partial images", "harnessImages: {kagent: 'registry/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}", false},
+		{"empty image", "harnessImages: {codex: ''}", false},
+		{"image tag", "harnessImages: {claude: 'registry/image:latest'}", true},
+		{"invalid digest", "harnessImages: {codex: 'registry/image@sha256:bad'}", true},
+		{"unknown image", "harnessImages: {unknown: ''}", true},
+		{"images JSON string", "harnessImages: '{}'", true},
 		{"duplicate", "logging:\n  level: info\n  level: debug", true},
 		{"unknown", "loging: {}", true},
 		{"null", "logging: null", true},
@@ -42,7 +48,7 @@ func TestControllerConfig(t *testing.T) {
 			err := config.Decode([]byte(tc.input), cfg)
 			if err == nil {
 				config.DefaultController(cfg)
-				cfg.Database.UrlFile = "database-url"
+				setLogins(cfg)
 				err = config.Validate(cfg)
 			}
 			if tc.invalid {
@@ -67,7 +73,7 @@ func TestDatabaseSkipMigrations(t *testing.T) {
 			cfg := &apiv1.ControllerConfig{}
 			require.NoError(t, config.Decode([]byte(tc.input), cfg))
 			config.DefaultController(cfg)
-			cfg.Database.UrlFile = "database-url"
+			setLogins(cfg)
 			require.NoError(t, config.Validate(cfg))
 			require.Equal(t, tc.want, cfg.GetDatabase().GetSkipMigrations())
 		})
@@ -78,7 +84,7 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 	cfg := &apiv1.ControllerConfig{}
 	require.NoError(t, config.Decode([]byte("kubernetes: {leaderElection: false}\nsessions: {idleTtl: 0s}\ndatabase: {pool: {minConns: 0}}"), cfg))
 	config.DefaultController(cfg)
-	cfg.Database.UrlFile = "database-url"
+	setLogins(cfg)
 	require.NoError(t, config.Validate(cfg))
 	require.False(t, cfg.Kubernetes.GetLeaderElection())
 	require.Equal(t, time.Duration(0), cfg.Sessions.IdleTtl.AsDuration())
@@ -94,4 +100,34 @@ func TestEmptyIsNotAbsent(t *testing.T) {
 	require.NoError(t, config.Decode([]byte("connection: {userId: ''}"), cfg))
 	config.DefaultCLI(cfg)
 	require.Error(t, config.Validate(cfg))
+}
+
+func setLogins(cfg *apiv1.ControllerConfig) {
+	cfg.Database.Owner = &apiv1.DatabaseLoginConfig{UrlFile: "owner-url", Role: "kagent_owner"}
+	cfg.Database.ReadWrite = &apiv1.DatabaseLoginConfig{UrlFile: "readwrite-url", Role: "kagent_readwrite"}
+}
+
+func TestDatabaseLogins(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, wantErr string
+	}{
+		{"both logins", "database: {owner: {urlFile: o, role: kagent_owner}, readWrite: {urlFile: rw, role: kagent_readwrite}}", ""},
+		{"no read/write login", "database: {owner: {urlFile: o, role: kagent_owner}}", "database.read_write"},
+		{"no read/write role", "database: {owner: {urlFile: o, role: kagent_owner}, readWrite: {urlFile: rw}}", "database.read_write"},
+		{"no owner login", "database: {readWrite: {urlFile: rw, role: kagent_readwrite}}", "database.owner"},
+		{"no owner role", "database: {owner: {urlFile: o}, readWrite: {urlFile: rw, role: kagent_readwrite}}", "database.owner"},
+		{"no owner when skipping migrations", "database: {skipMigrations: true, readWrite: {urlFile: rw, role: kagent_readwrite}}", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &apiv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(tc.input), cfg))
+			config.DefaultController(cfg)
+			err := config.Validate(cfg)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+		})
+	}
 }

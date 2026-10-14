@@ -69,7 +69,8 @@ func defaultTelemetry(cfg *apiv1.TelemetryConfig) {
 
 // ResolveControllerPaths makes each local file reference relative to its config.
 func ResolveControllerPaths(cfg *apiv1.ControllerConfig, path string) {
-	cfg.Database.UrlFile = FilePath(path, cfg.Database.UrlFile)
+	resolveLoginPath(cfg.Database.Owner, path)
+	resolveLoginPath(cfg.Database.ReadWrite, path)
 	cfg.Gateway.Push.SigningPrivateKeyFile = FilePath(path, cfg.Gateway.Push.SigningPrivateKeyFile)
 	cfg.Substrate.CaFile = FilePath(path, cfg.Substrate.CaFile)
 	cfg.Substrate.ClientCertFile = FilePath(path, cfg.Substrate.ClientCertFile)
@@ -78,11 +79,17 @@ func ResolveControllerPaths(cfg *apiv1.ControllerConfig, path string) {
 // ResolveCLIPaths does not open referenced files: unrelated commands need no
 // database credentials or install values files.
 func ResolveCLIPaths(cfg *apiv1.CLIConfig, path string) {
-	cfg.Database.UrlFile = FilePath(path, cfg.Database.UrlFile)
+	resolveLoginPath(cfg.Database.Owner, path)
 	cfg.Connection.CaFile = FilePath(path, cfg.Connection.CaFile)
 	for _, chart := range []*apiv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate} {
 		for i, value := range chart.ValuesFiles {
 			chart.ValuesFiles[i] = FilePath(path, value)
 		}
+	}
+}
+
+func resolveLoginPath(login *apiv1.DatabaseLoginConfig, path string) {
+	if login != nil {
+		login.UrlFile = FilePath(path, login.UrlFile)
 	}
 }

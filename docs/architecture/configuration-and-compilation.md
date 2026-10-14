@@ -63,7 +63,51 @@ new revision; create a new Session to use it. A2A task events remain streamable
 when model streaming is disabled. This setting does not configure
 the Codex or Claude harnesses.
 
-### kagent workload overrides
+### Harness images and workload overrides
+
+For built-in kagent, Claude, and Codex Harnesses, the whole `workload` block is
+optional. Omit it to select the matching release image provided by the installed
+chart. BYO requires an explicit image and command; all images must be digest-pinned.
+
+Release image builds run independently. Each runtime build publishes its final
+multi-platform index digest as a workflow artifact. `make helm-release` requires
+`RUNTIME_IMAGE_METADATA_DIR` and validates the three runtime digests before
+assembling `files/builtin-harness-images.json` in a temporary copy of the charts.
+It packages the charts there and copies the completed archives into `dist`;
+chart sources and any previous artifacts are preserved if packaging fails.
+`make helm-publish` depends on this target. The chart supplies
+the defaults through `harnessImages` in the mounted controller configuration file.
+The controller validates configured images as digest-pinned references and checks
+the catalog's nonempty release against its own version.
+Neither controller builds nor compilation perform registry lookups.
+
+For development, `make build` records published runtime digests in
+`build/runtime-images`. Docker uses Buildx metadata; Podman records the digest
+from its push. `make helm-dev` consumes those existing build outputs and writes an
+ignored catalog into the source chart before packaging. Missing metadata reports
+which images need building; chart preparation and dry runs never build or push images. Both
+`make helm-install-provider` and `make kagent-cli-deploy` use this target, so the
+charts they install contain the local image defaults. Image references follow
+`GOLANG_ADK_IMG`, `CLAUDE_HARNESS_IMG`, and `CODEX_HARNESS_IMG`, including custom
+registries and repositories.
+
+Local installations can override individual defaults with
+`config.harnessImages`; `global.imageRegistry` rewrites both packaged defaults
+and explicit overrides.
+
+The outer compiler sets the selected image on the compiled revision before hashing
+it. Adapters receive the requested Harness spec; provenance records that spec
+without injected defaults. A missing or invalid
+selected image reports `Compatible=False`; unused defaults do not need to be
+configured. `Agent.status.workloadImage` reports the image of the desired compiled
+revision and clears when compilation fails. Existing Sessions retain their
+prepared revisions. Changing a release default prepares a new revision for Agents
+using that default; explicit image overrides are independent of catalog changes.
+The Harness API's `workloadImage` represents the explicit override and is empty
+when the release default is selected. The Harness list displays “Release default”
+for this case; Agent status reports the actual selected image.
+
+Default selection does not inspect or validate the CLI version inside an override.
 
 The kagent compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
@@ -77,7 +121,6 @@ without changing the AgentTemplate:
 spec:
   kagent: {}
   workload:
-    # Retain the digest-pinned Go ADK image here.
     command: ["/app"]
     args: ["--log-level", "debug"]
 ```
@@ -231,12 +274,16 @@ images, and compatible worker hardware.
   Optional model, prompt, tool, skill, and plugin configuration is
   supplied in the ADK-shaped format when requested.
 
-The kagent and BYO compilers serialize the same ADK `AgentConfig` contract.
-`adkconfig.Builder.Build` assembles the complete payload and its model
-dependencies, environment, and egress contributions. Harness compilers package
-that result into a revision without adding configuration fields afterward.
+The kagent and BYO compilers serialize the same `ADKConfig` protobuf
+contract from `adk.proto` using ProtoJSON. Go and Python use generated messages;
+validation rules live in the schema. Model providers form a required `oneof`,
+while a BYO root can omit the model entirely.
+`adkconfig.Builder.Build` assembles the agent tree and its model dependencies,
+environment, and egress contributions. Harness compilers place that tree under
+`agent` and process settings under `runtime` in the top-level `ADKConfig`.
+The recursive `ADKAgentConfig` has no runtime field.
 
-The builder compiles the shared agent tree, then applies root runtime settings.
+The builder compiles the shared agent tree, then applies root runner settings.
 Both harnesses receive the durable session URL at `/data/sessions.db`; kagent
 also receives its configured memory, compaction, and structured-output policy.
 Shared subagents use the root runner's session store and do not receive their
@@ -262,7 +309,7 @@ credentials, egress, and provenance.
 
 ## Explicit Agent examples
 
-For a single agent, inline both specs:
+For a single agent, inline the template and reference a Harness:
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3

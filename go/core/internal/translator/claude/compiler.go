@@ -85,7 +85,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
 	config.ControlPlaneURL = c.settings.APIURL
-	config.MaxContentLength = c.settings.Process.MaxContentLength
+	config.MaxContentLength = c.settings.RuntimeConfig(input.AgentName, input.Root.Template.Namespace).MaxContentLength
 	config.LogLevel = c.settings.LogLevel
 	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
 		config.SkillResources = &skillResources
@@ -119,9 +119,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment,
-			ConfigJSON: configJSON, AgentCard: card,
+			Namespace:   template.Namespace,
+			Environment: environment,
+			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,

@@ -106,14 +106,16 @@ func TestBundledPostgresAssets(t *testing.T) {
 	require.Contains(t, manifest, "hostssl all postgres all reject")
 	require.Contains(t, manifest, "postgres.podcert.ate.dev/identity")
 	require.Contains(t, manifest, "sslmode=verify-full")
-	require.Contains(t, manifest, "name: kagent-postgres")
+	require.Contains(t, manifest, "name: kagent-postgres-owner")
+	require.Contains(t, manifest, "name: kagent-postgres-readwrite")
 	require.Contains(t, manifest, "name: substrate-postgres-readwrite")
 	require.Contains(t, manifest, "name: substrate-postgres-owner")
 	require.Contains(t, manifest, "namespace: ate-system")
-	for _, want := range []string{"kagent_owner", "kagent_user", "substrate_owner", "substrate_readwrite"} {
-		require.Contains(t, bundledPostgresSetupSQL(), want)
+	for _, want := range []string{"--set=kagent_owner_role=kagent_owner", "--set=kagent_owner_user=kagent_owner_user", "--set=kagent_readwrite_role=kagent_readwrite", "--set=kagent_readwrite_user=kagent_readwrite_user", "--set=substrate_owner_role=substrate_owner", "--set=substrate_readwrite_role=substrate_readwrite"} {
+		require.Contains(t, bundledPostgresSetupArgs(), want)
 	}
-	require.NotContains(t, bundledPostgresSQL, "substrate_owner")
+	require.Contains(t, bundledPostgresSetupSQL(), ":'kagent_schema'")
+	require.Contains(t, bundledPostgresSetupSQL(), ":'substrate_schema'")
 }
 
 func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
@@ -127,7 +129,7 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	require.Equal(t, "./charts/", config.registry)
 	require.Equal(t, "v1.2.3", config.version)
 	require.Empty(t, crdChartValues(config.values))
-	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
+	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_owner_user", "postgresClients[1]=demo/kagent-controller=kagent_readwrite_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
 }
 
 func TestInstallUsesSeparateSubstrateReleases(t *testing.T) {
@@ -164,7 +166,7 @@ cat >/dev/null
 	require.Equal(t, []string{
 		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
-		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_user",
+		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_owner_user --set postgresClients[1]=kagent/kagent-controller=kagent_readwrite_user",
 		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgres.clientCertificates.enabled=true -f -",
 		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set database.postgres.clientCertificate.enabled=true -f -",
 	}, strings.Split(strings.TrimSpace(string(commands)), "\n"))

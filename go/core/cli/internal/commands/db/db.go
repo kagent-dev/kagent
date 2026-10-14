@@ -20,15 +20,15 @@ func NewDBCmd() *cobra.Command {
 		if err := cmd.Root().PersistentPreRunE(cmd, args); err != nil {
 			return err
 		}
-		cfg := cliconfig.FromContext(cmd.Context()).GetDatabase()
+		owner := cliconfig.FromContext(cmd.Context()).GetDatabase().GetOwner()
 		flags := cmd.Flags()
 		if flag := flags.Lookup("db-role"); flag != nil && !flag.Changed {
-			if err := flag.Value.Set(cfg.GetRole()); err != nil {
+			if err := flag.Value.Set(owner.GetRole()); err != nil {
 				return err
 			}
 		}
 		if flag := flags.Lookup("db-url-file"); flag != nil && !flag.Changed && !flags.Changed("db-url") {
-			if err := flag.Value.Set(cfg.GetUrlFile()); err != nil {
+			if err := flag.Value.Set(owner.GetUrlFile()); err != nil {
 				return err
 			}
 		}

@@ -126,7 +126,7 @@ func TestInitialStreamingRetrySubscribesWithoutRedispatch(t *testing.T) {
 func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
 	store := &gatewayTestStore{session: gatewayTestSession()}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, "")
-	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice", ReadOnly: true})
+	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice"})
 	_, err := gateway.ListTasks(ctx, &a2a.ListTasksRequest{Tenant: gatewayTestAgent})
 	require.NoError(t, err)
 	require.Equal(t, []string{gatewayTestID}, store.listedIDs)

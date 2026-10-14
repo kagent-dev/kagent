@@ -21,6 +21,8 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/api/adk"
+	processconfig "github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -49,12 +51,13 @@ func run(logLevel, host, port, configDir string) error {
 		return fmt.Errorf("materialize agent config in %s: %w", configDir, err)
 	}
 
-	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
+	compiled, agentCard, err := config.LoadAgentConfigs(configDir)
 	if err != nil {
 		return fmt.Errorf("load agent config from %s (model configuration is required): %w", configDir, err)
 	}
-	runtime := agentConfig.ProcessConfig()
-	kagentAPIURL := runtime.ControlPlaneURL
+	agentConfig := compiled.Agent
+	runtime := adk.ProcessConfig(compiled)
+	kagentAPIURL := runtime.ControlPlaneUrl
 	if kagentAPIURL == "" {
 		return fmt.Errorf("runtime.control_plane_url is required")
 	}
@@ -64,7 +67,9 @@ func run(logLevel, host, port, configDir string) error {
 	}
 	slog.SetDefault(logger)
 	host = cmp.Or(host, runtime.Host)
-	port = cmp.Or(port, runtime.Port)
+	if port == "" && runtime.Port != nil {
+		port = fmt.Sprint(runtime.GetPort())
+	}
 	if err := config.MaterializeAgentPlugins(
 		logging.IntoContext(context.Background(), logger), agentConfig,
 		config.AgentPluginPaths{
@@ -77,7 +82,7 @@ func run(logLevel, host, port, configDir string) error {
 	}
 	logger.Info("loaded agent config", "config_dir", configDir)
 	logger.Info("agent configuration",
-		"model", agentConfig.Model.GetType(),
+		"model", adk.ModelType(agentConfig.Model),
 		"stream", agentConfig.GetStream(),
 		"http_tools", len(agentConfig.HttpTools),
 		"sse_tools", len(agentConfig.SseTools),
@@ -101,7 +106,7 @@ func run(logLevel, host, port, configDir string) error {
 	// The same identity reaches the resource and every invocation span, so a
 	// consumer reads one contract whichever runtime executed the agent. Model
 	// identity stays on the model spans the ADK emits per call.
-	runtimeTelemetry := runtime.Telemetry.WithEnvironment(os.Environ())
+	runtimeTelemetry := processconfig.RuntimeTelemetry(runtime.GetTelemetry()).WithEnvironment(os.Environ())
 	runtimeTelemetry.Runtime = tracing.RuntimeADKGo
 	runtimeTelemetry.AgentName = serviceName
 	runtimeTelemetry.AgentNamespace = serviceNamespace
@@ -142,13 +147,13 @@ func run(logLevel, host, port, configDir string) error {
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
 	// AgentConfig.session_db_url selects the actor-local DurableDir store.
-	sessionService, err := session.NewService(agentConfig.SessionDBURL)
+	sessionService, err := session.NewService(agentConfig.SessionDbUrl)
 	if err != nil {
-		return fmt.Errorf("open local session store %s: %w", agentConfig.SessionDBURL, err)
+		return fmt.Errorf("open local session store %s: %w", agentConfig.SessionDbUrl, err)
 	}
 	switch sessionService.(type) {
 	case *session.LocalSessionService:
-		logger.Info("using local durable-dir session store", "url", agentConfig.SessionDBURL)
+		logger.Info("using local durable-dir session store", "url", agentConfig.SessionDbUrl)
 	default:
 		logger.Info("no session DB configured, using in-memory session")
 	}
@@ -161,7 +166,7 @@ func run(logLevel, host, port, configDir string) error {
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
 			AgentName:        appName,
 			ControllerClient: controllerClient,
-			TTLDays:          agentConfig.Memory.TTLDays,
+			TTLDays:          agentConfig.Memory.TtlDays,
 			EmbeddingConfig:  agentConfig.Memory.Embedding,
 		})
 		if err != nil {
@@ -171,7 +176,7 @@ func run(logLevel, host, port, configDir string) error {
 		logger.Info("memory service enabled", "app_name", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, compiled, sessionService, appName, memoryService, controllerClient)
 	if err != nil {
 		return fmt.Errorf("create Google ADK Runner config: %w", err)
 	}

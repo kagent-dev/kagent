@@ -118,7 +118,7 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	dsn := dbtest.StartT(context.WithoutCancel(t.Context()), t)
 	dbtest.MigrateT(t, dsn, false)
-	db, err := database.Connect(t.Context(), &database.PostgresConfig{URL: dsn})
+	db, err := database.Connect(t.Context(), &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 	require.NoError(t, err)
 	t.Cleanup(db.Close)
 	store := &lostRuntimeSaveResponse{Client: database.NewClient(db, "public"), delayedCreate: make(chan string, 1), releaseCreate: make(chan struct{})}

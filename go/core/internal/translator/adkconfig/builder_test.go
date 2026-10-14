@@ -2,7 +2,6 @@ package adkconfig
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,12 +39,12 @@ func TestBuildModelStreaming(t *testing.T) {
 			require.NoError(t, err)
 			// The runtime consumes serialized configuration. In particular, false
 			// must survive omitempty rather than reverting to the runtime default.
-			payload, err := json.Marshal(result.Config)
+			payload, err := adk.Marshal(&adk.Config{Agent: result.Config})
 			require.NoError(t, err)
-			var config adk.AgentConfig
-			require.NoError(t, json.Unmarshal(payload, &config))
-			require.NotNil(t, config.Stream)
-			require.Equal(t, tc.want, config.GetStream())
+			var config adk.Config
+			require.NoError(t, adk.Unmarshal(payload, &config))
+			require.NotNil(t, config.Agent.Stream)
+			require.Equal(t, tc.want, config.Agent.GetStream())
 		})
 	}
 }
@@ -60,9 +59,9 @@ func TestBuildUsesDurableSessionStore(t *testing.T) {
 		})
 	require.NoError(t, err)
 	require.True(t, result.Config.GetStream())
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDBURL)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", result.Config.SessionDbUrl)
 	require.Len(t, result.Config.SubAgents, 1)
-	require.Empty(t, result.Config.SubAgents[0].SessionDBURL)
+	require.Empty(t, result.Config.SubAgents[0].SessionDbUrl)
 }
 
 func TestBuildCompaction(t *testing.T) {
@@ -105,7 +104,7 @@ func TestBuildCompaction(t *testing.T) {
 		// The agent's own model is the runtime's default summarizer, so it is
 		// not repeated in the configuration.
 		require.Equal(t, &adk.AgentContextConfig{Compaction: &adk.AgentCompressionConfig{
-			CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
+			CompactionInterval: new(int64(5)), OverlapSize: new(int64(2)), TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
 			PromptTemplate: "Summarize.\n\n{conversation_history}",
 		}}, result.Config.ContextConfig)
 		require.Len(t, result.Models, 1)
@@ -117,7 +116,8 @@ func TestBuildCompaction(t *testing.T) {
 			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}},
 		}))
 		require.NoError(t, err)
-		summarizer, ok := result.Config.ContextConfig.Compaction.SummarizerModel.(*adk.OpenAI)
+		summarizer := result.Config.ContextConfig.Compaction.SummarizerModel.GetOpenai()
+		ok := summarizer != nil
 		require.True(t, ok, "summarizer model = %T", result.Config.ContextConfig.Compaction.SummarizerModel)
 		require.Equal(t, "https://summarizer.example.com/v1", summarizer.BaseUrl)
 		require.Len(t, result.Models, 2)
@@ -345,7 +345,7 @@ func TestBuildMemory(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, 7, result.Config.Memory.TTLDays)
+			require.Equal(t, int64(7), result.Config.Memory.TtlDays)
 			require.Equal(t, "https://embedding.example.com/v1", result.Config.Memory.Embedding.BaseUrl)
 			require.Len(t, result.Models, 2)
 			require.Equal(t, "embedding", result.Models[1].Config.Name)

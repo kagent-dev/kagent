@@ -1,9 +1,10 @@
 package adkconfig
 
 import (
-	"encoding/json"
 	"fmt"
+	"slices"
 
+	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -28,7 +29,7 @@ type modelDeploymentData struct {
 // modelRuntime is the provider-neutral result consumed by the rest of the
 // compiler.
 type modelRuntime struct {
-	Model                 adk.Model
+	Model                 *adk.Model
 	Environment           []corev1.EnvVar
 	HasUnsupportedVolumes bool
 }
@@ -56,14 +57,14 @@ func tlsInsecureSkipVerify(tlsConfig *v1alpha3.TLSConfig) *bool {
 	return &tlsConfig.DisableVerify
 }
 
-func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) {
-	baseModel.TLSInsecureSkipVerify = tlsInsecureSkipVerify(tlsConfig)
+func populateTLSFields(baseModel *adk.Model, tlsConfig *v1alpha3.TLSConfig) {
+	baseModel.TlsInsecureSkipVerify = tlsInsecureSkipVerify(tlsConfig)
 }
 
 // translateModel owns the ModelConfig-to-ADK mapping. The provider branches
 // are intentionally local so runtime-specific requirements stay explicit.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
+func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *modelDeploymentData, error) {
 	if resolved == nil || resolved.Config == nil {
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}
@@ -85,44 +86,43 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				},
 			})
 		}
-		openai := &adk.OpenAI{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		openai := &adk.Model{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
-		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(openai, model.Spec.TLS)
+		openai.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.OpenAI != nil {
-			openai.BaseUrl = model.Spec.OpenAI.BaseURL
-			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
-			openai.TopP = utils.ParseStringToFloat64(model.Spec.OpenAI.TopP)
-			openai.FrequencyPenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.FrequencyPenalty)
-			openai.PresencePenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.PresencePenalty)
+			openai.GetOpenai().BaseUrl = model.Spec.OpenAI.BaseURL
+			openai.GetOpenai().Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
+			openai.GetOpenai().TopP = utils.ParseStringToFloat64(model.Spec.OpenAI.TopP)
+			openai.GetOpenai().FrequencyPenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.FrequencyPenalty)
+			openai.GetOpenai().PresencePenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.PresencePenalty)
 
 			if model.Spec.OpenAI.MaxTokens > 0 {
-				openai.MaxTokens = &model.Spec.OpenAI.MaxTokens
+				openai.GetOpenai().MaxTokens = runtimeInt(&model.Spec.OpenAI.MaxTokens)
 			}
 			if model.Spec.OpenAI.MaxCompletionTokens > 0 {
-				openai.MaxCompletionTokens = &model.Spec.OpenAI.MaxCompletionTokens
+				openai.GetOpenai().MaxCompletionTokens = runtimeInt(&model.Spec.OpenAI.MaxCompletionTokens)
 			}
 			if model.Spec.OpenAI.Seed != nil {
-				openai.Seed = model.Spec.OpenAI.Seed
+				openai.GetOpenai().Seed = runtimeInt(model.Spec.OpenAI.Seed)
 			}
 			if model.Spec.OpenAI.N != nil {
-				openai.N = model.Spec.OpenAI.N
+				openai.GetOpenai().N = runtimeInt(model.Spec.OpenAI.N)
 			}
 			if model.Spec.OpenAI.Timeout != nil {
-				openai.Timeout = model.Spec.OpenAI.Timeout
+				openai.GetOpenai().Timeout = runtimeDuration(model.Spec.OpenAI.Timeout)
 			}
 			if model.Spec.OpenAI.ReasoningEffort != nil {
 				effort := string(*model.Spec.OpenAI.ReasoningEffort)
-				openai.ReasoningEffort = &effort
+				openai.GetOpenai().ReasoningEffort = &effort
 			}
 			if model.Spec.OpenAI.APIFormat != nil && *model.Spec.OpenAI.APIFormat != "" {
-				openai.APIFormat = string(*model.Spec.OpenAI.APIFormat)
+				openai.GetOpenai().ApiFormat = string(*model.Spec.OpenAI.APIFormat)
 			}
 
 			if model.Spec.OpenAI.Organization != "" {
@@ -147,29 +147,28 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				},
 			})
 		}
-		anthropic := &adk.Anthropic{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		anthropic := &adk.Model{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Anthropic{Anthropic: &adk.Anthropic{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
-		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(anthropic, model.Spec.TLS)
+		anthropic.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Anthropic != nil {
 			spec := model.Spec.Anthropic
-			anthropic.BaseUrl = spec.BaseURL
-			anthropic.Temperature = utils.ParseStringToFloat64(spec.Temperature)
-			anthropic.TopP = utils.ParseStringToFloat64(spec.TopP)
+			anthropic.GetAnthropic().BaseUrl = spec.BaseURL
+			anthropic.GetAnthropic().Temperature = utils.ParseStringToFloat64(spec.Temperature)
+			anthropic.GetAnthropic().TopP = utils.ParseStringToFloat64(spec.TopP)
 			if spec.MaxTokens > 0 {
-				anthropic.MaxTokens = &spec.MaxTokens
+				anthropic.GetAnthropic().MaxTokens = runtimeInt(&spec.MaxTokens)
 			}
 			if spec.TopK > 0 {
-				anthropic.TopK = &spec.TopK
+				anthropic.GetAnthropic().TopK = runtimeInt(&spec.TopK)
 			}
-			anthropic.PromptCaching = spec.PromptCaching
-			anthropic.CacheTTL = spec.CacheTTL
+			anthropic.GetAnthropic().PromptCaching = spec.PromptCaching
+			anthropic.GetAnthropic().CacheTtl = spec.CacheTTL
 		}
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAzureOpenAI:
@@ -207,23 +206,23 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				Value: model.Spec.AzureOpenAI.Endpoint,
 			})
 		}
-		azureOpenAI := &adk.AzureOpenAI{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.AzureOpenAI.DeploymentName,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Endpoint:    model.Spec.AzureOpenAI.Endpoint,
-			Deployment:  model.Spec.AzureOpenAI.DeploymentName,
-			APIVersion:  model.Spec.AzureOpenAI.APIVersion,
-			Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
-			TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
-			MaxTokens:   model.Spec.AzureOpenAI.MaxTokens,
+		azureOpenAI := &adk.Model{
+			Model:   model.Spec.AzureOpenAI.DeploymentName,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &adk.Model_AzureOpenai{AzureOpenai: &adk.AzureOpenAI{
+				Endpoint:    model.Spec.AzureOpenAI.Endpoint,
+				Deployment:  model.Spec.AzureOpenAI.DeploymentName,
+				ApiVersion:  model.Spec.AzureOpenAI.APIVersion,
+				Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
+				TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
+				MaxTokens:   runtimeInt(model.Spec.AzureOpenAI.MaxTokens),
+			}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
-		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(azureOpenAI, model.Spec.TLS)
+		azureOpenAI.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 		if model.Spec.AzureOpenAI.APIFormat != nil && *model.Spec.AzureOpenAI.APIFormat != "" {
-			azureOpenAI.APIFormat = string(*model.Spec.AzureOpenAI.APIFormat)
+			azureOpenAI.GetAzureOpenai().ApiFormat = string(*model.Spec.AzureOpenAI.APIFormat)
 		}
 
 		return azureOpenAI, modelDeploymentData, nil
@@ -261,18 +260,17 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				MountPath: "/creds",
 			})
 		}
-		gemini := &adk.GeminiVertexAI{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		gemini := &adk.Model{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &adk.Model_GeminiVertexAi{GeminiVertexAi: &adk.GeminiVertexAI{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
-		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(gemini, model.Spec.TLS)
+		gemini.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
-			gemini.MaxOutputTokens = &model.Spec.GeminiVertexAI.MaxOutputTokens
+			gemini.GetGeminiVertexAi().MaxOutputTokens = runtimeInt(&model.Spec.GeminiVertexAI.MaxOutputTokens)
 		}
 
 		return gemini, modelDeploymentData, nil
@@ -306,15 +304,14 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				MountPath: "/creds",
 			})
 		}
-		anthropic := &adk.GeminiAnthropic{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		anthropic := &adk.Model{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &adk.Model_GeminiAnthropic{GeminiAnthropic: &adk.GeminiAnthropic{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
-		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(anthropic, model.Spec.TLS)
+		anthropic.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderOllama:
@@ -350,16 +347,16 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				},
 			})
 		}
-		ollama := &adk.Ollama{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Options: model.Spec.Ollama.Options,
+		ollama := &adk.Model{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Ollama{Ollama: &adk.Ollama{
+				Options: model.Spec.Ollama.Options,
+			}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
-		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(ollama, model.Spec.TLS)
+		ollama.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return ollama, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGemini:
@@ -374,16 +371,15 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				},
 			},
 		})
-		gemini := &adk.Gemini{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		gemini := &adk.Model{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		// Populate shared transport settings.
+		populateTLSFields(gemini, model.Spec.TLS)
 		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
-			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
+			gemini.GetGemini().MaxOutputTokens = runtimeInt(&model.Spec.Gemini.MaxOutputTokens)
 		}
 		return gemini, modelDeploymentData, nil
 	case v1alpha3.ModelProviderBedrock:
@@ -457,35 +453,33 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				}
 			}
 		}
-		var additionalFields map[string]any
+		var additionalFields []byte
 		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
-			if err := json.Unmarshal(model.Spec.Bedrock.AdditionalModelRequestFields.Raw, &additionalFields); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
-			}
+			additionalFields = slices.Clone(model.Spec.Bedrock.AdditionalModelRequestFields.Raw)
 		}
-		bedrock := &adk.Bedrock{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Region:                       model.Spec.Bedrock.Region,
-			AdditionalModelRequestFields: additionalFields,
-			PromptCaching:                model.Spec.Bedrock.PromptCaching,
-			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
-			ReadTimeout:                  model.Spec.Bedrock.ReadTimeout,
-			ConnectTimeout:               model.Spec.Bedrock.ConnectTimeout,
+		bedrock := &adk.Model{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Bedrock{Bedrock: &adk.Bedrock{
+				Region:                       model.Spec.Bedrock.Region,
+				AdditionalModelRequestFields: additionalFields,
+				PromptCaching:                model.Spec.Bedrock.PromptCaching,
+				CacheTtl:                     model.Spec.Bedrock.CacheTTL,
+				ReadTimeout:                  runtimeDuration(model.Spec.Bedrock.ReadTimeout),
+				ConnectTimeout:               runtimeDuration(model.Spec.Bedrock.ConnectTimeout),
+			}},
 		}
 		if model.Spec.Bedrock.Guardrail != nil {
-			bedrock.Guardrail = &adk.BedrockGuardrail{
+			bedrock.GetBedrock().Guardrail = &adk.BedrockGuardrail{
 				Identifier: model.Spec.Bedrock.Guardrail.Identifier,
 				Version:    model.Spec.Bedrock.Guardrail.Version,
 				Trace:      model.Spec.Bedrock.Guardrail.Trace,
 			}
 		}
 
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)
-		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(bedrock, model.Spec.TLS)
+		bedrock.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, nil
 	case v1alpha3.ModelProviderSAPAICore:
@@ -518,18 +512,18 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 			})
 		}
 
-		sapAICore := &adk.SAPAICore{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			BaseUrl:       model.Spec.SAPAICore.BaseURL,
-			ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
-			AuthUrl:       model.Spec.SAPAICore.AuthURL,
+		sapAICore := &adk.Model{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &adk.Model_SapAiCore{SapAiCore: &adk.SAPAICore{
+				BaseUrl:       model.Spec.SAPAICore.BaseURL,
+				ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
+				AuthUrl:       model.Spec.SAPAICore.AuthURL,
+			}},
 		}
 
-		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
-		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		populateTLSFields(sapAICore, model.Spec.TLS)
+		sapAICore.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, nil
 	case v1alpha3.ModelProviderFoundry:
@@ -582,18 +576,18 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 			apiFormat = adk.FoundryAPIFormatAnthropic
 		}
 
-		foundry := &adk.Foundry{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Endpoint:   endpoint,
-			Deployment: cfg.Deployment,
-			APIVersion: cfg.APIVersion,
-			APIFormat:  apiFormat,
+		foundry := &adk.Model{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{
+				Endpoint:   endpoint,
+				Deployment: cfg.Deployment,
+				ApiVersion: cfg.APIVersion,
+				ApiFormat:  apiFormat,
+			}},
 		}
-		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
-		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		populateTLSFields(foundry, model.Spec.TLS)
+		foundry.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return foundry, modelDeploymentData, nil
 	case v1alpha3.ModelProviderMistral:
@@ -610,31 +604,30 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 				},
 			})
 		}
-		mistral := &adk.Mistral{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		mistral := &adk.Model{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &adk.Model_Mistral{Mistral: &adk.Mistral{}},
 		}
-		populateTLSFields(&mistral.BaseModel, model.Spec.TLS)
-		mistral.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		populateTLSFields(mistral, model.Spec.TLS)
+		mistral.ApiKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Mistral != nil {
 			spec := model.Spec.Mistral
 			if spec.BaseURL != nil {
-				mistral.BaseUrl = *spec.BaseURL
+				mistral.GetMistral().BaseUrl = *spec.BaseURL
 			}
 			if spec.Temperature != nil {
-				mistral.Temperature = utils.ParseStringToFloat64(*spec.Temperature)
+				mistral.GetMistral().Temperature = utils.ParseStringToFloat64(*spec.Temperature)
 			}
 			if spec.TopP != nil {
-				mistral.TopP = utils.ParseStringToFloat64(*spec.TopP)
+				mistral.GetMistral().TopP = utils.ParseStringToFloat64(*spec.TopP)
 			}
 			if spec.MaxTokens != nil {
-				mistral.MaxTokens = spec.MaxTokens
+				mistral.GetMistral().MaxTokens = runtimeInt(spec.MaxTokens)
 			}
 			if spec.Timeout != nil {
-				mistral.Timeout = spec.Timeout
+				mistral.GetMistral().Timeout = runtimeDuration(spec.Timeout)
 			}
 		}
 
@@ -642,4 +635,19 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
+}
+
+func runtimeInt(value *int) *int64 {
+	if value == nil {
+		return nil
+	}
+	return new(int64(*value))
+}
+
+func runtimeDuration(seconds *int) *durationpb.Duration {
+	if seconds == nil {
+		return nil
+	}
+	// Validate the protobuf before converting seconds to a native duration.
+	return &durationpb.Duration{Seconds: int64(*seconds)}
 }

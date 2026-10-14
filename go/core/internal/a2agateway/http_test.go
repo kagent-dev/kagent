@@ -45,15 +45,14 @@ func (httpTestAuthenticator) Authenticate(_ context.Context, headers http.Header
 }
 
 type httpTestShares struct {
-	permission apiv1alpha1.SessionSharePermission
-	sessionID  string
-	err        error
-	digest     []byte
+	sessionID string
+	err       error
+	digest    []byte
 }
 
 func (s *httpTestShares) GetSessionShareByTokenHash(_ context.Context, digest []byte) (*apiv1alpha1.SessionShare, string, error) {
 	s.digest = digest
-	return &apiv1alpha1.SessionShare{SessionId: s.sessionID, Permission: s.permission}, "owner", s.err
+	return &apiv1alpha1.SessionShare{SessionId: s.sessionID}, "owner", s.err
 }
 
 func newHTTPTestServer(t *testing.T, store *gatewayTestStore, authorizer auth.Authorizer, shares *httpTestShares) (*httptest.Server, *gatewayTestRuntime) {
@@ -320,27 +319,24 @@ func TestHTTPGatewayRejectsInvalidAccess(t *testing.T) {
 	}
 }
 
-func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
+func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		t.Run(string(protocol), func(t *testing.T) {
 			for _, test := range []struct {
 				name       string
-				permission apiv1alpha1.SessionSharePermission
 				sessionID  string
 				storeErr   error
 				wantStatus int
 				canRead    bool
-				canWrite   bool
 			}{
-				{name: "read only", permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY, sessionID: gatewayTestID, canRead: true},
-				{name: "read write", permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, sessionID: gatewayTestID, canRead: true, canWrite: true},
+				{name: "read only", sessionID: gatewayTestID, canRead: true},
 				{name: "other session", sessionID: "12345678-1234-4234-8234-123456789abc"},
 				{name: "expired", storeErr: database.ErrNotFound, wantStatus: 403},
 				{name: "store unavailable", storeErr: errors.New("database credentials"), wantStatus: 500},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					store := &gatewayTestStore{session: gatewayTestSession(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
-					shares := &httpTestShares{permission: test.permission, sessionID: test.sessionID, err: test.storeErr}
+					shares := &httpTestShares{sessionID: test.sessionID, err: test.storeErr}
 					runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
 					gateway := newTestGateway(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					address := startCoreTestServer(t, gateway, shares)
@@ -356,26 +352,17 @@ func TestGatewaySharePermissionsAcrossTransports(t *testing.T) {
 					digest := sha256.Sum256([]byte("share"))
 					require.Equal(t, digest[:], shares.digest)
 					_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: "task"})
-					if test.canWrite {
-						require.NoError(t, err)
-					} else {
-						require.Error(t, err)
-					}
+					require.Error(t, err)
 					_, err = transport.SendMessage(t.Context(), params, gatewayTestRequest())
-					if test.canWrite {
-						require.NoError(t, err)
-					} else {
+					require.Error(t, err)
+					errorsSeen := 0
+					for _, err := range transport.SendStreamingMessage(t.Context(), params, gatewayTestRequest()) {
 						require.Error(t, err)
+						errorsSeen++
 					}
-					if !test.canWrite {
-						errorsSeen := 0
-						for _, err := range transport.SendStreamingMessage(t.Context(), params, gatewayTestRequest()) {
-							require.Error(t, err)
-							errorsSeen++
-						}
-						require.Equal(t, 1, errorsSeen)
-						require.Empty(t, store.stored)
-					}
+					require.Equal(t, 1, errorsSeen)
+					require.Empty(t, store.stored)
+					require.False(t, runtime.sent)
 					if test.wantStatus != 0 && protocol == a2atype.TransportProtocolJSONRPC {
 						require.Contains(t, err.Error(), http.StatusText(test.wantStatus))
 					}

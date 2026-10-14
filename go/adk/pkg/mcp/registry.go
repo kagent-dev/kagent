@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
@@ -80,8 +81,8 @@ type mcpServerParams struct {
 	Args                  []string
 	Env                   map[string]string
 	Dir                   string
-	Timeout               *float64
-	SseReadTimeout        *float64
+	Timeout               *durationpb.Duration
+	SseReadTimeout        *durationpb.Duration
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
@@ -100,9 +101,9 @@ type mcpServerParams struct {
 // derived from invocation context (e.g., STS exchanged access tokens).
 func CreateToolsets(
 	ctx context.Context,
-	httpTools []adk.HttpMcpServerConfig,
-	sseTools []adk.SseMcpServerConfig,
-	stdioTools []adk.StdioMcpServerConfig,
+	httpTools []*adk.HttpMcpServerConfig,
+	sseTools []*adk.SseMcpServerConfig,
+	stdioTools []*adk.StdioMcpServerConfig,
 	propagateToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
@@ -132,9 +133,9 @@ func CreateToolsets(
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: httpTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         httpTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   httpTool.Params.TLSDisableSystemCAs,
+			TLSInsecureSkipVerify: httpTool.Params.TlsInsecureSkipVerify,
+			TLSCACertPath:         httpTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs:   httpTool.Params.TlsDisableSystemCas,
 		}
 		ts, err := addToolset(ctx, log, params, httpTool.Tools, httpTool.RequireApproval, "HTTP", i+1)
 		if err != nil {
@@ -154,9 +155,9 @@ func CreateToolsets(
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: sseTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         sseTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   sseTool.Params.TLSDisableSystemCAs,
+			TLSInsecureSkipVerify: sseTool.Params.TlsInsecureSkipVerify,
+			TLSCACertPath:         sseTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs:   sseTool.Params.TlsDisableSystemCas,
 		}
 		ts, err := addToolset(ctx, log, params, sseTool.Tools, sseTool.RequireApproval, "SSE", i+1)
 		if err != nil {
@@ -215,18 +216,15 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	operationTimeout := defaultTimeout
-	if params.Timeout != nil && *params.Timeout > 0 {
-		operationTimeout = max(time.Duration(*params.Timeout)*time.Second, 1*time.Second)
+	if params.Timeout != nil {
+		operationTimeout = params.Timeout.AsDuration()
 	}
 
 	httpTimeout := operationTimeout
-	if params.ServerType == "sse" && params.SseReadTimeout != nil && *params.SseReadTimeout > 0 {
-		configuredSseTimeout := time.Duration(*params.SseReadTimeout) * time.Second
+	if params.ServerType == "sse" && params.SseReadTimeout != nil {
+		configuredSseTimeout := params.SseReadTimeout.AsDuration()
 		if configuredSseTimeout > operationTimeout {
 			httpTimeout = configuredSseTimeout
-		}
-		if httpTimeout < 1*time.Second {
-			httpTimeout = 1 * time.Second
 		}
 	}
 

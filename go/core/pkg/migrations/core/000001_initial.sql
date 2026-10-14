@@ -173,8 +173,6 @@ CREATE INDEX sandbox_expiration_idx ON sandbox (expires_at, id);
 CREATE TABLE session_share (
     id          UUID        PRIMARY KEY,
     session_id  UUID        NOT NULL REFERENCES session(id) ON DELETE CASCADE,
-    permission  TEXT        NOT NULL CHECK (permission IN (
-        'SESSION_SHARE_PERMISSION_READ_ONLY', 'SESSION_SHARE_PERMISSION_READ_WRITE')),
     token_hash  BYTEA       NOT NULL UNIQUE,
     data        BYTEA       NOT NULL,
     expires_at  TIMESTAMPTZ

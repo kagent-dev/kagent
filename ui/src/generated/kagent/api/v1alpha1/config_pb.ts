@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file kagent/api/v1alpha1/config.proto.
  */
 export const file_kagent_api_v1alpha1_config: GenFile = /*@__PURE__*/
-  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL2NvbmZpZy5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSKaAgoJQ0xJQ29uZmlnEjkKCmNvbm5lY3Rpb24YASABKAsyJS5rYWdlbnQuYXBpLnYxYWxwaGExLkNvbm5lY3Rpb25Db25maWcSMQoGb3V0cHV0GAIgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5PdXRwdXRDb25maWcSMwoHbG9nZ2luZxgDIAEoCzIiLmthZ2VudC5hcGkudjFhbHBoYTEuTG9nZ2luZ0NvbmZpZxIzCgdpbnN0YWxsGAQgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5JbnN0YWxsQ29uZmlnEjUKCGRhdGFiYXNlGAUgASgLMiMua2FnZW50LmFwaS52MWFscGhhMS5EYXRhYmFzZUNvbmZpZyLuAgoQQ29ubmVjdGlvbkNvbmZpZxIxCgdhcGlfdXJsGAEgASgJQhu6SBhyFjIRXmh0dHBzPzovL1teLz8jXSuIAQFIAIgBARI1CgtnYXRld2F5X3VybBgCIAEoCUIbukgYchYyEV5odHRwcz86Ly9bXi8/I10riAEBSAGIAQESHwoJbmFtZXNwYWNlGAMgASgJQge6SARyAhABSAKIAQESJAoHdXNlcl9pZBgEIAEoCUIOukgLcgkQATIFXlxTKyRIA4gBARI8Cgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIjIAEg8KB2NhX2ZpbGUYBiABKAkSEwoLc2VydmVyX25hbWUYByABKAkSDwoHdmVyYm9zZRgIIAEoCEIKCghfYXBpX3VybEIOCgxfZ2F0ZXdheV91cmxCDAoKX25hbWVzcGFjZUIKCghfdXNlcl9pZCJICgxPdXRwdXRDb25maWcSLQoGZm9ybWF0GAEgASgJQhi6SBVyE1IFdGFibGVSBGpzb25SBHlhbWxIAIgBAUIJCgdfZm9ybWF0Ik4KDUxvZ2dpbmdDb25maWcSMwoFbGV2ZWwYASABKAlCH7pIHHIaUgVkZWJ1Z1IEaW5mb1IEd2FyblIFZXJyb3JIAIgBAUIICgZfbGV2ZWwingMKDUluc3RhbGxDb25maWcShgEKFmRlZmF1bHRfbW9kZWxfcHJvdmlkZXIYASABKAlCYbpIXnJcUgZPcGVuQUlSCUFudGhyb3BpY1ILQXp1cmVPcGVuQUlSBk9sbGFtYVIGR2VtaW5pUg5HZW1pbmlWZXJ0ZXhBSVIRQW50aHJvcGljVmVydGV4QUlSB0JlZHJvY2tIAIgBARIwCgZrYWdlbnQYAiABKAsyIC5rYWdlbnQuYXBpLnYxYWxwaGExLkNoYXJ0Q29uZmlnEjMKCXN1YnN0cmF0ZRgDIAEoCzIgLmthZ2VudC5hcGkudjFhbHBoYTEuQ2hhcnRDb25maWcSOQoPcG9kX2NlcnRpZmljYXRlGAQgASgLMiAua2FnZW50LmFwaS52MWFscGhhMS5DaGFydENvbmZpZxIsChZidW5kbGVkX3Bvc3RncmVzX2ltYWdlGAUgASgJQge6SARyAhABSAGIAQFCGQoXX2RlZmF1bHRfbW9kZWxfcHJvdmlkZXJCGQoXX2J1bmRsZWRfcG9zdGdyZXNfaW1hZ2UijQEKC0NoYXJ0Q29uZmlnEiAKCnJlcG9zaXRvcnkYASABKAlCB7pIBHICEAFIAIgBARIdCgd2ZXJzaW9uGAIgASgJQge6SARyAhABSAGIAQESIgoMdmFsdWVzX2ZpbGVzGAMgAygJQgy6SAmSAQYiBHICEAFCDQoLX3JlcG9zaXRvcnlCCgoIX3ZlcnNpb24iiwcKEENvbnRyb2xsZXJDb25maWcSOQoKa3ViZXJuZXRlcxgBIAEoCzIlLmthZ2VudC5hcGkudjFhbHBoYTEuS3ViZXJuZXRlc0NvbmZpZxI7CgZzZXJ2ZXIYAiABKAsyKy5rYWdlbnQuYXBpLnYxYWxwaGExLkNvbnRyb2xsZXJTZXJ2ZXJDb25maWcSPQoIZGF0YWJhc2UYAyABKAsyIy5rYWdlbnQuYXBpLnYxYWxwaGExLkRhdGFiYXNlQ29uZmlnQga6SAPIAQESNwoJc3Vic3RyYXRlGAQgASgLMiQua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVDb25maWcSNQoIc2Vzc2lvbnMYBSABKAsyIy5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb25zQ29uZmlnEjMKB2dhdGV3YXkYBiABKAsyIi5rYWdlbnQuYXBpLnYxYWxwaGExLkdhdGV3YXlDb25maWcSNQoJc2FuZGJveGVzGAcgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5TYW5kYm94Q29uZmlnEkAKDnNjaGVkdWxlZF9ydW5zGAggASgLMigua2FnZW50LmFwaS52MWFscGhhMS5TY2hlZHVsZWRSdW5zQ29uZmlnEkYKEXJ1bnRpbWVfcmV2aXNpb25zGAkgASgLMisua2FnZW50LmFwaS52MWFscGhhMS5SdW50aW1lUmV2aXNpb25zQ29uZmlnEjMKB21ldHJpY3MYCiABKAsyIi5rYWdlbnQuYXBpLnYxYWxwaGExLk1ldHJpY3NDb25maWcSMwoHbG9nZ2luZxgLIAEoCzIiLmthZ2VudC5hcGkudjFhbHBoYTEuTG9nZ2luZ0NvbmZpZxI3Cgl0ZWxlbWV0cnkYDCABKAsyJC5rYWdlbnQuYXBpLnYxYWxwaGExLlRlbGVtZXRyeUNvbmZpZxJEChBydW50aW1lX2RlZmF1bHRzGA0gASgLMioua2FnZW50LmFwaS52MWFscGhhMS5SdW50aW1lRGVmYXVsdHNDb25maWc6cbpIbhpsChdjb250cm9sbGVyLmRhdGFiYXNlX3VybBIdZGF0YWJhc2UudXJsX2ZpbGUgaXMgcmVxdWlyZWQaMmhhcyh0aGlzLmRhdGFiYXNlKSAmJiB0aGlzLmRhdGFiYXNlLnVybF9maWxlICE9ICcnIpsBChBLdWJlcm5ldGVzQ29uZmlnEh8KCW5hbWVzcGFjZRgBIAEoCUIHukgEcgIQAUgAiAEBEiYKEHdhdGNoX25hbWVzcGFjZXMYAiADKAlCDLpICZIBBiIEcgIQARIcCg9sZWFkZXJfZWxlY3Rpb24YAyABKAhIAYgBAUIMCgpfbmFtZXNwYWNlQhIKEF9sZWFkZXJfZWxlY3Rpb24inwEKFkNvbnRyb2xsZXJTZXJ2ZXJDb25maWcSIgoMYmluZF9hZGRyZXNzGAEgASgJQge6SARyAhABSACIAQESFwoPZ3JwY19yZWZsZWN0aW9uGAIgASgIEjcKBGF1dGgYAyABKAsyKS5rYWdlbnQuYXBpLnYxYWxwaGExLkF1dGhlbnRpY2F0aW9uQ29uZmlnQg8KDV9iaW5kX2FkZHJlc3MiaQoUQXV0aGVudGljYXRpb25Db25maWcSMQoEbW9kZRgBIAEoCUIeukgbchlSCGluc2VjdXJlUg10cnVzdGVkLXByb3h5SACIAQESFQoNdXNlcl9pZF9jbGFpbRgCIAEoCUIHCgVfbW9kZSKsAgoORGF0YWJhc2VDb25maWcSEAoIdXJsX2ZpbGUYASABKAkSDAoEcm9sZRgCIAEoCRIWCg52ZWN0b3JfZW5hYmxlZBgDIAEoCBIXCg9za2lwX21pZ3JhdGlvbnMYBCABKAgSNQoEcG9vbBgFIAEoCzInLmthZ2VudC5hcGkudjFhbHBoYTEuUG9zdGdyZXNQb29sQ29uZmlnEjYKBnNjaGVtYRgGIAEoCUIhukgechwYPzIYXlthLXpBLVpfXVthLXpBLVowLTlfXSokSACIAQESPQoNdmVjdG9yX3NjaGVtYRgHIAEoCUIhukgechwYPzIYXlthLXpBLVpfXVthLXpBLVowLTlfXSokSAGIAQFCCQoHX3NjaGVtYUIQCg5fdmVjdG9yX3NjaGVtYSKaAwoSUG9zdGdyZXNQb29sQ29uZmlnEh8KCW1pbl9jb25ucxgBIAEoBUIHukgEGgIoAEgAiAEBEh8KCW1heF9jb25ucxgCIAEoBUIHukgEGgIgAEgBiAEBEkcKEm1heF9jb25uX2lkbGVfdGltZRgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqABJGChFtYXhfY29ubl9saWZldGltZRgEIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqADqUAbpIkAEajQEKFHBvc3RncmVzX3Bvb2wuYm91bmRzEiNtaW5fY29ubnMgbXVzdCBub3QgZXhjZWVkIG1heF9jb25ucxpQIWhhcyh0aGlzLm1pbl9jb25ucykgfHwgIWhhcyh0aGlzLm1heF9jb25ucykgfHwgdGhpcy5taW5fY29ubnMgPD0gdGhpcy5tYXhfY29ubnNCDAoKX21pbl9jb25uc0IMCgpfbWF4X2Nvbm5zIrYBCg9TdWJzdHJhdGVDb25maWcSIgoMYXBpX2VuZHBvaW50GAEgASgJQge6SARyAhABSACIAQESDwoHY2FfZmlsZRgCIAEoCRIYChBjbGllbnRfY2VydF9maWxlGAMgASgJEjQKCnJvdXRlcl91cmwYBCABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBAUgBiAEBQg8KDV9hcGlfZW5kcG9pbnRCDQoLX3JvdXRlcl91cmwisAIKDlNlc3Npb25zQ29uZmlnEj0KCGlkbGVfdHRsGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIjIAEkIKDXNoYXJlX21heF90dGwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CELpIDaoBCiIGCIT6ha4iMgASSAoTZXhwaXJhdGlvbl9pbnRlcnZhbBgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqABJRChxxdWllc2NlbmNlX3JlY292ZXJ5X2ludGVydmFsGAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIioAIoMBCg1HYXRld2F5Q29uZmlnEjQKCnB1YmxpY191cmwYASABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBAUgAiAEBEi0KBHB1c2gYAiABKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLlB1c2hDb25maWdCDQoLX3B1YmxpY191cmwinwEKClB1c2hDb25maWcSIAoYc2lnbmluZ19wcml2YXRlX2tleV9maWxlGAEgASgJEjAKBmlzc3VlchgCIAEoCUIbukgYchYyEV5odHRwcz86Ly9bXi8/I10riAEBSACIAQESEgoKYWxsb3dfaHR0cBgDIAEoCBIeChZhbGxvd19wcml2YXRlX25ldHdvcmtzGAQgASgIQgkKB19pc3N1ZXIizQMKDVNhbmRib3hDb25maWcSEwoLZ3Vlc3RfaW1hZ2UYASABKAkSGQoDY3B1GAIgASgJQge6SARyAhABSACIAQESHAoGbWVtb3J5GAMgASgJQge6SARyAhABSAGIAQESQAoLZGVmYXVsdF90dGwYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CELpIDaoBCiIGCIT6ha4iKgASOgoHbWF4X3R0bBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIOukgLqgEIIgQIgKMFKgASSAoTZXhwaXJhdGlvbl9pbnRlcnZhbBgGIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqADqSAbpIjgEaiwEKEnNhbmRib3gudHRsX2JvdW5kcxIjZGVmYXVsdF90dGwgbXVzdCBub3QgZXhjZWVkIG1heF90dGwaUCFoYXModGhpcy5kZWZhdWx0X3R0bCkgfHwgIWhhcyh0aGlzLm1heF90dGwpIHx8IHRoaXMuZGVmYXVsdF90dGwgPD0gdGhpcy5tYXhfdHRsQgYKBF9jcHVCCQoHX21lbW9yeSKiAQoTU2NoZWR1bGVkUnVuc0NvbmZpZxJCCg1wb2xsX2ludGVydmFsGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIioAEkcKEmV4ZWN1dGlvbl9pbnRlcnZhbBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqACJaChZSdW50aW1lUmV2aXNpb25zQ29uZmlnEkAKC2djX2ludGVydmFsGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIioAIlQKDU1ldHJpY3NDb25maWcSIgoMYmluZF9hZGRyZXNzGAEgASgJQge6SARyAhABSACIAQESDgoGc2VjdXJlGAIgASgIQg8KDV9iaW5kX2FkZHJlc3Mi1AMKD1RlbGVtZXRyeUNvbmZpZxIvCgZ0cmFjZXMYASABKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLk9UTFBDb25maWcSMAoHbWV0cmljcxgCIAEoCzIfLmthZ2VudC5hcGkudjFhbHBoYTEuT1RMUENvbmZpZxItCgRsb2dzGAMgASgLMh8ua2FnZW50LmFwaS52MWFscGhhMS5PVExQQ29uZmlnElkKE3Jlc291cmNlX2F0dHJpYnV0ZXMYBCADKAsyPC5rYWdlbnQuYXBpLnYxYWxwaGExLlRlbGVtZXRyeUNvbmZpZy5SZXNvdXJjZUF0dHJpYnV0ZXNFbnRyeRIXCg9jYXB0dXJlX2NvbnRlbnQYBSABKAgSHgoWY2FwdHVyZV9yYXdfYXBpX2JvZGllcxgGIAEoCBIrChFtYXhfY2FwdHVyZV9ieXRlcxgHIAEoBUILukgIGgYYgIAEIABIAIgBARIdChVvcGVuYWlfbmF0aXZlX3RyYWNpbmcYCCABKAgaOQoXUmVzb3VyY2VBdHRyaWJ1dGVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIUChJfbWF4X2NhcHR1cmVfYnl0ZXMiuwEKCk9UTFBDb25maWcSLQoIZW5kcG9pbnQYASABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBARIxCghwcm90b2NvbBgCIAEoCUIaukgXchVSBGdycGNSDWh0dHAvcHJvdG9idWZIAIgBARI+Cgd0aW1lb3V0GAMgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhK6SA+qAQwiBAiAowUyBBDAhD1CCwoJX3Byb3RvY29sIt0FChVSdW50aW1lRGVmYXVsdHNDb25maWcSOwoRY29udHJvbF9wbGFuZV91cmwYASABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBAUgAiAEBEjUKC2dhdGV3YXlfdXJsGAIgASgJQhu6SBhyFjIRXmh0dHBzPzovL1teLz8jXSuIAQFIAYgBARIzCgdsb2dnaW5nGAMgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5Mb2dnaW5nQ29uZmlnErgCCgl0ZWxlbWV0cnkYBCABKAsyJC5rYWdlbnQuYXBpLnYxYWxwaGExLlRlbGVtZXRyeUNvbmZpZ0L+AbpI+gG6AfYBCitydW50aW1lX2RlZmF1bHRzLnRlbGVtZXRyeS5zZXJ2aWNlX2lkZW50aXR5EmJydW50aW1lIHRlbGVtZXRyeSByZXNvdXJjZV9hdHRyaWJ1dGVzIG11c3Qgbm90IG92ZXJyaWRlIGNvbXBpbGVkIHNlcnZpY2UubmFtZSBvciBzZXJ2aWNlLm5hbWVzcGFjZRpjISgnc2VydmljZS5uYW1lJyBpbiB0aGlzLnJlc291cmNlX2F0dHJpYnV0ZXMpICYmICEoJ3NlcnZpY2UubmFtZXNwYWNlJyBpbiB0aGlzLnJlc291cmNlX2F0dHJpYnV0ZXMpEigKEm1heF9jb250ZW50X2xlbmd0aBgFIAEoA0IHukgEIgIoAEgCiAEBEkYKEXRva2VuX3Byb3BhZ2F0aW9uGAYgASgLMisua2FnZW50LmFwaS52MWFscGhhMS5Ub2tlblByb3BhZ2F0aW9uQ29uZmlnEhkKEWZpbGVfc2VhcmNoX3Rvb2xzGAcgASgIEhYKDmJhc2hfdmVudl9wYXRoGAggASgJQhQKEl9jb250cm9sX3BsYW5lX3VybEIOCgxfZ2F0ZXdheV91cmxCFQoTX21heF9jb250ZW50X2xlbmd0aCLeAQoWVG9rZW5Qcm9wYWdhdGlvbkNvbmZpZxIPCgdlbmFibGVkGAEgASgIEjwKEnN0c193ZWxsX2tub3duX3VyaRgCIAEoCUIbukgYchYyEV5odHRwcz86Ly9bXi8/I10riAEBSACIAQESLgoJcmVzb3VyY2VzGAMgAygJQhu6SBiSARUiE3IREAEyDV5cUyg/Oi4qXFMpPyQSLgoJYXVkaWVuY2VzGAQgAygJQhu6SBiSARUiE3IREAEyDV5cUyg/Oi4qXFMpPyRCFQoTX3N0c193ZWxsX2tub3duX3VyaUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z", [file_buf_validate_validate, file_google_protobuf_duration]);
+  fileDesc("CiBrYWdlbnQvYXBpL3YxYWxwaGExL2NvbmZpZy5wcm90bxITa2FnZW50LmFwaS52MWFscGhhMSKaAgoJQ0xJQ29uZmlnEjkKCmNvbm5lY3Rpb24YASABKAsyJS5rYWdlbnQuYXBpLnYxYWxwaGExLkNvbm5lY3Rpb25Db25maWcSMQoGb3V0cHV0GAIgASgLMiEua2FnZW50LmFwaS52MWFscGhhMS5PdXRwdXRDb25maWcSMwoHbG9nZ2luZxgDIAEoCzIiLmthZ2VudC5hcGkudjFhbHBoYTEuTG9nZ2luZ0NvbmZpZxIzCgdpbnN0YWxsGAQgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5JbnN0YWxsQ29uZmlnEjUKCGRhdGFiYXNlGAUgASgLMiMua2FnZW50LmFwaS52MWFscGhhMS5EYXRhYmFzZUNvbmZpZyLuAgoQQ29ubmVjdGlvbkNvbmZpZxIxCgdhcGlfdXJsGAEgASgJQhu6SBhyFjIRXmh0dHBzPzovL1teLz8jXSuIAQFIAIgBARI1CgtnYXRld2F5X3VybBgCIAEoCUIbukgYchYyEV5odHRwcz86Ly9bXi8/I10riAEBSAGIAQESHwoJbmFtZXNwYWNlGAMgASgJQge6SARyAhABSAKIAQESJAoHdXNlcl9pZBgEIAEoCUIOukgLcgkQATIFXlxTKyRIA4gBARI8Cgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIjIAEg8KB2NhX2ZpbGUYBiABKAkSEwoLc2VydmVyX25hbWUYByABKAkSDwoHdmVyYm9zZRgIIAEoCEIKCghfYXBpX3VybEIOCgxfZ2F0ZXdheV91cmxCDAoKX25hbWVzcGFjZUIKCghfdXNlcl9pZCJICgxPdXRwdXRDb25maWcSLQoGZm9ybWF0GAEgASgJQhi6SBVyE1IFdGFibGVSBGpzb25SBHlhbWxIAIgBAUIJCgdfZm9ybWF0Ik4KDUxvZ2dpbmdDb25maWcSMwoFbGV2ZWwYASABKAlCH7pIHHIaUgVkZWJ1Z1IEaW5mb1IEd2FyblIFZXJyb3JIAIgBAUIICgZfbGV2ZWwingMKDUluc3RhbGxDb25maWcShgEKFmRlZmF1bHRfbW9kZWxfcHJvdmlkZXIYASABKAlCYbpIXnJcUgZPcGVuQUlSCUFudGhyb3BpY1ILQXp1cmVPcGVuQUlSBk9sbGFtYVIGR2VtaW5pUg5HZW1pbmlWZXJ0ZXhBSVIRQW50aHJvcGljVmVydGV4QUlSB0JlZHJvY2tIAIgBARIwCgZrYWdlbnQYAiABKAsyIC5rYWdlbnQuYXBpLnYxYWxwaGExLkNoYXJ0Q29uZmlnEjMKCXN1YnN0cmF0ZRgDIAEoCzIgLmthZ2VudC5hcGkudjFhbHBoYTEuQ2hhcnRDb25maWcSOQoPcG9kX2NlcnRpZmljYXRlGAQgASgLMiAua2FnZW50LmFwaS52MWFscGhhMS5DaGFydENvbmZpZxIsChZidW5kbGVkX3Bvc3RncmVzX2ltYWdlGAUgASgJQge6SARyAhABSAGIAQFCGQoXX2RlZmF1bHRfbW9kZWxfcHJvdmlkZXJCGQoXX2J1bmRsZWRfcG9zdGdyZXNfaW1hZ2UijQEKC0NoYXJ0Q29uZmlnEiAKCnJlcG9zaXRvcnkYASABKAlCB7pIBHICEAFIAIgBARIdCgd2ZXJzaW9uGAIgASgJQge6SARyAhABSAGIAQESIgoMdmFsdWVzX2ZpbGVzGAMgAygJQgy6SAmSAQYiBHICEAFCDQoLX3JlcG9zaXRvcnlCCgoIX3ZlcnNpb24itgoKEENvbnRyb2xsZXJDb25maWcSOQoKa3ViZXJuZXRlcxgBIAEoCzIlLmthZ2VudC5hcGkudjFhbHBoYTEuS3ViZXJuZXRlc0NvbmZpZxI7CgZzZXJ2ZXIYAiABKAsyKy5rYWdlbnQuYXBpLnYxYWxwaGExLkNvbnRyb2xsZXJTZXJ2ZXJDb25maWcSPQoIZGF0YWJhc2UYAyABKAsyIy5rYWdlbnQuYXBpLnYxYWxwaGExLkRhdGFiYXNlQ29uZmlnQga6SAPIAQESNwoJc3Vic3RyYXRlGAQgASgLMiQua2FnZW50LmFwaS52MWFscGhhMS5TdWJzdHJhdGVDb25maWcSNQoIc2Vzc2lvbnMYBSABKAsyIy5rYWdlbnQuYXBpLnYxYWxwaGExLlNlc3Npb25zQ29uZmlnEjMKB2dhdGV3YXkYBiABKAsyIi5rYWdlbnQuYXBpLnYxYWxwaGExLkdhdGV3YXlDb25maWcSNQoJc2FuZGJveGVzGAcgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5TYW5kYm94Q29uZmlnEkAKDnNjaGVkdWxlZF9ydW5zGAggASgLMigua2FnZW50LmFwaS52MWFscGhhMS5TY2hlZHVsZWRSdW5zQ29uZmlnEkYKEXJ1bnRpbWVfcmV2aXNpb25zGAkgASgLMisua2FnZW50LmFwaS52MWFscGhhMS5SdW50aW1lUmV2aXNpb25zQ29uZmlnEjMKB21ldHJpY3MYCiABKAsyIi5rYWdlbnQuYXBpLnYxYWxwaGExLk1ldHJpY3NDb25maWcSMwoHbG9nZ2luZxgLIAEoCzIiLmthZ2VudC5hcGkudjFhbHBoYTEuTG9nZ2luZ0NvbmZpZxI3Cgl0ZWxlbWV0cnkYDCABKAsyJC5rYWdlbnQuYXBpLnYxYWxwaGExLlRlbGVtZXRyeUNvbmZpZxJEChBydW50aW1lX2RlZmF1bHRzGA0gASgLMioua2FnZW50LmFwaS52MWFscGhhMS5SdW50aW1lRGVmYXVsdHNDb25maWcSQAoOaGFybmVzc19pbWFnZXMYDiABKAsyKC5rYWdlbnQuYXBpLnYxYWxwaGExLkhhcm5lc3NJbWFnZXNDb25maWc62QO6SNUDGs4BCh5jb250cm9sbGVyLmRhdGFiYXNlX3JlYWRfd3JpdGUSRmRhdGFiYXNlLnJlYWRfd3JpdGUudXJsX2ZpbGUgYW5kIGRhdGFiYXNlLnJlYWRfd3JpdGUucm9sZSBhcmUgcmVxdWlyZWQaZGhhcyh0aGlzLmRhdGFiYXNlKSAmJiB0aGlzLmRhdGFiYXNlLnJlYWRfd3JpdGUudXJsX2ZpbGUgIT0gJycgJiYgdGhpcy5kYXRhYmFzZS5yZWFkX3dyaXRlLnJvbGUgIT0gJycagQIKGWNvbnRyb2xsZXIuZGF0YWJhc2Vfb3duZXISZGRhdGFiYXNlLm93bmVyLnVybF9maWxlIGFuZCBkYXRhYmFzZS5vd25lci5yb2xlIGFyZSByZXF1aXJlZCB1bmxlc3MgZGF0YWJhc2Uuc2tpcF9taWdyYXRpb25zIGlzIHRydWUafiFoYXModGhpcy5kYXRhYmFzZSkgfHwgdGhpcy5kYXRhYmFzZS5za2lwX21pZ3JhdGlvbnMgfHwgKHRoaXMuZGF0YWJhc2Uub3duZXIudXJsX2ZpbGUgIT0gJycgJiYgdGhpcy5kYXRhYmFzZS5vd25lci5yb2xlICE9ICcnKSLQAQoTSGFybmVzc0ltYWdlc0NvbmZpZxIPCgdyZWxlYXNlGAEgASgJEjcKBmthZ2VudBgCIAEoCUInukgkciIyIF4kfF5bXlxzQF0rQHNoYTI1NjpbYS1mMC05XXs2NH0kEjcKBmNsYXVkZRgDIAEoCUInukgkciIyIF4kfF5bXlxzQF0rQHNoYTI1NjpbYS1mMC05XXs2NH0kEjYKBWNvZGV4GAQgASgJQie6SCRyIjIgXiR8XlteXHNAXStAc2hhMjU2OlthLWYwLTldezY0fSQimwEKEEt1YmVybmV0ZXNDb25maWcSHwoJbmFtZXNwYWNlGAEgASgJQge6SARyAhABSACIAQESJgoQd2F0Y2hfbmFtZXNwYWNlcxgCIAMoCUIMukgJkgEGIgRyAhABEhwKD2xlYWRlcl9lbGVjdGlvbhgDIAEoCEgBiAEBQgwKCl9uYW1lc3BhY2VCEgoQX2xlYWRlcl9lbGVjdGlvbiKfAQoWQ29udHJvbGxlclNlcnZlckNvbmZpZxIiCgxiaW5kX2FkZHJlc3MYASABKAlCB7pIBHICEAFIAIgBARIXCg9ncnBjX3JlZmxlY3Rpb24YAiABKAgSNwoEYXV0aBgDIAEoCzIpLmthZ2VudC5hcGkudjFhbHBoYTEuQXV0aGVudGljYXRpb25Db25maWdCDwoNX2JpbmRfYWRkcmVzcyJpChRBdXRoZW50aWNhdGlvbkNvbmZpZxIxCgRtb2RlGAEgASgJQh66SBtyGVIIaW5zZWN1cmVSDXRydXN0ZWQtcHJveHlIAIgBARIVCg11c2VyX2lkX2NsYWltGAIgASgJQgcKBV9tb2RlIoMDCg5EYXRhYmFzZUNvbmZpZxI3CgVvd25lchgBIAEoCzIoLmthZ2VudC5hcGkudjFhbHBoYTEuRGF0YWJhc2VMb2dpbkNvbmZpZxI8CgpyZWFkX3dyaXRlGAIgASgLMigua2FnZW50LmFwaS52MWFscGhhMS5EYXRhYmFzZUxvZ2luQ29uZmlnEhYKDnZlY3Rvcl9lbmFibGVkGAMgASgIEhcKD3NraXBfbWlncmF0aW9ucxgEIAEoCBI1CgRwb29sGAUgASgLMicua2FnZW50LmFwaS52MWFscGhhMS5Qb3N0Z3Jlc1Bvb2xDb25maWcSNgoGc2NoZW1hGAYgASgJQiG6SB5yHBg/MhheW2EtekEtWl9dW2EtekEtWjAtOV9dKiRIAIgBARI9Cg12ZWN0b3Jfc2NoZW1hGAcgASgJQiG6SB5yHBg/MhheW2EtekEtWl9dW2EtekEtWjAtOV9dKiRIAYgBAUIJCgdfc2NoZW1hQhAKDl92ZWN0b3Jfc2NoZW1hIjUKE0RhdGFiYXNlTG9naW5Db25maWcSEAoIdXJsX2ZpbGUYASABKAkSDAoEcm9sZRgCIAEoCSKaAwoSUG9zdGdyZXNQb29sQ29uZmlnEh8KCW1pbl9jb25ucxgBIAEoBUIHukgEGgIoAEgAiAEBEh8KCW1heF9jb25ucxgCIAEoBUIHukgEGgIgAEgBiAEBEkcKEm1heF9jb25uX2lkbGVfdGltZRgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqABJGChFtYXhfY29ubl9saWZldGltZRgEIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqADqUAbpIkAEajQEKFHBvc3RncmVzX3Bvb2wuYm91bmRzEiNtaW5fY29ubnMgbXVzdCBub3QgZXhjZWVkIG1heF9jb25ucxpQIWhhcyh0aGlzLm1pbl9jb25ucykgfHwgIWhhcyh0aGlzLm1heF9jb25ucykgfHwgdGhpcy5taW5fY29ubnMgPD0gdGhpcy5tYXhfY29ubnNCDAoKX21pbl9jb25uc0IMCgpfbWF4X2Nvbm5zIrYBCg9TdWJzdHJhdGVDb25maWcSIgoMYXBpX2VuZHBvaW50GAEgASgJQge6SARyAhABSACIAQESDwoHY2FfZmlsZRgCIAEoCRIYChBjbGllbnRfY2VydF9maWxlGAMgASgJEjQKCnJvdXRlcl91cmwYBCABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBAUgBiAEBQg8KDV9hcGlfZW5kcG9pbnRCDQoLX3JvdXRlcl91cmwisAIKDlNlc3Npb25zQ29uZmlnEj0KCGlkbGVfdHRsGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIjIAEkIKDXNoYXJlX21heF90dGwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CELpIDaoBCiIGCIT6ha4iMgASSAoTZXhwaXJhdGlvbl9pbnRlcnZhbBgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqABJRChxxdWllc2NlbmNlX3JlY292ZXJ5X2ludGVydmFsGAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIioAIoMBCg1HYXRld2F5Q29uZmlnEjQKCnB1YmxpY191cmwYASABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBAUgAiAEBEi0KBHB1c2gYAiABKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLlB1c2hDb25maWdCDQoLX3B1YmxpY191cmwinwEKClB1c2hDb25maWcSIAoYc2lnbmluZ19wcml2YXRlX2tleV9maWxlGAEgASgJEjAKBmlzc3VlchgCIAEoCUIbukgYchYyEV5odHRwcz86Ly9bXi8/I10riAEBSACIAQESEgoKYWxsb3dfaHR0cBgDIAEoCBIeChZhbGxvd19wcml2YXRlX25ldHdvcmtzGAQgASgIQgkKB19pc3N1ZXIizQMKDVNhbmRib3hDb25maWcSEwoLZ3Vlc3RfaW1hZ2UYASABKAkSGQoDY3B1GAIgASgJQge6SARyAhABSACIAQESHAoGbWVtb3J5GAMgASgJQge6SARyAhABSAGIAQESQAoLZGVmYXVsdF90dGwYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CELpIDaoBCiIGCIT6ha4iKgASOgoHbWF4X3R0bBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIOukgLqgEIIgQIgKMFKgASSAoTZXhwaXJhdGlvbl9pbnRlcnZhbBgGIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqADqSAbpIjgEaiwEKEnNhbmRib3gudHRsX2JvdW5kcxIjZGVmYXVsdF90dGwgbXVzdCBub3QgZXhjZWVkIG1heF90dGwaUCFoYXModGhpcy5kZWZhdWx0X3R0bCkgfHwgIWhhcyh0aGlzLm1heF90dGwpIHx8IHRoaXMuZGVmYXVsdF90dGwgPD0gdGhpcy5tYXhfdHRsQgYKBF9jcHVCCQoHX21lbW9yeSKiAQoTU2NoZWR1bGVkUnVuc0NvbmZpZxJCCg1wb2xsX2ludGVydmFsGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIioAEkcKEmV4ZWN1dGlvbl9pbnRlcnZhbBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIQukgNqgEKIgYIhPqFriIqACJaChZSdW50aW1lUmV2aXNpb25zQ29uZmlnEkAKC2djX2ludGVydmFsGAEgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhC6SA2qAQoiBgiE+oWuIioAIlQKDU1ldHJpY3NDb25maWcSIgoMYmluZF9hZGRyZXNzGAEgASgJQge6SARyAhABSACIAQESDgoGc2VjdXJlGAIgASgIQg8KDV9iaW5kX2FkZHJlc3Mi1AMKD1RlbGVtZXRyeUNvbmZpZxIvCgZ0cmFjZXMYASABKAsyHy5rYWdlbnQuYXBpLnYxYWxwaGExLk9UTFBDb25maWcSMAoHbWV0cmljcxgCIAEoCzIfLmthZ2VudC5hcGkudjFhbHBoYTEuT1RMUENvbmZpZxItCgRsb2dzGAMgASgLMh8ua2FnZW50LmFwaS52MWFscGhhMS5PVExQQ29uZmlnElkKE3Jlc291cmNlX2F0dHJpYnV0ZXMYBCADKAsyPC5rYWdlbnQuYXBpLnYxYWxwaGExLlRlbGVtZXRyeUNvbmZpZy5SZXNvdXJjZUF0dHJpYnV0ZXNFbnRyeRIXCg9jYXB0dXJlX2NvbnRlbnQYBSABKAgSHgoWY2FwdHVyZV9yYXdfYXBpX2JvZGllcxgGIAEoCBIrChFtYXhfY2FwdHVyZV9ieXRlcxgHIAEoBUILukgIGgYYgIAEIABIAIgBARIdChVvcGVuYWlfbmF0aXZlX3RyYWNpbmcYCCABKAgaOQoXUmVzb3VyY2VBdHRyaWJ1dGVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIUChJfbWF4X2NhcHR1cmVfYnl0ZXMiuwEKCk9UTFBDb25maWcSLQoIZW5kcG9pbnQYASABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBARIxCghwcm90b2NvbBgCIAEoCUIaukgXchVSBGdycGNSDWh0dHAvcHJvdG9idWZIAIgBARI+Cgd0aW1lb3V0GAMgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQhK6SA+qAQwiBAiAowUyBBDAhD1CCwoJX3Byb3RvY29sIt0FChVSdW50aW1lRGVmYXVsdHNDb25maWcSOwoRY29udHJvbF9wbGFuZV91cmwYASABKAlCG7pIGHIWMhFeaHR0cHM/Oi8vW14vPyNdK4gBAUgAiAEBEjUKC2dhdGV3YXlfdXJsGAIgASgJQhu6SBhyFjIRXmh0dHBzPzovL1teLz8jXSuIAQFIAYgBARIzCgdsb2dnaW5nGAMgASgLMiIua2FnZW50LmFwaS52MWFscGhhMS5Mb2dnaW5nQ29uZmlnErgCCgl0ZWxlbWV0cnkYBCABKAsyJC5rYWdlbnQuYXBpLnYxYWxwaGExLlRlbGVtZXRyeUNvbmZpZ0L+AbpI+gG6AfYBCitydW50aW1lX2RlZmF1bHRzLnRlbGVtZXRyeS5zZXJ2aWNlX2lkZW50aXR5EmJydW50aW1lIHRlbGVtZXRyeSByZXNvdXJjZV9hdHRyaWJ1dGVzIG11c3Qgbm90IG92ZXJyaWRlIGNvbXBpbGVkIHNlcnZpY2UubmFtZSBvciBzZXJ2aWNlLm5hbWVzcGFjZRpjISgnc2VydmljZS5uYW1lJyBpbiB0aGlzLnJlc291cmNlX2F0dHJpYnV0ZXMpICYmICEoJ3NlcnZpY2UubmFtZXNwYWNlJyBpbiB0aGlzLnJlc291cmNlX2F0dHJpYnV0ZXMpEigKEm1heF9jb250ZW50X2xlbmd0aBgFIAEoA0IHukgEIgIoAEgCiAEBEkYKEXRva2VuX3Byb3BhZ2F0aW9uGAYgASgLMisua2FnZW50LmFwaS52MWFscGhhMS5Ub2tlblByb3BhZ2F0aW9uQ29uZmlnEhkKEWZpbGVfc2VhcmNoX3Rvb2xzGAcgASgIEhYKDmJhc2hfdmVudl9wYXRoGAggASgJQhQKEl9jb250cm9sX3BsYW5lX3VybEIOCgxfZ2F0ZXdheV91cmxCFQoTX21heF9jb250ZW50X2xlbmd0aCLeAQoWVG9rZW5Qcm9wYWdhdGlvbkNvbmZpZxIPCgdlbmFibGVkGAEgASgIEjwKEnN0c193ZWxsX2tub3duX3VyaRgCIAEoCUIbukgYchYyEV5odHRwcz86Ly9bXi8/I10riAEBSACIAQESLgoJcmVzb3VyY2VzGAMgAygJQhu6SBiSARUiE3IREAEyDV5cUyg/Oi4qXFMpPyQSLgoJYXVkaWVuY2VzGAQgAygJQhu6SBiSARUiE3IREAEyDV5cUyg/Oi4qXFMpPyRCFQoTX3N0c193ZWxsX2tub3duX3VyaUJJWkdnaXRodWIuY29tL2thZ2VudC1kZXYva2FnZW50L2dvL2FwaS9nZW4va2FnZW50L2FwaS92MWFscGhhMTthcGl2MWFscGhhMWIGcHJvdG8z", [file_buf_validate_validate, file_google_protobuf_duration]);
 
 /**
  * CLIConfig is local CLI configuration. The executable selects this message;
@@ -207,7 +207,7 @@ export const ChartConfigSchema: GenMessage<ChartConfig> = /*@__PURE__*/
 
 /**
  * ControllerConfig configures one controller process. Runtime defaults are
- * compiled into the existing harness Go/JSON contracts, not protobuf payloads.
+ * compiled into the ADK protobuf contract or native Harness configuration.
  *
  * @generated from message kagent.api.v1alpha1.ControllerConfig
  */
@@ -276,6 +276,11 @@ export type ControllerConfig = Message<"kagent.api.v1alpha1.ControllerConfig"> &
    * @generated from field: kagent.api.v1alpha1.RuntimeDefaultsConfig runtime_defaults = 13;
    */
   runtimeDefaults?: RuntimeDefaultsConfig | undefined;
+
+  /**
+   * @generated from field: kagent.api.v1alpha1.HarnessImagesConfig harness_images = 14;
+   */
+  harnessImages?: HarnessImagesConfig | undefined;
 };
 
 /**
@@ -284,6 +289,43 @@ export type ControllerConfig = Message<"kagent.api.v1alpha1.ControllerConfig"> &
  */
 export const ControllerConfigSchema: GenMessage<ControllerConfig> = /*@__PURE__*/
   messageDesc(file_kagent_api_v1alpha1_config, 6);
+
+/**
+ * HarnessImagesConfig supplies release defaults for built-in Harnesses. Empty
+ * images disable that default; explicit workload.image values take precedence.
+ *
+ * @generated from message kagent.api.v1alpha1.HarnessImagesConfig
+ */
+export type HarnessImagesConfig = Message<"kagent.api.v1alpha1.HarnessImagesConfig"> & {
+  /**
+   * When set, this must match the controller release. Empty permits local builds.
+   *
+   * @generated from field: string release = 1;
+   */
+  release: string;
+
+  /**
+   * @generated from field: string kagent = 2;
+   */
+  kagent: string;
+
+  /**
+   * @generated from field: string claude = 3;
+   */
+  claude: string;
+
+  /**
+   * @generated from field: string codex = 4;
+   */
+  codex: string;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.HarnessImagesConfig.
+ * Use `create(HarnessImagesConfigSchema)` to create a new message.
+ */
+export const HarnessImagesConfigSchema: GenMessage<HarnessImagesConfig> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_config, 7);
 
 /**
  * @generated from message kagent.api.v1alpha1.KubernetesConfig
@@ -310,7 +352,7 @@ export type KubernetesConfig = Message<"kagent.api.v1alpha1.KubernetesConfig"> &
  * Use `create(KubernetesConfigSchema)` to create a new message.
  */
 export const KubernetesConfigSchema: GenMessage<KubernetesConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 7);
+  messageDesc(file_kagent_api_v1alpha1_config, 8);
 
 /**
  * @generated from message kagent.api.v1alpha1.ControllerServerConfig
@@ -337,7 +379,7 @@ export type ControllerServerConfig = Message<"kagent.api.v1alpha1.ControllerServ
  * Use `create(ControllerServerConfigSchema)` to create a new message.
  */
 export const ControllerServerConfigSchema: GenMessage<ControllerServerConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 8);
+  messageDesc(file_kagent_api_v1alpha1_config, 9);
 
 /**
  * @generated from message kagent.api.v1alpha1.AuthenticationConfig
@@ -359,24 +401,25 @@ export type AuthenticationConfig = Message<"kagent.api.v1alpha1.AuthenticationCo
  * Use `create(AuthenticationConfigSchema)` to create a new message.
  */
 export const AuthenticationConfigSchema: GenMessage<AuthenticationConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 9);
+  messageDesc(file_kagent_api_v1alpha1_config, 10);
 
 /**
- * DatabaseConfig references a local secret file. The CLI requires the file only
- * for commands which connect to PostgreSQL; the controller always requires it.
+ * DatabaseConfig names two PostgreSQL logins. The owner applies migrations; the
+ * read/write login serves runtime queries. The CLI's database commands use only
+ * the owner and require it only when they connect.
  *
  * @generated from message kagent.api.v1alpha1.DatabaseConfig
  */
 export type DatabaseConfig = Message<"kagent.api.v1alpha1.DatabaseConfig"> & {
   /**
-   * @generated from field: string url_file = 1;
+   * @generated from field: kagent.api.v1alpha1.DatabaseLoginConfig owner = 1;
    */
-  urlFile: string;
+  owner?: DatabaseLoginConfig | undefined;
 
   /**
-   * @generated from field: string role = 2;
+   * @generated from field: kagent.api.v1alpha1.DatabaseLoginConfig read_write = 2;
    */
-  role: string;
+  readWrite?: DatabaseLoginConfig | undefined;
 
   /**
    * @generated from field: bool vector_enabled = 3;
@@ -384,8 +427,9 @@ export type DatabaseConfig = Message<"kagent.api.v1alpha1.DatabaseConfig"> & {
   vectorEnabled: boolean;
 
   /**
-   * Skip applying migrations at controller startup. The controller still verifies
-   * that all required migrations are applied and fails to start if any are missing.
+   * Skip applying migrations at controller startup. The controller still verifies,
+   * through the read/write login, that all required migrations are applied and
+   * fails to start if any are missing. The owner login is then not needed.
    *
    * @generated from field: bool skip_migrations = 4;
    */
@@ -412,7 +456,32 @@ export type DatabaseConfig = Message<"kagent.api.v1alpha1.DatabaseConfig"> & {
  * Use `create(DatabaseConfigSchema)` to create a new message.
  */
 export const DatabaseConfigSchema: GenMessage<DatabaseConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 10);
+  messageDesc(file_kagent_api_v1alpha1_config, 11);
+
+/**
+ * DatabaseLoginConfig is one login: a local secret file holding its connection
+ * string, and the role it assumes after connecting.
+ *
+ * @generated from message kagent.api.v1alpha1.DatabaseLoginConfig
+ */
+export type DatabaseLoginConfig = Message<"kagent.api.v1alpha1.DatabaseLoginConfig"> & {
+  /**
+   * @generated from field: string url_file = 1;
+   */
+  urlFile: string;
+
+  /**
+   * @generated from field: string role = 2;
+   */
+  role: string;
+};
+
+/**
+ * Describes the message kagent.api.v1alpha1.DatabaseLoginConfig.
+ * Use `create(DatabaseLoginConfigSchema)` to create a new message.
+ */
+export const DatabaseLoginConfigSchema: GenMessage<DatabaseLoginConfig> = /*@__PURE__*/
+  messageDesc(file_kagent_api_v1alpha1_config, 12);
 
 /**
  * @generated from message kagent.api.v1alpha1.PostgresPoolConfig
@@ -444,7 +513,7 @@ export type PostgresPoolConfig = Message<"kagent.api.v1alpha1.PostgresPoolConfig
  * Use `create(PostgresPoolConfigSchema)` to create a new message.
  */
 export const PostgresPoolConfigSchema: GenMessage<PostgresPoolConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 11);
+  messageDesc(file_kagent_api_v1alpha1_config, 13);
 
 /**
  * @generated from message kagent.api.v1alpha1.SubstrateConfig
@@ -476,7 +545,7 @@ export type SubstrateConfig = Message<"kagent.api.v1alpha1.SubstrateConfig"> & {
  * Use `create(SubstrateConfigSchema)` to create a new message.
  */
 export const SubstrateConfigSchema: GenMessage<SubstrateConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 12);
+  messageDesc(file_kagent_api_v1alpha1_config, 14);
 
 /**
  * @generated from message kagent.api.v1alpha1.SessionsConfig
@@ -512,7 +581,7 @@ export type SessionsConfig = Message<"kagent.api.v1alpha1.SessionsConfig"> & {
  * Use `create(SessionsConfigSchema)` to create a new message.
  */
 export const SessionsConfigSchema: GenMessage<SessionsConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 13);
+  messageDesc(file_kagent_api_v1alpha1_config, 15);
 
 /**
  * @generated from message kagent.api.v1alpha1.GatewayConfig
@@ -534,7 +603,7 @@ export type GatewayConfig = Message<"kagent.api.v1alpha1.GatewayConfig"> & {
  * Use `create(GatewayConfigSchema)` to create a new message.
  */
 export const GatewayConfigSchema: GenMessage<GatewayConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 14);
+  messageDesc(file_kagent_api_v1alpha1_config, 16);
 
 /**
  * @generated from message kagent.api.v1alpha1.PushConfig
@@ -568,7 +637,7 @@ export type PushConfig = Message<"kagent.api.v1alpha1.PushConfig"> & {
  * Use `create(PushConfigSchema)` to create a new message.
  */
 export const PushConfigSchema: GenMessage<PushConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 15);
+  messageDesc(file_kagent_api_v1alpha1_config, 17);
 
 /**
  * @generated from message kagent.api.v1alpha1.SandboxConfig
@@ -610,7 +679,7 @@ export type SandboxConfig = Message<"kagent.api.v1alpha1.SandboxConfig"> & {
  * Use `create(SandboxConfigSchema)` to create a new message.
  */
 export const SandboxConfigSchema: GenMessage<SandboxConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 16);
+  messageDesc(file_kagent_api_v1alpha1_config, 18);
 
 /**
  * @generated from message kagent.api.v1alpha1.ScheduledRunsConfig
@@ -632,7 +701,7 @@ export type ScheduledRunsConfig = Message<"kagent.api.v1alpha1.ScheduledRunsConf
  * Use `create(ScheduledRunsConfigSchema)` to create a new message.
  */
 export const ScheduledRunsConfigSchema: GenMessage<ScheduledRunsConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 17);
+  messageDesc(file_kagent_api_v1alpha1_config, 19);
 
 /**
  * @generated from message kagent.api.v1alpha1.RuntimeRevisionsConfig
@@ -649,7 +718,7 @@ export type RuntimeRevisionsConfig = Message<"kagent.api.v1alpha1.RuntimeRevisio
  * Use `create(RuntimeRevisionsConfigSchema)` to create a new message.
  */
 export const RuntimeRevisionsConfigSchema: GenMessage<RuntimeRevisionsConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 18);
+  messageDesc(file_kagent_api_v1alpha1_config, 20);
 
 /**
  * @generated from message kagent.api.v1alpha1.MetricsConfig
@@ -673,7 +742,7 @@ export type MetricsConfig = Message<"kagent.api.v1alpha1.MetricsConfig"> & {
  * Use `create(MetricsConfigSchema)` to create a new message.
  */
 export const MetricsConfigSchema: GenMessage<MetricsConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 19);
+  messageDesc(file_kagent_api_v1alpha1_config, 21);
 
 /**
  * TelemetryConfig supplies defaults for this process. Standard OTEL_*
@@ -729,7 +798,7 @@ export type TelemetryConfig = Message<"kagent.api.v1alpha1.TelemetryConfig"> & {
  * Use `create(TelemetryConfigSchema)` to create a new message.
  */
 export const TelemetryConfigSchema: GenMessage<TelemetryConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 20);
+  messageDesc(file_kagent_api_v1alpha1_config, 22);
 
 /**
  * @generated from message kagent.api.v1alpha1.OTLPConfig
@@ -756,7 +825,7 @@ export type OTLPConfig = Message<"kagent.api.v1alpha1.OTLPConfig"> & {
  * Use `create(OTLPConfigSchema)` to create a new message.
  */
 export const OTLPConfigSchema: GenMessage<OTLPConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 21);
+  messageDesc(file_kagent_api_v1alpha1_config, 23);
 
 /**
  * @generated from message kagent.api.v1alpha1.RuntimeDefaultsConfig
@@ -808,7 +877,7 @@ export type RuntimeDefaultsConfig = Message<"kagent.api.v1alpha1.RuntimeDefaults
  * Use `create(RuntimeDefaultsConfigSchema)` to create a new message.
  */
 export const RuntimeDefaultsConfigSchema: GenMessage<RuntimeDefaultsConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 22);
+  messageDesc(file_kagent_api_v1alpha1_config, 24);
 
 /**
  * @generated from message kagent.api.v1alpha1.TokenPropagationConfig
@@ -840,5 +909,5 @@ export type TokenPropagationConfig = Message<"kagent.api.v1alpha1.TokenPropagati
  * Use `create(TokenPropagationConfigSchema)` to create a new message.
  */
 export const TokenPropagationConfigSchema: GenMessage<TokenPropagationConfig> = /*@__PURE__*/
-  messageDesc(file_kagent_api_v1alpha1_config, 23);
+  messageDesc(file_kagent_api_v1alpha1_config, 25);
 

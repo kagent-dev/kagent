@@ -13,8 +13,9 @@ from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import OTELResourceDetector
 from opentelemetry.semconv.attributes.service_attributes import SERVICE_NAME
 from opentelemetry.util._importlib_metadata import entry_points
+from protovalidate import validate
 
-from .._runtime_config import ExporterConfig, RuntimeConfig
+from .._runtime_config import RuntimeConfig, TelemetryConfig
 from . import _defaults
 from ._conv import GEN_AI_AGENT_ID, GEN_AI_AGENT_NAME, KAGENT_RUNTIME, KagentRuntimeValues
 from ._profiles import COMMON_INSTRUMENTORS, Profile, profile_for
@@ -140,7 +141,7 @@ def _environment_propagator() -> CompositePropagator:
     )
 
 
-def _resource_attributes(identity: Identity, config: ExporterConfig) -> dict[str, str]:
+def _resource_attributes(identity: Identity, config: TelemetryConfig) -> dict[str, str]:
     attributes = {SERVICE_NAME: identity.agent_name, _SERVICE_NAMESPACE: identity.agent_namespace}
     attributes.update(config.resource_attributes)
     attributes.update(OTELResourceDetector().detect().attributes)
@@ -148,7 +149,7 @@ def _resource_attributes(identity: Identity, config: ExporterConfig) -> dict[str
     return attributes
 
 
-def _install_providers(identity: Identity, config: ExporterConfig) -> None:
+def _install_providers(identity: Identity, config: TelemetryConfig) -> None:
     if os.getenv("OTEL_SDK_DISABLED", "").strip().lower() == "true":
         return
     try:
@@ -187,7 +188,8 @@ def bootstrap(
     if _current is not None:
         return _current
     config = config or RuntimeConfig()
-    exporters = config.telemetry.exporters or ExporterConfig()
+    validate(config)
+    exporters = config.telemetry
     profile = profile_for(runtime)
     identity = Identity(
         runtime=runtime,

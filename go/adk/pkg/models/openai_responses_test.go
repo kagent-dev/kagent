@@ -101,7 +101,7 @@ func TestGenaiToolsToResponsesTools(t *testing.T) {
 
 func TestApplyOpenAIResponsesConfig(t *testing.T) {
 	temp := 0.5
-	mct := 128
+	mct := int64(128)
 	effort := "low"
 	var params responses.ResponseNewParams
 	applyOpenAIResponsesConfig(&params, &OpenAIConfig{

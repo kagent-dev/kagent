@@ -610,7 +610,6 @@ func TestGatewayHonoursSessionShare(t *testing.T) {
 		Token:     "share",
 		UserID:    "the-owner",
 		SessionID: session.GetId(),
-		ReadOnly:  true,
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs())
 

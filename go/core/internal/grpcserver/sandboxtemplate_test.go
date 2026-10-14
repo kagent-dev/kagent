@@ -28,7 +28,7 @@ import (
 // actual CRD schema. The normal Go test job supplies KUBEBUILDER_ASSETS.
 func TestSandboxTemplateCatalog(t *testing.T) {
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{"../../../api/config/crd/bases"}, ErrorIfCRDPathMissing: true,
+		CRDDirectoryPaths: []string{"../../../../helm/kagent-crds/templates"}, ErrorIfCRDPathMissing: true,
 	}
 	config, err := testEnv.Start()
 	require.NoError(t, err)

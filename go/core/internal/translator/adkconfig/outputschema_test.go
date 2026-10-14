@@ -17,8 +17,8 @@ func TestApplyOutputSchema(t *testing.T) {
 	}
 
 	require.NoError(t, applyOutputSchema(config, output))
-	require.JSONEq(t, string(output.Schema), string(config.Output.JSONSchema))
-	require.Equal(t, "digest", config.Output.SHA256)
+	require.JSONEq(t, string(output.Schema), string(config.Output.JsonSchema))
+	require.Equal(t, "digest", config.Output.Sha256)
 }
 
 func TestApplyOutputSchemaRejectsRecursiveADKConversion(t *testing.T) {

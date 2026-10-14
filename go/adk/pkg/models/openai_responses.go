@@ -71,9 +71,9 @@ func applyOpenAIResponsesConfig(params *responses.ResponseNewParams, cfg *OpenAI
 	}
 	// Responses uses max_output_tokens (same semantics as max_completion_tokens).
 	if cfg.MaxCompletionTokens != nil {
-		params.MaxOutputTokens = param.NewOpt(int64(*cfg.MaxCompletionTokens))
+		params.MaxOutputTokens = param.NewOpt(*cfg.MaxCompletionTokens)
 	} else if cfg.MaxTokens != nil {
-		params.MaxOutputTokens = param.NewOpt(int64(*cfg.MaxTokens))
+		params.MaxOutputTokens = param.NewOpt(*cfg.MaxTokens)
 	}
 	if cfg.TopP != nil {
 		params.TopP = param.NewOpt(*cfg.TopP)

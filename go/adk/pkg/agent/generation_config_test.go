@@ -9,16 +9,16 @@ import (
 func TestGenerateContentConfig(t *testing.T) {
 	tests := []struct {
 		name  string
-		model adk.Model
+		model *adk.Model
 		want  int32 // 0 means expect nil config
 	}{
-		{name: "gemini with max output tokens", model: &adk.Gemini{MaxOutputTokens: new(1024)}, want: 1024},
-		{name: "vertex with max output tokens", model: &adk.GeminiVertexAI{MaxOutputTokens: new(512)}, want: 512},
-		{name: "gemini unset", model: &adk.Gemini{}, want: 0},
-		{name: "vertex unset", model: &adk.GeminiVertexAI{}, want: 0},
-		{name: "gemini zero", model: &adk.Gemini{MaxOutputTokens: new(0)}, want: 0},
-		{name: "gemini negative", model: &adk.Gemini{MaxOutputTokens: new(-1)}, want: 0},
-		{name: "non-gemini model", model: &adk.OpenAI{}, want: 0},
+		{name: "gemini with max output tokens", model: &adk.Model{Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{MaxOutputTokens: new(int64(1024))}}}, want: 1024},
+		{name: "vertex with max output tokens", model: &adk.Model{Provider: &adk.Model_GeminiVertexAi{GeminiVertexAi: &adk.GeminiVertexAI{MaxOutputTokens: new(int64(512))}}}, want: 512},
+		{name: "gemini unset", model: &adk.Model{Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{}}}, want: 0},
+		{name: "vertex unset", model: &adk.Model{Provider: &adk.Model_GeminiVertexAi{GeminiVertexAi: &adk.GeminiVertexAI{}}}, want: 0},
+		{name: "gemini zero", model: &adk.Model{Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{MaxOutputTokens: new(int64(0))}}}, want: 0},
+		{name: "gemini negative", model: &adk.Model{Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{MaxOutputTokens: new(int64(-1))}}}, want: 0},
+		{name: "non-gemini model", model: &adk.Model{Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}}, want: 0},
 	}
 
 	for _, tt := range tests {

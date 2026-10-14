@@ -18,10 +18,22 @@ func TestCheckConfigAllowsUnsignedPush(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "controller.yaml")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "database-url"), []byte("postgres://localhost/kagent"), 0o600))
-	require.NoError(t, os.WriteFile(path, []byte("database: {urlFile: database-url}\n"), 0o600))
+	const database = "database: {owner: {urlFile: database-url, role: kagent_owner}, readWrite: {urlFile: database-url, role: kagent_readwrite}}\n"
+	require.NoError(t, os.WriteFile(path, []byte(database), 0o600))
 	require.NoError(t, run(path, true, ""))
-	require.NoError(t, os.WriteFile(path, []byte("database: {urlFile: database-url}\ngateway: {push: {signingPrivateKeyFile: missing.pem}}\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(database+"gateway: {push: {signingPrivateKeyFile: missing.pem}}\n"), 0o600))
 	require.ErrorContains(t, run(path, true, ""), "missing.pem")
+}
+
+func TestCheckConfigSkipsOwnerFileWhenSkippingMigrations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.yaml")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "readwrite-url"), []byte("postgres://localhost/kagent"), 0o600))
+	const database = "database: {owner: {urlFile: missing-owner-url, role: kagent_owner}, readWrite: {urlFile: readwrite-url, role: kagent_readwrite}"
+	require.NoError(t, os.WriteFile(path, []byte(database+", skipMigrations: true}\n"), 0o600))
+	require.NoError(t, run(path, true, ""))
+	require.NoError(t, os.WriteFile(path, []byte(database+"}\n"), 0o600))
+	require.ErrorContains(t, run(path, true, ""), "missing-owner-url")
 }
 
 func TestControllerAuthenticator(t *testing.T) {
