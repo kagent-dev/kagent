@@ -89,7 +89,7 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 GO_MODULE ?= $(shell $(AWK) '/^module / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 # Fork: the Giant Swarm line's chart version ("# Substrate" below), set before LDFLAGS reads it.
-SUBSTRATE_VERSION ?= 1.9.0
+SUBSTRATE_VERSION ?= 1.11.1
 
 # Version information for the build (the -X targets follow the Go module path, not the image repository)
 LDFLAGS := -X $(GO_MODULE)/core/internal/version.Version=$(VERSION) \
