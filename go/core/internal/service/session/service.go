@@ -52,6 +52,7 @@ type sessionWorkflow interface {
 	TurnCrash(context.Context, *apiv1alpha1.Session) (string, bool, error)
 	RepointQuiesced(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
 	AwaitRuntime(context.Context, *apiv1alpha1.Session) error
+	RevertCrashed(context.Context, *apiv1alpha1.Session) error
 }
 
 // VolumeAdmission decides whether a caller may create a session on the volume
@@ -175,8 +176,9 @@ func (s *Service) FailLostRuntime(ctx context.Context, session *apiv1alpha1.Sess
 // session would keep the turn as active work until the stalled sweep. The turn
 // ends FAILED with the crash's message. When the runtime is lost the session
 // records the loss and the failure is returned for the caller's answer; when
-// the Actor returns to its snapshot the session stays READY, nil is returned,
-// and the caller answers with the ended turn. A turn that moved on meanwhile
+// the Actor returns to its snapshot the session stays READY, the crashed Actor
+// is reverted to that snapshot (RevertCrashed), nil is returned, and the caller
+// answers with the ended turn. A turn that moved on meanwhile
 // keeps its outcome; a loss is recorded all the same. A turn whose runtime work
 // is not settled, another attempt's reservation or claimed idle work, is left
 // alone with that error: the next send settles it. An Actor that has not
@@ -198,6 +200,9 @@ func (s *Service) FailLostTurn(ctx context.Context, session *apiv1alpha1.Session
 		return nil, err
 	}
 	if failure == nil {
+		if err := s.workflow.RevertCrashed(ctx, session); err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "the crashed Actor was not reverted after its turn; the next send reverts it", "session_id", session.GetId(), "error", err)
+		}
 		return nil, nil
 	}
 	return s.failLost(ctx, session, failure)

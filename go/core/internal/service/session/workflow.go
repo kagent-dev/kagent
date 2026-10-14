@@ -400,6 +400,39 @@ func (w *ActorWorkflow) revertible(ctx context.Context, session *apiv1alpha1.Ses
 	return !has, nil
 }
 
+// RevertCrashed returns the session's crashed Actor to its snapshot when the
+// conversation goes on from there (revertible), right after the turn the
+// crash ended. Substrate's router keeps asking to resume a crashed Actor on
+// the next send's dial until its parking budget is spent, and only then would
+// the send's AwaitRuntime revert it; an Actor at rest is resumed on that dial
+// at once. An Actor that has not crashed, or has nothing to return to, is left
+// alone; a revert that fails is returned, and the next send's AwaitRuntime
+// reverts the Actor then.
+func (w *ActorWorkflow) RevertCrashed(ctx context.Context, session *apiv1alpha1.Session) error {
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if err != nil {
+		return fmt.Errorf("get Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_CRASHED {
+		return nil
+	}
+	revertible, err := w.revertible(ctx, session, actor)
+	if err != nil || !revertible {
+		return err
+	}
+	logging.FromContext(ctx).WarnContext(ctx, "the crashed Actor is reverted to its snapshot after the turn its crash ended",
+		"session_id", session.GetId(), "actor", atespace+"/"+name, "crash", actor.GetStatus().GetCrash().GetMessage())
+	if _, err := w.actors.RevertActor(ctx, atespace, name); err != nil {
+		return fmt.Errorf("revert Actor %s/%s: %w", atespace, name, err)
+	}
+	return nil
+}
+
 // AwaitRuntime resumes the session's Actor, waiting while Substrate answers
 // that it cannot yet (resumeLater): the worker pool rolls, another operation
 // holds the Actor, such as a repoint onto a newer template, or Substrate is

@@ -164,6 +164,10 @@ func (w serviceTestWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session)
 	return w.awaitErr
 }
 
+func (w serviceTestWorkflow) RevertCrashed(context.Context, *apiv1alpha1.Session) error {
+	return nil
+}
+
 func (w serviceTestWorkflow) RepointQuiesced(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
 	return session, w.err
 }
