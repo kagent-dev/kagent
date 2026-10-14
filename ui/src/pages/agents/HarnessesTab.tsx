@@ -130,7 +130,7 @@ export function HarnessesTab() {
           onDeleted={async () => {
             await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
           }}
-          description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
+          description={agents.error || !agents.data ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
         />
       ),
     },

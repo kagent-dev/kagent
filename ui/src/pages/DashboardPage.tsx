@@ -80,12 +80,11 @@ export function DashboardPage() {
   const agentsError = namespaces.error ?? definitions.error;
   const agentList = agentsError ? undefined : definitions.data?.agents;
   const readyAgents = agentList?.filter((agent) => agentRevisionState(agent) === "ready").length;
-  // A partial namespace refusal still returns a list, so say the count is short.
   const agentsHint = agentsError
     ? UNREADABLE
     : readyAgents === undefined
       ? undefined
-      : `${readyAgents} ready${definitions.data?.refused.length ? " · some namespaces unreadable" : ""}`;
+      : `${readyAgents} ready`;
   const recent = [...agentRows].sort(byNewest).slice(0, 5);
   /*
    * Titles for the unnamed ones among those five.

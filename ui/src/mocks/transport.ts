@@ -1682,7 +1682,8 @@ function agentFor(namespace: string, name: string): Agent {
   if (!found) throw notFound("Agent");
   return found;
 }
-on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
+// An empty namespace lists every namespace, as the controller's cluster-wide list does.
+on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => !input.namespace || agent.namespace === input.namespace).map(agentMessage) }));
 on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
 function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined, previous?: Agent): Agent {
   const namespace = requireNamespace(ref?.namespace ?? "");

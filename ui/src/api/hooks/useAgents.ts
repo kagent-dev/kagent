@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { isAgentSettling, type Agent } from "../domain/agents";
 import { apiClient } from "../client";
-import { useApiResource } from "./useApiResource";
+import { type ApiResource, useApiResource } from "./useApiResource";
 import { useInvalidateKeys } from "./useInvalidateKeys";
 import { useRefreshWhile } from "./useRefreshWhile";
 
@@ -19,32 +20,53 @@ export function useAgent(namespace: string | undefined, name: string | undefined
   return resource;
 }
 
-export function useAgentsAcrossNamespaces(namespaces: readonly string[] | undefined) {
+/**
+ * The Agents in every namespace named, from one cluster-wide read.
+ *
+ * `ListAgents` with no namespace lists every namespace the caller's authorization
+ * scope allows, so every caller on screen shares one key and one request whatever
+ * namespaces it asks about, and a Refresh sends one read rather than one per
+ * namespace. Each caller keeps only the namespaces it named.
+ */
+/** When the shared Agent list was last requested, across every caller on screen. */
+let listRequestedAt = 0;
+
+function listAllAgents(): Promise<Agent[]> {
+  listRequestedAt = Date.now();
+  return apiClient.agentBuildingBlocks.agents();
+}
+
+/**
+ * The Agents in every namespace named, from one cluster-wide read.
+ *
+ * `ListAgents` with no namespace lists every namespace the caller's authorization
+ * scope allows, so every caller on screen shares one key and one request whatever
+ * namespaces it asks about, and a Refresh sends one read rather than one per
+ * namespace. Each caller keeps only the namespaces it named.
+ *
+ * Each caller re-reads while one of its Agents is settling, and a tick skips while
+ * another caller's read is fresh, so several callers poll the list about once an
+ * interval rather than once each.
+ */
+export function useAgentsAcrossNamespaces(
+  namespaces: readonly string[] | undefined,
+): ApiResource<{ agents: Agent[] }> {
+  const all = useApiResource(namespaces ? ["agents.list", ""] : null, listAllAgents);
   const key = namespaces ? [...namespaces].sort().join(",") : undefined;
-  const resource = useApiResource(key !== undefined ? ["agents.listAll", key] : null, async () => {
-    const names = key ? key.split(",") : [];
-    const results = await Promise.allSettled(
-      names.map((namespace) => apiClient.agentBuildingBlocks.agents(namespace)),
-    );
-    const agents: Agent[] = [];
-    const refused: { namespace: string; reason: string }[] = [];
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") {
-        agents.push(...result.value);
-      } else {
-        refused.push({
-          namespace: names[index],
-          reason: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        });
-      }
-    });
-    if (names.length > 0 && refused.length === names.length) {
-      throw new Error(refused.map((entry) => entry.reason).join("; "));
-    }
-    return { agents, refused };
-  });
-  useRefreshWhile(Boolean(resource.data?.agents.some(isAgentSettling)), resource.refresh, SETTLING_AGENT_POLL_MS);
-  return resource;
+  const data = useMemo(() => {
+    if (!all.data || key === undefined) return undefined;
+    const named = new Set(key.split(",").filter(Boolean));
+    return { agents: all.data.filter((agent) => named.has(agent.namespace)) };
+  }, [all.data, key]);
+  useRefreshWhile(
+    Boolean(data?.agents.some(isAgentSettling)),
+    async () => {
+      if (Date.now() - listRequestedAt < SETTLING_AGENT_POLL_MS * 0.8) return;
+      await all.refresh();
+    },
+    SETTLING_AGENT_POLL_MS,
+  );
+  return { ...all, data, isEmpty: !all.error && data?.agents.length === 0 };
 }
 
 const KEYS = ["agents."];

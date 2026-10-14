@@ -51,7 +51,6 @@ export function AgentsTab() {
     [namespaces.data],
   );
 
-  // AgentService lists one namespace per call, so "all namespaces" is a fan-out.
   const readNamespaces = useMemo(
     () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
     [selectedNamespaces, namespaceNames],
@@ -89,14 +88,13 @@ export function AgentsTab() {
     await Promise.all([definitions.refresh(), templates.refresh(), conversations.refresh()]);
   };
 
-  // A namespace we could not read says nothing about its conversations, so those are not counted.
+  // A namespace outside the selection says nothing about its conversations, so those are not counted.
   const orphanedConversations = useMemo(() => {
     if (!definitions.data || !conversations.data) return 0;
     const known = new Set(agents.map((agent) => agent.ref));
-    const unreadable = new Set(definitions.data.refused.map((entry) => entry.namespace));
     return conversations.data.filter((instance) => {
       const namespace = instance.agent?.split("/")[0];
-      if (namespace && (!readNamespaces.includes(namespace) || unreadable.has(namespace))) return false;
+      if (namespace && !readNamespaces.includes(namespace)) return false;
       return !instance.agent || !known.has(instance.agent);
     }).length;
   }, [agents, conversations.data, definitions.data, readNamespaces]);

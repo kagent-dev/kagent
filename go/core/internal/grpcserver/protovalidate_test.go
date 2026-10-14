@@ -167,7 +167,7 @@ func TestAgentRequestValidation(t *testing.T) {
 		valid   bool
 	}{
 		{"list", &apiv1alpha1.ListAgentsRequest{Namespace: "team-a"}, true},
-		{"list missing namespace", &apiv1alpha1.ListAgentsRequest{}, false},
+		{"list all namespaces", &apiv1alpha1.ListAgentsRequest{}, true},
 		{"list invalid namespace", &apiv1alpha1.ListAgentsRequest{Namespace: "team/a"}, false},
 		{"get", &apiv1alpha1.GetAgentRequest{Ref: ref}, true},
 		{"get missing ref", &apiv1alpha1.GetAgentRequest{}, false},

@@ -76,8 +76,9 @@ func (x *Agent) GetResource() *StructuredObject {
 }
 
 type ListAgentsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Empty lists all namespaces allowed by the caller's authorization scope.
+	Namespace     string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -530,9 +531,9 @@ const file_kagent_api_v1alpha1_agents_proto_rawDesc = "" +
 	" kagent/api/v1alpha1/agents.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a kagent/api/v1alpha1/common.proto\"\x84\x01\n" +
 	"\x05Agent\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
-	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"]\n" +
-	"\x11ListAgentsRequest\x12H\n" +
-	"\tnamespace\x18\x01 \x01(\tB*\xbaH'r%\x10\x01\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\"H\n" +
+	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"^\n" +
+	"\x11ListAgentsRequest\x12I\n" +
+	"\tnamespace\x18\x01 \x01(\tB+\xbaH(\xd8\x01\x01r#\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\"H\n" +
 	"\x12ListAgentsResponse\x122\n" +
 	"\x06agents\x18\x01 \x03(\v2\x1a.kagent.api.v1alpha1.AgentR\x06agents\"S\n" +
 	"\x0fGetAgentRequest\x12@\n" +

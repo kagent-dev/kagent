@@ -100,8 +100,6 @@ export function ScheduledRunForm({ schedule, onCancel, onSaved }: {
     }}>
       {!schedule && <>
         {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
-        {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
-          title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
         <Form.Item name="agent" label="Agent" rules={[{ required: true, message: "Choose an agent." }]}>
           <Select data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }} loading={namespaces.isLoading || definitions.isLoading}
             placeholder="Choose an agent" options={agents.map((agent) => {

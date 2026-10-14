@@ -24,10 +24,13 @@ message Agent {
 }
 
 message ListAgentsRequest {
-  string namespace = 1 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 63
-    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+  // Empty lists all namespaces allowed by the caller's authorization scope.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
   }];
 }
 

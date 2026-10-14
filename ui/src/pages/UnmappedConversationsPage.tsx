@@ -44,11 +44,9 @@ export function UnmappedConversationsPage() {
   const orphans = useMemo(() => {
     if (!agents.data || !conversations.data) return [];
     const known = new Set(agents.data.agents.map((agent) => agent.ref));
-    const unreadable = new Set(agents.data.refused.map((entry) => entry.namespace));
-    return (conversations.data ?? []).filter((instance) => {
-      if (unreadable.has(instance.agent?.split("/")[0] ?? "")) return false;
-      return !instance.agent || !known.has(instance.agent);
-    });
+    return (conversations.data ?? []).filter(
+      (instance) => !instance.agent || !known.has(instance.agent),
+    );
   }, [agents.data, conversations.data]);
 
   const loadFailure = namespaces.error ?? agents.error ?? conversations.error;

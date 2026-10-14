@@ -26,6 +26,20 @@ func TestAgentServiceGeneratedClient(t *testing.T) {
 	listed, err := client.ListAgents(ctx, &apiv1alpha1.ListAgentsRequest{Namespace: "team"})
 	require.NoError(t, err)
 	require.Len(t, listed.Agents, 1)
+	other := agent.DeepCopy()
+	other.Namespace = "other-team"
+	_, err = client.CreateAgent(ctx, &apiv1alpha1.CreateAgentRequest{
+		Ref:      &apiv1alpha1.ResourceReference{Namespace: other.Namespace, Name: other.Name},
+		Resource: structured(t, other, "Agent"),
+	})
+	require.NoError(t, err)
+	everywhere, err := client.ListAgents(ctx, &apiv1alpha1.ListAgentsRequest{})
+	require.NoError(t, err)
+	require.Len(t, everywhere.Agents, 2, "an empty namespace lists every namespace in one call")
+	require.Equal(t, "other-team", everywhere.Agents[0].Ref.Namespace)
+	require.Equal(t, "team", everywhere.Agents[1].Ref.Namespace)
+	_, err = client.DeleteAgent(ctx, &apiv1alpha1.DeleteAgentRequest{Ref: &apiv1alpha1.ResourceReference{Namespace: other.Namespace, Name: other.Name}})
+	require.NoError(t, err)
 	agent.Spec.Template = nil
 	agent.Spec.TemplateRef = &corev1.LocalObjectReference{Name: "shared-behavior"}
 	updated, err := client.UpdateAgent(ctx, &apiv1alpha1.UpdateAgentRequest{Ref: ref, Resource: structured(t, agent, "Agent")})
