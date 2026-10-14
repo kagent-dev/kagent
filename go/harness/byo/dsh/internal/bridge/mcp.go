@@ -30,6 +30,9 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 	root, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	p := &mcpProxy{cancel: cancel}
 	defer func() {
+		if recovered := recover(); recovered != nil {
+			returnErr = fmt.Errorf("failed to initialize MCP proxy: %v", recovered)
+		}
 		if returnErr != nil {
 			returnErr = errors.Join(returnErr, p.close())
 		}
@@ -46,6 +49,9 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 		p.transports = append(p.transports, transport)
 		httpClient := &http.Client{Timeout: timeout, Transport: headerTransport{base: transport, headers: binding.Headers, terminate: terminate}}
 		connectCtx, connectCancel := context.WithTimeout(ctx, timeout)
+		// AddTool can panic on an invalid remote schema; release the discovery
+		// deadline even when the startup recovery above handles that panic.
+		defer connectCancel()
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "kagent-dsh-byo", Version: "1"}, nil).Connect(connectCtx, &mcp.StreamableClientTransport{Endpoint: binding.URL, HTTPClient: httpClient}, nil)
 		if err != nil {
 			connectCancel()
@@ -54,6 +60,7 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 		p.sessions = append(p.sessions, session)
 		server := mcp.NewServer(&mcp.Implementation{Name: binding.Name, Version: "1"}, nil)
 		cursor := ""
+		seenCursors := make(map[string]struct{})
 		for {
 			listed, err := session.ListTools(connectCtx, &mcp.ListToolsParams{Cursor: cursor})
 			if err != nil {
@@ -71,11 +78,12 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 			if listed.NextCursor == "" {
 				break
 			}
-			if listed.NextCursor == cursor {
+			if _, exists := seenCursors[listed.NextCursor]; exists {
 				connectCancel()
 				return nil, fmt.Errorf("MCP binding %d repeated a discovery cursor", i)
 			}
 			cursor = listed.NextCursor
+			seenCursors[cursor] = struct{}{}
 		}
 		connectCancel()
 		path := fmt.Sprintf("/mcp/%d", i)
