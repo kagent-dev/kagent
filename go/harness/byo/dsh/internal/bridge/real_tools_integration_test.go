@@ -1,3 +1,5 @@
+//go:build linux
+
 package bridge
 
 import (
@@ -25,7 +27,7 @@ func TestRealDSHBuiltinToolsAndPermissions(t *testing.T) {
 	if executable == "" {
 		t.Skip("DSH_TEST_BIN required")
 	}
-	for _, scenario := range []string{"bash", "approval-allow", "approval-reject", "approval-cancel", "malformed-arguments"} {
+	for _, scenario := range []string{"bash", "approval-allow", "approval-reject", "approval-cancel", "malformed-arguments", "array-arguments", "scalar-arguments", "null-arguments", "string-arguments"} {
 		t.Run(scenario, func(t *testing.T) {
 			var requests atomic.Int32
 			model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +58,17 @@ func TestRealDSHBuiltinToolsAndPermissions(t *testing.T) {
 					if strings.HasPrefix(scenario, "approval-") {
 						args = `{"command":"printf audit-ok","description":"Print a harmless acceptance test marker","sandbox_permissions":"danger-full-access","justification":"Exercise approval with a harmless marker."}`
 					}
-					if scenario == "malformed-arguments" {
+					switch scenario {
+					case "malformed-arguments":
 						args = `{"command":`
+					case "array-arguments":
+						args = `[]`
+					case "scalar-arguments":
+						args = `42`
+					case "null-arguments":
+						args = `null`
+					case "string-arguments":
+						args = `"invalid"`
 					}
 					writeCompletion(w, map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "audit-call", "type": "function", "function": map[string]string{"name": name, "arguments": args}}}}, "tool_calls")
 				} else {
@@ -98,7 +109,7 @@ func TestRealDSHBuiltinToolsAndPermissions(t *testing.T) {
 			require.Nil(t, out.Failure)
 			require.Nil(t, out.Pending)
 			require.Len(t, sink.results, 1)
-			require.Equal(t, scenario == "approval-reject" || scenario == "malformed-arguments", sink.results[0].IsError)
+			require.Equal(t, scenario == "approval-reject" || strings.HasSuffix(scenario, "-arguments"), sink.results[0].IsError)
 			if scenario == "approval-reject" {
 				require.Equal(t, runtime.ToolDeclined, sink.results[0].Status)
 			}

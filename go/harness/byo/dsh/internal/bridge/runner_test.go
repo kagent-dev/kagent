@@ -1,3 +1,5 @@
+//go:build linux
+
 package bridge
 
 import (
@@ -17,36 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
-
-type recordingSink struct {
-	id        string
-	texts     []string
-	calls     []runtime.ToolCall
-	results   []runtime.ToolResult
-	callReady chan struct{}
-}
-
-func (s *recordingSink) SessionStarted(v runtime.SessionStarted) error {
-	s.id = v.ContinuationID
-	return nil
-}
-func (s *recordingSink) TextDelta(v runtime.TextDelta) error {
-	s.texts = append(s.texts, v.Text)
-	return nil
-}
-func (s *recordingSink) ToolCall(v runtime.ToolCall) error {
-	s.calls = append(s.calls, v)
-	if s.callReady != nil {
-		close(s.callReady)
-		s.callReady = nil
-	}
-	return nil
-}
-func (s *recordingSink) ToolResult(v runtime.ToolResult) error {
-	s.results = append(s.results, v)
-	return nil
-}
-func (s *recordingSink) ModelCall(runtime.ModelCall) {}
 
 func testRunner(t *testing.T, mode string) *Runner {
 	t.Helper()

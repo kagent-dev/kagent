@@ -38,21 +38,31 @@ ADK-specific context settings are not translated. DSH keeps its own built-in
 tools and plugin composition; those are not equivalent to kagent Agent Plugins.
 The first version accepts text input and output only.
 
-Known limitation: a tool call whose ACP `rawInput` is a JSON array or scalar
-aborts the turn because the shared runtime currently requires an argument object.
-The malformed-JSON recovery test does not cover this case; preserving these values
-through the tool-error recovery flow remains an acceptance gap.
+Non-object tool input is retained under `args.rawInput` in tool-call events.
+DSH validates the original input and returns tool errors to the model, allowing
+recovery from arrays, scalars, null and malformed argument strings.
 
 ## State and process lifetime
 
 Each turn starts a DSH ACP process and creates or resumes the Actor's private
 DSH session. A pending permission request retains that process until the
 decision arrives. Completion closes the session and stdin so DSH can flush its
-state; cancellation is followed by bounded process-group cleanup.
+state. A dedicated Linux child subreaper owns each process tree, including
+orphaned tools and tools that create a separate session or process group.
 
-Cancellation interrupts blocked ACP writes by closing stdin. Forced process-group
-cleanup does not yet prove that DSH tools in separate process groups have exited;
-this remains a lifecycle acceptance gap before release.
+Cancellation interrupts blocked ACP writes by closing stdin. After five seconds
+of graceful shutdown, the adapter closes a private lifetime pipe to request forced
+cleanup. Adapter death also closes that pipe. The supervisor kills DSH, terminates
+adopted descendants and waits until the kernel reports no remaining children.
+The Actor's turn is not released before that completes; uninterruptible kernel
+I/O or cleanup failures can delay completion. The adapter never kills the
+supervisor to impose a deadline that would leave tools behind.
+
+Process supervision requires Linux with readable procfs child lists and permission
+to set `PR_SET_CHILD_SUBREAPER`. It runs as the image's unprivileged user without
+additional Linux capabilities. Unsupported hosts fail validation; run runtime
+tests in Linux rather than launching this adapter natively on macOS. This manages
+process lifetime; sandbox and container isolation remain platform responsibilities.
 
 `/data/adapter/state.json` binds the Actor to one native session. DSH session
 logs and storage live under `/data/dsh`, and the workspace is `/data/workspace`.
@@ -105,14 +115,16 @@ The server must use Streamable HTTP and the platform trust bundle.
 
 ## Verification
 
-From `go/`:
+From `go/` in a Linux development environment:
 
 ```sh
 go test -race ./harness/byo/dsh/... ./harness/runtime/...
 ```
 
-The subprocess tests exercise permission decisions, cancellation, identity
-validation, malformed protocol handling and cleanup without a model API.
+The Linux subprocess tests exercise permission decisions, cancellation, identity
+validation, malformed protocol handling, detached and orphaned tool cleanup,
+unrelated-process survival, and adapter death without a model API. Configuration,
+event conversion and wire tests also run on non-Linux hosts.
 For the published runtime tests, install the locked npm dependencies and run:
 
 ```sh

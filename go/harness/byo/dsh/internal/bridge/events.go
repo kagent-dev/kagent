@@ -76,9 +76,18 @@ func (e *events) apply(data json.RawMessage, sink runtime.EventSink) error {
 			return fmt.Errorf("ACP tool call identity was reused")
 		}
 		args := make(map[string]any)
-		if len(u.RawInput) != 0 && string(u.RawInput) != "null" {
-			if err := json.Unmarshal(u.RawInput, &args); err != nil {
-				return fmt.Errorf("ACP tool arguments must be an object")
+		if len(u.RawInput) != 0 {
+			var input any
+			if err := json.Unmarshal(u.RawInput, &input); err != nil {
+				return fmt.Errorf("failed to decode ACP tool input: %w", err)
+			}
+			var object bool
+			args, object = input.(map[string]any)
+			if !object {
+				// This is an observation, not a request to execute a tool. DSH
+				// validates the original input and returns its error to the model.
+				// Use JSON-compatible values for A2A's protobuf conversion.
+				args = map[string]any{"rawInput": input}
 			}
 		}
 		e.tools[u.ToolCallID] = tool{name: u.Title, args: args}

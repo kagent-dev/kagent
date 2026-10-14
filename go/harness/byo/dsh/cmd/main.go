@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/bridge"
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
+	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/supervisor"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -22,6 +23,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == supervisor.Mode {
+		os.Exit(supervisor.Run(os.Args[2:]))
+	}
 	executable := flag.String("dsh-bin", "dsh", "DSH executable (must match the pinned version)")
 	dataDir := flag.String("data-dir", "/data", "absolute durable data directory")
 	port := flag.String("port", "80", "private A2A gRPC port")

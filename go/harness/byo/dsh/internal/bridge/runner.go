@@ -2,18 +2,19 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
+	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/supervisor"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
@@ -53,21 +54,38 @@ func New(cfg *config.Config, executable, dataDir string, environment []string) (
 }
 
 func (r *Runner) Validate(ctx context.Context) error {
-	command := exec.CommandContext(ctx, r.executable, "--version")
+	command, err := supervisor.Command(r.executable, "--version")
+	if err != nil {
+		return err
+	}
 	command.Env = r.environment
-	output, err := command.Output()
+	var output bytes.Buffer
+	command.Stdout = &output
+	control, err := supervisor.Start(command)
+	if err != nil {
+		return fmt.Errorf("failed to start DSH version check: %w", err)
+	}
+	defer control.Close()
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		_ = control.Close()
+		err = errors.Join(ctx.Err(), <-done)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to check DSH version: %w", err)
 	}
-	if strings.TrimSpace(string(output)) != config.Version {
+	if strings.TrimSpace(output.String()) != config.Version {
 		return fmt.Errorf("DSH BYO requires version %s", config.Version)
 	}
 	return nil
 }
 
 type process struct {
-	command *exec.Cmd
 	stdin   io.WriteCloser
+	control io.Closer
 	wire    *wire
 	done    chan struct{}
 	waitErr error
@@ -89,7 +107,10 @@ func (r *Runner) start(ctx context.Context) (*process, error) {
 	if err := utils.ReplacePrivateFile(path, patch); err != nil {
 		return nil, errors.Join(err, os.RemoveAll(home))
 	}
-	cmd := exec.Command(r.executable, "--profile", "acp", "--patch", path)
+	cmd, err := supervisor.Command(r.executable, "--profile", "acp", "--patch", path)
+	if err != nil {
+		return nil, errors.Join(err, os.RemoveAll(home))
+	}
 	cmd.Dir, cmd.Env, cmd.Stderr = r.workspace, config.Environment(r.environment, home), io.Discard
 	utils.ConfigureProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
@@ -100,10 +121,11 @@ func (r *Runner) start(ctx context.Context) (*process, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("failed to open DSH stdout: %w", err), stdin.Close(), os.RemoveAll(home))
 	}
-	if err := cmd.Start(); err != nil {
+	control, err := supervisor.Start(cmd)
+	if err != nil {
 		return nil, errors.Join(fmt.Errorf("failed to start DSH: %w", err), stdin.Close(), stdout.Close(), os.RemoveAll(home))
 	}
-	p := &process{command: cmd, stdin: stdin, wire: newWire(stdin, stdout), done: make(chan struct{}), home: home, events: events{tools: make(map[string]tool)}}
+	p := &process{stdin: stdin, control: control, wire: newWire(stdin, stdout), done: make(chan struct{}), home: home, events: events{tools: make(map[string]tool)}}
 	go func() { p.waitErr = cmd.Wait(); close(p.done) }()
 	proxy, err := startMCP(ctx, r.config, r.servers)
 	if err != nil {
@@ -334,7 +356,8 @@ func (p *process) cancel() error {
 	}
 }
 
-// EOF lets DSH flush persistence; escalation is bounded and reaps the process group.
+// EOF lets DSH flush persistence. After the grace period, the supervisor kills
+// DSH and reaps all descendants, including tools in separate process groups.
 func (p *process) stop() error {
 	close(p.wire.done)
 	err := p.stdin.Close()
@@ -344,17 +367,13 @@ func (p *process) stop() error {
 	select {
 	case <-p.done:
 	case <-time.After(stopTimeout):
-		if signalErr := utils.TerminateProcessGroup(p.command.Process); signalErr != nil && !errors.Is(signalErr, os.ErrProcessDone) {
-			err = errors.Join(err, signalErr)
-		}
-		select {
-		case <-p.done:
-		case <-time.After(stopTimeout):
-			if signalErr := utils.KillProcessGroup(p.command.Process); signalErr != nil && !errors.Is(signalErr, os.ErrProcessDone) {
-				err = errors.Join(err, signalErr)
-			}
-			<-p.done
-		}
+		// Never kill the supervisor to impose a deadline: doing so would orphan
+		// the very descendants whose exit must precede releasing the Actor.
+		err = errors.Join(err, p.control.Close())
+		<-p.done
+	}
+	if closeErr := p.control.Close(); closeErr != nil && !errors.Is(closeErr, os.ErrClosed) {
+		err = errors.Join(err, closeErr)
 	}
 	<-p.wire.readDone
 	if p.mcp != nil {
