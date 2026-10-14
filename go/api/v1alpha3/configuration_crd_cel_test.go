@@ -82,15 +82,15 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name: "Harness rejects multiple runtimes",
 			object: validHarness(namespace, "harness-two-runtimes", HarnessSpec{
-				Kagent: &KagentHarness{},
-				Codex:  &CodexHarness{},
+				Kagent: &KagentRuntime{},
+				Codex:  &CodexRuntime{},
 			}),
 			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
 		},
 		{
 			name: "Harness rejects tag-only image",
 			object: validHarness(namespace, "harness-tagged-image", HarnessSpec{
-				Kagent:   &KagentHarness{},
+				Kagent:   &KagentRuntime{},
 				Workload: HarnessWorkload{Image: "registry.example.com/kagent:latest"},
 			}),
 			wantReject: "spec.workload.image",
@@ -98,38 +98,38 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name: "Harness memory requires a model reference",
 			object: validHarness(namespace, "harness-empty-memory-model", HarnessSpec{
-				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{}},
+				Kagent: &KagentRuntime{Context: &KagentContextPolicy{Memory: &KagentMemoryPolicy{}}},
 			}),
 			wantReject: "modelConfigRef name must not be empty",
 		},
 		{
 			name: "valid kagent memory Harness",
 			object: validHarness(namespace, "valid-memory-harness", HarnessSpec{
-				Kagent: &KagentHarness{Memory: &KagentHarnessMemory{
+				Kagent: &KagentRuntime{Context: &KagentContextPolicy{Memory: &KagentMemoryPolicy{
 					ModelConfigRef: corev1.LocalObjectReference{Name: "embedding-model"}, TTLDays: 7,
-				}},
+				}}},
 			}),
 		},
 		{
 			name: "valid Harness",
 			object: validHarness(namespace, "valid-harness", HarnessSpec{
-				Claude: &ClaudeHarness{},
-				Env:    []RuntimeEnvVar{{Name: "EMPTY", Value: ""}},
+				Claude:   &ClaudeRuntime{},
+				Workload: HarnessWorkload{Env: []RuntimeEnvVar{{Name: "EMPTY", Value: ""}}},
 			}),
 		},
 		{
 			name: "valid BYO Harness",
 			object: validHarness(namespace, "valid-byo-harness", HarnessSpec{
-				BYO:      &BYOHarness{},
+				BYO:      &BYORuntime{},
 				Workload: HarnessWorkload{Command: []string{"/agent"}},
 			}),
 		},
 		{
 			name: "BYO Harness requires workload command",
 			object: validHarness(namespace, "byo-missing-command", HarnessSpec{
-				BYO: &BYOHarness{},
+				BYO: &BYORuntime{},
 			}),
-			wantReject: "BYO harnesses must specify workload.command",
+			wantReject: "byo runtimes must specify workload.command",
 		},
 		{
 			name:       "AgentTemplate tool requires one source",
@@ -180,42 +180,42 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		},
 		{
 			name: "Harness compaction requires a strategy",
-			object: compactionHarness(namespace, "compaction-no-strategy", KagentHarnessCompaction{
-				Summarizer: &KagentHarnessSummarizer{PromptTemplate: "Summarize.\n\n{conversation_history}"},
+			object: compactionHarness(namespace, "compaction-no-strategy", KagentCompactionPolicy{
+				Summarizer: &KagentSummarizerPolicy{PromptTemplate: "Summarize.\n\n{conversation_history}"},
 			}),
 			wantReject: "compactionInterval or tokenThreshold must be specified",
 		},
 		{
 			name:       "Harness compaction pairs tokenThreshold with eventRetentionSize",
-			object:     compactionHarness(namespace, "compaction-threshold-alone", KagentHarnessCompaction{TokenThreshold: new(50000)}),
+			object:     compactionHarness(namespace, "compaction-threshold-alone", KagentCompactionPolicy{TokenThreshold: new(50000)}),
 			wantReject: "tokenThreshold and eventRetentionSize must be specified together",
 		},
 		{
 			name: "Harness compaction overlap requires an interval",
-			object: compactionHarness(namespace, "compaction-overlap-alone", KagentHarnessCompaction{
+			object: compactionHarness(namespace, "compaction-overlap-alone", KagentCompactionPolicy{
 				TokenThreshold: new(50000), EventRetentionSize: new(10), OverlapSize: new(2),
 			}),
 			wantReject: "overlapSize requires compactionInterval",
 		},
 		{
 			name: "Harness summarizer prompt needs the history placeholder",
-			object: compactionHarness(namespace, "compaction-prompt-without-history", KagentHarnessCompaction{
-				CompactionInterval: new(5), Summarizer: &KagentHarnessSummarizer{PromptTemplate: "Summarize."},
+			object: compactionHarness(namespace, "compaction-prompt-without-history", KagentCompactionPolicy{
+				CompactionInterval: new(5), Summarizer: &KagentSummarizerPolicy{PromptTemplate: "Summarize."},
 			}),
 			wantReject: "promptTemplate must contain {conversation_history}",
 		},
 		{
 			name: "Harness rejects empty summarizer ModelConfig reference",
-			object: compactionHarness(namespace, "compaction-empty-summarizer-model", KagentHarnessCompaction{
-				CompactionInterval: new(5), Summarizer: &KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{}},
+			object: compactionHarness(namespace, "compaction-empty-summarizer-model", KagentCompactionPolicy{
+				CompactionInterval: new(5), Summarizer: &KagentSummarizerPolicy{ModelConfigRef: &corev1.LocalObjectReference{}},
 			}),
 			wantReject: "name must not be empty",
 		},
 		{
 			name: "valid Harness compaction",
-			object: compactionHarness(namespace, "compaction-valid", KagentHarnessCompaction{
+			object: compactionHarness(namespace, "compaction-valid", KagentCompactionPolicy{
 				CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
-				Summarizer: &KagentHarnessSummarizer{
+				Summarizer: &KagentSummarizerPolicy{
 					ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
 				},
 			}),
@@ -231,22 +231,22 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		},
 		{
 			name:       "SandboxTemplate requires a worker pool",
-			object:     sandboxTemplateForValidation(namespace, "sandbox-empty-pool", func(spec *SandboxTemplateSpec) { spec.Substrate.WorkerPoolRef.Name = "" }),
+			object:     sandboxTemplateForValidation(namespace, "sandbox-empty-pool", func(spec *SandboxTemplateSpec) { spec.Execution.WorkerPoolRef.Name = "" }),
 			wantReject: "workerPoolRef name must not be empty",
 		},
 		{
 			name:       "SandboxTemplate rejects whitespace in snapshot location",
-			object:     sandboxTemplateForValidation(namespace, "sandbox-invalid-location", func(spec *SandboxTemplateSpec) { spec.Substrate.SnapshotPolicy.Location = "bad location" }),
-			wantReject: "spec.substrate.snapshotPolicy.location",
+			object:     sandboxTemplateForValidation(namespace, "sandbox-invalid-location", func(spec *SandboxTemplateSpec) { spec.Execution.SnapshotPolicy.Location = "bad location" }),
+			wantReject: "spec.execution.snapshotPolicy.location",
 		},
 		{
 			name:   "SandboxTemplate allows empty literal environment values",
-			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Env = []RuntimeEnvVar{{Name: "EMPTY", Value: ""}} }),
+			object: sandboxTemplateForValidation(namespace, "sandbox-empty-literal", func(spec *SandboxTemplateSpec) { spec.Workload.Env = []RuntimeEnvVar{{Name: "EMPTY", Value: ""}} }),
 		},
 		{
 			name: "SandboxTemplate rejects duplicate environment names",
 			object: sandboxTemplateForValidation(namespace, "sandbox-duplicate-env", func(spec *SandboxTemplateSpec) {
-				spec.Env = []RuntimeEnvVar{{Name: "LANG", Value: ""}, {Name: "LANG", Value: ""}}
+				spec.Workload.Env = []RuntimeEnvVar{{Name: "LANG", Value: ""}, {Name: "LANG", Value: ""}}
 			}),
 			wantReject: "Duplicate value",
 		},
@@ -364,14 +364,14 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	}
 
 	t.Run("literal runtime environment", func(t *testing.T) {
-		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentHarness{}})
+		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentRuntime{}})
 		for _, resource := range []struct {
 			kind   string
 			object ctrlclient.Object
 			path   []string
 		}{
-			{kind: "Harness", object: harness, path: []string{"spec", "env"}},
-			{kind: "SandboxTemplate", object: sandboxTemplateForValidation(namespace, "env-sandbox", nil), path: []string{"spec", "env"}},
+			{kind: "Harness", object: harness, path: []string{"spec", "workload", "env"}},
+			{kind: "SandboxTemplate", object: sandboxTemplateForValidation(namespace, "env-sandbox", nil), path: []string{"spec", "workload", "env"}},
 		} {
 			for _, tc := range []struct {
 				name       string
@@ -413,7 +413,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTemplateSpec)) *SandboxTemplate {
 	spec := SandboxTemplateSpec{
 		Workload:  SandboxTemplateWorkload{Image: "registry.example.com/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Substrate: RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: RuntimeSnapshotPolicy{Location: "s3://snapshots"}},
+		Execution: RuntimeExecutionPolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: RuntimeSnapshotPolicy{Location: "s3://snapshots"}},
 	}
 	if mutate != nil {
 		mutate(&spec)
@@ -425,11 +425,11 @@ func validHarness(namespace, name string, overrides HarnessSpec) *Harness {
 	if overrides.Workload.Image == "" {
 		overrides.Workload.Image = "registry.example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	}
-	if overrides.Substrate.WorkerPoolRef.Name == "" {
-		overrides.Substrate.WorkerPoolRef.Name = "default"
+	if overrides.Execution.WorkerPoolRef.Name == "" {
+		overrides.Execution.WorkerPoolRef.Name = "default"
 	}
-	if overrides.Substrate.SnapshotPolicy.Location == "" {
-		overrides.Substrate.SnapshotPolicy.Location = "gs://snapshots/kagent"
+	if overrides.Execution.SnapshotPolicy.Location == "" {
+		overrides.Execution.SnapshotPolicy.Location = "gs://snapshots/kagent"
 	}
 	return &Harness{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: overrides}
 }
@@ -444,6 +444,6 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 	}
 }
 
-func compactionHarness(namespace, name string, compaction KagentHarnessCompaction) *Harness {
-	return validHarness(namespace, name, HarnessSpec{Kagent: &KagentHarness{Compaction: &compaction}})
+func compactionHarness(namespace, name string, compaction KagentCompactionPolicy) *Harness {
+	return validHarness(namespace, name, HarnessSpec{Kagent: &KagentRuntime{Context: &KagentContextPolicy{Compaction: &compaction}}})
 }

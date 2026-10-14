@@ -2,13 +2,14 @@
 
 ## Public configuration
 
-`Harness` describes how to run a class of agents. It selects exactly one runtime
-variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-literal environment values, WorkerPool configuration, and snapshot location.
+`Harness` describes how to run a class of agents. Its `runtime` union selects
+exactly one kagent, Codex, Claude, or custom variant. Workload image, process,
+and literal environment configuration are shared across variants, as are
+WorkerPool selection and snapshot storage.
 
 `AgentTemplate` describes what the agent does. It contains model configuration,
 description and prompt, MCP tool bindings, skills, plugins, and Shared
-subagent bindings (`tools[].subAgent`). Model configuration may be omitted for BYO images;
+subagent bindings (`tools[].subAgent`). Model configuration may be omitted for custom images;
 Agent compilation rejects managed harness combinations without one.
 
 `Agent` pairs one template and one Harness. The required `template` field selects
@@ -100,7 +101,7 @@ flowchart TD
     REGISTRY --> K[kagent compiler]
     REGISTRY --> X[Codex compiler]
     REGISTRY --> C[Claude compiler]
-    REGISTRY --> B[BYO compiler]
+    REGISTRY --> B[custom compiler]
     K --> POOL[resolve WorkerPool sandbox class]
     X --> POOL
     C --> POOL
@@ -155,8 +156,8 @@ completion.
 
 ### WorkerPool sandbox selection
 
-For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. The pool's `spec.sandboxClass` selects
+For every harness type, the controller resolves `spec.execution.workerPoolRef`
+in the Harness namespace. The pool's `spec.sandboxClass` selects
 the ActorTemplate's sandbox configuration:
 
 | WorkerPool class | ActorTemplate sandbox class | SandboxConfig name |
@@ -223,7 +224,7 @@ images, and compatible worker hardware.
   disabled by policy.
 - **Claude** emits Anthropic, Bedrock, or Vertex model setup, HTTP/SSE MCP
   servers, Shared agents, and skills.
-- **BYO** runs a digest-pinned user image that implements private A2A gRPC and
+- **custom** runs a digest-pinned user image that implements private A2A gRPC and
   `/readyz`, and uses the private TaskStore at `runtime.control_plane_url` for task creation,
   persistence and settlement. The shared Go app and Python runtime builders
   provide this integration. Other images must implement the same TaskStore
@@ -231,7 +232,7 @@ images, and compatible worker hardware.
   Optional model, prompt, tool, skill, and plugin configuration is
   supplied in the ADK-shaped format when requested.
 
-The kagent and BYO compilers serialize the same ADK `AgentConfig` contract.
+The kagent and custom compilers serialize the same ADK `AgentConfig` contract.
 `adkconfig.Builder.Build` assembles the complete payload and its model
 dependencies, environment, and egress contributions. Harness compilers package
 that result into a revision without adding configuration fields afterward.
@@ -240,8 +241,8 @@ The builder compiles the shared agent tree, then applies root runtime settings.
 Both harnesses receive the durable session URL at `/data/sessions.db`; kagent
 also receives its configured memory, compaction, and structured-output policy.
 Shared subagents use the root runner's session store and do not receive their
-own runtime policy. BYO model configuration remains optional. Supplying the
-ADK payload does not make an arbitrary BYO image consume it: the image must
+own runtime policy. Custom model configuration remains optional. Supplying the
+ADK payload does not make an arbitrary custom image consume it: the image must
 implement the fields it uses and the platform's private runtime contract.
 
 Dedicated agent bindings are not compiled yet.
@@ -253,7 +254,7 @@ The compiler sets `runtime.port="80"` for private A2A traffic in both ADKs. Go u
 that port for its shared HTTP/gRPC listener; Python uses it for gRPC and keeps
 the HTTP port separate.
 
-`spec.kagent.compaction` on the Harness is runtime policy, like `spec.kagent.memory`:
+`spec.kagent.context.compaction` on the Harness is runtime policy, like `spec.kagent.context.memory`:
 it belongs to the runner that drives the root agent and is not part of the
 portable template. The kagent compiler applies it to every root agent the
 Harness runs. A summarizer `ModelConfig` other than the agent's own is resolved

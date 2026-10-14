@@ -88,9 +88,9 @@ func testHarness(namespace, name, workerPool string) *v1alpha3.Harness {
 	return &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.HarnessSpec{
-			Codex:    &v1alpha3.CodexHarness{},
+			Codex:    &v1alpha3.CodexRuntime{},
 			Workload: v1alpha3.HarnessWorkload{Image: testHarnessImage},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{
+			Execution: v1alpha3.RuntimeExecutionPolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: workerPool},
 				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 			},
@@ -291,10 +291,10 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 
 func TestHarnessRuntime(t *testing.T) {
 	for want, spec := range map[string]v1alpha3.HarnessSpec{
-		harnessRuntimeKagent: {Kagent: &v1alpha3.KagentHarness{}},
-		harnessRuntimeCodex:  {Codex: &v1alpha3.CodexHarness{}},
-		harnessRuntimeClaude: {Claude: &v1alpha3.ClaudeHarness{}},
-		harnessRuntimeBYO:    {BYO: &v1alpha3.BYOHarness{}},
+		harnessRuntimeKagent: {Kagent: &v1alpha3.KagentRuntime{}},
+		harnessRuntimeCodex:  {Codex: &v1alpha3.CodexRuntime{}},
+		harnessRuntimeClaude: {Claude: &v1alpha3.ClaudeRuntime{}},
+		harnessRuntimeBYO:    {BYO: &v1alpha3.BYORuntime{}},
 		"":                   {},
 	} {
 		if got := harnessRuntime(&v1alpha3.Harness{Spec: spec}); got != want {

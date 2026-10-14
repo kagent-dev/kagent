@@ -32,7 +32,7 @@ func TestBuildModelStreaming(t *testing.T) {
 			model.Spec.Stream = tc.stream
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 				Root: &translator.AgentInput{
 					Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
 				},
@@ -53,7 +53,7 @@ func TestBuildModelStreaming(t *testing.T) {
 func TestBuildUsesDurableSessionStore(t *testing.T) {
 	result, err := NewBuilder(krt.TestingDummyContext{}, translator.Collections{}).Build(context.Background(),
 		&translator.HarnessInput{
-			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYORuntime{}}},
 			Root: &translator.AgentInput{Template: &translator.TemplateConfiguration{}, Shared: []translator.AgentInputBinding{{
 				Name: "child", Agent: &translator.AgentInput{Template: &translator.TemplateConfiguration{}},
 			}}},
@@ -75,10 +75,12 @@ func TestBuildCompaction(t *testing.T) {
 		Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
 	}
-	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *translator.HarnessConfiguration {
+	harness := func(compaction *v1alpha3.KagentCompactionPolicy) *translator.HarnessConfiguration {
 		return &translator.HarnessConfiguration{
 			Name: "kagent", Namespace: "test", Source: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
-			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: compaction}},
+			Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{
+				Context: &v1alpha3.KagentContextPolicy{Compaction: compaction},
+			}},
 		}
 	}
 	apply := func(harness *translator.HarnessConfiguration) (*Result, error) {
@@ -95,9 +97,9 @@ func TestBuildCompaction(t *testing.T) {
 	})
 
 	t.Run("strategies and a prompt on the agent model", func(t *testing.T) {
-		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
+		result, err := apply(harness(&v1alpha3.KagentCompactionPolicy{
 			CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
-			Summarizer: &v1alpha3.KagentHarnessSummarizer{
+			Summarizer: &v1alpha3.KagentSummarizerPolicy{
 				ModelConfigRef: &corev1.LocalObjectReference{Name: "agent"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
 			},
 		}))
@@ -112,9 +114,9 @@ func TestBuildCompaction(t *testing.T) {
 	})
 
 	t.Run("dedicated summarizer model", func(t *testing.T) {
-		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
+		result, err := apply(harness(&v1alpha3.KagentCompactionPolicy{
 			CompactionInterval: new(2),
-			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}},
+			Summarizer:         &v1alpha3.KagentSummarizerPolicy{ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}},
 		}))
 		require.NoError(t, err)
 		summarizer, ok := result.Config.ContextConfig.Compaction.SummarizerModel.(*adk.OpenAI)
@@ -133,9 +135,9 @@ func TestBuildCompaction(t *testing.T) {
 	})
 
 	t.Run("missing summarizer model", func(t *testing.T) {
-		_, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
+		_, err := apply(harness(&v1alpha3.KagentCompactionPolicy{
 			CompactionInterval: new(2),
-			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{Name: "missing"}},
+			Summarizer:         &v1alpha3.KagentSummarizerPolicy{ModelConfigRef: &corev1.LocalObjectReference{Name: "missing"}},
 		}))
 		require.ErrorContains(t, err, `summarizer ModelConfig "missing"`)
 	})
@@ -171,7 +173,7 @@ func TestMistralEgressDestination(t *testing.T) {
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 				&translator.HarnessInput{
-					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 					Root: &translator.AgentInput{
 						Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 						ResolvedModelConfig: resolvedModel(t, collections, "mistral"),
@@ -200,7 +202,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 				&translator.HarnessInput{
-					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 					Root: &translator.AgentInput{
 						Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 						ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
@@ -221,7 +223,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 				Root: &translator.AgentInput{
 					Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
@@ -244,7 +246,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 				Root: &translator.AgentInput{
 					Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
@@ -267,7 +269,7 @@ func TestOllamaEgressDestination(t *testing.T) {
 		collections := contextTestCollections(t, model)
 		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
 			&translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 				Root: &translator.AgentInput{
 					Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
 					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
@@ -334,9 +336,11 @@ func TestBuildMemory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			harness := &translator.HarnessConfiguration{
 				Namespace: "test",
-				Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
-					ModelConfigRef: corev1.LocalObjectReference{Name: tc.modelName}, TTLDays: 7,
-				}}},
+				Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{
+					Context: &v1alpha3.KagentContextPolicy{Memory: &v1alpha3.KagentMemoryPolicy{
+						ModelConfigRef: corev1.LocalObjectReference{Name: tc.modelName}, TTLDays: 7,
+					}},
+				}},
 			}
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{Harness: harness, Root: root})
 			if tc.wantErr != "" {
@@ -371,9 +375,9 @@ func TestBuildModelRequirements(t *testing.T) {
 		{name: "BYO without models", byo: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			harness := &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}}
+			harness := &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}}
 			if tc.byo {
-				harness.Spec.Kagent, harness.Spec.BYO = nil, &v1alpha3.BYOHarness{}
+				harness.Spec.Kagent, harness.Spec.BYO = nil, &v1alpha3.BYORuntime{}
 			}
 			child := &translator.AgentInput{Template: &translator.TemplateConfiguration{}}
 			root := &translator.AgentInput{Template: &translator.TemplateConfiguration{}, Shared: []translator.AgentInputBinding{{Name: "child", Agent: child}}}

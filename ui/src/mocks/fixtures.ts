@@ -2,7 +2,7 @@
  * The data the mock backend serves.
  *
  * Shaped like a small but plausible cluster — several namespaces, a declarative
- * agent and a BYO one, a model that is not ready — so that layouts, truncation
+ * agent and a custom one, a model that is not ready — so that layouts, truncation
  * and status rendering are exercised rather than flattered.
  */
 
@@ -623,7 +623,7 @@ export const mockHarnesses: Harness[] = [
       spec: {
         kagent: {},
         workload: { image: "ghcr.io/kagent-dev/kagent/golang-adk@sha256:3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a" },
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
+        execution: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -643,7 +643,7 @@ export const mockHarnesses: Harness[] = [
       spec: {
         claude: {},
         workload: { image: "ghcr.io/kagent-dev/kagent/claude-adk@sha256:9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e" },
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
+        execution: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -661,12 +661,12 @@ export const mockHarnesses: Harness[] = [
       spec: {
         codex: {},
         workload: { image: "ghcr.io/kagent-dev/kagent/codex-adk@sha256:4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b" },
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
+        execution: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
   {
-    // Bring your own: the user's image serves A2A itself, so it sets a command and
+    // BYO runtime: the user's image serves A2A itself, so it sets a command and
     // runs templates with no model.
     ref: "kagent/byo-echo",
     namespace: "kagent",
@@ -685,7 +685,7 @@ export const mockHarnesses: Harness[] = [
           command: ["/app/echo-agent"],
           args: ["--port=8080"],
         },
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
+        execution: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -703,7 +703,7 @@ export const mockHarnesses: Harness[] = [
       spec: {
         kagent: {},
         workload: { image: "ghcr.io/kagent-dev/kagent/golang-adk@sha256:6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f" },
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
+        execution: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },

@@ -106,7 +106,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     ...(name.trim() ? [] : ["A name is required."]),
     ...(templateSource === "reference" && !templateRef ? ["Choose a template."] : []),
     ...(templateSource === "inline" ? draftProblems(inlineTemplate, { isCreate: false }) : []),
-    // The compiler's rule, not the CRD's: only a bring-your-own harness runs without a model.
+    // The compiler's rule, not the CRD's: only a BYO harness runs without a model.
     ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig.trim()
       ? ["Choose a model configuration for the inline template."]
       : []),

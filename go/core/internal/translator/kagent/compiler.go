@@ -61,7 +61,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Namespace: template.Namespace,
 		Image:     harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
-		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
+		WorkerPoolName: harness.Spec.Execution.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Execution.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
 }

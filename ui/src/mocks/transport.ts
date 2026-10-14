@@ -1139,10 +1139,11 @@ function harnessFromResource(namespace: string, name: string, resource: JsonObje
     kagent?: unknown;
     codex?: unknown;
     claude?: unknown;
+    byo?: unknown;
     workload?: { image?: string };
   };
-  const runtime = ["kagent", "codex", "claude"].find(
-    (key) => (spec as Record<string, unknown>)[key] !== undefined,
+  const runtime = ["kagent", "codex", "claude", "byo"].find(
+    (key) => spec[key as keyof typeof spec] !== undefined,
   );
   return {
     ref: `${namespace}/${name}`,
@@ -1217,8 +1218,9 @@ on(HarnessService.method.createHarness, (input, call) => {
     kagent?: unknown;
     codex?: unknown;
     claude?: unknown;
-    workload?: { image?: string };
-    substrate?: { workerPoolRef?: { name?: string } };
+    byo?: unknown;
+    workload?: { image?: string; command?: string[] };
+	  execution?: { workerPoolRef?: { name?: string } };
   };
 
   /*
@@ -1228,12 +1230,12 @@ on(HarnessService.method.createHarness, (input, call) => {
    * cluster rejects — which is the failure this backend exists to catch, and the one
    * that is invisible until somebody tries it for real.
    */
-  const adapters = ["kagent", "codex", "claude"].filter(
-    (key) => (spec as Record<string, unknown>)[key] !== undefined,
+  const adapters = ["kagent", "codex", "claude", "byo"].filter(
+	(key) => spec[key as keyof typeof spec] !== undefined,
   );
   if (adapters.length !== 1) {
     throw new ConnectError(
-      "exactly one of kagent, codex, or claude must be specified",
+      "exactly one of kagent, codex, claude, or byo must be specified",
       Code.InvalidArgument,
     );
   }
@@ -1243,7 +1245,10 @@ on(HarnessService.method.createHarness, (input, call) => {
       Code.InvalidArgument,
     );
   }
-  if (!spec.substrate?.workerPoolRef?.name) {
+  if (spec.byo !== undefined && !spec.workload?.command?.length) {
+    throw new ConnectError("byo runtimes must specify workload.command", Code.InvalidArgument);
+  }
+  if (!spec.execution?.workerPoolRef?.name) {
     throw new ConnectError("workerPoolRef name must not be empty", Code.InvalidArgument);
   }
 

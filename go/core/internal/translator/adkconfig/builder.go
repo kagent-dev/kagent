@@ -52,8 +52,8 @@ type Result struct {
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
 func HarnessEnvironment(harness *translator.HarnessConfiguration) []corev1.EnvVar {
-	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Env))
-	for _, value := range harness.Spec.Env {
+	environment := make([]corev1.EnvVar, 0, len(harness.Spec.Workload.Env))
+	for _, value := range harness.Spec.Workload.Env {
 		environment = append(environment, corev1.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return environment

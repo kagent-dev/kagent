@@ -27,10 +27,11 @@ type RuntimeSnapshotPolicy struct {
 	Location string `json:"location"`
 }
 
-// RuntimeSubstratePolicy contains the Substrate policy shared by all runtime variants.
+// RuntimeExecutionPolicy configures where a workload runs and where its
+// snapshots are stored.
 //
 // +kubebuilder:validation:XValidation:rule="self.workerPoolRef.name.size() > 0",message="workerPoolRef name must not be empty"
-type RuntimeSubstratePolicy struct {
+type RuntimeExecutionPolicy struct {
 	// WorkerPoolRef references a WorkerPool in the resource's namespace.
 	// +required
 	WorkerPoolRef corev1.LocalObjectReference `json:"workerPoolRef"`

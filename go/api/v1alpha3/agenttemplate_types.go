@@ -172,7 +172,7 @@ type PluginBundle struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!(has(self.outputSchema) && has(self.outputSchemaFrom))",message="outputSchema and outputSchemaFrom are mutually exclusive"
 type AgentTemplateSpec struct {
-	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
+	// ModelConfig is required by managed harnesses and optional for BYO runtimes.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional
 	ModelConfig *corev1.LocalObjectReference `json:"modelConfig,omitempty"`

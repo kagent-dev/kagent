@@ -51,32 +51,9 @@ spec:
             description: SandboxTemplateSpec defines standalone sandbox environment
               configuration.
             properties:
-              env:
+              execution:
                 description: |-
-                  Env supplies runtime environment defaults.
-                  Credential references do not grant permission to read the referenced Secret.
-                items:
-                  description: RuntimeEnvVar configures one literal runtime environment
-                    variable.
-                  properties:
-                    name:
-                      minLength: 1
-                      type: string
-                    value:
-                      description: Value is a literal value, including an empty string.
-                      type: string
-                  required:
-                  - name
-                  - value
-                  type: object
-                maxItems: 100
-                type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
-              substrate:
-                description: |-
-                  Substrate configures compute placement and snapshot storage. References are
+                  Execution configures compute placement and snapshot storage. References are
                   resolved in this template's namespace.
                 properties:
                   snapshotPolicy:
@@ -115,6 +92,29 @@ spec:
               workload:
                 description: Workload selects the immutable runtime image.
                 properties:
+                  env:
+                    description: Env supplies literal environment variables to the
+                      sandbox workload.
+                    items:
+                      description: RuntimeEnvVar configures one literal runtime environment
+                        variable.
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                        value:
+                          description: Value is a literal value, including an empty
+                            string.
+                          type: string
+                      required:
+                      - name
+                      - value
+                      type: object
+                    maxItems: 100
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                   image:
                     description: Image is an OCI image reference pinned by sha256
                       digest.
@@ -124,7 +124,7 @@ spec:
                 - image
                 type: object
             required:
-            - substrate
+            - execution
             - workload
             type: object
           status:

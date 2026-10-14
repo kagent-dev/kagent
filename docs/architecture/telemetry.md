@@ -81,7 +81,7 @@ intentionally need them. Exporter setup errors are logged without stopping the
 agent process; malformed file configuration still fails validation.
 
 Controller overrides never change managed runtimes. Use `controller.env` or
-`controller.envFrom` for the controller and `Harness.spec.env` for a runtime.
+`controller.envFrom` for the controller and `Harness.spec.workload.env` for a runtime.
 Compilers include a runtime's OTLP endpoint overrides in its egress destinations.
 The controller compiles file defaults into the existing runtime JSON contracts;
 opaque BYO SDKs receive corresponding OTEL defaults. Environment entries retain
@@ -114,7 +114,7 @@ listed is neither extracted from incoming requests nor injected into outgoing
 ones, including what the process adds itself. The default `tracecontext` therefore
 omits baggage; enabling `baggage` allows it to propagate. The controller and each
 runtime read their own value. Set it on the controller with the chart's
-`controller.env`, and on a runtime with `Harness.spec.env`.
+`controller.env`, and on a runtime with `Harness.spec.workload.env`.
 
 The Go ADK runtime adds the request's GenAI identity to the W3C baggage of each
 request, so its model and MCP calls carry it whenever the runtime's
@@ -284,7 +284,7 @@ CI runs it in the e2e job and uploads the report with the e2e logs. It reports o
 - The Python gRPC server instrumentation still writes the old RPC conventions (`rpc.system`, `net.peer.*`) and records no `rpc.server.call.duration` ([open-telemetry/opentelemetry-python-contrib#3375](https://github.com/open-telemetry/opentelemetry-python-contrib/issues/3375)). Derive RPC RED metrics from the SERVER spans in a Collector until then.
 - The Python OTLP exporters read `OTEL_EXPORTER_OTLP_TIMEOUT` as seconds ([open-telemetry/opentelemetry-python#4044](https://github.com/open-telemetry/opentelemetry-python/issues/4044)). `kagent.core` converts the rendered milliseconds for them.
 - The Python SDK always adds a generated `service.instance.id`. An Actor restored from a shared snapshot keeps the value generated before the snapshot, so treat it as unreliable on Substrate and take Actor identity from what the Substrate relay or the Collector attaches.
-- The Python ADK records no tool arguments or results, even with capture on. ADK writes them only to its legacy `gcp.vertex.agent.tool_call_args` and `tool_response` keys, which kagent turns off, and has no GenAI convention keys for them yet. Set `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true` in `Harness.spec.env` to get the legacy keys back, along with a second copy of every model request and response on `call_llm`.
+- The Python ADK records no tool arguments or results, even with capture on. ADK writes them only to its legacy `gcp.vertex.agent.tool_call_args` and `tool_response` keys, which kagent turns off, and has no GenAI convention keys for them yet. Set `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true` in `Harness.spec.workload.env` to get the legacy keys back, along with a second copy of every model request and response on `call_llm`.
 - CrewAI reports no crew, agent or task spans until `opentelemetry-instrumentation-genai-crewai` is published. Its model calls are traced through the OpenAI and Anthropic SDKs.
 - Live-check covers the controller and the Go runtimes only, since no Python runtime runs in the e2e suite. The Python GenAI instrumentations still record `gen_ai.client.token.usage` and `gen_ai.client.operation.duration` for inference, which the pinned GenAI conventions replaced with `gen_ai.client.inference.*`.
 - The Go ADK records no `gen_ai.invoke_agent.duration` for its own invoke_agent spans. The reference collector derives it.

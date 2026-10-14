@@ -204,7 +204,7 @@ reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
 `TestSessionContextCompaction` clones the `kagent` Harness into one whose
-`spec.kagent.compaction` fires a sliding window after two turns, with a
+`spec.kagent.context.compaction` fires a sliding window after two turns, with a
 dedicated summarizer `ModelConfig` pointing at the same mock LLM behind a
 recording proxy. It checks that the runtime calls the summarizer model once,
 and that the third turn's model request carries the summary instead of the

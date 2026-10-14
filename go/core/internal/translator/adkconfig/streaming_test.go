@@ -69,7 +69,7 @@ func TestNonStreamingModelTurn(t *testing.T) {
 			model.Spec.OpenAI.APIFormat = new(tc.format)
 			collections := contextTestCollections(t, model)
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 				Root: &translator.AgentInput{
 					Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
 				},

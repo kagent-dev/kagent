@@ -125,7 +125,7 @@ spec:
   codex: {}
   workload:
     image: ${KAGENT_CODEX_IMAGE_DIGEST}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:

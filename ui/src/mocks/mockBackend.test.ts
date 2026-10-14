@@ -165,7 +165,7 @@ const INPUTS = {
         workload: {
           image: `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`,
         },
-        substrate: {
+        execution: {
           workerPoolRef: { name: "kagent-default" },
           snapshotPolicy: { location: "gs://snapshots/kagent/" },
         },

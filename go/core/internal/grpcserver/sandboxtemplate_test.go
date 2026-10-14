@@ -42,16 +42,31 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 	client := apiv1alpha1.NewSandboxTemplateServiceClient(newConfigurationConnection(t, kubeClient))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
 	resource := &v1alpha3.SandboxTemplate{Spec: v1alpha3.SandboxTemplateSpec{
-		Workload: v1alpha3.SandboxTemplateWorkload{Image: testHarnessImage},
-		Env:      []v1alpha3.RuntimeEnvVar{{Name: "LANG", Value: "C.UTF-8"}},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{
+		Workload: v1alpha3.SandboxTemplateWorkload{
+			Image: testHarnessImage,
+			Env:   []v1alpha3.RuntimeEnvVar{{Name: "LANG", Value: "C.UTF-8"}},
+		},
+		Execution: v1alpha3.RuntimeExecutionPolicy{
 			WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
 			SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 		},
 	}}
+	value, err := structpb.NewStruct(map[string]any{
+		"spec": map[string]any{
+			"workload": map[string]any{
+				"image": testHarnessImage,
+				"env":   []any{map[string]any{"name": "LANG", "value": "C.UTF-8"}},
+			},
+			"execution": map[string]any{
+				"workerPoolRef":  map[string]any{"name": "default"},
+				"snapshotPolicy": map[string]any{"location": "s3://snapshots"},
+			},
+		},
+	})
+	require.NoError(t, err)
 	request := &apiv1alpha1.CreateSandboxTemplateRequest{
 		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "environment"},
-		Resource: structured(t, resource, v1alpha3.SandboxTemplateKind),
+		Resource: &apiv1alpha1.StructuredObject{ApiVersion: v1alpha3.GroupVersion.String(), Kind: v1alpha3.SandboxTemplateKind, Value: value},
 	}
 	created, err := client.CreateSandboxTemplate(ctx, request)
 	require.NoError(t, err)

@@ -130,7 +130,7 @@ spec:
   claude: {}
   workload:
     image: ${KAGENT_CLAUDE_IMAGE}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:

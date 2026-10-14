@@ -16,7 +16,7 @@ spec:
   kagent: {}
   workload:
     image: ${KAGENT_GO_ADK_IMAGE_DIGEST}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:

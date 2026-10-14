@@ -97,7 +97,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     });
 
 
-    // Only the name is required: a BYO harness runs a template with no model.
+    // Only the name is required: a BYO runtime runs a template with no model.
     await expect(page.getByTestId("template-submit")).toBeDisabled();
     await expect(page.getByTestId("template-form-problems")).toContainText("A name is required");
     await expectRequired(page, {

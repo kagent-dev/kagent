@@ -100,7 +100,7 @@ and Dedicated agents remain deferred.
 
 ## Current boundaries
 
-Implemented end to end: kagent, Codex, Claude, and BYO compilation; ate-api
+Implemented end to end: kagent, Codex, Claude, and custom compilation; ate-api
 ActorTemplates; Session lifecycle; durable A2A tasks; auto-suspend;
 checkpoint/fork; and MCP Tasks continuation.
 

@@ -57,7 +57,11 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
 func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration) error {
-	spec := harness.Spec.Kagent.Compaction
+	contextPolicy := harness.Spec.Kagent.Context
+	if contextPolicy == nil {
+		return nil
+	}
+	spec := contextPolicy.Compaction
 	if spec == nil {
 		return nil
 	}
@@ -119,7 +123,11 @@ func requireModels(input *translator.AgentInput) error {
 }
 
 func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfiguration) error {
-	memory := harness.Spec.Kagent.Memory
+	contextPolicy := harness.Spec.Kagent.Context
+	if contextPolicy == nil {
+		return nil
+	}
+	memory := contextPolicy.Memory
 	if memory == nil {
 		return nil
 	}

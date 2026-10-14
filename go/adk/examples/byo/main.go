@@ -7,8 +7,8 @@
 // "technical_writer"), wraps them in a ParallelAgent, and exposes the result
 // as an A2A-compatible agent.
 //
-// Deploy through a BYO Harness. Process settings are loaded from the root
-// runtime object in /config/config.json. OPENAI_API_KEY remains a provider
+// Deploy through a custom Harness runtime. Process settings are loaded from the
+// root runtime object in /config/config.json. OPENAI_API_KEY remains a provider
 // credential and MODEL_NAME selects this example's model (default gpt-4o-mini).
 package main
 

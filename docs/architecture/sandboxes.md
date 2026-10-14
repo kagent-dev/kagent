@@ -16,7 +16,7 @@ The agent and sandbox APIs have separate configuration and lifecycle ownership:
 
 `Harness` owns agent startup and runtime configuration. `SandboxTemplate` owns
 the standalone workload image, environment, WorkerPool reference, and snapshot
-policy. Both resources use `RuntimeEnvVar`, `RuntimeSubstratePolicy`, and
+policy. Both resources use `RuntimeEnvVar`, `RuntimeExecutionPolicy`, and
 `RuntimeSnapshotPolicy` from `go/api/v1alpha3/runtime_types.go` for their shared
 configuration. Neither resource references or inherits from the other.
 
@@ -46,10 +46,10 @@ spec:
   workload:
     # Replace with an available tools image and its digest.
     image: registry.example.com/tools@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  env:
-    - name: LANG
-      value: C.UTF-8
-  substrate:
+    env:
+      - name: LANG
+        value: C.UTF-8
+  execution:
     workerPoolRef:
       name: default
     snapshotPolicy:

@@ -160,7 +160,7 @@ Substrate worker images are published to GHCR, for example
 `ghcr.io/kagent-dev/substrate/ateom-microvm:latest`. For a pinned installation,
 use a release tag matching your Substrate version.
 
-Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.
+Reference the pool through `spec.execution.workerPoolRef` on a Harness in the same namespace.
 
 The worker pods run as a ServiceAccount with the name `substrateWorkerPool.name`, which the
 chart creates. To use your own ServiceAccount, set `substrateWorkerPool.serviceAccount.create`

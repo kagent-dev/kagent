@@ -38,7 +38,7 @@ const (
 )
 
 // TestSessionContextCompaction verifies that a Harness's
-// spec.kagent.compaction reaches the Go runtime and that the runtime compacts
+// spec.kagent.context.compaction reaches the Go runtime and that the runtime compacts
 // with it: after the configured number of turns the runtime asks the dedicated
 // summarizer model for a summary, and the next turn's model request carries
 // that summary in place of the compacted turns. Both models are the same mock
@@ -100,9 +100,12 @@ func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerMod
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "compaction-", Namespace: "kagent"},
 		Spec:       *base.Spec.DeepCopy(),
 	}
-	harness.Spec.Kagent.Compaction = &v1alpha3.KagentHarnessCompaction{
+	if harness.Spec.Kagent.Context == nil {
+		harness.Spec.Kagent.Context = &v1alpha3.KagentContextPolicy{}
+	}
+	harness.Spec.Kagent.Context.Compaction = &v1alpha3.KagentCompactionPolicy{
 		CompactionInterval: new(2),
-		Summarizer: &v1alpha3.KagentHarnessSummarizer{
+		Summarizer: &v1alpha3.KagentSummarizerPolicy{
 			ModelConfigRef: &corev1.LocalObjectReference{Name: summarizerModel},
 			PromptTemplate: compactionSummaryPrompt + "\n\n{conversation_history}",
 		},

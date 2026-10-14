@@ -81,7 +81,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	environment := append(providerEnvironment, mcp.environment...)
-	for _, variable := range input.Harness.Spec.Env {
+	for _, variable := range input.Harness.Spec.Workload.Env {
 		_, reserved := ownedEnvironment[variable.Name]
 		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
@@ -140,7 +140,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Revision: translator.Revision{
 			Namespace: template.Namespace,
 			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
-			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
+			WorkerPoolName: harness.Spec.Execution.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Execution.SnapshotPolicy.Location,
 			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,

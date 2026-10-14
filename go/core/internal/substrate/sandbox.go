@@ -56,7 +56,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 		class = atev1alpha1.SandboxClassGvisor
 	}
 	var environment []*ateapipb.EnvVar
-	for _, variable := range template.Spec.Env {
+	for _, variable := range template.Spec.Workload.Env {
 		_, trust := egressTrustEnvironment[variable.Name]
 		if trust || strings.HasPrefix(variable.Name, "KAGENT_") || strings.HasPrefix(variable.Name, "ATE_") {
 			return nil, "", nil, fmt.Errorf("sandbox environment %q is reserved", variable.Name)
@@ -81,7 +81,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	result := &ateapipb.ActorTemplate{
 		Metadata:       &ateapipb.ResourceMetadata{Atespace: template.Namespace, Name: "sandbox-" + revision[:40]},
 		SandboxConfig:  config,
-		WorkerSelector: workerSelectorForPool(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.Substrate.WorkerPoolRef.Name}),
+		WorkerSelector: workerSelectorForPool(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.Execution.WorkerPoolRef.Name}),
 		Resources:      &ateapipb.Resources{Limits: []*ateapipb.Limits{{Name: "cpu", Quantity: policy.CPU}, {Name: "memory", Quantity: policy.Memory}}},
 		Containers: []*ateapipb.Container{{
 			Name: "sandbox", Image: template.Spec.Workload.Image,
@@ -97,7 +97,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}}}}},
 		},
 		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: template.Spec.Substrate.SnapshotPolicy.Location,
+			StorageLocation: template.Spec.Execution.SnapshotPolicy.Location,
 			// Substrate 0.5 applies one scope to pause and suspend. Keep process memory
 			// for both until lifecycle v2 separates them again.
 			OnCommit: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,

@@ -84,7 +84,7 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		if !template.DeletionTimestamp.IsZero() {
 			return state
 		}
-		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
+		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Execution.WorkerPoolRef.Name))
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
 		} else {

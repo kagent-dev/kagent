@@ -167,7 +167,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
+	input.Harness.Spec.Workload.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
 	_, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	var validation *translator.ValidationError
 	if !errors.As(err, &validation) {
@@ -182,7 +182,7 @@ func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://other-collector:4317"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
+	input.Harness.Spec.Workload.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
 	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
@@ -200,13 +200,15 @@ func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	}
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "department=engineering"
-	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
+	input.Harness.Spec.Workload.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
 
 	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testCompilerSettings()).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(result.Environment, func(v corev1.EnvVar) bool { return v.Name == input.Harness.Spec.Env[0].Name && v.Value == value }) {
+	if !slices.ContainsFunc(result.Environment, func(v corev1.EnvVar) bool {
+		return v.Name == input.Harness.Spec.Workload.Env[0].Name && v.Value == value
+	}) {
 		t.Fatal("runtime override missing")
 	}
 }
@@ -506,8 +508,8 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[string][]byte) (*translator.HarnessInput, translator.Collections) {
 	t.Helper()
 	harness := &translator.HarnessConfiguration{Name: "claude", Namespace: "test", Source: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
-		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		Claude: &v1alpha3.ClaudeRuntime{}, Workload: v1alpha3.HarnessWorkload{Image: "example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Execution: v1alpha3.RuntimeExecutionPolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &corev1.LocalObjectReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",

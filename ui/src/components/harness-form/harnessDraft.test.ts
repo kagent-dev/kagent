@@ -4,10 +4,9 @@ import type { HarnessSpec } from "@/api/domain/harnesses";
 
 const image = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
 const spec: HarnessSpec = {
-  kagent: { memory: { modelConfigRef: { name: "m" } } },
-  workload: { image },
-  substrate: { workerPoolRef: { name: "pool" }, snapshotPolicy: { location: "s3://snap" } },
-  env: [{ name: "A", value: "1" }],
+  kagent: { context: { memory: { modelConfigRef: { name: "m" } } } },
+  workload: { image, env: [{ name: "A", value: "1" }] },
+  execution: { workerPoolRef: { name: "pool" }, snapshotPolicy: { location: "s3://snap" } },
 };
 
 describe("harness draft", () => {
@@ -21,7 +20,7 @@ describe("harness draft", () => {
     expect(next.kagent).toBeUndefined();
     expect(next.codex).toEqual({});
   });
-  it("requires a digest pin and a command for byo", () => {
+  it("requires a digest pin and a command for BYO runtimes", () => {
     const draft = { ...harnessDraftFromSpec(spec), image: "x:latest", adapter: "byo" as const };
     expect(harnessDraftProblems(draft)).toHaveLength(2);
   });

@@ -7,7 +7,7 @@ spec:
   kagent: {}
   workload:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:
@@ -22,7 +22,7 @@ spec:
   codex: {}
   workload:
     image: ${KAGENT_E2E_CODEX_IMAGE}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:
@@ -38,7 +38,7 @@ spec:
   workload:
     image: ${KAGENT_E2E_BYO_IMAGE}
     command: ["/app"]
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:
@@ -54,7 +54,7 @@ spec:
   workload:
     image: ${KAGENT_E2E_RUNTIME_IMAGE}
     command: ["/app"]
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:
@@ -69,7 +69,7 @@ spec:
   claude: {}
   workload:
     image: ${KAGENT_E2E_CLAUDE_IMAGE}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:

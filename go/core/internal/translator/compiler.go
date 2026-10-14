@@ -158,7 +158,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
-	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
+	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Execution.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}

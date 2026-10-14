@@ -14,7 +14,7 @@ import (
 )
 
 func TestCompileFoundryEndpoint(t *testing.T) {
-	for _, location := range []string{"agent", "shared agent", "memory", "BYO"} {
+	for _, location := range []string{"agent", "shared agent", "memory", "byo"} {
 		t.Run(location, func(t *testing.T) {
 			model := &v1alpha3.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: "foundry", Namespace: "test"},
@@ -29,10 +29,10 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 			harness := &v1alpha3.Harness{
 				ObjectMeta: metav1.ObjectMeta{Name: "harness", Namespace: "test"},
 				Spec: v1alpha3.HarnessSpec{
-					Kagent: &v1alpha3.KagentHarness{},
+					Kagent: &v1alpha3.KagentRuntime{},
 
 					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
-					Substrate: v1alpha3.RuntimeSubstratePolicy{
+					Execution: v1alpha3.RuntimeExecutionPolicy{
 						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
@@ -55,12 +55,13 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}}}
 				objects = append(objects, child, modelConfig())
 			case "memory":
-				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}
+				harness.Spec.Kagent.Context = &v1alpha3.KagentContextPolicy{}
+				harness.Spec.Kagent.Context.Memory = &v1alpha3.KagentMemoryPolicy{ModelConfigRef: corev1.LocalObjectReference{Name: model.Name}}
 				template.Spec.ModelConfig.Name = "default-model"
 				objects = append(objects, modelConfig())
-			case "BYO":
+			case "byo":
 				harness.Spec.Kagent = nil
-				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+				harness.Spec.BYO = &v1alpha3.BYORuntime{}
 			}
 			objects = append(objects, harness)
 

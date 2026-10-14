@@ -58,7 +58,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
-			updatedHarness.Spec.Substrate.WorkerPoolRef.Name = "microvm"
+			updatedHarness.Spec.Execution.WorkerPoolRef.Name = "microvm"
 			harnesses.UpdateObject(updatedHarness)
 			waitFor(t, func() bool {
 				return collections.Reconciliations.GetKey(initial.ResourceName()).Target.RevisionID != initial.Target.RevisionID
@@ -79,7 +79,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.Empty(t, unreferenced)
 
 			updatedHarness = updatedHarness.DeepCopy()
-			updatedHarness.Spec.Substrate.WorkerPoolRef.Name = "missing"
+			updatedHarness.Spec.Execution.WorkerPoolRef.Name = "missing"
 			harnesses.UpdateObject(updatedHarness)
 			waitFor(t, func() bool {
 				state := collections.Reconciliations.GetKey(initial.ResourceName())
@@ -122,7 +122,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 
 			updatedHarness = updatedHarness.DeepCopy()
-			updatedHarness.Spec.Substrate.WorkerPoolRef.Name = "microvm"
+			updatedHarness.Spec.Execution.WorkerPoolRef.Name = "microvm"
 			harnesses.UpdateObject(updatedHarness)
 			waitFor(t, func() bool {
 				state := collections.Reconciliations.GetKey(initial.ResourceName())
@@ -507,7 +507,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	updated := harnesses.List()[0].DeepCopy()
-	updated.Spec.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}
+	updated.Spec.Workload.Env = []kagentv1alpha3.RuntimeEnvVar{{Name: "EXTRA", Value: strings.Repeat("x", 32769)}}
 	harnesses.UpdateObject(updated)
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).CompilationFailure != nil
@@ -536,10 +536,10 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
-	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
+	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYORuntime{}
 	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
-	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
+	runtimeHarness.Spec.Execution = kagentv1alpha3.RuntimeExecutionPolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)

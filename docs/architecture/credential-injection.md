@@ -42,7 +42,7 @@ kubectl-ate admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool \
 The local setup script and CI install both the grant and CA. ActorTemplates
 project `egress-mitm.ate.dev` into `/run/kagent/egress/trust-bundle.pem` and set
 the Go/OpenSSL, Node, Python requests, AWS, curl, and git CA environment variables.
-Custom BYO clients must honor the configured trust bundle. Harness environment
+BYO runtime clients must honor the configured trust bundle. Harness environment
 overrides of these variables are rejected.
 
 ## Supported credentials

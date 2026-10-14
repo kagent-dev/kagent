@@ -15,7 +15,7 @@ export interface Harness {
    * The adapter the spec selects.
    *
    * Denormalised by the controller because the CRD enforces an exactly-one-of
-   * across four spec fields, and every caller listing harnesses would otherwise
+   * across four `spec` members, and every caller listing harnesses would otherwise
    * reimplement that check. A value outside the four is passed through as it
    * arrived rather than being folded into a plausible one.
    */
@@ -58,8 +58,8 @@ export interface HarnessResource {
 }
 
 
-/** `spec.kagent.compaction.summarizer`: the model and prompt that write the summaries. */
-export interface KagentHarnessSummarizer {
+/** `spec.kagent.context.compaction.summarizer`: the model and prompt that write the summaries. */
+export interface KagentSummarizerPolicy {
   /** A ModelConfig in the harness namespace. Omitted summarizes with the agent's own model. */
   modelConfigRef?: { name: string };
   /** Must contain `{conversation_history}`. */
@@ -67,36 +67,40 @@ export interface KagentHarnessSummarizer {
 }
 
 /**
- * `spec.kagent.compaction`: the sliding window (`compactionInterval`, `overlapSize`)
+ * `spec.kagent.context.compaction`: the sliding window (`compactionInterval`, `overlapSize`)
  * and tail retention (`tokenThreshold`, `eventRetentionSize`) strategies. At least
  * one strategy is required; `tokenThreshold` and `eventRetentionSize` go together.
  */
-export interface KagentHarnessCompaction {
+export interface KagentCompactionPolicy {
   compactionInterval?: number;
   overlapSize?: number;
   tokenThreshold?: number;
   eventRetentionSize?: number;
-  summarizer?: KagentHarnessSummarizer;
+  summarizer?: KagentSummarizerPolicy;
+}
+
+/** Context policy implemented by the kagent adapter. */
+export interface KagentContextPolicy {
+  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
+  compaction?: KagentCompactionPolicy;
 }
 
 /** `spec.kagent`: runtime policy of the kagent adapter. */
-export interface KagentHarnessSpec {
-  memory?: { modelConfigRef: { name: string }; ttlDays?: number };
-  compaction?: KagentHarnessCompaction;
+export interface KagentRuntimeSpec {
+  context?: KagentContextPolicy;
 }
 
 export interface HarnessSpec {
-  kagent?: KagentHarnessSpec;
+  kagent?: KagentRuntimeSpec;
   codex?: Record<string, never>;
   claude?: Record<string, never>;
-  /** Bring your own: an image that serves kagent's A2A contract itself. */
+  /** A user image that serves kagent's private A2A runtime contract. */
   byo?: Record<string, never>;
-  workload: { image: string; command?: string[]; args?: string[] };
-  substrate: {
+  workload: { image: string; command?: string[]; args?: string[]; env?: { name: string; value?: string }[] };
+  execution: {
     workerPoolRef: { name: string };
     snapshotPolicy: { location: string };
   };
-  env?: { name: string; value?: string }[];
 }
 
 /** The adapters a harness may select, exactly one of which is required. */

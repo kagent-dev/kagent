@@ -83,7 +83,7 @@ spec:
                         type: string
                       modelConfig:
                         description: ModelConfig is required by managed harnesses
-                          and optional for BYO harnesses.
+                          and optional for BYO runtimes.
                         properties:
                           name:
                             default: ""

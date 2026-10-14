@@ -45,7 +45,7 @@ spec:
   kagent: {}
   workload:
     image: localhost:5001/kagent-dev/kagent/golang-adk@${HARNESS_DIGEST}
-  substrate:
+  execution:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:

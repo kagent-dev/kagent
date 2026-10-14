@@ -17,6 +17,13 @@ type SandboxTemplateWorkload struct {
 	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
 	// +required
 	Image string `json:"image"`
+
+	// Env supplies literal environment variables to the sandbox workload.
+	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=map
+	// +listMapKey=name
+	Env []RuntimeEnvVar `json:"env,omitempty"`
 }
 
 // SandboxTemplateSpec defines standalone sandbox environment configuration.
@@ -25,18 +32,10 @@ type SandboxTemplateSpec struct {
 	// +required
 	Workload SandboxTemplateWorkload `json:"workload"`
 
-	// Env supplies runtime environment defaults.
-	// Credential references do not grant permission to read the referenced Secret.
-	// +optional
-	// +kubebuilder:validation:MaxItems=100
-	// +listType=map
-	// +listMapKey=name
-	Env []RuntimeEnvVar `json:"env,omitempty"`
-
-	// Substrate configures compute placement and snapshot storage. References are
+	// Execution configures compute placement and snapshot storage. References are
 	// resolved in this template's namespace.
 	// +required
-	Substrate RuntimeSubstratePolicy `json:"substrate"`
+	Execution RuntimeExecutionPolicy `json:"execution"`
 }
 
 // SandboxTemplateStatus reports preparation of the current template inputs.

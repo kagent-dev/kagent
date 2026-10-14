@@ -153,18 +153,18 @@ export function AgentTemplateForm({
   // may mean none exist or access hides them, so the hint names both.
   const modelHelp =
     !readOnly && models.error && (!models.data || modelOptions.length === 0) ? (
-    "Model configurations could not be loaded. Bring-your-own (BYO) harnesses do not need one. If you need one, refresh the page."
+    "Model configurations could not be loaded. Custom harnesses do not need one. If you need one, refresh the page."
   ) : !readOnly && !models.isLoading && modelOptions.length === 0 ? (
     <span data-testid="template-form-model-availability">
       No model configurations found in {namespace}.{" "}
-      Bring-your-own (BYO) harnesses do not need one.{" "}
+      Custom harnesses do not need one.{" "}
       {isCreate
         ? "If you need one, create it or choose another namespace."
         : "If you need one, create it."} If
       one should be listed, check your access.
     </span>
   ) : (
-    "A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO)."
+    "A ModelConfig in this template's own namespace. Every harness needs one except BYO runtimes."
   );
 
   /** The tools each server exposes, so the tool picker offers real names. */

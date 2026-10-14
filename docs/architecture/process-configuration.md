@@ -121,7 +121,7 @@ Configuration changes require a process restart.
 
 ## Runtimes
 
-Runtime configuration remains the existing Go/JSON contract. ADK and BYO
+Runtime configuration remains the existing Go/JSON contract. ADK and custom runtime
 process settings live in the root `runtime` object; subagents inherit them.
 Native Claude and Codex retain their harness-specific Go structs. The controller
 compiles `runtimeDefaults` into these payloads independently of its own settings.
@@ -160,7 +160,7 @@ An endpoint or protocol override replaces the file's entire connection pair;
 provide both to avoid using an SDK default for the missing counterpart.
 
 Controller overrides apply only to the controller. Managed runtimes use
-`runtimeDefaults.telemetry` plus their own `Harness.spec.env` overrides. Helm
+`runtimeDefaults.telemetry` plus their own `Harness.spec.workload.env` overrides. Helm
 supports `controller.env` and `controller.envFrom` for controller OTEL and
 external SDK inputs. See [telemetry](telemetry.md) for exporter and capture details.
 

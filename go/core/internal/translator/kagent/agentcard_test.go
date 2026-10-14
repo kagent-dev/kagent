@@ -15,7 +15,7 @@ import (
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
 	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
-		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentRuntime{}}},
 		Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "kagent ModelConfig is required") {

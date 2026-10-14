@@ -134,7 +134,7 @@ func createPropagatorsHarness(t *testing.T, kube ctrlclient.Client, propagators 
 		Spec:       *base.Spec.DeepCopy(),
 	}
 	if propagators != "" {
-		harness.Spec.Env = append(harness.Spec.Env, v1alpha3.RuntimeEnvVar{Name: "OTEL_PROPAGATORS", Value: propagators})
+		harness.Spec.Workload.Env = append(harness.Spec.Workload.Env, v1alpha3.RuntimeEnvVar{Name: "OTEL_PROPAGATORS", Value: propagators})
 	}
 	if err := kube.Create(t.Context(), harness); err != nil {
 		t.Fatalf("create propagators Harness: %v", err)

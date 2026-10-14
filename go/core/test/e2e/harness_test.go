@@ -14,10 +14,11 @@ type testHarness struct {
 	runtimeLabel string
 }
 
-// Every shared AgentTemplate test runs on every harness type. BYO uses the Go
-// ADK image so managed configuration is exercised; the opaque BYO contract has
-// its own test. Keep exclusions in the affected test, with an explicit t.Skip
-// reason. Never infer exclusions from installed fixtures or readiness failures.
+// Every shared AgentTemplate test runs on every harness type. The BYO runtime
+// uses the Go ADK image so managed configuration is exercised; the opaque BYO
+// contract has its own test. Keep exclusions in the affected test, with an
+// explicit t.Skip reason. Never infer exclusions from installed fixtures or
+// readiness failures.
 func forEachHarness(t *testing.T, run func(*testing.T, testHarness)) {
 	t.Helper()
 	for _, harness := range []testHarness{

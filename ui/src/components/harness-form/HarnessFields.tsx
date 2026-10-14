@@ -58,7 +58,7 @@ export function HarnessFields({
         required={byo}
         extra={
           byo
-            ? "Required for bring-your-own images. Press Enter after each part."
+            ? "Required for BYO images. Press Enter after each part."
             : "Overrides the image entrypoint. Press Enter after each part."
         }
       >

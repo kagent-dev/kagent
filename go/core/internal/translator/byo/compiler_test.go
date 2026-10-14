@@ -20,15 +20,14 @@ import (
 
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
-		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: "production"}},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{
+		BYO:      &v1alpha3.BYORuntime{},
+		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}, Env: []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: "production"}}},
+		Execution: v1alpha3.RuntimeExecutionPolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
 	}}
-	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-		Description: "custom A2A agent", SystemPrompt: "be helpful",
+	template := &translator.TemplateConfiguration{Name: "byo-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo-agent", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+		Description: "BYO A2A agent", SystemPrompt: "be helpful",
 	}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
@@ -55,17 +54,16 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	settings := testCompilerSettings()
 	settings.Telemetry = translator.TelemetryConfig{Traces: translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc"}, Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}}}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-		Env: []v1alpha3.RuntimeEnvVar{
+		BYO: &v1alpha3.BYORuntime{},
+		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Env: []v1alpha3.RuntimeEnvVar{
 			{Name: "OTEL_SERVICE_NAME", Value: "my-langgraph"},
 			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "https://otlp.example.com"},
-		},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{
+		}},
+		Execution: v1alpha3.RuntimeExecutionPolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 		},
 	}}
-	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
+	template := &translator.TemplateConfiguration{Name: "byo-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo-agent", Namespace: "test"}}
 
 	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "runnable-agent",
@@ -97,16 +95,16 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		},
 	}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		BYO:       &v1alpha3.BYOHarness{},
+		BYO:       &v1alpha3.BYORuntime{},
 		Workload:  v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		Execution: v1alpha3.RuntimeExecutionPolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	// All three signals must leave room for fourteen user settings. The final
 	// ActorTemplate also includes credentials/trust and bootstrap variables.
 	for i := range 14 {
-		harness.Spec.Env = append(harness.Spec.Env, v1alpha3.RuntimeEnvVar{Name: fmt.Sprintf("CUSTOM_%d", i), Value: "value"})
+		harness.Spec.Workload.Env = append(harness.Spec.Workload.Env, v1alpha3.RuntimeEnvVar{Name: fmt.Sprintf("CUSTOM_%d", i), Value: "value"})
 	}
-	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
+	template := &translator.TemplateConfiguration{Name: "byo-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "byo-agent", Namespace: "test"}}
 	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings).Compile(t.Context(), &translator.HarnessInput{
 		AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{Template: template},
 	})

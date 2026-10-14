@@ -60,7 +60,7 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 	value, err := structpb.NewStruct(map[string]any{
 		"spec": map[string]any{
 			"workload": map[string]any{"image": image},
-			"substrate": map[string]any{
+			"execution": map[string]any{
 				"workerPoolRef":  map[string]any{"name": pool},
 				"snapshotPolicy": map[string]any{"location": "s3://ate-snapshots/" + namespace},
 			},
@@ -296,7 +296,7 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 	key := types.NamespacedName{Namespace: f.template.Namespace, Name: f.template.Name}
 	require.NoError(t, kube.Get(f.ctx, key, template))
 	marker := "prepared-v2"
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: marker}}
+	template.Spec.Workload.Env = []v1alpha3.RuntimeEnvVar{{Name: "REVISION_MARKER", Value: marker}}
 	require.NoError(t, kube.Update(f.ctx, template))
 	require.Eventually(t, func() bool {
 		require.NoError(t, kube.Get(f.ctx, key, template))

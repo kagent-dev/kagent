@@ -16,14 +16,14 @@ import (
 func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	template := &v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch", UID: "uid"}, Spec: v1alpha3.SandboxTemplateSpec{
 		Workload:  v1alpha3.SandboxTemplateWorkload{Image: "tools@sha256:" + strings.Repeat("a", 64)},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
+		Execution: v1alpha3.RuntimeExecutionPolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
 	}}
 	policy := SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}
 	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy)
 	require.NoError(t, err)
 	require.NotEqual(t, "5bf14bc98818a54bf4e59e5aca83de9bde5df22e9efa206b65e1389069a188c3", digest,
 		"namespace-scoped placement must create a fresh immutable ActorTemplate")
-	testWorkerPoolSelection(t, actor, template.Namespace, template.Spec.Substrate.WorkerPoolRef.Name)
+	testWorkerPoolSelection(t, actor, template.Namespace, template.Spec.Execution.WorkerPoolRef.Name)
 	require.Contains(t, string(snapshot), policy.GuestImage)
 	require.Equal(t, []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"}, actor.Containers[0].Command)
 	require.Equal(t, policy.GuestImage, actor.Volumes[1].Image.Reference)
@@ -55,7 +55,7 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 			require.NotEqual(t, digest, changed)
 		})
 	}
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: "/untrusted"}}
+	template.Spec.Workload.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: "/untrusted"}}
 	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "reserved")
 	require.Nil(t, actor)
