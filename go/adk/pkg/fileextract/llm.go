@@ -3,7 +3,6 @@ package fileextract
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"iter"
 	"slices"
 	"strings"
@@ -13,7 +12,7 @@ import (
 )
 
 // WithFileText wraps an LLM so every provider receives non-image file blobs as
-// extracted text, and links it cannot send are never dropped without a word.
+// extracted text, and links it cannot send as their URL in text.
 // Images, and files the model's adapter sends itself (see FileSender), pass through.
 func WithFileText(llm model.LLM) model.LLM {
 	if g, ok := llm.(googleLLM); ok {
@@ -33,11 +32,7 @@ type googleFileTextLLM struct {
 }
 
 func (m fileTextLLM) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
-	req, err := filesToText(req, m.LLM)
-	if err != nil {
-		return func(yield func(*model.LLMResponse, error) bool) { yield(nil, err) }
-	}
-	return m.LLM.GenerateContent(ctx, req, stream)
+	return m.LLM.GenerateContent(ctx, filesToText(req, m.LLM), stream)
 }
 
 // FileSender is a model whose adapter sends some user file parts to its provider
@@ -87,11 +82,10 @@ func isDataPart(b *genai.Blob) bool {
 
 // filesToText returns req with user files replaced by text, copying only the
 // contents and parts it changes so the caller's session history is untouched.
-func filesToText(req *model.LLMRequest, llm model.LLM) (*model.LLMRequest, error) {
+func filesToText(req *model.LLMRequest, llm model.LLM) *model.LLMRequest {
 	if req == nil {
-		return req, nil
+		return req
 	}
-	newest := NewestUserTurn(req.Contents)
 	var contents []*genai.Content
 	for i, c := range req.Contents {
 		if c == nil || c.Role != genai.RoleUser {
@@ -99,18 +93,27 @@ func filesToText(req *model.LLMRequest, llm model.LLM) (*model.LLMRequest, error
 		}
 		var parts []*genai.Part
 		for j, p := range c.Parts {
-			if p != nil && p.FileData != nil && i == newest && !providerAccepts(llm, p) {
-				// The adapter would drop this link without a word. Tell the user on the turn
-				// they sent it; later turns replay it and must not fail.
-				return nil, fmt.Errorf("this model cannot read links, so %q was not sent. Attach the file instead", p.FileData.FileURI)
+			if p == nil || providerAccepts(llm, p) {
+				continue
 			}
-			if p == nil || p.InlineData == nil || strings.HasPrefix(p.InlineData.MIMEType, "image/") || isDataPart(p.InlineData) || providerAccepts(llm, p) {
+			var text *genai.Part // nil drops the part
+			switch {
+			case p.FileData != nil:
+				// The adapter would drop this link without a word. The model gets the bare URL,
+				// as the user would type it, so the agent's fetch tool can read it. Not a
+				// "File: name (url)" form: with that, models invented the file's contents.
+				if !hasText(c.Parts, p.FileData.FileURI) {
+					text = genai.NewPartFromText(p.FileData.FileURI)
+				}
+			case p.InlineData != nil && !strings.HasPrefix(p.InlineData.MIMEType, "image/") && !isDataPart(p.InlineData):
+				text = genai.NewPartFromText(inlineFileToText(p.InlineData, partFileName(p)))
+			default:
 				continue
 			}
 			if parts == nil {
 				parts = slices.Clone(c.Parts)
 			}
-			parts[j] = genai.NewPartFromText(inlineFileToText(p.InlineData, partFileName(p)))
+			parts[j] = text
 		}
 		if parts == nil {
 			continue
@@ -119,13 +122,18 @@ func filesToText(req *model.LLMRequest, llm model.LLM) (*model.LLMRequest, error
 			contents = slices.Clone(req.Contents)
 		}
 		changed := *c
-		changed.Parts = parts
+		changed.Parts = slices.DeleteFunc(parts, func(p *genai.Part) bool { return p == nil })
 		contents[i] = &changed
 	}
 	if contents == nil {
-		return req, nil
+		return req
 	}
 	out := *req
 	out.Contents = contents
-	return &out, nil
+	return &out
+}
+
+// hasText reports whether a text part in parts contains s.
+func hasText(parts []*genai.Part, s string) bool {
+	return slices.ContainsFunc(parts, func(p *genai.Part) bool { return p != nil && strings.Contains(p.Text, s) })
 }

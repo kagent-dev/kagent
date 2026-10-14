@@ -56,6 +56,58 @@ export function isAllowedFile(file: Pick<File, "name" | "type">): boolean {
   return ALLOWED_TYPES.has(mediaTypeOf(file));
 }
 
+/**
+ * A link in the message text, sent beside the text as an A2A url part with no bytes and
+ * no chip. A model that reads links fetches it; for any other model the runtime drops the
+ * part, and the URL in the text stays for the agent's fetch tool.
+ */
+export class LinkFile extends File {
+  constructor(readonly url: string) {
+    super([], fileNameFromUrl(url), { type: linkMediaType(url) });
+  }
+}
+
+/**
+ * The links in `text` to send as url parts: http(s) URLs to a file of a known type,
+ * as written in the text, so the runtime finds them there. A web page stays text only:
+ * no provider is known to read one as a file.
+ */
+export function textLinks(text: string): string[] {
+  // ponytail: whitespace split and trimmed punctuation, not a full URL grammar; a URL
+  // that ends in ")" loses it. Use a linkify parser if users paste such links.
+  const links = text
+    .split(/\s+/)
+    .map((token) => token.replace(/^[(<"'[]+/, "").replace(/[.,;:!?)>"'\]]+$/, ""))
+    .filter((url) => isHttpUrl(url) && !["", "text/html"].includes(linkMediaType(url)));
+  return [...new Set(links)];
+}
+
+export function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The media type sent with a link part, by the path's extension, since the browser
+ * cannot read another origin's Content-Type. "" for no known extension.
+ */
+export function linkMediaType(url: string): string {
+  return TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))] ?? "";
+}
+
+// Last path segment, so a query string or fragment never becomes the name.
+export function fileNameFromUrl(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
+  } catch {
+    return "file";
+  }
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Number((bytes / 1024).toFixed(1))} KB`;

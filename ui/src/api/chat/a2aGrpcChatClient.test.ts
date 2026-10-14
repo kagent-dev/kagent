@@ -25,6 +25,7 @@ import {
 } from "@/generated/a2a_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
 
@@ -1503,6 +1504,31 @@ describe("A2AGrpcChatClient files", () => {
     expect(part?.filename).toBe("notes.md");
     expect(part?.mediaType).toBe("text/markdown");
     expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
+  });
+
+  it("sends a link from the text as a url part after the text, with no bytes", async () => {
+    let captured: SendMessageRequest | undefined;
+    serve(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* (request) {
+          captured = request;
+        },
+      });
+    });
+    const link = "https://files.example/a/report.pdf?sig=abc";
+    for await (const event of new A2AGrpcChatClient().send({
+      conversation: CONVERSATION,
+      text: `summarize ${link}`,
+      files: [new LinkFile(link)],
+    })) {
+      void event;
+    }
+    const [text, part] = captured?.message?.parts ?? [];
+    expect(text?.content).toEqual({ case: "text", value: `summarize ${link}` });
+    expect(part?.content).toEqual({ case: "url", value: link });
+    expect(part?.filename).toBe("report.pdf");
+    expect(part?.mediaType).toBe("application/pdf");
   });
 
   it("renders a file the agent sent rather than dropping it", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_TOTAL_BYTES, isAllowedFile, mediaTypeOf, stageFiles } from "./attachments";
+import { MAX_TOTAL_BYTES, isAllowedFile, mediaTypeOf, stageFiles, textLinks } from "./attachments";
 
 const sized = (name: string, type: string, size: number) =>
   ({ name, type, size }) as File;
@@ -15,6 +15,20 @@ describe("mediaTypeOf", () => {
     ["photo.JPG", "image/jpeg", "image/jpeg"],
   ])("%s (%j) is %s", (name, type, expected) => {
     expect(mediaTypeOf({ name, type })).toBe(expected);
+  });
+});
+
+describe("textLinks", () => {
+  it.each([
+    ["summarize https://example.com/a/report.pdf?sig=abc", ["https://example.com/a/report.pdf?sig=abc"]],
+    ["see (https://example.com/a.docx).", ["https://example.com/a.docx"]],
+    ["https://example.com/a.pdf and https://example.com/a.pdf", ["https://example.com/a.pdf"]],
+    ["what is https://github.com/kagent-dev/kagent", []],
+    ["https://example.com/index.html", []],
+    ["ftp://example.com/a.pdf example.com/a.pdf", []],
+    ["", []],
+  ])("%j is %j", (text, expected) => {
+    expect(textLinks(text)).toEqual(expected);
   });
 });
 

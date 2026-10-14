@@ -3,6 +3,7 @@ package fileextract
 import (
 	"context"
 	"iter"
+	"slices"
 	"strings"
 	"testing"
 
@@ -136,35 +137,49 @@ func TestWithFileText_LinkTheModelCannotSend(t *testing.T) {
 	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
 	user := func(parts ...*genai.Part) *genai.Content { return &genai.Content{Role: genai.RoleUser, Parts: parts} }
 
-	t.Run("newest turn fails the request", func(t *testing.T) {
-		inner := &recordingLLM{}
-		req := &model.LLMRequest{Contents: []*genai.Content{user(genai.NewPartFromText("read this"), link)}}
-		var gotErr error
-		for _, err := range WithFileText(inner).GenerateContent(t.Context(), req, false) {
-			gotErr = err
+	texts := func(c *genai.Content) []string {
+		var out []string
+		for _, p := range c.Parts {
+			if p.FileData != nil {
+				out = append(out, "<link part>")
+			} else {
+				out = append(out, p.Text)
+			}
 		}
-		if gotErr == nil || !strings.Contains(gotErr.Error(), link.FileData.FileURI) {
-			t.Errorf("err = %v, want an error that names the link", gotErr)
-		}
-		if inner.got != nil {
-			t.Error("model was called")
-		}
-	})
+		return out
+	}
 
-	t.Run("older turn is replayed without failing", func(t *testing.T) {
-		inner := &recordingLLM{}
-		req := &model.LLMRequest{Contents: []*genai.Content{
-			user(genai.NewPartFromText("read this"), link),
-			{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromText("I cannot read links")}},
-			user(genai.NewPartFromText("then summarize this text")),
-		}}
-		for _, err := range WithFileText(inner).GenerateContent(t.Context(), req, false) {
-			t.Fatalf("err = %v", err)
-		}
-		if inner.got != req {
-			t.Error("request with an old link was changed")
-		}
-	})
+	for name, tc := range map[string]struct {
+		in   *genai.Content
+		want []string
+	}{
+		"link alone becomes its URL": {user(genai.NewPartFromText("read this"), link), []string{"read this", link.FileData.FileURI}},
+		"link already in the text is dropped": {
+			user(genai.NewPartFromText("read "+link.FileData.FileURI), link),
+			[]string{"read " + link.FileData.FileURI},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			inner := &recordingLLM{}
+			// The link sits in an older turn too: replayed history gets the same text.
+			req := &model.LLMRequest{Contents: []*genai.Content{
+				tc.in,
+				{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromText("ok")}},
+				tc.in,
+			}}
+			for _, err := range WithFileText(inner).GenerateContent(t.Context(), req, false) {
+				t.Fatalf("err = %v", err)
+			}
+			for _, i := range []int{0, 2} {
+				if got := texts(inner.got.Contents[i]); !slices.Equal(got, tc.want) {
+					t.Errorf("turn %d = %q, want %q", i, got, tc.want)
+				}
+			}
+			if len(tc.in.Parts) != 2 || tc.in.Parts[1] != link {
+				t.Error("the session's own content was changed")
+			}
+		})
+	}
 }
 
 func TestWithFileText_NameFromPartMetadata(t *testing.T) {
