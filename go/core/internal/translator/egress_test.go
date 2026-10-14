@@ -55,7 +55,7 @@ func TestAgentEgressPoliciesPinGrantsAcrossHarnesses(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			policy, secret := egressPolicy()
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runner"}, Spec: v1alpha3.HarnessSpec{
-				Workload:  v1alpha3.HarnessWorkload{Image: "runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+				Workload:  v1alpha3.HarnessWorkload{Image: new("runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 			}}
 			switch kind {
