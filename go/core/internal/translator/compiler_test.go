@@ -985,3 +985,70 @@ func TestResolveModelConfigMistral(t *testing.T) {
 func testCompilerSettings() translator.CompilerSettings {
 	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
 }
+
+func TestCompileAgentCarriesToolImages(t *testing.T) {
+	const kubectlImage = "example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const helmImage = "example.com/helm@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	for _, harnessType := range []translator.HarnessType{
+		translator.HarnessTypeKagent, translator.HarnessTypeCodex, translator.HarnessTypeClaude, translator.HarnessTypeBYO,
+	} {
+		t.Run(string(harnessType), func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: string(harnessType)},
+				Spec: v1alpha3.HarnessSpec{
+					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			switch harnessType {
+			case translator.HarnessTypeKagent:
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+			case translator.HarnessTypeCodex:
+				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				responses := v1alpha3.OpenAIAPIFormatResponses
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: &responses}
+			case translator.HarnessTypeClaude:
+				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
+			case translator.HarnessTypeBYO:
+				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+				harness.Spec.Workload.Command = []string{"/agent"}
+				template.Spec.ModelConfig = nil
+			}
+			objects := []any{
+				model, harness,
+				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
+				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"}},
+			}
+			plain, err := compiler(t, objects...).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Nil(t, plain.ToolImages, "a Harness without tool images compiles to a nil list")
+			plainDigest, err := plain.Digest()
+			require.NoError(t, err)
+
+			harness.Spec.Workload.ToolImages = []v1alpha3.HarnessToolImage{{Name: "kubectl", OCI: kubectlImage}, {Name: "helm", OCI: helmImage}}
+			originalHarness := harness.DeepCopy()
+			result, err := compiler(t, objects...).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Equal(t, originalHarness, harness)
+			require.Equal(t, []translator.ToolImage{{Name: "kubectl", Reference: kubectlImage}, {Name: "helm", Reference: helmImage}}, result.ToolImages)
+			digest, err := result.Digest()
+			require.NoError(t, err)
+			require.NotEqual(t, plainDigest, digest, "tool images are part of revision identity")
+
+			actor, err := substrate.ActorTemplateForRevision(&result.Revision, digest)
+			require.NoError(t, err)
+			container := actor.GetContainers()[0]
+			require.Equal(t, "/opt/kagent/tools/kubectl", container.GetVolumeMounts()[3].GetMountPath())
+			require.Equal(t, "/opt/kagent/tools/helm", container.GetVolumeMounts()[4].GetMountPath())
+		})
+	}
+}

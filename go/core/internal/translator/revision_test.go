@@ -143,3 +143,29 @@ func TestRevisionDigestIncludesBinaryAgentCard(t *testing.T) {
 	_, err = revision.Digest()
 	require.Error(t, err)
 }
+
+func TestRevisionDigestIncludesToolImages(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentName: "helper"}
+	withoutTools, err := revision.Digest()
+	require.NoError(t, err)
+	revision.ToolImages = []ToolImage{}
+	empty, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, withoutTools, empty, "an empty list must keep existing revision identities")
+
+	reference := "example.com/kubectl@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	revision.ToolImages = []ToolImage{{Name: "kubectl", Reference: reference}, {Name: "helm", Reference: reference}}
+	first, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, withoutTools, first)
+
+	revision.ToolImages = []ToolImage{{Name: "helm", Reference: reference}, {Name: "kubectl", Reference: reference}}
+	reordered, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, first, reordered, "PATH order is part of the revision")
+
+	revision.ToolImages[0].Reference = "example.com/helm@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	changed, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, reordered, changed)
+}
