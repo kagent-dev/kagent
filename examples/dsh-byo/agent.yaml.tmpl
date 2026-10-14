@@ -1,0 +1,44 @@
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata:
+  name: dsh-model
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: ${DSH_MODEL}
+  apiKeySecret: deepseek-api-key
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    baseUrl: https://api.deepseek.com/v1
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: dsh-byo
+  namespace: kagent
+spec:
+  byo: {}
+  workload:
+    image: ${DSH_BYO_IMAGE}
+    command: [/usr/local/bin/kagent-dsh-byo]
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: ${SNAPSHOT_LOCATION}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata:
+  name: dsh-agent
+  namespace: kagent
+spec:
+  harnessRef:
+    name: dsh-byo
+  template:
+    inline:
+      description: Coding agent running DeepSeek Harness through BYO.
+      modelConfig:
+        name: dsh-model
+      systemPrompt: |
+        Work in the configured workspace. Explain the changes and report the checks you ran.

@@ -3,6 +3,7 @@
 bin/
 .cache/
 **/.cache/
+harness/byo/dsh/node_modules/
 
 # Test files
 *_test.go
