@@ -11,7 +11,7 @@ import (
 func TestActorPolicyKeepsCredentialsOnExactOrigin(t *testing.T) {
 	policy, err := ActorEgressPolicy("team", []string{"https://*.example.com", "https://api.example.com:443", "https://api.example.com:8443", "http://api.example.com"}, []egress.Credential{
 		{Origin: "https://api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
-		{Origin: "https://api.example.com:8443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/other/key"},
+		{Origin: "https://api.example.com:8443", Header: "x-api-key", URI: "ate-secret://provider.example/token"},
 	})
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 4)
@@ -26,4 +26,5 @@ func TestActorPolicyKeepsCredentialsOnExactOrigin(t *testing.T) {
 	}
 	require.Equal(t, []int32{443}, policy.Rules[2].GetHttps().GetPorts().GetNumbers())
 	require.Equal(t, []int32{8443}, policy.Rules[3].GetHttps().GetPorts().GetNumbers())
+	require.Equal(t, "ate-secret://provider.example/token", policy.Rules[3].GetHttps().GetEffects().GetReplaceHeaders()[0].GetCredentialUri())
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func TestCompilerRequiresModelConfig(t *testing.T) {
-	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults()).Compile(context.Background(), &translator.HarnessInput{
+	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults(), nil).Compile(context.Background(), &translator.HarnessInput{
 		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 		Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}},
 	})

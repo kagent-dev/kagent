@@ -57,7 +57,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input, reader := testInput(t, test.model, test.secret)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 			if test.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -92,7 +92,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("credential leaked into immutable revision")
 			}
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
@@ -111,7 +111,7 @@ func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	value := "http://other-collector:4317"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
-	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	value := "x-tenant=team-a"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}}
 
-	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	}
 	for _, model := range tests {
 		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret")})
-		_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+		_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 		var validation *translator.ValidationError
 		if !errors.As(err, &validation) {
 			t.Errorf("Compile(%s) error = %v, want validation", model.Provider, err)
@@ -175,7 +175,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 		},
 		Instruction: "Review carefully",
 	}}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
 
-	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
@@ -239,7 +239,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 }
@@ -275,7 +275,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 
 	settings := testRuntimeDefaults()
 	settings.Telemetry = &configv1.TelemetryConfig{Traces: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 
 	settings.Telemetry.CaptureContent = true
-	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -82,7 +82,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, tt.secretData)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -124,7 +124,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 				t.Fatalf("provenance contains gateway-managed Secret: %s", revision.Provenance)
 			}
 
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
@@ -151,7 +151,7 @@ func TestCompileRejectsUnsupportedConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input, reader := testInput(t, tt.model, map[string][]byte{"api-key": []byte("secret"), claudeconfig.AWSAccessKeyEnvName: []byte("access"), claudeconfig.AWSSecretKeyEnvName: []byte("secret"), "credentials.json": []byte(`{"type":"service_account"}`)})
-			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 			var validation *translator.ValidationError
 			if !errors.As(err, &validation) {
 				t.Fatalf("Compile() error = %v, want validation error", err)
@@ -168,7 +168,7 @@ func TestCompileRejectsProviderOwnedHarnessEnvironment(t *testing.T) {
 	input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
 	value := "http://mock.example.com"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: claudeconfig.AnthropicBaseURLEnvName, Value: value}}
-	_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	var validation *translator.ValidationError
 	if !errors.As(err, &validation) {
 		t.Fatalf("Compile() error = %v, want validation error", err)
@@ -184,7 +184,7 @@ func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	value := "http://other-collector:4317"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
-	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	value := "department=engineering"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: value}}
 
-	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 		Skills: []string{"deploy"},
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestCompileRootSkillsAndPluginSelections(t *testing.T) {
 	}
 
 	input.Root.Template.Spec.Plugins[0].Skills = []string{"review"}
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "duplicate skill name") {
 		t.Fatalf("duplicate skill Compile() error = %v", err)
 	}
 }
@@ -279,7 +279,7 @@ func TestCompileDirectWholeServerMCP(t *testing.T) {
 	}}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 	binding := v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: binding, Server: server}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("omitted selection Compile() error = %v", err)
 	}
@@ -339,7 +339,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("partial selection Compile() error = %v", err)
 	}
@@ -348,7 +348,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Status.ObservedGeneration = 0
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("stale discovery Compile() error = %v", err)
 	}
@@ -362,7 +362,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	server.Spec.TLS = &v1alpha3.TLSConfig{DisableVerify: true}
 	server.Spec.Timeout = &metav1.Duration{Duration: time.Minute}
 	server.Spec.TerminateOnClose = &terminateOnClose
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("unsupported MCP options Compile() error = %v", err)
 	}
@@ -376,7 +376,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocol("STDIO")
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
+	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "unsupported protocol") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 
@@ -386,7 +386,7 @@ func TestCompileWholeServerMCPSelectionWarnings(t *testing.T) {
 	server.Spec.TerminateOnClose = nil
 	input.Root.MCPTools[0].Binding.Tools = []string{"one"}
 	input.Root.MCPTools[0].Binding.RequireApproval = true
-	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err = NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatalf("approval-required MCP binding Compile() error = %v", err)
 	}
@@ -433,7 +433,7 @@ func TestCompileLocalSharedAgent(t *testing.T) {
 		Name: "specialist", Description: "Handles specialist requests", Agent: child,
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ func TestCompileRejectsUnsupportedLocalAgentConfiguration(t *testing.T) {
 			}
 			tt.mutate(&binding)
 			input.Root.Shared = []translator.AgentInputBinding{binding}
-			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(context.Background(), input)
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Compile() error = %v, want containing %q", err, tt.want)
 			}
@@ -531,7 +531,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	input.Harness.Name = "fast"
 
 	settings := testRuntimeDefaults()
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +552,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 
 	settings.Telemetry = &configv1.TelemetryConfig{CaptureContent: true, MaxCaptureBytes: new(int32(4096))}
-	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	}}}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: *input.Root.Template.Spec.Tools[0].MCP.DeepCopy(), Server: server}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
 	}

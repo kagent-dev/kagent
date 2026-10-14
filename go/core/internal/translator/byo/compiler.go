@@ -17,19 +17,21 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 // Compiler translates resolved inputs into a BYO A2A runtime revision.
 type Compiler struct {
+	binder   egressext.CredentialBinder
 	config   *adkconfig.Builder
 	settings *configv1.RuntimeDefaultsConfig
 }
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
-	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig, binder egressext.CredentialBinder) *Compiler {
+	return &Compiler{settings: settings, binder: binder, config: adkconfig.NewBuilder(ctx, collections)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -38,17 +40,6 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
-		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
-		Agent:   compiled.Config,
-	})
-	if err != nil {
-		var invalid *protovalidate.ValidationError
-		if errors.As(err, &invalid) {
-			return nil, translator.NewValidationError("invalid agent config: %w", err)
-		}
-		return nil, fmt.Errorf("marshal agent config: %w", err)
-	}
 	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
@@ -70,9 +61,24 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, compiled.Models, environment)
+	environment, credentials, additions, tokenPassthroughOrigins, err := translator.CompileCredentials(input, compiled.Models, environment, c.binder)
 	if err != nil {
 		return nil, err
+	}
+	if err := adkconfig.ApplyCredentialHeaders(compiled.Config, additions); err != nil {
+		return nil, err
+	}
+
+	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
+		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
+		Agent:   compiled.Config,
+	})
+	if err != nil {
+		var invalid *protovalidate.ValidationError
+		if errors.As(err, &invalid) {
+			return nil, translator.NewValidationError("invalid agent config: %w", err)
+		}
+		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations(environment)...)
 	compiled.Egress = append(compiled.Egress, c.settings.GetControlPlaneUrl())

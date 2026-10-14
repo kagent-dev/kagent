@@ -212,10 +212,10 @@ func compilerWithImages(t *testing.T, images *configv1.HarnessImagesConfig, obje
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
-		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
-		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
-		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
 	}, images)
 }
 
@@ -635,7 +635,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
 	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testRuntimeDefaults()),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testRuntimeDefaults(), nil),
 	}, testHarnessImages)
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
