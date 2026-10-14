@@ -12,14 +12,16 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -39,12 +41,12 @@ var ownedEnvironment = map[string]struct{}{
 }
 
 type Compiler struct {
-	settings    translator.CompilerSettings
+	settings    *apiv1.RuntimeDefaultsConfig
 	ctx         krt.HandlerContext
 	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings translator.CompilerSettings) *Compiler {
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *apiv1.RuntimeDefaultsConfig) *Compiler {
 	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
@@ -59,7 +61,10 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough")
 	}
-	telemetryConfig := c.settings.Telemetry
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
+	if err != nil {
+		return nil, err
+	}
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
@@ -95,11 +100,11 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	cfg.RuntimeTelemetry = runtimeTelemetry
-	cfg.ControlPlaneURL = c.settings.APIURL
-	cfg.MaxContentLength = c.settings.Process.MaxContentLength
-	cfg.LogLevel = c.settings.LogLevel
+	cfg.ControlPlaneURL = c.settings.GetControlPlaneUrl()
+	cfg.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
+	cfg.LogLevel = c.settings.GetLogging().GetLevel()
 	if traceConfig.Enabled || logConfig.Enabled {
-		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
+		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.Runtime.CaptureContent}
 		if traceConfig.Enabled {
 			cfg.Telemetry.Traces = &codexconfig.OTLPExporter{Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol}
 		}
@@ -132,13 +137,13 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	egress = append(egress, skillEgress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations(environment)...)
-	egress = append(egress, c.settings.APIURL)
+	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+			Namespace:   template.Namespace,
+			Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},

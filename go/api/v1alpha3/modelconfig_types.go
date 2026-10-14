@@ -206,7 +206,7 @@ type AnthropicConfig struct {
 
 // OpenAIConfig contains OpenAI-specific configuration options
 //
-// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
+// +kubebuilder:validation:AtMostOneOf=maxTokens;maxCompletionTokens
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
 	// +optional
@@ -255,10 +255,13 @@ type OpenAIConfig struct {
 
 	// N value
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	N *int `json:"n,omitempty"`
 
 	// Timeout
 	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=9223372036
 	Timeout *int `json:"timeout,omitempty"`
 
 	// Reasoning effort
@@ -323,6 +326,7 @@ type AzureOpenAIConfig struct {
 
 	// Maximum tokens to generate
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxTokens *int `json:"maxTokens,omitempty"`
 
 	// Top-p sampling parameter
@@ -367,6 +371,7 @@ type BedrockConfig struct {
 	// Claude extended thinking or top_k. Values are forwarded as-is to the API.
 	// Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
 	// +optional
+	// +kubebuilder:validation:Type=object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	AdditionalModelRequestFields *apiextensionsv1.JSON `json:"additionalModelRequestFields,omitempty"`
 

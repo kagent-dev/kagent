@@ -3,9 +3,10 @@ package adkconfig
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/stretchr/testify/require"
 )
 
 func TestApplyOutputSchema(t *testing.T) {
@@ -16,8 +17,8 @@ func TestApplyOutputSchema(t *testing.T) {
 	}
 
 	require.NoError(t, applyOutputSchema(config, output))
-	require.JSONEq(t, string(output.Schema), string(config.Output.JSONSchema))
-	require.Equal(t, "digest", config.Output.SHA256)
+	require.JSONEq(t, string(output.Schema), string(config.Output.JsonSchema))
+	require.Equal(t, "digest", config.Output.Sha256)
 }
 
 func TestApplyOutputSchemaRejectsRecursiveADKConversion(t *testing.T) {

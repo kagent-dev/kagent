@@ -10,11 +10,12 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/types"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // runtimeDrainTimeout bounds the wait for a terminal stream to finish exporting

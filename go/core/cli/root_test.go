@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 func TestRootCommandUsesDefaultFlagValues(t *testing.T) {

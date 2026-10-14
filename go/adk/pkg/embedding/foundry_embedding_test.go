@@ -9,10 +9,11 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 // TestFoundryProviderAPIKey verifies the API-key auth path: the Api-Key header
@@ -37,7 +38,7 @@ func TestFoundryProviderAPIKey(t *testing.T) {
 		Model:      "text-embedding-3-small",
 		Endpoint:   server.URL,
 		Deployment: "text-embedding-3-small",
-		APIVersion: "2024-10-21",
+		ApiVersion: "2024-10-21",
 	}, nil)
 	require.NoError(t, err)
 
@@ -79,7 +80,7 @@ func TestFoundryProviderWorkloadIdentity(t *testing.T) {
 		Model:      "emb",
 		Endpoint:   server.URL,
 		Deployment: "emb",
-		APIVersion: "2024-10-21",
+		ApiVersion: "2024-10-21",
 	}, &fakeEmbeddingCredential{token: "entra-token"})
 	require.NoError(t, err)
 
@@ -107,8 +108,8 @@ func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
 		Model:             "text-embedding-3-small",
 		Endpoint:          server.URL,
 		Deployment:        "text-embedding-3-small",
-		APIVersion:        "2024-10-21",
-		APIKeyPassthrough: true,
+		ApiVersion:        "2024-10-21",
+		ApiKeyPassthrough: true,
 	}, nil)
 	require.NoError(t, err)
 
@@ -136,8 +137,8 @@ func TestFoundryProviderAPIKeyPassthroughOverridesStaticKey(t *testing.T) {
 		Model:             "text-embedding-3-small",
 		Endpoint:          server.URL,
 		Deployment:        "text-embedding-3-small",
-		APIVersion:        "2024-10-21",
-		APIKeyPassthrough: true,
+		ApiVersion:        "2024-10-21",
+		ApiKeyPassthrough: true,
 	}, nil)
 	require.NoError(t, err)
 

@@ -8,14 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-
-	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 )
 
 // WrapExecutor emits a terminal/waiting event only after the native executor

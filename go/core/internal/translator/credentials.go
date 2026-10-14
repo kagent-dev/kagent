@@ -5,11 +5,12 @@ import (
 	"net/url"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // CredentialPlaceholder satisfies SDKs that require a configured API key.

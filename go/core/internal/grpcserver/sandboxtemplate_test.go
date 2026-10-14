@@ -6,10 +6,6 @@ package grpcserver
 import (
 	"testing"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -21,13 +17,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 // TestSandboxTemplateCatalog exercises the transport and persistence against the
 // actual CRD schema. The normal Go test job supplies KUBEBUILDER_ASSETS.
 func TestSandboxTemplateCatalog(t *testing.T) {
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{"../../../api/config/crd/bases"}, ErrorIfCRDPathMissing: true,
+		CRDDirectoryPaths: []string{"../../../../helm/kagent-crds/templates"}, ErrorIfCRDPathMissing: true,
 	}
 	config, err := testEnv.Start()
 	require.NoError(t, err)

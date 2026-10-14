@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -12,6 +11,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestVisibilityAllowsApp(t *testing.T) {

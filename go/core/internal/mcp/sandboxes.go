@@ -14,13 +14,14 @@ import (
 
 	"buf.build/go/protovalidate"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 const sandboxToolBytes = 1 << 20

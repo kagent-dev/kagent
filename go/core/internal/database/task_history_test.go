@@ -7,8 +7,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/require"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestPublicTaskCreationTimeSurvivesUpdates(t *testing.T) {

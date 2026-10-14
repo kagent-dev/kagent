@@ -3,13 +3,10 @@ package agent
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +14,9 @@ import (
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 //go:embed testdata
@@ -35,21 +35,21 @@ func startMock(t *testing.T, mockFile string) string {
 
 // loadConfig reads a config JSON from testdata, replaces {{BASE_URL}} with the
 // mock server address, and returns the parsed AgentConfig.
-func loadConfig(t *testing.T, path string, baseURL string) *adk.AgentConfig {
+func loadConfig(t *testing.T, path string, baseURL string) *adk.Config {
 	t.Helper()
 	data, err := testdata.ReadFile(path)
 	require.NoError(t, err)
 
 	raw := strings.ReplaceAll(string(data), "{{BASE_URL}}", baseURL)
 
-	var cfg adk.AgentConfig
-	require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
+	var cfg adk.Config
+	require.NoError(t, adk.Unmarshal([]byte(raw), &cfg))
 	return &cfg
 }
 
 // runAgent creates an agent from config, sends a prompt through the full
 // runner pipeline, and returns all text from the response events.
-func runAgent(t *testing.T, agentCfg *adk.AgentConfig, prompt string) string {
+func runAgent(t *testing.T, agentCfg *adk.Config, prompt string) string {
 	t.Helper()
 	ctx := logging.IntoContext(t.Context(), slog.New(slog.DiscardHandler))
 

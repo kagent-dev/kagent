@@ -7,16 +7,17 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/adk/v2/memory"
+	adkmodel "google.golang.org/adk/v2/model"
+	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"google.golang.org/adk/v2/memory"
-	adkmodel "google.golang.org/adk/v2/model"
-	adksession "google.golang.org/adk/v2/session"
-	"google.golang.org/genai"
 )
 
 // KagentMemoryService implements memory.Service by storing memories
@@ -25,7 +26,7 @@ import (
 type KagentMemoryService struct {
 	agentName        string
 	controllerClient *controllerclient.Client
-	ttlDays          int
+	ttlDays          int64
 	embeddingClient  *embedding.Client
 	model            adkmodel.LLM // Optional: for session summarization
 }
@@ -37,7 +38,7 @@ type Config struct {
 	// ControllerClient is the shared authenticated native gRPC client.
 	ControllerClient *controllerclient.Client
 	// TTLDays is the TTL for memory entries in days (0 uses server default of 15)
-	TTLDays int
+	TTLDays int64
 	// EmbeddingConfig for generating embeddings (optional but recommended)
 	EmbeddingConfig *adk.EmbeddingConfig
 	// Model for session summarization (optional)

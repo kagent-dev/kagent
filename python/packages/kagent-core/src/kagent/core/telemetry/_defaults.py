@@ -3,16 +3,16 @@
 import os
 from urllib.parse import quote
 
-from .._runtime_config import ExporterConfig, RuntimeTelemetry
+from .._runtime_config import TelemetryConfig
 
 # a2a-sdk snapshots this at import time. Kagent owns the transport spans.
 os.environ["OTEL_INSTRUMENTATION_A2A_SDK_ENABLED"] = "false"
 
 
-def apply(config: RuntimeTelemetry) -> None:
-    exporters = config.exporters or ExporterConfig()
+def apply(config: TelemetryConfig) -> None:
+    exporters = config
     for signal in ("TRACES", "METRICS", "LOGS"):
-        settings = getattr(exporters, signal.lower())
+        settings = getattr(exporters, signal.lower()) if exporters.HasField(signal.lower()) else None
         prefix = f"OTEL_EXPORTER_OTLP_{signal}_"
         enabled = (
             settings is not None or prefix + "ENDPOINT" in os.environ or "OTEL_EXPORTER_OTLP_ENDPOINT" in os.environ
@@ -31,9 +31,10 @@ def apply(config: RuntimeTelemetry) -> None:
                 )
             ):
                 os.environ[prefix + "ENDPOINT"] = settings.endpoint
-                os.environ[prefix + "PROTOCOL"] = settings.protocol
-            if settings.timeout_ms not in (0, 10000) and "OTEL_EXPORTER_OTLP_TIMEOUT" not in os.environ:
-                os.environ.setdefault(prefix + "TIMEOUT", str(settings.timeout_ms))
+                os.environ[prefix + "PROTOCOL"] = settings.protocol or "grpc"
+            timeout_ms = settings.timeout.ToMilliseconds() if settings.HasField("timeout") else 0
+            if timeout_ms not in (0, 10000) and "OTEL_EXPORTER_OTLP_TIMEOUT" not in os.environ:
+                os.environ.setdefault(prefix + "TIMEOUT", str(timeout_ms))
     attributes = [f"{key}={quote(value, safe='')}" for key, value in sorted(exporters.resource_attributes.items())]
     if attributes:
         attributes.append(os.environ.get("OTEL_RESOURCE_ATTRIBUTES", ""))

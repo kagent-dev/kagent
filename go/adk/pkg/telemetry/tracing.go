@@ -3,9 +3,10 @@ package telemetry
 import (
 	"context"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
 	kagenttelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Init boots the process telemetry with the request attribute span processor.

@@ -8,9 +8,10 @@ import (
 	"os"
 	"testing"
 
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var suiteTraceReceiver *otlpTraceReceiver

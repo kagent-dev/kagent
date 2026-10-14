@@ -51,10 +51,7 @@ import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
 import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import {
-  SessionService,
-  SessionSharePermission as PbSharePermission,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
+import { SessionService } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import type { Session as PbSession } from "@/generated/kagent/api/v1alpha1/sessions_pb";
 import {
@@ -100,7 +97,6 @@ import type {
   AgentInstance,
   AgentInstanceOperation,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
   AgentInstanceState,
 } from "../domain/agentInstances";
 import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
@@ -624,32 +620,10 @@ function toAgentInstance(instance: PbSession): AgentInstance {
  */
 const INSTANCE_PAGE_LIMIT = 50;
 
-/** Which permission the wire spells, both ways. */
-const SHARE_PERMISSION_TO_PB = {
-  readOnly: PbSharePermission.READ_ONLY,
-  readWrite: PbSharePermission.READ_WRITE,
-} as const;
-
-const SHARE_PERMISSION_FROM_PB: Partial<
-  Record<PbSharePermission, AgentInstanceSharePermission>
-> = {
-  [PbSharePermission.READ_ONLY]: "readOnly",
-  [PbSharePermission.READ_WRITE]: "readWrite",
-};
-
-/**
- * One share record.
- *
- * An unrecognised permission reads as `readOnly` rather than as the permissive
- * one — which is also what the controller does, treating anything that is not
- * `READ_WRITE` as read-only. A build newer than this one adding a permission must
- * not have it silently widen access here.
- */
 function toAgentInstanceShare(share: PbSessionShare): AgentInstanceShare {
   return {
     id: share.id,
     agentInstanceId: share.sessionId,
-    permission: SHARE_PERMISSION_FROM_PB[share.permission] ?? "readOnly",
     createdAt: isoFrom(share.createdAt),
   };
 }
@@ -942,7 +916,6 @@ const agentInstances: Pick<
       serviceClient(SessionService).createSessionShare(
         {
           sessionId: input.id,
-          permission: SHARE_PERMISSION_TO_PB[input.permission],
         },
         call("agentInstances.shares.create", options),
       ),

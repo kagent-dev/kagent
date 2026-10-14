@@ -9,12 +9,13 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
-	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // NewCmd constructs commands using the CLI's shared API connection and identity.

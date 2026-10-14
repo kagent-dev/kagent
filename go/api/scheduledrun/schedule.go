@@ -8,10 +8,11 @@ import (
 	"time"
 	_ "time/tzdata" // Scheduling must work in images without system timezone data.
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/robfig/cron/v3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
 // Normalize supplies defaults without mutating a caller's request.

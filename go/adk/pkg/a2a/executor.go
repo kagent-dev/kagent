@@ -5,27 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
 
-	"log/slog"
-
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/jsonschema-go/jsonschema"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiadk "github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiadk "github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -41,6 +41,7 @@ type KAgentExecutorConfig struct {
 	Logger         *slog.Logger
 	Output         *apiadk.OutputConfig
 	Flush          func(context.Context) error
+	AgentName      string
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -52,6 +53,7 @@ type KAgentExecutor struct {
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
 	flush                   func(context.Context) error
+	agentName               string
 }
 
 type structuredOutput struct {
@@ -109,6 +111,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		logger:                  cfg.Logger.With("component", "kagent-executor"),
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
+		agentName:               cfg.AgentName,
 	}, nil
 }
 
@@ -189,14 +192,14 @@ func resolveStructuredOutput(config *apiadk.OutputConfig) (*structuredOutput, er
 		return nil, nil
 	}
 	var schema jsonschema.Schema
-	if err := json.Unmarshal(config.JSONSchema, &schema); err != nil {
+	if err := json.Unmarshal(config.JsonSchema, &schema); err != nil {
 		return nil, fmt.Errorf("decode output schema: %w", err)
 	}
 	resolved, err := schema.Resolve(nil)
 	if err != nil {
 		return nil, fmt.Errorf("resolve output schema: %w", err)
 	}
-	return &structuredOutput{schema: resolved, sha256: config.SHA256}, nil
+	return &structuredOutput{schema: resolved, sha256: config.Sha256}, nil
 }
 
 // UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the
@@ -256,6 +259,13 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			(reqCtx.StoredTask.Status.State == a2atype.TaskStateInputRequired || reqCtx.StoredTask.Status.State == a2atype.TaskStateAuthRequired)
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
 		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
+		// The identity replaces any caller members of the same name, so a caller
+		// cannot impersonate another conversation downstream.
+		ctx = telemetry.WithBaggage(ctx,
+			attribute.String(tracing.AttributeAgentName, e.agentName),
+			attribute.String(tracing.AttributeConversationID, sessionID),
+			attribute.String(tracing.AttributeTaskID, string(reqCtx.TaskID)),
+		)
 
 		e.logger.InfoContext(ctx, "execute",
 			"task_id", reqCtx.TaskID,

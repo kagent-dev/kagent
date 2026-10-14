@@ -202,22 +202,10 @@ export function conversationNameProblem(name: string): string | undefined {
   return undefined;
 }
 
-/**
- * What a share link over an AgentInstance allows.
- *
- * `readOnly` covers A2A get, list and subscribe; `readWrite` also allows send and
- * cancel. The controller stores these as `READ_ONLY` and `READ_WRITE` under a CHECK
- * constraint, and the interceptor treats anything that is not `READ_WRITE` as
- * read-only — so an unrecognised value is the safe one rather than the permissive
- * one.
- */
-export type AgentInstanceSharePermission = "readOnly" | "readWrite";
-
-/** One share link over one instance. The token itself is returned only on create. */
+/** One read-only share link over one instance. The token is returned only on create. */
 export interface AgentInstanceShare {
   id: string;
   agentInstanceId: string;
-  permission: AgentInstanceSharePermission;
   /** RFC3339, or empty when the record carried no timestamp. */
   createdAt: string;
 }

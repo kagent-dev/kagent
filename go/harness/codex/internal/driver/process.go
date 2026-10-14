@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
@@ -47,6 +48,7 @@ type processSession struct {
 	wait       <-chan error
 	stderr     *utils.BoundedBuffer
 	translator *eventTranslator
+	stopOnce   sync.Once
 }
 
 // pendingTurn owns an App Server process blocked on the correlated server
@@ -108,13 +110,18 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		return runtime.Outcome{}, fmt.Errorf("start Codex App Server: %w", err)
 	}
 	wait := make(chan error, 1)
-	go func() { wait <- command.Wait(); close(wait) }()
 	client := newRPCClient(stdin, stdout, d.config.MaxFrameBytes)
+	go func() {
+		// Wait closes StdoutPipe; let the RPC reader consume the final reports first.
+		<-client.readDone
+		wait <- command.Wait()
+		close(wait)
+	}()
 	session := &processSession{command: command, stdin: stdin, client: client, wait: wait, stderr: stderr}
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			d.stopSession(session)
+			d.stopSession(session, sink)
 		}
 	}()
 
@@ -200,14 +207,12 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 		case <-ctx.Done():
 			interrupted := time.Now()
 			err := d.interrupt(session, sink)
-			drained := session.drainUsage(sink)
 			if err != nil {
 				_ = utils.KillProcessGroup(session.command.Process)
 			}
 			// An interrupt response can precede the final usage report. Let Codex
 			// flush it on stdin EOF before escalating to process-group signals.
-			d.stopSession(session)
-			<-drained
+			d.stopSession(session, sink)
 			translator.flushOpenCall(interrupted, sink)
 			return runtime.Outcome{}, ctx.Err()
 		case waitErr := <-wait:
@@ -373,7 +378,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			p.driver.stopSession(p.session)
+			p.driver.stopSession(p.session, sink)
 		}
 	}()
 	native, err := codexInputResponse(p.request, response)
@@ -400,14 +405,12 @@ func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) erro
 	if responded {
 		_ = p.driver.interrupt(p.session, sink)
 	}
-	drained := p.session.drainUsage(sink)
-	p.driver.stopSession(p.session)
-	<-drained
+	p.driver.stopSession(p.session, sink)
 	return nil
 }
 
 // interrupt asks Codex to stop the turn. Usage and final errors Codex reports until it answers,
-// including buffered ones, still reach sink; drainUsage records what arrives after.
+// including buffered ones, still reach sink; stopSession records what arrives after.
 func (d *ProcessDriver) interrupt(session *processSession, sink runtime.ModelCallSink) error {
 	ctx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
 	defer cancel()
@@ -416,20 +419,10 @@ func (d *ProcessDriver) interrupt(session *processSession, sink runtime.ModelCal
 	return err
 }
 
-// drainUsage records usage from the frames left until the reader stops. Start it before
-// stopping Codex, so a full frame buffer cannot drop or block Codex's last writes.
-func (s *processSession) drainUsage(sink runtime.ModelCallSink) <-chan struct{} {
-	drained := make(chan struct{})
-	go func() {
-		defer close(drained)
-		for frame := range s.client.frames {
-			s.recordUsage(frame.message, sink)
-		}
-	}()
-	return drained
-}
-
 func (s *processSession) recordUsage(message rpcMessage, sink runtime.ModelCallSink) {
+	if s.translator == nil {
+		return // Initialization failed before a turn started.
+	}
 	switch message.Method {
 	case "thread/tokenUsage/updated":
 		_ = s.translator.usage(message.Params, sink)
@@ -487,21 +480,34 @@ func codexInputResponse(request runtime.InputRequest, response runtime.InputResp
 	}
 }
 
-func (d *ProcessDriver) stopSession(session *processSession) {
-	_ = session.stdin.Close()
-	select {
-	case <-session.wait:
-		return
-	case <-time.After(d.config.InterruptGrace):
-	}
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) {
+	session.stopOnce.Do(func() {
+		// Drain on every exit path so a full frame buffer cannot block the reader
+		// and prevent Wait from reaping the process.
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for frame := range session.client.frames {
+				session.recordUsage(frame.message, sink)
+			}
+		}()
+		defer func() { <-drained }()
 
-	_ = utils.TerminateProcessGroup(session.command.Process)
-	select {
-	case <-session.wait:
-	case <-time.After(d.config.InterruptGrace):
-		_ = utils.KillProcessGroup(session.command.Process)
-		<-session.wait
-	}
+		_ = session.stdin.Close()
+		select {
+		case <-session.wait:
+			return
+		case <-time.After(d.config.InterruptGrace):
+		}
+
+		_ = utils.TerminateProcessGroup(session.command.Process)
+		select {
+		case <-session.wait:
+		case <-time.After(d.config.InterruptGrace):
+			_ = utils.KillProcessGroup(session.command.Process)
+			<-session.wait
+		}
+	})
 }
 
 var _ runtime.PendingTurn = (*pendingTurn)(nil)

@@ -70,7 +70,7 @@ runs:
           V="$(./scripts/upgrade-from-version.sh)"
         fi
         # Keep in sync with CLI_DATABASE_SENTINEL in the Makefile.
-        if ! git cat-file -e "v$V:go/core/cli/internal/commands/bundled_postgres.sql" 2>/dev/null; then
+        if ! git cat-file -e "v$V:go/core/cli/internal/commands/bundled_postgres.yaml" 2>/dev/null; then
           echo "previous release v$V predates the database kagent install manages; skipping upgrade tests."
           echo "skip=true" >> "$GITHUB_OUTPUT"
           exit 0

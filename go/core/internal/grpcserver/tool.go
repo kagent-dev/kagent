@@ -4,14 +4,15 @@ import (
 	"context"
 	"reflect"
 
+	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (

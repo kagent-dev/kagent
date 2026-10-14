@@ -113,6 +113,7 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
     _api_key: Optional[str] = None
     base_url: Optional[str] = None
     extra_headers: Optional[dict[str, str]] = None
+    timeout: Optional[float] = None
     # When True, every request carries cache_control breakpoints on the last
     # tool definition, the last system block and the last block of the latest
     # turn, so Anthropic bills the stable prefix of the agent loop as a cache
@@ -149,6 +150,8 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
             kwargs["base_url"] = self.base_url
         if self.extra_headers:
             kwargs["default_headers"] = self.extra_headers
+        if self.timeout is not None:
+            kwargs["timeout"] = self.timeout
 
         http_client = self._create_http_client()
         if http_client is not None:

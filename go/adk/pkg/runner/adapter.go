@@ -3,9 +3,14 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"log/slog"
+	adkmemory "google.golang.org/adk/v2/memory"
+	adkplugin "google.golang.org/adk/v2/plugin"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
+	adktool "google.golang.org/adk/v2/tool"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
@@ -13,11 +18,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	adkmemory "google.golang.org/adk/v2/memory"
-	adkplugin "google.golang.org/adk/v2/plugin"
-	"google.golang.org/adk/v2/runner"
-	adksession "google.golang.org/adk/v2/session"
-	adktool "google.golang.org/adk/v2/tool"
 )
 
 func agentNameFromAppName(appName string) string {
@@ -31,7 +31,7 @@ func agentNameFromAppName(appName string) string {
 // stamping (from remote agent wiring in the agent builder).
 func CreateRunnerConfig(
 	ctx context.Context,
-	agentConfig *adk.AgentConfig,
+	config *adk.Config,
 	sessionService adksession.Service,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
@@ -48,12 +48,12 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, agentConfig.ProcessConfig().TokenPropagation)
+	stsPlugin, err := buildTokenPropagationPlugin(ctx, log, adk.ProcessConfig(config).TokenPropagation)
 	if err != nil {
 		return runner.Config{}, err
 	}
 
-	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
+	adkAgent, err := agent.CreateGoogleADKAgent(ctx, config, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
 		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}
@@ -61,7 +61,7 @@ func CreateRunnerConfig(
 	// Context compaction is a runner concern: the runner summarizes older
 	// session events on the strategies the agent configures. Nil keeps the
 	// runner exactly as it is without the feature.
-	compactionConfig, err := agent.CompactionConfig(ctx, agentConfig)
+	compactionConfig, err := agent.CompactionConfig(ctx, config.Agent)
 	if err != nil {
 		return runner.Config{}, fmt.Errorf("failed to configure context compaction: %w", err)
 	}
@@ -105,9 +105,9 @@ func CreateRunnerConfig(
 	return cfg, nil
 }
 
-func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
-	propagateToken := config.Enabled
-	stsWellKnownURI := config.STSWellKnownURI
+func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config *adk.TokenPropagationConfig) (*sts.TokenPropagationPlugin, error) {
+	propagateToken := config.GetEnabled()
+	stsWellKnownURI := config.GetStsWellKnownUri()
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
 	}
@@ -134,8 +134,8 @@ func buildTokenPropagationPlugin(ctx context.Context, log *slog.Logger, config a
 
 	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
 	// backend. Both are repeatable; empty values are omitted from the request.
-	resource := config.Resources
-	audience := config.Audiences
+	resource := config.GetResources()
+	audience := config.GetAudiences()
 
 	log.InfoContext(ctx, "enabling STS token propagation plugin", "well_known_uri", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil

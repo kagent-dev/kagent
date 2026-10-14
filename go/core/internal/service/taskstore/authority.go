@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )

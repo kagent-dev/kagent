@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
@@ -16,7 +18,6 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/pelletier/go-toml/v2"
 )
 
 const codexHomeEnv = "CODEX_HOME"

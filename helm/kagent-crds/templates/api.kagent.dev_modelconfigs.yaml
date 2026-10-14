@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: modelconfigs.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -190,6 +190,7 @@ spec:
                     type: string
                   maxTokens:
                     description: Maximum tokens to generate
+                    minimum: 1
                     type: integer
                   temperature:
                     description: Temperature for sampling
@@ -214,6 +215,7 @@ spec:
                       options that are not part of the standard InferenceConfiguration block, such as
                       Claude extended thinking or top_k. Values are forwarded as-is to the API.
                       Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
+                    type: object
                     x-kubernetes-preserve-unknown-fields: true
                   cacheTTL:
                     default: 5m
@@ -499,6 +501,7 @@ spec:
                     type: integer
                   "n":
                     description: N value
+                    minimum: 1
                     type: integer
                   organization:
                     description: Organization ID for the OpenAI API
@@ -524,14 +527,18 @@ spec:
                     type: string
                   timeout:
                     description: Timeout
+                    maximum: 9223372036
+                    minimum: 1
                     type: integer
                   topP:
                     description: Top-p sampling parameter
                     type: string
                 type: object
                 x-kubernetes-validations:
-                - message: maxTokens and maxCompletionTokens are mutually exclusive
-                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+                - message: at most one of the fields in [maxTokens maxCompletionTokens]
+                    may be set
+                  rule: (has(self.maxTokens)?1:0)+(has(self.maxCompletionTokens)?1:0)
+                    <= 1
               provider:
                 default: OpenAI
                 description: The provider of the model

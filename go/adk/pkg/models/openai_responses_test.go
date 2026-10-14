@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"log/slog"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -102,7 +101,7 @@ func TestGenaiToolsToResponsesTools(t *testing.T) {
 
 func TestApplyOpenAIResponsesConfig(t *testing.T) {
 	temp := 0.5
-	mct := 128
+	mct := int64(128)
 	effort := "low"
 	var params responses.ResponseNewParams
 	applyOpenAIResponsesConfig(&params, &OpenAIConfig{

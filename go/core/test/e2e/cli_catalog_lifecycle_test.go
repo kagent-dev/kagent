@@ -10,10 +10,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/client-go/tools/clientcmd"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {

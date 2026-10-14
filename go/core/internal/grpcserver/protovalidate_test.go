@@ -7,12 +7,13 @@ import (
 
 	"buf.build/go/protovalidate"
 	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
 func TestProtovalidateUnaryInterceptor(t *testing.T) {
@@ -65,10 +66,10 @@ func TestSessionRequestValidation(t *testing.T) {
 		{"checkpoint without selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
 		{"checkpoint selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request", ExpectedHeadTaskId: "task"}, true},
 		{"checkpoint rename control character", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
-		{"share without ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}, true},
-		{"share positive ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(time.Hour)}, true},
-		{"share zero ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(0)}, false},
-		{"share negative ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(-time.Second)}, false},
+		{"share without ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111"}, true},
+		{"share positive ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Ttl: durationpb.New(time.Hour)}, true},
+		{"share zero ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Ttl: durationpb.New(0)}, false},
+		{"share negative ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Ttl: durationpb.New(-time.Second)}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)
@@ -90,7 +91,7 @@ func TestInvalidSessionAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 		&apiv1alpha1.SuspendSessionRequest{SessionId: "invalid"},
 		&apiv1alpha1.ResumeSessionRequest{SessionId: "invalid"},
 		&apiv1alpha1.DeleteSessionRequest{SessionId: "invalid"},
-		&apiv1alpha1.CreateSessionShareRequest{SessionId: "invalid", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY},
+		&apiv1alpha1.CreateSessionShareRequest{SessionId: "invalid"},
 		&apiv1alpha1.ListSessionSharesRequest{SessionId: "invalid"},
 		&apiv1alpha1.RevokeSessionShareRequest{ShareId: "invalid"},
 		&apiv1alpha1.CreateCheckpointRequest{SessionId: "invalid", RequestId: "request"},

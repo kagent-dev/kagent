@@ -1068,3 +1068,27 @@ describe("agent instances", () => {
     );
   });
 });
+
+describe("session shares", () => {
+  it("creates a read-only share", async () => {
+    serve(({ service }) => {
+      service(SessionService, {
+        createSessionShare: (request) => {
+          expect(request.sessionId).toBe("session");
+          return {
+            share: { id: "share", sessionId: request.sessionId },
+            token: "token",
+          };
+        },
+      });
+    });
+
+    const created = await apiClient.agentInstances.shares.create("session");
+    expect(created.share).toEqual({
+      id: "share",
+      agentInstanceId: "session",
+      createdAt: "",
+    });
+    expect(created.token).toBe("token");
+  });
+});

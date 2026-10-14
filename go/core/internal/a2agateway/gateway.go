@@ -11,9 +11,10 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/types"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type interactionService interface {

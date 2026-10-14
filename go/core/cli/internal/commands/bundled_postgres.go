@@ -22,9 +22,11 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/agent-substrate/substrate/pkg/postgressetup"
+	substratesetup "github.com/agent-substrate/substrate/pkg/postgressetup"
 	"github.com/google/go-containerregistry/pkg/name"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
 
 const substrateNamespace = "ate-system"
@@ -32,11 +34,15 @@ const substrateNamespace = "ate-system"
 //go:embed bundled_postgres.yaml
 var bundledPostgresYAML string
 
-//go:embed bundled_postgres.sql
-var bundledPostgresSQL string
-
 func bundledPostgresSetupSQL() string {
-	return "BEGIN;\n" + bundledPostgresSQL + "\n" + postgressetup.SQL() + "\nCOMMIT;\n"
+	return "BEGIN;\n" + kagentsetup.SQL() + "\n" + substratesetup.SQL() + "\nCOMMIT;\n"
+}
+
+// bundledPostgresSetupArgs returns the psql variables for both setup scripts.
+// The bundled database authenticates application logins with client
+// certificates, so the default configurations carry no passwords.
+func bundledPostgresSetupArgs() []string {
+	return append(kagentsetup.DefaultConfig().PSQLArgs(), substratesetup.DefaultConfig().PSQLArgs()...)
 }
 
 // bundledPostgresManifest renders the PostgreSQL manifest kagent install applies. Both values are
@@ -82,9 +88,7 @@ func prepareBundledPostgres(ctx context.Context, namespace, image string) error 
 	var sqlErr bytes.Buffer
 	args := []string{"-n", namespace, "exec", "-i", "deployment/kagent-postgresql", "-c", "postgresql", "--",
 		"psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--username", "postgres", "--dbname", "kagent"}
-	cfg := postgressetup.DefaultConfig()
-	// The bundled database authenticates application logins with client certificates.
-	args = append(args, cfg.PSQLArgs()...)
+	args = append(args, bundledPostgresSetupArgs()...)
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	cmd.Stdin = strings.NewReader(bundledPostgresSetupSQL())
 	cmd.Stderr = &sqlErr

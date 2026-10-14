@@ -100,6 +100,11 @@ read turn
 printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 while read ignored; do :; done
+i=0
+while [ "$i" -lt 128 ]; do
+  printf '%s\n' '{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"done"}}'
+  i=$((i + 1))
+done
 printf graceful > "$EXIT_CAPTURE"
 `
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
@@ -116,6 +121,41 @@ printf graceful > "$EXIT_CAPTURE"
 	})
 	if _, err := driver.Run(t.Context(), runtime.Turn{Prompt: "hello"}, &recordingSink{}); err != nil {
 		t.Fatal(err)
+	}
+	exit, err := os.ReadFile(exitCapture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(exit) != "graceful" {
+		t.Fatalf("app-server exit = %q, want graceful stdin EOF", exit)
+	}
+}
+
+func TestProcessDriverDrainsAfterInitializationFailure(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	exitCapture := filepath.Join(directory, "exit")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"error":{"code":-32603,"message":"initialization failed"}}'
+while read ignored; do :; done
+i=0
+while [ "$i" -lt 128 ]; do
+  printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{}}'
+  i=$((i + 1))
+done
+printf graceful > "$EXIT_CAPTURE"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: directory,
+		Environment: append(os.Environ(), "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096,
+		MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	if _, err := driver.Run(t.Context(), runtime.Turn{Prompt: "hello"}, &recordingSink{}); err == nil || !strings.Contains(err.Error(), "initialization failed") {
+		t.Fatalf("Run() error = %v, want initialization failed", err)
 	}
 	exit, err := os.ReadFile(exitCapture)
 	if err != nil {
@@ -563,9 +603,14 @@ printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 read interrupt
 printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"id":4,"result":{}}'
-# Flush the final usage report only when the driver requests graceful shutdown.
+# Flush the final usage reports only when the driver requests graceful shutdown.
 while read ignored; do :; done
-printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
+# Exceed the RPC frame buffer so the reader must keep draining after process exit.
+i=2
+while [ "$i" -le 128 ]; do
+  printf '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":%s,"outputTokens":%s},"last":{"inputTokens":10,"outputTokens":1}}}}\n' "$((i * 10))" "$i"
+  i=$((i + 1))
+done
 `
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -592,8 +637,13 @@ printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"threa
 		t.Fatalf("Run() error = %v, want context.Canceled", err)
 	}
 	// Codex reports usage while it answers the interrupt and after it.
-	if len(sink.models) != 2 {
-		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
+	if len(sink.models) != 128 {
+		t.Fatalf("model calls = %d, want the 128 Codex reported", len(sink.models))
+	}
+	for i, call := range sink.models {
+		if call.InputTokens != 10 || call.OutputTokens != 1 || call.UsagePartial {
+			t.Fatalf("model call %d = %+v, want the complete reported usage", i, call)
+		}
 	}
 }
 

@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
 func TestHelmControllerConfig(t *testing.T) {
@@ -90,6 +91,12 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.Equal(t, "grpc", changed.Telemetry.Traces.GetProtocol())
 	require.Nil(t, changed.RuntimeDefaults.Telemetry.Traces)
 	require.NotEqual(t, checksum, changedChecksum)
+	images, imagesChecksum, err := render("global: {imageRegistry: mirror.example}\nconfig:\n  harnessImages:\n    release: 1.0.0-alpha9\n    codex: ghcr.io/kagent-dev/kagent/codex-harness@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
+	require.NoError(t, err)
+	require.Equal(t, "1.0.0-alpha9", images.HarnessImages.Release)
+	require.Equal(t, "mirror.example/kagent-dev/kagent/codex-harness@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", images.HarnessImages.Codex)
+	require.Empty(t, images.HarnessImages.Kagent)
+	require.NotEqual(t, checksum, imagesChecksum)
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

@@ -16,9 +16,6 @@ import (
 
 	"github.com/agent-substrate/env/guest"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -28,6 +25,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 const sandboxTestID = "33333333-3333-4333-8333-333333333333"

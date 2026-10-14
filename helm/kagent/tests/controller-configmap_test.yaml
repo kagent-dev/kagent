@@ -19,9 +19,12 @@ tests:
           path: spec.template.spec.containers[0].envFrom
       - equal:
           path: spec.template.spec.volumes[1].projected.sources[0].secret.name
-          value: kagent-postgres
-      - notExists:
+          value: kagent-postgres-readwrite
+      - equal:
           path: spec.template.spec.volumes[1].projected.sources[1].secret.name
+          value: kagent-postgres-owner
+      - notExists:
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.name
 
   - it: retains only file references in application config
     template: controller-configmap.yaml
@@ -30,7 +33,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["controller.yaml"]
-          pattern: 'urlFile: /etc/kagent/secrets/database-url'
+          pattern: 'urlFile: /etc/kagent/secrets/database-readwrite-url'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'urlFile: /etc/kagent/secrets/database-owner-url'
       - matchRegex:
           path: data["controller.yaml"]
           pattern: 'signingPrivateKeyFile: /etc/kagent/secrets/push-private-key.pem'
@@ -72,25 +78,56 @@ tests:
   - it: uses explicitly configured secret names
     template: controller-deployment.yaml
     set:
-      database.postgres.connectionStringSecretRef.name: tenant-database
-      database.postgres.connectionStringSecretRef.key: url
+      database.postgres.readWriteConnectionStringSecretRef.name: tenant-readwrite
+      database.postgres.readWriteConnectionStringSecretRef.key: url
+      database.postgres.ownerConnectionStringSecretRef.name: tenant-owner
+      database.postgres.ownerConnectionStringSecretRef.key: url
       controller.push.signing.secretName: tenant-signing
     asserts:
       - equal:
           path: spec.template.spec.volumes[1].projected.sources[0].secret
           value:
-            name: tenant-database
+            name: tenant-readwrite
             items:
               - key: url
-                path: database-url
+                path: database-readwrite-url
       - equal:
-          path: spec.template.spec.volumes[1].projected.sources[1].secret.name
+          path: spec.template.spec.volumes[1].projected.sources[1].secret
+          value:
+            name: tenant-owner
+            items:
+              - key: url
+                path: database-owner-url
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.name
           value: tenant-signing
       - equal:
-          path: spec.template.spec.volumes[1].projected.sources[1].secret.items[0]
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.items[0]
           value:
             key: private-key.pem
             path: push-private-key.pem
+
+  - it: configures both database logins with their roles
+    template: controller-configmap.yaml
+    set:
+      config.database.owner.role: tenant_owner
+      config.database.readWrite.role: tenant_readwrite
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'owner:\n\s+role: tenant_owner\n\s+urlFile: /etc/kagent/secrets/database-owner-url'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'readWrite:\n\s+role: tenant_readwrite\n\s+urlFile: /etc/kagent/secrets/database-readwrite-url'
+
+  - it: omits the owner login's file when migrations are skipped
+    template: controller-configmap.yaml
+    set:
+      config.database.skipMigrations: true
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: 'database-owner-url'
 
   - it: leaves push JWT signing disabled by default
     template: controller-configmap.yaml

@@ -15,8 +15,6 @@ import (
 // MockSTSServer provides a mock STS server for testing token exchange
 type MockSTSServer struct {
 	server              *httptest.Server
-	requests            []STSTokenRequest
-	k8sURL              string
 	agentServiceAccount string
 }
 
@@ -45,7 +43,6 @@ type STSTokenResponse struct {
 // NewMockSTSServer creates a new mock STS server
 func NewMockSTSServer(agentServiceAccount string, port uint16) *MockSTSServer {
 	mock := &MockSTSServer{
-		requests:            make([]STSTokenRequest, 0),
 		agentServiceAccount: agentServiceAccount,
 	}
 
@@ -61,34 +58,14 @@ func NewMockSTSServer(agentServiceAccount string, port uint16) *MockSTSServer {
 	return mock
 }
 
-// SetK8sURL sets the Kubernetes-accessible URL for the server
-func (m *MockSTSServer) SetK8sURL(k8sURL string) {
-	m.k8sURL = k8sURL
-}
-
 // URL returns the base URL of the mock server
 func (m *MockSTSServer) URL() string {
 	return m.server.URL
 }
 
-// WellKnownURL returns the well-known configuration URL
-func (m *MockSTSServer) WellKnownURL() string {
-	return m.server.URL + "/.well-known/oauth-authorization-server"
-}
-
 // Close stops the mock server
 func (m *MockSTSServer) Close() {
 	m.server.Close()
-}
-
-// GetRequests returns all token exchange requests received
-func (m *MockSTSServer) GetRequests() []STSTokenRequest {
-	return m.requests
-}
-
-// ClearRequests clears the request history
-func (m *MockSTSServer) ClearRequests() {
-	m.requests = make([]STSTokenRequest, 0)
 }
 
 func (m *MockSTSServer) handleRequest(w http.ResponseWriter, r *http.Request) {
@@ -103,14 +80,9 @@ func (m *MockSTSServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *MockSTSServer) handleWellKnown(w http.ResponseWriter) {
-	baseURL := m.server.URL
-	if m.k8sURL != "" {
-		baseURL = m.k8sURL
-	}
-
 	wellKnownConfig := map[string]any{
-		"issuer":         baseURL,
-		"token_endpoint": baseURL + "/token",
+		"issuer":         m.server.URL,
+		"token_endpoint": m.server.URL + "/token",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -196,8 +168,6 @@ func (m *MockSTSServer) handleTokenExchange(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	// store the request so we can verify the sts server received the request in our test
-	m.requests = append(m.requests, req)
 }
 
 func (m *MockSTSServer) generateMockAccessToken(subjectToken string) (string, error) {

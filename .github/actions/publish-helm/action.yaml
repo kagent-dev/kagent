@@ -10,6 +10,11 @@ inputs:
 runs:
   using: composite
   steps:
+  - uses: actions/download-artifact@v8
+    with:
+      pattern: runtime-image-*
+      path: ${{ runner.temp }}/runtime-images
+      merge-multiple: true
   - uses: docker/login-action@v4
     with:
       registry: ghcr.io
@@ -19,4 +24,9 @@ runs:
     shell: bash
     env:
       VERSION: ${{ inputs.version }}
-    run: make helm-publish
+    run: make helm-publish RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images"
+  - uses: actions/upload-artifact@v7
+    with:
+      name: release-charts
+      path: dist/kagent-*.tgz
+      if-no-files-found: error

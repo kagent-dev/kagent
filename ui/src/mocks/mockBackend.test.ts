@@ -129,7 +129,6 @@ const INPUTS = {
   "agentInstances.shares.create": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-    permission: "readOnly",
   },
   // The seeded share, not one the sweep created: the sweep runs everything at once,
   // so revoking the create above would be a race with it.

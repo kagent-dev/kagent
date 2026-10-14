@@ -53,6 +53,7 @@ const PHASE_LABEL: Partial<Record<ChatTurnPhase, string>> = {
  */
 export function ChatTranscript({
   chat,
+  readOnly = false,
   sessionId,
   onAnswered,
   onOpenCheckpoint,
@@ -64,6 +65,8 @@ export function ChatTranscript({
   checkpointByMessage,
 }: {
   chat: ChatController;
+  /** Suppresses replies, approvals, cancellation, and retry controls. */
+  readOnly?: boolean;
   /**
    * Opens a saved boundary's record, where its name and the rename live. Absent when
    * read-only, as the two below are, which leaves the line as a mark and nothing more.
@@ -412,7 +415,14 @@ export function ChatTranscript({
         </Tag>
       ) : null}
 
-      {chat.pendingQuestion ? (
+      {chat.pendingQuestion && readOnly ? (
+        <Alert
+          type="info"
+          showIcon
+          data-testid="chat-awaiting-owner"
+          title="Waiting for the conversation owner to respond"
+        />
+      ) : chat.pendingQuestion ? (
         /*
          * The conversation is holding a question, and that has to be said.
          *
@@ -440,11 +450,11 @@ export function ChatTranscript({
           data-testid="chat-turn-error"
           title="The agent could not finish this turn"
           description={chat.turnError.message}
-          action={
+          action={!readOnly && (
             <Button size="small" onClick={() => void chat.retry()}>
               Retry
             </Button>
-          }
+          )}
         />
       ) : null}
 

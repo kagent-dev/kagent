@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 type recordingSink struct {
