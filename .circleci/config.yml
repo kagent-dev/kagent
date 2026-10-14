@@ -103,19 +103,18 @@ jobs:
     # version, and nothing of that release is published. A candidate or a dev
     # build passes: a candidate exists to prove a prerelease Substrate. A stable
     # tag is also refused while an earlier stable release has no row in FORK.md's
-    # Releases table.
+    # Releases table. The checks are the line's stable gate, which the Auto
+    # Release workflow's stable promotion runs before it tags; this job is the
+    # second guard.
     executor: architect/architect
     resource_class: small
     steps:
       - checkout
       - run:
-          name: Refuse a stable release built on a Substrate prerelease
-          command: make -s substrate-pin-check RELEASE_VERSION="${CIRCLE_TAG:-}"
-      - run:
-          name: Refuse a release whose predecessors have no ledger row
+          name: Refuse a stable release on a Substrate prerelease or behind its ledger
           command: |
             git fetch --tags --quiet origin
-            scripts/fork/ledger-check.sh releases "${CIRCLE_TAG:-}"
+            .github/release-gate.custom.sh "${CIRCLE_TAG:-}"
 
   push-charts:
     executor: architect/architect

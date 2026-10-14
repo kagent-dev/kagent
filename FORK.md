@@ -139,7 +139,7 @@ gh api -X POST repos/giantswarm/kagent-upstream/git/refs -f ref=refs/tags/v1.0.0
 
 Then add the row below from the run summary (or `builds.md`).
 
-A stable release is also refused while an earlier stable release (from `1.6.0` on) has no row in the Releases table: `scripts/fork/ledger-check.sh releases` is the second step of `check-substrate-pin`, so the row of a release is written before the next one is cut. A change of the Substrate pin is held to its rows the same way: `scripts/fork/ledger-check.sh pin`, a step of the `fork-ledger` check on every pull request and push, is red unless the "Substrate version the pin runs with" row opens with the Makefile's `SUBSTRATE_VERSION` and the "Substrate the pin runs with" row names the `go/go.mod` replace target's version. Put those rows in the pull request that moves the pin, and type it `fix` or `feat` so it cuts a candidate.
+A stable release is also refused while an earlier stable release (from `1.6.0` on) has no row in the Releases table: `scripts/fork/ledger-check.sh releases` is part of the line's stable gate (below), so the row of a release is written before the next one is cut. A change of the Substrate pin is held to its rows the same way: `scripts/fork/ledger-check.sh pin`, a step of the `fork-ledger` check on every pull request and push, is red unless the "Substrate version the pin runs with" row opens with the Makefile's `SUBSTRATE_VERSION` and the "Substrate the pin runs with" row names the `go/go.mod` replace target's version. Put those rows in the pull request that moves the pin, and type it `fix` or `feat` so it cuts a candidate.
 
 A stable release runs on a stable Substrate. `check-substrate-pin`, the first job of the publish workflow and what
 every image build requires, runs `make substrate-pin-check` with the tag: a `vX.Y.Z` tag whose chart pin (the
@@ -149,6 +149,13 @@ pin moved to it and a new candidate cut. A candidate or a dev build passes: a ca
 Substrate. Every release's notes name the Substrate release it requires: the `record` job appends a "Requires"
 section — the chart dependency and worker image at `SUBSTRATE_VERSION`, the module pin — to the GitHub release
 once the artifacts are published, below the notes the Auto Release workflow wrote from the commits.
+
+Both refusals are the line's stable gate, `.github/release-gate.custom.sh <version>`, and it runs before the tag. The
+Auto Release workflow's stable promotion runs it on the candidate's checkout with the version about to be tagged,
+after the version is decided and before the tag and the GitHub release are created: a refusal fails the run and cuts
+neither, so the line never carries a stable release that looks published with nothing built. Fix the cause on the
+branch, let it cut the next candidate and promote that. `check-substrate-pin` runs the same script with the tag it
+publishes, the second guard for a tag pushed by hand.
 
 ### Releases
 

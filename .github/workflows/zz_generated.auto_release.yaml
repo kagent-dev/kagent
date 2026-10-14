@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/d712a93893c8b9dfc099a157d3ebd2da8300d0d1/pkg/gen/input/workflows/internal/file/auto_release.yaml.template
+#    https://github.com/giantswarm/devctl/blob/fb506ff027d6ff1da07f8e916354dff687168928/pkg/gen/input/workflows/internal/file/auto_release.yaml.template
 #
 # yamllint disable rule:truthy
 # Push-based release tagger + release-page publisher.
@@ -362,6 +362,32 @@ jobs:
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${is_rc}" >> "$GITHUB_OUTPUT"
           echo "target=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # A stable release can carry rules only the repository knows (a fork
+      # line's pins, its release ledger). Checked in the tag's own pipeline
+      # they come too late: the tag and the GitHub release exist by then, and
+      # a refusal leaves a release that looks published with nothing built.
+      # The repository-owned `.github/release-gate.custom.sh`, when the
+      # promoted candidate carries it, runs here on that candidate's checkout
+      # with the version about to be tagged; a non-zero exit cuts no tag and
+      # no release. A repository without the script has no gate.
+      - name: Run the repository's stable gate
+        id: gate
+        if: inputs.release-type == 'stable' && steps.decide.outputs.tag != ''
+        env:
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gate=.github/release-gate.custom.sh
+          if [ ! -f "$gate" ]; then
+            echo "no ${gate} on the candidate: no repository gate for ${TAG}"
+            exit 0
+          fi
+          if ! bash "$gate" "$TAG"; then
+            echo "::error title=Stable gate refused::${gate} refused ${TAG}: no tag and no release are cut. Fix the cause on the branch and promote its next candidate."
+            exit 1
+          fi
+          echo "${gate} passed ${TAG}"
 
       # cliff-context.json names the stable target git-cliff bumped to, and
       # the tag actually cut is ${NEXT}-rc.N for a candidate. cliff.toml puts
