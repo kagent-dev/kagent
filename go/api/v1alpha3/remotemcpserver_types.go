@@ -52,8 +52,10 @@ type RemoteMCPServerSpec struct {
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
 	// +optional
 	// +kubebuilder:default="30s"
+	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="timeout must be positive and at most 9223372036s"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="sseReadTimeout must be positive and at most 9223372036s"
 	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`
 	// +optional
 	// +kubebuilder:default=true

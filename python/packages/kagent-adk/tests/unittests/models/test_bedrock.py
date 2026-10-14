@@ -237,7 +237,10 @@ class TestKAgentBedrockLlm:
 
     @pytest.mark.asyncio
     async def test_generate_calls_converse(self):
-        llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
+        fields = {"thinking": {"budget_tokens": 1024}, "large": 9007199254740993, "values": [False, None, 0.25]}
+        llm = KAgentBedrockLlm(
+            model="us.anthropic.claude-sonnet-4-20250514-v1:0", additional_model_request_fields=fields
+        )
         converse_response = {
             "output": {"message": {"role": "assistant", "content": [{"text": "hello"}]}},
             "stopReason": "end_turn",
@@ -262,6 +265,10 @@ class TestKAgentBedrockLlm:
 
         assert len(responses) == 1
         assert responses[0].content.parts[0].text == "hello"
+        sent = mock_client.converse.call_args.kwargs["additionalModelRequestFields"]
+        assert sent == fields
+        assert type(sent["thinking"]["budget_tokens"]) is int
+        assert type(sent["large"]) is int
 
     @pytest.mark.asyncio
     async def test_streaming_captures_usage_metadata(self):

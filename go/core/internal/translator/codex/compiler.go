@@ -100,7 +100,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	cfg.MaxContentLength = c.settings.RuntimeConfig(input.AgentName, input.Root.Template.Namespace).MaxContentLength
 	cfg.LogLevel = c.settings.LogLevel
 	if traceConfig.Enabled || logConfig.Enabled {
-		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
+		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.Runtime.CaptureContent}
 		if traceConfig.Enabled {
 			cfg.Telemetry.Traces = &codexconfig.OTLPExporter{Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol}
 		}

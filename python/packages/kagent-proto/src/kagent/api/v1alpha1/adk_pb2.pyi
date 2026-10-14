@@ -2,7 +2,6 @@ import datetime
 
 from buf.validate import validate_pb2 as _validate_pb2
 from google.protobuf import duration_pb2 as _duration_pb2
-from google.protobuf import struct_pb2 as _struct_pb2
 from kagent.api.v1alpha1 import config_pb2 as _config_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
@@ -240,13 +239,13 @@ class ADKBedrock(_message.Message):
     READ_TIMEOUT_FIELD_NUMBER: _ClassVar[int]
     CONNECT_TIMEOUT_FIELD_NUMBER: _ClassVar[int]
     region: str
-    additional_model_request_fields: _struct_pb2.Struct
+    additional_model_request_fields: bytes
     prompt_caching: bool
     cache_ttl: str
     guardrail: ADKBedrockGuardrail
     read_timeout: _duration_pb2.Duration
     connect_timeout: _duration_pb2.Duration
-    def __init__(self, region: _Optional[str] = ..., additional_model_request_fields: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ..., guardrail: _Optional[_Union[ADKBedrockGuardrail, _Mapping]] = ..., read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., connect_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    def __init__(self, region: _Optional[str] = ..., additional_model_request_fields: _Optional[bytes] = ..., prompt_caching: _Optional[bool] = ..., cache_ttl: _Optional[str] = ..., guardrail: _Optional[_Union[ADKBedrockGuardrail, _Mapping]] = ..., read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., connect_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
 class ADKBedrockGuardrail(_message.Message):
     __slots__ = ("identifier", "version", "trace")

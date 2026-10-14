@@ -214,16 +214,7 @@
         "model": {
           "model": "model-bedrock",
           "bedrock": {
-            "additional_model_request_fields": {
-              "nested": {
-                "enabled": false
-              },
-              "values": [
-                0.0,
-                null,
-                "text"
-              ]
-            }
+            "additional_model_request_fields": "eyJuZXN0ZWQiOnsiZW5hYmxlZCI6ZmFsc2V9LCJ2YWx1ZXMiOlswLjAsbnVsbCwidGV4dCJdLCJ0aGlua2luZyI6eyJidWRnZXRfdG9rZW5zIjoxMDI0fSwibGFyZ2UiOjkwMDcxOTkyNTQ3NDA5OTN9"
           }
         }
       },

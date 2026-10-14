@@ -173,12 +173,18 @@ spec:
                 type: string
               sseReadTimeout:
                 type: string
+                x-kubernetes-validations:
+                - message: sseReadTimeout must be positive and at most 9223372036s
+                  rule: duration(self) > duration('0s') && duration(self) <= duration('9223372036s')
               terminateOnClose:
                 default: true
                 type: boolean
               timeout:
                 default: 30s
                 type: string
+                x-kubernetes-validations:
+                - message: timeout must be positive and at most 9223372036s
+                  rule: duration(self) > duration('0s') && duration(self) <= duration('9223372036s')
               tls:
                 description: |-
                   TLS configuration for the upstream MCP server connection.

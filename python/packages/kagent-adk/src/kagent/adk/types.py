@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import Any, Callable, Literal, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import httpx
 import httpx2
@@ -10,9 +11,8 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
-from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from google.protobuf.json_format import MessageToDict, Parse, ParseDict
+from google.protobuf.json_format import Parse, ParseDict
 from kagent.api.v1alpha1.adk_pb2 import (
     ADKAgentConfig as AgentConfig,
 )
@@ -85,7 +85,7 @@ from kagent.api.v1alpha1.adk_pb2 import (
 from kagent.api.v1alpha1.adk_pb2 import (
     ADKTokenExchangeConfig as TokenExchangeConfig,
 )
-from kagent.core._runtime_config import RuntimeConfig, optional_field
+from kagent.core._runtime_config import optional_field
 from protovalidate import validate
 
 from kagent.adk._approval import make_approval_callback
@@ -98,7 +98,7 @@ from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._mistral import KAgentMistralLlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
-from kagent.adk.models._openai import FoundryOpenAI, OpenAIAPIFormat
+from kagent.adk.models._openai import FoundryOpenAI
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.tools.ask_user_tool import AskUserTool
@@ -268,11 +268,12 @@ def _timeout_seconds(config, name):
 
 def _mcp_params(config, params_type):
     # Only pass present fields, so the ADK retains its own timeout defaults.
-    values = {field.name: value for field, value in config.ListFields() if not field.name.startswith("tls_")}
+    values = {"url": config.url, "headers": dict(config.headers)}
     for name in ("timeout", "sse_read_timeout"):
         if config.HasField(name):
             values[name] = _timeout_seconds(config, name)
-    values["headers"] = dict(config.headers)
+    if params_type is StreamableHTTPConnectionParams and config.HasField("terminate_on_close"):
+        values["terminate_on_close"] = config.terminate_on_close
     params = params_type(**values)
     if any(
         config.HasField(field) for field in ("tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas")
@@ -622,12 +623,15 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             **_transport_kwargs(model_config),
         )
     if provider == "bedrock":
+        additional_fields = None
+        if settings.additional_model_request_fields:
+            additional_fields = json.loads(settings.additional_model_request_fields)
+            if not isinstance(additional_fields, dict):
+                raise ValueError("Bedrock additional_model_request_fields must be a JSON object")
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
-            additional_model_request_fields=MessageToDict(settings.additional_model_request_fields)
-            if settings.HasField("additional_model_request_fields")
-            else None,
+            additional_model_request_fields=additional_fields,
             prompt_caching=settings.prompt_caching,
             cache_ttl=settings.cache_ttl or None,
             read_timeout=_timeout_seconds(settings, "read_timeout"),

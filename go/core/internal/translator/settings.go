@@ -44,16 +44,10 @@ func NewCompilerSettings(cfg *apiv1.RuntimeDefaultsConfig) (CompilerSettings, er
 }
 
 func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, error) {
-	result := TelemetryConfig{}
+	result := TelemetryConfig{Runtime: config.RuntimeTelemetry(cfg)}
 	if cfg == nil {
 		return result, nil
 	}
-	exporters := config.Telemetry(cfg)
-	result.Exporters = &exporters
-	result.CaptureSensitiveContent = cfg.GetCaptureContent()
-	result.CaptureRawAPIBodies = cfg.GetCaptureRawApiBodies()
-	result.OpenAINativeTracing = cfg.GetOpenaiNativeTracing()
-	result.MaxCaptureBytes = int(cfg.GetMaxCaptureBytes())
 	for signal, source := range map[Signal]*apiv1.OTLPConfig{SignalTraces: cfg.GetTraces(), SignalMetrics: cfg.GetMetrics(), SignalLogs: cfg.GetLogs()} {
 		if source == nil {
 			continue

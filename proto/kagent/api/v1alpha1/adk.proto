@@ -4,7 +4,6 @@ package kagent.api.v1alpha1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
-import "google/protobuf/struct.proto";
 import "kagent/api/v1alpha1/config.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
@@ -193,8 +192,9 @@ message ADKGemini {
 }
 message ADKBedrock {
   string region = 1;
-  // Provider-owned JSON accepted by Bedrock's Converse API.
-  google.protobuf.Struct additional_model_request_fields = 2;
+  // Provider-owned JSON object accepted by Bedrock's Converse API. Raw JSON
+  // preserves integer values that google.protobuf.Struct rounds to doubles.
+  bytes additional_model_request_fields = 2;
   bool prompt_caching = 3;
   string cache_ttl = 4 [(buf.validate.field).string = {
     in: [

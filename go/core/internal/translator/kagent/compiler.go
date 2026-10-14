@@ -2,9 +2,11 @@ package kagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
+	"buf.build/go/protovalidate"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 
@@ -37,6 +39,10 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Agent:   compiled.Config,
 	})
 	if err != nil {
+		var invalid *protovalidate.ValidationError
+		if errors.As(err, &invalid) {
+			return nil, translator.NewValidationError("invalid agent config: %w", err)
+		}
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 	card, err := pbconv.ToProtoAgentCard(translator.ManagedAgentCard(input.AgentName, template))

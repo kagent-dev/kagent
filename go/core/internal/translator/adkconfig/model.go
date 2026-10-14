@@ -2,10 +2,9 @@ package adkconfig
 
 import (
 	"fmt"
+	"slices"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/structpb"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -454,11 +453,9 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				}
 			}
 		}
-		additionalFields := new(structpb.Struct)
+		var additionalFields []byte
 		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
-			if err := protojson.Unmarshal(model.Spec.Bedrock.AdditionalModelRequestFields.Raw, additionalFields); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
-			}
+			additionalFields = slices.Clone(model.Spec.Bedrock.AdditionalModelRequestFields.Raw)
 		}
 		bedrock := &adk.Model{
 			Model:   model.Spec.Model,

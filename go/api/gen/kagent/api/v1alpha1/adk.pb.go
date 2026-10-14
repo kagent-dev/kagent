@@ -11,7 +11,6 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
-	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -1233,8 +1232,9 @@ func (x *ADKGemini) GetMaxOutputTokens() int64 {
 type ADKBedrock struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Region string                 `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`
-	// Provider-owned JSON accepted by Bedrock's Converse API.
-	AdditionalModelRequestFields *structpb.Struct     `protobuf:"bytes,2,opt,name=additional_model_request_fields,json=additionalModelRequestFields,proto3" json:"additional_model_request_fields,omitempty"`
+	// Provider-owned JSON object accepted by Bedrock's Converse API. Raw JSON
+	// preserves integer values that google.protobuf.Struct rounds to doubles.
+	AdditionalModelRequestFields []byte               `protobuf:"bytes,2,opt,name=additional_model_request_fields,json=additionalModelRequestFields,proto3" json:"additional_model_request_fields,omitempty"`
 	PromptCaching                bool                 `protobuf:"varint,3,opt,name=prompt_caching,json=promptCaching,proto3" json:"prompt_caching,omitempty"`
 	CacheTtl                     string               `protobuf:"bytes,4,opt,name=cache_ttl,json=cacheTtl,proto3" json:"cache_ttl,omitempty"`
 	Guardrail                    *ADKBedrockGuardrail `protobuf:"bytes,5,opt,name=guardrail,proto3" json:"guardrail,omitempty"`
@@ -1281,7 +1281,7 @@ func (x *ADKBedrock) GetRegion() string {
 	return ""
 }
 
-func (x *ADKBedrock) GetAdditionalModelRequestFields() *structpb.Struct {
+func (x *ADKBedrock) GetAdditionalModelRequestFields() []byte {
 	if x != nil {
 		return x.AdditionalModelRequestFields
 	}
@@ -2915,7 +2915,7 @@ var File_kagent_api_v1alpha1_adk_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\n" +
-	"\x1dkagent/api/v1alpha1/adk.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a kagent/api/v1alpha1/config.proto\"\x87\x01\n" +
+	"\x1dkagent/api/v1alpha1/adk.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a kagent/api/v1alpha1/config.proto\"\x87\x01\n" +
 	"\tADKConfig\x12?\n" +
 	"\aruntime\x18\x01 \x01(\v2%.kagent.api.v1alpha1.ADKRuntimeConfigR\aruntime\x129\n" +
 	"\x05agent\x18\x02 \x01(\v2#.kagent.api.v1alpha1.ADKAgentConfigR\x05agent\"\xa0\b\n" +
@@ -3062,11 +3062,11 @@ const file_kagent_api_v1alpha1_adk_proto_rawDesc = "" +
 	"\tADKGemini\x12>\n" +
 	"\x11max_output_tokens\x18\x01 \x01(\x03B\r\xbaH\n" +
 	"\"\b\x18\xff\xff\xff\xff\a(\x01H\x00R\x0fmaxOutputTokens\x88\x01\x01B\x14\n" +
-	"\x12_max_output_tokens\"\xc7\x03\n" +
+	"\x12_max_output_tokens\"\xae\x03\n" +
 	"\n" +
 	"ADKBedrock\x12\x16\n" +
-	"\x06region\x18\x01 \x01(\tR\x06region\x12^\n" +
-	"\x1fadditional_model_request_fields\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x1cadditionalModelRequestFields\x12%\n" +
+	"\x06region\x18\x01 \x01(\tR\x06region\x12E\n" +
+	"\x1fadditional_model_request_fields\x18\x02 \x01(\fR\x1cadditionalModelRequestFields\x12%\n" +
 	"\x0eprompt_caching\x18\x03 \x01(\bR\rpromptCaching\x12,\n" +
 	"\tcache_ttl\x18\x04 \x01(\tB\x0f\xbaH\fr\n" +
 	"R\x00R\x025mR\x021hR\bcacheTtl\x12F\n" +
@@ -3305,9 +3305,8 @@ var file_kagent_api_v1alpha1_adk_proto_goTypes = []any{
 	nil,                                // 40: kagent.api.v1alpha1.ADKStdioMCPServerConfig.EnvEntry
 	nil,                                // 41: kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntry
 	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
-	(*structpb.Struct)(nil),            // 43: google.protobuf.Struct
-	(*TokenPropagationConfig)(nil),     // 44: kagent.api.v1alpha1.TokenPropagationConfig
-	(*TelemetryConfig)(nil),            // 45: kagent.api.v1alpha1.TelemetryConfig
+	(*TokenPropagationConfig)(nil),     // 43: kagent.api.v1alpha1.TokenPropagationConfig
+	(*TelemetryConfig)(nil),            // 44: kagent.api.v1alpha1.TelemetryConfig
 }
 var file_kagent_api_v1alpha1_adk_proto_depIdxs = []int32{
 	35, // 0: kagent.api.v1alpha1.ADKConfig.runtime:type_name -> kagent.api.v1alpha1.ADKRuntimeConfig
@@ -3341,37 +3340,36 @@ var file_kagent_api_v1alpha1_adk_proto_depIdxs = []int32{
 	42, // 28: kagent.api.v1alpha1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
 	42, // 29: kagent.api.v1alpha1.ADKMistral.timeout:type_name -> google.protobuf.Duration
 	37, // 30: kagent.api.v1alpha1.ADKOllama.options:type_name -> kagent.api.v1alpha1.ADKOllama.OptionsEntry
-	43, // 31: kagent.api.v1alpha1.ADKBedrock.additional_model_request_fields:type_name -> google.protobuf.Struct
-	14, // 32: kagent.api.v1alpha1.ADKBedrock.guardrail:type_name -> kagent.api.v1alpha1.ADKBedrockGuardrail
-	42, // 33: kagent.api.v1alpha1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
-	42, // 34: kagent.api.v1alpha1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
-	38, // 35: kagent.api.v1alpha1.ADKHTTPConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams.HeadersEntry
-	42, // 36: kagent.api.v1alpha1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
-	42, // 37: kagent.api.v1alpha1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
-	39, // 38: kagent.api.v1alpha1.ADKSSEConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntry
-	42, // 39: kagent.api.v1alpha1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
-	42, // 40: kagent.api.v1alpha1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
-	17, // 41: kagent.api.v1alpha1.ADKHTTPMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams
-	18, // 42: kagent.api.v1alpha1.ADKSSEMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams
-	40, // 43: kagent.api.v1alpha1.ADKStdioMCPServerConfig.env:type_name -> kagent.api.v1alpha1.ADKStdioMCPServerConfig.EnvEntry
-	41, // 44: kagent.api.v1alpha1.ADKRemoteAgentConfig.headers:type_name -> kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntry
-	42, // 45: kagent.api.v1alpha1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
-	23, // 46: kagent.api.v1alpha1.ADKMemoryConfig.embedding:type_name -> kagent.api.v1alpha1.ADKEmbeddingConfig
-	27, // 47: kagent.api.v1alpha1.ADKContextConfig.compaction:type_name -> kagent.api.v1alpha1.ADKCompressionConfig
-	2,  // 48: kagent.api.v1alpha1.ADKCompressionConfig.summarizer_model:type_name -> kagent.api.v1alpha1.ADKModelConfig
-	30, // 49: kagent.api.v1alpha1.ADKAgentPlugins.skills:type_name -> kagent.api.v1alpha1.ADKSkill
-	31, // 50: kagent.api.v1alpha1.ADKAgentPlugins.plugins:type_name -> kagent.api.v1alpha1.ADKPluginBundle
-	32, // 51: kagent.api.v1alpha1.ADKSkill.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
-	32, // 52: kagent.api.v1alpha1.ADKPluginBundle.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
-	33, // 53: kagent.api.v1alpha1.ADKPluginSource.git:type_name -> kagent.api.v1alpha1.ADKPluginGitSource
-	34, // 54: kagent.api.v1alpha1.ADKPluginSource.s3:type_name -> kagent.api.v1alpha1.ADKPluginS3Source
-	44, // 55: kagent.api.v1alpha1.ADKRuntimeConfig.token_propagation:type_name -> kagent.api.v1alpha1.TokenPropagationConfig
-	45, // 56: kagent.api.v1alpha1.ADKRuntimeConfig.telemetry:type_name -> kagent.api.v1alpha1.TelemetryConfig
-	57, // [57:57] is the sub-list for method output_type
-	57, // [57:57] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	14, // 31: kagent.api.v1alpha1.ADKBedrock.guardrail:type_name -> kagent.api.v1alpha1.ADKBedrockGuardrail
+	42, // 32: kagent.api.v1alpha1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
+	42, // 33: kagent.api.v1alpha1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
+	38, // 34: kagent.api.v1alpha1.ADKHTTPConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams.HeadersEntry
+	42, // 35: kagent.api.v1alpha1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
+	42, // 36: kagent.api.v1alpha1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	39, // 37: kagent.api.v1alpha1.ADKSSEConnectionParams.headers:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams.HeadersEntry
+	42, // 38: kagent.api.v1alpha1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
+	42, // 39: kagent.api.v1alpha1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	17, // 40: kagent.api.v1alpha1.ADKHTTPMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKHTTPConnectionParams
+	18, // 41: kagent.api.v1alpha1.ADKSSEMCPServerConfig.params:type_name -> kagent.api.v1alpha1.ADKSSEConnectionParams
+	40, // 42: kagent.api.v1alpha1.ADKStdioMCPServerConfig.env:type_name -> kagent.api.v1alpha1.ADKStdioMCPServerConfig.EnvEntry
+	41, // 43: kagent.api.v1alpha1.ADKRemoteAgentConfig.headers:type_name -> kagent.api.v1alpha1.ADKRemoteAgentConfig.HeadersEntry
+	42, // 44: kagent.api.v1alpha1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
+	23, // 45: kagent.api.v1alpha1.ADKMemoryConfig.embedding:type_name -> kagent.api.v1alpha1.ADKEmbeddingConfig
+	27, // 46: kagent.api.v1alpha1.ADKContextConfig.compaction:type_name -> kagent.api.v1alpha1.ADKCompressionConfig
+	2,  // 47: kagent.api.v1alpha1.ADKCompressionConfig.summarizer_model:type_name -> kagent.api.v1alpha1.ADKModelConfig
+	30, // 48: kagent.api.v1alpha1.ADKAgentPlugins.skills:type_name -> kagent.api.v1alpha1.ADKSkill
+	31, // 49: kagent.api.v1alpha1.ADKAgentPlugins.plugins:type_name -> kagent.api.v1alpha1.ADKPluginBundle
+	32, // 50: kagent.api.v1alpha1.ADKSkill.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
+	32, // 51: kagent.api.v1alpha1.ADKPluginBundle.source:type_name -> kagent.api.v1alpha1.ADKPluginSource
+	33, // 52: kagent.api.v1alpha1.ADKPluginSource.git:type_name -> kagent.api.v1alpha1.ADKPluginGitSource
+	34, // 53: kagent.api.v1alpha1.ADKPluginSource.s3:type_name -> kagent.api.v1alpha1.ADKPluginS3Source
+	43, // 54: kagent.api.v1alpha1.ADKRuntimeConfig.token_propagation:type_name -> kagent.api.v1alpha1.TokenPropagationConfig
+	44, // 55: kagent.api.v1alpha1.ADKRuntimeConfig.telemetry:type_name -> kagent.api.v1alpha1.TelemetryConfig
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_adk_proto_init() }

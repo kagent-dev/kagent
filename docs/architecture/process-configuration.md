@@ -171,10 +171,15 @@ protobuf durations (for example, `"0.250s"`), preserving fractional seconds.
 Durations must be positive and fit Go `time.Duration`; count fields are bounded
 where downstream SDKs require narrower integers. Kagent-owned model counts and
 seeds retain `int64` through the Go SDK boundary. Structured output carries canonical schema bytes as
-base64 so its SHA-256 still identifies the exact bytes.
+base64 so its SHA-256 still identifies the exact bytes. Bedrock
+`additional_model_request_fields` also carries raw JSON bytes as base64, preserving
+provider integer values without conversion to floating point.
 
 This is a complete cutover from the previous `model.type` JSON discriminator;
-runtime images and controller payloads must use the same contract. Unknown
+runtime images and controller payloads must use the same contract. BYO images
+using the kagent ADK must use the Go or Python ADK from the same release (or
+source revision for development builds) as the controller. Rebuild these images
+when updating the controller; mixed controller/ADK versions are not supported. Unknown
 fields and multiple model providers fail configuration loading. Telemetry uses
 the same `TelemetryConfig` as controller settings (including protobuf durations).
 

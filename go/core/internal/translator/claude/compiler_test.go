@@ -551,8 +551,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	settings.Telemetry.CaptureSensitiveContent = true
-	settings.Telemetry.MaxCaptureBytes = 4096
+	settings.Telemetry.Runtime.CaptureContent = true
+	settings.Telemetry.Runtime.MaxCaptureBytes = 4096
 	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -585,8 +585,8 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{CaptureSensitiveContent: true, CaptureRawAPIBodies: true, MaxCaptureBytes: 4096,
-		Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://traces:4317", Protocol: "grpc"}, Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}, Logs: &telemetry.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: "http/protobuf"}}}
+	settings.Telemetry = translator.TelemetryConfig{Runtime: tracing.RuntimeTelemetry{CaptureContent: true, CaptureRawAPIBodies: true, MaxCaptureBytes: 4096,
+		Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://traces:4317", Protocol: "grpc"}, Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}, Logs: &telemetry.OTLPConfig{Endpoint: "http://logs:4318/v1/logs", Protocol: "http/protobuf"}}}}
 	model := v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5",
 		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",

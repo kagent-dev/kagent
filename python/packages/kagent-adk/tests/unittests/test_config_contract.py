@@ -1,11 +1,12 @@
 """The controller and Python ADK share the generated protobuf contract."""
 
+import base64
 import json
 from pathlib import Path
 
 import pytest
-from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
-from google.protobuf.json_format import MessageToDict, MessageToJson, ParseError
+from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
+from google.protobuf.json_format import MessageToJson, ParseError
 from protovalidate import ValidationError
 
 from kagent.adk.types import _create_llm_from_model_config, _mcp_params, parse_config
@@ -28,9 +29,11 @@ def test_shared_go_agent_contract():
         assert child.name == child.model.WhichOneof("provider")
     assert config.agent_plugins.plugins[1].source.s3.version_id == "version"
     bedrock = next(child.model.bedrock for child in config.sub_agents if child.name == "bedrock")
-    assert MessageToDict(bedrock.additional_model_request_fields) == {
+    assert json.loads(bedrock.additional_model_request_fields) == {
         "nested": {"enabled": False},
         "values": [0, None, "text"],
+        "thinking": {"budget_tokens": 1024},
+        "large": 9007199254740993,
     }
     assert parse_config(MessageToJson(compiled)) == compiled
 
@@ -80,6 +83,51 @@ def test_fractional_mcp_timeout():
     params = _mcp_params(config.agent.http_tools[0].params, StreamableHTTPConnectionParams)
     assert params.timeout == 0.25
     assert params.sse_read_timeout == 0.75
+
+
+@pytest.mark.parametrize("raw", [None, {}, {"thinking": {"budget_tokens": 1024}, "large": 9007199254740993}])
+def test_bedrock_provider_json(raw):
+    settings = (
+        {} if raw is None else {"additional_model_request_fields": base64.b64encode(json.dumps(raw).encode()).decode()}
+    )
+    config = parse_config({"agent": {"model": {"model": "claude", "bedrock": settings}}})
+    llm = _create_llm_from_model_config(config.agent.model)
+    assert llm.additional_model_request_fields == raw
+    if raw:
+        assert type(llm.additional_model_request_fields["thinking"]["budget_tokens"]) is int
+        assert type(llm.additional_model_request_fields["large"]) is int
+
+
+@pytest.mark.parametrize("raw", [b"null", b"[]", b"1", b"{", b"{} {}"])
+def test_bedrock_invalid_provider_json(raw):
+    config = parse_config(
+        {
+            "agent": {
+                "model": {
+                    "model": "claude",
+                    "bedrock": {"additional_model_request_fields": base64.b64encode(raw).decode()},
+                }
+            }
+        }
+    )
+    with pytest.raises(ValueError):
+        _create_llm_from_model_config(config.agent.model)
+
+
+@pytest.mark.parametrize(
+    "field,params_type", [("http_tools", StreamableHTTPConnectionParams), ("sse_tools", SseConnectionParams)]
+)
+def test_mcp_explicit_options_and_defaults(field, params_type):
+    values = {"url": "https://mcp.example.com", "headers": {"X-Test": "value"}}
+    config = parse_config({"agent": {field: [{"params": values}]}})
+    params = _mcp_params(getattr(config.agent, field)[0].params, params_type)
+    defaults = params_type(url=values["url"])
+    assert params.headers == values["headers"]
+    assert params.timeout == defaults.timeout
+    assert params.sse_read_timeout == defaults.sse_read_timeout
+    if field == "http_tools":
+        config.agent.http_tools[0].params.terminate_on_close = False
+        assert _mcp_params(config.agent.http_tools[0].params, params_type).terminate_on_close is False
 
 
 @pytest.mark.parametrize(

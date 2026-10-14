@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -69,6 +70,27 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	ctx := context.Background()
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+
+	t.Run("MCP timeout bounds", func(t *testing.T) {
+		for _, field := range []string{"timeout", "sseReadTimeout"} {
+			for _, value := range []time.Duration{-time.Second, 0, 250 * time.Millisecond, 9223372036 * time.Second, 9223372036*time.Second + 1} {
+				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-timeout-", Namespace: namespace},
+					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com"}}
+				duration := &metav1.Duration{Duration: value}
+				if field == "timeout" {
+					server.Spec.Timeout = duration
+				} else {
+					server.Spec.SseReadTimeout = duration
+				}
+				err := cl.Create(ctx, server)
+				if value <= 0 || value > 9223372036*time.Second {
+					require.ErrorContains(t, err, field)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		}
+	})
 
 	t.Run("optional Harness workload", func(t *testing.T) {
 		for _, variant := range []struct {

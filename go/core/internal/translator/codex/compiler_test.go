@@ -293,7 +293,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 		t.Fatal("content capture is not disabled by default")
 	}
 
-	settings.Telemetry.CaptureSensitiveContent = true
+	settings.Telemetry.Runtime.CaptureContent = true
 	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)

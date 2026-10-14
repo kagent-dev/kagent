@@ -403,11 +403,15 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		// botocore read/connect timeouts so the config is honored on both runtimes.
 		tc := transportConfigFromBase(m, modelDuration(p.Bedrock.ReadTimeout))
 		tc.ConnectTimeout = modelDuration(p.Bedrock.ConnectTimeout)
+		additionalFields, err := models.DecodeBedrockRequestFields(p.Bedrock.GetAdditionalModelRequestFields())
+		if err != nil {
+			return nil, err
+		}
 		cfg := &models.BedrockConfig{
 			TransportConfig:              tc,
 			Model:                        modelName,
 			Region:                       region,
-			AdditionalModelRequestFields: p.Bedrock.AdditionalModelRequestFields.AsMap(),
+			AdditionalModelRequestFields: additionalFields,
 			PromptCaching:                p.Bedrock.PromptCaching,
 			CacheTTL:                     p.Bedrock.CacheTtl,
 		}

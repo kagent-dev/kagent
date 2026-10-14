@@ -106,8 +106,7 @@ func run(logLevel, host, port, configDir string) error {
 	// The same identity reaches the resource and every invocation span, so a
 	// consumer reads one contract whichever runtime executed the agent. Model
 	// identity stays on the model spans the ADK emits per call.
-	exporters := processconfig.Telemetry(runtime.GetTelemetry())
-	runtimeTelemetry := tracing.RuntimeTelemetry{Exporters: &exporters, CaptureContent: runtime.GetTelemetry().GetCaptureContent(), CaptureRawAPIBodies: runtime.GetTelemetry().GetCaptureRawApiBodies(), OpenAINativeTracing: runtime.GetTelemetry().GetOpenaiNativeTracing(), MaxCaptureBytes: int(runtime.GetTelemetry().GetMaxCaptureBytes())}.WithEnvironment(os.Environ())
+	runtimeTelemetry := processconfig.RuntimeTelemetry(runtime.GetTelemetry()).WithEnvironment(os.Environ())
 	runtimeTelemetry.Runtime = tracing.RuntimeADKGo
 	runtimeTelemetry.AgentName = serviceName
 	runtimeTelemetry.AgentNamespace = serviceNamespace
