@@ -39,20 +39,24 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
 ### STAGE 2: final image
 FROM alpine:3.24
 ARG TARGETPLATFORM
+ARG TARGETARCH
 
-# The GitHub CLI for an agent's work in its clone. github-cli.version pins it
-# once for this image and the Claude harness image; apk's ~ takes any Alpine
-# rebuild (-rN) of that version. The runtime user gets a passwd entry and a
-# home it owns: commands an agent runs (git config --global, CLIs that keep a
-# config under $HOME/.config) write there.
+# The GitHub CLI for an agent's work in its clone, from its release (Alpine's
+# package lags the release gh --attach needs). github-cli.version pins the
+# release and each architecture's tarball checksum once for this image and the
+# Claude harness image. The runtime user gets a passwd entry and a home it
+# owns: commands an agent runs (git config --global, CLIs that keep a config
+# under $HOME/.config) write there.
 # apk retries a transient mirror error; a missing package still fails on the third attempt.
 RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
+    --mount=type=bind,source=install-github-cli.sh,target=/tmp/install-github-cli.sh \
     for attempt in 1 2 3; do \
         apk upgrade --no-cache && \
-        apk add --no-cache bash ca-certificates git "github-cli~$(cat /tmp/github-cli.version)" && break; \
+        apk add --no-cache bash ca-certificates git && break; \
         status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
         echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
     done && \
+    sh /tmp/install-github-cli.sh /tmp/github-cli.version "${TARGETARCH}" && \
     addgroup -S -g 65532 kagent && \
     adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
     mkdir -p /config /skills /plugins /data/plugins && \

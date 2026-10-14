@@ -23,16 +23,20 @@
   "enabledManagers": ["custom.regex"],
   "customManagers": [
     {
-      // Alpine's github-cli package, from the Alpine release both images use
-      // (FROM alpine:3.24 in go/Dockerfile and go/harness/claude/Dockerfile);
-      // a move to another Alpine release moves this package name with it.
+      // The GitHub CLI release both images install (go/install-github-cli.sh):
+      // one line per architecture, "<tag> <arch> <sha256 of the release's
+      // linux tarball>". The datasource moves the tag and takes the new
+      // tarball's checksum from the release's checksums file, so a bump never
+      // leaves the two apart.
       "customType": "regex",
       "managerFilePatterns": ["/^go/github-cli\\.version$/"],
-      "matchStrings": ["^(?<currentValue>\\S+)\\s*$"],
+      "matchStrings": [
+        "(?<currentValue>v\\S+) amd64 (?<currentDigest>[0-9a-f]{64})",
+        "(?<currentValue>v\\S+) arm64 (?<currentDigest>[0-9a-f]{64})"
+      ],
       "depNameTemplate": "github-cli",
-      "datasourceTemplate": "repology",
-      "packageNameTemplate": "alpine_3_24/github-cli",
-      "versioningTemplate": "loose"
+      "datasourceTemplate": "github-release-attachments",
+      "packageNameTemplate": "cli/cli"
     },
     {
       // Alpine's glab package, from the Alpine release of
