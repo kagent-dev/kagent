@@ -150,10 +150,9 @@ jobs:
                 port: http
               periodSeconds: 1
           config:
-            gateway:
-              push:
-                allowHttp: true
-                allowPrivateNetworks: true
+            push:
+              allowHttp: true
+              allowPrivateNetworks: true
             sandboxes:
               guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
             telemetry:
