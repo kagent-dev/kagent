@@ -64,6 +64,10 @@ and leaves the task unsettled. Replacing the Actor restores process containment;
 it does not reconcile the controller's outstanding task. Recovery also needs
 controller-owned fencing and task reconciliation, tracked in
 [kagent #3010](https://github.com/kagent-dev/kagent/issues/3010).
+As a temporary DSH-only mitigation, cancellation with no live execution owner
+returns an explicit `TASK_NOT_CANCELABLE` error instead of waiting indefinitely.
+It leaves the stored task unchanged; it does not certify cleanup or unblock the
+session's lifecycle operations.
 Uninterruptible kernel I/O can also delay cleanup. This is
 not a guarantee against simultaneous process kills or malicious same-UID tools.
 
@@ -89,6 +93,12 @@ from a DATA-only snapshot or process replacement. The shared durable-input work
 in [kagent #3165](https://github.com/kagent-dev/kagent/pull/3165) is a migration
 dependency, but DSH must also support resuming the exact pending call without
 replaying a tool before this adapter can adopt that recovery path.
+Until then, the DSH adapter accepts a send referencing an existing task only
+when that task owns the live pending approval. It rejects both approval decisions
+and plain replies to a lost task before the SDK appends history or changes task
+state. Continue completed work with a new A2A task in the same conversation.
+These guards do not replay prompts or apply approvals after ownership is lost;
+they provide explicit failure, not automatic approval recovery.
 
 The local tests verify recovery after a DSH process restart. Cluster acceptance
 also covers conversation and workspace continuity across automatic suspension

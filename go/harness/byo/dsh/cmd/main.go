@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/bridge"
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/supervisor"
-	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
@@ -84,7 +83,7 @@ func run(ctx context.Context, executable, dataDir, port string, check bool, gete
 	ctx = logging.IntoContext(ctx, logger)
 	identity := runtimeConfig.Telemetry.WithEnvironment(environment)
 	// Leave runtime identity unset: the telemetry catalog has no DSH value.
-	executor, err := runtimea2a.New(runner, store, identity)
+	executor, err := bridge.NewExecutor(runner, store, identity)
 	if err != nil {
 		return err
 	}
@@ -102,7 +101,7 @@ func run(ctx context.Context, executable, dataDir, port string, check bool, gete
 	application, err := app.New(app.AppConfig{
 		AgentCard: card, Port: port, AppName: card.Name, ControlPlaneURL: runtimeConfig.ControlPlaneURL,
 		MaxContentLength: runtimeConfig.MaxContentLength, Logger: logging.FromContext(ctx), Telemetry: identity, Flush: providers.ForceFlush,
-		HandlerOpts: []a2asrv.RequestHandlerOption{a2asrv.WithExecutorContextInterceptor(startMetrics(providers.StartMetrics))},
+		HandlerOpts: []a2asrv.RequestHandlerOption{a2asrv.WithExecutorContextInterceptor(startMetrics(providers.StartMetrics)), a2asrv.WithCallInterceptors(executor)},
 	}, executor)
 	if err != nil {
 		return fmt.Errorf("failed to construct BYO A2A application: %w", err)

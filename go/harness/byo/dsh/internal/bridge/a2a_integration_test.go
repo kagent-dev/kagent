@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
-	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -99,7 +98,7 @@ func TestRealDSHThroughA2AGRPCAndMCP(t *testing.T) {
 	require.NoError(t, err)
 	store, err := continuation.New(dataDir+"/adapter", "dsh-byo", ValidateSessionID)
 	require.NoError(t, err)
-	executor, err := runtimea2a.New(runner, store, tracing.RuntimeTelemetry{})
+	executor, err := NewExecutor(runner, store, tracing.RuntimeTelemetry{})
 	require.NoError(t, err)
 	client, api := newSettlementClient(t, executor, nil)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)

@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
-	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -78,7 +77,7 @@ func TestRealDSHRestartsWithDurableWorkspace(t *testing.T) {
 		require.NoError(t, err)
 		store, err := continuation.New(filepath.Join(dataDir, "adapter"), "dsh-byo", ValidateSessionID)
 		require.NoError(t, err)
-		executor, err := runtimea2a.New(runner, store, tracing.RuntimeTelemetry{})
+		executor, err := NewExecutor(runner, store, tracing.RuntimeTelemetry{})
 		require.NoError(t, err)
 		client, api := newSettlementClient(t, executor, nil)
 		message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(prompt))

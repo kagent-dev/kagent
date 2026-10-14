@@ -35,7 +35,6 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
-	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime/continuation"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -127,7 +126,11 @@ func newSettlementClient(t *testing.T, executor a2asrv.AgentExecutor, check func
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
 	tasks := taskstore.New(controller, filepath.Join(identityDir, "name"))
 	wrapped := tasks.WrapExecutor(executor, "", nil)
-	handler := a2asrv.NewHandler(wrapped, a2asrv.WithTaskStore(tasks), a2asrv.WithCallInterceptors(adka2a.HITLActivationInterceptor(), adka2a.UserIDCallInterceptor(), wrapped))
+	opts := []a2asrv.RequestHandlerOption{a2asrv.WithTaskStore(tasks), a2asrv.WithCallInterceptors(adka2a.HITLActivationInterceptor(), adka2a.UserIDCallInterceptor(), wrapped)}
+	if interceptor, ok := executor.(a2asrv.CallInterceptor); ok {
+		opts = append(opts, a2asrv.WithCallInterceptors(interceptor))
+	}
+	handler := a2asrv.NewHandler(wrapped, opts...)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	server := grpc.NewServer()
@@ -159,7 +162,7 @@ func TestSettlementWaitsForDetachedToolCleanup(t *testing.T) {
 			require.NoError(t, err)
 			store, err := continuation.New(filepath.Join(dir, "data", "adapter"), "dsh-byo", ValidateSessionID)
 			require.NoError(t, err)
-			executor, err := runtimea2a.New(runner, store, tracing.RuntimeTelemetry{})
+			executor, err := NewExecutor(runner, store, tracing.RuntimeTelemetry{})
 			require.NoError(t, err)
 			client, api := newSettlementClient(t, executor, func(*a2apb.Task) error {
 				for _, path := range []string{pidFile, pidFile + ".dsh"} {
