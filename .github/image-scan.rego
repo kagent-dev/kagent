@@ -18,3 +18,21 @@ ignore if {
 		"CVE-2022-23635", # istiod port 15012: https://github.com/advisories/GHSA-856q-xv3c-7f2f
 	}
 }
+
+# The GitHub CLI the Harness images install from its release (go/github-cli.version):
+# gh v2.102.0, the newest release, is built with Go 1.27.1 and golang.org/x/net
+# v0.58.0; cli/cli's main already moved to Go 1.27.2 and x/net v0.60.0, which the
+# next release ships. Until then these findings are accepted at those versions, which
+# only gh carries (the line builds its own binaries with Go 1.27.2 and x/net v0.60.0;
+# Trivy hands the policy no binary path), and only up to the expiry: a release
+# Renovate brings clears them, and an expired exception fails the scan again
+# (giantswarm/kagent-upstream#575).
+ignore if {
+	time.now_ns() < time.parse_rfc3339_ns("2026-11-14T00:00:00Z")
+	gh_release_findings[input.PkgName][input.InstalledVersion][_] == input.VulnerabilityID
+}
+
+gh_release_findings := {
+	"stdlib": {"v1.27.1": ["CVE-2026-78667", "CVE-2026-78669", "CVE-2026-97031"]},
+	"golang.org/x/net": {"v0.58.0": ["CVE-2026-78669"]},
+}
