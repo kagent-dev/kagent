@@ -23,9 +23,11 @@ help: ## list makefile targets
 
 ##@ Code Generation (api module)
 
+CRD_OUTPUT_DIR := ../helm/kagent-crds/templates
+
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=$(CRD_OUTPUT_DIR)
 
 .PHONY: generate
 generate: controller-gen client-generate ## Generate DeepCopy methods and Kubernetes clients.

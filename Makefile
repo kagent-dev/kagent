@@ -378,9 +378,8 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo sandbox-guest=$(SANDBOX_GUEST_IMG)
 
 .PHONY: controller-manifests
-controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
+controller-manifests: ## Regenerate CRD manifests in the Helm chart
 	make -C go manifests
-	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
 build-controller: ## Build and push the controller image

@@ -29,7 +29,7 @@ The public API must not acquire Kubernetes scheduling, service-account, workload
 
 ```text
 go/api/v1alpha3/                 CRD types and validation
-go/api/config/crd/bases/         generated CRDs
+helm/kagent-crds/templates/      generated CRDs and Helm packaging
 proto/                           protobuf and Buf inputs
 go/api/gen/                      generated Go protobuf code
 go/core/internal/grpcserver/     gRPC transport and policy
@@ -54,7 +54,7 @@ helm/                            installation charts
 Useful commands:
 
 ```bash
-make controller-manifests   # deepcopy, CRDs, and Helm CRD copies
+make controller-manifests   # deepcopy and CRDs in the Helm chart
 make proto-lint proto-generate proto-breaking
 make -C go test
 make -C go lint
@@ -68,7 +68,7 @@ For SQL and store changes, follow [database guidance](../../../go/core/internal/
 - Follow [Kubernetes API conventions](../../../docs/kubernetes-api.md) for field presence, validation markers, and unions.
 - Modify only the intended v1alpha3 type and its validation.
 - Use explicit typed fields; avoid extension maps and speculative options.
-- Regenerate deepcopy code, CRDs, Helm CRDs, and RBAC when affected.
+- Regenerate deepcopy code, Helm-packaged CRDs, and RBAC when affected.
 - Verify generated schemas contain the intended fields and omit forbidden runtime infrastructure fields.
 
 ## Protobuf changes

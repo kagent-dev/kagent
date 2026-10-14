@@ -43,7 +43,7 @@ import (
 func TestOpenAIConfigValidation(t *testing.T) {
 	testEnv := &envtest.Environment{
 		BinaryAssetsDirectory: envtestAssetsDir(t),
-		CRDDirectoryPaths:     []string{crdBasesDir(t)},
+		CRDDirectoryPaths:     []string{crdChartDir(t)},
 		ErrorIfCRDPathMissing: true,
 	}
 	cfg, err := testEnv.Start()
