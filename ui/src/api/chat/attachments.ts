@@ -18,6 +18,11 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
+  // Read from bytes by Responses-format models only; other models get a "could not be read" note.
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
 const ALLOWED_TYPES = new Set([

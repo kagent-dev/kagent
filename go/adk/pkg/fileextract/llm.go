@@ -3,6 +3,7 @@ package fileextract
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"iter"
 	"slices"
 	"strings"
@@ -12,7 +13,8 @@ import (
 )
 
 // WithFileText wraps an LLM so every provider receives non-image file blobs as
-// extracted text; images pass through for the adapter to handle.
+// extracted text, and links it cannot send are never dropped without a word.
+// Images, and files the model's adapter sends itself (see FileSender), pass through.
 func WithFileText(llm model.LLM) model.LLM {
 	if g, ok := llm.(googleLLM); ok {
 		return googleFileTextLLM{fileTextLLM{llm}, g}
@@ -31,7 +33,36 @@ type googleFileTextLLM struct {
 }
 
 func (m fileTextLLM) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
-	return m.LLM.GenerateContent(ctx, filesToText(req), stream)
+	req, err := filesToText(req, m.LLM)
+	if err != nil {
+		return func(yield func(*model.LLMResponse, error) bool) { yield(nil, err) }
+	}
+	return m.LLM.GenerateContent(ctx, req, stream)
+}
+
+// FileSender is a model whose adapter sends some user file parts to its provider
+// as they are: a document as bytes, or a link the provider fetches itself.
+type FileSender interface{ ProviderAccepts(p *genai.Part) bool }
+
+// providerAccepts reports whether llm's provider takes p as it is, through llm's adapter.
+func providerAccepts(llm model.LLM, p *genai.Part) bool {
+	if s, ok := llm.(FileSender); ok {
+		return s.ProviderAccepts(p)
+	}
+	// Gemini takes a link as genai FileData, as it is.
+	_, google := llm.(googleLLM)
+	return google && p.FileData != nil
+}
+
+// NewestUserTurn is the index of the last user content, or -1. Only a file there
+// may fail the request: one in replayed history would fail every later turn.
+func NewestUserTurn(contents []*genai.Content) int {
+	for i, c := range slices.Backward(contents) {
+		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
+			return i
+		}
+	}
+	return -1
 }
 
 // FilenameMetadataKey is the PartMetadata key the A2A converter stores a file's name under.
@@ -54,12 +85,13 @@ func isDataPart(b *genai.Blob) bool {
 		bytes.HasPrefix(data, []byte("<a2a_datapart_json>")) && bytes.HasSuffix(data, []byte("</a2a_datapart_json>"))
 }
 
-// filesToText returns req with user file blobs replaced by text, copying only the
+// filesToText returns req with user files replaced by text, copying only the
 // contents and parts it changes so the caller's session history is untouched.
-func filesToText(req *model.LLMRequest) *model.LLMRequest {
+func filesToText(req *model.LLMRequest, llm model.LLM) (*model.LLMRequest, error) {
 	if req == nil {
-		return req
+		return req, nil
 	}
+	newest := NewestUserTurn(req.Contents)
 	var contents []*genai.Content
 	for i, c := range req.Contents {
 		if c == nil || c.Role != genai.RoleUser {
@@ -67,7 +99,12 @@ func filesToText(req *model.LLMRequest) *model.LLMRequest {
 		}
 		var parts []*genai.Part
 		for j, p := range c.Parts {
-			if p == nil || p.InlineData == nil || strings.HasPrefix(p.InlineData.MIMEType, "image/") || isDataPart(p.InlineData) {
+			if p != nil && p.FileData != nil && i == newest && !providerAccepts(llm, p) {
+				// The adapter would drop this link without a word. Tell the user on the turn
+				// they sent it; later turns replay it and must not fail.
+				return nil, fmt.Errorf("this model cannot read links, so %q was not sent. Attach the file instead", p.FileData.FileURI)
+			}
+			if p == nil || p.InlineData == nil || strings.HasPrefix(p.InlineData.MIMEType, "image/") || isDataPart(p.InlineData) || providerAccepts(llm, p) {
 				continue
 			}
 			if parts == nil {
@@ -86,9 +123,9 @@ func filesToText(req *model.LLMRequest) *model.LLMRequest {
 		contents[i] = &changed
 	}
 	if contents == nil {
-		return req
+		return req, nil
 	}
 	out := *req
 	out.Contents = contents
-	return &out
+	return &out, nil
 }

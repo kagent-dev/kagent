@@ -311,6 +311,50 @@ func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
 	}
 }
 
+func TestGenaiContentsToResponsesInput_DocumentBytes(t *testing.T) {
+	input, _, err := genaiContentsToResponsesInput([]*genai.Content{{
+		Role: "user",
+		Parts: []*genai.Part{
+			{Text: "summarize"},
+			{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: []byte("%PDF"), DisplayName: "report.pdf"}},
+		},
+	}}, nil)
+	require.NoError(t, err)
+	b, err := json.Marshal(input[0].OfMessage)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"role":"user","content":[
+		{"type":"input_text","text":"summarize"},
+		{"type":"input_file","file_data":"data:application/pdf;base64,JVBERg==","filename":"report.pdf"}
+	]}`, string(b))
+}
+
+func TestOpenAIModelProviderAccepts(t *testing.T) {
+	pdf := &genai.Part{InlineData: &genai.Blob{MIMEType: "application/pdf"}}
+	csv := &genai.Part{InlineData: &genai.Blob{MIMEType: "text/csv"}}
+	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
+	text := genai.NewPartFromText("hi")
+
+	responsesModel := &OpenAIModel{Config: &OpenAIConfig{APIFormat: OpenAIAPIFormatResponses}}
+	chatModel := &OpenAIModel{Config: &OpenAIConfig{}}
+	for _, tc := range []struct {
+		name string
+		m    *OpenAIModel
+		part *genai.Part
+		want bool
+	}{
+		{"responses pdf bytes", responsesModel, pdf, true},
+		{"responses link", responsesModel, link, true},
+		{"responses csv stays text", responsesModel, csv, false},
+		{"responses text part", responsesModel, text, false},
+		{"chat completions pdf bytes", chatModel, pdf, false},
+		{"chat completions link", chatModel, link, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.m.ProviderAccepts(tc.part))
+		})
+	}
+}
+
 func TestResponsesUsageToGenai(t *testing.T) {
 	t.Run("nil when no tokens", func(t *testing.T) {
 		if got := responsesUsageToGenai(responses.ResponseUsage{}); got != nil {

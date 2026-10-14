@@ -26,8 +26,8 @@ describe("isAllowedFile", () => {
     ["scan.tiff", "image/tiff", false],
     ["logo.svg", "image/svg+xml", false],
     ["page.htm", "", true],
-    ["report.pdf", "application/pdf", false],
-    ["deck.pptx", "", false],
+    ["report.pdf", "application/pdf", true],
+    ["deck.pptx", "", true],
     ["setup.exe", "application/x-msdownload", false],
     ["archive.zip", "", false],
   ])("%s (%j) → %s", (name, type, expected) => {

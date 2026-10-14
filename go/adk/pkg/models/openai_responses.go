@@ -2,12 +2,12 @@
 package models
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 
 	"github.com/openai/openai-go/v3/packages/param"
@@ -15,6 +15,8 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 )
 
 func generateContentResponses(
@@ -102,7 +104,7 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 		}
 	}
 
-	newestUser := newestUserTurn(contents)
+	newestUser := fileextract.NewestUserTurn(contents)
 	var input responses.ResponseInputParam
 	for i, content := range contents {
 		if content == nil || strings.TrimSpace(content.Role) == openAIRoleSystem {
@@ -131,6 +133,13 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 					part.InlineData.MIMEType,
 					base64.StdEncoding.EncodeToString(part.InlineData.Data),
 				)))
+			} else if part.InlineData != nil && role == genai.RoleUser && responsesFileTypes[part.InlineData.MIMEType] {
+				hasFile = true
+				file := responses.ResponseInputFileParam{
+					FileData: param.NewOpt(fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data))),
+					Filename: param.NewOpt(cmp.Or(part.InlineData.DisplayName, "file")),
+				}
+				contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 			} else if part.FileData != nil && role == genai.RoleUser {
 				// The provider fetches the link itself, on this turn and on every replayed one.
 				switch {
@@ -215,17 +224,6 @@ func responsesInputImage(url string) responses.ResponseInputContentUnionParam {
 func isHTTPLink(uri string) bool {
 	lower := strings.ToLower(uri)
 	return strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://")
-}
-
-// newestUserTurn is the index of the last user content, or -1. Only a bad link
-// there fails the request; in replayed history it becomes a note.
-func newestUserTurn(contents []*genai.Content) int {
-	for i, c := range slices.Backward(contents) {
-		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
-			return i
-		}
-	}
-	return -1
 }
 
 func unsupportedLinkError(f *genai.FileData) error {
@@ -435,4 +433,19 @@ func responsesStatusToFinishReason(status responses.ResponseStatus) genai.Finish
 	default:
 		return genai.FinishReasonStop
 	}
+}
+
+// responsesFileTypes are the document types that input_file reads from bytes
+// (pdf and Office; text types stay with fileextract as plain text).
+var responsesFileTypes = map[string]bool{
+	"application/pdf": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
+}
+
+// ProviderAccepts implements fileextract.FileSender: the Responses API takes links,
+// and pdf and Office files as bytes. Chat Completions takes neither.
+func (m *OpenAIModel) ProviderAccepts(p *genai.Part) bool {
+	return m.apiFormat() == OpenAIAPIFormatResponses && (p.FileData != nil || p.InlineData != nil && responsesFileTypes[p.InlineData.MIMEType])
 }

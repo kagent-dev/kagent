@@ -96,6 +96,77 @@ func TestWithFileText_LeavesDataPartsNextToFiles(t *testing.T) {
 	}
 }
 
+// pdfSendingLLM sends pdf bytes and links itself, like the OpenAI Responses adapter.
+type pdfSendingLLM struct{ recordingLLM }
+
+func (*pdfSendingLLM) ProviderAccepts(p *genai.Part) bool {
+	return p.FileData != nil || p.InlineData != nil && p.InlineData.MIMEType == "application/pdf"
+}
+
+func TestWithFileText_LeavesFilesTheModelSends(t *testing.T) {
+	pdf := &genai.Part{InlineData: &genai.Blob{Data: []byte("%PDF"), MIMEType: "application/pdf", DisplayName: "report.pdf"}}
+	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
+	req := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{pdf, link}}}}
+
+	sender := &pdfSendingLLM{}
+	for range WithFileText(sender).GenerateContent(t.Context(), req, false) {
+	}
+	if sender.got != req {
+		t.Errorf("request with files the model sends was changed: %+v", sender.got.Contents[0].Parts)
+	}
+
+	google := &googleRecordingLLM{}
+	linkOnly := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{link}}}}
+	for range WithFileText(google).GenerateContent(t.Context(), linkOnly, false) {
+	}
+	if google.got != linkOnly {
+		t.Error("Gemini link was changed")
+	}
+
+	other := &recordingLLM{}
+	pdfOnly := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{pdf}}}}
+	for range WithFileText(other).GenerateContent(t.Context(), pdfOnly, false) {
+	}
+	if got := other.got.Contents[0].Parts[0].Text; !strings.Contains(got, "could not be read") {
+		t.Errorf("pdf for a model that cannot send it = %q, want the could-not-be-read note", got)
+	}
+}
+
+func TestWithFileText_LinkTheModelCannotSend(t *testing.T) {
+	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
+	user := func(parts ...*genai.Part) *genai.Content { return &genai.Content{Role: genai.RoleUser, Parts: parts} }
+
+	t.Run("newest turn fails the request", func(t *testing.T) {
+		inner := &recordingLLM{}
+		req := &model.LLMRequest{Contents: []*genai.Content{user(genai.NewPartFromText("read this"), link)}}
+		var gotErr error
+		for _, err := range WithFileText(inner).GenerateContent(t.Context(), req, false) {
+			gotErr = err
+		}
+		if gotErr == nil || !strings.Contains(gotErr.Error(), link.FileData.FileURI) {
+			t.Errorf("err = %v, want an error that names the link", gotErr)
+		}
+		if inner.got != nil {
+			t.Error("model was called")
+		}
+	})
+
+	t.Run("older turn is replayed without failing", func(t *testing.T) {
+		inner := &recordingLLM{}
+		req := &model.LLMRequest{Contents: []*genai.Content{
+			user(genai.NewPartFromText("read this"), link),
+			{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromText("I cannot read links")}},
+			user(genai.NewPartFromText("then summarize this text")),
+		}}
+		for _, err := range WithFileText(inner).GenerateContent(t.Context(), req, false) {
+			t.Fatalf("err = %v", err)
+		}
+		if inner.got != req {
+			t.Error("request with an old link was changed")
+		}
+	})
+}
+
 func TestWithFileText_NameFromPartMetadata(t *testing.T) {
 	file := &genai.Part{
 		InlineData:   &genai.Blob{Data: []byte("remember the milk"), MIMEType: "application/octet-stream"},
