@@ -195,7 +195,11 @@ func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantToo
 	}
 
 	assertActorSuspended(t, fixture)
-	reply := a2atype.NewMessage(a2atype.MessageRoleUser)
+	text := "Denied"
+	if approved {
+		text = "Approved"
+	}
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
 	decision := kagenta2a.ToolApproval{ID: request.Tools[0].ID, Approved: approved}
 	if !approved {
