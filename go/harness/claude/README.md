@@ -128,7 +128,6 @@ metadata:
   namespace: kagent
 spec:
   claude: {}
-  workload: {}
   substrate:
     workerPoolRef:
       name: kagent-default

@@ -123,7 +123,6 @@ metadata:
   namespace: kagent
 spec:
   codex: {}
-  workload: {}
   substrate:
     workerPoolRef:
       name: kagent-default

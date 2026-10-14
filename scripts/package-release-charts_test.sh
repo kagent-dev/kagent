@@ -123,4 +123,62 @@ expect_failure kagent/Chart-template.yaml helm-release
 mv "$scratch/Chart-template.yaml" "$source_dir/kagent/Chart-template.yaml"
 diff -r "$scratch/source-before" "$source_dir"
 
-echo 'Release chart packaging tests passed.'
+# Run the real development Make targets with container-tool fixtures. Docker's
+# final Buildx digest and Podman's pushed digest must both reach the installed
+# source chart, including when the image names and tags are overridden.
+mkdir -p "$scratch/bin"
+cat > "$scratch/bin/container-fixture" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+runtime="${0##*/}"
+command="$1"
+shift
+if [[ "$runtime" == docker ]]; then
+  [[ "$command" == buildx && "$1" == build ]]
+  shift
+else
+  [[ "$command" == build || "$command" == push ]]
+fi
+metadata=
+digestfile=
+for arg in "$@"; do
+  if [[ "$runtime" == podman && ( "$arg" == --metadata-file || "$arg" == --push ) ]]; then
+    echo "Podman received a Buildx-only flag: $arg" >&2
+    exit 1
+  fi
+done
+while (($#)); do
+  case "$1" in
+    --metadata-file) metadata="$2"; shift ;;
+    --digestfile) digestfile="$2"; shift ;;
+  esac
+  shift
+done
+if [[ "$runtime" == docker ]]; then
+  test -n "$metadata"
+  jq -n '{"containerimage.digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "containerimage.config.digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}' > "$metadata"
+elif [[ "$command" == push ]]; then
+  test -n "$digestfile"
+  printf '%s\n' 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' > "$digestfile"
+fi
+EOF
+chmod +x "$scratch/bin/container-fixture"
+for runtime in docker podman; do
+  ln -s container-fixture "$scratch/bin/$runtime"
+  check="development chart defaults with $runtime"
+  PATH="$scratch/bin:$PATH" release helm-dev -o buildx-create BUILD_PROTO_GENERATE= \
+    CONTAINER_RUNTIME="$runtime" DOCKER_REGISTRY=localhost:5001 DOCKER_REPO=dev/custom \
+    CLAUDE_HARNESS_IMG=other.example/team/claude:dev CODEX_HARNESS_IMAGE_NAME=my-codex
+  for chart in "$source_dir/kagent" "$output_dir/kagent-$version.tgz"; do
+    render_images "$chart"
+    jq -e --arg version "$version" \
+      --arg digest 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' '
+      .release == $version and
+      .kagent == "localhost:5001/dev/custom/golang-adk@" + $digest and
+      .claude == "other.example/team/claude@" + $digest and
+      .codex == "localhost:5001/dev/custom/my-codex@" + $digest
+    ' "$scratch/rendered.json" >/dev/null
+  done
+done
+
+echo 'Release and development chart packaging tests passed.'

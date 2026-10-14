@@ -18,6 +18,7 @@ package v1alpha3
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -68,6 +69,45 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	ctx := context.Background()
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+
+	t.Run("optional Harness workload", func(t *testing.T) {
+		for _, variant := range []struct {
+			name string
+			spec HarnessSpec
+		}{
+			{"kagent", HarnessSpec{Kagent: &KagentHarness{}}},
+			{"claude", HarnessSpec{Claude: &ClaudeHarness{}}},
+			{"codex", HarnessSpec{Codex: &CodexHarness{}}},
+			{"byo", HarnessSpec{BYO: &BYOHarness{}}},
+		} {
+			for _, workload := range []string{"omitted", "empty"} {
+				t.Run(variant.name+"/"+workload, func(t *testing.T) {
+					harness := validHarness(namespace, "workload-"+variant.name+"-"+workload, *variant.spec.DeepCopy())
+					harness.Spec.Workload = HarnessWorkload{}
+					harness.SetGroupVersionKind(GroupVersion.WithKind("Harness"))
+					data, err := json.Marshal(harness)
+					require.NoError(t, err)
+					object := &unstructured.Unstructured{}
+					require.NoError(t, object.UnmarshalJSON(data))
+					_, found, err := unstructured.NestedMap(object.Object, "spec", "workload")
+					require.NoError(t, err)
+					require.False(t, found, "zero workload must be omitted during serialization")
+					if workload == "empty" {
+						require.NoError(t, unstructured.SetNestedMap(object.Object, map[string]any{}, "spec", "workload"))
+					}
+					err = cl.Create(ctx, object)
+					if variant.name == "byo" {
+						require.ErrorContains(t, err, "BYO harnesses must specify workload.image")
+						require.ErrorContains(t, err, "BYO harnesses must specify workload.command")
+					} else {
+						require.NoError(t, err)
+						require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), harness))
+						require.Equal(t, HarnessWorkload{}, harness.Spec.Workload)
+					}
+				})
+			}
+		}
+	})
 
 	t.Run("Harness image defaulting", func(t *testing.T) {
 		for _, variant := range []struct {

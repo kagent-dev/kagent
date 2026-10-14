@@ -65,9 +65,9 @@ the Codex or Claude harnesses.
 
 ### Harness images and workload overrides
 
-For built-in kagent, Claude, and Codex Harnesses, `workload.image` is optional.
-Use `workload: {}` to select the matching release image provided by the installed
-chart. BYO requires an explicit image; all overrides must be digest-pinned.
+For built-in kagent, Claude, and Codex Harnesses, the whole `workload` block is
+optional. Omit it to select the matching release image provided by the installed
+chart. BYO requires an explicit image and command; all images must be digest-pinned.
 
 Release image builds run independently. Each runtime build publishes its final
 multi-platform index digest as a workflow artifact. `make helm-release` requires
@@ -80,16 +80,31 @@ the defaults through `harnessImages` in the mounted controller configuration fil
 The controller validates configured images as digest-pinned references and checks
 the catalog's nonempty release against its own version.
 Neither controller builds nor compilation perform registry lookups.
-Local installations can override individual defaults with
-`config.harnessImages`; `global.imageRegistry` also applies to these defaults.
 
-The compiler resolves the image on its copy of the Harness spec before hashing
-the revision. It never writes defaults into user specs. A missing or invalid
+For development, `make build` records published runtime digests in
+`build/runtime-images`. Docker uses Buildx metadata; Podman records the digest
+from its push. `make helm-dev` builds the three built-in runtimes and writes an
+ignored catalog into the source chart before packaging. Both
+`make helm-install-provider` and `make kagent-cli-deploy` use this target, so the
+charts they install contain the local image defaults. Image references follow
+`GOLANG_ADK_IMG`, `CLAUDE_HARNESS_IMG`, and `CODEX_HARNESS_IMG`, including custom
+registries and repositories.
+
+Local installations can override individual defaults with
+`config.harnessImages`; `global.imageRegistry` rewrites both packaged defaults
+and explicit overrides.
+
+The outer compiler sets the selected image on the compiled revision before hashing
+it. Adapters receive the requested Harness spec; provenance records that spec
+without injected defaults. A missing or invalid
 selected image reports `Compatible=False`; unused defaults do not need to be
 configured. `Agent.status.workloadImage` reports the image of the desired compiled
 revision and clears when compilation fails. Existing Sessions retain their
 prepared revisions. Changing a release default prepares a new revision for Agents
 using that default; explicit image overrides are independent of catalog changes.
+The Harness API's `workloadImage` represents the explicit override and is empty
+when the release default is selected. The Harness list displays “Release default”
+for this case; Agent status reports the actual selected image.
 
 Default selection does not inspect or validate the CLI version inside an override.
 
@@ -105,7 +120,6 @@ without changing the AgentTemplate:
 spec:
   kagent: {}
   workload:
-    # Retain the digest-pinned Go ADK image here.
     command: ["/app"]
     args: ["--log-level", "debug"]
 ```

@@ -159,7 +159,6 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
-	harness.Spec.Workload.Image = new(image)
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
@@ -170,6 +169,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
 	result.AgentName = agentName
+	result.Image = image
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
 	return result, nil
 }

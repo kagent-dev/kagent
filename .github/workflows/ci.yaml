@@ -116,7 +116,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/runtime-images"
           printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
             image="$1"
-            DOCKER_BUILD_ARGS="--platform=linux/amd64 --push --metadata-file $RUNNER_TEMP/runtime-images/$image.json" \
+            RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" \
+            DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
           ' _
           # Resolve the guest on the runner: localhost:5001 is not reachable

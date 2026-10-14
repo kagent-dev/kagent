@@ -113,7 +113,7 @@ export function HarnessesTab() {
           copyable={image ? { text: image } : false}
           css={{ fontFamily: theme.font.mono, fontSize: 11, maxWidth: 260 }}
         >
-          {image || "Not reported"}
+          {image || "Release default"}
         </Text>
       ),
     },

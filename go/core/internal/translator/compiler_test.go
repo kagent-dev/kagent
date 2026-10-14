@@ -478,6 +478,8 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	}, testBuiltinImages).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Equal(t, "runnable-agent", revision.AgentName)
+	require.Equal(t, testBuiltinImages.Codex, revision.Image)
+	require.Nil(t, adapter.input.Harness.Spec.Workload.Image, "adapters receive the requested spec")
 	require.Equal(t, "runnable-agent", adapter.input.Root.Template.Name)
 	require.Equal(t, modelConfig().Spec, adapter.input.Root.ResolvedModelConfig.Config.Spec)
 }

@@ -13,25 +13,9 @@ staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 
 # Validate every required digest before preparing or packaging any charts.
-jq -en \
-  --arg release "$version" \
-  --arg repository "$repository" \
-  --slurpfile kagent "$metadata_dir/golang-adk.json" \
-  --slurpfile claude "$metadata_dir/claude-harness.json" \
-  --slurpfile codex "$metadata_dir/codex-harness.json" '
-  def image($metadata; $name):
-    $metadata[0]["containerimage.digest"] as $digest |
-    if ($metadata | length) == 1 and ($digest | type) == "string" and
-       ($digest | test("^sha256:[a-f0-9]{64}$"))
-    then $repository + "/" + $name + "@" + $digest
-    else error("missing or invalid final image digest for " + $name)
-    end;
-  {
-    release: $release,
-    kagent: image($kagent; "golang-adk"),
-    claude: image($claude; "claude-harness"),
-    codex: image($codex; "codex-harness")
-  }' > "$staging/builtin-harness-images.json"
+bash "$root/scripts/harness-image-catalog.sh" "$version" "$metadata_dir" \
+  "$repository/golang-adk" "$repository/claude-harness" "$repository/codex-harness" \
+  > "$staging/builtin-harness-images.json"
 
 cp -R "$source_dir" "$staging/helm"
 mkdir -p "$staging/helm/kagent/files"

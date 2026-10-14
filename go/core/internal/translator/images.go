@@ -1,6 +1,6 @@
 package translator
 
-import "regexp"
+import "github.com/kagent-dev/kagent/go/core/internal/image"
 
 // BuiltinImages supplies release images without performing registry I/O.
 // Missing entries only prevent compilation of agents that need that default.
@@ -10,29 +10,27 @@ type BuiltinImages struct {
 	Codex  string
 }
 
-var pinnedHarnessImage = regexp.MustCompile(`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`)
-
 func (b BuiltinImages) image(harness *HarnessConfiguration) (string, error) {
-	var image string
+	var selected string
 	if override := harness.Spec.Workload.Image; override != nil {
-		image = *override
+		selected = *override
 	} else {
 		switch harnessType(harness) {
 		case HarnessTypeKagent:
-			image = b.Kagent
+			selected = b.Kagent
 		case HarnessTypeClaude:
-			image = b.Claude
+			selected = b.Claude
 		case HarnessTypeCodex:
-			image = b.Codex
+			selected = b.Codex
 		case HarnessTypeBYO:
 			return "", NewValidationError("BYO harnesses must specify workload.image")
 		}
-		if image == "" {
+		if selected == "" {
 			return "", NewValidationError("no default image configured for %s Harness; configure the release's built-in images or set workload.image", harnessType(harness))
 		}
 	}
-	if !pinnedHarnessImage.MatchString(image) {
+	if !image.IsDigestPinned(selected) {
 		return "", NewValidationError("Harness image must be pinned by sha256 digest")
 	}
-	return image, nil
+	return selected, nil
 }

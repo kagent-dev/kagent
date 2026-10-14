@@ -54,6 +54,7 @@ func TestCompileDefaultImageRevision(t *testing.T) {
 			images := translator.BuiltinImages{Kagent: changed, Claude: changed, Codex: changed}
 			second := compile(images)
 			require.Equal(t, changed, second.Image)
+			require.JSONEq(t, string(first.Provenance), string(second.Provenance), "release defaults are not Kubernetes inputs")
 			after, err := second.Digest()
 			require.NoError(t, err)
 			require.NotEqual(t, before, after)

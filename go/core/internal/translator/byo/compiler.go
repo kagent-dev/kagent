@@ -11,7 +11,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
@@ -69,7 +68,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 
 	return &translator.CompileResult{Revision: translator.Revision{
 		Namespace: template.Namespace,
-		Image:     ptr.Deref(harness.Spec.Workload.Image, ""), Command: harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
+		Command:   harness.Spec.Workload.Command, Args: harness.Spec.Workload.Args,
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),

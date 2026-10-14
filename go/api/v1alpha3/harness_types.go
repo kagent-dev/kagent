@@ -132,8 +132,8 @@ type HarnessWorkload struct {
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // +kubebuilder:validation:XValidation:rule="(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude) ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1",message="exactly one of kagent, codex, claude, or byo must be specified"
-// +kubebuilder:validation:XValidation:rule="!has(self.byo) || size(self.workload.command) > 0",message="BYO harnesses must specify workload.command"
-// +kubebuilder:validation:XValidation:rule="!has(self.byo) || has(self.workload.image)",message="BYO harnesses must specify workload.image"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.command) && size(self.workload.command) > 0)",message="BYO harnesses must specify workload.command"
+// +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.image))",message="BYO harnesses must specify workload.image"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`
@@ -147,8 +147,9 @@ type HarnessSpec struct {
 	// +optional
 	BYO *BYOHarness `json:"byo,omitempty"`
 
-	// +required
-	Workload HarnessWorkload `json:"workload"`
+	// Workload overrides the built-in runtime image and its command. BYO requires it.
+	// +optional
+	Workload HarnessWorkload `json:"workload,omitzero"`
 
 	// +optional
 	// +kubebuilder:validation:MaxItems=100
