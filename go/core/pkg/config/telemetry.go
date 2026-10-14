@@ -12,6 +12,9 @@ import (
 // RuntimeTelemetry projects schema settings without reading the environment.
 // Each receiving process applies its own OTEL overrides at startup.
 func RuntimeTelemetry(cfg *apiv1.TelemetryConfig) tracing.RuntimeTelemetry {
+	if cfg == nil {
+		return tracing.RuntimeTelemetry{}
+	}
 	exporters := Telemetry(cfg)
 	return tracing.RuntimeTelemetry{
 		Exporters:           &exporters,
