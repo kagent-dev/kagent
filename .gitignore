@@ -162,7 +162,6 @@ python/.env
 .env/
 venv/
 ENV/
-!/go/core/pkg/env/
 env.bak/
 venv.bak/
 
