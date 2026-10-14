@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"iter"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,14 +17,9 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
-	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"
@@ -108,20 +101,10 @@ func TestRealDSHThroughA2AGRPCAndMCP(t *testing.T) {
 	require.NoError(t, err)
 	executor, err := runtimea2a.New(runner, store, tracing.RuntimeTelemetry{})
 	require.NoError(t, err)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	server := grpc.NewServer()
-	a2agrpc.NewHandler(a2asrv.NewHandler(transportFixture{executor})).RegisterWith(server)
-	serveDone := make(chan error, 1)
-	go func() { serveDone <- server.Serve(listener) }()
-	t.Cleanup(func() { server.Stop(); require.NoError(t, <-serveDone) })
-	connection, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	client := a2apb.NewA2AServiceClient(connection)
+	client, api := newSettlementClient(t, executor, nil)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
-	contextID := ""
+	contextID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	for i, prompt := range []string{"Calculate six times seven.", "Continue the calculation."} {
 		message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(prompt))
 		message.ContextID = contextID
@@ -154,6 +137,12 @@ func TestRealDSHThroughA2AGRPCAndMCP(t *testing.T) {
 			}
 		}
 		require.True(t, completed)
+		select {
+		case task := <-api.settled:
+			require.Equal(t, contextID, task.ContextId)
+		case <-ctx.Done():
+			t.Fatal("missing task settlement", ctx.Err())
+		}
 		want := "product=42"
 		if i == 1 {
 			want = "resumed product=42"
@@ -166,29 +155,6 @@ func TestRealDSHThroughA2AGRPCAndMCP(t *testing.T) {
 	require.Len(t, requests, 3)
 	require.Contains(t, string(requests[1]), "42")
 	require.Contains(t, string(requests[2]), "product=42")
-}
-
-// The production App's controller-backed TaskStore publishes the initial task.
-// This transport-only fixture substitutes an SDK-local task for that boundary.
-type transportFixture struct{ a2asrv.AgentExecutor }
-
-func (f transportFixture) Execute(ctx context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
-	return func(yield func(a2atype.Event, error) bool) {
-		if input.TaskID == "" {
-			input.TaskID = a2atype.NewTaskID()
-		}
-		if input.ContextID == "" {
-			input.ContextID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-		}
-		if !yield(a2atype.NewSubmittedTask(input, input.Message), nil) {
-			return
-		}
-		for event, err := range f.AgentExecutor.Execute(ctx, input) {
-			if !yield(event, err) {
-				return
-			}
-		}
-	}
 }
 
 func writeCompletion(w http.ResponseWriter, delta any, finish string) {

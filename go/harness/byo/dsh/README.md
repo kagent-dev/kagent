@@ -81,8 +81,9 @@ The CLI profile and compiled overlay use a disposable home outside `/data`.
 Do not delete the native session logs while retaining the continuation binding.
 Public tasks and history remain in kagent's controller-backed TaskStore.
 
-The local tests verify recovery after a DSH process restart. Full Substrate
-snapshot/restore remains a separate cluster acceptance check.
+The local tests verify recovery after a DSH process restart. Cluster acceptance
+also covers conversation and workspace continuity across automatic suspension
+and explicit suspend/resume; Actor replacement and fork remain unverified.
 
 ## Build and deploy
 
@@ -99,7 +100,8 @@ Record the pushed image's manifest digest. The example requires the full
 Use a clean kagent installation whose Agent CRD supports `spec.template.inline`.
 This example targets the API at source commit `b42a6c53`; `1.0.0-alpha9` uses
 the earlier `templateRef` shape and rejects this Agent manifest. Cluster acceptance
-against a compatible release is still required. Configure a `kagent-default`
+used a control plane built from this checkout and Substrate `0.5.0-alpha2`.
+Configure a `kagent-default`
 WorkerPool, snapshot storage, and Substrate credential gateway. In namespace
 `kagent`, create the Secret `deepseek-api-key` with an `OPENAI_API_KEY` entry
 using your normal secret-management workflow. Grant the Substrate atespace
@@ -145,11 +147,27 @@ DSH_TEST_BIN="$PWD/harness/byo/dsh/node_modules/.bin/dsh" \
 ```
 
 These tests use a real DSH process, a local model fixture, and a local MCP
-server. They verify MCP execution and resumed turns through A2A gRPC without
-provider credentials. The transport test substitutes an SDK-local TaskStore
-for the controller, so it does not prove full cluster settlement or snapshots.
+server. A2A gRPC calls use the production TaskStore client and settlement wrapper
+against a local controller RPC fixture. They check MCP execution, resumed turns,
+runtime identity headers and versioned settlement without provider credentials.
+Separate process tests require DSH and detached tools to exit before settlement
+on normal completion, forced cleanup and cancellation.
 
-Before release, run the same scenarios in Substrate: two turns, MCP success and
-failure, cancellation followed by another turn, approval allow/reject/cancel,
-and conversation continuity after explicit suspend/resume and Actor replacement.
-Do not advertise snapshot, fork or model-usage guarantees until those checks pass.
+The durable-workspace test creates, reads and edits a file with DSH's built-in
+tools across three fresh adapter instances. It verifies that the native session
+identity, conversation history and workspace contents survive reconstruction
+from the same durable directory. These checks do not exercise the real controller
+database or Substrate snapshots and are not a substitute for cluster acceptance.
+
+Manual cluster acceptance on Linux arm64 with gVisor, Kubernetes `1.37.0` and
+Substrate `0.5.0-alpha2` exercised the public A2A API and real PostgreSQL-backed
+TaskStore. Three turns completed and automatically suspended; public `GetTask`
+returned the completed task after each suspension. After explicit suspend/resume,
+the model fixture received the earlier conversation history. Gateway credential
+injection and workspace write/read/edit/read across suspensions also passed.
+The model was a local Chat Completions fixture, not a live provider.
+
+Before release, complete the remaining cluster checks: MCP success and failure,
+cancellation followed by another turn, approval allow/reject/cancel, and continuity
+after Actor replacement and fork. The checks above do not establish guarantees
+for untested lifecycle paths or model usage reporting.
