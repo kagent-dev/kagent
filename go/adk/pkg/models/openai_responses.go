@@ -135,6 +135,7 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				)))
 			} else if part.InlineData != nil && role == genai.RoleUser && responsesFileTypes[part.InlineData.MIMEType] {
 				hasFile = true
+				contentParts = append(contentParts, fileNameParts(part.InlineData.DisplayName)...)
 				file := responses.ResponseInputFileParam{
 					FileData: param.NewOpt(fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data))),
 					Filename: param.NewOpt(cmp.Or(part.InlineData.DisplayName, "file")),
@@ -151,11 +152,11 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 					contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(note))
 				case strings.HasPrefix(part.FileData.MIMEType, "image/"):
 					hasFile = true
-					contentParts = append(contentParts, linkNameParts(part.FileData)...)
+					contentParts = append(contentParts, fileNameParts(part.FileData.DisplayName)...)
 					contentParts = append(contentParts, responsesInputImage(part.FileData.FileURI))
 				default:
 					hasFile = true
-					contentParts = append(contentParts, linkNameParts(part.FileData)...)
+					contentParts = append(contentParts, fileNameParts(part.FileData.DisplayName)...)
 					file := responses.ResponseInputFileParam{FileURL: param.NewOpt(part.FileData.FileURI)}
 					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 				}
@@ -205,13 +206,14 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 	return input, instructions, nil
 }
 
-// linkNameParts names a link in a text part before it: neither input_file nor
-// input_image takes a name next to a URL (Azure rejects filename beside file_url).
-func linkNameParts(f *genai.FileData) responses.ResponseInputMessageContentListParam {
-	if f.DisplayName == "" {
+// fileNameParts names a file in a text part before it: the model does not see
+// input_file's filename, and neither input_file nor input_image takes a name next
+// to a URL (Azure rejects filename beside file_url).
+func fileNameParts(name string) responses.ResponseInputMessageContentListParam {
+	if name == "" {
 		return nil
 	}
-	return responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText("File: " + f.DisplayName)}
+	return responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText("File: " + name)}
 }
 
 // responsesInputImage builds an input_image part from a data or https URL.

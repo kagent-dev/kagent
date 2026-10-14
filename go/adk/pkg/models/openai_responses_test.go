@@ -324,6 +324,7 @@ func TestGenaiContentsToResponsesInput_DocumentBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"role":"user","content":[
 		{"type":"input_text","text":"summarize"},
+		{"type":"input_text","text":"File: report.pdf"},
 		{"type":"input_file","file_data":"data:application/pdf;base64,JVBERg==","filename":"report.pdf"}
 	]}`, string(b))
 }
