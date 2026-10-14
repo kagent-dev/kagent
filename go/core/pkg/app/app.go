@@ -343,7 +343,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
 	}
 	sessionOptions := []sessionsvc.Option{sessionsvc.WithShareMaxTTL(shareMaxTTL), sessionsvc.WithAgentReader(manager.GetClient())}
-	volumeAdmission, err := sessionVolumeAdmission()
+	volumeAdmission, err := sessionVolumeAdmission(ctx, logger)
 	if err != nil {
 		return err
 	}
@@ -587,7 +587,7 @@ func namespaceCache(names []string) map[string]cache.Config {
 // KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP is logged and refuses every volume
 // source instead: a consumer that has not set the opt-in yet keeps a running
 // controller and loses only the volume sources.
-func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
+func sessionVolumeAdmission(ctx context.Context, logger *slog.Logger) (sessionsvc.VolumeAdmission, error) {
 	config := jwtadmission.Config{
 		JWKSURL:   kagentenv.SessionAdmissionJWTJWKSURL.Get(),
 		AllowHTTP: kagentenv.SessionAdmissionJWTAllowHTTP.Get(),
@@ -606,7 +606,7 @@ func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
 	if err != nil {
 		err = fmt.Errorf("configure the Session admission (%s, %s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTAllowHTTP.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
 		if errors.Is(err, jwtadmission.ErrPlainHTTP) {
-			slog.Error("the Session admission refuses every volume source", "error", err)
+			logger.ErrorContext(ctx, "the Session admission refuses every volume source", "error", err)
 			return jwtadmission.Refused{Cause: err}, nil
 		}
 		return nil, err

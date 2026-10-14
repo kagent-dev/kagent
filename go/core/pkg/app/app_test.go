@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -370,7 +371,7 @@ func TestSessionVolumeAdmissionRefusesPlainHTTPWithoutStopping(t *testing.T) {
 	const plain = "http://workspace-manager.agent-platform.svc:8080/.well-known/jwks.json"
 
 	setAdmission(plain, "false", "https://workspaces.example.test")
-	admission, err := sessionVolumeAdmission()
+	admission, err := sessionVolumeAdmission(t.Context(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("a plain http JWKS URL without the opt-in stopped the controller: %v", err)
 	}
@@ -379,7 +380,7 @@ func TestSessionVolumeAdmissionRefusesPlainHTTPWithoutStopping(t *testing.T) {
 	}
 
 	setAdmission(plain, "true", "https://workspaces.example.test")
-	admission, err = sessionVolumeAdmission()
+	admission, err = sessionVolumeAdmission(t.Context(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("the opted-in plain http JWKS URL: %v", err)
 	}
@@ -388,7 +389,7 @@ func TestSessionVolumeAdmissionRefusesPlainHTTPWithoutStopping(t *testing.T) {
 	}
 
 	setAdmission(plain, "true", "")
-	if _, err := sessionVolumeAdmission(); err == nil {
+	if _, err := sessionVolumeAdmission(t.Context(), slog.New(slog.DiscardHandler)); err == nil {
 		t.Fatal("a partial configuration started the controller")
 	}
 }
