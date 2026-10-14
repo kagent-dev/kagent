@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -39,6 +40,10 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 	}()
 	mux := http.NewServeMux()
 	for i, binding := range bindings {
+		origin, err := url.Parse(binding.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse MCP binding %d: %w", i, err)
+		}
 		params := cfg.Agent.HttpTools[i].Params
 		timeout := 30 * time.Second
 		if params.Timeout != nil {
@@ -47,7 +52,19 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 		terminate := params.TerminateOnClose == nil || *params.TerminateOnClose
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		p.transports = append(p.transports, transport)
-		httpClient := &http.Client{Timeout: timeout, Transport: headerTransport{base: transport, headers: binding.Headers, terminate: terminate}}
+		httpClient := &http.Client{
+			Timeout:   timeout,
+			Transport: headerTransport{base: transport, headers: binding.Headers, terminate: terminate, origin: origin},
+			CheckRedirect: func(request *http.Request, via []*http.Request) error {
+				if !sameOrigin(origin, request.URL) {
+					return fmt.Errorf("MCP redirects must stay within the binding origin")
+				}
+				if len(via) >= 10 {
+					return fmt.Errorf("MCP stopped after 10 redirects")
+				}
+				return nil
+			},
+		}
 		connectCtx, connectCancel := context.WithTimeout(ctx, timeout)
 		// AddTool can panic on an invalid remote schema; release the discovery
 		// deadline even when the startup recovery above handles that panic.
@@ -126,6 +143,7 @@ func (p *mcpProxy) close() error {
 
 type headerTransport struct {
 	base      http.RoundTripper
+	origin    *url.URL
 	headers   []config.Header
 	terminate bool
 }
@@ -133,6 +151,11 @@ type headerTransport struct {
 var _ http.RoundTripper = headerTransport{}
 
 func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	// Guard injection as well as redirects: SDK-generated requests must use the
+	// configured origin before receiving any binding headers.
+	if !sameOrigin(t.origin, request.URL) {
+		return nil, fmt.Errorf("MCP request must stay within the binding origin")
+	}
 	if request.Method == http.MethodDelete && !t.terminate {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
 	}
@@ -141,4 +164,21 @@ func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error
 		request.Header.Set(header.Name, header.Value)
 	}
 	return t.base.RoundTrip(request)
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil || !strings.EqualFold(a.Scheme, b.Scheme) || !strings.EqualFold(a.Hostname(), b.Hostname()) {
+		return false
+	}
+	return originPort(a) == originPort(b)
+}
+
+func originPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
 }

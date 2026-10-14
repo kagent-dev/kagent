@@ -67,7 +67,7 @@ func (r *Runner) Validate(ctx context.Context) error {
 	}
 	defer control.Close()
 	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
+	go func() { done <- control.Wait() }()
 	select {
 	case err = <-done:
 	case <-ctx.Done():
@@ -111,7 +111,9 @@ func (r *Runner) start(ctx context.Context) (*process, error) {
 	if err != nil {
 		return nil, errors.Join(err, os.RemoveAll(home))
 	}
-	cmd.Dir, cmd.Env, cmd.Stderr = r.workspace, config.Environment(r.environment, home), io.Discard
+	// A nil stderr connects directly to the null device, without a copy
+	// goroutine that descendants could keep blocked after supervisor death.
+	cmd.Dir, cmd.Env = r.workspace, config.Environment(r.environment, home)
 	utils.ConfigureProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -126,7 +128,7 @@ func (r *Runner) start(ctx context.Context) (*process, error) {
 		return nil, errors.Join(fmt.Errorf("failed to start DSH: %w", err), stdin.Close(), stdout.Close(), os.RemoveAll(home))
 	}
 	p := &process{stdin: stdin, control: control, wire: newWire(stdin, stdout), done: make(chan struct{}), home: home, events: events{tools: make(map[string]tool)}}
-	go func() { p.waitErr = cmd.Wait(); close(p.done) }()
+	go func() { p.waitErr = control.Wait(); close(p.done) }()
 	proxy, err := startMCP(ctx, r.config, r.servers)
 	if err != nil {
 		return nil, errors.Join(err, p.stop())
@@ -367,8 +369,8 @@ func (p *process) stop() error {
 	select {
 	case <-p.done:
 	case <-time.After(stopTimeout):
-		// Never kill the supervisor to impose a deadline: doing so would orphan
-		// the very descendants whose exit must precede releasing the Actor.
+		// Request forced cleanup through the lifetime pipe, then keep waiting
+		// for confirmation rather than releasing the Actor on a deadline.
 		err = errors.Join(err, p.control.Close())
 		<-p.done
 	}

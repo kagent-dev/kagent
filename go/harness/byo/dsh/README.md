@@ -47,22 +47,33 @@ recovery from arrays, scalars, null and malformed argument strings.
 Each turn starts a DSH ACP process and creates or resumes the Actor's private
 DSH session. A pending permission request retains that process until the
 decision arrives. Completion closes the session and stdin so DSH can flush its
-state. A dedicated Linux child subreaper owns each process tree, including
+state. Two nested Linux child subreapers own each process tree, including
 orphaned tools and tools that create a separate session or process group.
 
 Cancellation interrupts blocked ACP writes by closing stdin. After five seconds
 of graceful shutdown, the adapter closes a private lifetime pipe to request forced
-cleanup. Adapter death also closes that pipe. The supervisor kills DSH, terminates
-adopted descendants and waits until the kernel reports no remaining children.
-The Actor's turn is not released before that completes; uninterruptible kernel
-I/O or cleanup failures can delay completion. The adapter never kills the
-supervisor to impose a deadline that would leave tools behind.
+cleanup. Adapter death also closes that pipe. If the inner supervisor dies, the
+outer guard adopts and reaps its descendants. If the guard dies, its lifetime
+pipe closes and the inner supervisor kills DSH and reaps its descendants.
+The adapter waits for an explicit cleanup confirmation before releasing the turn;
+process exit or closed output pipes alone are insufficient.
+
+During payload execution, this tolerates the loss of either supervisor. If neither
+can confirm cleanup, for example after losing both, replacing the Actor is
+required: the adapter logs the failure and leaves the task unsettled.
+Uninterruptible kernel I/O can also delay cleanup. This is
+not a guarantee against simultaneous process kills or malicious same-UID tools.
 
 Process supervision requires Linux with readable procfs child lists and permission
 to set `PR_SET_CHILD_SUBREAPER`. It runs as the image's unprivileged user without
 additional Linux capabilities. Unsupported hosts fail validation; run runtime
 tests in Linux rather than launching this adapter natively on macOS. This manages
 process lifetime; sandbox and container isolation remain platform responsibilities.
+
+MCP HTTP redirects must retain the configured scheme, hostname and effective
+port. Same-origin path redirects are supported, with a ten-redirect limit per
+request. Cross-origin redirects, including HTTPS-to-HTTP redirects, are rejected
+before sending a request or injecting binding headers.
 
 `/data/adapter/state.json` binds the Actor to one native session. DSH session
 logs and storage live under `/data/dsh`, and the workspace is `/data/workspace`.

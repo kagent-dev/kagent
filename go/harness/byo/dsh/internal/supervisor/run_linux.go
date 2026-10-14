@@ -22,27 +22,32 @@ import (
 // to that process, never to the long-lived A2A server. It returns only after
 // the main child and all adopted descendants have been reaped.
 func Run(args []string) int {
-	if err := run(args); err != nil {
+	completion, err := privatePipe(4, "dsh-cleanup")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer completion.Close()
+	err = run(args, completion)
+	// run returns only before starting a child or after ECHILD. Either
+	// supervisor can confirm cleanup if the other was killed.
+	_, _ = completion.Write([]byte{cleanupComplete})
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0
 }
 
-func run(args []string) error {
-	if len(args) == 0 {
+func run(args []string, completion *os.File) error {
+	if len(args) < 2 || (args[0] != guardStage && args[0] != payloadStage) {
 		return fmt.Errorf("DSH supervisor requires an executable")
 	}
-	control := os.NewFile(3, "dsh-lifetime")
-	if control == nil {
-		return fmt.Errorf("DSH supervisor requires a lifetime pipe")
+	control, err := privatePipe(3, "dsh-lifetime")
+	if err != nil {
+		return err
 	}
 	defer control.Close()
-	info, err := control.Stat()
-	if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
-		return fmt.Errorf("DSH supervisor requires a lifetime pipe")
-	}
-	unix.CloseOnExec(3)
 	if err := unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("failed to enable DSH child supervision: %w", err)
 	}
@@ -55,10 +60,28 @@ func run(args []string) error {
 	defer signal.Stop(signals)
 	parentGone := make(chan struct{})
 	go func() { var b [1]byte; _, _ = control.Read(b[:]); close(parentGone) }()
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command(args[1], args[2:]...)
+	if args[0] == guardStage {
+		self, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to locate DSH supervisor executable: %w", err)
+		}
+		cmd = exec.Command(self, append([]string{Mode, payloadStage}, args[1:]...)...)
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := cmd.Start(); err != nil {
+	if args[0] == guardStage {
+		// If this guard dies, EOF makes the inner supervisor clean up. If the
+		// inner supervisor dies, its descendants are adopted by this guard.
+		lifetime, startErr := startSupervised(cmd, completion)
+		err = startErr
+		if lifetime != nil {
+			defer lifetime.Close()
+		}
+	} else {
+		err = cmd.Start()
+	}
+	if err != nil {
 		return fmt.Errorf("failed to launch DSH payload: %w", err)
 	}
 	done := make(chan error, 1)
@@ -74,6 +97,20 @@ func run(args []string) error {
 	// The main child is already reaped. No other goroutine may wait on children
 	// while cleanup enumerates and signals them, preventing PID-reuse races.
 	return errors.Join(waitErr, reapDescendants())
+}
+
+func privatePipe(fd int, name string) (*os.File, error) {
+	file := os.NewFile(uintptr(fd), name)
+	if file == nil {
+		return nil, fmt.Errorf("DSH supervisor requires %s pipe", name)
+	}
+	info, err := file.Stat()
+	if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+		_ = file.Close()
+		return nil, fmt.Errorf("DSH supervisor requires %s pipe", name)
+	}
+	unix.CloseOnExec(fd)
+	return file, nil
 }
 
 func killAndWait(cmd *exec.Cmd, done <-chan error) error {
