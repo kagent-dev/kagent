@@ -23,7 +23,7 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 	store, db := volumeTestStore(t)
 	signer, err := grant.NewSigner(issuer, audience)
 	require.NoError(t, err)
-	admission, err := jwtadmission.New(jwtadmission.Config{JWKSURL: signer.Serve(t), Issuer: issuer, Audience: audience}, nil)
+	admission, err := jwtadmission.New(jwtadmission.Config{JWKSURL: signer.Serve(t), AllowHTTP: true, Issuer: issuer, Audience: audience}, nil)
 	require.NoError(t, err)
 	server := &sessionServer{service: sessionsvc.NewService(store, &auth.NoopAuthorizer{}, staticSessionWorkflow{}, sessionsvc.WithVolumeAdmission(admission))}
 

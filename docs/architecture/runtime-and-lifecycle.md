@@ -100,7 +100,11 @@ directory works in the scratch directory.
 The built-in admission is `jwt` (`go/core/internal/service/session/jwtadmission`),
 configured by `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`, `_ISSUER` and `_AUDIENCE`
 (chart values `controller.session.admission.jwt.{jwksURL, issuer, audience}`):
-all three or none, a partial configuration fails startup. The admission token
+all three or none, a partial configuration fails startup. The JWKS URL must be
+`https`, since whoever can rewrite the keys in transit can sign grants; a plain
+`http` URL fails startup unless `KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP` (chart
+`controller.session.admission.jwt.allowHTTP`) allows it, for an in-cluster
+issuer that serves no TLS yet. The admission token
 is a short-lived JWT signed by the installation's workspace issuer (ES256,
 ES384, RS256 or PS256, with a `kid`), whose payload is:
 

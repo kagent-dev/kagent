@@ -160,6 +160,7 @@ jobs:
             --set substrateWorkerPool.sandboxClass=${{ matrix.sandbox_class }}
             --set substrateWorkerPool.workerImage=${{ env.SUBSTRATE_IMAGE_REGISTRY }}/ateom-${{ matrix.sandbox_class }}:${{ env.SUBSTRATE_VERSION }}
             --set controller.session.admission.jwt.jwksURL=http://e2e-grant-jwks.kagent.svc.cluster.local/.well-known/jwks.json
+            --set controller.session.admission.jwt.allowHTTP=true
             --set controller.session.admission.jwt.issuer=https://grant-issuer.e2e.kagent.dev
             --set controller.session.admission.jwt.audience=kagent-e2e
             --set otel.traces.enabled=true

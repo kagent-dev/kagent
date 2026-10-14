@@ -585,9 +585,10 @@ func namespaceCache(names []string) map[string]cache.Config {
 // leaving volume sources refused by surprise.
 func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
 	config := jwtadmission.Config{
-		JWKSURL:  kagentenv.SessionAdmissionJWTJWKSURL.Get(),
-		Issuer:   kagentenv.SessionAdmissionJWTIssuer.Get(),
-		Audience: kagentenv.SessionAdmissionJWTAudience.Get(),
+		JWKSURL:   kagentenv.SessionAdmissionJWTJWKSURL.Get(),
+		AllowHTTP: kagentenv.SessionAdmissionJWTAllowHTTP.Get(),
+		Issuer:    kagentenv.SessionAdmissionJWTIssuer.Get(),
+		Audience:  kagentenv.SessionAdmissionJWTAudience.Get(),
 	}
 	if config.JWKSURL == "" && config.Issuer == "" && config.Audience == "" {
 		return nil, nil
@@ -599,7 +600,7 @@ func sessionVolumeAdmission() (sessionsvc.VolumeAdmission, error) {
 	}
 	admission, err := jwtadmission.New(config, nil)
 	if err != nil {
-		return nil, fmt.Errorf("configure the Session admission (%s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
+		return nil, fmt.Errorf("configure the Session admission (%s, %s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTAllowHTTP.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
 	}
 	return admission, nil
 }

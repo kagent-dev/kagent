@@ -248,8 +248,9 @@ above.
 
 The lane configures the controller's jwt Session admission
 (`controller.session.admission.jwt`): its JWKS at the Service
-`e2e-grant-jwks.kagent.svc.cluster.local`, issuer
-`https://grant-issuer.e2e.kagent.dev`, audience `kagent-e2e`.
+`e2e-grant-jwks.kagent.svc.cluster.local` over plain http (`allowHTTP`, since
+the test host serves no TLS), issuer `https://grant-issuer.e2e.kagent.dev`,
+audience `kagent-e2e`.
 `workspaceGrantSigner` (`workspace_grant_test.go`) is the suite's one signer:
 it serves its JWKS from the test host behind that Service, and
 `workspaceFixture.workspaceGrant` signs a grant admitting the `e2e` caller to

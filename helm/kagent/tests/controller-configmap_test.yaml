@@ -88,6 +88,8 @@ tests:
           path: data.KAGENT_SESSION_ADMISSION_JWT_ISSUER
       - notExists:
           path: data.KAGENT_SESSION_ADMISSION_JWT_AUDIENCE
+      - notExists:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP
 
   - it: renders the jwt Session admission from the values
     set:
@@ -102,7 +104,20 @@ tests:
             KAGENT_SESSION_ADMISSION_JWT_ISSUER: https://workspaces.example.test
             KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: kagent
       - notExists:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP
+      - notExists:
           path: data.KAGENT_SESSION_ADMISSION_JWT_BROKERS
+
+  - it: renders the jwt Session admission's http opt-in
+    set:
+      controller.session.admission.jwt.jwksURL: http://workspace-manager.kagent.svc/.well-known/jwks.json
+      controller.session.admission.jwt.allowHTTP: true
+      controller.session.admission.jwt.issuer: https://workspaces.example.test
+      controller.session.admission.jwt.audience: kagent
+    asserts:
+      - equal:
+          path: data.KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP
+          value: "true"
 
   - it: renders the brokers the jwt Session admission knows
     set:

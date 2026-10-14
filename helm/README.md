@@ -155,6 +155,8 @@ controller:
     admission:
       jwt:
         jwksURL: http://workspace-issuer.kagent.svc/.well-known/jwks.json
+        # The in-cluster issuer serves no TLS yet; drop this once it does.
+        allowHTTP: true
         issuer: https://workspaces.example.com
         audience: kagent
         brokers: [workspaces]
@@ -162,7 +164,10 @@ controller:
 
 The chart renders `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`,
 `KAGENT_SESSION_ADMISSION_JWT_ISSUER` and `KAGENT_SESSION_ADMISSION_JWT_AUDIENCE`;
-all three are set together or not at all. `brokers`
+all three are set together or not at all. The JWKS URL must be `https`:
+whoever can rewrite the keys in transit can sign grants. `allowHTTP`
+(`KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP`) admits a plain `http` URL, for an
+in-cluster issuer that serves no TLS yet. `brokers`
 (`KAGENT_SESSION_ADMISSION_JWT_BROKERS`) names the token brokers the egress
 gateway knows; a grant whose provider names another is refused, and an empty
 list admits any name. Unset, every create that names a

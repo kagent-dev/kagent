@@ -25,6 +25,9 @@ data:
   {{- fail "controller.session.admission.jwt needs jwksURL, issuer and audience together" }}
   {{- end }}
   KAGENT_SESSION_ADMISSION_JWT_JWKS_URL: {{ .jwksURL | quote }}
+  {{- if .allowHTTP }}
+  KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP: "true"
+  {{- end }}
   KAGENT_SESSION_ADMISSION_JWT_ISSUER: {{ .issuer | quote }}
   KAGENT_SESSION_ADMISSION_JWT_AUDIENCE: {{ .audience | quote }}
   {{- with .brokers }}

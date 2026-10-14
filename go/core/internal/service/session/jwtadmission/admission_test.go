@@ -89,7 +89,7 @@ func newTestAdmission(t *testing.T, published ...*grant.Signer) (*Admission, *is
 	t.Helper()
 	keys := &issuerKeys{}
 	keys.publish(published...)
-	server := httptest.NewServer(keys)
+	server := httptest.NewTLSServer(keys)
 	t.Cleanup(server.Close)
 	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience}, server.Client())
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestAnUnreachableJWKSIsUnavailable(t *testing.T) {
 		require.ErrorContains(t, err, "admission grant keys are unavailable")
 	})
 	t.Run("no server", func(t *testing.T) {
-		server := httptest.NewServer(http.NotFoundHandler())
+		server := httptest.NewTLSServer(http.NotFoundHandler())
 		server.Close()
 		admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience}, nil)
 		require.NoError(t, err)
@@ -261,7 +261,7 @@ func TestAnUnreachableJWKSIsUnavailable(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
 		t.Cleanup(server.Close)
 		t.Cleanup(func() { close(release) })
-		admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience}, &http.Client{Timeout: 50 * time.Millisecond})
+		admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, AllowHTTP: true, Issuer: issuer, Audience: audience}, &http.Client{Timeout: 50 * time.Millisecond})
 		require.NoError(t, err)
 		signer := newSigner(t, issuer, audience)
 		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
@@ -297,6 +297,35 @@ func TestNewRefusesAnIncompleteConfig(t *testing.T) {
 	}
 }
 
+// A JWKS fetched over plain http can be swapped in transit, letting anyone on
+// the path sign grants: it is refused unless the configuration allows it.
+func TestNewRequiresHTTPSUnlessHTTPIsAllowed(t *testing.T) {
+	const plain, secure = "http://workspace-issuer.kagent.svc/.well-known/jwks.json", "https://workspace-issuer.kagent.svc/.well-known/jwks.json"
+
+	_, err := New(Config{JWKSURL: plain, Issuer: issuer, Audience: audience}, nil)
+	require.ErrorContains(t, err, "plain http")
+
+	_, err = New(Config{JWKSURL: plain, AllowHTTP: true, Issuer: issuer, Audience: audience}, nil)
+	require.NoError(t, err, "http is admitted with the explicit opt-in")
+
+	_, err = New(Config{JWKSURL: secure, Issuer: issuer, Audience: audience}, nil)
+	require.NoError(t, err)
+}
+
+// A grant verified against keys fetched over plain http is admitted once http
+// is allowed.
+func TestAdmitsOverHTTPWhenAllowed(t *testing.T) {
+	signer := newSigner(t, issuer, audience)
+	keys := &issuerKeys{}
+	keys.publish(signer)
+	server := httptest.NewServer(keys)
+	t.Cleanup(server.Close)
+	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, AllowHTTP: true, Issuer: issuer, Audience: audience}, server.Client())
+	require.NoError(t, err)
+	_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	require.NoError(t, err)
+}
+
 // tamper swaps the grant's payload for another person's, keeping the
 // signature.
 func tamper(t *testing.T, token string) string {
@@ -314,7 +343,7 @@ func TestRefusesAGrantNamingAnUnknownBroker(t *testing.T) {
 	signer := newSigner(t, issuer, audience)
 	keys := &issuerKeys{}
 	keys.publish(signer)
-	server := httptest.NewServer(keys)
+	server := httptest.NewTLSServer(keys)
 	t.Cleanup(server.Close)
 	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, Brokers: []string{"workspaces"}}, server.Client())
 	require.NoError(t, err)

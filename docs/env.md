@@ -161,10 +161,11 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_SANDBOX_MEMORY` | String | `1Gi` | Memory limit for standalone sandbox runtimes. |
 | `KAGENT_SCHEDULED_RUN_EXECUTION_POLL_INTERVAL` | Duration | `1s` | Interval between scheduled execution reconciliation attempts. Must be positive; longer intervals delay dispatch, status updates, deadline enforcement, and cleanup. |
 | `KAGENT_SCHEDULED_RUN_POLL_INTERVAL` | Duration | `1s` | Interval between reserving due scheduled runs. Must be positive; occurrences more than 30 seconds late are skipped. |
+| `KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP` | Boolean | `false` | Allow a plain HTTP KAGENT_SESSION_ADMISSION_JWT_JWKS_URL, for an in-cluster issuer that serves no TLS. HTTPS is required by default. |
 | `KAGENT_SESSION_ADMISSION_JWT_AUDIENCE` | String | `(none)` | Required aud of a Session admission grant: this kagent. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL. |
 | `KAGENT_SESSION_ADMISSION_JWT_BROKERS` | String | `(none)` | Comma-separated names of the token brokers the egress gateway knows; a grant whose provider names another is refused. Empty admits any broker name. |
 | `KAGENT_SESSION_ADMISSION_JWT_ISSUER` | String | `(none)` | Required iss of a Session admission grant. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL. |
-| `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL` | String | `(none)` | URL of the JWKS that verifies the signed grants a Session volume source is admitted with. Empty, with the issuer and audience, configures no admission: every create that names a volume source or carries an admission token is refused. |
+| `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL` | String | `(none)` | HTTPS URL of the JWKS that verifies the signed grants a Session volume source is admitted with. Empty, with the issuer and audience, configures no admission: every create that names a volume source or carries an admission token is refused. |
 | `KAGENT_SESSION_EXPIRATION_POLL_INTERVAL` | Duration | `1m0s` | Interval between the expiration sweeps, which delete idle sessions and expired session shares. Must be positive. |
 | `KAGENT_SESSION_IDLE_TTL` | Duration | `168h0m0s` | Delete sessions after this idle duration. Zero disables expiration; running and waiting tasks are retained. |
 | `KAGENT_SESSION_QUIESCENCE_POLL_INTERVAL` | Duration | `1m0s` | Recovery interval for missed session quiescence wake-ups. Must be positive; committed settlements wake local workers immediately and blocked work retries within one second. |

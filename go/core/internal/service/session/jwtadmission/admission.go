@@ -33,8 +33,12 @@ var signingMethods = []string{
 
 // Config names the grant issuer an installation trusts.
 type Config struct {
-	// JWKSURL is where the issuer publishes its verification keys.
+	// JWKSURL is where the issuer publishes its verification keys: an https
+	// URL, since whoever can rewrite the keys in transit can sign grants.
 	JWKSURL string
+	// AllowHTTP admits a plain http JWKSURL, for an in-cluster issuer that
+	// serves no TLS yet.
+	AllowHTTP bool
 	// Issuer is the grant's required iss.
 	Issuer string
 	// Audience is the grant's required aud: this installation's kagent.
@@ -59,7 +63,10 @@ type Admission struct {
 func New(config Config, client *http.Client) (*Admission, error) {
 	location, err := url.Parse(config.JWKSURL)
 	if err != nil || (location.Scheme != "https" && location.Scheme != "http") || location.Host == "" {
-		return nil, fmt.Errorf("JWKS URL %q is not an absolute http(s) URL", config.JWKSURL)
+		return nil, fmt.Errorf("JWKS URL %q is not an absolute https URL", config.JWKSURL)
+	}
+	if location.Scheme == "http" && !config.AllowHTTP {
+		return nil, fmt.Errorf("JWKS URL %q is plain http: the keys could be replaced in transit; use https, or allow http explicitly", config.JWKSURL)
 	}
 	if config.Issuer == "" || config.Audience == "" {
 		return nil, errors.New("a JWT admission needs an issuer and an audience")
