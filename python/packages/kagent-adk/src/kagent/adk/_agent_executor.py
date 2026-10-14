@@ -54,7 +54,7 @@ from kagent.core.a2a import (
 )
 from pydantic import BaseModel
 
-from ._bearer_token import bearer_token, extract_bearer_token
+from ._bearer_token import bearer_token, extract_passthrough_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from ._request_identity import public_context_id, request_user_id
@@ -302,7 +302,7 @@ class A2aAgentExecutor(AgentExecutor):
         run_request.state_delta = {"headers": headers}
         # Also stash the token in a ContextVar for consumers with no
         # callback_context of their own - see _bearer_token.py.
-        bearer_token.set(extract_bearer_token(headers))
+        bearer_token.set(extract_passthrough_token(headers))
         return run_request
 
     async def _prepare_session(

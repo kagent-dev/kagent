@@ -14,6 +14,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // defaultTimeout is the default execution timeout used by model implementations.
@@ -88,8 +89,17 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
 var BearerTokenKey = &contextKey{}
 
-// PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
+// ModelAPIKeyKey is the context key for the model API key the caller sent in
+// apia2a.ModelAPIKeyHeader. It has its own type: a second pointer to the
+// zero-size contextKey may compare equal to BearerTokenKey.
+var ModelAPIKeyKey = modelAPIKeyKey{}
+
+type modelAPIKeyKey struct{}
+
+// PassthroughToken returns the caller's model API key from ctx when apiKeyPassthrough
 // is enabled, so every model/embedding provider resolves passthrough the same way.
+// A key sent in apia2a.ModelAPIKeyHeader wins over the caller's bearer token: a
+// caller that authenticates with its bearer token sends the model key there.
 // Each caller wraps the returned token in its own SDK's request-option type, since
 // that varies by provider (e.g. Authorization vs Api-Key header).
 //
@@ -99,6 +109,9 @@ var BearerTokenKey = &contextKey{}
 func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
 	if !apiKeyPassthrough {
 		return "", false
+	}
+	if key, ok := ctx.Value(ModelAPIKeyKey).(string); ok && key != "" {
+		return key, true
 	}
 	token, ok = ctx.Value(BearerTokenKey).(string)
 	if !ok || token == "" {
@@ -129,6 +142,20 @@ func BearerFromCallContext(ctx context.Context) string {
 		return parts[1]
 	}
 	return ""
+}
+
+// ModelAPIKeyFromCallContext returns the model API key carried by the A2A call
+// context's apia2a.ModelAPIKeyHeader, or "" when there is none.
+func ModelAPIKeyFromCallContext(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok || callCtx.ServiceParams() == nil {
+		return ""
+	}
+	vals, ok := callCtx.ServiceParams().Get(apia2a.ModelAPIKeyHeader)
+	if !ok || len(vals) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(vals[0])
 }
 
 // BearerTokenFromContext returns the credential the request authenticates with.

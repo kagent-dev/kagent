@@ -1,8 +1,12 @@
 package connection
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/kagent-dev/kagent/go/api/client"
 )
 
 // Flag names are unexported so RegisterFlags and OptionsFromCommand are the
@@ -16,6 +20,8 @@ const (
 	flagVerbose    = "verbose"
 	flagTimeout    = "timeout"
 	flagUserID     = "user-id"
+
+	flagAllowInsecureTokenTransport = "allow-insecure-token-transport"
 )
 
 // RegisterFlags declares the CLI-wide connection flags, defaulted from DefaultOptions.
@@ -29,6 +35,22 @@ func RegisterFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagVerbose, "v", defaults.Verbose, "Verbose output")
 	flags.Duration(flagTimeout, defaults.Timeout, "Timeout")
 	flags.String(flagUserID, defaults.UserID, "Caller identity used to select the server-side data partition")
+}
+
+// RegisterTokenFlags declares the flags that only mean something when the
+// binary has a token provider. The kagent binary has none, so it does not register
+// them, and carries no flag that does nothing.
+func RegisterTokenFlags(flags *pflag.FlagSet) {
+	flags.Bool(flagAllowInsecureTokenTransport, false,
+		"Send the credential to a non-loopback endpoint without TLS, such as a Service address from inside the cluster")
+}
+
+type tokenProviderKey struct{}
+
+// WithTokenProvider makes OptionsFromCommand attach provider to every client
+// built from a command run with ctx.
+func WithTokenProvider(ctx context.Context, provider client.TokenProvider) context.Context {
+	return context.WithValue(ctx, tokenProviderKey{}, provider)
 }
 
 // OptionsFromCommand resolves connection options from the flags a command was
@@ -60,6 +82,14 @@ func OptionsFromCommand(cmd *cobra.Command) (Options, error) {
 	}
 	if options.UserID, err = flags.GetString(flagUserID); err != nil {
 		return Options{}, err
+	}
+	if cmd.Context() != nil {
+		options.TokenProvider, _ = cmd.Context().Value(tokenProviderKey{}).(client.TokenProvider)
+	}
+	if flags.Lookup(flagAllowInsecureTokenTransport) != nil {
+		if options.AllowInsecureTokenTransport, err = flags.GetBool(flagAllowInsecureTokenTransport); err != nil {
+			return Options{}, err
+		}
 	}
 	return options, nil
 }

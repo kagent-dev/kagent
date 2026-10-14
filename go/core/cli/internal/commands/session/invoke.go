@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
@@ -135,7 +136,7 @@ func withModelToken(ctx context.Context, token string) context.Context {
 	if token == "" {
 		return ctx
 	}
-	return a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{"authorization": {"Bearer " + token}})
+	return a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.ModelAPIKeyHeader: {token}})
 }
 
 func readInvokeTask(cfg *InvokeCfg, in io.Reader) (string, error) {
@@ -456,7 +457,7 @@ func NewInvokeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.Task, "task", "t", "", "Task text")
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
-	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
+	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key for an agent whose model sets apiKeyPassthrough")
 	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register a callback before task dispatch; return the task immediately")
 	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
 	_ = cmd.MarkFlagRequired("session")

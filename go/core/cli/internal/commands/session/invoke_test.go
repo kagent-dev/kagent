@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
@@ -25,10 +26,12 @@ var errServiceParamsObserved = errors.New("service parameters observed")
 type serviceParamsObserver struct {
 	a2aclient.PassthroughInterceptor
 	authorization []string
+	modelAPIKey   []string
 }
 
 func (o *serviceParamsObserver) Before(ctx context.Context, request *a2aclient.Request) (context.Context, any, error) {
 	o.authorization = request.ServiceParams.Get("authorization")
+	o.modelAPIKey = request.ServiceParams.Get(apia2a.ModelAPIKeyHeader)
 	return ctx, nil, errServiceParamsObserved
 }
 
@@ -113,7 +116,9 @@ func TestWithModelToken(t *testing.T) {
 	ctx := withModelToken(context.Background(), "model-key")
 	_, err = client.SendMessage(ctx, newInvokeRequest("hello"))
 	require.ErrorIs(t, err, errServiceParamsObserved)
-	assert.Equal(t, []string{"Bearer model-key"}, observer.authorization)
+	assert.Equal(t, []string{"model-key"}, observer.modelAPIKey)
+	// authorization belongs to the caller's credential, never the model key.
+	assert.Empty(t, observer.authorization)
 }
 
 func TestWriteSendResultTable(t *testing.T) {

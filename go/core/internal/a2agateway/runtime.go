@@ -11,11 +11,13 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -103,6 +105,13 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	for key, values := range httpRequest.Header {
 		for _, value := range values {
 			req.ServiceParams.Append(key, value)
+		}
+	}
+	// The model API key is the caller's, not the gateway's: copy it from the
+	// incoming call, after UpstreamAuth, so no authenticator can drop it.
+	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+		if key, ok := callCtx.ServiceParams().Get(apia2a.ModelAPIKeyHeader); ok {
+			req.ServiceParams[apia2a.ModelAPIKeyHeader] = key
 		}
 	}
 	req.ServiceParams["ate-target-actor"] = []string{u.targetActor}

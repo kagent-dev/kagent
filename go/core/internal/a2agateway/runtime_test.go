@@ -9,12 +9,14 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -53,6 +55,9 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
+	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string{
+		apia2a.ModelAPIKeyHeader: {"model-key"},
+	}))
 	client, err := dialer.Dial(ctx, &apiv1alpha1.Session{
 		Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
 	})
@@ -71,6 +76,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 		case md := <-received:
 			require.Equal(t, []string{"team/session-session"}, md.Get("ate-target-actor"))
 			require.Equal(t, []string{"Bearer runtime-test"}, md.Get("authorization"))
+			require.Equal(t, []string{"model-key"}, md.Get(apia2a.ModelAPIKeyHeader))
 			require.Equal(t, []string{listener.Addr().String()}, md.Get(":authority"))
 		case <-ctx.Done():
 			t.Fatal("runtime did not receive both calls")

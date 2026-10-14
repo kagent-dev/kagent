@@ -42,6 +42,10 @@ type Options struct {
 	Verbose    bool
 	Timeout    time.Duration
 	UserID     string
+
+	// TokenProvider, when set, supplies the bearer token for every call.
+	TokenProvider               client.TokenProvider
+	AllowInsecureTokenTransport bool
 }
 
 func DefaultOptions() Options {
@@ -64,6 +68,12 @@ func (o *Options) clientOptions() []client.ClientOption {
 			CAFile:     o.CAFile,
 			ServerName: o.ServerName,
 		}))
+	}
+	if o.TokenProvider != nil {
+		clientOptions = append(clientOptions, client.WithTokenProvider(o.TokenProvider))
+	}
+	if o.AllowInsecureTokenTransport {
+		clientOptions = append(clientOptions, client.WithInsecureTokenTransport())
 	}
 	return clientOptions
 }

@@ -481,8 +481,12 @@ func extractSessionName(message *a2atype.Message) string {
 }
 
 // withBearerToken extracts the Bearer token from the incoming A2A request's
-// Authorization header and stores it in ctx for API key passthrough.
+// Authorization header, and the model API key from its own header, and stores
+// them in ctx for API key passthrough.
 func withBearerToken(ctx context.Context) context.Context {
+	if key := models.ModelAPIKeyFromCallContext(ctx); key != "" {
+		ctx = context.WithValue(ctx, models.ModelAPIKeyKey, key)
+	}
 	token := models.BearerFromCallContext(ctx)
 	if token == "" {
 		return ctx
