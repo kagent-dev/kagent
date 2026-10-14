@@ -83,8 +83,9 @@ Neither controller builds nor compilation perform registry lookups.
 
 For development, `make build` records published runtime digests in
 `build/runtime-images`. Docker uses Buildx metadata; Podman records the digest
-from its push. `make helm-dev` builds the three built-in runtimes and writes an
-ignored catalog into the source chart before packaging. Both
+from its push. `make helm-dev` consumes those existing build outputs and writes an
+ignored catalog into the source chart before packaging. Missing metadata reports
+which images need building; chart preparation and dry runs never build or push images. Both
 `make helm-install-provider` and `make kagent-cli-deploy` use this target, so the
 charts they install contain the local image defaults. Image references follow
 `GOLANG_ADK_IMG`, `CLAUDE_HARNESS_IMG`, and `CODEX_HARNESS_IMG`, including custom
