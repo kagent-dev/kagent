@@ -69,7 +69,9 @@ and database errors use one-second retries. Each pass handles at most 100
 deliveries before registration cleanup; a full batch continues immediately.
 
 Each pending generation permits up to ten attempts, including after controller
-restarts. Failures preparing a notification use the same retry schedule as failed
+restarts. Exhausting the retry budget or expiring the final lease clears pending
+delivery state while retaining the callback registration for future publications.
+Failures preparing a notification use the same retry schedule as failed
 HTTP requests, so a malformed task cannot block unrelated callbacks. A newer
 eligible publication resets its attempt count and retry delay.
 An acknowledgement or failure from an older generation cannot change newer

@@ -235,7 +235,7 @@ func (c *Client) SaveTaskPushConfig(ctx context.Context, sessionID, taskID strin
 			err = execSQL(ctx, tx, `
                 UPDATE session_push_registration SET url = $2,
                     pending_event_sequence = NULL, attempt_count = 0, next_attempt_at = NULL,
-                    claim_token = NULL, lease_until = NULL, last_error = NULL WHERE id = $1
+                    claim_token = NULL, lease_until = NULL WHERE id = $1
             `, row.ID, config.URL)
 		}
 		return err
@@ -301,7 +301,7 @@ func (c *Client) DeleteTaskPushConfig(ctx context.Context, sessionID, taskID, co
 		return execSQL(ctx, tx, `
             UPDATE session_push_registration SET closed_at = clock_timestamp(),
                 pending_event_sequence = NULL, attempt_count = 0, next_attempt_at = NULL,
-                claim_token = NULL, lease_until = NULL, last_error = NULL
+                claim_token = NULL, lease_until = NULL
             WHERE history_id = $1 AND config_id = $3 AND closed_at IS NULL AND task_id = $2
         `, session.HistoryID, taskID, configID)
 	})

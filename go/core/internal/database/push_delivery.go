@@ -35,7 +35,7 @@ func publishPushBoundary(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, ta
 	return execSQL(ctx, tx, `
         UPDATE session_push_registration SET pending_event_sequence = $3,
             attempt_count = 0, next_attempt_at = clock_timestamp(),
-            claim_token = NULL, lease_until = NULL, last_error = NULL
+            claim_token = NULL, lease_until = NULL
         WHERE id IN (SELECT id FROM session_push_registration
             WHERE history_id = $1 AND task_id = $2 AND closed_at IS NULL
             ORDER BY id FOR UPDATE)
@@ -52,7 +52,7 @@ func clearTaskPushDelivery(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, 
 	return execSQL(ctx, tx, `
         UPDATE session_push_registration SET pending_event_sequence = NULL,
             attempt_count = 0, next_attempt_at = NULL,
-            claim_token = NULL, lease_until = NULL, last_error = NULL
+            claim_token = NULL, lease_until = NULL
         WHERE id IN (SELECT id FROM session_push_registration
             WHERE history_id = $1 AND task_id = $2 AND pending_event_sequence IS NOT NULL
             ORDER BY id FOR UPDATE)
@@ -60,7 +60,7 @@ func clearTaskPushDelivery(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, 
 }
 
 // HasPendingPushDelivery includes future retries and leases awaiting recovery.
-// Exhausted unleased generations do not keep workers polling at retry frequency.
+// Exhausted generations are retired and do not keep workers polling.
 func (c *Client) HasPendingPushDelivery(ctx context.Context) (bool, error) {
 	return queryOne(ctx, c.db, `
         SELECT EXISTS (
@@ -68,9 +68,8 @@ func (c *Client) HasPendingPushDelivery(ctx context.Context) (bool, error) {
             JOIN session_record s ON s.history_id = p.history_id
             WHERE p.pending_event_sequence IS NOT NULL AND p.closed_at IS NULL
               AND s.state <> 'RUNTIME_STATE_DELETED'
-              AND (p.attempt_count < $1 OR p.claim_token IS NOT NULL)
         )
-    `, pgx.RowTo[bool], pushMaxDeliveryAttempts)
+    `, pgx.RowTo[bool])
 }
 
 // ClaimDuePushDelivery claims one due or abandoned registration and captures its
@@ -85,8 +84,8 @@ func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error
 		// Recover a worker that died during its last allowed attempt without
 		// issuing an eleventh request. Skip registrations another writer owns.
 		if err := execSQL(ctx, tx, `
-            UPDATE session_push_registration SET claim_token = NULL,
-                lease_until = NULL, last_error = 'delivery lease expired after final attempt'
+            UPDATE session_push_registration SET pending_event_sequence = NULL,
+                attempt_count = 0, next_attempt_at = NULL, claim_token = NULL, lease_until = NULL
             WHERE id IN (SELECT id FROM session_push_registration
                 WHERE claim_token IS NOT NULL AND attempt_count >= $1
                   AND lease_until <= clock_timestamp()
@@ -127,8 +126,8 @@ func (c *Client) ClaimDuePushDelivery(ctx context.Context) (*PushDelivery, error
 		claimToken := uuid.New()
 		if err := execSQL(ctx, tx, `
             UPDATE session_push_registration SET attempt_count = attempt_count + 1,
-                claim_token = $2, lease_until = clock_timestamp() + interval '30 seconds',
-                last_error = NULL WHERE id = $1
+                claim_token = $2, lease_until = clock_timestamp() + interval '30 seconds'
+            WHERE id = $1
         `, candidate.ID, claimToken); err != nil {
 			return err
 		}
@@ -191,12 +190,13 @@ func (c *Client) IsPushDeliveryCurrent(ctx context.Context, delivery PushDeliver
 
 // FinishPushDelivery records only a matching generation and claim. Stale success
 // and failure responses cannot clear newer work or change its retry schedule.
+// Exhausted failures retire pending work without closing the registration.
 func (c *Client) FinishPushDelivery(ctx context.Context, delivery PushDelivery, delivered bool) error {
 	if delivered {
 		return execSQL(ctx, c.db, `
             UPDATE session_push_registration SET pending_event_sequence = NULL,
                 attempt_count = 0, next_attempt_at = NULL,
-                claim_token = NULL, lease_until = NULL, last_error = NULL
+                claim_token = NULL, lease_until = NULL
             WHERE id = $1 AND pending_event_sequence = $2 AND claim_token = $3
         `, delivery.ID, delivery.Sequence, delivery.ClaimToken)
 	}
@@ -204,14 +204,17 @@ func (c *Client) FinishPushDelivery(ctx context.Context, delivery PushDelivery, 
 }
 
 // retryPushDelivery records a matching failed attempt through the pool or the
-// claim transaction. Superseded claims do not change newer work or its backoff.
+// claim transaction, retiring exhausted work while retaining its registration.
+// Superseded claims do not change newer work or its backoff.
 func retryPushDelivery(ctx context.Context, db dbExecutor, delivery PushDelivery) error {
 	return execSQL(ctx, db, `
         UPDATE session_push_registration SET
-            next_attempt_at = CASE WHEN attempt_count >= $4 THEN clock_timestamp()
+            pending_event_sequence = CASE WHEN attempt_count >= $4 THEN NULL ELSE pending_event_sequence END,
+            attempt_count = CASE WHEN attempt_count >= $4 THEN 0 ELSE attempt_count END,
+            next_attempt_at = CASE WHEN attempt_count >= $4 THEN NULL
                 ELSE clock_timestamp() + LEAST(interval '5 minutes',
                     interval '5 seconds' * power(2::double precision, LEAST(attempt_count - 1, 6))) END,
-            claim_token = NULL, lease_until = NULL, last_error = 'delivery failed'
+            claim_token = NULL, lease_until = NULL
         WHERE id = $1 AND pending_event_sequence = $2 AND claim_token = $3
     `, delivery.ID, delivery.Sequence, delivery.ClaimToken, pushMaxDeliveryAttempts)
 }

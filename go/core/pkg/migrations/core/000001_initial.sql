@@ -345,12 +345,11 @@ CREATE TABLE session_push_registration (
     next_attempt_at TIMESTAMPTZ,
     claim_token UUID,
     lease_until TIMESTAMPTZ,
-    last_error TEXT,
     FOREIGN KEY (pending_event_sequence, history_id, task_id)
         REFERENCES session_task_event(sequence, history_id, task_id),
     CHECK (pending_event_sequence IS NULL OR (task_id IS NOT NULL AND closed_at IS NULL)),
     CHECK ((pending_event_sequence IS NULL AND attempt_count = 0 AND next_attempt_at IS NULL
-            AND claim_token IS NULL AND lease_until IS NULL AND last_error IS NULL)
+            AND claim_token IS NULL AND lease_until IS NULL)
         OR (pending_event_sequence IS NOT NULL AND next_attempt_at IS NOT NULL)),
     CHECK ((claim_token IS NULL AND lease_until IS NULL)
         OR (claim_token IS NOT NULL AND lease_until IS NOT NULL AND attempt_count > 0)),

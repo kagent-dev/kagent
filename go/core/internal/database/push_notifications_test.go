@@ -396,11 +396,17 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
 
-	for attempt := 1; attempt <= 10; attempt++ {
+	var final *PushDelivery
+	for attempt := 1; attempt <= pushMaxDeliveryAttempts; attempt++ {
 		delivery, err := client.ClaimDuePushDelivery(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, delivery)
 		require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+		if attempt == pushMaxDeliveryAttempts {
+			final = delivery
+			assertPushDeliveryRetired(t, client, delivery.ID)
+			break
+		}
 
 		var count int
 		var delaySeconds float64
@@ -410,9 +416,6 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
             FROM session_push_registration WHERE id = $1
         `, delivery.ID).Scan(&count, &delaySeconds))
 		require.Equal(t, attempt, count)
-		if attempt == 10 {
-			break
-		}
 		wantSeconds := float64(min(5<<(attempt-1), 300))
 		require.InDelta(t, wantSeconds, delaySeconds, 1)
 		blocked, err := client.ClaimDuePushDelivery(ctx)
@@ -434,6 +437,13 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	next, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, next, "a new publication resets exhausted retries")
+	require.Equal(t, final.ID, next.ID, "exhaustion retains the callback registration")
+	require.NotEqual(t, final.Sequence, next.Sequence)
+	require.NoError(t, client.FinishPushDelivery(ctx, *final, true))
+	require.NoError(t, client.FinishPushDelivery(ctx, *final, false))
+	current, err := client.IsPushDeliveryCurrent(ctx, *next)
+	require.NoError(t, err)
+	require.True(t, current, "an exhausted generation cannot clear newer work")
 	var count int
 	require.NoError(t, client.db.QueryRow(ctx, `SELECT attempt_count FROM session_push_registration WHERE id = $1`, next.ID).Scan(&count))
 	require.Equal(t, 1, count)
@@ -443,7 +453,7 @@ func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-	_, _ = waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
+	session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
 	delivery, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, delivery)
@@ -451,7 +461,7 @@ func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
         UPDATE session_push_registration SET attempt_count = $2,
             lease_until = clock_timestamp() - interval '1 second'
         WHERE id = $1
-    `, delivery.ID, 10))
+    `, delivery.ID, pushMaxDeliveryAttempts))
 
 	blocked, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
@@ -459,18 +469,28 @@ func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 	pending, err := client.HasPendingPushDelivery(ctx)
 	require.NoError(t, err)
 	require.False(t, pending)
-	var lastError string
-	require.NoError(t, client.db.QueryRow(ctx, `
-        SELECT last_error FROM session_push_registration WHERE id = $1
-    `, delivery.ID).Scan(&lastError))
-	require.Equal(t, "delivery lease expired after final attempt", lastError)
+	assertPushDeliveryRetired(t, client, delivery.ID)
 	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
 	current, err := client.IsPushDeliveryCurrent(ctx, *delivery)
 	require.NoError(t, err)
 	require.False(t, current, "late acknowledgement cannot revive an exhausted delivery")
 	blocked, err = client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
+	task.Status.State = a2a.TaskStateCompleted
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task,
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+	next, err := client.ClaimDuePushDelivery(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, next, "expiring the final lease retains the registration for future publications")
+	require.Equal(t, delivery.ID, next.ID)
+	require.NotEqual(t, delivery.Sequence, next.Sequence)
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
+	require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
+	current, err = client.IsPushDeliveryCurrent(ctx, *next)
+	require.NoError(t, err)
+	require.True(t, current, "an expired final claim cannot clear newer work")
 }
 
 func TestPushDeliveryCoalescesPublishedBoundaries(t *testing.T) {
@@ -892,6 +912,10 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			require.NoError(t, err)
 			stored, err := readSessionTask(ctx, client.db, session.HistoryID, string(badTask.ID))
 			require.NoError(t, err)
+			var registrationID uuid.UUID
+			require.NoError(t, client.db.QueryRow(ctx, `
+                SELECT id FROM session_push_registration WHERE history_id = $1 AND config_id = 'bad'
+            `, session.HistoryID).Scan(&registrationID))
 			invalidData := []byte{0xff}
 			if test.change != nil {
 				wire := &a2apb.Task{}
@@ -941,6 +965,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			pending, err := client.HasPendingPushDelivery(ctx)
 			require.NoError(t, err)
 			require.False(t, pending)
+			assertPushDeliveryRetired(t, client, registrationID)
 			// Restore the task and publish a newer state; the callback still works.
 			_, err = client.db.Exec(ctx, `UPDATE session_task SET data = $1 WHERE history_id = $2 AND id = $3`,
 				stored.Data, session.HistoryID, badTask.ID)
@@ -951,8 +976,20 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			delivery, err = client.ClaimDuePushDelivery(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, delivery)
+			require.Equal(t, registrationID, delivery.ID)
 			require.Equal(t, string(badTask.ID), delivery.TaskID)
 			require.Equal(t, a2a.TaskStateCompleted, pushStatusUpdate(t, delivery).Status.State)
 		})
 	}
+}
+
+func assertPushDeliveryRetired(t *testing.T, client *Client, registrationID uuid.UUID) {
+	t.Helper()
+	var retired bool
+	require.NoError(t, client.db.QueryRow(t.Context(), `
+        SELECT pending_event_sequence IS NULL AND attempt_count = 0 AND next_attempt_at IS NULL
+            AND claim_token IS NULL AND lease_until IS NULL AND closed_at IS NULL
+        FROM session_push_registration WHERE id = $1
+    `, registrationID).Scan(&retired))
+	require.True(t, retired, "exhaustion clears delivery state and retains an active registration")
 }
