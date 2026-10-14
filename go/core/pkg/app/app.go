@@ -175,10 +175,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		}
 	}
 	var pushPrivateKey string
-	if cfg.GetGateway().GetPush().GetSigningPrivateKeyFile() != "" {
-		pushPrivateKey, err = config.ReadSecret(cfg.GetGateway().GetPush().GetSigningPrivateKeyFile())
+	if cfg.GetPush().GetSigningPrivateKeyFile() != "" {
+		pushPrivateKey, err = config.ReadSecret(cfg.GetPush().GetSigningPrivateKeyFile())
 		if err != nil {
-			return fmt.Errorf("gateway.push.signingPrivateKeyFile: %w", err)
+			return fmt.Errorf("push.signingPrivateKeyFile: %w", err)
 		}
 	}
 	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
@@ -350,15 +350,15 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetGateway().GetPush().GetAllowHttp())
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
 	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
-		cfg.GetGateway().GetPush().GetAllowHttp(), cfg.GetGateway().GetPush().GetAllowPrivateNetworks())
-	pushIssuer := cfg.GetGateway().GetPush().GetIssuer()
+		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
+	pushIssuer := cfg.GetPush().GetIssuer()
 	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
-	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, cfg.GetGateway().GetPush().GetRecoveryInterval().AsDuration())); err != nil {
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, cfg.GetPush().GetRecoveryInterval().AsDuration())); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())

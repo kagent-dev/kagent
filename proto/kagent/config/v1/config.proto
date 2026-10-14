@@ -111,6 +111,7 @@ message ControllerConfig {
   TelemetryConfig telemetry = 12;
   RuntimeDefaultsConfig runtime_defaults = 13;
   HarnessImagesConfig harness_images = 14;
+  PushConfig push = 15;
 }
 
 // HarnessImagesConfig supplies release defaults for built-in Harnesses. Empty
@@ -228,9 +229,9 @@ message GatewayConfig {
     uri: true
     pattern: "^https?://[^/?#]+"
   }];
-  PushConfig push = 2;
 }
 
+// PushConfig controls callback delivery and authentication in the controller.
 message PushConfig {
   // Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
   string signing_private_key_file = 1;

@@ -83,8 +83,8 @@ database:
   skipMigrations: false
 gateway:
   publicUrl: https://kagent.example.com
-  push:
-    signingPrivateKeyFile: secrets/push-private-key.pem
+push:
+  signingPrivateKeyFile: secrets/push-private-key.pem
 sessions:
   idleTtl: 604800s
 runtimeDefaults:
@@ -100,7 +100,9 @@ after connecting. Set `database.skipMigrations: true` when migrations are applie
 out-of-band; the owner login is then not needed, and startup still verifies,
 through the read/write login, that all required migrations are applied.
 
-Push JWT signing is optional: `gateway.push.signingPrivateKeyFile` names an
+The controller owns callback delivery through the top-level `push` section
+(`config.push` in Helm). Push JWT signing is optional:
+`push.signingPrivateKeyFile` names an
 unencrypted PKCS#8 Ed25519 PEM key when enabled. Helm projects the operator-managed
 Secret selected by `controller.push.signing.secretName`.
 

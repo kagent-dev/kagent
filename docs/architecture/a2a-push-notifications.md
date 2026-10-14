@@ -61,7 +61,7 @@ and claim tokens coordinate delivery across replicas; HTTP runs outside the clai
 transaction.
 
 Workers claim pending registrations at startup and after wake-ups. When idle,
-recovery scans run once a minute by default (`gateway.push.recoveryInterval`, which must be
+recovery scans run once a minute by default (`push.recoveryInterval`, which must be
 positive), also cleaning up unbound registrations. Lost hints, including a crash
 between commit and signaling, can delay delivery until another replica's next
 scan. Outstanding retries and leased deliveries use a five-second polling interval,
@@ -116,7 +116,7 @@ kubectl -n kagent create secret generic push-signing --from-file=private-key.pem
 
 Set `controller.push.signing.secretName: push-signing`. Helm references the
 Secret's `private-key.pem` entry; it does not generate or manage signing keys.
-Outside Helm, set `gateway.push.signingPrivateKeyFile` to the PEM file path.
+Outside Helm, set `push.signingPrivateKeyFile` to the PEM file path.
 Operators manage key persistence and rotation, and all controller replicas must
 load the same key. An invalid configured key prevents startup.
 
@@ -130,16 +130,16 @@ URL, including the query string. Each attempt has a fresh `jti`. Acknowledge
 accepted callbacks promptly with 2xx; use your own A2A credentials to call
 `GetTask`.
 
-Helm chooses the issuer from `config.gateway.push.issuer`,
+Helm chooses the issuer from `config.push.issuer`,
 `ui.externalUrl`, then the in-cluster gateway URL; outside Helm,
-`gateway.push.issuer` defaults to `gateway.publicUrl`. Keep the issuer stable.
+`push.issuer` defaults to `gateway.publicUrl`. Keep the issuer stable.
 Restart all controller Pods together after rotating the key to avoid replicas
 serving different JWKS during rotation.
 
 HTTPS and public destinations are required by default. Operators can enable
 HTTP and private, loopback, or link-local destinations with
-`config.gateway.push.allowHttp` and
-`config.gateway.push.allowPrivateNetworks`. These exceptions are
+`config.push.allowHttp` and
+`config.push.allowPrivateNetworks`. These exceptions are
 needed for some in-cluster test receivers; only enable them for trusted
 networks. The sender checks resolved addresses at connection time and does not
 follow redirects.

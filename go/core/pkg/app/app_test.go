@@ -176,7 +176,7 @@ func TestRunRejectsInvalidConfigBeforeIO(t *testing.T) {
 	cfg.Database.ReadWrite = &configv1.DatabaseLoginConfig{UrlFile: "missing-secret", Role: "kagent_readwrite"}
 	require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "database.owner.url_file")
 	cfg.Database.Owner = &configv1.DatabaseLoginConfig{UrlFile: "missing-secret", Role: "kagent_owner"}
-	cfg.Gateway.Push.SigningPrivateKeyFile = "missing-seed"
+	cfg.Push.SigningPrivateKeyFile = "missing-seed"
 	cfg.Sessions.QuiescenceRecoveryInterval = durationpb.New(0)
 	require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "quiescence_recovery_interval")
 }
@@ -228,7 +228,7 @@ func TestRunRejectsNonpositivePushInterval(t *testing.T) {
 			config.DefaultController(cfg)
 			cfg.Database.ReadWrite = &configv1.DatabaseLoginConfig{UrlFile: "missing-secret", Role: "kagent_readwrite"}
 			cfg.Database.Owner = &configv1.DatabaseLoginConfig{UrlFile: "missing-owner", Role: "kagent_owner"}
-			cfg.Gateway.Push.RecoveryInterval = durationpb.New(input)
+			cfg.Push.RecoveryInterval = durationpb.New(input)
 			require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "recovery_interval")
 		})
 	}

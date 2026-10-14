@@ -42,7 +42,7 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig, allow
 func validatePushURL(raw string, allowHTTP bool) (*url.URL, error) {
 	endpoint, err := url.Parse(raw)
 	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "https" && (endpoint.Scheme != "http" || !allowHTTP)) || endpoint.User != nil || endpoint.Fragment != "" || strings.TrimSpace(raw) != raw {
-		return nil, fmt.Errorf("push URL must be an absolute HTTPS URL without credentials (HTTP requires gateway.push.allowHttp)")
+		return nil, fmt.Errorf("push URL must be an absolute HTTPS URL without credentials (HTTP requires push.allowHttp)")
 	}
 	return endpoint, nil
 }

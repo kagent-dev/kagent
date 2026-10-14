@@ -443,6 +443,7 @@ type ControllerConfig struct {
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,12,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
 	RuntimeDefaults  *RuntimeDefaultsConfig  `protobuf:"bytes,13,opt,name=runtime_defaults,json=runtimeDefaults,proto3" json:"runtime_defaults,omitempty"`
 	HarnessImages    *HarnessImagesConfig    `protobuf:"bytes,14,opt,name=harness_images,json=harnessImages,proto3" json:"harness_images,omitempty"`
+	Push             *PushConfig             `protobuf:"bytes,15,opt,name=push,proto3" json:"push,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -571,6 +572,13 @@ func (x *ControllerConfig) GetRuntimeDefaults() *RuntimeDefaultsConfig {
 func (x *ControllerConfig) GetHarnessImages() *HarnessImagesConfig {
 	if x != nil {
 		return x.HarnessImages
+	}
+	return nil
+}
+
+func (x *ControllerConfig) GetPush() *PushConfig {
+	if x != nil {
+		return x.Push
 	}
 	return nil
 }
@@ -1179,7 +1187,6 @@ func (x *SessionsConfig) GetQuiescenceRecoveryInterval() *durationpb.Duration {
 type GatewayConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublicUrl     *string                `protobuf:"bytes,1,opt,name=public_url,json=publicUrl,proto3,oneof" json:"public_url,omitempty"`
-	Push          *PushConfig            `protobuf:"bytes,2,opt,name=push,proto3" json:"push,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1221,13 +1228,7 @@ func (x *GatewayConfig) GetPublicUrl() string {
 	return ""
 }
 
-func (x *GatewayConfig) GetPush() *PushConfig {
-	if x != nil {
-		return x.Push
-	}
-	return nil
-}
-
+// PushConfig controls callback delivery and authentication in the controller.
 type PushConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
@@ -1924,7 +1925,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\fvalues_files\x18\x03 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\vvaluesFilesB\r\n" +
 	"\v_repositoryB\n" +
 	"\n" +
-	"\b_version\"\xb1\v\n" +
+	"\b_version\"\xe3\v\n" +
 	"\x10ControllerConfig\x12B\n" +
 	"\n" +
 	"kubernetes\x18\x01 \x01(\v2\".kagent.config.v1.KubernetesConfigR\n" +
@@ -1942,7 +1943,8 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\alogging\x18\v \x01(\v2\x1f.kagent.config.v1.LoggingConfigR\alogging\x12?\n" +
 	"\ttelemetry\x18\f \x01(\v2!.kagent.config.v1.TelemetryConfigR\ttelemetry\x12R\n" +
 	"\x10runtime_defaults\x18\r \x01(\v2'.kagent.config.v1.RuntimeDefaultsConfigR\x0fruntimeDefaults\x12L\n" +
-	"\x0eharness_images\x18\x0e \x01(\v2%.kagent.config.v1.HarnessImagesConfigR\rharnessImages:\xd9\x03\xbaH\xd5\x03\x1a\xce\x01\n" +
+	"\x0eharness_images\x18\x0e \x01(\v2%.kagent.config.v1.HarnessImagesConfigR\rharnessImages\x120\n" +
+	"\x04push\x18\x0f \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04push:\xd9\x03\xbaH\xd5\x03\x1a\xce\x01\n" +
 	"\x1econtroller.database_read_write\x12Fdatabase.read_write.url_file and database.read_write.role are required\x1adhas(this.database) && this.database.read_write.url_file != '' && this.database.read_write.role != ''\x1a\x81\x02\n" +
 	"\x19controller.database_owner\x12ddatabase.owner.url_file and database.owner.role are required unless database.skip_migrations is true\x1a~!has(this.database) || this.database.skip_migrations || (this.database.owner.url_file != '' && this.database.owner.role != '')\"\xf0\x01\n" +
 	"\x13HarnessImagesConfig\x12\x18\n" +
@@ -2006,11 +2008,10 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x13expiration_interval\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x12expirationInterval\x12m\n" +
 	"\x1cquiescence_recovery_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x1aquiescenceRecoveryInterval\"\x91\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x1aquiescenceRecoveryInterval\"_\n" +
 	"\rGatewayConfig\x12?\n" +
 	"\n" +
-	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01\x120\n" +
-	"\x04push\x18\x02 \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04pushB\r\n" +
+	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01B\r\n" +
 	"\v_public_url\"\xb9\x02\n" +
 	"\n" +
 	"PushConfig\x127\n" +
@@ -2156,17 +2157,17 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	22, // 20: kagent.config.v1.ControllerConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
 	24, // 21: kagent.config.v1.ControllerConfig.runtime_defaults:type_name -> kagent.config.v1.RuntimeDefaultsConfig
 	7,  // 22: kagent.config.v1.ControllerConfig.harness_images:type_name -> kagent.config.v1.HarnessImagesConfig
-	10, // 23: kagent.config.v1.ControllerServerConfig.auth:type_name -> kagent.config.v1.AuthenticationConfig
-	12, // 24: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
-	12, // 25: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
-	13, // 26: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
-	27, // 27: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
-	27, // 28: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	27, // 29: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	27, // 30: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	27, // 31: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	27, // 32: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	17, // 33: kagent.config.v1.GatewayConfig.push:type_name -> kagent.config.v1.PushConfig
+	17, // 23: kagent.config.v1.ControllerConfig.push:type_name -> kagent.config.v1.PushConfig
+	10, // 24: kagent.config.v1.ControllerServerConfig.auth:type_name -> kagent.config.v1.AuthenticationConfig
+	12, // 25: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
+	12, // 26: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
+	13, // 27: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
+	27, // 28: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
+	27, // 29: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
+	27, // 30: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	27, // 31: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	27, // 32: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	27, // 33: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
 	27, // 34: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
 	27, // 35: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
 	27, // 36: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
