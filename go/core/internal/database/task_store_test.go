@@ -182,7 +182,8 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	require.Equal(t, a2a.TaskStateWorking, public.Status.State)
 	_, err = client.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorIs(t, deleteSession(t.Context(), client, session.Id), ErrFailedPrecondition)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	require.ErrorIs(t, err, ErrFailedPrecondition)
 	_, err = client.ClaimSessionQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound) // The native cleanup callback has not finished.
 	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version))

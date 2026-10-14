@@ -80,6 +80,13 @@ and history in one transaction. Clients can read completion even when runtime
 pause/suspend is slow, unavailable, or has not started. TaskStore performs no
 runtime lifecycle calls and runs no background workers.
 
+Explicit Session deletion can proceed even if a runtime died before acknowledging
+its saved boundary ([#3010](https://github.com/kagent-dev/kagent/issues/3010)).
+It closes task admission and retains the deletion intent until Substrate confirms
+compute deletion. It does not publish the pending boundary or recover the same
+conversation. Existing dispatches, claimed idle work, and checkpoint creation
+still block deletion; a failed backend call leaves deletion pending for retry.
+
 An independent Session lifecycle worker pauses waiting actors or suspends
 terminal ones and records their matching snapshot. A new turn can supersede idle
 work that has not been claimed. Once claimed, pause/suspend blocks new execution,

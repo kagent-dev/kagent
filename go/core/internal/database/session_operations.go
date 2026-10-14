@@ -87,8 +87,29 @@ func beginSessionOperation(ctx context.Context, tx pgx.Tx, row sessionRow, kind 
 // admitAgentLifecycle runs under the same row lock as task and checkpoint
 // admission. Common transitions have no knowledge of these agent-only records.
 func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1.RuntimeOperation) error {
-	if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
-		return err
+	if kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+		if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
+			return err
+		}
+	} else {
+		// https://github.com/kagent-dev/kagent/issues/3010: an unpublished
+		// boundary must not prevent explicit deletion when its runtime died.
+		// Delete closes admission before stopping compute and retains its
+		// durable intent until Substrate confirms deletion. This does not
+		// publish the boundary or authorize reuse of the old conversation.
+		// Claimed controller work still has to finish before deletion starts.
+		pending, err := queryOne(ctx, tx, `
+			SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
+			    AND quiescence_pending AND quiescence_executor_id IS NOT NULL)
+			    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1
+			        AND dispatch_expires_at > clock_timestamp())
+		`, pgx.RowTo[bool], row.HistoryID)
+		if err != nil {
+			return err
+		}
+		if pending {
+			return fmt.Errorf("runtime lifecycle work is not yet settled: %w", ErrFailedPrecondition)
+		}
 	}
 	busy, err := queryOne(ctx, tx, `
   SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
