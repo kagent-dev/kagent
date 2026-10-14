@@ -160,7 +160,7 @@ func TestReconciliationReportsRuntimeValidationAsUnsupported(t *testing.T) {
 					Harnesses: krttest.GetMockCollection[*kagentv1alpha3.Harness](mock), AgentTemplates: krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 					ResolvedModelConfigs: resolvedModels, ConfigMaps: configMaps, Secrets: secrets,
 					RemoteMCPServers: krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock), WorkerPools: krttest.GetMockCollection[*atev1alpha1.WorkerPool](mock),
-				}, krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...), opts, settings, translator.BuiltinImages{},
+				}, krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("Observations")...), opts, settings, nil,
 			)
 			waitFor(t, func() bool { return states.GetKey("team-a/assistant") != nil })
 			state := states.GetKey("team-a/assistant")
