@@ -43,3 +43,7 @@ func (staticSessionWorkflow) RepointQuiesced(_ context.Context, session *apiv1al
 func (staticSessionWorkflow) AwaitRuntime(context.Context, *apiv1alpha1.Session) error {
 	return nil
 }
+
+func (staticSessionWorkflow) RevertCrashed(context.Context, *apiv1alpha1.Session) error {
+	return nil
+}
