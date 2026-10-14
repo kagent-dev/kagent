@@ -203,14 +203,12 @@ done
 
 check="dry-run chart install does not build images"
 PATH="$scratch/bin:$PATH" release -n helm-test-install
-if rg 'docker build|podman build|docker push|podman push' "$scratch/command.log"; then
-  exit 1
-fi
+[[ ! "$(< "$scratch/command.log")" =~ (docker|podman)\ (build|push) ]]
 
 check="development chart preparation reports missing metadata"
 if release helm-dev RUNTIME_IMAGE_METADATA_DIR="$scratch/missing"; then
   exit 1
 fi
-rg -q 'Run make build' "$scratch/command.log"
+[[ "$(< "$scratch/command.log")" == *'Run make build'* ]]
 
 echo 'Release and development chart packaging tests passed.'
