@@ -100,6 +100,15 @@ state. Continue completed work with a new A2A task in the same conversation.
 These guards do not replay prompts or apply approvals after ownership is lost;
 they provide explicit failure, not automatic approval recovery.
 
+If only the DSH subprocess exits while awaiting approval, the surviving adapter
+still owns the pending task and its cleanup confirmation. A later approval or
+rejection ends that task as failed; cancellation ends it as canceled. Once the
+terminal state is published, send a new message without the old task ID in the
+same conversation. The adapter resumes the native session for the new task.
+This does not apply the lost approval or replay the interrupted tool. It requires
+a subsequent request; there is no background task-recovery worker. Losing the
+adapter or the cleanup confirmation still requires the recovery work above.
+
 The local tests verify recovery after a DSH process restart. Cluster acceptance
 also covers conversation and workspace continuity across automatic suspension
 and explicit suspend/resume; Actor replacement and fork remain unverified.
@@ -171,6 +180,12 @@ against a local controller RPC fixture. They check MCP execution, resumed turns,
 runtime identity headers and versioned settlement without provider credentials.
 Separate process tests require DSH and detached tools to exit before settlement
 on normal completion, forced cleanup and cancellation.
+
+A real-DSH fault test kills the process with SIGKILL while a tool awaits approval.
+It checks that allow/reject/cancel can settle the old task after cleanup, a new
+task completes in the same native session and A2A context, and the interrupted
+tool's marker file is never created. The adapter remains alive throughout this
+test; it does not establish recovery after Actor or adapter replacement.
 
 The durable-workspace test creates, reads and edits a file with DSH's built-in
 tools across three fresh adapter instances. It verifies that the native session

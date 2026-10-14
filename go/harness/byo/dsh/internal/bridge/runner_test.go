@@ -74,6 +74,26 @@ func TestPermissionResumeAndCancel(t *testing.T) {
 	}
 }
 
+func TestApprovalAfterConfirmedProcessExitExplainsRecovery(t *testing.T) {
+	runner := testRunner(t, "approval")
+	sink := &recordingSink{}
+	out, err := runner.Run(t.Context(), runtime.Turn{Prompt: "work"}, sink)
+	require.NoError(t, err)
+	p := out.Pending.(*pending)
+	require.NoError(t, p.process.control.Close())
+	select {
+	case <-p.process.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("process cleanup was not confirmed")
+	}
+	out, err = p.Resume(t.Context(), &runtime.ApprovalDecision{ID: p.request.ID, Approved: true}, sink)
+	require.NoError(t, err, "the known process exit is represented by the failed outcome")
+	require.Nil(t, out.Pending)
+	require.NotNil(t, out.Failure)
+	require.Contains(t, out.Failure.Message, "DSH exited while awaiting approval")
+	require.Contains(t, out.Failure.Message, "Send a new message")
+}
+
 func TestActiveCancellationReapsProcessAndAllowsNextTurn(t *testing.T) {
 	r := testRunner(t, "hang")
 	ctx, cancel := context.WithCancel(t.Context())

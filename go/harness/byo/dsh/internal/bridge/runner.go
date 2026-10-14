@@ -309,15 +309,23 @@ var _ runtime.PendingTurn = (*pending)(nil)
 func (p *pending) Request() runtime.InputRequest { return p.request }
 
 func (p *pending) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (out runtime.Outcome, returnErr error) {
+	decision, ok := response.(*runtime.ApprovalDecision)
+	if !ok || decision.ID != p.request.ID {
+		return out, errors.Join(fmt.Errorf("approval decision does not match pending DSH request"), p.process.stop())
+	}
+	select {
+	case <-p.process.done:
+		// done closes only after the supervisor confirms descendant cleanup.
+		// The exit is the failure we report, so preserve cleanup errors without
+		// replacing this actionable outcome with the expected process exit error.
+		return runtime.Outcome{Failure: &runtime.Failure{Message: "DSH exited while awaiting approval. The approval could not be applied. Send a new message in this conversation to continue."}}, p.process.cleanup()
+	default:
+	}
 	defer func() {
 		if out.Pending == nil {
 			returnErr = errors.Join(returnErr, p.process.stop())
 		}
 	}()
-	decision, ok := response.(*runtime.ApprovalDecision)
-	if !ok || decision.ID != p.request.ID {
-		return out, fmt.Errorf("approval decision does not match pending DSH request")
-	}
 	option := p.reject
 	if decision.Approved {
 		option = p.allow
@@ -367,6 +375,13 @@ func (p *process) cancel() error {
 // EOF lets DSH flush persistence. After the grace period, the supervisor kills
 // DSH and reaps all descendants, including tools in separate process groups.
 func (p *process) stop() error {
+	err := p.cleanup()
+	return errors.Join(err, p.waitErr)
+}
+
+// cleanup always waits for confirmed process-tree cleanup. The caller decides
+// whether a nonzero exit is an error or an already classified failed outcome.
+func (p *process) cleanup() error {
 	close(p.wire.done)
 	err := p.stdin.Close()
 	if errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
@@ -387,5 +402,5 @@ func (p *process) stop() error {
 	if p.mcp != nil {
 		err = errors.Join(err, p.mcp.close())
 	}
-	return errors.Join(err, p.waitErr, os.RemoveAll(p.home))
+	return errors.Join(err, os.RemoveAll(p.home))
 }
