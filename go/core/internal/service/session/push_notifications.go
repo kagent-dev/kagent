@@ -66,6 +66,7 @@ type pushStore interface {
 	ExpireUnboundPushRegistrations(context.Context) error
 	ClaimDuePushDelivery(context.Context) (*database.PushDelivery, error)
 	FinishPushDelivery(context.Context, database.PushDelivery, bool) error
+	IsPushDeliveryCurrent(context.Context, database.PushDelivery) (bool, error)
 	HasPendingPushDelivery(context.Context) (bool, error)
 }
 
@@ -73,7 +74,7 @@ type pushSender interface {
 	SendPush(context.Context, *a2a.PushConfig, a2a.Event) error
 }
 
-// PushWorker sends committed outbox payloads on every API replica. PostgreSQL
+// PushWorker sends current published status updates on every API replica. PostgreSQL
 // claims coordinate workers; lease expiry permits recovery after a crash.
 type PushWorker struct {
 	store            pushStore
@@ -145,14 +146,14 @@ func (p *PushWorker) poll(ctx context.Context) (bool, error) {
 		}
 		claimed++
 		if err := p.send(ctx, *delivery); err != nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "push delivery attempt failed", "notification_id", delivery.ID, "error", err)
+			logging.FromContext(ctx).ErrorContext(ctx, "push delivery attempt failed", "registration_id", delivery.ID, "event_sequence", delivery.Sequence, "error", err)
 		}
 	}
 	return claimed == 100, p.store.ExpireUnboundPushRegistrations(ctx)
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {
-	// Use the event and destination captured at publication
+	// Use the published status and destination captured by this claim.
 	wire := &a2apb.StreamResponse{}
 	if err := proto.Unmarshal(delivery.Payload, wire); err != nil {
 		return fmt.Errorf("decode durable notification: %w", err)
@@ -168,6 +169,13 @@ func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) e
 			return fmt.Errorf("sign push notification: %w", err)
 		}
 		config.Auth = &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
+	}
+	current, err := p.store.IsPushDeliveryCurrent(ctx, delivery)
+	if err != nil {
+		return fmt.Errorf("failed to check push registration %s: %w", delivery.ID, err)
+	}
+	if !current {
+		return nil
 	}
 	sendErr := p.sender.SendPush(ctx, config, event)
 	// A failed HTTP attempt remains durable for the store's retry schedule.

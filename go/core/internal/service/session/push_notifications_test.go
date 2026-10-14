@@ -100,6 +100,8 @@ type pushTestStore struct {
 	finished   []bool
 	claimErr   error
 	finishErr  error
+	stale      bool
+	currentErr error
 	expired    int
 }
 
@@ -125,6 +127,10 @@ func (p *pushTestStore) ClaimDuePushDelivery(context.Context) (*database.PushDel
 	p.deliveries = p.deliveries[1:]
 	return &delivery, nil
 }
+func (p *pushTestStore) IsPushDeliveryCurrent(context.Context, database.PushDelivery) (bool, error) {
+	return !p.stale, p.currentErr
+}
+
 func (p *pushTestStore) FinishPushDelivery(_ context.Context, _ database.PushDelivery, delivered bool) error {
 	p.finished = append(p.finished, delivered)
 	return p.finishErr
@@ -170,6 +176,99 @@ func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
 	full, err = worker.poll(t.Context())
 	require.NoError(t, err)
 	require.False(t, full)
+}
+
+func TestPushWorkerChecksClaimBeforeSending(t *testing.T) {
+	wire, err := pbconv.ToProtoStreamResponse(&a2a.TaskStatusUpdateEvent{TaskID: "task", Status: a2a.TaskStatus{State: a2a.TaskStateCompleted}})
+	require.NoError(t, err)
+	payload, err := proto.Marshal(wire)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name  string
+		stale bool
+		err   error
+	}{
+		{name: "superseded", stale: true},
+		{name: "database unavailable", err: errors.New("database unavailable")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &pushTestStore{stale: test.stale, currentErr: test.err}
+			sender := &pushTestSender{}
+			err := NewPushWorker(store, sender, nil, nil, time.Minute).send(t.Context(), database.PushDelivery{Payload: payload})
+			if test.err != nil {
+				require.ErrorIs(t, err, test.err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Zero(t, sender.calls)
+			require.Empty(t, store.finished, "skipping a stale claim must not acknowledge newer work")
+		})
+	}
+}
+
+func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+	require.NoError(t, err)
+	entered := make(chan *a2a.TaskStatusUpdateEvent, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var envelope struct {
+			StatusUpdate *a2a.TaskStatusUpdateEvent `json:"statusUpdate"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil || envelope.StatusUpdate == nil {
+			t.Errorf("invalid push status update: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		entered <- envelope.StatusUpdate
+		if envelope.StatusUpdate.Status.State == a2a.TaskStateInputRequired {
+			<-release
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer receiver.Close()
+	defer unblock()
+	task := &a2a.Task{ID: "task", ContextID: session.ContextId, Status: a2a.TaskStatus{State: a2a.TaskStateWorking}}
+	digest := sha256.Sum256([]byte("create"))
+	version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
+	require.NoError(t, err)
+	require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, string(task.ID), &a2a.PushConfig{ID: "callback", URL: receiver.URL}))
+	task.Status.State = a2a.TaskStateInputRequired
+	digest = sha256.Sum256([]byte("wait"))
+	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
+	require.NoError(t, err)
+	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, time.Minute)
+	done := make(chan error, 1)
+	go func() {
+		_, err := worker.poll(t.Context())
+		done <- err
+	}()
+	select {
+	case update := <-entered:
+		require.Equal(t, a2a.TaskStateInputRequired, update.Status.State)
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiting notification did not start")
+	}
+	task.Status.State = a2a.TaskStateCompleted
+	digest = sha256.Sum256([]byte("complete"))
+	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
+	require.NoError(t, err)
+	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	unblock()
+	select {
+	case update := <-entered:
+		require.Equal(t, a2a.TaskStateCompleted, update.Status.State)
+	case <-time.After(5 * time.Second):
+		t.Fatal("old HTTP acknowledgement cleared the terminal notification")
+	}
+	require.NoError(t, <-done)
+	pending, err := store.HasPendingPushDelivery(t.Context())
+	require.NoError(t, err)
+	require.False(t, pending)
 }
 
 func TestPushWorkerDurableHTTPDelivery(t *testing.T) {

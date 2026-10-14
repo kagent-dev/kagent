@@ -39,40 +39,54 @@ The CLI supports `kagent agent invoke --session SESSION_ID --task TEXT
 SESSION_ID TASK_ID --url URL` and the corresponding get, list, and delete
 commands.
 
-A callback receives future `statusUpdate` events when its task enters
+A callback receives `statusUpdate` notifications after its task enters
 `INPUT_REQUIRED`, `AUTH_REQUIRED`, `COMPLETED`, `FAILED`, `CANCELED`, or
 `REJECTED`. It does not receive earlier states or ordinary progress updates.
-A receiver should call authenticated `GetTask` for the current state and
-artifacts.
+Pending notifications are coalesced: a newer eligible published state replaces
+an older pending notification and its retries. Resuming execution clears an
+obsolete waiting notification without sending a progress notification. A resume
+means the runtime successfully saves an active task state; reserving dispatch or
+saving input while still waiting does not clear the notice. Task event history
+is retained. Creating or changing a callback does not replay an earlier state.
 
 ## Delivery
 
-Kagent queues eligible updates in the same database transaction that publishes
-the task state. Each API replica runs a sender, woken through its own buffered,
+Each callback registration holds at most one pending notification. Kagent
+replaces that pending state in the same database transaction that publishes the
+task state, and clears waiting notifications atomically with active task saves.
+Each API replica runs a sender, woken through its own buffered,
 nonblocking channel after settlement commits. Push and quiescence have separate
 channels so neither consumes the other's hint. PostgreSQL row claims, leases,
 and claim tokens coordinate delivery across replicas; HTTP runs outside the claim
 transaction.
 
-Workers drain the shared outbox at startup and after wake-ups. When idle, recovery
-scans run once a minute by default (`gateway.push.recoveryInterval`, which must be
+Workers claim pending registrations at startup and after wake-ups. When idle,
+recovery scans run once a minute by default (`gateway.push.recoveryInterval`, which must be
 positive), also cleaning up unbound registrations. Lost hints, including a crash
 between commit and signaling, can delay delivery until another replica's next
 scan. Outstanding retries and leased deliveries use a five-second polling interval,
 and database errors use one-second retries. Each pass handles at most 100
 deliveries before registration cleanup; a full batch continues immediately.
 
-Failed attempts retry up to ten times, including after controller
-restarts. Requests can arrive more than once or out of order, so receivers
+Each pending generation permits up to ten attempts, including after controller
+restarts. Failures preparing a notification use the same retry schedule as failed
+HTTP requests, so a malformed task cannot block unrelated callbacks. A newer
+eligible publication resets its attempt count and retry delay.
+An acknowledgement or failure from an older generation cannot change newer
+pending work. Workers capture the latest published task status when claiming and
+check that the claim is still current immediately before sending. Requests
+already in flight can become stale when execution resumes or a newer state is
+published.
+Requests can arrive more than once or out of order, so receivers
 should handle duplicates and use `GetTask` as the source of truth. Any 2xx
 response acknowledges delivery. Redirects are treated as failures; register
 the final callback URL. Kagent does not expose delivery status.
 
-Kagent sends a JSON A2A `statusUpdate` for `INPUT_REQUIRED`, `AUTH_REQUIRED`, or
-a terminal state (`COMPLETED`, `FAILED`, `CANCELED`, or `REJECTED`). The update
-contains the task ID and status; it may contain a status message. Treat it as a
-signal to call authenticated `GetTask` for the current result and artifacts.
-Ordinary progress updates do not trigger callbacks.
+Kagent sends a JSON A2A `StreamResponse` containing a `statusUpdate` with the
+task ID, context ID, and latest published status, including any status message.
+Unpublished waiting or terminal states are withheld until native cleanup settles
+them. Ordinary progress updates do not trigger callbacks. Call authenticated
+`GetTask` for the current state, artifacts, and message history.
 
 For example, the webhook receives this JSON body when a task completes:
 
