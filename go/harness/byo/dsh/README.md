@@ -68,6 +68,9 @@ As a temporary DSH-only mitigation, cancellation with no live execution owner
 returns an explicit `TASK_NOT_CANCELABLE` error instead of waiting indefinitely.
 It leaves the stored task unchanged; it does not certify cleanup or unblock the
 session's lifecycle operations.
+[kagent #3011](https://github.com/kagent-dev/kagent/pull/3011) addresses the shared
+executor's empty cancel response. Its missing-owner cancellation does not confirm
+DSH descendant cleanup, so merging it alone is not sufficient to remove this guard.
 Uninterruptible kernel I/O can also delay cleanup. This is
 not a guarantee against simultaneous process kills or malicious same-UID tools.
 
@@ -93,6 +96,10 @@ from a DATA-only snapshot or process replacement. The shared durable-input work
 in [kagent #3165](https://github.com/kagent-dev/kagent/pull/3165) is a migration
 dependency, but DSH must also support resuming the exact pending call without
 replaying a tool before this adapter can adopt that recovery path.
+In DSH 0.2.0-rc.2, native session resume closes the interrupted call with an
+unknown-outcome tool result. The approval audit log does not reconstruct the
+execution point or the ACP permission response. Saving its request ID and
+reissuing the original prompt would therefore not implement approval recovery.
 Until then, the DSH adapter accepts a send referencing an existing task only
 when that task owns the live pending approval. It rejects both approval decisions
 and plain replies to a lost task before the SDK appends history or changes task
@@ -186,6 +193,12 @@ It checks that allow/reject/cancel can settle the old task after cleanup, a new
 task completes in the same native session and A2A context, and the interrupted
 tool's marker file is never created. The adapter remains alive throughout this
 test; it does not establish recovery after Actor or adapter replacement.
+
+`TestRealDSHRestartClosesPendingCallWithoutReplay` reconstructs the runner from
+the durable directory after terminating DSH without a permission response. It
+checks that native resume records an unknown outcome for the original call and
+does not execute its command. This is a regression check for safe interruption;
+it is not a passing test for durable approval continuation.
 
 The durable-workspace test creates, reads and edits a file with DSH's built-in
 tools across three fresh adapter instances. It verifies that the native session

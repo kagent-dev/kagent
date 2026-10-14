@@ -38,6 +38,10 @@ func NewExecutor(runner *Runner, store runtimea2a.ContinuationStore, telemetry t
 // append can settle a stored input-required task before Executor.Execute runs.
 // TODO: replace this rejection with exact pending-call recovery once
 // https://github.com/kagent-dev/kagent/pull/3165 and DSH support that contract.
+// Adoption requires restoring the native execution point, not just the session
+// ID: DSH 0.2.0-rc.2 closes interrupted calls with an unknown-outcome result on
+// resume. Decisions must be bound to that saved call, and execution with an
+// uncommitted result must not be replayed automatically.
 func (e *Executor) Before(ctx context.Context, _ *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
 	if send, ok := request.Payload.(*a2atype.SendMessageRequest); ok && send.Message != nil {
 		message := send.Message
@@ -55,6 +59,10 @@ func (e *Executor) Before(ctx context.Context, _ *a2asrv.CallContext, request *a
 // CANCELED: an absent owner is not proof that its tools have stopped.
 // TODO: adopt fenced task recovery from
 // https://github.com/kagent-dev/kagent/issues/3010 when it becomes available.
+// https://github.com/kagent-dev/kagent/pull/3011 addresses the empty cancel
+// iterator, but its missing-owner CANCELED result does not establish cleanup of
+// DSH descendants. Remove this guard only when the shared path confirms that
+// cleanup, including an unreachable/replaced Actor and unpublished boundaries.
 func (e *Executor) Cancel(ctx context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		emitted := false
