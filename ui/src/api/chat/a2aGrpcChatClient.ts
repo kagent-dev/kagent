@@ -47,6 +47,7 @@
 
 import { create, toJson, type JsonObject } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   A2AService,
   MessageSchema,
@@ -97,6 +98,24 @@ const SHARE_HEADER = "X-Share-Token";
  * which would otherwise spin here with the page stuck on a spinner.
  */
 const HISTORY_PAGE_LIMIT = 50;
+
+/** Consecutive broken streams, with no frame in between, before a turn is given up. */
+const REATTACH_LIMIT = 3;
+
+type StreamFrame = { payload: { case?: string; value?: unknown } };
+
+/**
+ * Whether an error is the connection failing rather than the server answering.
+ *
+ * A proxy closing a quiet stream reaches the browser as a bare `network error` or
+ * a body that ends without its trailer — both `Unknown` — or as an HTTP 502/503/504,
+ * which is `Unavailable`. Anything the controller decided (a refusal, a missing
+ * permission) arrives with its own code and is not retried.
+ */
+function isBrokenTransport(error: unknown): boolean {
+  const { code } = ConnectError.from(error);
+  return code === Code.Unknown || code === Code.Unavailable;
+}
 
 /** Ids for the messages the wire did not name. */
 let counter = 0;
@@ -528,19 +547,56 @@ export class A2AGrpcChatClient implements ChatClient {
      */
     const artifacts = new Map<string, string>();
 
-    let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
+    const options = this.callOptions(conversation, signal);
+    let stream: AsyncIterable<StreamFrame>;
     try {
-      stream = client.sendStreamingMessage(
-        request,
-        this.callOptions(conversation, signal),
-      );
+      stream = client.sendStreamingMessage(request, options);
     } catch (error) {
       rethrowIfAborted(error, signal);
       throw fromConnectError(error, "A2AService/SendStreamingMessage");
     }
 
+    /*
+     * The turn's frames, followed past a broken stream.
+     *
+     * A proxy between the browser and the controller may close a stream that has
+     * been quiet for a while — a model reading a long prompt sends nothing for
+     * minutes. The task keeps running on the server, so once the stream has named
+     * its task, losing the connection is not a failed turn: the task is re-attached
+     * with `SubscribeToTask`, which is read-only and returns the stored task once it
+     * has finished. The message itself is never sent twice.
+     */
+    let taskId = "";
+    let settled = false;
+    const follow = async function* (): AsyncGenerator<StreamFrame> {
+      let source = stream;
+      for (let failures = 0; ; ) {
+        try {
+          for await (const frame of source) {
+            failures = 0;
+            const event = frame.payload.value as
+              | { id?: string; taskId?: string; status?: TaskStatus }
+              | undefined;
+            const id = frame.payload.case === "task" ? event?.id : event?.taskId;
+            if (id) taskId = id;
+            if (event?.status) {
+              settled = !["working", "submitted"].includes(turnState(event.status.state));
+            }
+            yield frame;
+          }
+          return;
+        } catch (error) {
+          failures += 1;
+          const reattach = !signal?.aborted && taskId !== "" && !settled
+            && failures <= REATTACH_LIMIT && isBrokenTransport(error);
+          if (!reattach) throw error;
+          source = client.subscribeToTask({ tenant: conversation.agent, id: taskId }, options);
+        }
+      }
+    };
+
     try {
-      for await (const frame of stream) {
+      for await (const frame of follow()) {
         const payload = frame.payload;
 
         if (payload.case === "statusUpdate") {

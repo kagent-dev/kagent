@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { createRouterTransport } from "@connectrpc/connect";
+import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
 import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
@@ -1559,5 +1559,104 @@ describe("A2AGrpcChatClient files", () => {
         url: "https://files.example/out/report.pdf?sig=abc",
       },
     ]);
+  });
+});
+
+/**
+ * A stream cut by something between the browser and the controller.
+ *
+ * Measured behind a proxy that closes streams after 60 s without data: the model
+ * read a long prompt silently, the browser saw `network error`, and the turn was
+ * shown as failed while the task finished on the server.
+ */
+describe("A2AGrpcChatClient.send, when the stream breaks", () => {
+  const completed = {
+    payload: {
+      case: "task" as const,
+      value: {
+        id: "task-1",
+        contextId: CONVERSATION.contextId,
+        status: { state: TaskState.COMPLETED },
+        artifacts: [{ artifactId: "answer", parts: [text("checkout is out of memory")] }],
+      },
+    },
+  };
+
+  async function run(
+    broken: () => AsyncGenerator<unknown>,
+    subscribe: () => AsyncGenerator<unknown> = async function* () {},
+  ) {
+    const subscribed: unknown[] = [];
+    serve(({ service }) => {
+      service(A2AService, {
+        sendStreamingMessage: broken as never,
+        subscribeToTask: async function* (request) {
+          subscribed.push({ tenant: request.tenant, id: request.id });
+          for await (const frame of subscribe()) yield frame as never;
+        },
+      });
+    });
+    const events: ChatEvent[] = [];
+    let error: unknown;
+    try {
+      for await (const event of new A2AGrpcChatClient().send({
+        conversation: CONVERSATION,
+        text: "why is checkout crashlooping?",
+      })) {
+        events.push(event);
+      }
+    } catch (cause) {
+      error = cause;
+    }
+    return { events, error, subscribed };
+  }
+
+  it("follows the task it already named instead of failing the turn", async () => {
+    const { events, error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw new ConnectError("network error", Code.Unknown);
+      },
+      async function* () {
+        yield completed;
+      },
+    );
+    expect(error).toBeUndefined();
+    expect(subscribed).toEqual([{ tenant: CONVERSATION.agent, id: "task-1" }]);
+    expect(events.at(-1)).toMatchObject({ type: "status", state: "completed", taskId: "task-1" });
+    expect(transcript(events).map(textOf)).toContain("checkout is out of memory");
+  });
+
+  it("does not re-attach before the stream has named a task", async () => {
+    const { error, subscribed } = await run(async function* () {
+      yield* [];
+      throw new ConnectError("network error", Code.Unknown);
+    });
+    expect(error).toBeDefined();
+    expect(subscribed).toEqual([]);
+  });
+
+  it("surfaces an error the controller decided", async () => {
+    const { error, subscribed } = await run(async function* () {
+      yield statusFrame({});
+      throw new ConnectError("dispatch busy", Code.FailedPrecondition);
+    });
+    expect(error).toMatchObject({ message: "dispatch busy" });
+    expect(subscribed).toEqual([]);
+  });
+
+  it("gives up after repeated breaks with nothing in between", async () => {
+    const { error, subscribed } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw new ConnectError("network error", Code.Unknown);
+      },
+      async function* () {
+        yield* [];
+        throw new ConnectError("network error", Code.Unavailable);
+      },
+    );
+    expect(error).toBeDefined();
+    expect(subscribed).toHaveLength(3);
   });
 });
