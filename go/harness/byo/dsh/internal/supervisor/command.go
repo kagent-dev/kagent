@@ -1,4 +1,10 @@
 // Package supervisor owns one DSH process tree, including detached tools.
+//
+// TODO: adopt shared turn-process ownership after
+// https://github.com/kagent-dev/kagent/pull/3131 (built on PR #3006) lands and
+// exposes an owner usable by native harnesses. Keep the local supervisor until
+// that owner also reaps descendants that leave their process group and confirms
+// cleanup after supervisor death; tracking process groups alone is insufficient.
 package supervisor
 
 import (
@@ -72,7 +78,11 @@ func (p *Process) Wait() error {
 	_ = p.completion.Close()
 	if readErr != nil || confirmation[0] != cleanupComplete {
 		// Both supervisors were lost, or the private protocol broke. Keep the
-		// task unsettled: only replacing the Actor can restore containment.
+		// task unsettled: replacing the Actor restores process containment, but
+		// does not itself reconcile the controller's task state.
+		// TODO: use controller-owned fencing and task recovery once
+		// https://github.com/kagent-dev/kagent/issues/3010 is resolved with that
+		// contract. Never turn missing cleanup proof into local task completion.
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("dsh cleanup could not be confirmed; actor replacement required", "error", readErr)
 		// A bare select would let Go's deadlock detector terminate a check-only
 		// process with no server goroutines. Keep this failure closed there too.

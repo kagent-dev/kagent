@@ -291,6 +291,12 @@ type permissionOutcome struct {
 	OptionID string `json:"optionId,omitempty"`
 }
 
+// pending retains a live ACP request and requires memory-preserving suspension.
+// TODO: adapt to the shared durable-input contract when
+// https://github.com/kagent-dev/kagent/pull/3165 lands. Migration also requires a
+// DSH-supported way to resume the exact pending call after process replacement,
+// without replaying a possibly executed tool. A persisted session ID alone cannot
+// replace this live request; do not enable DATA-only approval recovery by itself.
 type pending struct {
 	process       *process
 	id            json.RawMessage

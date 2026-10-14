@@ -141,6 +141,11 @@ func (p *mcpProxy) close() error {
 	return err
 }
 
+// TODO: align with the shared origin/credential policy after
+// https://github.com/kagent-dev/kagent/pull/3177 lands. Replace this local guard
+// only when a shared client policy prevents binding headers from being sent to
+// another origin on redirects and SDK-generated requests. Gateway destination
+// grants alone do not provide that client-side guarantee.
 type headerTransport struct {
 	base      http.RoundTripper
 	origin    *url.URL

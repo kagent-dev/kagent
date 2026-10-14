@@ -59,8 +59,11 @@ The adapter waits for an explicit cleanup confirmation before releasing the turn
 process exit or closed output pipes alone are insufficient.
 
 During payload execution, this tolerates the loss of either supervisor. If neither
-can confirm cleanup, for example after losing both, replacing the Actor is
-required: the adapter logs the failure and leaves the task unsettled.
+can confirm cleanup, for example after losing both, the adapter logs the failure
+and leaves the task unsettled. Replacing the Actor restores process containment;
+it does not reconcile the controller's outstanding task. Recovery also needs
+controller-owned fencing and task reconciliation, tracked in
+[kagent #3010](https://github.com/kagent-dev/kagent/issues/3010).
 Uninterruptible kernel I/O can also delay cleanup. This is
 not a guarantee against simultaneous process kills or malicious same-UID tools.
 
@@ -80,6 +83,12 @@ logs and storage live under `/data/dsh`, and the workspace is `/data/workspace`.
 The CLI profile and compiled overlay use a disposable home outside `/data`.
 Do not delete the native session logs while retaining the continuation binding.
 Public tasks and history remain in kagent's controller-backed TaskStore.
+
+Pending approvals also need the live ACP process. They cannot currently recover
+from a DATA-only snapshot or process replacement. The shared durable-input work
+in [kagent #3165](https://github.com/kagent-dev/kagent/pull/3165) is a migration
+dependency, but DSH must also support resuming the exact pending call without
+replaying a tool before this adapter can adopt that recovery path.
 
 The local tests verify recovery after a DSH process restart. Cluster acceptance
 also covers conversation and workspace continuity across automatic suspension
