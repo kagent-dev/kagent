@@ -203,19 +203,12 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 		if err != nil {
 			return codexconfig.Provider{}, nil, nil, err
 		}
-		environment := []corev1.EnvVar{{Name: awsRegionEnv, Value: region}}
-		if len(secret.Data[awsBedrockTokenEnv]) != 0 {
-			environment = append(environment, secretEnvironment(awsBedrockTokenEnv, secret.Name, awsBedrockTokenEnv))
-		} else {
-			for _, key := range []string{awsAccessKeyEnv, awsSecretKeyEnv} {
-				if len(secret.Data[key]) == 0 {
-					return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock Secret %q requires %s and %s, or %s", secret.Name, awsAccessKeyEnv, awsSecretKeyEnv, awsBedrockTokenEnv)
-				}
-				environment = append(environment, secretEnvironment(key, secret.Name, key))
-			}
-			if len(secret.Data[awsSessionTokenEnv]) != 0 {
-				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
-			}
+		if len(secret.Data[awsBedrockTokenEnv]) == 0 {
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock Secret %q requires %s; AWS IAM keys are not supported because they cannot be injected as outbound HTTP headers", secret.Name, awsBedrockTokenEnv)
+		}
+		environment := []corev1.EnvVar{
+			{Name: awsRegionEnv, Value: region},
+			secretEnvironment(awsBedrockTokenEnv, secret.Name, awsBedrockTokenEnv),
 		}
 		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"https://bedrock-runtime." + region + ".amazonaws.com:443"}, nil
 	default:

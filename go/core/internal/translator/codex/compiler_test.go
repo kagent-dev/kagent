@@ -48,7 +48,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
-			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, wantErr: "cannot use gateway header injection",
+			secret: map[string][]byte{awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte(credentialValue), awsSessionTokenEnv: []byte("session")}, wantErr: "AWS IAM keys are not supported",
 		},
 	}
 	for _, test := range tests {
