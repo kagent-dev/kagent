@@ -268,7 +268,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 				functionCalls = append(functionCalls, part.FunctionCall)
 			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
 				imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{
-					URL: fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data)),
+					URL: dataURL(part.InlineData.MIMEType, part.InlineData.Data),
 				})
 			}
 		}
@@ -545,4 +545,9 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}
+}
+
+// dataURL is data as a base64 data: URL of the given media type.
+func dataURL(mimeType string, data []byte) string {
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data))
 }

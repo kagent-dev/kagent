@@ -67,7 +67,7 @@ export function isAllowedFile(file: Pick<File, "name" | "type">): boolean {
  */
 export class LinkFile extends File {
   constructor(readonly url: string) {
-    super([], fileNameFromUrl(url), { type: linkMediaType(url) });
+    super([], fileNameFromUrl(url));
   }
 }
 
@@ -83,7 +83,8 @@ const markdown = unified().use(remarkParse).use(remarkGfm);
 export function textLinks(text: string): string[] {
   const links = new Set<string>();
   visit(markdown.parse(text), "link", ({ url }) => {
-    if (text.includes(url) && isHttpUrl(url) && !["", "text/html"].includes(linkMediaType(url))) {
+    const type = TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))];
+    if (text.includes(url) && isHttpUrl(url) && type && type !== "text/html") {
       links.add(url);
     }
   });
@@ -97,14 +98,6 @@ export function isHttpUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * The media type sent with a link part, by the path's extension, since the browser
- * cannot read another origin's Content-Type. "" for no known extension.
- */
-function linkMediaType(url: string): string {
-  return TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))] ?? "";
 }
 
 // Last path segment, so a query string or fragment never becomes the name.

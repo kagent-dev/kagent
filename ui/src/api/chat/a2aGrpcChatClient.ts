@@ -447,7 +447,7 @@ export class A2AGrpcChatClient implements ChatClient {
             ? { case: "url" as const, value: file.url }
             : { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
         filename: file.name,
-        mediaType: file instanceof LinkFile ? file.type : mediaTypeOf(file),
+        mediaType: mediaTypeOf(file),
       })),
     );
 

@@ -48,17 +48,6 @@ func providerAccepts(llm model.LLM, p *genai.Part) bool {
 	return google && p.FileData != nil
 }
 
-// NewestUserTurn is the index of the last user content, or -1. Only a file there
-// may fail the request: one in replayed history would fail every later turn.
-func NewestUserTurn(contents []*genai.Content) int {
-	for i, c := range slices.Backward(contents) {
-		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
-			return i
-		}
-	}
-	return -1
-}
-
 // FilenameMetadataKey is the PartMetadata key the A2A converter stores a file's name under.
 const FilenameMetadataKey = "kagent_filename"
 
