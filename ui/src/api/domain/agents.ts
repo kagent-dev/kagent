@@ -8,6 +8,8 @@ export type AgentSpec =
   ({ harness: HarnessSpec; harnessRef?: never } | { harnessRef: { name: string }; harness?: never }) & {
     /** HTTP(S) origins the Agent may reach besides what its revision compiles. */
     egress?: string[];
+    /** EgressPolicies in the Agent's namespace that grant additional access. */
+    egressPolicyRefs?: { name: string }[];
   };
 /** One condition the controller recorded for an Agent. */
 export interface AgentCondition {

@@ -42,7 +42,7 @@ func (s *Service) run(ctx context.Context, id string, kind apiv1alpha1.RuntimeOp
 		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := substrate.ActorEgressPolicy(binding.Atespace, nil, nil)
+		policy, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
 		if err != nil {
 			return nil, sandboxError(err)
 		}

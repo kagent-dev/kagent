@@ -156,6 +156,7 @@ func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespa
 // +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
 type ValueRef struct {
 	// +required
+	// +kubebuilder:validation:MaxLength=256
 	Name string `json:"name"`
 	// +optional
 	Value string `json:"value,omitempty"`

@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
@@ -284,4 +285,26 @@ func TestSandboxConflictingRequestCanRetryAfterActiveAttempt(t *testing.T) {
 	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, current.State)
 	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
 	require.Equal(t, []string{"create", "policy", "resume", "suspend", "resume"}, actors.observedCalls())
+}
+
+func TestSandboxInstallsPinnedGrantBeforeResume(t *testing.T) {
+	service, ctx, actors := serviceFixture(t)
+	revision := database.SandboxRevision{
+		RuntimeArtifact:     database.RuntimeArtifact{Revision: "policy-revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "policy-runtime", ActorTemplateUID: "policy-runtime-uid"},
+		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
+		EgressDestinations: []string{"https://tickets.example.com:443"},
+		Credentials:        []egress.Credential{{Hostname: "tickets.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/ticket-auth/token"}},
+	}
+	store := service.config.Store
+	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision}))
+	require.NoError(t, store.RecordSandboxRevision(ctx, revision, true))
+	instance, err := service.Create(ctx, createRequest())
+	require.NoError(t, err)
+	require.Equal(t, revision.Revision, instance.PreparedRevision)
+	expected, err := substrate.ActorEgressPolicy("team-a", revision.EgressDestinations, revision.Credentials)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(expected, actors.egressPolicy))
+	calls := actors.observedCalls()
+	require.Less(t, slices.Index(calls, "policy"), slices.Index(calls, "resume"))
+	require.Contains(t, calls, "policy")
 }

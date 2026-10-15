@@ -4,6 +4,7 @@
 package v1alpha3
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -37,7 +38,19 @@ type SandboxTemplateSpec struct {
 	// resolved in this template's namespace.
 	// +required
 	Substrate RuntimeSubstratePolicy `json:"substrate"`
+
+	// EgressPolicyRefs grants additional access in this template's namespace.
+	// Each sandbox retains the access pinned by its prepared revision.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(ref, has(ref.name) && ref.name != '')",message="egressPolicyRefs requires non-empty names"
+	// +listType=map
+	// +listMapKey=name
+	EgressPolicyRefs []corev1.LocalObjectReference `json:"egressPolicyRefs,omitempty"`
 }
+
+// SandboxTemplateReasonEgressPolicyResolutionFailed identifies an unresolved or invalid egress grant.
+const SandboxTemplateReasonEgressPolicyResolutionFailed = "EgressPolicyResolutionFailed"
 
 // SandboxTemplateStatus reports preparation of the current template inputs.
 type SandboxTemplateStatus struct {

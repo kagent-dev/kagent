@@ -142,7 +142,16 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
+          value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+        template: rbac/getter-role.yaml
+      - equal:
+          path: rules[0].verbs
+          value: [get, list, watch]
+        template: rbac/getter-role.yaml
+      - equal:
+          path: rules[0].resources
           value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+        template: rbac/writer-role.yaml
       - equal:
           path: rules[1].apiGroups
           value: [kagent.dev]
@@ -162,7 +171,16 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
+          value: [harnesses, agents, egresspolicies, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+        template: rbac/getter-role.yaml
+      - equal:
+          path: rules[0].verbs
+          value: [get, list, watch]
+        template: rbac/getter-role.yaml
+      - equal:
+          path: rules[0].resources
           value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+        template: rbac/writer-role.yaml
       - equal:
           path: rules[1].apiGroups
           value: [kagent.dev]

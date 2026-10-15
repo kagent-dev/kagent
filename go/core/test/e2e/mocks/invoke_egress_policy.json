@@ -1,0 +1,66 @@
+{
+  "openai": [
+    {
+      "name": "call_ticket_api",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "Call the ticket API.", "role": "user" }
+      },
+      "response": {
+        "id": "chatcmpl-egress-policy-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_tickets",
+                  "type": "function",
+                  "function": { "name": "bash", "arguments": "{\"command\": \"git -c http.extraHeader='Authorization: Bearer kagent-credential-injected' ls-remote TICKET_REPOSITORY_URL main >/dev/null 2>&1 && echo TICKETS_$((40+2)) || echo TICKETS_REFUSED\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ticket_api_authorized",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "TICKETS_42", "role": "tool", "tool_call_id": "call_tickets" }
+      },
+      "response": {
+        "id": "chatcmpl-egress-policy-2",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "TICKET_API_AUTHORIZED" } }
+        ]
+      }
+    },
+    {
+      "name": "ticket_api_refused",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "TICKETS_REFUSED", "role": "tool", "tool_call_id": "call_tickets" }
+      },
+      "response": {
+        "id": "chatcmpl-egress-policy-3",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          { "index": 0, "role": "assistant", "message": { "content": "TICKET_API_REFUSED" } }
+        ]
+      }
+    }
+  ]
+}

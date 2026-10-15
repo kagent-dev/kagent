@@ -48,7 +48,13 @@ type RemoteMCPServerSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	URL string `json:"url"`
+	// HeadersFrom supplies request headers. Secret-backed headers are injected by
+	// the egress gateway and cannot use routing, framing, hop-by-hop,
+	// proxy-authentication, or Cookie headers. At most 64 headers may be supplied.
 	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || self.name.matches('^[!#$%&\\\\x27*+.^_`|~0-9A-Za-z-]+$')",message="Secret-backed headers require a valid HTTP header name",fieldPath=".name"
+	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || !(self.name.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie'])",message="this header cannot carry an egress credential",fieldPath=".name"
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
 	// +optional
 	// +kubebuilder:default="30s"

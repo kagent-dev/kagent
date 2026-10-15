@@ -1,8 +1,8 @@
 # Runtime credential injection
 
 Kagent requires Substrate **v0.4.0-alpha1**. The compiler turns ModelConfig API
-keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
-bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
+keys, Secret-backed RemoteMCPServer headers, and explicit EgressPolicy
+authentication into destination-scoped egress bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 replaces the outgoing HTTP header when the request carries a placeholder. SDKs
 receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
@@ -73,14 +73,14 @@ scope is part of revision identity.
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
 match its scheme, DNS name, and port; credential bindings remain scoped to the
 hostname and header. Different credentials for the same hostname and header
-are rejected, including conflicts between models, memory embeddings, and MCP
-servers. Use distinct DNS names for
+are rejected, including conflicts between models, memory embeddings, MCP
+servers, and explicit policies. Use distinct DNS names for
 origins requiring different credentials. IP-address destinations are unsupported
 by Substrate egress policies.
 
 Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on
-ModelConfig or RemoteMCPServer for gateway injection.
+ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway injection.
 
 Google service account keys are the one credential the gateway transforms rather
 than copies. The compiler binds a `GeminiVertexAI` or `AnthropicVertexAI`

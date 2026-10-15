@@ -7,9 +7,11 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Sandbox preparation uses the same informer graph as Agents. Only observations
@@ -20,6 +22,7 @@ type sandboxCollections struct {
 }
 
 type sandboxReconciliation struct {
+	Egress                egress.Access
 	Template              *kagentv1alpha3.SandboxTemplate
 	RevisionID            string
 	SourceSnapshot        json.RawMessage
@@ -88,7 +91,13 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
 		} else {
 			var err error
-			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy)
+			state.Egress, err = translator.CompileEgressPolicies(ctx, translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}, template.Namespace, template.Spec.EgressPolicyRefs)
+			if err != nil {
+				state.CompilationError = err.Error()
+				state.Failure = &ReconciliationFailure{Reason: kagentv1alpha3.SandboxTemplateReasonEgressPolicyResolutionFailed, Message: err.Error()}
+				return state
+			}
+			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy, state.Egress)
 			if err != nil {
 				state.CompilationError = err.Error()
 				state.Failure = &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage}

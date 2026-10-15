@@ -49,6 +49,16 @@ type AgentSpec struct {
 	// +kubebuilder:validation:items:MaxLength=270
 	// +kubebuilder:validation:items:Pattern=`^https?://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$`
 	Egress []string `json:"egress,omitempty"`
+
+	// EgressPolicyRefs grants additional access to the whole runtime, including
+	// shared subagents. Policies resolve in this Agent's namespace. Integration
+	// access inferred from models and tools is always included.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(ref, has(ref.name) && ref.name != '')",message="egressPolicyRefs requires non-empty names"
+	// +listType=map
+	// +listMapKey=name
+	EgressPolicyRefs []corev1.LocalObjectReference `json:"egressPolicyRefs,omitempty"`
 }
 
 const (

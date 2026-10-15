@@ -139,6 +139,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
         : { harness: harnessSpecFromDraft(harnessDraft, spec?.harness) }),
       // The form does not author egress; an edit keeps what the Agent declares.
       ...(spec?.egress ? { egress: spec.egress } : {}),
+      ...(spec?.egressPolicyRefs ? { egressPolicyRefs: spec.egressPolicyRefs } : {}),
     } as AgentSpec;
     const input = {
       namespace,
