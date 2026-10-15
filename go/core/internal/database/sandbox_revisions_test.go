@@ -40,7 +40,7 @@ func TestSandboxRevisionPinsEgress(t *testing.T) {
 	require.Equal(t, saved.Credentials, pinned.Credentials)
 
 	// Reject malformed durable data instead of silently dropping authentication.
-	_, err = client.db.Exec(ctx, `UPDATE runtime_revision SET credentials = '[{"hostname":"tickets.example.com","header":"authorization","uri":"ate-secret://k8s.io/default/team-a/ticket-auth/token"}]' WHERE revision = $1`, created.PreparedRevision)
+	_, err = client.db.Exec(ctx, `UPDATE runtime_revision SET credentials = '[{"hostname":"*.example.com","header":"authorization","uri":"ate-secret://k8s.io/default/team-a/ticket-auth/token"}]' WHERE revision = $1`, created.PreparedRevision)
 	require.NoError(t, err)
 	_, err = client.GetSandboxRevision(ctx, created.PreparedRevision)
 	require.ErrorContains(t, err, "decode sandbox revision")
