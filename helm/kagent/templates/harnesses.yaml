@@ -1,8 +1,12 @@
 {{- /*
 Further Harnesses beside the chart's own (harness.yaml), one per entry of
 `harnesses`: a coding Harness on the chart's claude-harness or codex-harness
-image, a toolchain Harness on an image built from one, or another Go ADK
-Harness. Each
+image, a toolchain Harness on an image built from one, another Go ADK
+Harness, or a BYO Harness on an image of the entry's own (runtime: byo, the
+image pinned by digest and its command, both required by the Harness API, and
+a displayName, required since the image alone does not say what runs). An
+entry's displayName is the ui.giantswarm.io/display-name annotation the Dev
+Portal titles the Harness by. Each
 entry has the policy shape of harness.*: a WorkerPool, a snapshot location,
 an environment. An Agent names the Harness it runs
 on by spec.harnessRef.name, so the names of the entries and of the chart's own
@@ -24,13 +28,16 @@ deletes its Harness on the next upgrade.
 {{- $_ := set $names $name true }}
 {{- $runtime := $entry.runtime | default "claude" }}
 {{- $digestKeys := dict "claude" "runtimeImages.claudeHarness.digest" "codex" "runtimeImages.codexHarness.digest" "kagent" "controller.agentImage.digest" }}
-{{- if not (hasKey $digestKeys $runtime) }}
-{{- fail (printf "%s.runtime %q: claude, codex or kagent" $key $runtime) }}
+{{- if and (ne $runtime "byo") (not (hasKey $digestKeys $runtime)) }}
+{{- fail (printf "%s.runtime %q: claude, codex, kagent or byo" $key $runtime) }}
 {{- end }}
 {{- if and (ne $runtime "kagent") $entry.compaction }}
 {{- fail (printf "%s.compaction: the %s runtime has no compaction setting (Harness.spec.kagent.compaction is the Go ADK's)" $key $runtime) }}
 {{- end }}
 {{- $image := include "kagent.harnesses.image" (dict "root" $root "entry" $entry) }}
+{{- if and (eq $runtime "byo") (or (not $image) (not $entry.command) (not $entry.displayName)) }}
+{{- fail (printf "%s (%s) runs a BYO Harness: set %s.image (<repository>@sha256:<64 hex digits>, an image that implements kagent's private A2A contract), %s.command (the Harness API requires workload.command on a BYO Harness) and %s.displayName (what a person picking the Harness reads; spec.byo says nothing about what runs)" $key $name $key $key $key) }}
+{{- end }}
 {{- if not $image }}
 {{- fail (printf "%s (%s) needs its runtime image's digest: set %s (sha256:<64 hex digits>; a published chart carries it) or %s.image (<repository>@sha256:<64 hex digits>)" $key $name (get $digestKeys $runtime) $key) }}
 {{- end }}
@@ -48,11 +55,17 @@ metadata:
   namespace: {{ include "kagent.namespace" $root }}
   labels:
     {{- include "kagent.labels" $root | nindent 4 }}
+  {{- with $entry.displayName }}
+  annotations:
+    ui.giantswarm.io/display-name: {{ . | quote }}
+  {{- end }}
 spec:
   {{- if eq $runtime "claude" }}
   claude: {}
   {{- else if eq $runtime "codex" }}
   codex: {}
+  {{- else if eq $runtime "byo" }}
+  byo: {}
   {{- else }}
   {{- with $entry.compaction }}
   kagent:
@@ -64,6 +77,10 @@ spec:
   {{- end }}
   workload:
     image: {{ $image | quote }}
+    {{- with $entry.command }}
+    command:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   {{- with $entry.env }}
   env:
     {{- toYaml . | nindent 4 }}

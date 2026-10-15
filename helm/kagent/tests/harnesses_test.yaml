@@ -199,11 +199,101 @@ tests:
     set:
       harnesses:
         - name: x
-          runtime: omp
+          runtime: acp
           snapshotLocation: s3://snapshots/x
     asserts:
       - failedTemplate:
-          errorPattern: 'harnesses\[0\].runtime "omp": claude, codex or kagent'
+          errorPattern: 'harnesses\[0\].runtime "acp": claude, codex, kagent or byo'
+
+  - it: should render a BYO Harness on the entry's own image, its command and display name included
+    set:
+      harnesses:
+        - name: omp
+          runtime: byo
+          displayName: oh-my-pi
+          image: ghcr.io/kagent-dev/kagent/omp-harness@sha256:3333333333333333333333333333333333333333333333333333333333333333
+          command: [/usr/local/bin/kagent-omp, --verbose]
+          snapshotLocation: s3://snapshots/omp
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.byo
+          value: {}
+      - equal:
+          path: metadata.annotations["ui.giantswarm.io/display-name"]
+          value: oh-my-pi
+      - notExists:
+          path: spec.claude
+      - notExists:
+          path: spec.kagent
+      - equal:
+          path: spec.workload.image
+          value: ghcr.io/kagent-dev/kagent/omp-harness@sha256:3333333333333333333333333333333333333333333333333333333333333333
+      - equal:
+          path: spec.workload.command
+          value: [/usr/local/bin/kagent-omp, --verbose]
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: s3://snapshots/omp
+
+  - it: should render no command and no display name unless the entry sets them
+    set:
+      harnesses:
+        - name: claude
+          snapshotLocation: s3://snapshots/claude
+    asserts:
+      - notExists:
+          path: spec.workload.command
+      - notExists:
+          path: metadata.annotations
+
+  - it: should render a display name on any entry that sets one
+    set:
+      harnesses:
+        - name: claude-large
+          displayName: Claude Code (large)
+          snapshotLocation: s3://snapshots/claude-large
+    asserts:
+      - equal:
+          path: metadata.annotations["ui.giantswarm.io/display-name"]
+          value: Claude Code (large)
+
+  - it: should fail on a BYO entry without an image
+    set:
+      harnesses:
+        - name: omp
+          runtime: byo
+          displayName: oh-my-pi
+          command: [/usr/local/bin/kagent-omp]
+          snapshotLocation: s3://snapshots/omp
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\] \(omp\) runs a BYO Harness: set harnesses\[0\].image'
+
+  - it: should fail on a BYO entry without a command, which the Harness API requires
+    set:
+      harnesses:
+        - name: omp
+          runtime: byo
+          displayName: oh-my-pi
+          image: ghcr.io/kagent-dev/kagent/omp-harness@sha256:3333333333333333333333333333333333333333333333333333333333333333
+          snapshotLocation: s3://snapshots/omp
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\].command \(the Harness API'
+
+  - it: should fail on a BYO entry without a display name
+    set:
+      harnesses:
+        - name: omp
+          runtime: byo
+          image: ghcr.io/kagent-dev/kagent/omp-harness@sha256:3333333333333333333333333333333333333333333333333333333333333333
+          command: [/usr/local/bin/kagent-omp]
+          snapshotLocation: s3://snapshots/omp
+    asserts:
+      - failedTemplate:
+          errorPattern: 'and harnesses\[0\].displayName'
 
   - it: should fail on a tag instead of a digest
     set:

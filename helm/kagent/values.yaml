@@ -554,9 +554,14 @@ harness:
 # workerPoolRef, snapshotLocation, env, compaction for a kagent runtime) plus
 # `runtime`: `claude` (the default; image empty selects the chart's Claude
 # image, runtimeImages.claudeHarness at its digest), `codex` (image empty
-# selects runtimeImages.codexHarness at its digest) or `kagent` (image empty
-# selects the chart's Go ADK image). The digest rules of harness.* apply per
-# entry. An Agent names the Harness it runs on (spec.harnessRef.name), so every
+# selects runtimeImages.codexHarness at its digest), `kagent` (image empty
+# selects the chart's Go ADK image) or `byo` (an image of the entry's own and
+# its `command`, both required by the Harness API: an image that implements
+# kagent's private A2A contract, such as this line's omp-harness; and a
+# `displayName`, required because the image alone does not say what runs).
+# `command` on any entry overrides the image's entrypoint. `displayName` on
+# any entry is the ui.giantswarm.io/display-name annotation the Dev Portal
+# titles the Harness by. The digest rules of harness.* apply per entry. An Agent names the Harness it runs on (spec.harnessRef.name), so every
 # name must differ from the chart's own Harness and from the other entries; the
 # render fails on a repeat. compaction on a claude or codex entry fails the
 # render. `limits`
@@ -575,6 +580,12 @@ harness:
 #       env:
 #         - name: KAGENT_PROPAGATE_TOKEN
 #           value: "true"
+#     - name: omp                      # a BYO Harness: runtime byo on its own image
+#       runtime: byo
+#       displayName: oh-my-pi
+#       image: ghcr.io/kagent-dev/kagent/omp-harness@sha256:<digest>
+#       command: [/usr/local/bin/kagent-omp]
+#       snapshotLocation: s3://snapshots/omp
 harnesses: []
 
 # -- Runtime images the chart publishes besides the Go ADK image
