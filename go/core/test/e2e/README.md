@@ -215,10 +215,13 @@ and Claude temporarily disable native retries pending the upstream DNS fix.
 TODO: revisit the one-request assertion and deadline when restoring native retries
 after https://github.com/agent-substrate/substrate/issues/2663 is fixed.
 
-For tracing, configure the controller's
-OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
+For tracing, configure the controller's `telemetry` and `runtimeDefaults.telemetry`
+OTLP endpoints as `http://e2e-otlp.kagent.svc.cluster.local.:14317` and apply
 `manifests/tracing.yaml.tmpl` with `KAGENT_E2E_LOCAL_HOST` set to the test host's
 reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
+The trailing dot is also required here: native Codex and Claude telemetry exporters
+hit the same DNS search-expansion issue as their model clients. Go runtime spans
+can still arrive without it, leaving only the native spans missing.
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
