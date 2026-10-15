@@ -183,11 +183,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
-			// Compile failures preserve the current UID's last successful runtime.
-			state.Target = nil
-			states.UpdateObject(state)
-			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
-			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
 			request := &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
 				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
@@ -195,6 +190,19 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), session.GetPreparedRevision())
+
+			// Compile failures preserve pinned runtimes but block fresh sessions.
+			state.Target = nil
+			states.UpdateObject(state)
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
+			retried, created, err := store.CreateSession(ctx, request, "session")
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, session.GetId(), retried.GetId())
+			require.Equal(t, id.String(), retried.GetPreparedRevision())
+			_, _, err = store.CreateSession(ctx, request, "unprepared-session")
+			require.ErrorIs(t, err, database.ErrNotFound)
 			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()

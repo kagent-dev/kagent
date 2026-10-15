@@ -161,14 +161,21 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	_, _, err = client.CreateSession(ctx, request, "session")
 	require.ErrorIs(t, err, ErrNotFound, "a replacement must not select the previous template UID")
 	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, true))
+	session, _, err := client.CreateSession(ctx, request, "session")
+	require.NoError(t, err)
+	require.Equal(t, "new", session.GetPreparedRevision())
 
 	// Reconciliation of the same identity must preserve its last success while
 	// a new desired revision is still preparing.
 	pair.DesiredRevision = "pending"
 	require.NoError(t, client.UpsertAgentDefinition(ctx, pair))
-	session, _, err := client.CreateSession(ctx, request, "session")
+	retried, created, err := client.CreateSession(ctx, request, "session")
 	require.NoError(t, err)
-	require.Equal(t, "new", session.GetPreparedRevision())
+	require.False(t, created)
+	require.Equal(t, session.GetId(), retried.GetId())
+	require.Equal(t, "new", retried.GetPreparedRevision())
+	_, _, err = client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "pending")
+	require.ErrorIs(t, err, ErrNotFound)
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
@@ -215,7 +222,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
-				query := "FROM runtime_revision WHERE revision = $1 FOR UPDATE"
+				query := "FROM agent_definition p"
 				if source != "session" {
 					query = "FOR UPDATE OF r"
 					require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
@@ -252,6 +259,17 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					t.Fatal(ctx.Err())
 				}
 				if source == "session" {
+					if referenceFirst {
+						// Creation holds the definition lock until its reference commits,
+						// so retirement must follow creation before GC can claim it.
+						resume.Do(func() { close(barrier.resume) })
+						require.NoError(t, <-created)
+						require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+						claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "revision")
+						require.NoError(t, err)
+						require.Nil(t, claimed)
+						return
+					}
 					require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 				}
 				type claimResult struct {
@@ -281,7 +299,11 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 					require.NoError(t, result.err)
 					require.NotNil(t, result.revision)
 					resume.Do(func() { close(barrier.resume) })
-					require.ErrorIs(t, <-created, ErrObjectDeleting)
+					if source == "session" {
+						require.ErrorIs(t, <-created, ErrNotFound)
+					} else {
+						require.ErrorIs(t, <-created, ErrObjectDeleting)
+					}
 				}
 			})
 		}
@@ -295,7 +317,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	pair := AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid",
-		DesiredRevision: "pending",
+		DesiredRevision: "revision",
 	}
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
 	// A skipped finalization must leave last-good intact for reactivation.
@@ -486,6 +508,9 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, true))
 	assertAvailableRevision("")
 	// Reviving the pair must retain the last success, not a report made while retired.
+	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
+	assertAvailableRevision("")
+	pair.DesiredRevision = "second"
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
 	assertAvailableRevision("second")
 }

@@ -97,8 +97,11 @@ finalizer, including when deletion starts while the controller is offline.
 The controller advances the latest-successful revision only after the golden
 snapshot is ready and reports preparation through the template's `Ready`
 condition and observed generation. Failed preparation preserves the previous
-successful revision. Existing Sandboxes retain their revision when a template
-changes. Template deletion retires preparation; retained instances continue to
+successful revision. Fresh creation requires the desired revision to match that
+successful revision; unresolved inputs and pending or failed preparation block
+creation after reconciliation records the change. Existing Sandboxes and
+creation retries retain their revision when a template changes.
+Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
