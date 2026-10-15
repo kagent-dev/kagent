@@ -2,8 +2,8 @@
 
 Sets the LLM API key from the incoming request's Bearer token.
 Reuses the same session state headers pattern as create_header_provider()
-and ADKTokenPropagationPlugin. Reads the Authorization header from
-callback_context.state["headers"] (set by _agent_executor.py).
+and ADKTokenPropagationPlugin. Reads the Authorization header from the
+current request's headers in callback_context.state (set by _agent_executor.py).
 """
 
 import logging
@@ -15,6 +15,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
 
 from ._bearer_token import extract_bearer_token
+from ._request_headers import request_headers
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class LLMPassthroughPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> Optional[LlmResponse]:
-        token = extract_bearer_token(callback_context.state.get("headers", {}))
+        token = extract_bearer_token(request_headers(callback_context.state))
         if not token:
             return None
 

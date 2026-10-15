@@ -18,6 +18,7 @@ from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
+from kagent.adk._request_headers import request_headers
 from kagent.adk.models._anthropic import FoundryAnthropic, KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
@@ -35,9 +36,6 @@ logger = logging.getLogger(__name__)
 PROXY_HOST_HEADER = "x-kagent-host"
 
 DEFAULT_TIMEOUT = 30.0
-
-# Key used to store headers in session state
-HEADERS_STATE_KEY = "headers"
 
 
 def create_header_provider(
@@ -70,8 +68,7 @@ def create_header_provider(
 
         # Add allowed headers from session state first
         if normalized_allowed and readonly_context:
-            request_headers = readonly_context.state.get(HEADERS_STATE_KEY, {})
-            for header_name, header_value in request_headers.items():
+            for header_name, header_value in request_headers(readonly_context.state).items():
                 if header_name.lower() in normalized_allowed:
                     headers[header_name] = header_value
 

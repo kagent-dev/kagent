@@ -49,13 +49,16 @@ def _request_context(*, state: dict | None = None) -> RequestContext:
     [(False, StreamingMode.NONE), (True, StreamingMode.SSE)],
 )
 def test_request_converter_adds_headers_without_mutating_message_metadata(stream, expected_mode):
-    context = _request_context(state={"headers": {"authorization": "Bearer token"}})
+    context = _request_context(state={"headers": {"authorization": "Bearer token", "x-user-id": "alice"}})
     executor = A2aAgentExecutor(runner=lambda: None, config=A2aAgentExecutorConfig(stream=stream))
 
     run_request = executor._convert_request(context, None)
 
     assert run_request.run_config.streaming_mode == expected_mode
-    assert run_request.state_delta == {"headers": {"authorization": "Bearer token"}}
+    assert run_request.state_delta == {
+        "headers": {"x-user-id": "alice"},
+        "temp:headers": {"authorization": "Bearer token", "x-user-id": "alice"},
+    }
     assert not context.message.metadata
 
 
