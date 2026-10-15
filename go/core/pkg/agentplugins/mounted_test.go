@@ -105,10 +105,16 @@ func TestMaterializeMountedSourceFailures(t *testing.T) {
 }
 
 func TestMaterializeMountedClaudePlugin(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.Mkdir(filepath.Join(root, ".claude-plugin"), 0o755))
+	// Exercise an aliased parent on every platform, as with /var on macOS.
+	parent := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	require.NoError(t, os.Symlink(parent, alias))
+	root := filepath.Join(alias, "plugin")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".claude-plugin"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".claude-plugin/plugin.json"), []byte(`{"name":"mounted-native"}`), 0o644))
 	materialized, err := Materialize(t.Context(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: agentplugin.Source{Directory: root}}}}, Paths{Packages: t.TempDir(), Skills: t.TempDir()})
+	require.NoError(t, err)
+	root, err = filepath.EvalSymlinks(root)
 	require.NoError(t, err)
 	require.Equal(t, []string{root}, materialized.ClaudeFormatPluginRoots())
 }

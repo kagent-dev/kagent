@@ -266,9 +266,6 @@ func validatePackage(root string) error {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			return filepath.SkipDir
-		}
 		entries++
 		if entries > maxPackageEntries {
 			return fmt.Errorf("artifact contains more than %d filesystem entries", maxPackageEntries)
