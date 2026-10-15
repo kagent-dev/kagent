@@ -63,6 +63,9 @@ func (e *Executor) Before(ctx context.Context, _ *a2asrv.CallContext, request *a
 // iterator, but its missing-owner CANCELED result does not establish cleanup of
 // DSH descendants. Remove this guard only when the shared path confirms that
 // cleanup, including an unreachable/replaced Actor and unpublished boundaries.
+// Go ADK also reproduces #3010 case B through the shared TaskStore; this is not
+// a DSH-only failure. Allowing Session deletion only provides an escape hatch:
+// it does not recover a pending ACP call or make missing-owner cancellation safe.
 func (e *Executor) Cancel(ctx context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		emitted := false
