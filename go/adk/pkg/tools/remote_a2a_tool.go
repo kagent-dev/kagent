@@ -280,7 +280,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 			a2aclient.WithJSONRPCTransport(s.httpClient),
 		}
 		interceptors := []a2aclient.CallInterceptor{
-			a2aext.NewActivator(a2a.HITLExtensionURI, a2a.UsageExtensionURI),
+			a2aext.NewActivator(a2a.HITLExtensionURI),
 			&staticHeadersInterceptor{headers: map[string]string{"x-kagent-source": "agent"}},
 			&userIDForwardingInterceptor{},
 			&lineageHeadersInterceptor{},

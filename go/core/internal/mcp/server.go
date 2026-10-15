@@ -180,7 +180,7 @@ func (h *Handler) invoke(ctx context.Context, input InvokeSessionInput, async bo
 
 func interactionContext(ctx context.Context) context.Context {
 	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(map[string][]string{
-		a2atype.SvcParamExtensions: {adka2a.HITLExtensionURI, adka2a.UsageExtensionURI},
+		a2atype.SvcParamExtensions: {adka2a.HITLExtensionURI},
 	}))
 	return ctx
 }

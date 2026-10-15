@@ -20,11 +20,10 @@ Version 1 is emitted whether or not the client activated it. A client that does
 not know the extension ignores one extra metadata key, and consumers that read
 the aggregate do not have to change how they call the agent.
 
-Clients should still activate it with the standard `A2A-Extensions` header. The
-Go runtime echoes the URI back when a client requests it. The kagent UI, the MCP
-invocation tool, and the Go and Python remote A2A tools always send it. A later
-version that only emits usage for clients that activated it is then a no-op for
-kagent's own clients.
+A client that reads the payload should activate it with the standard
+`A2A-Extensions` header. The Go runtime echoes the URI back when a client
+requests it. No kagent client reads the payload yet, so none of them activate
+it.
 
 The Python A2A SDK has no server-side activation API, so the Python runtime
 does not echo the header. Emission is unaffected.
