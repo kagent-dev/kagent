@@ -424,4 +424,5 @@ message ADKRuntimeConfig {
     message: "runtime telemetry resource_attributes must not override compiled service.name or service.namespace"
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
+  bool disable_bash = 13;
 }

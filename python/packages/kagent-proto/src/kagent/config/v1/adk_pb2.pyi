@@ -524,7 +524,7 @@ class ADKPluginS3Source(_message.Message):
     def __init__(self, endpoint: _Optional[str] = ..., bucket: _Optional[str] = ..., key: _Optional[str] = ..., version_id: _Optional[str] = ..., region: _Optional[str] = ...) -> None: ...
 
 class ADKRuntimeConfig(_message.Message):
-    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "bash_venv_path", "file_search_tools", "telemetry")
+    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "bash_venv_path", "file_search_tools", "telemetry", "disable_bash")
     CONTROL_PLANE_URL_FIELD_NUMBER: _ClassVar[int]
     GATEWAY_URL_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -537,6 +537,7 @@ class ADKRuntimeConfig(_message.Message):
     BASH_VENV_PATH_FIELD_NUMBER: _ClassVar[int]
     FILE_SEARCH_TOOLS_FIELD_NUMBER: _ClassVar[int]
     TELEMETRY_FIELD_NUMBER: _ClassVar[int]
+    DISABLE_BASH_FIELD_NUMBER: _ClassVar[int]
     control_plane_url: str
     gateway_url: str
     name: str
@@ -549,4 +550,5 @@ class ADKRuntimeConfig(_message.Message):
     bash_venv_path: str
     file_search_tools: bool
     telemetry: _config_pb2.TelemetryConfig
-    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ...) -> None: ...
+    disable_bash: bool
+    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ..., disable_bash: _Optional[bool] = ...) -> None: ...

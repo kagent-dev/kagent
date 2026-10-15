@@ -76,7 +76,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
 		if len(skills) > 0 {
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, runtime.FileSearchTools)
+			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, runtime.FileSearchTools, runtime.DisableBash)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
 			}

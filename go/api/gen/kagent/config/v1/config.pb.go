@@ -1713,6 +1713,7 @@ type RuntimeDefaultsConfig struct {
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	FileSearchTools  bool                    `protobuf:"varint,7,opt,name=file_search_tools,json=fileSearchTools,proto3" json:"file_search_tools,omitempty"`
 	BashVenvPath     string                  `protobuf:"bytes,8,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
+	DisableBash      bool                    `protobuf:"varint,9,opt,name=disable_bash,json=disableBash,proto3" json:"disable_bash,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1801,6 +1802,13 @@ func (x *RuntimeDefaultsConfig) GetBashVenvPath() string {
 		return x.BashVenvPath
 	}
 	return ""
+}
+
+func (x *RuntimeDefaultsConfig) GetDisableBash() bool {
+	if x != nil {
+		return x.DisableBash
+	}
+	return false
 }
 
 type TokenPropagationConfig struct {
@@ -2068,7 +2076,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\xc8\x06\n" +
+	"\t_protocol\"\xeb\x06\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2079,7 +2087,8 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x12max_content_length\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x02R\x10maxContentLength\x88\x01\x01\x12U\n" +
 	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12*\n" +
 	"\x11file_search_tools\x18\a \x01(\bR\x0ffileSearchTools\x12$\n" +
-	"\x0ebash_venv_path\x18\b \x01(\tR\fbashVenvPathB\x14\n" +
+	"\x0ebash_venv_path\x18\b \x01(\tR\fbashVenvPath\x12!\n" +
+	"\fdisable_bash\x18\t \x01(\bR\vdisableBashB\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
 	"\x13_max_content_length\"\x8e\x02\n" +

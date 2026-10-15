@@ -348,6 +348,7 @@ message RuntimeDefaultsConfig {
   TokenPropagationConfig token_propagation = 6;
   bool file_search_tools = 7;
   string bash_venv_path = 8;
+  bool disable_bash = 9;
 }
 
 message TokenPropagationConfig {

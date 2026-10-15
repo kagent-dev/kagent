@@ -193,6 +193,8 @@ config:
     secure: true
   telemetry: {}
   runtimeDefaults:
+    # Omit the built-in bash tool in Go ADK runtimes; skill and file tools remain available.
+    disableBash: false
     logging:
       level: info
     telemetry: {}

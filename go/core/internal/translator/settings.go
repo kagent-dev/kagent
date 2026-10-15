@@ -39,6 +39,7 @@ func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) 
 		// Preserve optional presence: zero disables the runtime's request limit.
 		MaxContentLength: cfg.MaxContentLength,
 		FileSearchTools:  cfg.GetFileSearchTools(), BashVenvPath: cfg.GetBashVenvPath(),
+		DisableBash:      cfg.GetDisableBash(),
 		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
 		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
 	}

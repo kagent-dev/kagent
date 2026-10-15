@@ -207,6 +207,15 @@ fields and multiple model providers fail configuration loading. Telemetry uses
 the same `TelemetryConfig` as controller settings (including protobuf durations).
 
 An absent request size limit uses the runtime default; zero means unlimited.
+Go ADK automatically registers the built-in `bash` tool when skills are loaded.
+Set `runtime.disable_bash` to `true` to omit it for the root agent and all
+subagents. Skill discovery and loading, `read_file`, `write_file`, and `edit_file`
+remain available; `list_files` and `grep_file` still depend on
+`runtime.file_search_tools`. For controller-managed runtimes, set
+`config.runtimeDefaults.disableBash: true` in Helm values. The default is `false`;
+this setting affects only the built-in Go ADK bash tool, not Python or tools
+provided through MCP or other integrations.
+
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 `parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
