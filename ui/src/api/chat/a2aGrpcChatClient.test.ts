@@ -1531,6 +1531,27 @@ describe("A2AGrpcChatClient files", () => {
     expect(part?.mediaType).toBe("application/pdf");
   });
 
+  it("keeps the chip of an agent-sent link that its text also names", async () => {
+    const link = "https://files.example/out/report.pdf";
+    const events = await turn([
+      statusFrame({
+        state: TaskState.WORKING,
+        message: {
+          messageId: "m-agent-link",
+          role: Role.AGENT,
+          parts: [
+            { content: { case: "text" as const, value: `Your report is ready: ${link}` } },
+            { content: { case: "url" as const, value: link }, filename: "report.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      { kind: "text", text: `Your report is ready: ${link}` },
+      { kind: "file", name: "report.pdf", mediaType: "application/pdf", url: link },
+    ]);
+  });
+
   it("renders a file the agent sent rather than dropping it", async () => {
     const events = await turn([
       statusFrame({

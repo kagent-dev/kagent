@@ -241,7 +241,7 @@ function dataKindOf(
   return "unknown";
 }
 
-function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
+function toParts(parts: readonly A2APart[] | undefined, role?: Role): ChatPart[] {
   const result: ChatPart[] = [];
   for (const source of parts ?? []) {
     const part = toPart(source);
@@ -254,7 +254,8 @@ function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
     }
     result.push(part);
   }
-  // A link sent beside its own URL in the text (see LinkFile) gets no chip.
+  // A link the user sent beside its own URL in the text (see LinkFile) gets no chip.
+  if (role !== Role.USER) return result;
   return result.filter(
     (part) =>
       !(part.kind === "file" && part.url && result.some((t) => t.kind === "text" && t.text.includes(part.url!))),
@@ -539,7 +540,7 @@ export class A2AGrpcChatClient implements ChatClient {
           };
           const status = event.status;
           const message = status?.message;
-          const parts = visibleParts(toParts(message?.parts), { hideRejected: true });
+          const parts = visibleParts(toParts(message?.parts, message?.role), { hideRejected: true });
           const state = turnState(status?.state);
           /*
            * The question, when this is the frame that parked the turn.
@@ -688,7 +689,7 @@ export class A2AGrpcChatClient implements ChatClient {
 
         if (payload.case === "message") {
           const message = payload.value as A2AMessage;
-          const parts = visibleParts(toParts(message.parts), { hideRejected: true });
+          const parts = visibleParts(toParts(message.parts, message.role), { hideRejected: true });
           if (parts.length === 0) continue;
           const id = message.messageId || nextId("message");
           if (delivered.has(id)) continue;
@@ -801,7 +802,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
               },
             },
           ]
-      : toParts(message.parts);
+      : toParts(message.parts, message.role);
     if (decisions) pendingApproval = undefined;
     if (answer) pendingQuestions.delete(answer.requestId);
     if (parts.length === 0) return;
