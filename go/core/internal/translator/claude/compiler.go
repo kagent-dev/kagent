@@ -123,8 +123,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace: template.Namespace,
-			Command:   slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+			Namespace:   template.Namespace,
 			Environment: environment,
 			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,

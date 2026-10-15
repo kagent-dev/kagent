@@ -79,6 +79,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	// The image and compiler pin an exact Claude version. Prevent both automatic
 	// and manual update paths from changing that runtime after validation.
 	environment = setEnvironment(environment, config.DisableUpdatesEnvName, "1")
+	// TODO: REMOVE this override and its reserved environment name once upstream
+	// fixes Kubernetes DNS: https://github.com/agent-substrate/substrate/issues/2663
+	// Native retries turn a DNS denial into several minutes of waiting.
+	environment = setEnvironment(environment, config.MaxRetriesEnvName, "0")
 	environment, err = materializeGoogleCredentials(environment, input.EphemeralDir)
 	if err != nil {
 		return nil, err

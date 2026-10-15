@@ -109,7 +109,7 @@ for this case; Agent status reports the actual selected image.
 
 Default selection does not inspect or validate the CLI version inside an override.
 
-The kagent, Codex, and Claude compilers preserve explicit `spec.workload.command` and
+The kagent compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
 regardless of the runtime image's implementation language. Omitted overrides
 remain unset.

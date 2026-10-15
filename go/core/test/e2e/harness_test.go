@@ -38,15 +38,14 @@ func (h testHarness) labels() map[string]string {
 
 func (h testHarness) createModel(t *testing.T, kube ctrlclient.Client, modelURL string, headers map[string]string) *v1alpha3.ModelConfig {
 	t.Helper()
-	// Cloned Harnesses retain their runtime type but have a different name.
-	switch h.runtimeLabel {
-	case "kagent", "byo-adk":
+	switch h.name {
+	case "kagent", "byo-adk-e2e":
 		return createInteractionModel(t, kube, modelURL, headers)
-	case "codex", "claude":
+	case codexE2EHarness, claudeE2EHarness:
 		if len(headers) != 0 {
 			t.Fatalf("%s does not support ModelConfig defaultHeaders", h.name)
 		}
-		if h.runtimeLabel == "codex" {
+		if h.name == codexE2EHarness {
 			return createCodexMockModel(t, kube, modelURL)
 		}
 		// Anthropic clients append /v1 themselves; shared mock URLs include it
