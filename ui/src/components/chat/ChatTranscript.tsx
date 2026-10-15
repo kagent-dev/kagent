@@ -54,6 +54,7 @@ const PHASE_LABEL: Partial<Record<ChatTurnPhase, string>> = {
 export function ChatTranscript({
   chat,
   readOnly = false,
+  isLoading = false,
   sessionId,
   onAnswered,
   onOpenCheckpoint,
@@ -67,6 +68,8 @@ export function ChatTranscript({
   chat: ChatController;
   /** Suppresses replies, approvals, cancellation, and retry controls. */
   readOnly?: boolean;
+  /** Keeps the history skeleton visible while the conversation record is resolving. */
+  isLoading?: boolean;
   /**
    * Opens a saved boundary's record, where its name and the rename live. Absent when
    * read-only, as the two below are, which leaves the line as a mark and nothing more.
@@ -272,7 +275,7 @@ export function ChatTranscript({
   }, [chat.messages, chat.turnPhase]);
 
   // Both fill the panel like the transcript does, or the composer jumps up while they show.
-  if (chat.isLoadingHistory) {
+  if (isLoading || chat.isLoadingHistory) {
     return (
       <div data-testid="chat-loading" css={{ flex: 1, minHeight: 0 }}>
         <Skeleton active paragraph={{ rows: 4 }} />
