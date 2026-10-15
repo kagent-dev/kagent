@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
 func createTempDir(t *testing.T) string {
@@ -667,5 +671,85 @@ func TestExecuteCommand_WithholdsRuntimeEnv(t *testing.T) {
 
 	if want := "unset unset C.UTF-8 " + workingDir + "\nfound"; result != want {
 		t.Errorf("ExecuteCommand() = %q, want %q", result, want)
+	}
+}
+
+func TestExecuteCommand_TurnEnvironment(t *testing.T) {
+	t.Setenv("GH_TOKEN", "ghp_real")
+	t.Setenv("GITHUB_TOKEN", "ghp_real")
+	t.Setenv("GIT_AUTHOR_NAME", "runtime")
+	t.Setenv("OPENAI_API_KEY", "sk-leak")
+	t.Setenv("KAGENT_API_URL", "http://kagent")
+	workingDir := t.TempDir()
+	const command = `env | grep -E '^(GH_TOKEN|GITHUB_TOKEN|GIT_|OPENAI_|KAGENT_)' | sort`
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{
+			name: "no person, no workspace",
+			ctx:  context.Background(),
+			want: "Command completed successfully.",
+		},
+		{
+			name: "workspace without a person",
+			ctx:  turn.WithDirectory(context.Background(), workingDir),
+			want: "GH_TOKEN=kagent-credential-injected",
+		},
+		{
+			name: "person without a workspace",
+			ctx:  models.WithUser(context.Background(), "alice@example.com"),
+			want: "GIT_AUTHOR_EMAIL=alice@example.com\nGIT_AUTHOR_NAME=alice@example.com\n" +
+				"GIT_COMMITTER_EMAIL=alice@example.com\nGIT_COMMITTER_NAME=alice@example.com",
+		},
+		{
+			name: "person in a workspace",
+			ctx:  models.WithUser(turn.WithDirectory(context.Background(), workingDir), "alice@example.com"),
+			want: "GH_TOKEN=kagent-credential-injected\n" +
+				"GIT_AUTHOR_EMAIL=alice@example.com\nGIT_AUTHOR_NAME=alice@example.com\n" +
+				"GIT_COMMITTER_EMAIL=alice@example.com\nGIT_COMMITTER_NAME=alice@example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// grep exits 1 when nothing matches; the trailing true keeps the
+			// command green so the empty case reads as no output.
+			result, err := NewCommandExecutor(time.Minute).ExecuteCommand(tt.ctx, command+"; true", workingDir)
+			if err != nil {
+				t.Fatalf("ExecuteCommand() error = %v", err)
+			}
+			if result != tt.want {
+				t.Errorf("ExecuteCommand() = %q, want %q", result, tt.want)
+			}
+		})
+	}
+}
+
+func TestExecuteCommand_CommitsAsThePersonOfEachTurn(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	// No global git configuration: the identity comes from the turn alone.
+	t.Setenv("HOME", t.TempDir())
+	repo := t.TempDir()
+	executor := NewCommandExecutor(time.Minute)
+	if _, err := executor.ExecuteCommand(context.Background(), "git init -q", repo); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	for _, person := range []string{"alice@example.com", "bob@example.com"} {
+		ctx := models.WithUser(context.Background(), person)
+		if _, err := executor.ExecuteCommand(ctx, "git commit -q --allow-empty --no-gpg-sign -m "+person, repo); err != nil {
+			t.Fatalf("git commit as %s: %v", person, err)
+		}
+		got, err := executor.ExecuteCommand(ctx, "git log -1 --format='%an %ae %cn %ce'", repo)
+		if err != nil {
+			t.Fatalf("git log: %v", err)
+		}
+		if want := strings.Repeat(person+" ", 3) + person; got != want {
+			t.Errorf("commit of %s's turn = %q, want %q", person, got, want)
+		}
 	}
 }

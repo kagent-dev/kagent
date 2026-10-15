@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
 
@@ -328,8 +329,38 @@ func NewCommandExecutor(timeout time.Duration) *CommandExecutor {
 	return &CommandExecutor{timeout: timeout}
 }
 
+// credentialPlaceholder is the inert GH_TOKEN a workspace turn's command
+// sees: gh refuses every API call without a token, and the egress gateway
+// replaces the header gh sends with the caller's own credential, so the value
+// only has to exist. It is never a real token.
+const credentialPlaceholder = "kagent-credential-injected"
+
+// turnEnvironment is what the turn of ctx adds to a command's allowlisted
+// environment: git's author and committer as the person of the turn, and in a
+// turn whose dispatch names a workspace directory the GH_TOKEN placeholder. A
+// turn without a resolved person (no claims: the unsecure mode, an agent's
+// propagated caller id) gets no identity, so git's own error stands rather
+// than a stand-in author. The forwarded identity carries one value, the
+// person's id (their email), so it is both the name and the email.
+func turnEnvironment(ctx context.Context) []string {
+	var env []string
+	if user := models.UserFromContext(ctx); user != "" {
+		env = append(env,
+			"GIT_AUTHOR_NAME="+user,
+			"GIT_AUTHOR_EMAIL="+user,
+			"GIT_COMMITTER_NAME="+user,
+			"GIT_COMMITTER_EMAIL="+user,
+		)
+	}
+	if turn.Directory(ctx) != "" {
+		env = append(env, "GH_TOKEN="+credentialPlaceholder)
+	}
+	return env
+}
+
 // ExecuteCommand executes a shell command in an environment built by
-// turn.CommandEnvironment, so the command cannot read the runtime's secrets.
+// turn.CommandEnvironment plus turnEnvironment, so the command cannot read the
+// runtime's secrets and works as the person of the turn.
 // A process the command leaves running in the background ends with the turn
 // of ctx. A timeout kills the command's whole process group before the call
 // returns; the killed processes exit when the scheduler next runs them, so
@@ -344,7 +375,7 @@ func (e *CommandExecutor) executeCommand(ctx context.Context, command string, wo
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
-	cmd.Env = turn.CommandEnvironment(os.Environ(), workingDir)
+	cmd.Env = append(turn.CommandEnvironment(os.Environ(), workingDir), turnEnvironment(ctx)...)
 	killProcessGroupOnCancel(cmd)
 	// If the shell does not exit after cancellation, stop waiting for it.
 	cmd.WaitDelay = commandWaitDelay
