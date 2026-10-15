@@ -541,8 +541,11 @@ func interactionError(ctx context.Context, err error) error {
 	switch serviceerrors.CodeOf(err) {
 	case serviceerrors.CodeUnauthenticated:
 		return a2atype.ErrUnauthenticated
-	case serviceerrors.CodePermissionDenied, serviceerrors.CodeNotFound:
+	case serviceerrors.CodePermissionDenied:
 		return a2atype.ErrUnauthorized
+	case serviceerrors.CodeNotFound:
+		// A2A's standard not-found error covers missing Agents and conversations.
+		return a2atype.ErrTaskNotFound
 	case serviceerrors.CodeInvalidArgument, serviceerrors.CodeAlreadyExists:
 		return a2atype.NewError(a2atype.ErrInvalidRequest, serviceerrors.MessageOf(err))
 	case serviceerrors.CodeFailedPrecondition, serviceerrors.CodeAborted:

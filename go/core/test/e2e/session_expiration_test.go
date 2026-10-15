@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -56,6 +58,20 @@ func TestSessionIdleExpiration(t *testing.T) {
 			_, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: id})
 			return status.Code(err) == codes.NotFound
 		}, 2*time.Minute, time.Second, "idle session did not expire")
+		for _, message := range []*a2a.Message{
+			{ID: uuid.NewString(), ContextID: conversation.contextID},
+			{ID: uuid.NewString(), ContextID: uuid.NewString()},
+			{ID: uuid.NewString(), TaskID: task.ID},
+		} {
+			message.Role = a2a.MessageRoleUser
+			message.Parts = a2a.ContentParts{a2a.NewTextPart("Continue")}
+			continuation, err := pbconv.ToProtoSendMessageRequest(&a2a.SendMessageRequest{Tenant: conversation.tenant, Message: message})
+			require.NoError(t, err)
+			_, err = fixture.client.SendMessage(fixture.ctx, continuation)
+			require.Equal(t, codes.NotFound, status.Code(err), "expired and missing conversations must be distinguishable from authorization failures")
+		}
+		_, err = fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Tenant: conversation.tenant, Id: string(task.ID)})
+		require.Equal(t, codes.NotFound, status.Code(err))
 		actor, err := findSubstrateActor(fixture.ctx, fixture.system, request.Agent.Namespace, substrate.ActorName(id))
 		require.NoError(t, err)
 		require.Nil(t, actor, "expiration must remove the Substrate Actor")

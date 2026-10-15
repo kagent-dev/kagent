@@ -115,6 +115,16 @@ the session, shares, runtime row, and creation receipt. GetSession returns NotFo
 CreateSession or ForkSession with the same caller/request ID can create a fresh
 session. Explicit client deletion still retains its tombstone and request ID.
 
+A2A continuation using a missing or expired context ID returns `TaskNotFound`
+(JSON-RPC `-32001`, gRPC `NOT_FOUND`), matching continuation using an old task ID.
+Ownership-filtered lookup gives the same response for another user's Session;
+the response does not distinguish expiry from absence or hidden ownership.
+Authorization-check failures still return permission denied. Clients can start a
+new conversation after `TaskNotFound` by sending without a context or task ID.
+Service-level not-found errors use this same A2A mapping, including missing Agents.
+Agent-card HTTP discovery returns 404 for not-found errors and 403 for permission
+denials. Starting a new conversation requires an existing, authorized Agent.
+
 The retention rule preserves the existing audit policy: A2A context, tasks, event
 history, and explicit checkpoints remain in PostgreSQL. Retained checkpoints can
 still be forked after the source session expires and retain their own snapshot

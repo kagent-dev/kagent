@@ -197,6 +197,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			{name: "unauthenticated", ctx: context.Background(), agent: agent, want: a2atype.ErrUnauthenticated},
 			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
 			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, want: a2atype.ErrUnauthorized},
+			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, want: a2atype.ErrTaskNotFound},
 			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
 			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, want: a2atype.ErrUnauthorized},
 		} {
@@ -205,6 +206,10 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 					Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}
 				sessionStore := &serviceTestStore{getResult: stored}
 				authorizer := &recordingAuthorizer{denied: map[string]bool{id: true}}
+				if test.name == "missing session" {
+					sessionStore.getResult, sessionStore.getErr = nil, database.ErrNotFound
+					authorizer.denied[id] = false
+				}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false)
 				want := test.want
