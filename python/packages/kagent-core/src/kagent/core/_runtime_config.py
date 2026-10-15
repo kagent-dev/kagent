@@ -2,8 +2,8 @@
 
 from google.protobuf.json_format import Parse, ParseDict
 from google.protobuf.message import Message
-from kagent.api.v1alpha1.adk_pb2 import ADKRuntimeConfig as RuntimeConfig
-from kagent.api.v1alpha1.config_pb2 import OTLPConfig, TelemetryConfig, TokenPropagationConfig
+from kagent.config.v1.adk_pb2 import ADKRuntimeConfig as RuntimeConfig
+from kagent.config.v1.config_pb2 import OTLPConfig, TelemetryConfig, TokenPropagationConfig
 from protovalidate import validate
 
 

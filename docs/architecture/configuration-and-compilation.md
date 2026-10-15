@@ -32,10 +32,10 @@ API.
 
 The `api.kagent.dev` group keeps these definitions separate from legacy
 `kagent.dev` resources, including the old `Agent`. `ModelConfig`,
-`ModelProviderConfig`, and `RemoteMCPServer` use the new group too. KMCP's
-`MCPServer` retains `kagent.dev/v1alpha1`. Examples assume a fresh installation
-and use `kubectl get agent`. If both agent APIs are installed, use a qualified
-resource name such as `kubectl get agents.api.kagent.dev` to select this API.
+`ModelProviderConfig`, and `RemoteMCPServer` use the new group too. Examples
+assume a fresh installation and use `kubectl get agent`. If both agent APIs are
+installed, use a qualified resource name such as
+`kubectl get agents.api.kagent.dev` to select this API.
 
 ### Model streaming
 

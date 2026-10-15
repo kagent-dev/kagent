@@ -164,9 +164,11 @@ prevent old results from overwriting newer database state.
 Creation must finish before suspend/resume; deletion can supersede creation or
 other operations and cannot be canceled into a live sandbox. Resume preserves
 durable files; process handles last only as long as the guest's in-memory registry.
-Sandboxes take Full snapshots until Substrate's lifecycle v2 (see
-[Runtime and lifecycle](runtime-and-lifecycle.md)), so that registry survives
-suspend and resume as well.
+Sandboxes take DATA snapshots (see
+[Runtime and lifecycle](runtime-and-lifecycle.md)). Resume starts a fresh guest
+with the saved durable directories. Running processes stop during suspension,
+and old process handles become unavailable after resume. Commands are not replayed;
+callers can start new processes against the restored files.
 Expiration immediately rejects new guest requests and lets the worker supersede
 unfinished lifecycle work with deletion. Deletion finishes after backend cleanup,
 releases runtime-artifact pins, and retains a tombstone and creation receipt so
@@ -195,7 +197,7 @@ The apiserver registers three services on the same listener:
 
 | Service | Operations |
 | --- | --- |
-| `kagent.api.v1alpha1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
+| `kagent.api.v1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
 | `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, KillProcess, StreamProcessOutputs |
 | `ateenv.v1alpha.FileSystemService` | ReadFile, WriteFile |
 
@@ -334,8 +336,8 @@ resource applies its policy in the same transaction as its lifecycle transition.
 
 ## Implementation boundaries
 
-- [API contracts](../../proto/kagent/api/v1alpha1/sandboxes.proto) and
-  [template catalog](../../proto/kagent/api/v1alpha1/sandbox_templates.proto)
+- [API contracts](../../proto/kagent/api/v1/sandboxes.proto) and
+  [template catalog](../../proto/kagent/api/v1/sandbox_templates.proto)
   define lifecycle/catalog shapes and request-intrinsic validation. Execution
   uses the upstream [env contract](../../proto/ateenv/v1alpha/guest.proto) and
   [sandbox routing metadata](../../go/api/sandbox/metadata.go).

@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 )
@@ -98,7 +98,7 @@ func (i nameItem) FilterValue() string { return i.name }
 
 // sessionItem adapts a Session to a panel row.
 type sessionItem struct {
-	*apiv1alpha1.Session
+	*apiv1.Session
 }
 
 // FilterValue lets `/` match on template, ID prefix, or state.
@@ -111,15 +111,15 @@ func (i sessionItem) FilterValue() string {
 }
 
 // stateGlyph uses shape, not colour alone, so it survives a monochrome terminal.
-func stateGlyph(state apiv1alpha1.RuntimeState) (string, lipgloss.AdaptiveColor) {
+func stateGlyph(state apiv1.RuntimeState) (string, lipgloss.AdaptiveColor) {
 	switch state {
-	case apiv1alpha1.RuntimeState_RUNTIME_STATE_READY:
+	case apiv1.RuntimeState_RUNTIME_STATE_READY:
 		return "●", theme.ColorReady
-	case apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED:
+	case apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED:
 		return "○", theme.ColorMuted
-	case apiv1alpha1.RuntimeState_RUNTIME_STATE_FAILED:
+	case apiv1.RuntimeState_RUNTIME_STATE_FAILED:
 		return "✗", theme.ColorError
-	case apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING:
+	case apiv1.RuntimeState_RUNTIME_STATE_CREATING:
 		return "◐", theme.ColorMuted
 	default:
 		return "·", theme.ColorMuted
@@ -127,7 +127,7 @@ func stateGlyph(state apiv1alpha1.RuntimeState) (string, lipgloss.AdaptiveColor)
 }
 
 // stateBadge renders a lifecycle state as a coloured glyph and label.
-func stateBadge(state apiv1alpha1.RuntimeState) string {
+func stateBadge(state apiv1.RuntimeState) string {
 	glyph, colour := stateGlyph(state)
 	return lipgloss.NewStyle().Foreground(colour).Render(glyph + " " + sessionview.StateLabel(state))
 }

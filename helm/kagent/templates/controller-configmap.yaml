@@ -10,7 +10,8 @@
   "kubernetes" (dict "namespace" $namespace "watchNamespaces" $watch)
   "server" (dict "bindAddress" (printf ":%v" .Values.controller.service.ports.targetPort))
   "database" $database
-  "gateway" (dict "publicUrl" $apiURL "push" (dict))
+  "gateway" (dict "publicUrl" $apiURL)
+  "push" (dict)
   "runtimeDefaults" (dict "controlPlaneUrl" $apiURL "gatewayUrl" $apiURL)
 -}}
 {{- $config := mergeOverwrite $base (deepCopy .Values.config) -}}
@@ -19,10 +20,10 @@
 {{- end -}}
 {{- $_ := set $config "harnessImages" (include "kagent.builtinHarnessImages" . | mustFromJson) -}}
 {{- if .Values.controller.push.signing.secretName -}}
-{{- $_ := set $config.gateway.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
+{{- $_ := set $config.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
 {{- end -}}
-{{- if not (hasKey $config.gateway.push "issuer") -}}
-{{- $_ := set $config.gateway.push "issuer" (coalesce .Values.ui.externalUrl $config.gateway.publicUrl | trimSuffix "/") -}}
+{{- if not (hasKey $config.push "issuer") -}}
+{{- $_ := set $config.push "issuer" (coalesce .Values.ui.externalUrl $config.gateway.publicUrl | trimSuffix "/") -}}
 {{- end -}}
 {{- if not (include "kagent.controller.metricsEnabled" .) -}}
 {{- $_ := set $config.metrics "bindAddress" "0" -}}

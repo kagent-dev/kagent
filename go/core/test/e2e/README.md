@@ -86,9 +86,8 @@ default. Missing Harness fixtures, preparation failures, and runtime errors
 must fail, not skip. Keep genuinely harness-specific features (native tool
 events, SDK tracing, kagent compaction) in separate tests.
 
-Current explicit gaps are structured output outside kagent, native Codex/Claude
-ask-user model fixtures, and the Codex shared-subagent model fixture. These
-gaps appear as skips in verbose/JSON test output, including in CI.
+Current explicit gaps are structured output outside kagent and the Codex
+shared-subagent model fixture. These gaps appear as skips in verbose/JSON test output, including in CI.
 
 Run one behavior across all harnesses, or select one harness for debugging:
 
@@ -239,3 +238,8 @@ For local interaction debugging, start any retained response fixture from the
 ```bash
 go run ./core/hack/mockllm invoke_mcp_agent.json
 ```
+
+Pending-input coverage waits for a suspended Actor and a verified external DATA
+snapshot before approval, denial, cancellation, and native ask-user responses.
+The approval matrix asserts one MCP execution on approval and none on denial or
+cancellation; native question continuations preserve the task and context IDs.

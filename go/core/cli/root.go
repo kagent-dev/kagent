@@ -5,7 +5,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/db"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
 	sandboxcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/sandbox"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
@@ -34,7 +33,6 @@ func Root() *cobra.Command {
 		commands.NewBugReportCmd(),
 		commands.NewVersionCmd(),
 		commands.NewDashboardCmd(),
-		mcp.NewMCPCmd(),
 		sandboxcli.NewCmd(),
 		commands.NewEnvCmd(),
 		dbcli.NewDBCmd(),

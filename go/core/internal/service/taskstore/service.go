@@ -16,7 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -24,7 +25,7 @@ import (
 
 type Store interface {
 	SettleSessionTask(context.Context, string, string, int64) error
-	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
+	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task, string) (int64, error)
 	GetVersionedSessionTask(context.Context, string, string) (*a2a.Task, int64, error)
 	UpdateSessionTask(context.Context, string, int64, []byte, *a2a.Task, a2a.Event, string) (int64, error)
@@ -36,13 +37,14 @@ var _ Store = (*database.Client)(nil)
 type Service struct {
 	store          Store
 	quiescenceWake chan<- struct{}
+	pushWake       chan<- struct{}
 }
 
-func NewService(store Store, quiescenceWake chan<- struct{}) *Service {
-	return &Service{store: store, quiescenceWake: quiescenceWake}
+func NewService(store Store, quiescenceWake, pushWake chan<- struct{}) *Service {
+	return &Service{store: store, quiescenceWake: quiescenceWake, pushWake: pushWake}
 }
 
-func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.Session, error) {
+func (s *Service) session(ctx context.Context, sessionID string) (*apiv1.Session, error) {
 	authSession, _ := auth.AuthSessionFrom(ctx)
 	identity, ok := authSession.(runtimeSession)
 	if !ok || identity.sessionID != sessionID {
@@ -60,7 +62,7 @@ func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.S
 
 // CreateTask persists the SDK's first task snapshot. Runtime execution and
 // request serialization remain owned by the agent's SDK.
-func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
+func (s *Service) CreateTask(ctx context.Context, input *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
 	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
@@ -74,27 +76,27 @@ func (s *Service) CreateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	}
 	hash := sha256.Sum256(data)
 	version, err := s.store.CreateRuntimeTask(ctx, input.SessionId, hash[:], task, input.GetDispatchId())
-	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: version}, storageError(err)
+	return &runtimev1.TaskStoreServiceCreateTaskResponse{Version: version}, storageError(err)
 }
 
-func (s *Service) GetTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
+func (s *Service) GetTask(ctx context.Context, input *runtimev1.TaskStoreServiceGetTaskRequest) (*runtimev1.TaskStoreServiceGetTaskResponse, error) {
 	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
 	stored, err := s.getTask(ctx, input.SessionId, input.TaskId)
-	return &apiv1alpha1.TaskStoreServiceGetTaskResponse{Stored: stored}, err
+	return &runtimev1.TaskStoreServiceGetTaskResponse{Stored: stored}, err
 }
 
-func (s *Service) getTask(ctx context.Context, sessionID, taskID string) (*apiv1alpha1.StoredTask, error) {
+func (s *Service) getTask(ctx context.Context, sessionID, taskID string) (*runtimev1.StoredTask, error) {
 	task, version, err := s.store.GetVersionedSessionTask(ctx, sessionID, taskID)
 	if err != nil {
 		return nil, storageError(err)
 	}
 	wire, err := pbconv.ToProtoTask(task)
-	return &apiv1alpha1.StoredTask{Task: wire, Version: version}, err
+	return &runtimev1.StoredTask{Task: wire, Version: version}, err
 }
 
-func (s *Service) UpdateTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
+func (s *Service) UpdateTask(ctx context.Context, input *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
 	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
@@ -115,10 +117,10 @@ func (s *Service) UpdateTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	}
 	hash := sha256.Sum256(data)
 	version, err := s.store.UpdateSessionTask(ctx, input.SessionId, input.ExpectedVersion, hash[:], task, event, input.GetDispatchId())
-	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: version}, storageError(err)
+	return &runtimev1.TaskStoreServiceUpdateTaskResponse{Version: version}, storageError(err)
 }
 
-func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreServiceListTasksRequest) (*apiv1alpha1.TaskStoreServiceListTasksResponse, error) {
+func (s *Service) ListTasks(ctx context.Context, input *runtimev1.TaskStoreServiceListTasksRequest) (*runtimev1.TaskStoreServiceListTasksResponse, error) {
 	session, err := s.session(ctx, input.SessionId)
 	if err != nil {
 		return nil, err
@@ -159,10 +161,10 @@ func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreSer
 	if err != nil {
 		return nil, fmt.Errorf("encode task list: %w", err)
 	}
-	return &apiv1alpha1.TaskStoreServiceListTasksResponse{Result: wire}, nil
+	return &runtimev1.TaskStoreServiceListTasksResponse{Result: wire}, nil
 }
 
-func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
+func (s *Service) SettleTask(ctx context.Context, input *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
 	if _, err := s.session(ctx, input.SessionId); err != nil {
 		return nil, err
 	}
@@ -175,7 +177,11 @@ func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	case s.quiescenceWake <- struct{}{}:
 	default:
 	}
-	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+	select {
+	case s.pushWake <- struct{}{}:
+	default:
+	}
+	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 
 func storageError(err error) error {

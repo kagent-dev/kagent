@@ -1,7 +1,7 @@
 # Process configuration
 
 The CLI and controller read YAML or JSON documents described by
-[`config.proto`](../../proto/kagent/api/v1alpha1/config.proto). Protovalidate
+[`config.proto`](../../proto/kagent/config/v1/config.proto). Protovalidate
 annotations define valid values and cross-field constraints. Files have no
 `apiVersion` or `kind`: the executable selects its schema.
 
@@ -83,8 +83,8 @@ database:
   skipMigrations: false
 gateway:
   publicUrl: https://kagent.example.com
-  push:
-    signingPrivateKeyFile: secrets/push-private-key.pem
+push:
+  signingPrivateKeyFile: secrets/push-private-key.pem
 sessions:
   idleTtl: 604800s
 runtimeDefaults:
@@ -100,14 +100,37 @@ after connecting. Set `database.skipMigrations: true` when migrations are applie
 out-of-band; the owner login is then not needed, and startup still verifies,
 through the read/write login, that all required migrations are applied.
 
-Push JWT signing is optional: `gateway.push.signingPrivateKeyFile` names an
+The controller owns callback delivery through the top-level `push` section
+(`config.push` in Helm). Push JWT signing is optional:
+`push.signingPrivateKeyFile` names an
 unencrypted PKCS#8 Ed25519 PEM key when enabled. Helm projects the operator-managed
 Secret selected by `controller.push.signing.secretName`.
 
-Durations use protobuf JSON notation: `60s`, `0.5s`, or `0s`. Unknown fields,
-duplicate keys, nulls, YAML aliases/merges, and multiple documents are rejected.
-Defaults preserve explicit false and zero values. Zero disables session idle
-expiration and leaves share TTL unbounded; nonzero intervals must be positive.
+Config files use `sigs.k8s.io/yaml.YAMLToJSONStrict` followed by Go's
+`protojson.Unmarshal`. Protovalidate checks the schema after command-line overrides
+and application defaults are applied. Parsing follows those libraries:
+
+- Duplicate keys and unknown protobuf fields are rejected. Supplying both the
+  camelCase and snake_case names of the same protobuf field is also rejected.
+- YAML 1.1 scalar rules apply: unquoted `yes`, `no`, `on`, and `off` are booleans;
+  quote them when a string is intended. YAML numeric forms such as `0x10` are
+  converted to numbers, and numeric mapping keys become strings.
+- YAML anchors, aliases, and merge keys are resolved by the YAML library. Strict
+  mode rejects duplicate keys, including an explicit override of a merged key.
+- Only the first YAML document is read; subsequent documents are ignored.
+- ProtoJSON accepts quoted integers for integer fields, but a quoted boolean is
+  a string and fails boolean decoding. Durations use `60s`, `0.5s`, or `0s`.
+- Field `null` means unset; it does not disable a setting. Null list elements are
+  rejected. An explicitly empty string is validated against the field's schema.
+
+Defaults follow protobuf presence. Ordinary scalars use their protobuf zero value;
+for example, omitted and explicit zero `database.pool.minConns` both mean zero.
+Optional scalars and message fields distinguish omission from an explicit value:
+`kubernetes.leaderElection` defaults to true but accepts false, `sessions.idleTtl`
+defaults to seven days but `0s` disables expiration, and omitted
+`runtimeDefaults.maxContentLength` selects the runtime limit while zero disables
+that limit. Session shares have no TTL bound by default; nonzero intervals must
+be positive.
 
 Helm's top-level `config` block mirrors the schema and includes both controller
 settings and managed runtime defaults. The chart writes one config file,
@@ -129,7 +152,7 @@ Configuration changes require a process restart.
 ## Runtimes
 
 ADK and BYO configuration uses `ADKConfig` from
-[`adk.proto`](../../proto/kagent/api/v1alpha1/adk.proto), serialized as ProtoJSON
+[`adk.proto`](../../proto/kagent/config/v1/adk.proto) in `kagent.config.v1`, serialized as ProtoJSON
 in `config.json`. Go and Python consume generated messages and enforce the
 same Protovalidate rules. Agent, model, tool, memory, compaction, plugin, and
 process settings have one schema. Process settings live in the root `runtime`

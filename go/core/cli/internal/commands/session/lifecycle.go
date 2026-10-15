@@ -12,14 +12,14 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 type lifecycleClient interface {
-	CreateSession(context.Context, *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error)
-	DeleteSession(context.Context, *apiv1alpha1.DeleteSessionRequest) (*apiv1alpha1.DeleteSessionResponse, error)
+	CreateSession(context.Context, *apiv1.CreateSessionRequest) (*apiv1.CreateSessionResponse, error)
+	DeleteSession(context.Context, *apiv1.DeleteSessionRequest) (*apiv1.DeleteSessionResponse, error)
 }
 
 // CreateCfg configures Session creation.
@@ -93,8 +93,8 @@ func create(
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	response, err := client.CreateSession(ctx, &apiv1alpha1.CreateSessionRequest{
-		Agent: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: cfg.Agent}, RequestId: cfg.RequestID,
+	response, err := client.CreateSession(ctx, &apiv1.CreateSessionRequest{
+		Agent: &apiv1.ResourceReference{Namespace: namespace, Name: cfg.Agent}, RequestId: cfg.RequestID,
 	})
 	if err != nil {
 		return fmt.Errorf("create Session: %w", err)
@@ -112,7 +112,7 @@ func deleteSession(
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	response, err := client.DeleteSession(ctx, &apiv1alpha1.DeleteSessionRequest{
+	response, err := client.DeleteSession(ctx, &apiv1.DeleteSessionRequest{
 		SessionId: cfg.SessionID,
 	})
 	if status.Code(err) == codes.Aborted {
@@ -131,12 +131,12 @@ func writeLifecycleResult(
 	w io.Writer,
 	format clioutput.Format,
 	response proto.Message,
-	session *apiv1alpha1.Session,
+	session *apiv1.Session,
 ) error {
 	if format == clioutput.FormatJSON {
 		return clioutput.WriteProto(w, response)
 	}
-	return writeSessionsTable(w, []*apiv1alpha1.Session{session}, "")
+	return writeSessionsTable(w, []*apiv1.Session{session}, "")
 }
 
 func newCreateCmd() *cobra.Command {

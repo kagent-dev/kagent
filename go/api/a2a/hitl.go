@@ -239,6 +239,11 @@ func ValidateAskUserResponse(request *AskUserRequest, response *AskUserResponse)
 	if len(response.Answers) != len(request.Questions) {
 		return fmt.Errorf("ask-user response must answer every question")
 	}
+	for i, answer := range response.Answers {
+		if len(answer.Answer) == 0 || !request.Questions[i].Multiple && len(answer.Answer) != 1 {
+			return fmt.Errorf("ask-user response has invalid selection for question %d", i)
+		}
+	}
 	return nil
 }
 

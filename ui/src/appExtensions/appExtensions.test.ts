@@ -54,13 +54,13 @@ describe("installExtensionApi", () => {
 
   const requestContext = (
     call: ApiCallId,
-    url = `${apiBaseUrl}/kagent.api.v1alpha1.ModelService/ListModelConfigs`,
+    url = `${apiBaseUrl}/kagent.api.v1.ModelService/ListModelConfigs`,
   ): ApiRequestContext => ({ endpoint: call, method: "POST", url, headers: {} });
 
   const responseContext = (call: ApiCallId): ApiResponseContext => ({
     endpoint: call,
     status: 200,
-    url: "/api/kagent.api.v1alpha1.ModelService/ListModelConfigs",
+    url: "/api/kagent.api.v1.ModelService/ListModelConfigs",
   });
 
   it("installs nothing and undoes cleanly when there is no extension", () => {
@@ -104,7 +104,7 @@ describe("installExtensionApi", () => {
     installExtensionApi({ baseUrl: "https://example.test/v1/" });
     const result = await applyRequestTransforms(requestContext("models.list"));
     expect(result.url).toBe(
-      "https://example.test/v1/kagent.api.v1alpha1.ModelService/ListModelConfigs",
+      "https://example.test/v1/kagent.api.v1.ModelService/ListModelConfigs",
     );
   });
 
@@ -165,7 +165,7 @@ describe("installExtensionApi", () => {
 
     await applyRequestTransforms(requestContext("models.list"));
     expect(seen).toBe(
-      "https://example.test/v1/kagent.api.v1alpha1.ModelService/ListModelConfigs",
+      "https://example.test/v1/kagent.api.v1.ModelService/ListModelConfigs",
     );
   });
 

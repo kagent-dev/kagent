@@ -151,11 +151,10 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range rootCmd.Commands() {
 		rootCommands = append(rootCommands, command.Name())
 	}
-	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "get", "create", "delete", "invoke", "session"} {
+	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "mcp", "get", "create", "delete", "invoke", "session"} {
 		assert.NotContains(t, rootCommands, command)
 	}
 	assert.NotContains(t, rootCommands, "update")
-	assert.Contains(t, rootCommands, "mcp")
 
 	agentCmd, _, err := rootCmd.Find([]string{"agent"})
 	require.NoError(t, err)

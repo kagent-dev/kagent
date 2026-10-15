@@ -207,9 +207,9 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 ### Configuration
 
-- CLI and controller settings belong in `proto/kagent/api/v1alpha1/config.proto`,
+- CLI and controller settings belong in `proto/kagent/config/v1/config.proto`,
   with Protovalidate rules. Load once at startup and pass resolved values to owners.
-- ADK runtime settings belong in `proto/kagent/api/v1alpha1/adk.proto`; Go and
+- ADK runtime settings belong in `proto/kagent/config/v1/adk.proto`; Go and
   Python consume its generated messages using ProtoJSON. Native harnesses retain
   their own typed configuration. Runtime components must not read application
   settings from the process environment.
@@ -312,7 +312,7 @@ All new CRD API surface goes in `v1alpha3`.
 - Ownership rules:
   - A controller **MUST NOT** modify (patch, annotate, update status of,
     delete) resources it does not own — including resources owned by other
-    controllers (e.g. kmcp) and user-created resources such as secrets.
+    controllers and user-created resources such as secrets.
   - Secondary resources the controller creates **MUST** carry
     `OwnerReferences` (`controllerutil.SetControllerReference`) so they are
     garbage-collected with the parent. Use finalizers when cleanup involves

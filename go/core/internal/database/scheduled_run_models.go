@@ -3,7 +3,7 @@ package database
 import (
 	"github.com/google/uuid"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type ScheduledRunQuery struct {
@@ -26,13 +26,13 @@ type ScheduledRunExecutionLease struct {
 
 // LeasedScheduledRunExecution keeps the immutable lease identity separate from the snapshot.
 type LeasedScheduledRunExecution struct {
-	Execution *apiv1alpha1.ScheduledRunExecution
+	Execution *apiv1.ScheduledRunExecution
 	Lease     ScheduledRunExecutionLease
 }
 
 // ScheduledRunExecutionProgress contains only fields a worker may change.
 type ScheduledRunExecutionProgress struct {
-	State         apiv1alpha1.ScheduledRunExecutionState
+	State         apiv1.ScheduledRunExecutionState
 	TaskID        string
 	FailureReason string
 }

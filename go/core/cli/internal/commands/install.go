@@ -14,7 +14,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
@@ -126,17 +126,6 @@ type helmConfig struct {
 	inlineValues string
 }
 
-func crdChartValues(values []string) []string {
-	var result []string
-	for _, value := range values {
-		key, _, _ := strings.Cut(value, "=")
-		if key == "kmcp.enabled" {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
 func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
 	result := make([]string, 0, len(values)+2)
 	for _, value := range values {
@@ -157,7 +146,7 @@ func podCertificateChartValues(values []string, namespace string, includeBundled
 
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
-func setupHelmConfig(chart *apiv1.ChartConfig, modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
+func setupHelmConfig(chart *configv1.ChartConfig, modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
 	// Build Helm values
 	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
 	values := []string{
@@ -178,7 +167,7 @@ config:
 	return result
 }
 
-func chartConfig(chart *apiv1.ChartConfig) helmConfig {
+func chartConfig(chart *configv1.ChartConfig) helmConfig {
 	return helmConfig{registry: strings.TrimRight(chart.GetRepository(), "/") + "/", version: chart.GetVersion(), valuesFiles: slices.Clone(chart.GetValuesFiles())}
 }
 
@@ -194,7 +183,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	s.Suffix = " Installing kagent-crds from " + helmConfig.registry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, crdChartValues(helmConfig.values), helmConfig.valuesFiles, ""); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, nil, helmConfig.valuesFiles, ""); err != nil {
 		// Helm creates the namespaces later steps deploy into, so CRDs it does not
 		// own, such as those left by an old install, stop the install.
 		if strings.Contains(output, "exists and cannot be imported into the current release") {

@@ -42,7 +42,7 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig, allow
 func validatePushURL(raw string, allowHTTP bool) (*url.URL, error) {
 	endpoint, err := url.Parse(raw)
 	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "https" && (endpoint.Scheme != "http" || !allowHTTP)) || endpoint.User != nil || endpoint.Fragment != "" || strings.TrimSpace(raw) != raw {
-		return nil, fmt.Errorf("push URL must be an absolute HTTPS URL without credentials (HTTP requires gateway.push.allowHttp)")
+		return nil, fmt.Errorf("push URL must be an absolute HTTPS URL without credentials (HTTP requires push.allowHttp)")
 	}
 	return endpoint, nil
 }
@@ -66,18 +66,22 @@ type pushStore interface {
 	ExpireUnboundPushRegistrations(context.Context) error
 	ClaimDuePushDelivery(context.Context) (*database.PushDelivery, error)
 	FinishPushDelivery(context.Context, database.PushDelivery, bool) error
+	IsPushDeliveryCurrent(context.Context, database.PushDelivery) (bool, error)
+	HasPendingPushDelivery(context.Context) (bool, error)
 }
 
 type pushSender interface {
 	SendPush(context.Context, *a2a.PushConfig, a2a.Event) error
 }
 
-// PushWorker sends committed outbox payloads. Lease expiry permits another
-// elected worker to retry after a crash.
+// PushWorker sends current published status updates on every API replica. PostgreSQL
+// claims coordinate workers; lease expiry permits recovery after a crash.
 type PushWorker struct {
-	store  pushStore
-	sender pushSender
-	signer *PushJWTSigner
+	store            pushStore
+	sender           pushSender
+	signer           *PushJWTSigner
+	wake             <-chan struct{}
+	recoveryInterval time.Duration
 }
 
 var _ manager.LeaderElectionRunnable = (*PushWorker)(nil)
@@ -85,27 +89,41 @@ var _ manager.Runnable = (*PushWorker)(nil)
 var _ pushStore = (*database.Client)(nil)
 
 // NewPushWorker sends unsigned notifications when signer is nil.
-func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner) *PushWorker {
-	return &PushWorker{store: store, sender: sender, signer: signer}
+func NewPushWorker(store pushStore, sender pushSender, signer *PushJWTSigner, wake <-chan struct{}, recoveryInterval time.Duration) *PushWorker {
+	return &PushWorker{store: store, sender: sender, signer: signer, wake: wake, recoveryInterval: recoveryInterval}
 }
 
-func (p *PushWorker) NeedLeaderElection() bool { return true }
+func (p *PushWorker) NeedLeaderElection() bool { return false }
 
+// Start drains work at startup and after local settlement hints. Recovery scans
+// find missed hints; outstanding retries and leases retain the five-second scan.
 func (p *PushWorker) Start(ctx context.Context) error {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(p.recoveryInterval)
+	defer timer.Stop()
 	for {
 		fullBatch, err := p.poll(ctx)
-		if err != nil && ctx.Err() == nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
-		}
-		if fullBatch {
+		if fullBatch && err == nil {
 			continue
 		}
+		delay := p.recoveryInterval
+		if err == nil {
+			var pending bool
+			pending, err = p.store.HasPendingPushDelivery(ctx)
+			// If there are pending deliveries, we want to poll more frequently to avoid delays in processing.
+			if pending {
+				delay = min(5*time.Second, p.recoveryInterval)
+			}
+		}
+		if err != nil && ctx.Err() == nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to process push notifications", "error", err)
+			delay = min(time.Second, p.recoveryInterval)
+		}
+		timer.Reset(delay)
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
+		case <-p.wake:
 		}
 	}
 }
@@ -128,14 +146,14 @@ func (p *PushWorker) poll(ctx context.Context) (bool, error) {
 		}
 		claimed++
 		if err := p.send(ctx, *delivery); err != nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "push delivery attempt failed", "notification_id", delivery.ID, "error", err)
+			logging.FromContext(ctx).ErrorContext(ctx, "push delivery attempt failed", "registration_id", delivery.ID, "event_sequence", delivery.Sequence, "error", err)
 		}
 	}
 	return claimed == 100, p.store.ExpireUnboundPushRegistrations(ctx)
 }
 
 func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) error {
-	// Use the event and destination captured at publication
+	// Use the published status and destination captured by this claim.
 	wire := &a2apb.StreamResponse{}
 	if err := proto.Unmarshal(delivery.Payload, wire); err != nil {
 		return fmt.Errorf("decode durable notification: %w", err)
@@ -151,6 +169,13 @@ func (p *PushWorker) send(ctx context.Context, delivery database.PushDelivery) e
 			return fmt.Errorf("sign push notification: %w", err)
 		}
 		config.Auth = &a2a.PushAuthInfo{Scheme: "Bearer", Credentials: credential}
+	}
+	current, err := p.store.IsPushDeliveryCurrent(ctx, delivery)
+	if err != nil {
+		return fmt.Errorf("failed to check push registration %s: %w", delivery.ID, err)
+	}
+	if !current {
+		return nil
 	}
 	sendErr := p.sender.SendPush(ctx, config, event)
 	// A failed HTTP attempt remains durable for the store's retry schedule.

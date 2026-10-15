@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
@@ -60,7 +60,7 @@ func newTemplatesCmd() *cobra.Command {
 		Use: "templates", Short: "List SandboxTemplates in the selected namespace", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, options connection.Options, format clioutput.Format) error {
-				response, err := c.ListSandboxTemplates(ctx, &apiv1alpha1.ListSandboxTemplatesRequest{Namespace: options.Namespace})
+				response, err := c.ListSandboxTemplates(ctx, &apiv1.ListSandboxTemplatesRequest{Namespace: options.Namespace})
 				if err != nil {
 					return err
 				}
@@ -96,8 +96,8 @@ func newCreateCmd() *cobra.Command {
 				return errors.New("ttl must be between 1s and 24h")
 			}
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, options connection.Options, format clioutput.Format) error {
-				request := &apiv1alpha1.CreateSandboxRequest{
-					SandboxTemplate: &apiv1alpha1.ResourceReference{Namespace: options.Namespace, Name: args[0]}, RequestId: requestID, Name: name,
+				request := &apiv1.CreateSandboxRequest{
+					SandboxTemplate: &apiv1.ResourceReference{Namespace: options.Namespace, Name: args[0]}, RequestId: requestID, Name: name,
 				}
 				if cmd.Flags().Changed("ttl") {
 					request.Ttl = durationpb.New(ttl)
@@ -124,7 +124,7 @@ func newListCmd() *cobra.Command {
 		Use: "list", Short: "List your sandboxes", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
-				response, err := c.ListSandboxes(ctx, &apiv1alpha1.ListSandboxesRequest{Page: &apiv1alpha1.PageRequest{Limit: pageSize, PageToken: pageToken}})
+				response, err := c.ListSandboxes(ctx, &apiv1.ListSandboxesRequest{Page: &apiv1.PageRequest{Limit: pageSize, PageToken: pageToken}})
 				if err != nil {
 					return err
 				}
@@ -152,24 +152,24 @@ func newLifecycleCmd(action string) *cobra.Command {
 		Long: "Inspect or change sandbox lifecycle. Mutations make one attempt; retry the same mutation on transient errors. Get only observes. Suspend can interrupt work; delete removes files.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withClient(cmd, func(ctx context.Context, c *client.SandboxClient, _ connection.Options, format clioutput.Format) error {
-				var value *apiv1alpha1.Sandbox
+				var value *apiv1.Sandbox
 				var err error
 				switch action {
 				case "get":
-					var response *apiv1alpha1.GetSandboxResponse
-					response, err = c.GetSandbox(ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: args[0]})
+					var response *apiv1.GetSandboxResponse
+					response, err = c.GetSandbox(ctx, &apiv1.GetSandboxRequest{SandboxId: args[0]})
 					value = response.GetSandbox()
 				case "suspend":
-					var response *apiv1alpha1.SuspendSandboxResponse
-					response, err = c.SuspendSandbox(ctx, &apiv1alpha1.SuspendSandboxRequest{SandboxId: args[0]})
+					var response *apiv1.SuspendSandboxResponse
+					response, err = c.SuspendSandbox(ctx, &apiv1.SuspendSandboxRequest{SandboxId: args[0]})
 					value = response.GetSandbox()
 				case "resume":
-					var response *apiv1alpha1.ResumeSandboxResponse
-					response, err = c.ResumeSandbox(ctx, &apiv1alpha1.ResumeSandboxRequest{SandboxId: args[0]})
+					var response *apiv1.ResumeSandboxResponse
+					response, err = c.ResumeSandbox(ctx, &apiv1.ResumeSandboxRequest{SandboxId: args[0]})
 					value = response.GetSandbox()
 				case "delete":
-					var response *apiv1alpha1.DeleteSandboxResponse
-					response, err = c.DeleteSandbox(ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: args[0]})
+					var response *apiv1.DeleteSandboxResponse
+					response, err = c.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: args[0]})
 					value = response.GetSandbox()
 				default:
 					return fmt.Errorf("unknown sandbox action %q", action)
@@ -183,17 +183,17 @@ func newLifecycleCmd(action string) *cobra.Command {
 	}
 }
 
-func writeSandbox(out io.Writer, format clioutput.Format, value *apiv1alpha1.Sandbox) error {
+func writeSandbox(out io.Writer, format clioutput.Format, value *apiv1.Sandbox) error {
 	if value == nil {
 		return errors.New("server returned no sandbox")
 	}
 	if format == clioutput.FormatJSON {
 		return clioutput.WriteProto(out, value)
 	}
-	return writeSandboxesTable(out, []*apiv1alpha1.Sandbox{value})
+	return writeSandboxesTable(out, []*apiv1.Sandbox{value})
 }
 
-func writeSandboxesTable(out io.Writer, values []*apiv1alpha1.Sandbox) error {
+func writeSandboxesTable(out io.Writer, values []*apiv1.Sandbox) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(w, "ID\tTEMPLATE\tSTATE\tOPERATION\tEXPIRES\tFAILURE"); err != nil {
 		return err

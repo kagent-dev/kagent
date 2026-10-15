@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const (
@@ -90,11 +90,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		switch harness.name {
-		case codexE2EHarness, claudeE2EHarness:
-			t.Skip("native ask-user model fixtures are not available yet; this fixture calls the Go ADK ask_user tool")
-		}
-		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+		fixture := newInteractionFixture(t, harness, interactionTarget(t), startAskUserMock(t, harness))
 		endpoint := mcpEndpoint(t)
 		handle := mcpInvoke(t, endpoint, fixture.sessionID, "Which database should we use for storage?", true)["taskId"].(string)
 		waiting := waitMCPTask(t, endpoint, handle, "input_required")
@@ -105,6 +101,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 		var key string
 		for key = range requests {
 		}
+		assertActorSuspended(t, fixture)
 		mcpCall(t, endpoint, "tasks/update", map[string]any{
 			"taskId": handle,
 			"inputResponses": map[string]any{key: map[string]any{
@@ -174,7 +171,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cancel()
-			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
+			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 			if err != nil && status.Code(err) != codes.NotFound {
 				t.Errorf("delete checkpoint: %v", err)
 			}
@@ -188,16 +185,6 @@ func TestMCPCheckpointFork(t *testing.T) {
 			t.Fatalf("listed checkpoints = %#v", listed)
 		}
 
-		if !checkpointForksSupported {
-			result := mcpCall(t, endpoint, "tools/call", map[string]any{
-				"name":      "fork_session",
-				"arguments": map[string]any{"checkpoint_id": checkpointID},
-			}, false)["result"].(map[string]any)
-			if result["isError"] != true {
-				t.Fatalf("fork_session accepted a process-memory checkpoint: %#v", result)
-			}
-			return
-		}
 		forked := mcpCall(t, endpoint, "tools/call", map[string]any{
 			"name":      "fork_session",
 			"arguments": map[string]any{"checkpoint_id": checkpointID},

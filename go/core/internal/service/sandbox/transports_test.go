@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	toolserver "github.com/kagent-dev/kagent/go/core/internal/mcp"
@@ -58,7 +58,7 @@ func TestSandboxTransports(t *testing.T) {
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
-	client := apiv1alpha1.NewSandboxServiceClient(conn)
+	client := apiv1.NewSandboxServiceClient(conn)
 	processes := guestpb.NewProcessServiceClient(conn)
 	files := guestpb.NewFileSystemServiceClient(conn)
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice", "ate-target-actor", "other/victim"))
@@ -234,21 +234,21 @@ func TestSandboxTransports(t *testing.T) {
 	actors.mu.Lock()
 	actors.mutationErr = status.Error(codes.Unavailable, "suspend response lost after effect")
 	actors.mu.Unlock()
-	_, err = client.SuspendSandbox(ctx, &apiv1alpha1.SuspendSandboxRequest{SandboxId: id})
+	_, err = client.SuspendSandbox(ctx, &apiv1.SuspendSandboxRequest{SandboxId: id})
 	require.Equal(t, codes.Unavailable, status.Code(err))
-	pending, err := client.GetSandbox(ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: id})
+	pending, err := client.GetSandbox(ctx, &apiv1.GetSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, pending.Sandbox.Operation)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, pending.Sandbox.Operation)
 	actors.mu.Lock()
 	actors.mutationErr = nil
 	actors.mu.Unlock()
-	suspended, err := client.SuspendSandbox(ctx, &apiv1alpha1.SuspendSandboxRequest{SandboxId: id})
+	suspended, err := client.SuspendSandbox(ctx, &apiv1.SuspendSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.Sandbox.State)
-	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, suspended.Sandbox.Operation)
-	_, err = client.ResumeSandbox(ctx, &apiv1alpha1.ResumeSandboxRequest{SandboxId: id})
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.Sandbox.State)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, suspended.Sandbox.Operation)
+	_, err = client.ResumeSandbox(ctx, &apiv1.ResumeSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	_, err = client.DeleteSandbox(ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: id})
+	_, err = client.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
 	require.Equal(t, []string{"create", "policy", "resume", "suspend", "suspend", "resume", "suspend", "delete"}, actors.observedCalls())
 }

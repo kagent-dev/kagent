@@ -10,51 +10,51 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
-type Config = apiv1.ADKConfig
-type AgentConfig = apiv1.ADKAgentConfig
-type Model = apiv1.ADKModelConfig
-type OpenAI = apiv1.ADKOpenAI
-type AzureOpenAI = apiv1.ADKAzureOpenAI
-type Anthropic = apiv1.ADKAnthropic
-type GeminiVertexAI = apiv1.ADKGeminiVertexAI
-type GeminiAnthropic = apiv1.ADKGeminiAnthropic
-type Ollama = apiv1.ADKOllama
-type Gemini = apiv1.ADKGemini
-type Bedrock = apiv1.ADKBedrock
-type BedrockGuardrail = apiv1.ADKBedrockGuardrail
-type SAPAICore = apiv1.ADKSAPAICore
-type Foundry = apiv1.ADKFoundry
-type Mistral = apiv1.ADKMistral
-type Model_Openai = apiv1.ADKModelConfig_Openai
-type Model_AzureOpenai = apiv1.ADKModelConfig_AzureOpenai
-type Model_Anthropic = apiv1.ADKModelConfig_Anthropic
-type Model_GeminiVertexAi = apiv1.ADKModelConfig_GeminiVertexAi
-type Model_GeminiAnthropic = apiv1.ADKModelConfig_GeminiAnthropic
-type Model_Ollama = apiv1.ADKModelConfig_Ollama
-type Model_Gemini = apiv1.ADKModelConfig_Gemini
-type Model_Bedrock = apiv1.ADKModelConfig_Bedrock
-type Model_SapAiCore = apiv1.ADKModelConfig_SapAiCore
-type Model_Foundry = apiv1.ADKModelConfig_Foundry
-type Model_Mistral = apiv1.ADKModelConfig_Mistral
-type TokenExchangeConfig = apiv1.ADKTokenExchangeConfig
-type GDCHTokenExchangeConfig = apiv1.ADKGDCHTokenExchangeConfig
-type StreamableHTTPConnectionParams = apiv1.ADKHTTPConnectionParams
-type SseConnectionParams = apiv1.ADKSSEConnectionParams
-type HttpMcpServerConfig = apiv1.ADKHTTPMCPServerConfig
-type SseMcpServerConfig = apiv1.ADKSSEMCPServerConfig
-type StdioMcpServerConfig = apiv1.ADKStdioMCPServerConfig
-type RemoteAgentConfig = apiv1.ADKRemoteAgentConfig
-type EmbeddingConfig = apiv1.ADKEmbeddingConfig
-type MemoryConfig = apiv1.ADKMemoryConfig
-type NetworkConfig = apiv1.ADKNetworkConfig
-type AgentContextConfig = apiv1.ADKContextConfig
-type AgentCompressionConfig = apiv1.ADKCompressionConfig
-type OutputConfig = apiv1.ADKOutputConfig
-type RuntimeConfig = apiv1.ADKRuntimeConfig
-type TokenPropagationConfig = apiv1.TokenPropagationConfig
+type Config = configv1.ADKConfig
+type AgentConfig = configv1.ADKAgentConfig
+type Model = configv1.ADKModelConfig
+type OpenAI = configv1.ADKOpenAI
+type AzureOpenAI = configv1.ADKAzureOpenAI
+type Anthropic = configv1.ADKAnthropic
+type GeminiVertexAI = configv1.ADKGeminiVertexAI
+type GeminiAnthropic = configv1.ADKGeminiAnthropic
+type Ollama = configv1.ADKOllama
+type Gemini = configv1.ADKGemini
+type Bedrock = configv1.ADKBedrock
+type BedrockGuardrail = configv1.ADKBedrockGuardrail
+type SAPAICore = configv1.ADKSAPAICore
+type Foundry = configv1.ADKFoundry
+type Mistral = configv1.ADKMistral
+type Model_Openai = configv1.ADKModelConfig_Openai
+type Model_AzureOpenai = configv1.ADKModelConfig_AzureOpenai
+type Model_Anthropic = configv1.ADKModelConfig_Anthropic
+type Model_GeminiVertexAi = configv1.ADKModelConfig_GeminiVertexAi
+type Model_GeminiAnthropic = configv1.ADKModelConfig_GeminiAnthropic
+type Model_Ollama = configv1.ADKModelConfig_Ollama
+type Model_Gemini = configv1.ADKModelConfig_Gemini
+type Model_Bedrock = configv1.ADKModelConfig_Bedrock
+type Model_SapAiCore = configv1.ADKModelConfig_SapAiCore
+type Model_Foundry = configv1.ADKModelConfig_Foundry
+type Model_Mistral = configv1.ADKModelConfig_Mistral
+type TokenExchangeConfig = configv1.ADKTokenExchangeConfig
+type GDCHTokenExchangeConfig = configv1.ADKGDCHTokenExchangeConfig
+type StreamableHTTPConnectionParams = configv1.ADKHTTPConnectionParams
+type SseConnectionParams = configv1.ADKSSEConnectionParams
+type HttpMcpServerConfig = configv1.ADKHTTPMCPServerConfig
+type SseMcpServerConfig = configv1.ADKSSEMCPServerConfig
+type StdioMcpServerConfig = configv1.ADKStdioMCPServerConfig
+type RemoteAgentConfig = configv1.ADKRemoteAgentConfig
+type EmbeddingConfig = configv1.ADKEmbeddingConfig
+type MemoryConfig = configv1.ADKMemoryConfig
+type NetworkConfig = configv1.ADKNetworkConfig
+type AgentContextConfig = configv1.ADKContextConfig
+type AgentCompressionConfig = configv1.ADKCompressionConfig
+type OutputConfig = configv1.ADKOutputConfig
+type RuntimeConfig = configv1.ADKRuntimeConfig
+type TokenPropagationConfig = configv1.TokenPropagationConfig
 
 const (
 	ModelTypeOpenAI           = "openai"

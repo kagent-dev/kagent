@@ -1,9 +1,9 @@
 # Development
 
 CLI and controller settings use the protobuf schemas in
-`proto/kagent/api/v1alpha1/config.proto` and Protovalidate. Runtime process settings
-use the existing Go JSON contract in `go/api/adk/runtime.go` and the native harness
-config structs. See [process configuration](docs/architecture/process-configuration.md)
+`proto/kagent/config/v1/config.proto` and Protovalidate. ADK runtime settings use
+`proto/kagent/config/v1/adk.proto`; other harnesses use their native config structs.
+See [process configuration](docs/architecture/process-configuration.md)
 for file locations, precedence, and examples.
 
 Standard `OTEL_*` settings override the receiving process's telemetry defaults.

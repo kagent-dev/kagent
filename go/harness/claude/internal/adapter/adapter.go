@@ -84,61 +84,44 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, err
 	}
 	protectedServers := approvalServerNames(cfg.MCPServers)
-	var approvalBroker *driver.ApprovalBroker
-	var settingsPath string
-	var permissionPromptTool string
-	if len(protectedServers) != 0 {
-		if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
-			return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
-		}
-		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
-		}
-		approvalBroker, err = driver.NewApprovalBroker(protectedServers, cfg.MaxEventBytes)
-		if err != nil {
-			return nil, fmt.Errorf("start Claude approval broker: %w", err)
-		}
-		settingsJSON, settingsErr := approvalBroker.SettingsJSON()
-		if settingsErr != nil {
-			_ = approvalBroker.Close()
-			return nil, settingsErr
-		}
-		settingsPath = filepath.Join(input.EphemeralDir, "settings.json")
-		if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
-			_ = approvalBroker.Close()
-			return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
-		}
-		permissionPromptTool = "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
-		mcpServers := make(map[string]config.MCPServer, len(cfg.MCPServers)+1)
-		maps.Copy(mcpServers, cfg.MCPServers)
-		mcpServers[approvalMCPServerName] = config.MCPServer{
-			Type: "http", URL: approvalBroker.URL(), Headers: approvalBroker.Headers(),
-		}
-		cfg.MCPServers = mcpServers
+	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
+		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
+	if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
+		return nil, fmt.Errorf("prepare ephemeral Claude settings directory: %w", err)
+	}
+	approvalBroker, err := driver.NewApprovalBroker(protectedServers, filepath.Join(input.DurableDir, "adapter"), cfg.MaxEventBytes)
+	if err != nil {
+		return nil, fmt.Errorf("start Claude approval broker: %w", err)
+	}
+	settingsJSON, settingsErr := approvalBroker.SettingsJSON()
+	if settingsErr != nil {
+		_ = approvalBroker.Close()
+		return nil, settingsErr
+	}
+	settingsPath := filepath.Join(input.EphemeralDir, "settings.json")
+	if err := utils.ReplacePrivateFile(settingsPath, settingsJSON); err != nil {
+		_ = approvalBroker.Close()
+		return nil, fmt.Errorf("materialize Claude approval settings: %w", err)
+	}
+	permissionPromptTool := "mcp__" + approvalMCPServerName + "__" + driver.ApprovalToolName
+	mcpServers := make(map[string]config.MCPServer, len(cfg.MCPServers)+1)
+	maps.Copy(mcpServers, cfg.MCPServers)
+	mcpServers[approvalMCPServerName] = config.MCPServer{
+		Type: "http", URL: approvalBroker.URL(), Headers: approvalBroker.Headers(),
+	}
+	cfg.MCPServers = mcpServers
 	mcpJSON, err := cfg.MCPConfigJSON()
 	if err != nil {
-		if approvalBroker != nil {
-			_ = approvalBroker.Close()
-		}
+		_ = approvalBroker.Close()
 		return nil, err
 	}
-	var mcpConfigPath string
-	if len(mcpJSON) != 0 {
-		if err := utils.EnsurePrivateDir(input.EphemeralDir); err != nil {
-			if approvalBroker != nil {
-				_ = approvalBroker.Close()
-			}
-			return nil, fmt.Errorf("prepare ephemeral MCP directory: %w", err)
-		}
-		mcpConfigPath = filepath.Join(input.EphemeralDir, "mcp.json")
-		if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
-			if approvalBroker != nil {
-				_ = approvalBroker.Close()
-			}
-			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
-		}
+	mcpConfigPath := filepath.Join(input.EphemeralDir, "mcp.json")
+	if err := utils.ReplacePrivateFile(mcpConfigPath, mcpJSON); err != nil {
+		_ = approvalBroker.Close()
+		return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 	}
+
 	return driver.NewProcessDriver(driver.ProcessConfig{
 		Executable: cfg.ClaudeExecutable, ExpectedVersion: cfg.ExpectedClaudeVersion,
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,

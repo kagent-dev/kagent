@@ -3,12 +3,12 @@ package client
 import (
 	"context"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // Version defines the version-related operations
 type Version interface {
-	GetVersion(ctx context.Context) (*apiv1alpha1.GetVersionResponse, error)
+	GetVersion(ctx context.Context) (*apiv1.GetVersionResponse, error)
 }
 
 // versionClient handles version-related requests
@@ -21,20 +21,20 @@ func newVersionClient(client *baseClient) Version {
 }
 
 // GetVersion retrieves version information
-func (c *versionClient) GetVersion(ctx context.Context) (*apiv1alpha1.GetVersionResponse, error) {
+func (c *versionClient) GetVersion(ctx context.Context) (*apiv1.GetVersionResponse, error) {
 	client, err := c.client.systemServiceClient()
 	if err != nil {
 		return nil, err
 	}
 	callContext, cancel := c.client.grpcCallContext(ctx)
 	defer cancel()
-	return client.GetVersion(callContext, &apiv1alpha1.GetVersionRequest{})
+	return client.GetVersion(callContext, &apiv1.GetVersionRequest{})
 }
 
-func (c *baseClient) systemServiceClient() (apiv1alpha1.SystemServiceClient, error) {
+func (c *baseClient) systemServiceClient() (apiv1.SystemServiceClient, error) {
 	connection, err := c.grpcConnection()
 	if err != nil {
 		return nil, err
 	}
-	return apiv1alpha1.NewSystemServiceClient(connection), nil
+	return apiv1.NewSystemServiceClient(connection), nil
 }

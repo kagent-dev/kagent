@@ -15,6 +15,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/adk/v2/tool"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -176,9 +177,10 @@ type streamResult struct {
 }
 
 type toolEvent struct {
-	partType string
-	id       string
-	name     string
+	awaitingConfirmation bool
+	partType             string
+	id                   string
+	name                 string
 }
 
 // gRPC can report rejection on the first Recv, after opening the stream succeeds.
@@ -296,7 +298,10 @@ func toolEvents(parts []*a2atype.Part) []toolEvent {
 		}
 		id, _ := data["id"].(string)
 		name, _ := data["name"].(string)
-		events = append(events, toolEvent{partType: partType, id: id, name: name})
+		response, _ := data["response"].(map[string]any)
+		errorText, _ := response["error"].(string)
+		awaitingConfirmation := partType == "function_response" && strings.HasSuffix(errorText, tool.ErrConfirmationRequired.Error())
+		events = append(events, toolEvent{partType: partType, id: id, name: name, awaitingConfirmation: awaitingConfirmation})
 	}
 	return events
 }

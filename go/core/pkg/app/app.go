@@ -21,7 +21,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/jackc/pgx/v5/pgxpool"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -44,11 +43,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
-	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -67,7 +65,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
@@ -151,14 +148,17 @@ func SetupLogger(level string) error {
 // Run boots the controller and blocks until ctx is cancelled or a component
 // fails. It returns the first error rather than exiting, so a library consumer
 // keeps control of how the process ends.
-func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error {
+func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) error {
 	if input == nil {
 		return fmt.Errorf("controller configuration is required")
 	}
-	cfg := proto.Clone(input).(*apiv1.ControllerConfig)
+	cfg := proto.Clone(input).(*configv1.ControllerConfig)
 	config.DefaultController(cfg)
 	if err := config.Validate(cfg); err != nil {
 		return err
+	}
+	if err := config.Telemetry(cfg.GetRuntimeDefaults().GetTelemetry()).Validate(); err != nil {
+		return fmt.Errorf("runtimeDefaults: %w", err)
 	}
 	// The read/write login serves every runtime query and verifies migrations
 	// when they are skipped. The owner login only creates the schema and migrates.
@@ -173,10 +173,10 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		}
 	}
 	var pushPrivateKey string
-	if cfg.GetGateway().GetPush().GetSigningPrivateKeyFile() != "" {
-		pushPrivateKey, err = config.ReadSecret(cfg.GetGateway().GetPush().GetSigningPrivateKeyFile())
+	if cfg.GetPush().GetSigningPrivateKeyFile() != "" {
+		pushPrivateKey, err = config.ReadSecret(cfg.GetPush().GetSigningPrivateKeyFile())
 		if err != nil {
-			return fmt.Errorf("gateway.push.signingPrivateKeyFile: %w", err)
+			return fmt.Errorf("push.signingPrivateKeyFile: %w", err)
 		}
 	}
 	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
@@ -185,12 +185,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	quiescenceInterval := cfg.GetSessions().GetQuiescenceRecoveryInterval().AsDuration()
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
-	compilerSettings, err := translator.NewCompilerSettings(cfg.GetRuntimeDefaults())
-	if err != nil {
-		return err
-	}
-	compilerSettings.Images, err = builtinImages(cfg.GetHarnessImages(), version.Version)
-	if err != nil {
+	if err := validateHarnessImagesRelease(cfg.GetHarnessImages(), version.Version); err != nil {
 		return err
 	}
 	telemetryOptions := telemetry.Options{Config: config.Telemetry(cfg.GetTelemetry()), Defaults: []attribute.KeyValue{
@@ -246,7 +241,6 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	utilruntime.Must(clientgoscheme.AddToScheme(managerScheme))
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
-	utilruntime.Must(kmcp.AddToScheme(managerScheme))
 	watchNamespaces := cfg.GetKubernetes().GetWatchNamespaces()
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
@@ -278,7 +272,7 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), compilerSettings)
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages())
 	if err != nil {
 		return err
 	}
@@ -316,10 +310,6 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
-	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
-		return fmt.Errorf("set up MCPServer discovery: %w", err)
-	}
 
 	authenticator, authorizer := opts.resolve()
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
@@ -329,8 +319,9 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
 	quiescenceWake := make(chan struct{}, 1)
+	pushWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
-	runtimeTasks := taskstore.NewService(store, quiescenceWake)
+	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
@@ -352,15 +343,15 @@ func Run(ctx context.Context, input *apiv1.ControllerConfig, opts Options) error
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetGateway().GetPush().GetAllowHttp())
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
 	pushSender := sessionsvc.NewHTTPPushSender(5*time.Second,
-		cfg.GetGateway().GetPush().GetAllowHttp(), cfg.GetGateway().GetPush().GetAllowPrivateNetworks())
-	pushIssuer := cfg.GetGateway().GetPush().GetIssuer()
+		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
+	pushIssuer := cfg.GetPush().GetIssuer()
 	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
 	if err != nil {
 		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
-	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner)); err != nil {
+	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, cfg.GetPush().GetRecoveryInterval().AsDuration())); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
@@ -471,7 +462,7 @@ func mergePolicies(defaults grpcserver.MethodPolicies, extra map[string]auth.Acc
 	return merged, nil
 }
 
-func postgresConfig(cfg *apiv1.DatabaseConfig, pool *pgxpool.Config) *database.PostgresConfig {
+func postgresConfig(cfg *configv1.DatabaseConfig, pool *pgxpool.Config) *database.PostgresConfig {
 	return &database.PostgresConfig{Pool: pool, VectorEnabled: cfg.GetVectorEnabled(),
 		Schema: cfg.GetSchema(), VectorSchema: cfg.GetVectorSchema(),
 		MaxConns: new(cfg.GetPool().GetMaxConns()), MinConns: new(cfg.GetPool().GetMinConns()),
@@ -480,14 +471,14 @@ func postgresConfig(cfg *apiv1.DatabaseConfig, pool *pgxpool.Config) *database.P
 
 // migrationSources appends extra after the built-in tracks: the built-ins must reach
 // their final version before a library consumer's tables, which may reference them.
-func migrationSources(cfg *apiv1.DatabaseConfig, extra []migrations.Source) []migrations.Source {
+func migrationSources(cfg *configv1.DatabaseConfig, extra []migrations.Source) []migrations.Source {
 	builtins := migrations.BuiltinSourcesInSchema(cfg.GetVectorEnabled(), cfg.GetSchema(), cfg.GetVectorSchema())
 	return append(builtins, extra...)
 }
 
 // databasePoolConfig reads one login's connection string and builds its pool
 // configuration. field names the login in errors.
-func databasePoolConfig(field string, login *apiv1.DatabaseLoginConfig) (*pgxpool.Config, error) {
+func databasePoolConfig(field string, login *configv1.DatabaseLoginConfig) (*pgxpool.Config, error) {
 	url, err := config.ReadSecret(login.GetUrlFile())
 	if err != nil {
 		return nil, fmt.Errorf("%s.urlFile: %w", field, err)

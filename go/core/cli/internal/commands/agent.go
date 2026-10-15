@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
@@ -47,11 +47,11 @@ type AgentManifestCfg struct {
 }
 
 type agentLifecycleClient interface {
-	CreateAgent(context.Context, *apiv1alpha1.CreateAgentRequest) (*apiv1alpha1.CreateAgentResponse, error)
-	UpdateAgent(context.Context, *apiv1alpha1.UpdateAgentRequest) (*apiv1alpha1.UpdateAgentResponse, error)
+	CreateAgent(context.Context, *apiv1.CreateAgentRequest) (*apiv1.CreateAgentResponse, error)
+	UpdateAgent(context.Context, *apiv1.UpdateAgentRequest) (*apiv1.UpdateAgentResponse, error)
 }
 
-type agentManifestOperation func(context.Context, agentLifecycleClient, *apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, clioutput.Format, io.Writer) error
+type agentManifestOperation func(context.Context, agentLifecycleClient, *apiv1.ResourceReference, *apiv1.StructuredObject, clioutput.Format, io.Writer) error
 
 func runAgentManifest(
 	ctx context.Context,
@@ -91,7 +91,7 @@ func runAgentManifest(
 	return operation(ctx, session.API.Agent, ref, resource, format, out)
 }
 
-func readAgentManifest(filename, namespace string) (*apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, error) {
+func readAgentManifest(filename, namespace string) (*apiv1.ResourceReference, *apiv1.StructuredObject, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read Agent manifest %q: %w", filename, err)
@@ -113,32 +113,32 @@ func readAgentManifest(filename, namespace string) (*apiv1alpha1.ResourceReferen
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode Agent manifest %q: %w", filename, err)
 	}
-	return &apiv1alpha1.ResourceReference{Namespace: namespace, Name: manifest.Name}, resource, nil
+	return &apiv1.ResourceReference{Namespace: namespace, Name: manifest.Name}, resource, nil
 }
 
 func applyAgent(
 	ctx context.Context,
 	client agentLifecycleClient,
-	ref *apiv1alpha1.ResourceReference,
-	resource *apiv1alpha1.StructuredObject,
+	ref *apiv1.ResourceReference,
+	resource *apiv1.StructuredObject,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	created, err := client.CreateAgent(ctx, &apiv1alpha1.CreateAgentRequest{Ref: ref, Resource: resource})
+	created, err := client.CreateAgent(ctx, &apiv1.CreateAgentRequest{Ref: ref, Resource: resource})
 	if status.Code(err) != codes.AlreadyExists {
 		if err != nil {
 			return fmt.Errorf("apply Agent: %w", err)
 		}
 		return writeAgentResult(out, format, created, created.GetAgent())
 	}
-	updated, err := client.UpdateAgent(ctx, &apiv1alpha1.UpdateAgentRequest{Ref: ref, Resource: resource})
+	updated, err := client.UpdateAgent(ctx, &apiv1.UpdateAgentRequest{Ref: ref, Resource: resource})
 	if err != nil {
 		return fmt.Errorf("apply Agent: %w", err)
 	}
 	return writeAgentResult(out, format, updated, updated.GetAgent())
 }
 
-func writeAgentResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1alpha1.Agent) error {
+func writeAgentResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1.Agent) error {
 	if result == nil {
 		return errors.New("agent operation returned no Agent")
 	}

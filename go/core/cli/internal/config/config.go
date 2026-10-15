@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	shared "github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -25,8 +25,8 @@ import (
 type contextKey struct{}
 
 // FromContext returns the settings resolved by the root command.
-func FromContext(ctx context.Context) *apiv1.CLIConfig {
-	cfg, _ := ctx.Value(contextKey{}).(*apiv1.CLIConfig)
+func FromContext(ctx context.Context) *configv1.CLIConfig {
+	cfg, _ := ctx.Value(contextKey{}).(*configv1.CLIConfig)
 	return cfg
 }
 
@@ -59,7 +59,7 @@ func initialize(cmd *cobra.Command) error {
 		}
 		path = filepath.Join(dir, "kagent", "config.yaml")
 	}
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	if err := shared.Load(path, cfg); err != nil && (explicit || !errors.Is(err, os.ErrNotExist)) {
 		return err
 	}
@@ -118,9 +118,9 @@ func newCommand() *cobra.Command {
 			var message proto.Message
 			switch component {
 			case "cli":
-				message = &apiv1.CLIConfig{}
+				message = &configv1.CLIConfig{}
 			case "controller":
-				message = &apiv1.ControllerConfig{}
+				message = &configv1.ControllerConfig{}
 			default:
 				return fmt.Errorf("component must be cli or controller")
 			}
@@ -137,7 +137,7 @@ func newCommand() *cobra.Command {
 				if err := shared.Load(path, message); err != nil {
 					return err
 				}
-				cfg := message.(*apiv1.ControllerConfig)
+				cfg := message.(*configv1.ControllerConfig)
 				shared.DefaultController(cfg)
 				shared.ResolveControllerPaths(cfg, path)
 				if err := shared.Validate(cfg); err != nil {

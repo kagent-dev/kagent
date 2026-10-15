@@ -31,7 +31,7 @@ for image in golang-adk claude-harness codex-harness; do
 done
 
 release() {
-  make --no-print-directory -C "$root" VERSION="$version" KMCP_VERSION=0.4.0 AWK=awk \
+  make --no-print-directory -C "$root" VERSION="$version" AWK=awk \
     HELM_SOURCE_DIR="$source_dir" HELM_DIST_FOLDER="$output_dir" \
     RUNTIME_IMAGE_METADATA_DIR="$metadata_dir" "$@" > "$scratch/command.log" 2>&1
 }

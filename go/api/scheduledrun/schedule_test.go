@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/scheduledrun"
 )
 
@@ -26,7 +26,7 @@ func TestNext(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			after, err := time.Parse(time.RFC3339, tc.after)
 			require.NoError(t, err)
-			next, err := scheduledrun.Next(&apiv1alpha1.ScheduledRunConfig{Schedule: tc.cron, TimeZone: tc.zone}, after)
+			next, err := scheduledrun.Next(&apiv1.ScheduledRunConfig{Schedule: tc.cron, TimeZone: tc.zone}, after)
 			if tc.want == "" {
 				require.Error(t, err)
 				return
@@ -38,7 +38,7 @@ func TestNext(t *testing.T) {
 }
 
 func TestNormalizePreservesRequest(t *testing.T) {
-	request := &apiv1alpha1.ScheduledRunConfig{Schedule: " 0  9 * * * ", Prompt: " keep whitespace "}
+	request := &apiv1.ScheduledRunConfig{Schedule: " 0  9 * * * ", Prompt: " keep whitespace "}
 	config := scheduledrun.Normalize(request)
 	require.Equal(t, "0 9 * * *", config.Schedule)
 	require.Equal(t, "UTC", config.TimeZone)

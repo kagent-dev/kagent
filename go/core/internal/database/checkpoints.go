@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 var (
@@ -29,7 +29,7 @@ var (
 // the existing fork for the same checkpoint, or ErrIdempotencyConflict otherwise. The
 // boolean reports creation; callers provision the runtime separately. A deleted
 // fork returns ErrFailedPrecondition and retains its request identity.
-func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestID, sessionID string) (*apiv1alpha1.Session, bool, error) {
+func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestID, sessionID string) (*apiv1.Session, bool, error) {
 	checkpointUUID, err := uuid.Parse(checkpointID)
 	if err != nil {
 		return nil, false, fmt.Errorf("invalid checkpoint ID: %w", err)
@@ -41,7 +41,7 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 			return nil, false, ErrIdempotencyConflict
 		}
 		session, err := toSession(existing)
-		if err == nil && session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+		if err == nil && session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
 			return nil, false, ErrFailedPrecondition
 		}
 		return session, false, err
@@ -79,13 +79,13 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 		}
 		historyID := uuid.New()
 		now := timestamppb.Now()
-		session := &apiv1alpha1.Session{
+		session := &apiv1.Session{
 			Id: sessionID, Creator: userID, ContextId: sessionID,
 			Name:             source.GetName(),
-			Agent:            &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
+			Agent:            &apiv1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentName},
 			PreparedRevision: *checkpoint.PreparedRevision,
-			State:            apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING,
-			Operation:        apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
+			State:            apiv1.RuntimeState_RUNTIME_STATE_CREATING,
+			Operation:        apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
 			CreatedAt:        now, UpdatedAt: now,
 		}
 		row, err = insertSessionRecords(ctx, tx, session, requestID, historyID, &checkpoint.ID)
@@ -163,7 +163,7 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 			return nil, false, ErrIdempotencyConflict
 		}
 		session, err := toSession(existing)
-		if err == nil && session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+		if err == nil && session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
 			return nil, false, ErrFailedPrecondition
 		}
 		return session, false, err
@@ -182,7 +182,7 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 // and task, or ErrIdempotencyConflict otherwise. A
 // CREATING reservation blocks new task writes and lifecycle operations while the caller
 // retains the external snapshot.
-func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, userID, requestID string) (*apiv1alpha1.Checkpoint, *SessionTaskSnapshot, error) {
+func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, userID, requestID string) (*apiv1.Checkpoint, *SessionTaskSnapshot, error) {
 	if checkpoint == nil {
 		return nil, nil, fmt.Errorf("missing checkpoint")
 	}
@@ -190,7 +190,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid source session ID: %w", err)
 	}
-	var result *apiv1alpha1.Checkpoint
+	var result *apiv1.Checkpoint
 	var snapshot *SessionTaskSnapshot
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
 		existing, err := readCheckpointRequest(ctx, tx, userID, requestID)
@@ -207,7 +207,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		}
 
 		session, err := lockSession(ctx, tx, checkpoint.GetSessionId())
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (session.UserID != userID || session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String())) {
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (session.UserID != userID || session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED.String())) {
 			return ErrNotFound
 		}
 		if err != nil {
@@ -217,7 +217,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		if _, err := toSession(session); err != nil {
 			return err
 		}
-		if session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY.String() || session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String() {
+		if session.State != apiv1.RuntimeState_RUNTIME_STATE_READY.String() || session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String() {
 			return fmt.Errorf("session %s cannot checkpoint in state %s with operation %s: %w", checkpoint.GetSessionId(), session.State, session.Operation, ErrConflict)
 		}
 		type head struct {
@@ -272,10 +272,10 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 			return ErrSnapshotPending
 		}
 
-		value := proto.Clone(checkpoint).(*apiv1alpha1.Checkpoint)
+		value := proto.Clone(checkpoint).(*apiv1.Checkpoint)
 		value.HeadTaskId = boundary.ID
 		value.HistorySequence = uint64(*boundary.HistorySequence)
-		value.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
+		value.State = apiv1.CheckpointState_CHECKPOINT_STATE_CREATING
 		value.CreatedAt = timestamppb.Now()
 		value.Failure = nil
 		value.Name = defaultCheckpointName(sourceID, boundary.ID)
@@ -329,11 +329,11 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 // READY, or a failure as FAILED. An identical terminal retry returns the existing
 // checkpoint; a different terminal result returns ErrNotFound. This internal operation
 // does not check ownership or create the external snapshot.
-func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snapshotURI, failure string) (*apiv1alpha1.Checkpoint, error) {
+func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
 	if (tagUID == "") == (failure == "") || (tagUID == "") != (snapshotURI == "") {
 		return nil, fmt.Errorf("finalize Session checkpoint requires tag UID and snapshot URI, or failure")
 	}
-	var result *apiv1alpha1.Checkpoint
+	var result *apiv1.Checkpoint
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockCheckpoint(ctx, tx, id, true, "", nil)
 		if err != nil {
@@ -350,10 +350,10 @@ func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snap
 			}
 			return ErrNotFound
 		}
-		result.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY
+		result.State = apiv1.CheckpointState_CHECKPOINT_STATE_READY
 		if failure != "" {
-			result.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED
-			result.Failure = &apiv1alpha1.Failure{Reason: "SnapshotTagFailed", Message: failure}
+			result.State = apiv1.CheckpointState_CHECKPOINT_STATE_FAILED
+			result.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: failure}
 		}
 		data, err := proto.Marshal(result)
 		if err != nil {
@@ -384,7 +384,7 @@ func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snap
 
 // GetSessionCheckpoint returns an owned READY checkpoint. Missing checkpoints, other
 // owners, and other lifecycle states return ErrNotFound.
-func (c *Client) GetSessionCheckpoint(ctx context.Context, id, userID string) (*apiv1alpha1.Checkpoint, error) {
+func (c *Client) GetSessionCheckpoint(ctx context.Context, id, userID string) (*apiv1.Checkpoint, error) {
 	row, err := readCheckpoint(ctx, c.db, id, userID, new("READY"))
 	if err != nil {
 		return nil, fmt.Errorf("get Session checkpoint: %w", notFoundOr(err))
@@ -418,7 +418,7 @@ func checkpointSnapshot(row sessionCheckpointRow) *SessionTaskSnapshot {
 // ListSessionCheckpoints returns an owner's READY checkpoints for the source
 // session in ascending ID order after afterID, up to limit. Retained checkpoints remain
 // listable after the source session is deleted.
-func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1alpha1.Checkpoint, error) {
+func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
 		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
@@ -435,7 +435,7 @@ func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, 
 	if err != nil {
 		return nil, fmt.Errorf("list Session checkpoints: %w", err)
 	}
-	result := make([]*apiv1alpha1.Checkpoint, len(rows))
+	result := make([]*apiv1.Checkpoint, len(rows))
 	for i := range rows {
 		checkpoint, err := toSessionCheckpoint(rows[i])
 		if err != nil {
@@ -462,7 +462,7 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 		if err != nil {
 			return err
 		}
-		checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
+		checkpoint.State = apiv1.CheckpointState_CHECKPOINT_STATE_DELETING
 		data, err := proto.Marshal(checkpoint)
 		if err != nil {
 			return fmt.Errorf("encode checkpoint: %w", err)
@@ -515,8 +515,8 @@ func defaultCheckpointName(sessionID uuid.UUID, headTaskID string) string {
 // checkpoint nameless. Missing, unowned and not-yet-ready checkpoints return ErrNotFound:
 // a checkpoint Get and List will not show is not one a caller may rename, or read back
 // through the rename's response.
-func (c *Client) UpdateCheckpointName(ctx context.Context, id, userID, name string) (*apiv1alpha1.Checkpoint, error) {
-	var result *apiv1alpha1.Checkpoint
+func (c *Client) UpdateCheckpointName(ctx context.Context, id, userID, name string) (*apiv1.Checkpoint, error) {
+	var result *apiv1.Checkpoint
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		ready := "READY"
 		row, err := lockCheckpoint(ctx, tx, id, false, userID, &ready)
@@ -557,8 +557,8 @@ func (c *Client) UpdateCheckpointName(ctx context.Context, id, userID, name stri
 
 // toSessionCheckpoint decodes a checkpoint and rejects disagreement between its
 // payload and indexed identity, history boundary, or lifecycle state.
-func toSessionCheckpoint(row sessionCheckpointRow) (*apiv1alpha1.Checkpoint, error) {
-	checkpoint := &apiv1alpha1.Checkpoint{}
+func toSessionCheckpoint(row sessionCheckpointRow) (*apiv1.Checkpoint, error) {
+	checkpoint := &apiv1.Checkpoint{}
 	if err := proto.Unmarshal(row.Data, checkpoint); err != nil {
 		return nil, fmt.Errorf("decode checkpoint %s: %w", row.ID, err)
 	}

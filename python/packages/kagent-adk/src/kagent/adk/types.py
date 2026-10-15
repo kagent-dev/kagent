@@ -13,76 +13,76 @@ from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.protobuf.json_format import Parse, ParseDict
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKAgentConfig as AgentConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKAnthropic as Anthropic,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKAzureOpenAI as AzureOpenAI,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKBedrock as Bedrock,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKCompressionConfig as ContextCompressionSettings,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKConfig as Config,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKContextConfig as ContextConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKEmbeddingConfig as EmbeddingConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKFoundry as Foundry,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKGDCHTokenExchangeConfig as GDCHTokenExchangeConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKGemini as Gemini,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKGeminiAnthropic as GeminiAnthropic,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKGeminiVertexAI as GeminiVertexAI,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKHTTPMCPServerConfig as HttpMcpServerConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKMemoryConfig as MemoryConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKMistral as Mistral,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKModelConfig as ModelConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKNetworkConfig as NetworkConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKOllama as Ollama,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKOpenAI as OpenAI,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKRemoteAgentConfig as RemoteAgentConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKSAPAICore as SAPAICore,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKSSEMCPServerConfig as SseMcpServerConfig,
 )
-from kagent.api.v1alpha1.adk_pb2 import (
+from kagent.config.v1.adk_pb2 import (
     ADKTokenExchangeConfig as TokenExchangeConfig,
 )
 from kagent.core._runtime_config import optional_field

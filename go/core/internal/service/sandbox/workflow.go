@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -18,7 +18,7 @@ import (
 
 // run executes one attempt inline. Errors retain durable intent; only another
 // lifecycle request retries it. Expiration independently requests deletion.
-func (s *Service) run(ctx context.Context, id string, kind apiv1alpha1.RuntimeOperation) (_ *apiv1alpha1.Sandbox, err error) {
+func (s *Service) run(ctx context.Context, id string, kind apiv1.RuntimeOperation) (_ *apiv1.Sandbox, err error) {
 	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancel()
 	op, err := s.config.Store.BeginSandboxOperation(ctx, id, kind)
@@ -42,7 +42,7 @@ func (s *Service) run(ctx context.Context, id string, kind apiv1alpha1.RuntimeOp
 	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(id),
 		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		policy, err := substrate.ActorEgressPolicy(binding.Atespace, nil, nil)
 		if err != nil {
 			return nil, sandboxError(err)
@@ -107,7 +107,7 @@ func (s *Service) Start(ctx context.Context) error {
 			group.SetLimit(4)
 			for _, id := range ids {
 				group.Go(func() error {
-					if _, err := s.run(ctx, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE); err != nil && !errors.Is(err, database.ErrConflict) && ctx.Err() == nil {
+					if _, err := s.run(ctx, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE); err != nil && !errors.Is(err, database.ErrConflict) && ctx.Err() == nil {
 						logging.FromContext(ctx).ErrorContext(ctx, "expire sandbox", "sandbox_id", id, "error", err)
 					}
 					return nil

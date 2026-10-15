@@ -1,7 +1,7 @@
 """Tests for header propagation to MCP tools."""
 
-from kagent.api.v1alpha1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
-from kagent.api.v1alpha1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
+from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
+from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
 from kagent.adk.types import (
     HttpMcpServerConfig,

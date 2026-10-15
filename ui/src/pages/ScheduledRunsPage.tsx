@@ -18,7 +18,7 @@ import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming"
 import { linkStyles } from "@/components/common/linkStyles";
 import { buildPath, paths } from "@/router/routes";
 import { useUrlStateWriter } from "@/router/useUrlState";
-import { ScheduledRunExecutionState, type ScheduledRun, type ScheduledRunExecution } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { ScheduledRunExecutionState, type ScheduledRun, type ScheduledRunExecution } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 
 function time(value: Timestamp | undefined) {
   return value ? timestampDate(value).toLocaleString() : "—";

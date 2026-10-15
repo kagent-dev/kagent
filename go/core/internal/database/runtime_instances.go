@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const (
@@ -37,16 +37,16 @@ type runtimeInstanceRow struct {
 	ExecutorID       *uuid.UUID
 }
 
-func (r runtimeInstanceRow) lifecycle() (apiv1alpha1.RuntimeState, apiv1alpha1.RuntimeOperation, error) {
-	state, ok := apiv1alpha1.RuntimeState_value[r.State]
-	if !ok || state == int32(apiv1alpha1.RuntimeState_RUNTIME_STATE_UNSPECIFIED) {
+func (r runtimeInstanceRow) lifecycle() (apiv1.RuntimeState, apiv1.RuntimeOperation, error) {
+	state, ok := apiv1.RuntimeState_value[r.State]
+	if !ok || state == int32(apiv1.RuntimeState_RUNTIME_STATE_UNSPECIFIED) {
 		return 0, 0, fmt.Errorf("decode runtime %s state %q", r.ID, r.State)
 	}
-	operation, ok := apiv1alpha1.RuntimeOperation_value[r.Operation]
-	if !ok || operation == int32(apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED) {
+	operation, ok := apiv1.RuntimeOperation_value[r.Operation]
+	if !ok || operation == int32(apiv1.RuntimeOperation_RUNTIME_OPERATION_UNSPECIFIED) {
 		return 0, 0, fmt.Errorf("decode runtime %s operation %q", r.ID, r.Operation)
 	}
-	return apiv1alpha1.RuntimeState(state), apiv1alpha1.RuntimeOperation(operation), nil
+	return apiv1.RuntimeState(state), apiv1.RuntimeOperation(operation), nil
 }
 
 func runtimeOperationFor[T any](row runtimeInstanceRow, instance T) RuntimeOperation[T] {
@@ -63,55 +63,55 @@ func runtimeOperationFor[T any](row runtimeInstanceRow, instance T) RuntimeOpera
 // runtimeOperationNeeded computes admission using only common lifecycle state.
 // A caller that receives true must check its own admission rules and persist the
 // generation in the same transaction, while holding the runtime row lock.
-func runtimeOperationNeeded(row runtimeInstanceRow, requested apiv1alpha1.RuntimeOperation) (bool, error) {
+func runtimeOperationNeeded(row runtimeInstanceRow, requested apiv1.RuntimeOperation) (bool, error) {
 	state, operation, err := row.lifecycle()
 	if err != nil {
 		return false, err
 	}
-	if requested < apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE || requested > apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+	if requested < apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE || requested > apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 		return false, fmt.Errorf("invalid runtime operation %s: %w", requested, ErrFailedPrecondition)
 	}
-	if state == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
-		if requested == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+	if state == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
+		if requested == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 			return false, nil
 		}
 		return false, ErrNotFound
 	}
-	if row.OperationID != nil && operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if row.OperationID != nil && operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		if operation == requested {
 			return false, nil
 		}
-		if requested != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE || row.ExecutorID != nil {
+		if requested != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE || row.ExecutorID != nil {
 			return false, ErrConflict
 		}
-		operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
+		operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
 	}
-	var expected, target apiv1alpha1.RuntimeState
-	expectedOperation := apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE
+	var expected, target apiv1.RuntimeState
+	expectedOperation := apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
 	switch requested {
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
-		if state != apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING && operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
+		if state != apiv1.RuntimeState_RUNTIME_STATE_CREATING && operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 			return false, nil
 		}
-		expected, expectedOperation = apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
-		expected, target = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
-		expected, target = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
+		expected, expectedOperation = apiv1.RuntimeState_RUNTIME_STATE_CREATING, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+		expected, target = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, apiv1.RuntimeState_RUNTIME_STATE_READY
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
+		expected, target = apiv1.RuntimeState_RUNTIME_STATE_READY, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		expected = state
 	}
-	if target != apiv1alpha1.RuntimeState_RUNTIME_STATE_UNSPECIFIED && state == target && operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if target != apiv1.RuntimeState_RUNTIME_STATE_UNSPECIFIED && state == target && operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return false, nil
 	}
-	deletingUnissuedCreation := requested == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE && operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE
+	deletingUnissuedCreation := requested == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE && operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE
 	if state != expected || (operation != expectedOperation && !deletingUnissuedCreation) {
 		return false, ErrConflict
 	}
 	return true, nil
 }
 
-func beginRuntimeOperation(ctx context.Context, tx pgx.Tx, row runtimeInstanceRow, kind string, operation apiv1alpha1.RuntimeOperation) (runtimeInstanceRow, error) {
+func beginRuntimeOperation(ctx context.Context, tx pgx.Tx, row runtimeInstanceRow, kind string, operation apiv1.RuntimeOperation) (runtimeInstanceRow, error) {
 	row.Operation, row.OperationID, row.ExecutorID = operation.String(), new(uuid.New()), nil
 	err := saveRuntimeLifecycle(ctx, tx, row, kind)
 	return row, err
@@ -161,7 +161,7 @@ func completeRuntimeOperation(row runtimeInstanceRow, operationID, executorID uu
 	if err != nil {
 		return row, err
 	}
-	if operationID == uuid.Nil || row.OperationID == nil || *row.OperationID != operationID || operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if operationID == uuid.Nil || row.OperationID == nil || *row.OperationID != operationID || operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return row, ErrConflict
 	}
 	failedPreparation := executorID == uuid.Nil && failure != ""
@@ -170,22 +170,22 @@ func completeRuntimeOperation(row runtimeInstanceRow, operationID, executorID uu
 			return row, ErrConflict
 		}
 		row.OperationID = nil
-		if operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-			row.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
+		if operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+			row.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
 		}
 	} else {
 		if executorID == uuid.Nil || row.ExecutorID == nil || *row.ExecutorID != executorID || failure != "" {
 			return row, ErrConflict
 		}
 		switch operation {
-		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
-			row.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY.String()
-		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
-			row.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED.String()
-		case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
-			row.State, row.PreparedRevision = apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String(), nil
+		case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+			row.State = apiv1.RuntimeState_RUNTIME_STATE_READY.String()
+		case apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
+			row.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED.String()
+		case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
+			row.State, row.PreparedRevision = apiv1.RuntimeState_RUNTIME_STATE_DELETED.String(), nil
 		}
-		row.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
+		row.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()
 	}
 	row.ExecutorID = nil
 	return row, nil

@@ -176,7 +176,7 @@ func stripSQLComments(s string) string {
 // --- Schema-agnostic SQL ---
 //
 // Migration SQL must not name a schema. The connection selects the schema.
-// See the Database changes section in .claude/skills/kagent-dev/SKILL.md.
+// See the Database changes section in .agents/skills/kagent-dev/SKILL.md.
 
 var schemaQualifiedChecks = []sqlCheck{
 	{"CREATE SCHEMA", regexp.MustCompile(`(?i)\bCREATE\s+SCHEMA\b`)},

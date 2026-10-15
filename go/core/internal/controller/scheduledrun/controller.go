@@ -12,24 +12,24 @@ import (
 	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type controllerStore interface {
-	ReserveScheduledRunExecutionSession(context.Context, uuid.UUID, string) (*apiv1alpha1.ScheduledRunExecution, error)
+	ReserveScheduledRunExecutionSession(context.Context, uuid.UUID, string) (*apiv1.ScheduledRunExecution, error)
 	ClaimScheduledRunDispatch(context.Context, database.ScheduledRunExecutionLease) error
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
 	UpdateScheduledRunExecution(context.Context, database.ScheduledRunExecutionLease, database.ScheduledRunExecutionProgress) error
-	GetSession(context.Context, string, string) (*apiv1alpha1.Session, error)
+	GetSession(context.Context, string, string) (*apiv1.Session, error)
 }
 
 type controllerWorkflow interface {
-	Create(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
-	Suspend(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
-	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Suspend(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
 }
 
 // Controller reconciles executions on every replica. SQL leases fence status
@@ -103,7 +103,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	expired := !time.Now().Before(execution.GetDeadline().AsTime())
 	if execution.GetSessionId() == "" {
 		if expired {
-			finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
+			finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 			return nil
 		}
 		linked, err := c.store.ReserveScheduledRunExecutionSession(ctx, leased.Lease.ExecutionID, execution.GetCreator())
@@ -111,7 +111,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 			return err
 		}
 		execution.SessionId = linked.GetSessionId()
-		if linked.GetState() == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT {
+		if linked.GetState() == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT {
 			// Reservation already persisted expiry under its row lock.
 			finishExecution(execution, linked.GetState(), linked.GetFailureReason())
 			execution.CompletedAt = linked.GetCompletedAt()
@@ -120,7 +120,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	}
 	session, err := c.store.GetSession(ctx, execution.GetSessionId(), execution.GetCreator())
 	if errors.Is(err, database.ErrNotFound) {
-		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Session was deleted")
+		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Session was deleted")
 		return nil
 	}
 	if err != nil {
@@ -151,10 +151,10 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 			observeTask(execution, stopped)
 			return nil
 		}
-		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
+		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 		return nil
 	}
-	if execution.GetTaskId() != "" || execution.GetState() == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING {
+	if execution.GetTaskId() != "" || execution.GetState() == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING {
 		// The runtime persists independently. Reconciliation only needs the
 		// stored outcome and never opens a stream to keep execution alive. A
 		// claimed send without a task ID remains uncertain until history appears
@@ -163,19 +163,19 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	}
 	dispatchCtx, cancel := context.WithDeadline(ctx, execution.GetDeadline().AsTime())
 	defer cancel()
-	if session.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING {
+	if session.GetState() == apiv1.RuntimeState_RUNTIME_STATE_CREATING {
 		session, err = c.workflow.Create(dispatchCtx, session)
 		if err != nil {
 			return err
 		}
 	}
-	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || session.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY || session.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return fmt.Errorf("scheduled session %s is not ready for dispatch", session.GetId())
 	}
 	if err := c.store.ClaimScheduledRunDispatch(ctx, leased.Lease); err != nil {
 		return err
 	}
-	execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
+	execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
 	message.ID = "scheduled-run/" + execution.GetId()
 	message.ContextID = session.GetId()
@@ -185,7 +185,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	for event, err := range events {
 		if event != nil && event.TaskInfo().TaskID != "" {
 			execution.TaskId = string(event.TaskInfo().TaskID)
-			execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
+			execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 		}
 		if task, ok := event.(*a2atype.Task); ok {
 			observeTask(execution, task)
@@ -198,7 +198,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 // executionTask only reads persisted history. Once linked, the stored task ID
 // is the sole execution identity.
 // Unlinked executions are recovered by finding their original message in history.
-func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution) (*a2atype.Task, error) {
+func (c *Controller) executionTask(ctx context.Context, execution *apiv1.ScheduledRunExecution) (*a2atype.Task, error) {
 	if taskID := execution.GetTaskId(); taskID != "" {
 		zero := 0
 		task, err := c.gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: a2atype.TaskID(taskID), HistoryLength: &zero})
@@ -227,7 +227,7 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1alpha1.S
 	}
 }
 
-func (c *Controller) stop(ctx context.Context, execution *apiv1alpha1.ScheduledRunExecution, session *apiv1alpha1.Session, task *a2atype.Task) (*a2atype.Task, error) {
+func (c *Controller) stop(ctx context.Context, execution *apiv1.ScheduledRunExecution, session *apiv1.Session, task *a2atype.Task) (*a2atype.Task, error) {
 	if task != nil && (task.Status.State.Terminal() || task.Status.State == a2atype.TaskStateInputRequired || task.Status.State == a2atype.TaskStateAuthRequired) {
 		return task, nil
 	}
@@ -235,7 +235,7 @@ func (c *Controller) stop(ctx context.Context, execution *apiv1alpha1.ScheduledR
 		return c.gateway.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
 	}
 	// No invocation was accepted; clean up the ordinary session lifecycle.
-	if session.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING {
+	if session.GetState() == apiv1.RuntimeState_RUNTIME_STATE_CREATING {
 		_, err := c.workflow.Delete(ctx, session)
 		return nil, err
 	}
@@ -243,20 +243,20 @@ func (c *Controller) stop(ctx context.Context, execution *apiv1alpha1.ScheduledR
 	return nil, err
 }
 
-func observeTask(execution *apiv1alpha1.ScheduledRunExecution, task *a2atype.Task) {
+func observeTask(execution *apiv1.ScheduledRunExecution, task *a2atype.Task) {
 	execution.TaskId = string(task.ID)
 	switch {
 	case task.Status.State.Terminal() && task.Status.Timestamp != nil && task.Status.Timestamp.After(execution.GetDeadline().AsTime()):
-		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
+		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
 	case task.Status.State == a2atype.TaskStateCompleted:
-		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, "")
+		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, "")
 	case task.Status.State.Terminal():
-		finishExecution(execution, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "A2A task "+string(task.Status.State))
+		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "A2A task "+string(task.Status.State))
 	default:
-		execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
+		execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	}
 }
 
-func finishExecution(execution *apiv1alpha1.ScheduledRunExecution, state apiv1alpha1.ScheduledRunExecutionState, reason string) {
+func finishExecution(execution *apiv1.ScheduledRunExecution, state apiv1.ScheduledRunExecutionState, reason string) {
 	execution.State, execution.FailureReason = state, reason
 }
