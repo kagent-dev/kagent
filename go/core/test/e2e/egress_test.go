@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		}
 		require.NoError(t, kube.Create(t.Context(), alias))
 		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
-		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", denied.Port())
+		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local.", denied.Port())
 
 		// First prove the destination is reachable and speaks this harness's
 		// model protocol when explicitly configured.
@@ -47,9 +48,12 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		require.True(t, reachedDenied.Load())
 		reachedDenied.Store(false)
 
-		var reachedAllowed atomic.Bool
+		var modelRequests atomic.Int32
 		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			reachedAllowed.Store(true)
+			// Claude also sends a HEAD probe during startup.
+			if r.Method == http.MethodPost {
+				modelRequests.Add(1)
+			}
 			// The model host is allowed, but its redirect must not expand the
 			// Actor's policy to another reachable, unconfigured destination.
 			redirect := *denied
@@ -65,10 +69,17 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		server.Start()
 		t.Cleanup(server.Close)
 		fixture := newInteractionFixture(t, harness, target, reachableModelURL(t, server.URL))
+		// TODO: Revisit this deadline and the one-request assertion when native
+		// retries are restored after https://github.com/agent-substrate/substrate/issues/2663.
+		// A timeout or cancellation must not count as a successful denial.
+		ctx, cancel := context.WithTimeout(fixture.ctx, 30*time.Second)
+		t.Cleanup(cancel)
+		fixture.ctx = ctx
+		t.Cleanup(func() {
+			t.Logf("redirected model requests = %d, denied destination reached = %v", modelRequests.Load(), reachedDenied.Load())
+		})
 		_, _, task = fixture.send(t, "What is 2+2?")
-		if !reachedAllowed.Load() {
-			t.Fatal("the configured model destination was not reached")
-		}
+		require.Equal(t, int32(1), modelRequests.Load(), "expected one model request without retries")
 		require.Equal(t, a2atype.TaskStateFailed, task.Status.State, "redirect task text = %q", taskText(task))
 		require.False(t, reachedDenied.Load(), "redirect reached an unconfigured destination")
 	})

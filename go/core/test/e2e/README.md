@@ -151,7 +151,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=0.4.0-alpha1 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=0.6.0-alpha1 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release to use its asset installer and caches
 the downloaded assets under `.cache/substrate/microvm-assets/`.
 
@@ -201,10 +201,27 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `KAGENT_E2E_LOCAL_HOST` when the cluster uses a different host address.
 
 Substrate policies require DNS names and explicit protocols and ports.
-The mocks use Kubernetes Service names. For tracing, configure the controller's
-OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
+The mocks use absolute Kubernetes Service names with a trailing dot. Without
+that dot, the native Codex and Claude clients can fail on DNS search expansions
+refused by Substrate under the worker's default `ndots:5`. This keeps the tests
+on the stock worker DNS settings and the same destination allowlist.
+
+`TestSessionEgressDeniesUnconfiguredDestination` first proves the redirect
+destination works when configured, then verifies that an unconfigured redirect
+fails without reaching it. Both calls use the standard Harness and its production
+retry settings. The denied call must reach FAILED within 30 seconds, with exactly
+one model request and no access to the denied destination. Codex's OpenAI provider
+and Claude temporarily disable native retries pending the upstream DNS fix.
+TODO: revisit the one-request assertion and deadline when restoring native retries
+after https://github.com/agent-substrate/substrate/issues/2663 is fixed.
+
+For tracing, configure the controller's `telemetry` and `runtimeDefaults.telemetry`
+OTLP endpoints as `http://e2e-otlp.kagent.svc.cluster.local.:14317` and apply
 `manifests/tracing.yaml.tmpl` with `KAGENT_E2E_LOCAL_HOST` set to the test host's
 reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
+The trailing dot is also required here: native Codex and Claude telemetry exporters
+hit the same DNS search-expansion issue as their model clients. Go runtime spans
+can still arrive without it, leaving only the native spans missing.
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
@@ -239,7 +256,7 @@ For local interaction debugging, start any retained response fixture from the
 go run ./core/hack/mockllm invoke_mcp_agent.json
 ```
 
-Pending-input coverage waits for a suspended Actor and a verified external DATA
+Pending-input coverage waits for a suspended Actor and a verified durable VOLUMES
 snapshot before approval, denial, cancellation, and native ask-user responses.
 The approval matrix asserts one MCP execution on approval and none on denial or
 cancellation; native question continuations preserve the task and context IDs.

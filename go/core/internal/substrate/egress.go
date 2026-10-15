@@ -23,7 +23,7 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name str
 	if status.Code(err) != codes.AlreadyExists {
 		return err
 	}
-	existing, err := c.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: actor})
+	existing, err := c.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: actor, Name: "default"})
 	if err != nil {
 		return err
 	}

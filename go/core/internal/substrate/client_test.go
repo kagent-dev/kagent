@@ -142,10 +142,10 @@ func TestCreateActorUsesStableTemplateRef(t *testing.T) {
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {
-	f.pageTokens = append(f.pageTokens, in.GetPageToken())
+	f.pageTokens = append(f.pageTokens, in.GetOptions().GetPageToken())
 	name := "first"
 	next := "next"
-	if in.GetPageToken() != "" {
+	if in.GetOptions().GetPageToken() != "" {
 		name = "second"
 		next = ""
 	}
@@ -215,9 +215,9 @@ type listWorkersFake struct {
 }
 
 func (f *listWorkersFake) ListWorkers(_ context.Context, in *ateapipb.ListWorkersRequest, _ ...grpc.CallOption) (*ateapipb.ListWorkersResponse, error) {
-	f.pageTokens = append(f.pageTokens, in.GetPageToken())
+	f.pageTokens = append(f.pageTokens, in.GetOptions().GetPageToken())
 	name, next := "first", "next"
-	if in.GetPageToken() != "" {
+	if in.GetOptions().GetPageToken() != "" {
 		name = "second"
 		next = ""
 	}
@@ -248,7 +248,7 @@ type listActorsFake struct {
 func (f *listActorsFake) ListActors(_ context.Context, in *ateapipb.ListActorsRequest, _ ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
 	f.requests = append(f.requests, in)
 	name, next := "first", "next"
-	if in.GetPageToken() != "" {
+	if in.GetOptions().GetPageToken() != "" {
 		name = "second"
 		next = ""
 	}
@@ -268,8 +268,8 @@ func TestListActorsPagePassesPageSizeAndTokenThrough(t *testing.T) {
 	require.Empty(t, next)
 	require.Len(t, fake.requests, 1)
 	require.Equal(t, "team-a", fake.requests[0].GetAtespace())
-	require.Equal(t, int32(25), fake.requests[0].GetPageSize())
-	require.Equal(t, "cursor", fake.requests[0].GetPageToken())
+	require.Equal(t, int32(25), fake.requests[0].GetOptions().GetPageSize())
+	require.Equal(t, "cursor", fake.requests[0].GetOptions().GetPageToken())
 }
 
 // stuckPageFake answers every request with the token it was given, which is a server

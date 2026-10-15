@@ -58,7 +58,8 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if bytes.Contains(configContents, []byte("environment =")) {
 		t.Fatalf("generated OTEL configuration overrides Codex's environment default:\n%s", configContents)
 	}
-	var native nativeConfig
+	// Seed the upstream default so an omitted false value fails this check.
+	native := nativeConfig{Features: nativeFeatures{UnboundedConnectionRetries: true}}
 	if err := toml.Unmarshal(configContents, &native); err != nil {
 		t.Fatalf("decode generated Codex configuration: %v", err)
 	}
@@ -70,6 +71,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
+	}
+	if native.Features.UnboundedConnectionRetries {
+		t.Fatal("generated Codex configuration does not disable unbounded connection retries")
 	}
 	if native.Otel == nil || !native.Otel.LogUserPrompt ||
 		native.Otel.TraceExporter == nil || native.Otel.TraceExporter.OTLPHTTP == nil ||
@@ -96,6 +100,43 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if agentConfig.Model != "gpt-5.2-codex" || agentConfig.DeveloperInstructions != `Inspect "all" changes` {
 		t.Fatalf("generated Codex agent configuration = %#v", agentConfig)
+	}
+}
+
+func TestRenderConfigDisablesProviderRetries(t *testing.T) {
+	for _, provider := range []config.Provider{
+		{Name: "openai"},
+		{Name: "openai", BaseURL: "https://gateway.example.com/v1"},
+		{Name: "amazon-bedrock"},
+	} {
+		t.Run(provider.Name+provider.BaseURL, func(t *testing.T) {
+			cfg := config.Production("test-model", "help")
+			cfg.Provider = provider
+			contents, err := renderConfig(cfg, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Pointers distinguish explicit zero budgets from omitted native defaults.
+			var native struct {
+				Providers map[string]struct {
+					Request *uint `toml:"request_max_retries"`
+					Stream  *uint `toml:"stream_max_retries"`
+				} `toml:"model_providers"`
+			}
+			if err := toml.Unmarshal(contents, &native); err != nil {
+				t.Fatal(err)
+			}
+			if provider.Name == "amazon-bedrock" {
+				if len(native.Providers) != 0 {
+					t.Fatal("built-in Bedrock rejects provider retry overrides")
+				}
+				return
+			}
+			retries := native.Providers["kagent-openai"]
+			if retries.Request == nil || retries.Stream == nil || *retries.Request != 0 || *retries.Stream != 0 {
+				t.Fatalf("provider retry budgets must be explicitly zero: %s", contents)
+			}
+		})
 	}
 }
 
@@ -249,6 +290,9 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	}
 	if !featureEnabled(featuresOutput, "default_mode_request_user_input") {
 		t.Fatalf("default-mode request_user_input feature is not enabled:\n%s", featuresOutput)
+	}
+	if featureEnabled(featuresOutput, "unbounded_connection_retries") {
+		t.Fatalf("unbounded connection retries remain enabled:\n%s", featuresOutput)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

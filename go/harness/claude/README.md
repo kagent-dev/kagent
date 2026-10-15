@@ -35,6 +35,12 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
 by the compiler. Harness environment entries accept only literal values.
 
+The adapter temporarily sets `CLAUDE_CODE_MAX_RETRIES=0` for every run while
+[upstream Kubernetes DNS handling](https://github.com/agent-substrate/substrate/issues/2663)
+is unresolved. DNS denials fail promptly instead of retrying for several minutes;
+transient failures lose those retries too. Remove this override and restore the
+native retry behavior once the upstream issue is fixed.
+
 ## Telemetry
 
 The driver passes each prompt to Claude Code on stdin as stream-JSON. When

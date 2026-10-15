@@ -48,7 +48,7 @@ jobs:
         sandbox_class: [gvisor, microvm]
     env:
       VERSION: v0.0.1-test
-      SUBSTRATE_VERSION: 0.5.0-alpha2
+      SUBSTRATE_VERSION: 0.6.0-alpha1
       KIND_SANDBOX_CLASS: ${{ matrix.sandbox_class }}
       # Bound runtime concurrency separately from the runner's build capacity.
       E2E_PARALLEL: ${{ inputs.e2e_parallel || '4' }}
@@ -157,17 +157,20 @@ jobs:
               guestImage: "localhost:5001/kagent-dev/kagent/sandbox-guest@${GUEST_DIGEST}"
             telemetry:
               traces:
-                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local.:14317
               metrics:
-                endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+                endpoint: http://e2e-otlp.kagent.svc.cluster.local.:14317
             runtimeDefaults:
               tokenPropagation:
                 enabled: true
+              # TODO: Remove the absolute-DNS workaround once Kubernetes DNS is
+              # fixed upstream: https://github.com/agent-substrate/substrate/issues/2663.
+              # Native Codex/Claude exporters fail on refused search-expanded names.
               telemetry:
                 traces:
-                  endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+                  endpoint: http://e2e-otlp.kagent.svc.cluster.local.:14317
                 metrics:
-                  endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
+                  endpoint: http://e2e-otlp.kagent.svc.cluster.local.:14317
           ui:
             replicas: 0
           kagent-tools:

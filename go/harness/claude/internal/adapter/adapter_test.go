@@ -42,6 +42,33 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	}
 }
 
+func TestNativeProcessDisablesRetries(t *testing.T) {
+	for _, environment := range [][]string{nil, {config.MaxRetriesEnvName + "=10"}} {
+		dir := t.TempDir()
+		executable := filepath.Join(dir, "claude")
+		if err := os.WriteFile(executable, []byte("#!/bin/sh\n[ \"$CLAUDE_CODE_MAX_RETRIES\" = 0 ] || exit 42\necho "+config.PinnedClaudeVersion+"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cfg := config.Production("claude-test", "help")
+		cfg.ClaudeExecutable = executable
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner, err := New(t.Context(), Input{
+			ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"),
+			DurableDir: filepath.Join(dir, "data"), EphemeralDir: filepath.Join(dir, "ephemeral"), Environment: environment,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = runner.Close() })
+		if err := runner.Validate(t.Context()); err != nil {
+			t.Fatalf("native process did not receive the zero retry budget: %v", err)
+		}
+	}
+}
+
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	claudeDir := filepath.Join(durableDir, "claude")
