@@ -11,9 +11,8 @@ import (
 	"google.golang.org/genai"
 )
 
-// WithFileText wraps an LLM so every provider receives non-image file blobs as
-// extracted text, and links it cannot send as their URL in text.
-// Images, and files the model's adapter sends itself (see FileSender), pass through.
+// WithFileText wraps an LLM so user files that the provider cannot read reach it as text.
+// Images, and parts the adapter sends itself (see FileSender), are not changed.
 func WithFileText(llm model.LLM) model.LLM {
 	if g, ok := llm.(googleLLM); ok {
 		return googleFileTextLLM{fileTextLLM{llm}, g}
@@ -80,57 +79,56 @@ func isDataPart(b *genai.Blob) bool {
 		bytes.HasPrefix(data, []byte("<a2a_datapart_json>")) && bytes.HasSuffix(data, []byte("</a2a_datapart_json>"))
 }
 
-// filesToText returns req with user files replaced by text, copying only the
-// contents and parts it changes so the caller's session history is untouched.
+// filesToText returns req with the files in each user turn changed to a form the
+// provider reads (see turnFilesToText). It never changes req, which holds the
+// session history, and returns req itself when there is nothing to change.
 func filesToText(req *model.LLMRequest, llm model.LLM) *model.LLMRequest {
 	if req == nil {
 		return req
 	}
-	var contents []*genai.Content
+	out := *req
+	out.Contents = slices.Clone(req.Contents)
 	for i, c := range req.Contents {
 		if c == nil || c.Role != genai.RoleUser {
 			continue
 		}
-		var parts []*genai.Part
-		for j, p := range c.Parts {
-			if p == nil || providerAccepts(llm, p) {
-				continue
-			}
-			var text *genai.Part // nil drops the part
-			switch {
-			case p.FileData != nil:
-				// The adapter would drop this link without a word. The model gets the bare URL,
-				// as the user would type it, so the agent's fetch tool can read it. Not a
-				// "File: name (url)" form: with that, models invented the file's contents.
-				if !hasText(c.Parts, p.FileData.FileURI) {
-					text = genai.NewPartFromText(p.FileData.FileURI)
-				}
-			case p.InlineData != nil && !strings.HasPrefix(p.InlineData.MIMEType, "image/") && !isDataPart(p.InlineData):
-				text = genai.NewPartFromText(inlineFileToText(p.InlineData, partFileName(p)))
-			default:
-				continue
-			}
-			if parts == nil {
-				parts = slices.Clone(c.Parts)
-			}
-			parts[j] = text
+		if parts := turnFilesToText(c.Parts, llm); !slices.Equal(parts, c.Parts) {
+			turn := *c
+			turn.Parts = parts
+			out.Contents[i] = &turn
 		}
-		if parts == nil {
-			continue
-		}
-		if contents == nil {
-			contents = slices.Clone(req.Contents)
-		}
-		changed := *c
-		changed.Parts = slices.DeleteFunc(parts, func(p *genai.Part) bool { return p == nil })
-		contents[i] = &changed
 	}
-	if contents == nil {
+	if slices.Equal(out.Contents, req.Contents) {
 		return req
 	}
-	out := *req
-	out.Contents = contents
 	return &out
+}
+
+// turnFilesToText returns a new list of the parts of one user turn, with each file
+// that the provider cannot read changed to text.
+func turnFilesToText(parts []*genai.Part, llm model.LLM) []*genai.Part {
+	var out []*genai.Part
+	for _, p := range parts {
+		switch {
+		case p == nil || providerAccepts(llm, p):
+			// The model's adapter sends it as it is.
+			out = append(out, p)
+		case p.FileData != nil:
+			// A link: the bare URL, so the agent's fetch tool can read it, or nothing when
+			// the text already has the URL. Not "File: name (url)": with that, models
+			// invented the file's contents.
+			if !hasText(parts, p.FileData.FileURI) {
+				out = append(out, genai.NewPartFromText(p.FileData.FileURI))
+			}
+		case p.InlineData != nil && !strings.HasPrefix(p.InlineData.MIMEType, "image/") && !isDataPart(p.InlineData):
+			// A document as bytes: its text, or a note that it could not be read.
+			out = append(out, genai.NewPartFromText(inlineFileToText(p.InlineData, partFileName(p))))
+		default:
+			// Text, images, A2A data parts and tool calls.
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // hasText reports whether a text part in parts contains s.
