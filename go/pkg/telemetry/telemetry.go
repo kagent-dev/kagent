@@ -1,4 +1,4 @@
-// Package telemetry boots the OpenTelemetry SDK from the SDK-spec environment.
+// Package telemetry boots the OpenTelemetry SDK from explicit configuration with standard OTEL environment overrides.
 package telemetry
 
 import (
@@ -9,9 +9,11 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/propagators/autoprop"
 	"go.opentelemetry.io/otel"
@@ -21,69 +23,61 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
-	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // FlushTimeout bounds one ForceFlush.
 const FlushTimeout = 3 * time.Second
 
-// Default is an SDK setting kagent applies when the environment leaves it unset.
-type Default struct{ Name, Value string }
-
-// Defaults keep baggage from leaking to tools and model providers, compress
-// exports, and give every runtime the same histogram buckets.
-var Defaults = []Default{
-	{Name: "OTEL_PROPAGATORS", Value: "tracecontext"},
-	{Name: "OTEL_EXPORTER_OTLP_COMPRESSION", Value: "gzip"},
-	{Name: "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION", Value: "base2_exponential_bucket_histogram"},
-}
-
-// WithDefaults adds each default that a child process environment leaves unset.
-func WithDefaults(environment []string) []string {
-	result := slices.Clone(environment)
-	for _, value := range Defaults {
-		if !slices.ContainsFunc(environment, func(variable string) bool {
-			current, found := strings.CutPrefix(variable, value.Name+"=")
-			return found && current != ""
-		}) {
-			result = append(result, value.Name+"="+value.Value)
-		}
-	}
-	return result
-}
-
-// Options identify the process. The environment wins over Defaults.
+// Options identify the process. The environment wins over Defaults, but Identity
+// contains compiler-owned attributes that file and environment settings cannot override.
 // MetricReaders are added beside the reader the environment configures.
+// DeferMetrics holds metrics back until StartMetrics.
 type Options struct {
-	Runtime        string
+	Config         Config
+	Identity       []attribute.KeyValue
 	Defaults       []attribute.KeyValue
 	SpanProcessors []sdktrace.SpanProcessor
 	MetricReaders  []sdkmetric.Reader
+	DeferMetrics   bool
 }
 
 // Providers holds the SDK providers Init installed, nil for a disabled signal.
 type Providers struct {
 	tracer *sdktrace.TracerProvider
-	meter  *sdkmetric.MeterProvider
+	meter  atomic.Pointer[sdkmetric.MeterProvider]
 	logger *sdklog.LoggerProvider
+
+	startMetrics   sync.Once
+	metricResource *resource.Resource
+	metricReaders  []sdkmetric.Reader
 }
 
-// Init applies Defaults, then installs the global propagator and one provider
+// Init applies configuration defaults, then installs the global propagator and one provider
 // per enabled signal.
 // A signal that fails to configure stays off and is reported in the error.
 func Init(ctx context.Context, opts Options) (*Providers, error) {
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
 		slog.Default().ErrorContext(context.Background(), "opentelemetry", "error", err)
 	}))
-	for _, value := range Defaults {
-		if os.Getenv(value.Name) == "" {
-			_ = os.Setenv(value.Name, value.Value)
+	providers := &Providers{}
+	if err := opts.Config.Validate(); err != nil {
+		return providers, err
+	}
+	// The SDK owns parsing OTEL_* (including headers, trust, sampling, and
+	// batching). Translate file settings into defaults once at startup.
+	for _, entry := range Environment(os.Environ(), opts.Config) {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && strings.HasPrefix(key, "OTEL_") {
+			if err := os.Setenv(key, value); err != nil {
+				return providers, fmt.Errorf("configure telemetry %s: %w", key, err)
+			}
 		}
 	}
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
-	providers := &Providers{}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_SDK_DISABLED")), "true") {
+	if disabled, _ := env.OTELSDKDisabled.Lookup(); strings.EqualFold(strings.TrimSpace(disabled), "true") {
 		return providers, nil
 	}
 	var errs []error
@@ -104,19 +98,24 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		providers.tracer = sdktrace.NewTracerProvider(append(options, sdktrace.WithBatcher(exporter))...)
 		otel.SetTracerProvider(providers.tracer)
 	}
-	readers := slices.Clone(opts.MetricReaders)
-	if reader, err := autoexport.NewMetricReader(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("metrics: %w", err))
-	} else if !autoexport.IsNoneMetricReader(reader) {
-		readers = append(readers, reader)
-	}
-	if len(readers) > 0 {
-		options := []sdkmetric.Option{sdkmetric.WithResource(res)}
-		for _, reader := range readers {
-			options = append(options, sdkmetric.WithReader(reader))
+	if opts.DeferMetrics {
+		providers.metricResource, providers.metricReaders = res, opts.MetricReaders
+		// Report a bad exporter setting at startup; StartMetrics builds the readers again after the restore.
+		probe, err := metricReaders(ctx, nil)
+		if err != nil {
+			errs = append(errs, err)
 		}
-		providers.meter = sdkmetric.NewMeterProvider(options...)
-		otel.SetMeterProvider(providers.meter)
+		for _, reader := range probe {
+			_ = reader.Shutdown(ctx)
+		}
+	} else {
+		readers, err := metricReaders(ctx, opts.MetricReaders)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if len(readers) > 0 {
+			providers.setMeter(res, readers)
+		}
 	}
 	if exporter, err := autoexport.NewLogExporter(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("logs: %w", err))
@@ -131,12 +130,57 @@ func newResource(ctx context.Context, opts Options) (*resource.Resource, error) 
 	detectors := []resource.Option{
 		resource.WithAttributes(opts.Defaults...),
 		resource.WithTelemetrySDK(),
-		resource.WithFromEnv(),
 	}
-	if opts.Runtime != "" {
-		detectors = append(detectors, resource.WithAttributes(conv.KagentRuntimeKey.String(opts.Runtime)))
+	for key, value := range opts.Config.ResourceAttributes {
+		detectors = append(detectors, resource.WithAttributes(attribute.String(key, value)))
 	}
+	detectors = append(detectors, resource.WithFromEnv(), resource.WithAttributes(opts.Identity...))
 	return resource.New(ctx, detectors...)
+}
+
+func metricReaders(ctx context.Context, extra []sdkmetric.Reader) ([]sdkmetric.Reader, error) {
+	readers := slices.Clone(extra)
+	reader, err := autoexport.NewMetricReader(ctx)
+	if err != nil {
+		return readers, fmt.Errorf("metrics: %w", err)
+	}
+	if !autoexport.IsNoneMetricReader(reader) {
+		readers = append(readers, reader)
+	}
+	return readers, nil
+}
+
+func (p *Providers) setMeter(res *resource.Resource, readers []sdkmetric.Reader) {
+	options := []sdkmetric.Option{sdkmetric.WithResource(res)}
+	for _, reader := range readers {
+		options = append(options, sdkmetric.WithReader(reader))
+	}
+	meter := sdkmetric.NewMeterProvider(options...)
+	p.meter.Store(meter)
+	otel.SetMeterProvider(meter)
+}
+
+// StartMetrics installs the meter provider that DeferMetrics held back, with a new
+// service.instance.id, so each restored process writes its own series. Only the first call acts.
+func (p *Providers) StartMetrics() {
+	if p == nil {
+		return
+	}
+	p.startMetrics.Do(func() {
+		if p.metricResource == nil {
+			return
+		}
+		readers, err := metricReaders(context.Background(), p.metricReaders)
+		if err != nil {
+			otel.Handle(err)
+		}
+		if len(readers) == 0 {
+			return
+		}
+		// A schemaless resource cannot conflict, so Merge cannot fail.
+		res, _ := resource.Merge(p.metricResource, resource.NewSchemaless(semconv.ServiceInstanceID(uuid.NewString())))
+		p.setMeter(res, readers)
+	})
 }
 
 // TracesEnabled reports whether spans are exported.
@@ -157,7 +201,11 @@ func WithFlushRecord(ctx context.Context) context.Context {
 // request. Logs go first because audit events are the telemetry most likely
 // to be lost when the process is suspended right after the response closes.
 func (p *Providers) ForceFlush(ctx context.Context) error {
-	if p == nil || (p.tracer == nil && p.meter == nil && p.logger == nil) {
+	if p == nil {
+		return nil
+	}
+	meter := p.meter.Load()
+	if p.tracer == nil && meter == nil && p.logger == nil {
 		return nil
 	}
 	failed, _ := ctx.Value(flushRecordKey{}).(*atomic.Bool)
@@ -173,8 +221,8 @@ func (p *Providers) ForceFlush(ctx context.Context) error {
 	if p.tracer != nil {
 		err = errors.Join(err, p.tracer.ForceFlush(ctx))
 	}
-	if p.meter != nil {
-		err = errors.Join(err, p.meter.ForceFlush(ctx))
+	if meter != nil {
+		err = errors.Join(err, meter.ForceFlush(ctx))
 	}
 	if err != nil && failed != nil {
 		failed.Store(true)
@@ -191,8 +239,8 @@ func (p *Providers) Shutdown(ctx context.Context) error {
 	if p.tracer != nil {
 		err = errors.Join(err, p.tracer.Shutdown(ctx))
 	}
-	if p.meter != nil {
-		err = errors.Join(err, p.meter.Shutdown(ctx))
+	if meter := p.meter.Load(); meter != nil {
+		err = errors.Join(err, meter.Shutdown(ctx))
 	}
 	if p.logger != nil {
 		err = errors.Join(err, p.logger.Shutdown(ctx))

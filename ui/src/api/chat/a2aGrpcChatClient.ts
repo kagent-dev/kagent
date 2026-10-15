@@ -68,6 +68,7 @@ import {
   readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
+import { mediaTypeOf } from "./attachments";
 import { agentInstanceShareToken } from "../shareToken";
 import { interleaveTaskMessages } from "./transcriptOrder";
 import { serviceClient } from "../transport";
@@ -115,6 +116,15 @@ function nextId(prefix: string): string {
  */
 function isAwaitingReply(state: TaskState | undefined): boolean {
   return state === TaskState.INPUT_REQUIRED || state === TaskState.AUTH_REQUIRED;
+}
+
+function pendingRequestFromStatus(
+  taskId: string,
+  status: TaskStatus | undefined,
+): PendingRequest | undefined {
+  if (!taskId || !isAwaitingReply(status?.state)) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
 }
 
 /** The turn states this client has an opinion about. */
@@ -183,9 +193,45 @@ function toPart(part: A2APart): ChatPart | undefined {
         : {}),
     };
   }
-  // A file part, by url or raw bytes. Nothing renders one yet, and inventing a
-  // placeholder would put a broken attachment in a transcript that has none.
+  if (content.case === "raw") {
+    const mediaType = part.mediaType || "application/octet-stream";
+    return {
+      kind: "file",
+      name: part.filename || "file",
+      mediaType,
+      size: content.value.byteLength,
+      blob: new Blob([content.value as BlobPart], { type: mediaType }),
+    };
+  }
+  if (content.case === "url") {
+    // Only http(s) links reach an href; anything else (javascript:, data:) is dropped.
+    if (!isHttpUrl(content.value)) return undefined;
+    return {
+      kind: "file",
+      name: part.filename || fileNameFromUrl(content.value),
+      mediaType: part.mediaType,
+      url: content.value,
+    };
+  }
   return undefined;
+}
+
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// Last path segment, so a query string or fragment never becomes the name.
+function fileNameFromUrl(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
+  } catch {
+    return "file";
+  }
 }
 
 /**
@@ -379,12 +425,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequestFromStatus(task.id, task.status);
           }
         }
 
@@ -413,6 +454,13 @@ export class A2AGrpcChatClient implements ChatClient {
   async *send(input: SendMessageInput): AsyncIterable<ChatEvent> {
     const { conversation, text, signal } = input;
     const client = serviceClient(A2AService);
+    const fileParts = await Promise.all(
+      (input.files ?? []).map(async (file) => ({
+        content: { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
+        filename: file.name,
+        mediaType: mediaTypeOf(file),
+      })),
+    );
 
     const request = {
       tenant: conversation.agent,
@@ -424,7 +472,10 @@ export class A2AGrpcChatClient implements ChatClient {
         // one that happens to say the same thing.
         messageId: input.messageId || nextId("msg"),
         role: Role.USER,
-        parts: [{ content: { case: "text" as const, value: text } }],
+        parts: [
+          ...(text ? [{ content: { case: "text" as const, value: text } }] : []),
+          ...fileParts,
+        ],
         // Select the existing Session rather than opening a new conversation.
         contextId: conversation.id,
         /*
@@ -508,13 +559,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequestFromStatus(event.taskId, status);
 
           if (
             message &&
@@ -643,7 +688,12 @@ export class A2AGrpcChatClient implements ChatClient {
             delivered.add(message.id);
             yield { type: "message", message };
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequestFromStatus(task.id, task.status),
+          };
           continue;
         }
 

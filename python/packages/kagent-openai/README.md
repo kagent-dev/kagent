@@ -26,10 +26,10 @@ app = KAgentApp(
         "version": "0.1.0",
         "capabilities": {"streaming": True},
         "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"]
+        "defaultOutputModes": ["text"],
     },
     kagent_url="http://localhost:8083",
-    app_name="my-agent"
+    app_name="my-agent",
 )
 
 # Run
@@ -89,12 +89,7 @@ result = await Runner.run(agent, "Hello!", session=session)
 Test without KAgent backend using in-memory mode:
 
 ```python
-app = KAgentApp(
-    agent=agent,
-    agent_card=agent_card,
-    kagent_url="http://localhost:8083",
-    app_name="test-agent"
-)
+app = KAgentApp(agent=agent, agent_card=agent_card, kagent_url="http://localhost:8083", app_name="test-agent")
 
 fastapi_app = app.build_local()  # In-memory, no persistence
 ```
@@ -114,7 +109,7 @@ COPY agent.py .
 CMD ["uvicorn", "agent:fastapi_app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-Set `KAGENT_API_URL` and `KAGENT_GATEWAY_URL` to connect to kagent.
+Load `/config/config.json` with `KAgentConfig.from_file()` to connect to kagent.
 
 ---
 
@@ -130,9 +125,6 @@ Set `KAGENT_API_URL` and `KAGENT_GATEWAY_URL` to connect to kagent.
 
 ## Environment Variables
 
-- `KAGENT_API_URL` - KAgent control-plane API URL
-- `KAGENT_GATEWAY_URL` - KAgent A2A and MCP gateway URL
-- `LOG_LEVEL` - Logging level (default: INFO)
 
 ---
 
@@ -156,3 +148,14 @@ See `samples/openai/` for complete examples:
 ## License
 
 See repository LICENSE file.
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

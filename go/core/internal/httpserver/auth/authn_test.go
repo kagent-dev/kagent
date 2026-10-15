@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -19,7 +20,7 @@ func TestAuthnMiddleware(t *testing.T) {
 	}{
 		{
 			name:         "gets user from query param",
-			authn:        &authimpl.UnsecureAuthenticator{},
+			authn:        &authimpl.InsecureAuthenticator{},
 			url:          "http://foo.com/index?user_id=foo",
 			expectedUser: "foo",
 		},

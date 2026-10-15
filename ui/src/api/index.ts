@@ -71,7 +71,7 @@ export * from "./domain/substrate";
 export * from "./domain/prompts";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
-export * from "./domain/agentSummaries";
+export * from "./domain/agents";
 export * from "./domain/checkpoints";
 
 export { useMcpServers, useTools } from "./hooks/useMcpServers";
@@ -94,6 +94,7 @@ export {
   useAgentTemplatesAcrossNamespaces,
   useHarnesses,
   useHarnessesAcrossNamespaces,
+  useAgentTakesFiles,
 } from "./hooks/useAgentBuildingBlocks";
 export {
   useAgentConversations,
@@ -135,9 +136,9 @@ export type {
   ChatPart,
   ChatRole,
   ChatTextPart,
+  ChatFilePart,
   ChatToolApprovalPart,
   ChatTurnState,
 } from "./chat";
 
-export { useAgent, useAgentsAcrossNamespaces } from "./hooks/useAgents";
-export type { Agent, AgentSpec, AgentResource, AgentCondition, AgentStatus } from "./domain/agents";
+export { useAgent, useAgentsAcrossNamespaces, useInvalidateAgents } from "./hooks/useAgents";

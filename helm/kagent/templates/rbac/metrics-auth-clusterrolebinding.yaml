@@ -1,4 +1,4 @@
-{{- if and (include "kagent.controller.metricsEnabled" .) .Values.controller.metrics.secureServing }}
+{{- if and (include "kagent.controller.metricsEnabled" .) .Values.config.metrics.secure }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -11,6 +11,6 @@ roleRef:
   name: {{ include "kagent.fullname" . }}-metrics-auth-role
 subjects:
   - kind: ServiceAccount
-    name: {{ include "kagent.fullname" . }}-controller
+    name: {{ include "kagent.controller.serviceAccountName" . | quote }}
     namespace: {{ include "kagent.namespace" . }}
 {{- end }}

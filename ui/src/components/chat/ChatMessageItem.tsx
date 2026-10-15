@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
-import { Typography } from "antd";
+import { Button, Tooltip, Typography } from "antd";
+import { Bell } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { ExtensionSlot, useExtensionChatPartRenderers } from "@/appExtensions";
 import type { ChatPartRendererProps, ExtensionChatPartRenderers } from "@/appExtensions";
@@ -9,6 +10,7 @@ import { StructuredOutputCard } from "./StructuredOutputCard";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
+import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
 
 const { Text } = Typography;
@@ -27,12 +29,15 @@ export function ChatMessageItem({
   message,
   sessionId,
   isCheckpointed = false,
+  onManagePush,
 }: {
   message: ChatMessage;
   /** The conversation this message belongs to, for the per-message extension point. */
   sessionId?: string;
   /** Whether this message is above the nearest saved boundary, for the browser suite. */
   isCheckpointed?: boolean;
+  /** Opens the callback settings for this message's task. */
+  onManagePush?: () => void;
 }) {
   const theme = useTheme();
   const isUser = message.role === "user";
@@ -67,6 +72,18 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
+        {onManagePush ? (
+          <Tooltip title="Task notifications">
+            <Button
+              type="text"
+              size="small"
+              icon={<Bell size={14} aria-hidden />}
+              aria-label="Task notifications"
+              data-testid={`task-push-open-${message.taskId}`}
+              onClick={onManagePush}
+            />
+          </Tooltip>
+        ) : null}
         {/* Per-message point: a contribution gets this message's identity and content,
             so it can act on the message it is attached to — plus the turn and
             conversation it belongs to, which is what a backend keyed by turns needs. */}
@@ -152,9 +169,19 @@ function TextPart({ part, role }: ChatPartRendererProps<"text">) {
   );
 }
 
+/** A sent or received file, as a download chip on the message's side. */
+function FilePart({ part, role }: ChatPartRendererProps<"file">) {
+  return (
+    <div css={{ justifySelf: role === "user" ? "end" : "start", maxWidth: "100%" }}>
+      <AttachmentChip file={part} />
+    </div>
+  );
+}
+
 /** What renders each part when no extension replaces it. */
 const CORE_PART_RENDERERS: Required<ExtensionChatPartRenderers> = {
   text: TextPart,
+  file: FilePart,
   tool_call: ToolCallCard,
   tool_result: ToolCallCard,
   tool_not_run: ToolCallCard,

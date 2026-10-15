@@ -12,13 +12,14 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	localsession "github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	localsession "github.com/kagent-dev/kagent/go/adk/pkg/session"
 )
 
 func TestKAgentExecutorForkRetainsConversation(t *testing.T) {
@@ -73,12 +74,25 @@ func TestKAgentExecutorForkRetainsConversation(t *testing.T) {
 				}
 				require.True(t, completed)
 			}
+			restore := func(path string) {
+				t.Helper()
+				snapshot, err := os.ReadFile(path)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(path+".restored", snapshot, 0o600))
+				require.NoError(t, os.Rename(path+".restored", path))
+			}
 			sourcePath := filepath.Join(t.TempDir(), "source.db")
 			source := open(sourcePath)
+			// Golden restore keeps the executor and session service in memory,
+			// while the durable database is materialized as a new backing file.
+			restore(sourcePath)
 			send(source, "source", 1)
 			// Capture the quiescent SQLite file, then let the source advance.
 			snapshot, err := os.ReadFile(sourcePath)
 			require.NoError(t, err)
+			// A later resume must also keep the history writable without rebuilding
+			// the executor or losing the connections policy after its first use.
+			restore(sourcePath)
 			send(source, "source", 3)
 			forkPath := filepath.Join(t.TempDir(), "fork.db")
 			require.NoError(t, os.WriteFile(forkPath, snapshot, 0o600))

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os/exec"
 
+	"github.com/stoewer/go-strcase"
+
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/frameworks/common"
-	"github.com/stoewer/go-strcase"
 )
 
 //go:embed all:templates

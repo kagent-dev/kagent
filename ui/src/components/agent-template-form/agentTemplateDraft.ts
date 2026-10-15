@@ -39,9 +39,8 @@ export interface SubAgentToolDraft {
   name: string;
   /** When the parent should route work to it — the CRD requires this. */
   description: string;
-  /** The AgentTemplate it points at, by bare name in the same namespace. */
-  templateName: string;
-  isolation: "Shared" | "Dedicated";
+  /** The template's bare name in the same namespace. */
+  refName: string;
 }
 
 /** Where the system prompt comes from. The CRD rejects both at once. */
@@ -93,12 +92,22 @@ export function emptyDraft(namespace: string): AgentTemplateDraft {
 
 /** The draft a form opens with when editing an existing template. */
 export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
-  const spec = template.resource.spec;
+  return {
+    ...draftFromSpec(template.resource.spec, template.namespace),
+    name: template.name,
+    labels: Object.entries(template.resource.metadata.labels ?? {}).map(
+      ([key, value]) => ({ key, value }),
+    ),
+  };
+}
+
+/** The draft for a bare spec, such as an Agent's inline template, which has no name or labels. */
+export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): AgentTemplateDraft {
   const tools = spec.tools ?? [];
 
   return {
-    name: template.name,
-    namespace: template.namespace,
+    name: "",
+    namespace,
     modelConfig: spec.modelConfig?.name ?? "",
     description: spec.description ?? "",
     // Which one is in use is read from the resource rather than defaulted, so
@@ -130,12 +139,9 @@ export function draftFromTemplate(template: AgentTemplate): AgentTemplateDraft {
       .map((binding) => ({
         name: binding.subAgent?.name ?? "",
         description: binding.subAgent?.description ?? "",
-        templateName: binding.subAgent?.templateRef.name ?? "",
-        isolation: binding.subAgent?.isolation ?? "Shared",
+        refName: binding.subAgent?.templateRef.name ?? "",
       })),
-    labels: Object.entries(template.resource.metadata.labels ?? {}).map(
-      ([key, value]) => ({ key, value }),
-    ),
+    labels: [],
   };
 }
 
@@ -166,14 +172,13 @@ export function specFromDraft(
       })),
     ...draft.subAgentTools
       .filter(
-        (tool) => tool.name.trim() !== "" && tool.templateName.trim() !== "",
+        (tool) => tool.name.trim() !== "" && tool.refName.trim() !== "",
       )
       .map((tool) => ({
         subAgent: {
           name: tool.name.trim(),
           description: tool.description.trim(),
-          templateRef: { name: tool.templateName.trim() },
-          isolation: tool.isolation,
+          templateRef: { name: tool.refName.trim() },
         },
       })),
   ];

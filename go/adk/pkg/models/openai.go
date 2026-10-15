@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // OpenAI API format values (ModelConfig openAI.apiFormat).
@@ -27,12 +28,12 @@ type OpenAIConfig struct {
 	// If both keys are empty, only a custom BaseUrl may be used without authentication.
 	APIKey              string
 	FrequencyPenalty    *float64
-	MaxTokens           *int
-	MaxCompletionTokens *int
-	N                   *int
+	MaxTokens           *int64
+	MaxCompletionTokens *int64
+	N                   *int64
 	PresencePenalty     *float64
 	ReasoningEffort     *string
-	Seed                *int
+	Seed                *int64
 	Temperature         *float64
 	TopP                *float64
 	// APIFormat selects chatCompletions (default) or responses.
@@ -46,6 +47,7 @@ type AzureOpenAIConfig struct {
 	Endpoint   string
 	Deployment string
 	APIVersion string
+	APIFormat  string
 
 	// credential overrides the Azure credential used for the implicit Workload
 	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
@@ -107,7 +109,7 @@ func resolveOpenAIAPIKey(ctx context.Context, config *OpenAIConfig) (string, err
 	if config.APIKey != "" {
 		return config.APIKey, nil
 	}
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+	if apiKey := env.OpenAIAPIKey.Get(); apiKey != "" {
 		return apiKey, nil
 	}
 	if config.BaseUrl == "" {
@@ -135,7 +137,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	logger := logging.FromContext(ctx)
 	endpoint := config.Endpoint
 	if endpoint == "" {
-		endpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
+		endpoint = env.AzureOpenAIEndpoint.Get()
 	}
 	if endpoint == "" {
 		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
@@ -143,7 +145,7 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 
 	apiVersion := config.APIVersion
 	if apiVersion == "" {
-		apiVersion = os.Getenv("OPENAI_API_VERSION")
+		apiVersion = env.OpenAIAPIVersion.Get()
 	}
 	if apiVersion == "" {
 		apiVersion = "2024-02-15-preview"
@@ -164,13 +166,14 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 		Deployment: deployment,
 		APIVersion: apiVersion,
 		HTTPClient: httpClient,
+		V1:         config.APIFormat == OpenAIAPIFormatResponses,
 	}
 
 	// Implicit auth: the incoming bearer token when APIKeyPassthrough is enabled
 	// (a placeholder Api-Key is overwritten per request by openAIPassthroughOpts),
 	// otherwise the AZURE_OPENAI_API_KEY Api-Key header, otherwise
 	// DefaultAzureCredential (Workload Identity), eagerly probed for readiness.
-	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	apiKey := env.AzureOpenAIAPIKey.Get()
 	if config.APIKeyPassthrough {
 		apiKey = "passthrough"
 	}
@@ -186,11 +189,12 @@ func NewAzureOpenAIModel(ctx context.Context, config *AzureOpenAIConfig) (*OpenA
 	if err != nil {
 		return nil, err
 	}
-	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion)
+	logger.InfoContext(ctx, "initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "api_version", apiVersion, "api_format", config.APIFormat)
 	return &OpenAIModel{
 		Config: &OpenAIConfig{
 			TransportConfig: config.TransportConfig,
 			Model:           deployment,
+			APIFormat:       config.APIFormat,
 		},
 		Client:  client,
 		IsAzure: true,

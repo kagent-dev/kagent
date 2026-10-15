@@ -2,9 +2,10 @@ package translator
 
 import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // Collections contains every typed input used while compiling a revision.

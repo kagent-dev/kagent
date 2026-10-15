@@ -7,8 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // SessionOperation is the current lifecycle generation on a session. Once
@@ -16,7 +17,7 @@ import (
 // ExecutorID marks possibly issued runtime work and never expires. The value is
 // an observation, not permission to execute: callers must win Claim first.
 type SessionOperation struct {
-	RuntimeOperation[*apiv1alpha1.Session]
+	RuntimeOperation[*apiv1.Session]
 	SourceCheckpointID *uuid.UUID
 }
 
@@ -25,39 +26,19 @@ type SessionOperation struct {
 // state. Delete alone may supersede unclaimed work; uncertain work blocks it.
 // Callers authorize access. Deleted sessions return ErrNotFound, except Delete
 // can observe the tombstone for a caller already authorized before deletion.
-func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1alpha1.RuntimeOperation) (*SessionOperation, error) {
+func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, kind apiv1.RuntimeOperation) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		needed, err := runtimeOperationNeeded(row.runtimeInstanceRow, kind)
-		if err != nil {
+		if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+			operation, err = beginSessionDeletion(ctx, tx, row, sessionDeletionUserRequested)
 			return err
 		}
-		if needed {
-			if err := admitAgentLifecycle(ctx, tx, row, kind); err != nil {
-				return err
-			}
-			row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, kind)
-			if err != nil {
-				return err
-			}
-		}
-		operation, err = toSessionOperation(row)
-		if err != nil {
-			return err
-		}
-		if needed {
-			operation.Instance.UpdatedAt = timestamppb.Now()
-			data, err := marshalSession(operation.Instance)
-			if err != nil {
-				return err
-			}
-			return execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, data)
-		}
-		return nil
+		operation, err = beginSessionOperation(ctx, tx, row, kind)
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("begin Session operation: %w", err)
@@ -65,9 +46,47 @@ func (c *Client) BeginSessionOperation(ctx context.Context, sessionID string, ki
 	return operation, nil
 }
 
+// beginSessionOperation admits or joins a lifecycle transition in the caller's
+// transaction. The caller holds the session lock and owns any additional policy.
+func beginSessionOperation(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1.RuntimeOperation) (*SessionOperation, error) {
+	needed, err := runtimeOperationNeeded(row.runtimeInstanceRow, kind)
+	if err != nil {
+		return nil, err
+	}
+	if needed {
+		if err := admitAgentLifecycle(ctx, tx, row, kind); err != nil {
+			return nil, err
+		}
+		if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+			// Deletion keeps task admission closed even if preparation fails
+			// and releases this operation. Only a delete retry can finish it.
+			row.State = apiv1.RuntimeState_RUNTIME_STATE_DELETING.String()
+		}
+		row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindAgent, kind)
+		if err != nil {
+			return nil, err
+		}
+	}
+	operation, err := toSessionOperation(row)
+	if err != nil {
+		return nil, err
+	}
+	if needed {
+		operation.Instance.UpdatedAt = timestamppb.Now()
+		data, err := marshalSession(operation.Instance)
+		if err != nil {
+			return nil, err
+		}
+		if err := execSQL(ctx, tx, `UPDATE session SET data = $2 WHERE id = $1`, row.ID, data); err != nil {
+			return nil, err
+		}
+	}
+	return operation, nil
+}
+
 // admitAgentLifecycle runs under the same row lock as task and checkpoint
 // admission. Common transitions have no knowledge of these agent-only records.
-func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1alpha1.RuntimeOperation) error {
+func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1.RuntimeOperation) error {
 	if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
 		return err
 	}
@@ -97,10 +116,11 @@ func (c *Client) ClaimSessionOperation(ctx context.Context, sessionID string, id
 // FinishSessionOperation publishes known success only for the claiming
 // executor. A nonempty failure releases only unclaimed preparation and invalidates
 // its generation. Uncertain issued work must remain pending. Stale completion or
-// release returns ErrConflict. Deletion retains a tombstone and revokes shares;
-// PostgreSQL releases its resource pins atomically with the state change.
-func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, id, executorID uuid.UUID, authority, actorUID, failure string) (*apiv1alpha1.Session, error) {
-	var result *apiv1alpha1.Session
+// release returns ErrConflict. Deletion revokes shares and releases resource
+// pins atomically. Explicit deletion retains a tombstone; idle deletion also
+// removes the session and creation receipt in this transaction.
+func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, id, executorID uuid.UUID, authority, actorUID, failure string) (*apiv1.Session, error) {
+	var result *apiv1.Session
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, sessionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -119,12 +139,12 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 		}
 		if failure == "" {
 			switch result.Operation {
-			case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
+			case apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE:
 				if authority == "" || actorUID == "" {
 					return fmt.Errorf("created Session requires runtime authority and actor UID")
 				}
 				result.A2AAuthority = authority
-			case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
+			case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 				result.A2AAuthority = ""
 				if err := releaseAgentRuntimeReferences(ctx, tx, row.ID); err != nil {
 					return err
@@ -139,7 +159,7 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 		result.UpdatedAt = timestamppb.Now()
 		result.Failure = nil
 		if failure != "" {
-			result.Failure = &apiv1alpha1.Failure{Reason: "PreparationFailed", Message: failure}
+			result.Failure = &apiv1.Failure{Reason: "PreparationFailed", Message: failure}
 		}
 		row.Data, err = marshalSession(result)
 		if err != nil {
@@ -152,7 +172,7 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
             UPDATE session SET data = $2,
                 actor_uid = CASE WHEN $4 THEN $3 ELSE actor_uid END
             WHERE id = $1 AND ($3::text = '' OR actor_uid = $3 OR (actor_uid IS NULL AND $4))
-        `, row.ID, row.Data, actorUID, failure == "" && row.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE.String())
+        `, row.ID, row.Data, actorUID, failure == "" && row.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE.String())
 		if err != nil {
 			return err
 		}
@@ -161,7 +181,13 @@ func (c *Client) FinishSessionOperation(ctx context.Context, sessionID string, i
 		}
 		row.runtimeInstanceRow = next
 		result, err = toSession(row)
-		return err
+		if err != nil {
+			return err
+		}
+		if result.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED && failure == "" {
+			return finishSessionDeletion(ctx, tx, row.ID)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("finish Session operation: %w", err)

@@ -4,18 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 
-	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // modelResult is the runtime configuration contributed by one ModelConfig.
 type modelResult struct {
-	Resolved    *v2translator.ResolvedModelConfig
-	Model       adk.Model
+	Resolved    *translator.ResolvedModelConfig
+	Model       *adk.Model
 	Environment []corev1.EnvVar
 	Egress      []string
 }
@@ -27,7 +28,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 		return nil, fmt.Errorf("model config %q not found", name)
 	}
 	if failures := resolved.SemanticFailures; len(failures) > 0 {
-		return nil, v2translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
+		return nil, translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
 	}
 	if failures := resolved.ReferenceFailures; len(failures) > 0 {
 		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
@@ -37,7 +38,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 		return nil, err
 	}
 	if runtime.HasUnsupportedVolumes {
-		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	return &modelResult{
 		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
@@ -55,16 +56,16 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 // and egress join the revision, and it joins the provenance so a change to it
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
-func (c *Builder) applyCompaction(result *Result, harness *v2translator.HarnessConfiguration, template *v2translator.TemplateConfiguration) error {
+func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration) error {
 	spec := harness.Spec.Kagent.Compaction
 	if spec == nil {
 		return nil
 	}
 	compaction := &adk.AgentCompressionConfig{
-		CompactionInterval: spec.CompactionInterval,
-		OverlapSize:        spec.OverlapSize,
-		TokenThreshold:     spec.TokenThreshold,
-		EventRetentionSize: spec.EventRetentionSize,
+		CompactionInterval: runtimeInt(spec.CompactionInterval),
+		OverlapSize:        runtimeInt(spec.OverlapSize),
+		TokenThreshold:     runtimeInt(spec.TokenThreshold),
+		EventRetentionSize: runtimeInt(spec.EventRetentionSize),
 	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
@@ -83,7 +84,7 @@ func (c *Builder) applyCompaction(result *Result, harness *v2translator.HarnessC
 	return nil
 }
 
-func isAgentModel(template *v2translator.TemplateConfiguration, name string) bool {
+func isAgentModel(template *translator.TemplateConfiguration, name string) bool {
 	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.Name == name
 }
 
@@ -91,23 +92,23 @@ func isAgentModel(template *v2translator.TemplateConfiguration, name string) boo
 // genai.Schema conversion used by the Go runtime, then records the canonical
 // schema for both Go and Python ADK runtimes. This keeps compatibility
 // failures at Harness compilation instead of actor startup.
-func applyOutputSchema(config *adk.AgentConfig, output *v2translator.ResolvedOutputSchema) error {
+func applyOutputSchema(config *adk.AgentConfig, output *translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
 	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
-		return v2translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
+		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
 	config.Output = &adk.OutputConfig{
-		JSONSchema: append(json.RawMessage(nil), output.Schema...),
-		SHA256:     output.SHA256,
+		JsonSchema: append(json.RawMessage(nil), output.Schema...),
+		Sha256:     output.SHA256,
 	}
 	return nil
 }
 
-func requireModels(input *v2translator.AgentInput) error {
+func requireModels(input *translator.AgentInput) error {
 	if input.ResolvedModelConfig == nil || input.ResolvedModelConfig.Config == nil {
-		return v2translator.NewValidationError("kagent ModelConfig is required")
+		return translator.NewValidationError("kagent ModelConfig is required")
 	}
 	for _, binding := range input.Shared {
 		if err := requireModels(binding.Agent); err != nil {
@@ -117,7 +118,7 @@ func requireModels(input *v2translator.AgentInput) error {
 	return nil
 }
 
-func (c *Builder) applyMemory(result *Result, harness *v2translator.HarnessConfiguration) error {
+func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfiguration) error {
 	memory := harness.Spec.Kagent.Memory
 	if memory == nil {
 		return nil
@@ -127,7 +128,7 @@ func (c *Builder) applyMemory(result *Result, harness *v2translator.HarnessConfi
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}
-	result.Config.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model.Model)}
+	result.Config.Memory = &adk.MemoryConfig{TtlDays: int64(memory.TTLDays), Embedding: adk.ModelToEmbeddingConfig(model.Model)}
 	result.Models = append(result.Models, model.Resolved)
 	result.Environment = append(result.Environment, model.Environment...)
 	result.Egress = append(result.Egress, model.Egress...)

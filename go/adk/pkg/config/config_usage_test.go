@@ -32,7 +32,7 @@ func TestValidateAgentConfigUsage_MissingModel(t *testing.T) {
 
 func TestValidateAgentConfigUsage_ValidMinimal(t *testing.T) {
 	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+		Model:       &adk.Model{Model: "gpt-4", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
 		Instruction: "You are helpful.",
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -43,10 +43,10 @@ func TestValidateAgentConfigUsage_ValidMinimal(t *testing.T) {
 
 func TestValidateAgentConfigUsage_HttpToolMissingURL(t *testing.T) {
 	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+		Model:       &adk.Model{Model: "gpt-4", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
 		Instruction: "test",
-		HttpTools: []adk.HttpMcpServerConfig{
-			{Params: adk.StreamableHTTPConnectionParams{Url: ""}},
+		HttpTools: []*adk.HttpMcpServerConfig{
+			{Params: &adk.StreamableHTTPConnectionParams{Url: ""}},
 		},
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -60,10 +60,10 @@ func TestValidateAgentConfigUsage_HttpToolMissingURL(t *testing.T) {
 
 func TestValidateAgentConfigUsage_SseToolMissingURL(t *testing.T) {
 	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+		Model:       &adk.Model{Model: "gpt-4", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
 		Instruction: "test",
-		SseTools: []adk.SseMcpServerConfig{
-			{Params: adk.SseConnectionParams{Url: ""}},
+		SseTools: []*adk.SseMcpServerConfig{
+			{Params: &adk.SseConnectionParams{Url: ""}},
 		},
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -77,9 +77,9 @@ func TestValidateAgentConfigUsage_SseToolMissingURL(t *testing.T) {
 
 func TestValidateAgentConfigUsage_RemoteAgentMissingURL(t *testing.T) {
 	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+		Model:       &adk.Model{Model: "gpt-4", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
 		Instruction: "test",
-		RemoteAgents: []adk.RemoteAgentConfig{
+		RemoteAgents: []*adk.RemoteAgentConfig{
 			{Name: "agent1", Url: ""},
 		},
 	}
@@ -94,9 +94,9 @@ func TestValidateAgentConfigUsage_RemoteAgentMissingURL(t *testing.T) {
 
 func TestValidateAgentConfigUsage_RemoteAgentMissingName(t *testing.T) {
 	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+		Model:       &adk.Model{Model: "gpt-4", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
 		Instruction: "test",
-		RemoteAgents: []adk.RemoteAgentConfig{
+		RemoteAgents: []*adk.RemoteAgentConfig{
 			{Name: "", Url: "http://example.com"},
 		},
 	}
@@ -118,12 +118,12 @@ func TestGetAgentConfigSummary_Nil(t *testing.T) {
 
 func TestGetAgentConfigSummary_WithModel(t *testing.T) {
 	config := &adk.AgentConfig{
-		Model:        &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+		Model:        &adk.Model{Model: "gpt-4", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
 		Description:  "Test agent",
 		Instruction:  "Be helpful",
-		HttpTools:    []adk.HttpMcpServerConfig{},
-		SseTools:     []adk.SseMcpServerConfig{},
-		RemoteAgents: []adk.RemoteAgentConfig{},
+		HttpTools:    []*adk.HttpMcpServerConfig{},
+		SseTools:     []*adk.SseMcpServerConfig{},
+		RemoteAgents: []*adk.RemoteAgentConfig{},
 	}
 	s := GetAgentConfigSummary(config)
 	if !strings.Contains(s, "openai") {

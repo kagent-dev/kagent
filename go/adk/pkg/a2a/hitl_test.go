@@ -9,8 +9,9 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func dataPart(data map[string]any, metadata map[string]any) *a2atype.Part {

@@ -178,16 +178,11 @@ describe("buildModelPayload — headers, TLS, Ollama tag", () => {
     const req = buildModelPayload(
       draft({
         tls: {
-          caCertSecretRef: "my-ca",
-          caCertSecretKey: "ca.crt",
-          disableSystemCAs: false,
           disableVerify: true,
         },
       }),
     );
     expect(req.spec.tls).toEqual({
-      caCertSecretRef: "my-ca",
-      caCertSecretKey: "ca.crt",
       disableVerify: true,
     });
   });
@@ -215,7 +210,7 @@ describe("modelDraftFrom — round trip", () => {
         apiKeySecret: "gpt-secret",
         apiKeySecretKey: "OPENAI_API_KEY",
         defaultHeaders: { "X-Trace": "on" },
-        tls: { caCertSecretRef: "ca", disableVerify: true },
+        tls: { disableVerify: true },
       },
     };
     const d = modelDraftFrom(config);
@@ -223,7 +218,6 @@ describe("modelDraftFrom — round trip", () => {
     expect(d.apiKeySecret).toBe("gpt-secret");
     expect(d.params).toEqual({ maxTokens: "1024" });
     expect(d.defaultHeaders.map((h) => [h.key, h.value])).toEqual([["X-Trace", "on"]]);
-    expect(d.tls.caCertSecretRef).toBe("ca");
     expect(d.tls.disableVerify).toBe(true);
   });
 

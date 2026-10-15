@@ -8,8 +8,11 @@ export const paths = {
 
   // Named Agent definitions own configuration and group their conversations.
   agents: "/agents",
+  /** A static segment, so it outranks `agentDetail`'s `/agents/:id`. */
+  agentNew: "/agents/new",
   /** One Kubernetes Agent, listing its conversations. */
   agent: "/agents/:namespace/:name",
+  agentEdit: "/agents/:namespace/:name/edit",
   /*
    * A conversation with this agent that does not exist yet.
    *

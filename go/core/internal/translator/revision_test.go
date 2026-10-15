@@ -15,11 +15,13 @@ func TestRevisionDigestIncludesSandboxClass(t *testing.T) {
 	revision := &Revision{Namespace: "agents", AgentName: "helper"}
 	original, err := revision.Digest()
 	require.NoError(t, err)
+	require.NotEqual(t, "563beefdd1b191baae375aa92e70bcab812a3c4fd2a189cdf74668f1ad45456d", original.String(),
+		"the default class must participate in the digest instead of preserving the legacy digest")
 
 	revision.SandboxClass = atev1alpha1.SandboxClassGvisor
 	gvisor, err := revision.Digest()
 	require.NoError(t, err)
-	require.Equal(t, original, gvisor, "explicit gVisor must preserve the existing default revision")
+	require.Equal(t, original, gvisor, "empty and explicit gVisor select the same runtime")
 	require.Equal(t, atev1alpha1.SandboxClassGvisor, revision.SandboxClass, "hashing must not mutate the revision")
 
 	revision.SandboxClass = atev1alpha1.SandboxClassMicroVM
@@ -34,6 +36,17 @@ func TestRevisionDigestIncludesSandboxClass(t *testing.T) {
 	invalid, err := revision.Digest()
 	require.EqualError(t, err, `unsupported sandbox class "unsupported"`)
 	require.True(t, invalid.IsZero())
+}
+
+func TestRevisionDigestReplacesNameOnlyWorkerPoolTemplate(t *testing.T) {
+	revision := &Revision{Namespace: "tenant-a", AgentName: "helper", WorkerPoolName: "kagent-default"}
+	id, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, "01d0e398a0a585b884d12b7d9ae7924437ca21d6c44c7461ac869e396980a75e", id.String(),
+		"namespace-scoped placement must create a fresh immutable ActorTemplate")
+	repeated, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, id, repeated)
 }
 
 func TestRevisionDigestIncludesProvenance(t *testing.T) {

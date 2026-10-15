@@ -8,7 +8,7 @@ rewrite is done when the same general set of journeys still passes.
 ```bash
 cd ui
 yarn test:pw                 # or: yarn test:e2e
-UI_LOOP_PORT=8012 yarn test:pw   # when something else owns the default port
+KAGENT_E2E_UI_LOOP_PORT=8012 yarn test:pw   # when something else owns the default port
 ```
 
 Nothing else is needed — no cluster, no port-forward, no provider key.
@@ -38,7 +38,7 @@ here.
 ## What it runs against
 
 The suite runs against the in-browser mock backend (`src/mocks/`), pinned by the
-`webServer` block in `playwright.config.ts` so an inherited `VITE_API_MODE=live`
+`webServer` block in `playwright.config.ts` so an inherited `KAGENT_UI_VITE_API_MODE=live`
 cannot silently point a run at a real cluster. That buys three things the old
 kind-cluster setup could not offer: the data is fixed, so a spec can assert exact
 rows; the run takes seconds; and failure is a first-class state rather than
@@ -90,8 +90,8 @@ Which extensions a build installs is decided at build time, so "installed" and
 
 | Project | Server | Specs |
 |---|---|---|
-| `chromium` | bare — no extension, on `UI_LOOP_PORT` | everything not matching `*.withExtension.spec.ts` |
-| `chromium-with-extension` | `VITE_EXAMPLE_EXTENSION=true`, on `UI_LOOP_PORT + 50` | `*.withExtension.spec.ts` |
+| `chromium` | bare — no extension, on `KAGENT_E2E_UI_LOOP_PORT` | everything not matching `*.withExtension.spec.ts` |
+| `chromium-with-extension` | `KAGENT_UI_VITE_EXAMPLE_EXTENSION=true`, on `KAGENT_E2E_UI_LOOP_PORT + 50` | `*.withExtension.spec.ts` |
 
 A spec opts into the extension-installed app by being named `*.withExtension.spec.ts`.
 
@@ -211,7 +211,7 @@ conventions below: the shared fixture import, and antd's class names.
 ```bash
 cd ui
 yarn test:pw:live
-UI_LOOP_LIVE_PORT=8312 yarn test:pw:live   # to run beside something on 8301
+KAGENT_E2E_UI_LOOP_LIVE_PORT=8312 yarn test:pw:live   # to run beside something on 8301
 ```
 
 Unlike `yarn test:pw`, this one **does** need a cluster, with the controller
@@ -222,7 +222,7 @@ A live run reaches the controller through Vite's proxy, exactly as a deployed
 build reaches it through nginx, so the app uses the same relative URLs either way
 and this mode tests the addressing a real deployment uses.
 
-**Why a separate mode rather than a third project.** `UI_LOOP_LIVE=true` swaps the
+**Why a separate mode rather than a third project.** `KAGENT_E2E_UI_LOOP_LIVE=true` swaps the
 whole `projects`/`webServer` pair in `playwright.config.ts` instead of appending to
 it, because the two modes' requirements are mutually exclusive. A live project in
 the default list would make `yarn test:pw` — which is meant to need nothing but a
@@ -232,7 +232,7 @@ would cost every live run the time to boot Vite twice for nothing. The two runs
 are disjoint. The live project also gets its own port, 8301, far from the mock
 servers' 8001/8051 for the same reason those two are 50 apart.
 
-**A green live run has to have been live.** `VITE_API_MODE` is pinned at build
+**A green live run has to have been live.** `KAGENT_UI_VITE_API_MODE` is pinned at build
 time as well as at runtime, because a build-time pin is the one thing an inherited
 `.env` cannot override — and a live suite that quietly answered from fixtures
 would be worse than a red one, since a green one gets taken as evidence the

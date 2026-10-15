@@ -7,12 +7,11 @@ See: https://github.com/kagent-dev/kagent/issues/1530
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
+import httpx2
 import pytest
 from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
-from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData
+from mcp.shared.exceptions import MCPError
 
 from kagent.adk._mcp_apps import MCPAppToolNames
 from kagent.adk._mcp_toolset import ConnectionSafeMcpTool, KAgentMcpToolset
@@ -77,8 +76,8 @@ async def test_timeout_error_returns_error_dict():
 
 @pytest.mark.asyncio
 async def test_httpx_connect_error_returns_error_dict():
-    """httpx.ConnectError should be caught via httpx.TransportError."""
-    tool = _make_connection_safe_tool(httpx.ConnectError("connection refused"))
+    """httpx2.ConnectError should be caught via httpx2.TransportError."""
+    tool = _make_connection_safe_tool(httpx2.ConnectError("connection refused"))
 
     result = await tool.run_async(args={}, tool_context=MagicMock())
 
@@ -88,8 +87,8 @@ async def test_httpx_connect_error_returns_error_dict():
 
 @pytest.mark.asyncio
 async def test_httpx_read_error_returns_error_dict():
-    """httpx.ReadError (connection reset by peer) should be caught."""
-    tool = _make_connection_safe_tool(httpx.ReadError("peer closed connection"))
+    """httpx2.ReadError (connection reset by peer) should be caught."""
+    tool = _make_connection_safe_tool(httpx2.ReadError("peer closed connection"))
 
     result = await tool.run_async(args={}, tool_context=MagicMock())
 
@@ -99,8 +98,8 @@ async def test_httpx_read_error_returns_error_dict():
 
 @pytest.mark.asyncio
 async def test_httpx_connect_timeout_returns_error_dict():
-    """httpx.ConnectTimeout should be caught via httpx.TransportError."""
-    tool = _make_connection_safe_tool(httpx.ConnectTimeout("timed out"))
+    """httpx2.ConnectTimeout should be caught via httpx2.TransportError."""
+    tool = _make_connection_safe_tool(httpx2.ConnectTimeout("timed out"))
 
     result = await tool.run_async(args={}, tool_context=MagicMock())
 
@@ -110,22 +109,22 @@ async def test_httpx_connect_timeout_returns_error_dict():
 
 @pytest.mark.asyncio
 async def test_transport_mcp_error_returns_error_dict():
-    """McpError with a transport-level message (e.g., session read timeout) should be caught."""
-    tool = _make_connection_safe_tool(McpError(ErrorData(code=-1, message="session read timeout")))
+    """MCPError with a transport-level message (e.g., session read timeout) should be caught."""
+    tool = _make_connection_safe_tool(MCPError(code=-1, message="session read timeout"))
 
     result = await tool.run_async(args={}, tool_context=MagicMock())
 
     assert "error" in result
-    assert "McpError" in result["error"]
+    assert "MCPError" in result["error"]
     assert "session read timeout" in result["error"]
 
 
 @pytest.mark.asyncio
 async def test_protocol_mcp_error_still_raises():
-    """McpError with a protocol-level message (e.g., invalid arguments) should propagate."""
-    tool = _make_connection_safe_tool(McpError(ErrorData(code=-32602, message="Invalid params: unknown tool")))
+    """MCPError with a protocol-level message (e.g., invalid arguments) should propagate."""
+    tool = _make_connection_safe_tool(MCPError(code=-32602, message="Invalid params: unknown tool"))
 
-    with pytest.raises(McpError, match="Invalid params"):
+    with pytest.raises(MCPError, match="Invalid params"):
         await tool.run_async(args={}, tool_context=MagicMock())
 
 

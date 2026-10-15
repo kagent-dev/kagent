@@ -18,7 +18,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -26,6 +25,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
+
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
 
 // substrateExecutor stands in for an ADK turn: it opens the invoke_agent span
@@ -305,8 +306,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(a2aMaxContentLengthEnvVar, "5")
-			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
+			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", MaxContentLength: new(int64(5))})
 			if err != nil {
 				t.Fatalf("NewA2AServer: %v", err)
 			}
@@ -328,8 +328,7 @@ func TestA2ARequestSizeLimit(t *testing.T) {
 }
 
 func TestA2ARequestSizeLimitDisabled(t *testing.T) {
-	t.Setenv(a2aMaxContentLengthEnvVar, "unlimited")
-	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0"})
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{Port: "0", MaxContentLength: new(int64(0))})
 	if err != nil {
 		t.Fatalf("NewA2AServer: %v", err)
 	}
@@ -360,44 +359,13 @@ func TestRequestSizeLimitPreservesFlusher(t *testing.T) {
 	}
 }
 
-func TestGetMaxContentLength(t *testing.T) {
-	tests := []struct {
-		name      string
-		value     string
-		want      int64
-		unlimited bool
-	}{
-		{name: "positive integer", value: "1024", want: 1024},
-		{name: "whitespace", value: " 1024 ", want: 1024},
-		{name: "zero", value: "0", unlimited: true},
-		{name: "none", value: "none", unlimited: true},
-		{name: "unlimited", value: "unlimited", unlimited: true},
-		{name: "invalid", value: "invalid", want: defaultMaxContentLength},
-		{name: "negative", value: "-1", want: defaultMaxContentLength},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(a2aMaxContentLengthEnvVar, tt.value)
-			got := getMaxContentLength(slog.New(slog.DiscardHandler))
-			if tt.unlimited {
-				if got != nil {
-					t.Errorf("expected unlimited request size, got %d", *got)
-				}
-				return
-			}
-			if got == nil {
-				t.Fatal("expected request size limit, got unlimited")
-			}
-			if *got != tt.want {
-				t.Errorf("unexpected request size limit %d, want %d", *got, tt.want)
-			}
-		})
+func TestNegativeMaxContentLengthRejected(t *testing.T) {
+	_, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler), ServerConfig{MaxContentLength: new(int64(-1))})
+	if err == nil {
+		t.Fatal("negative request limit accepted")
 	}
 }
 
-// This interceptor observes the last boundary before an event is handed to the
-// transport. The controller can suspend the actor as soon as it receives it.
 type exportBoundaryObserver struct {
 	a2asrv.PassthroughCallInterceptor
 	exporter *tracetest.InMemoryExporter
@@ -533,14 +501,8 @@ func TestUnreachableCollectorCostsOneFlushBudgetPerRequest(t *testing.T) {
 			t.Cleanup(func() { _ = conn.Close() })
 		}
 	}()
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://"+listener.Addr().String())
-	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
 	previous := otel.GetTracerProvider()
-	providers, err := telemetry.Init(t.Context(), telemetry.Options{})
+	providers, err := telemetry.Init(t.Context(), telemetry.Options{Config: telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://" + listener.Addr().String(), Protocol: "http/protobuf"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

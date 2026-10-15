@@ -3,13 +3,15 @@ import pytest
 from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
 from google.protobuf.json_format import ParseDict
 from grpc_health.v1 import health_pb2, health_pb2_grpc
+from kagent.core._runtime_config import RuntimeConfig
 from kagent.core.a2a import KAgentGrpcServerCallContextBuilder
 
 import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
+from kagent.adk.types import Config
 
 
-def make_app(address: str = "127.0.0.1:0"):
+def make_app(address: str | None = "127.0.0.1:0", port: int | None = None):
     card = ParseDict(
         {
             "name": "test-app",
@@ -29,12 +31,18 @@ def make_app(address: str = "127.0.0.1:0"):
         kagent_api_url="http://unused",
         app_name="test-app",
         a2a_grpc_address=address,
-    ).build(local=True)
+        config=Config(runtime=RuntimeConfig(port=port)),
+    )
+
+
+@pytest.mark.parametrize("port,expected", [(None, "[::]:80"), (9090, "[::]:9090")])
+def test_grpc_address_from_runtime_port(port, expected):
+    assert make_app(address=None, port=port).a2a_grpc_address == expected
 
 
 @pytest.mark.asyncio
 async def test_grpc_health():
-    app = make_app()
+    app = make_app().build(local=True)
 
     async with app.router.lifespan_context(app):
         async with grpc.aio.insecure_channel(f"127.0.0.1:{app.state.a2a_grpc_port}") as channel:
@@ -61,7 +69,7 @@ async def test_grpc_dispatch_uses_jsonrpc_handler(monkeypatch):
 
     monkeypatch.setattr(_a2a, "create_jsonrpc_routes", capture_jsonrpc_handler)
     monkeypatch.setattr(_a2a, "GrpcHandler", capture_grpc_handler)
-    app = make_app()
+    app = make_app().build(local=True)
 
     async with app.router.lifespan_context(app):
         async with grpc.aio.insecure_channel(f"127.0.0.1:{app.state.a2a_grpc_port}") as channel:
@@ -83,3 +91,33 @@ def test_grpc_metadata_preserves_user_identity():
     assert context.user.user_name == "alice"
     assert context.state["headers"]["x-kagent-source"] == "parent"
     assert context.state["kagent_source"] == "parent"
+
+
+@pytest.mark.asyncio
+async def test_grpc_ingress_is_traced_except_health(monkeypatch):
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from opentelemetry.trace import SpanKind
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    real_interceptor = _a2a.aio_server_interceptor
+    monkeypatch.setattr(
+        _a2a, "aio_server_interceptor", lambda **kwargs: real_interceptor(tracer_provider=provider, **kwargs)
+    )
+    app = make_app().build(local=True)
+    trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736
+    metadata = (("traceparent", f"00-{trace_id:032x}-00f067aa0ba902b7-01"),)
+
+    async with app.router.lifespan_context(app):
+        async with grpc.aio.insecure_channel(f"127.0.0.1:{app.state.a2a_grpc_port}") as channel:
+            await health_pb2_grpc.HealthStub(channel).Check(health_pb2.HealthCheckRequest(service=""))
+            await a2a_pb2_grpc.A2AServiceStub(channel).ListTasks(a2a_pb2.ListTasksRequest(), metadata=metadata)
+
+    (span,) = exporter.get_finished_spans()
+    assert span.kind is SpanKind.SERVER
+    assert span.name == "/lf.a2a.v1.A2AService/ListTasks"
+    assert span.context.trace_id == trace_id
+    assert span.parent.span_id == 0x00F067AA0BA902B7

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: modelconfigs.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -56,9 +56,55 @@ spec:
                   baseUrl:
                     description: Base URL for the Anthropic API (overrides default)
                     type: string
+                  cacheTTL:
+                    default: 5m
+                    description: |-
+                      CacheTTL controls how long Anthropic retains a cached prefix when
+                      PromptCaching is enabled. Only meaningful when PromptCaching is true.
+
+                        - "5m" (default): the standard 5-minute cache. Each cache hit refreshes
+                          the window, so an agent loop whose calls are less than 5 minutes
+                          apart keeps its prefix cached for the whole task.
+                        - "1h": the extended 1-hour cache, useful for tasks whose model calls
+                          are spaced more than 5 minutes apart.
+
+                      NOTE: "1h" is NOT strictly better than "5m". 1-hour cache writes are
+                      billed at a higher per-token rate than 5-minute writes. Only choose
+                      "1h" when calls are spaced far enough apart that a 5-minute cache would
+                      expire between them; otherwise the higher write cost is wasted. See the
+                      Anthropic prompt-caching docs above.
+                    enum:
+                    - 5m
+                    - 1h
+                    type: string
                   maxTokens:
                     description: Maximum tokens to generate
                     type: integer
+                  promptCaching:
+                    default: false
+                    description: |-
+                      PromptCaching enables Anthropic prompt caching by marking the reusable
+                      prefix of every Messages API request with `cache_control` breakpoints:
+                      the last tool definition, the last system prompt block and the last
+                      content block of the most recent conversation turn. Anthropic caches the
+                      prefix up to each breakpoint and bills a cache hit at a fraction of the
+                      normal input price on later requests within the TTL. Because the
+                      conversation breakpoint moves with every turn, each call of an agent
+                      loop reads the whole previous history from the cache and writes only
+                      the new turn.
+
+                      Recommended for tool-using agents that make many model calls per task
+                      with a stable system prompt and tool set — without it the full history
+                      is billed as fresh input on every call. Cache writes are billed at a
+                      premium over normal input, so a prefix has to be read at least once to
+                      pay off, and each model has a minimum cacheable prefix (1024–4096
+                      tokens depending on the model) below which the markers are silently
+                      ignored.
+
+                      See https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+                      for the current list of supported models, minimum prefix sizes and
+                      pricing.
+                    type: boolean
                   temperature:
                     description: Temperature for sampling
                     type: string
@@ -120,8 +166,18 @@ spec:
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
                 properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects chatCompletions (default, the dated deployments path) or
+                      responses (the /openai/v1 surface, which needs no apiVersion and reads files by link).
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
                   apiVersion:
-                    description: API version for the Azure OpenAI API
+                    description: API version for the Azure OpenAI API. Required unless
+                      apiFormat is responses.
                     type: string
                   azureAdToken:
                     description: Azure AD token for authentication
@@ -134,6 +190,7 @@ spec:
                     type: string
                   maxTokens:
                     description: Maximum tokens to generate
+                    minimum: 1
                     type: integer
                   temperature:
                     description: Temperature for sampling
@@ -142,9 +199,12 @@ spec:
                     description: Top-p sampling parameter
                     type: string
                 required:
-                - apiVersion
                 - azureEndpoint
                 type: object
+                x-kubernetes-validations:
+                - message: apiVersion is required unless apiFormat is responses
+                  rule: has(self.apiVersion) || (has(self.apiFormat) && self.apiFormat
+                    == 'responses')
               bedrock:
                 description: AWS Bedrock-specific configuration
                 properties:
@@ -155,6 +215,7 @@ spec:
                       options that are not part of the standard InferenceConfiguration block, such as
                       Claude extended thinking or top_k. Values are forwarded as-is to the API.
                       Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
+                    type: object
                     x-kubernetes-preserve-unknown-fields: true
                   cacheTTL:
                     default: 5m
@@ -440,6 +501,7 @@ spec:
                     type: integer
                   "n":
                     description: N value
+                    minimum: 1
                     type: integer
                   organization:
                     description: Organization ID for the OpenAI API
@@ -465,39 +527,18 @@ spec:
                     type: string
                   timeout:
                     description: Timeout
+                    maximum: 9223372036
+                    minimum: 1
                     type: integer
-                  tokenExchange:
-                    description: |-
-                      TokenExchange configures dynamic bearer token acquisition via credential exchange.
-                      Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
-                    properties:
-                      gdchServiceAccount:
-                        description: GDCHServiceAccountConfig holds GDCH-specific
-                          token exchange parameters.
-                        properties:
-                          audience:
-                            description: Audience is the token exchange audience URL
-                              (the GDC inference gateway base URL)
-                            type: string
-                        required:
-                        - audience
-                        type: object
-                      type:
-                        description: TokenExchangeType identifies the token exchange
-                          mechanism
-                        enum:
-                        - GDCHServiceAccount
-                        type: string
-                    required:
-                    - type
-                    type: object
                   topP:
                     description: Top-p sampling parameter
                     type: string
                 type: object
                 x-kubernetes-validations:
-                - message: maxTokens and maxCompletionTokens are mutually exclusive
-                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+                - message: at most one of the fields in [maxTokens maxCompletionTokens]
+                    may be set
+                  rule: (has(self.maxTokens)?1:0)+(has(self.maxCompletionTokens)?1:0)
+                    <= 1
               provider:
                 default: OpenAI
                 description: The provider of the model
@@ -530,36 +571,18 @@ spec:
                 required:
                 - baseUrl
                 type: object
+              stream:
+                default: true
+                description: |-
+                  Stream controls LLM response streaming for the kagent harness. Set to false
+                  for model endpoints that do not support streaming. Defaults to true.
+                type: boolean
               tls:
                 description: |-
                   TLS configuration for provider connections.
                   Enables agents to connect to internal LiteLLM gateways or other providers
                   that use self-signed certificates or custom certificate authorities.
                 properties:
-                  caCertSecretKey:
-                    description: |-
-                      CACertSecretKey is the key within the Secret that contains the
-                      CA certificate data (PEM-encoded). Required when CACertSecretRef
-                      is set — admission rejects ref-without-key regardless of
-                      DisableVerify (see the TLSConfig-level XValidation rules).
-                    type: string
-                  caCertSecretRef:
-                    description: |-
-                      CACertSecretRef is a reference to a Kubernetes Secret containing
-                      CA certificate(s) in PEM format. The Secret must be in the same
-                      namespace as the resource referencing it (ModelConfig,
-                      RemoteMCPServer, or any future consumer of TLSConfig).
-                      When set, the certificate will be used to verify the upstream's
-                      SSL certificate.
-                    type: string
-                  disableSystemCAs:
-                    default: false
-                    description: |-
-                      DisableSystemCAs disables the use of system CA certificates.
-                      When false (default), system CA certificates are used for verification (safe behavior).
-                      When true, only the custom CA from CACertSecretRef is trusted.
-                      This allows strict security policies where only corporate CAs should be trusted.
-                    type: boolean
                   disableVerify:
                     default: false
                     description: |-
@@ -570,20 +593,6 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
-                x-kubernetes-validations:
-                - message: caCertSecretKey requires caCertSecretRef
-                  rule: '!(has(self.caCertSecretKey) && size(self.caCertSecretKey)
-                    > 0 && (!has(self.caCertSecretRef) || size(self.caCertSecretRef)
-                    == 0))'
-                - message: caCertSecretRef requires caCertSecretKey
-                  rule: '!(has(self.caCertSecretRef) && size(self.caCertSecretRef)
-                    > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey)
-                    == 0))'
-                - message: disableSystemCAs requires caCertSecretRef or disableVerify
-                    (trust-nothing config rejects every upstream)
-                  rule: '!(has(self.disableSystemCAs) && self.disableSystemCAs &&
-                    (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef)
-                    || size(self.caCertSecretRef) == 0))'
             required:
             - model
             type: object
@@ -625,16 +634,6 @@ spec:
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
                 == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
                 == ''AnthropicVertexAI''))'
-            - message: openAI.tokenExchange requires apiKeySecret (the service account
-                secret)
-              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret)
-                || size(self.apiKeySecret) == 0))'
-            - message: openAI.tokenExchange and apiKeyPassthrough are mutually exclusive
-              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough)
-                && self.apiKeyPassthrough)'
-            - message: openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount
-              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type
-                == ''GDCHServiceAccount'' && !has(self.openAI.tokenExchange.gdchServiceAccount))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

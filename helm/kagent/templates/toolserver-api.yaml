@@ -8,6 +8,6 @@ metadata:
 spec:
   description: "Kagent API tools for Sessions, checkpoints, and sandboxes"
   protocol: STREAMABLE_HTTP
-  url: "{{ if .Values.controller.grpc.tlsCertFile }}https{{ else }}http{{ end }}://{{ include "kagent.controllerServiceAuthority" . }}/mcp"
+  url: "http://{{ include "kagent.controllerServiceAuthority" . }}/mcp"
   timeout: 30s
   sseReadTimeout: 5m0s

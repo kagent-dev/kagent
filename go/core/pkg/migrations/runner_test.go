@@ -4,17 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 var twoMigrationFS = fstest.MapFS{
@@ -35,13 +39,16 @@ func migrationSQL(up, down string) []byte {
 func testSource(fsys fstest.MapFS) Source {
 	return Source{
 		Name:          "test",
+		Schema:        "public",
 		TrackingTable: "test_schema_migrations",
 		FS:            fsys,
 		Dir:           "migrations",
 	}
 }
 
-func startTestDB(t *testing.T) string {
+// startTestDB returns the URL of a new PostgreSQL database and a pool
+// configuration that connects to it as the superuser.
+func startTestDB(t *testing.T) (string, *pgxpool.Config) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skip the PostgreSQL test in short mode")
@@ -70,7 +77,17 @@ func startTestDB(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("get PostgreSQL URL: %v", err)
 	}
-	return dsn
+	execSQL(t, dsn, "CREATE EXTENSION vector WITH SCHEMA public")
+	return dsn, testConfig(t, dsn, "postgres")
+}
+
+func testConfig(t *testing.T, dsn, role string) *pgxpool.Config {
+	t.Helper()
+	config, err := postgres.PoolConfig(dsn, role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
 }
 
 func execSQL(t *testing.T, dsn, statement string, args ...any) {
@@ -159,10 +176,10 @@ func testVersions(t *testing.T, dsn, table string) []int64 {
 }
 
 func TestRunUpAndDown(t *testing.T) {
-	dsn := startTestDB(t)
+	dsn, config := startTestDB(t)
 	source := testSource(twoMigrationFS)
 
-	if err := RunUp(context.Background(), dsn, []Source{source}); err != nil {
+	if err := RunUp(context.Background(), config, []Source{source}); err != nil {
 		t.Fatalf("RunUp: %v", err)
 	}
 	if !testTableExists(t, dsn, "migration_test") {
@@ -174,11 +191,11 @@ func TestRunUpAndDown(t *testing.T) {
 	if got := testVersions(t, dsn, source.TrackingTable); !slices.Equal(got, []int64{0, 1, 2}) {
 		t.Fatalf("versions = %v", got)
 	}
-	if err := VerifyMigrated(context.Background(), dsn, []Source{source}); err != nil {
+	if err := VerifyMigrated(context.Background(), config, []Source{source}); err != nil {
 		t.Fatalf("VerifyMigrated: %v", err)
 	}
 
-	if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
+	if err := WithProvider(context.Background(), config, source, func(provider *goose.Provider) error {
 		_, err := provider.DownTo(context.Background(), 0)
 		return err
 	}); err != nil {
@@ -192,14 +209,112 @@ func TestRunUpAndDown(t *testing.T) {
 	}
 }
 
-func TestBuiltinMigrationsRoundTrip(t *testing.T) {
-	dsn := startTestDB(t)
-	sources := BuiltinSources(true)
+func TestRunUpAsStableRole(t *testing.T) {
+	dsn, _ := startTestDB(t)
+	execSQL(t, dsn, `
+		CREATE ROLE kagent_app NOLOGIN;
+		CREATE ROLE kagent_login LOGIN PASSWORD 'rotating-password';
+		GRANT kagent_app TO kagent_login;
+		GRANT USAGE, CREATE ON SCHEMA public TO kagent_app`)
+	t.Cleanup(func() {
+		execSQL(t, dsn, `
+			DROP TABLE IF EXISTS migration_test, test_schema_migrations;
+			REVOKE ALL ON SCHEMA public FROM kagent_app;
+			DROP ROLE IF EXISTS kagent_login;
+			DROP ROLE IF EXISTS kagent_app`)
+	})
 
-	if err := RunUp(context.Background(), dsn, sources); err != nil {
+	loginURL, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginURL.User = url.UserPassword("kagent_login", "rotating-password")
+	query := loginURL.Query()
+	query.Set("pool_max_conns", "4")
+	loginURL.RawQuery = query.Encode()
+	if err := RunUp(t.Context(), testConfig(t, loginURL.String(), "kagent_app"), []Source{testSource(twoMigrationFS)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigrated(t.Context(), testConfig(t, loginURL.String(), "kagent_app"), []Source{testSource(twoMigrationFS)}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var owner string
+	if err := db.QueryRowContext(t.Context(), `SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'migration_test'::regclass`).Scan(&owner); err != nil {
+		t.Fatal(err)
+	}
+	if owner != "kagent_app" {
+		t.Fatalf("migration table owner = %q, want kagent_app", owner)
+	}
+}
+
+func TestCustomSchemaUsesConfiguredVectorSchema(t *testing.T) {
+	dsn, _ := startTestDB(t)
+	execSQL(t, dsn, `DROP EXTENSION vector; CREATE SCHEMA extensions; CREATE EXTENSION vector WITH SCHEMA extensions`)
+	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
+	migrationURL, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := migrationURL.Query()
+	query.Set("pool_max_conns", "4")
+	migrationURL.RawQuery = query.Encode()
+	if err := RunUp(t.Context(), testConfig(t, migrationURL.String(), "postgres"), sources); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyMigrated(t.Context(), testConfig(t, migrationURL.String(), "postgres"), sources); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"memory", coreTrackingTable, vectorTrackingTable} {
+		if !testTableExists(t, dsn, "tenant_one."+table) {
+			t.Fatalf("%s was not created in tenant_one", table)
+		}
+		if testTableExists(t, dsn, "public."+table) || testTableExists(t, dsn, "extensions."+table) {
+			t.Fatalf("%s was created outside tenant_one", table)
+		}
+	}
+}
+
+func TestCustomSchemaMustBeAccessible(t *testing.T) {
+	dsn, _ := startTestDB(t)
+	execSQL(t, dsn, `CREATE SCHEMA locked; REVOKE ALL ON SCHEMA locked FROM PUBLIC; CREATE ROLE blocked NOLOGIN`)
+	source := testSource(twoMigrationFS)
+	source.Schema = "locked"
+	if err := RunUp(t.Context(), testConfig(t, dsn, "blocked"), []Source{source}); err == nil || !strings.Contains(err.Error(), `migration schema "locked" is not accessible`) {
+		t.Fatalf("RunUp error = %v", err)
+	}
+	if testTableExists(t, dsn, "public."+source.TrackingTable) || testTableExists(t, dsn, "public.migration_test") {
+		t.Fatal("migration wrote into public")
+	}
+}
+
+func TestPgvectorSchemaMismatchFailsBeforeMigrations(t *testing.T) {
+	dsn, config := startTestDB(t)
+	sources := BuiltinSourcesInSchema(true, "tenant_one", "extensions")
+	if err := RunUp(t.Context(), config, sources); err == nil || !strings.Contains(err.Error(), `installed in schema "public", expected "extensions"`) {
+		t.Fatalf("RunUp error = %v", err)
+	}
+	if err := VerifyMigrated(t.Context(), config, sources); err == nil || !strings.Contains(err.Error(), `installed in schema "public", expected "extensions"`) {
+		t.Fatalf("VerifyMigrated error = %v", err)
+	}
+	if testTableExists(t, dsn, "tenant_one."+coreTrackingTable) {
+		t.Fatal("core migration ran before the pgvector schema precheck")
+	}
+}
+
+func TestBuiltinMigrationsRoundTrip(t *testing.T) {
+	dsn, config := startTestDB(t)
+	sources := BuiltinSourcesInSchema(true, "public", "public")
+
+	if err := RunUp(context.Background(), config, sources); err != nil {
 		t.Fatalf("initial RunUp: %v", err)
 	}
-	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
+	if err := VerifyMigrated(context.Background(), config, sources); err != nil {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
 	for _, source := range sources {
@@ -207,6 +322,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
 		}
+	}
+	if !testColumnExists(t, dsn, "session", "deletion_reason") {
+		t.Fatal("session deletion reason is missing")
 	}
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
@@ -232,7 +350,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	execSQL(t, dsn, `INSERT INTO scheduled_run_execution (id, scheduled_run_id, manual_request_id, session_id, data, deadline)
         VALUES ($1, $2, 'manual', $3, $4, statement_timestamp() + interval '1 minute')`, executionID, scheduleID, sessionID, []byte{})
 	for _, source := range slices.Backward(sources) {
-		if err := WithProvider(context.Background(), dsn, source, func(provider *goose.Provider) error {
+		if err := WithProvider(context.Background(), config, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(context.Background(), 0)
 			return err
 		}); err != nil {
@@ -242,16 +360,16 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if !testExtensionExists(t, dsn, "vector") {
 		t.Fatal("the vector down migration removed the shared extension")
 	}
-	if err := RunUp(context.Background(), dsn, sources); err != nil {
+	if err := RunUp(context.Background(), config, sources); err != nil {
 		t.Fatalf("second RunUp: %v", err)
 	}
-	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
+	if err := VerifyMigrated(context.Background(), config, sources); err != nil {
 		t.Fatalf("second VerifyMigrated: %v", err)
 	}
 }
 
 func TestMigrationIsAtomic(t *testing.T) {
-	dsn := startTestDB(t)
+	dsn, config := startTestDB(t)
 	source := testSource(fstest.MapFS{
 		"migrations/000001_fail.sql": {Data: migrationSQL(
 			"CREATE TABLE partial_result (id bigint); ALTER TABLE missing_table ADD COLUMN value text;",
@@ -259,7 +377,7 @@ func TestMigrationIsAtomic(t *testing.T) {
 		)},
 	})
 
-	err := RunUp(context.Background(), dsn, []Source{source})
+	err := RunUp(context.Background(), config, []Source{source})
 	if err == nil {
 		t.Fatal("RunUp succeeded")
 	}
@@ -272,14 +390,14 @@ func TestMigrationIsAtomic(t *testing.T) {
 }
 
 func TestConcurrentRunUp(t *testing.T) {
-	dsn := startTestDB(t)
+	_, config := startTestDB(t)
 	source := testSource(twoMigrationFS)
 	start := make(chan struct{})
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
 			<-start
-			errs <- RunUp(context.Background(), dsn, []Source{source})
+			errs <- RunUp(context.Background(), config, []Source{source})
 		}()
 	}
 	close(start)
@@ -288,13 +406,37 @@ func TestConcurrentRunUp(t *testing.T) {
 			t.Fatalf("RunUp: %v", err)
 		}
 	}
-	if err := VerifyMigrated(context.Background(), dsn, []Source{source}); err != nil {
+	if err := VerifyMigrated(context.Background(), config, []Source{source}); err != nil {
 		t.Fatalf("VerifyMigrated: %v", err)
 	}
 }
 
+func TestConcurrentRunUpCreatesMissingSchemaOnce(t *testing.T) {
+	dsn, config := startTestDB(t)
+	source := testSource(twoMigrationFS)
+	source.Schema = "created_concurrently"
+	const runs = 4
+	start := make(chan struct{})
+	errs := make(chan error, runs)
+	for range runs {
+		go func() {
+			<-start
+			errs <- RunUp(context.Background(), config, []Source{source})
+		}()
+	}
+	close(start)
+	for range runs {
+		if err := <-errs; err != nil {
+			t.Fatalf("RunUp: %v", err)
+		}
+	}
+	if !testTableExists(t, dsn, "created_concurrently.migration_test") {
+		t.Fatal("migrations did not run in the created schema")
+	}
+}
+
 func TestRunUpContinuesAfterLaterSourceFailure(t *testing.T) {
-	dsn := startTestDB(t)
+	dsn, config := startTestDB(t)
 	first := testSource(fstest.MapFS{
 		"first/000001_initial.sql": {Data: migrationSQL(
 			"CREATE TABLE first_result (id bigint);",
@@ -314,7 +456,7 @@ func TestRunUpContinuesAfterLaterSourceFailure(t *testing.T) {
 	second.Dir = "second"
 	second.TrackingTable = "second_schema_migrations"
 
-	if err := RunUp(context.Background(), dsn, []Source{first, second}); err == nil {
+	if err := RunUp(context.Background(), config, []Source{first, second}); err == nil {
 		t.Fatal("RunUp succeeded")
 	}
 	if !testTableExists(t, dsn, "first_result") {
@@ -330,7 +472,7 @@ func TestRunUpContinuesAfterLaterSourceFailure(t *testing.T) {
 			"DROP TABLE IF EXISTS second_result;",
 		)},
 	}
-	if err := RunUp(context.Background(), dsn, []Source{first, second}); err != nil {
+	if err := RunUp(context.Background(), config, []Source{first, second}); err != nil {
 		t.Fatalf("second RunUp: %v", err)
 	}
 	if !testTableExists(t, dsn, "second_result") {
@@ -339,7 +481,7 @@ func TestRunUpContinuesAfterLaterSourceFailure(t *testing.T) {
 }
 
 func TestRunUpRejectsOldTrackingTable(t *testing.T) {
-	dsn := startTestDB(t)
+	dsn, config := startTestDB(t)
 	source := testSource(fstest.MapFS{
 		"migrations/000001_initial.sql": {Data: migrationSQL(
 			"CREATE TABLE baseline_ran (id bigint);",
@@ -349,7 +491,7 @@ func TestRunUpRejectsOldTrackingTable(t *testing.T) {
 	execSQL(t, dsn, "CREATE TABLE "+quoteIdentifier(source.TrackingTable)+" (version bigint PRIMARY KEY, dirty boolean NOT NULL)")
 	execSQL(t, dsn, "INSERT INTO "+quoteIdentifier(source.TrackingTable)+" (version, dirty) VALUES (19, false)")
 
-	if err := RunUp(context.Background(), dsn, []Source{source}); err == nil || !strings.Contains(err.Error(), "new PostgreSQL database") {
+	if err := RunUp(context.Background(), config, []Source{source}); err == nil || !strings.Contains(err.Error(), "new PostgreSQL database") {
 		t.Fatalf("RunUp error = %v", err)
 	}
 	if testTableExists(t, dsn, "baseline_ran") {
@@ -358,7 +500,7 @@ func TestRunUpRejectsOldTrackingTable(t *testing.T) {
 }
 
 func TestPrechecksRunBeforeMigrations(t *testing.T) {
-	dsn := startTestDB(t)
+	dsn, config := startTestDB(t)
 	first := testSource(twoMigrationFS)
 	second := testSource(fstest.MapFS{
 		"other/000001_initial.sql": {Data: migrationSQL("SELECT 1;", "SELECT 1;")},
@@ -366,9 +508,9 @@ func TestPrechecksRunBeforeMigrations(t *testing.T) {
 	second.Name = "other"
 	second.Dir = "other"
 	second.TrackingTable = "other_schema_migrations"
-	second.PreCheck = func(string) error { return errors.New("blocked") }
+	second.PreCheck = func(context.Context, *pgxpool.Pool) error { return errors.New("blocked") }
 
-	err := RunUp(context.Background(), dsn, []Source{first, second})
+	err := RunUp(context.Background(), config, []Source{first, second})
 	if err == nil || !strings.Contains(err.Error(), "blocked") {
 		t.Fatalf("RunUp error = %v", err)
 	}
@@ -378,18 +520,18 @@ func TestPrechecksRunBeforeMigrations(t *testing.T) {
 }
 
 func TestRunUpAllowsDatabaseAhead(t *testing.T) {
-	dsn := startTestDB(t)
+	dsn, config := startTestDB(t)
 	source := testSource(fstest.MapFS{
 		"migrations/000001_initial.sql": {Data: migrationSQL("SELECT 1;", "SELECT 1;")},
 	})
-	if err := RunUp(context.Background(), dsn, []Source{source}); err != nil {
+	if err := RunUp(context.Background(), config, []Source{source}); err != nil {
 		t.Fatal(err)
 	}
 	execSQL(t, dsn, "INSERT INTO "+quoteIdentifier(source.TrackingTable)+" (version_id, is_applied) VALUES (2, true)")
-	if err := RunUp(context.Background(), dsn, []Source{source}); err != nil {
+	if err := RunUp(context.Background(), config, []Source{source}); err != nil {
 		t.Fatalf("RunUp: %v", err)
 	}
-	if err := VerifyMigrated(context.Background(), dsn, []Source{source}); err != nil {
+	if err := VerifyMigrated(context.Background(), config, []Source{source}); err != nil {
 		t.Fatalf("VerifyMigrated: %v", err)
 	}
 }
@@ -409,6 +551,7 @@ func TestMigrationFileValidation(t *testing.T) {
 		{name: "down text in SQL", body: "-- +goose Up\nSELECT '-- +goose Down';", want: "no Goose Down"},
 		{name: "legacy up file", file: "000001_test.up.sql", body: "-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "invalid migration file"},
 		{name: "legacy down file", file: "000001_test.down.sql", body: "-- +goose Up\nSELECT 1;\n-- +goose Down\nSELECT 1;", want: "invalid migration file"},
+		{name: "no migrations", file: "README.md", want: "has no migrations"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -419,12 +562,12 @@ func TestMigrationFileValidation(t *testing.T) {
 			source := testSource(fstest.MapFS{
 				"migrations/" + file: {Data: []byte(tt.body)},
 			})
-			_, err := migrationVersions(source)
+			_, err := Versions(source)
 			if tt.want == "" && err != nil {
-				t.Fatalf("migrationVersions: %v", err)
+				t.Fatalf("Versions: %v", err)
 			}
 			if tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)) {
-				t.Fatalf("migrationVersions error = %v", err)
+				t.Fatalf("Versions error = %v", err)
 			}
 		})
 	}
@@ -435,7 +578,7 @@ func TestMigrationVersionsFromRoot(t *testing.T) {
 		"000001_test.sql": {Data: migrationSQL("SELECT 1;", "SELECT 1;")},
 	})
 	source.Dir = "."
-	if _, err := migrationVersions(source); err != nil {
+	if _, err := Versions(source); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -447,9 +590,11 @@ func TestValidateSources(t *testing.T) {
 	}
 
 	tests := []Source{
-		{Name: "", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
-		{Name: "test", TrackingTable: "Bad-Table", FS: valid.FS, Dir: valid.Dir},
+		{Name: "", Schema: valid.Schema, TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
+		{Name: "test", Schema: valid.Schema, TrackingTable: "Bad-Table", FS: valid.FS, Dir: valid.Dir},
 		{Name: "test", Schema: "Bad-Schema", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
+		{Name: "test", VectorSchema: "public", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
+		{Name: "test", Schema: valid.Schema, VectorSchema: "Bad-Schema", TrackingTable: valid.TrackingTable, FS: valid.FS, Dir: valid.Dir},
 	}
 	for _, source := range tests {
 		if err := validateSources([]Source{source}); err == nil {
@@ -475,18 +620,40 @@ func TestBuiltinTrackingTables(t *testing.T) {
 	if sources[1].TrackingTable != vectorTrackingTable {
 		t.Fatalf("vector source = %+v", sources[1])
 	}
+	if sources[0].Schema != "kagent" || sources[1].VectorSchema != "extensions" {
+		t.Fatalf("default schemas = %q, %q", sources[0].Schema, sources[1].VectorSchema)
+	}
 }
 
-func TestWithSearchPath(t *testing.T) {
-	got, err := withSearchPath("postgres://u:p@host/db?sslmode=disable", "tenant_1")
-	if err != nil {
-		t.Fatal(err)
+func TestBuiltinSourcesInSchema(t *testing.T) {
+	sources := BuiltinSourcesInSchema(true, "tenant_schema", "shared_extensions")
+	for _, source := range sources {
+		if source.Schema != "tenant_schema" {
+			t.Fatalf("source %q schema = %q", source.Name, source.Schema)
+		}
+		if source.VectorSchema != "shared_extensions" {
+			t.Fatalf("source %q vector schema = %q", source.Name, source.VectorSchema)
+		}
 	}
-	if !strings.Contains(got, "search_path=tenant_1") || !strings.Contains(got, "sslmode=disable") {
-		t.Fatalf("URL = %q", got)
+	defaults := BuiltinSourcesInSchema(true, "", "")
+	if defaults[0].Schema != "kagent" || defaults[1].VectorSchema != "extensions" {
+		t.Fatalf("default schemas = %q, %q", defaults[0].Schema, defaults[1].VectorSchema)
 	}
-	if _, err := withSearchPath("mysql://host/db", "tenant_1"); err == nil {
-		t.Fatal("withSearchPath accepted MySQL")
+}
+
+func TestSourceConfig(t *testing.T) {
+	base := testConfig(t, "postgres://u:p@host/db?sslmode=disable&pool_max_conns=8&kagent.vector_schema=other", "u")
+	source := testSource(twoMigrationFS)
+	source.Schema = "tenant_1"
+	source.VectorSchema = "extensions"
+
+	config := sourceConfig(base, source)
+	params := config.ConnConfig.RuntimeParams
+	if params["search_path"] != `"tenant_1"` || params["kagent.vector_schema"] != "extensions" || config.MaxConns != 2 {
+		t.Fatalf("source config params = %v, max conns = %d", params, config.MaxConns)
+	}
+	if _, ok := base.ConnConfig.RuntimeParams["search_path"]; ok || base.ConnConfig.RuntimeParams["kagent.vector_schema"] != "other" || base.MaxConns != 8 {
+		t.Fatalf("base config changed: params = %v, max conns = %d", base.ConnConfig.RuntimeParams, base.MaxConns)
 	}
 }
 
@@ -497,10 +664,10 @@ func TestAdvisoryLockIDIsStable(t *testing.T) {
 }
 
 func TestEmptySources(t *testing.T) {
-	if err := RunUp(context.Background(), "postgres://unused", nil); err != nil {
+	if err := RunUp(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyMigrated(context.Background(), "postgres://unused", nil); err != nil {
+	if err := VerifyMigrated(context.Background(), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }

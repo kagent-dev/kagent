@@ -3,8 +3,9 @@ package commands
 import (
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/spf13/cobra"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // NewEnvCmd returns a cobra command that generates environment variable documentation.
@@ -29,7 +30,7 @@ func NewEnvCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&format, "format", "markdown", "Output format: markdown, json")
-	cmd.Flags().StringVar(&component, "component", "all", "Filter by component: controller, cli, agent-runtime, database, testing, all")
+	cmd.Flags().StringVar(&component, "component", "all", "Filter by component: controller, cli, agent-runtime, database, testing, ui, all")
 
 	return cmd
 }

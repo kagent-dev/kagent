@@ -9,16 +9,17 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 const (
@@ -52,12 +53,12 @@ func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, pkgauth.P
 }
 
 type testShareStore struct {
-	sessionShare    *apiv1alpha1.SessionShare
+	sessionShare    *apiv1.SessionShare
 	sessionShareErr error
 	ownerUserID     string
 }
 
-func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte) (*apiv1alpha1.SessionShare, string, error) {
+func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte) (*apiv1.SessionShare, string, error) {
 	if s.sessionShare == nil && s.sessionShareErr == nil {
 		return nil, "", database.ErrNotFound
 	}
@@ -130,7 +131,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("a Session share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
-			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
+			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
@@ -148,9 +149,6 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 				if share.UserID != "owner" {
 					t.Errorf("UserID = %q, want the owner", share.UserID)
 				}
-				if !share.ReadOnly {
-					t.Error("READ_ONLY should be read-only")
-				}
 				return nil, nil
 			},
 		)
@@ -161,7 +159,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("a read-only Session share cannot create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
-			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+"READ_ONLY"])}, ownerUserID: "owner",
+			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
@@ -173,31 +171,6 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 		)
 		if got := status.Code(err); got != codes.PermissionDenied {
 			t.Fatalf("code = %v, want PermissionDenied", got)
-		}
-	})
-
-	t.Run("a READ_WRITE Session share may create a catalog resource", func(t *testing.T) {
-		store := &testShareStore{
-			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String(), Permission: apiv1alpha1.SessionSharePermission(apiv1alpha1.SessionSharePermission_value["SESSION_SHARE_PERMISSION_"+"READ_WRITE"])}, ownerUserID: "owner",
-		}
-		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
-		ran := false
-		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
-			ctx, nil, &grpc.UnaryServerInfo{FullMethod: createMethod},
-			func(ctx context.Context, _ any) (any, error) {
-				ran = true
-				share, _ := pkgauth.ShareContextFrom(ctx)
-				if share.ReadOnly {
-					t.Error("READ_WRITE should not be read-only")
-				}
-				return nil, nil
-			},
-		)
-		if err != nil {
-			t.Fatalf("interceptor error = %v", err)
-		}
-		if !ran {
-			t.Fatal("handler did not run")
 		}
 	})
 
@@ -217,9 +190,8 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
 	store := &testShareStore{
-		sessionShare: &apiv1alpha1.SessionShare{
-			SessionId:  testSessionID.String(),
-			Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
+		sessionShare: &apiv1.SessionShare{
+			SessionId: testSessionID.String(),
 		},
 		ownerUserID: "owner",
 	}
@@ -235,7 +207,7 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 				t.Fatalf("A2A authorization must reach the gateway: %v", err)
 			}
 			share, ok := pkgauth.ShareContextFrom(ctx)
-			if !ok || !share.ReadOnly || !share.IsForSession(testSessionID.String()) || share.UserID != "owner" {
+			if !ok || !share.IsForSession(testSessionID.String()) || share.UserID != "owner" {
 				t.Fatalf("validated share = %#v, want read-only authority for its owner and session", share)
 			}
 			gotSession, ok := pkgauth.AuthSessionFrom(ctx)

@@ -3,18 +3,31 @@ package app
 import (
 	"context"
 	"iter"
+	"net"
+	"os"
+	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -40,19 +53,18 @@ func TestNew_NilExecutor(t *testing.T) {
 }
 
 func TestNew_RequiresController(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "")
 	app, err := New(AppConfig{
 		AgentCard: a2atype.AgentCard{Name: "test-agent"},
 	}, &fakeExecutor{})
-	require.ErrorContains(t, err, "ControllerClient or KAGENT_API_URL is required")
+	require.ErrorContains(t, err, "ControllerClient or ControlPlaneURL is required")
 	require.Nil(t, app)
 }
 
-func TestNew_ControllerFromEnv(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "http://127.0.0.1:1")
+func TestNew_ControllerFromConfig(t *testing.T) {
 	app, err := New(AppConfig{
-		AgentCard: a2atype.AgentCard{Name: "test-agent"},
-		Port:      "0",
+		AgentCard:       a2atype.AgentCard{Name: "test-agent"},
+		Port:            "0",
+		ControlPlaneURL: "http://127.0.0.1:1",
 	}, &fakeExecutor{})
 	require.NoError(t, err)
 	require.NotNil(t, app)
@@ -61,7 +73,6 @@ func TestNew_ControllerFromEnv(t *testing.T) {
 }
 
 func TestNew_ProvidedController(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "")
 	controller, err := controllerclient.New(controllerclient.Config{APIURL: "http://127.0.0.1:1"})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
@@ -76,23 +87,13 @@ func TestNew_ProvidedController(t *testing.T) {
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
-	t.Setenv("PORT", "")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
 	}
 }
 
-func TestApplyDefaults_PortFromEnv(t *testing.T) {
-	t.Setenv("PORT", "9090")
-	cfg := applyDefaults(AppConfig{})
-	if cfg.Port != "9090" {
-		t.Errorf("expected port %q, got %q", "9090", cfg.Port)
-	}
-}
-
 func TestApplyDefaults_PortExplicit(t *testing.T) {
-	t.Setenv("PORT", "9090")
 	cfg := applyDefaults(AppConfig{Port: "3000"})
 	if cfg.Port != "3000" {
 		t.Errorf("expected port %q, got %q", "3000", cfg.Port)
@@ -113,18 +114,7 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	}
 }
 
-func TestBuildAppName_FromEnv(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "my-agent")
-	t.Setenv("KAGENT_NAMESPACE", "my-ns")
-	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
-	if name != "my_ns__NS__my_agent" {
-		t.Errorf("expected %q, got %q", "my_ns__NS__my_agent", name)
-	}
-}
-
 func TestBuildAppName_FromAgentCard(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
@@ -132,8 +122,6 @@ func TestBuildAppName_FromAgentCard(t *testing.T) {
 }
 
 func TestBuildAppName_Default(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{})
 	if name != defaultAppName {
 		t.Errorf("expected %q, got %q", defaultAppName, name)
@@ -182,4 +170,93 @@ func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
 	if len(cfg.AgentCard.Capabilities.Extensions) != 0 {
 		t.Errorf("caller extensions = %#v, want the caller's card untouched", cfg.AgentCard.Capabilities.Extensions)
 	}
+}
+
+// admissionServer sends the next message during settlement: the first moment the
+// gateway can report the previous task as terminal.
+type admissionServer struct {
+	runtimev1.UnimplementedTaskStoreServiceServer
+	mu      sync.Mutex
+	tasks   map[string]*runtimev1.StoredTask
+	next    func() error
+	nextErr chan error
+}
+
+func (s *admissionServer) save(task *a2apb.Task) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	version := s.tasks[task.GetId()].GetVersion() + 1
+	s.tasks[task.GetId()] = &runtimev1.StoredTask{Task: task, Version: version}
+	return version
+}
+
+func (s *admissionServer) GetTask(_ context.Context, request *runtimev1.TaskStoreServiceGetTaskRequest) (*runtimev1.TaskStoreServiceGetTaskResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stored, ok := s.tasks[request.TaskId]; ok {
+		return &runtimev1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
+	}
+	return nil, status.Error(codes.NotFound, "task not found")
+}
+
+func (s *admissionServer) CreateTask(_ context.Context, request *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
+}
+
+func (s *admissionServer) UpdateTask(_ context.Context, request *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
+}
+
+func (s *admissionServer) SettleTask(context.Context, *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
+	if next := s.next; next != nil {
+		s.next = nil
+		s.nextErr <- next()
+	}
+	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
+}
+
+func TestSettledTaskAdmitsNextSend(t *testing.T) {
+	api := &admissionServer{tasks: map[string]*runtimev1.StoredTask{}, nextErr: make(chan error, 1)}
+	listener := bufconn.Listen(1 << 20)
+	server := grpc.NewServer()
+	runtimev1.RegisterTaskStoreServiceServer(server, api)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	client, err := controllerclient.New(controllerclient.Config{
+		APIURL: "http://api.test", DialOptions: []grpc.DialOption{
+			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	dir := t.TempDir()
+	for field, value := range map[string]string{"name": "session-" + uuid.NewString(), "atespace": "team-a", "uid": "actor-uid"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, field), []byte(value), 0o600))
+	}
+	store := runtimetaskstore.New(client, filepath.Join(dir, "name"))
+	started, release := make(chan struct{}), make(chan struct{})
+	var executions atomic.Int32
+	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+		return func(yield func(a2atype.Event, error) bool) {
+			if executions.Add(1) == 1 {
+				close(started)
+				<-release
+			}
+			yield(a2atype.NewStatusUpdateEvent(input, a2atype.TaskStateCompleted, nil), nil)
+		}
+	}), "", nil)
+	handler := a2asrv.NewHandler(wrapper, handlerOptions(store, wrapper)...)
+	send := func(text string) error {
+		_, err := handler.SendMessage(t.Context(), &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))})
+		return err
+	}
+	api.next = func() error { return send("second") }
+	first := make(chan error, 1)
+	go func() { first <- send("first") }()
+	<-started
+	require.ErrorIs(t, send("concurrent"), a2atype.ErrUnsupportedOperation, "active work must reject another send")
+	close(release)
+	require.NoError(t, <-first)
+	require.NoError(t, <-api.nextErr, "settlement must not precede the slot becoming free")
+	require.Equal(t, int32(2), executions.Load())
 }

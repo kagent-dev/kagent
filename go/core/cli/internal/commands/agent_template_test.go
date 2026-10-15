@@ -8,11 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/structuredobject"
-	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -22,6 +17,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
+
+	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
+	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
 func TestValidateAgentTemplateGetCfg(t *testing.T) {
@@ -124,7 +125,7 @@ spec:
 
 	ref, resource, err := readAgentTemplateManifest(manifestPath, "team-a")
 	require.NoError(t, err)
-	assert.Equal(t, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "researcher"}, ref)
+	assert.Equal(t, &apiv1.ResourceReference{Namespace: "team-a", Name: "researcher"}, ref)
 	decoded := &apiv1alpha3.AgentTemplate{}
 	require.NoError(t, structuredobject.ToGo(resource, agentTemplateKind, decoded, 0))
 	assert.Equal(t, "default", decoded.Spec.ModelConfig.Name)
@@ -152,7 +153,7 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		client := &recordingAgentTemplateClient{template: template}
 		var output bytes.Buffer
 		require.NoError(t, applyAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &output))
-		assert.True(t, proto.Equal(&apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource}, client.createRequest))
+		assert.True(t, proto.Equal(&apiv1.CreateAgentTemplateRequest{Ref: ref, Resource: resource}, client.createRequest))
 		assert.Contains(t, output.String(), "researcher")
 	})
 
@@ -160,11 +161,11 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		client := &recordingAgentTemplateClient{template: template, createErr: status.Error(codes.AlreadyExists, "exists")}
 		require.NoError(t, applyAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &bytes.Buffer{}))
 		assert.NotNil(t, client.createRequest)
-		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
+		assert.True(t, proto.Equal(&apiv1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
 	})
 }
 
-func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
+func testAgentTemplateMessage(t *testing.T) *apiv1.AgentTemplate {
 	t.Helper()
 	template := &apiv1alpha3.AgentTemplate{
 		TypeMeta:   metav1.TypeMeta{APIVersion: apiv1alpha3.GroupVersion.String(), Kind: agentTemplateKind},
@@ -173,28 +174,28 @@ func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
 	}
 	resource, err := structuredobject.FromGo(template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
 	require.NoError(t, err)
-	return &apiv1alpha1.AgentTemplate{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
+	return &apiv1.AgentTemplate{
+		Ref:      &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
 		Resource: resource,
 	}
 }
 
 type recordingAgentTemplateClient struct {
-	template      *apiv1alpha1.AgentTemplate
+	template      *apiv1.AgentTemplate
 	createErr     error
-	createRequest *apiv1alpha1.CreateAgentTemplateRequest
-	updateRequest *apiv1alpha1.UpdateAgentTemplateRequest
+	createRequest *apiv1.CreateAgentTemplateRequest
+	updateRequest *apiv1.UpdateAgentTemplateRequest
 }
 
-func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error) {
+func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error) {
 	c.createRequest = request
 	if c.createErr != nil {
 		return nil, c.createErr
 	}
-	return &apiv1alpha1.CreateAgentTemplateResponse{AgentTemplate: c.template}, nil
+	return &apiv1.CreateAgentTemplateResponse{AgentTemplate: c.template}, nil
 }
 
-func (c *recordingAgentTemplateClient) UpdateAgentTemplate(_ context.Context, request *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error) {
+func (c *recordingAgentTemplateClient) UpdateAgentTemplate(_ context.Context, request *apiv1.UpdateAgentTemplateRequest) (*apiv1.UpdateAgentTemplateResponse, error) {
 	c.updateRequest = request
-	return &apiv1alpha1.UpdateAgentTemplateResponse{AgentTemplate: c.template}, nil
+	return &apiv1.UpdateAgentTemplateResponse{AgentTemplate: c.template}, nil
 }

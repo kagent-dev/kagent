@@ -1,0 +1,16 @@
+# Overlay for a local kind cluster: print everything instead of exporting.
+config:
+  exporters:
+    # Unused here; a values file cannot remove the base exporter.
+    otlp/backend:
+      endpoint: localhost:4317
+    debug:
+      verbosity: detailed
+  service:
+    pipelines:
+      traces:
+        exporters: [signaltometrics, debug]
+      metrics:
+        exporters: [debug]
+      logs:
+        exporters: [debug]

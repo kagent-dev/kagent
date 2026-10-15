@@ -1,7 +1,14 @@
 # End-to-end tests
 
+`TestBuiltinHarnessDefaultImages` prepares all three built-in runtimes with an
+omitted image in a referenced Harness. CI packages the
+Buildx digest metadata into the installed chart. To run this test locally, supply
+the three `config.harnessImages` defaults matching the explicit Harness
+fixtures. The test checks runtime readiness, effective-image status, and that
+the controller leaves the user spec unchanged.
+
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
-Set `controller.sandbox.guestImage.registry`, `.repository`, and `.digest` to the
+Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
 unchanged to Substrate.
 It creates and cleans up its own SandboxTemplates. Run from `go/`:
@@ -18,13 +25,27 @@ The controller restart test needs a stable service endpoint (NodePort or ingress
 `kubectl port-forward` exits when the selected pod is replaced. The suite tests
 public gRPC/MCP calls, owner isolation, binary files, process execution/output,
 suspend/resume, expiration, template revision retention, and controller restart.
-The agent test uses the Helm-installed `kagent-api` RemoteMCPServer, a deterministic
+The agent test uses the CLI-installed `kagent-api` RemoteMCPServer, a deterministic
 local model, and a real Go ADK Session to create a sandbox through MCP as its
-invoking user. Install the chart as release `kagent` in the test namespace with
-its default naming; the test requires that registration and leaves it intact.
+invoking user. Install with `kagent install` in the test namespace; the test
+requires that registration and leaves it intact.
+Set `config.runtimeDefaults.tokenPropagation.enabled: true` in the test install
+so the agent forwards its caller identity to the MCP server.
 Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the tests
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
+
+`TestSessionIdleExpiration` runs its harness cases in parallel so they share the
+idle period and expiration sweep. Its parent stays sequential to isolate the
+controller rollouts from the rest of the suite. It temporarily sets
+`sessions.idleTtl: 30s` and `sessions.expirationInterval: 5s` in controller config on the
+controller Deployment and restores its environment afterward, rolling the
+controller both times and waiting for a
+fresh API connection after each rollout. Use a disposable test cluster and a
+stable API endpoint for this case. It verifies completed-turn
+expiration, Actor removal, NotFound, and a fresh conversation from the same
+caller/request ID. PostgreSQL-backed service tests cover active/waiting turns,
+dispatch and quiescence races, retry recovery, and retained checkpoint history.
 Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
@@ -51,6 +72,7 @@ Add portable tests using this pattern:
 func TestAgentTemplateBehavior(t *testing.T) {
     t.Parallel()
     forEachHarness(t, func(t *testing.T, harness testHarness) {
+        t.Parallel()
         fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
         // Exercise the public API and assert the behavior.
     })
@@ -78,19 +100,61 @@ go test ./core/test/e2e -run '^TestSessionInteraction$/^codex$' -v -count=1
 Run these commands from `go/` with `KUBECONFIG` pointing to the test Kind cluster
 and `KAGENT_E2E_API_URL` set. The existing CI E2E command runs the whole matrix
 without an additional flag. Both runners allow 30 minutes and finish the matrix
-after a failure so all harness results are visible. `-parallel` still bounds
-concurrent test scenarios. Most harness subtests run sequentially; the cron,
-scheduled timeout, and runtime revision lifecycle cases run their harnesses in
-parallel to overlap cron ticks, deadlines, and periodic garbage collection.
+after a failure so all harness results are visible. Independent harness subtests
+run in parallel, sharing the suite's `-parallel` budget. Each case owns its mocks,
+configuration, Sessions, and cleanup; installed Harnesses are read-only fixtures.
+Push notification cases also share that budget, including their streaming and
+unary variants. Tests that replace controllers or change deployment settings
+keep sequential parents so they cannot disrupt independent scenarios. CI uses
+one-second controller startup/readiness probes to avoid waiting for the default
+probe intervals after each restart, with a 60-second startup failure budget.
+The CI job uses an eight-vCPU runner with four concurrent scenarios by default
+and a 2 GiB memory limit for atelet during parallel snapshot operations.
+The inline/referenced configuration matrix also runs its configuration cases in
+parallel. Steps that share a Session, such as the CLI output-format subtests,
+remain sequential within each harness.
+
+Send helpers retry only the gateway's explicit `KAGENT_SEND_NOT_ACCEPTED`
+rejection, preserving the request identity. Streaming helpers also inspect the
+first receive: gRPC can open a stream successfully and report rejection in its
+trailers. Once any event arrives, errors fail the test without resending input.
+Generic transport failures are never retried because they may hide accepted work.
+
+Independent sandbox scenarios, opaque BYO invocation, and completed-chat trace
+checks also run in parallel. Trace cases share the receiver but select spans by
+their own trace IDs; the receiver is cleared once before starting those cases.
+
 Controller restart cases stay sequential with respect to the rest of the suite.
+The scheduled-run restart test starts all selected harness executions before one
+shared controller restart, then releases their model responses and checks recovery
+in parallel. Each harness retains its own Session, task, and prompt-count assertions.
+
+Each gRPC fixture calls `grpc.health.v1.Health/Check` on its own connection before
+creating resources and requires a `SERVING` response. The read-only probe waits up
+to one minute for transport readiness, including retries of failed dials after
+controller rollouts. Subsequent calls keep their normal failure and retry behavior;
+fixture setup does not retry mutations or suppress errors returned by the server.
 
 CI runs four concurrent scenarios on four Substrate worker pods. Substrate
-v0.3.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
+v0.4.0-alpha1 enables multiple actors per worker by default (`--max-actors=1000`),
 so test concurrency is no longer limited to the worker count. A scenario may need
 multiple actors for subagents or template preparation; four scenarios is not a
 four-actor cap. Parallel harness subtests share the same `-parallel` budget as
 other scenarios; they do not multiply it. Go still isolates controller restart
 tests from parallel scenarios.
+
+CI runs separate gVisor and Cloud Hypervisor jobs in parallel on Blacksmith.
+The Cloud Hypervisor job first checks that `/dev/kvm` can create a VM, then
+mounts it into Kind and installs Substrate's pinned microVM assets and
+`SandboxConfig`. A runner without nested KVM fails that job before image builds.
+Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
+
+The same setup is available locally:
+`KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
+into the Kind node. After installing Substrate, run
+`SUBSTRATE_VERSION=0.4.0-alpha1 bash scripts/kind/setup-microvm.sh`.
+It fetches the matching Substrate release to use its asset installer and caches
+the downloaded assets under `.cache/substrate/microvm-assets/`.
 
 To compare four versus eight on the same revision and runner, manually dispatch
 the CI workflow with `e2e_parallel` set to `4` or `8`. Compare the `Run e2e tests`
@@ -98,7 +162,7 @@ step duration and failures over repeated runs; doubling concurrency does not
 guarantee a speedup on the four-vCPU runner. Locally, use
 `make -C go e2e E2E_PARALLEL=8` (the local default remains two).
 
-CI uploads an `e2e-logs` artifact with test output, the final controller's logs,
+CI uploads a log artifact per runtime with test output, the final controller's logs,
 and worker/Substrate logs streamed during the suite. Use it to investigate an
 earlier timeout: subsequent actor activity can displace the failure from the
 200-line tails printed at the end of the job.
@@ -135,7 +199,13 @@ KAGENT_E2E_API_URL=http://<controller-address>:8083 make -C go e2e
 `TestSessionInteraction` starts the deterministic mock LLM on the test
 host and translates its listener to the host address reachable from the
 cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
-`KAGENT_LOCAL_HOST` when the cluster uses a different host address.
+`KAGENT_E2E_LOCAL_HOST` when the cluster uses a different host address.
+
+Substrate policies require DNS names and explicit protocols and ports.
+The mocks use Kubernetes Service names. For tracing, configure the controller's
+OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
+`manifests/tracing.yaml.tmpl` with `KAGENT_E2E_LOCAL_HOST` set to the test host's
+reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
 
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.

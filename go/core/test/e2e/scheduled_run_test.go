@@ -21,11 +21,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -33,6 +30,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestScheduledRunCronAndManualExecution(t *testing.T) {
@@ -42,9 +41,9 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		t.Parallel()
 		target := interactionTarget(t)
 		f := newScheduledFixture(t, harness, target, startInteractionMock(t), false, 2*time.Minute)
-		var first *apiv1alpha1.ScheduledRunExecution
+		var first *apiv1.ScheduledRunExecution
 		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
-			result, err := f.schedules.ListScheduledRunExecutions(ctx, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: f.schedule.GetId()})
+			result, err := f.schedules.ListScheduledRunExecutions(ctx, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: f.schedule.GetId()})
 			if err != nil {
 				return false, err
 			}
@@ -56,22 +55,22 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		}), "wait for cron firing")
 		require.NotNil(t, first.GetScheduledTime())
 		require.True(t, first.GetScheduledTime().AsTime().Equal(f.schedule.GetNextExecutionTime().AsTime()))
-		paused := proto.Clone(f.schedule.GetConfig()).(*apiv1alpha1.ScheduledRunConfig)
+		paused := proto.Clone(f.schedule.GetConfig()).(*apiv1.ScheduledRunConfig)
 		paused.Paused = true
-		updated, err := f.schedules.UpdateScheduledRun(f.ctx, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), Etag: f.schedule.GetEtag(), Config: paused})
+		updated, err := f.schedules.UpdateScheduledRun(f.ctx, &apiv1.UpdateScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), Etag: f.schedule.GetEtag(), Config: paused})
 		require.NoError(t, err)
 		require.Nil(t, updated.GetScheduledRun().GetNextExecutionTime())
-		first = f.waitExecution(t, first.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		first = f.waitExecution(t, first.GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
 		f.assertCompletedTask(t, first)
 
 		// A manual trigger works while paused; retrying its request ID is one firing.
-		request := &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()}
+		request := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()}
 		manual, err := f.schedules.TriggerScheduledRun(f.ctx, request)
 		require.NoError(t, err)
 		retried, err := f.schedules.TriggerScheduledRun(f.ctx, request)
 		require.NoError(t, err)
 		require.Equal(t, manual.GetExecution().GetId(), retried.GetExecution().GetId())
-		second := f.waitExecution(t, manual.GetExecution().GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		second := f.waitExecution(t, manual.GetExecution().GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
 		require.NotEqual(t, first.GetSessionId(), second.GetSessionId())
 		f.assertCompletedTask(t, second)
 
@@ -79,14 +78,14 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		conversation := &interactionFixture{ctx: f.ctx, client: f.tasks, sessions: f.sessions, sessionID: second.GetSessionId(), contextID: second.GetSessionId(), tenant: f.schedule.GetAgent().GetNamespace() + "/" + f.schedule.GetAgent().GetName()}
 		_, _, continued := conversation.send(t, "What is 2+2?")
 		require.NotEqual(t, second.GetTaskId(), string(continued.ID))
-		retained, err := f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: second.GetId()})
+		retained, err := f.schedules.GetScheduledRunExecution(f.ctx, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: second.GetId()})
 		require.NoError(t, err)
 		require.Equal(t, second.GetTaskId(), retained.GetExecution().GetTaskId())
 
-		_, err = f.schedules.DeleteScheduledRun(f.ctx, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
+		_, err = f.schedules.DeleteScheduledRun(f.ctx, &apiv1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
 		require.NoError(t, err)
 		require.NoError(t, deleteIdleSession(f.ctx, f.sessions, first.GetSessionId()))
-		retained, err = f.schedules.GetScheduledRunExecution(f.ctx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: first.GetId()})
+		retained, err = f.schedules.GetScheduledRunExecution(f.ctx, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: first.GetId()})
 		require.NoError(t, err)
 		require.Equal(t, first.GetSessionId(), retained.GetExecution().GetSessionId())
 		require.Equal(t, first.GetState(), retained.GetExecution().GetState())
@@ -108,7 +107,7 @@ func TestScheduledRunTimeout(t *testing.T) {
 		case <-time.After(45 * time.Second):
 			t.Fatal("scheduled agent did not reach the blocking model")
 		}
-		execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
+		execution = f.waitExecution(t, execution.GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
 		require.NotEmpty(t, execution.GetFailureReason())
 		require.False(t, execution.GetCompletedAt().AsTime().Before(execution.GetDeadline().AsTime()))
 		require.Equal(t, a2atype.TaskStateCanceled, f.task(t, execution).Status.State)
@@ -118,6 +117,13 @@ func TestScheduledRunTimeout(t *testing.T) {
 
 // Keep this test sequential: restarting the controller disrupts other clients.
 func TestScheduledRunControllerRestart(t *testing.T) {
+	var releases []func()
+	restarted := false
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		target := interactionTarget(t)
 		modelURL, started, release, calls := startScheduledRecoveryModel(t)
@@ -128,62 +134,73 @@ func TestScheduledRunControllerRestart(t *testing.T) {
 		case <-time.After(time.Minute):
 			t.Fatal("scheduled agent did not reach the model before restart")
 		}
-		execution = f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
+		execution = f.waitExecution(t, execution.GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
 		require.NotEmpty(t, execution.GetTaskId())
-		kube := interactionKubeClient(t)
-		pods := &corev1.PodList{}
-		require.NoError(t, kube.List(f.ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
-		require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
-		old := pods.Items[0]
-		require.NoError(t, kube.Delete(f.ctx, &old))
-		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
-			current := &corev1.PodList{}
-			if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
-				return false, err
-			}
-			for _, pod := range current.Items {
-				if pod.UID == old.UID {
-					continue
-				}
-				for _, condition := range pod.Status.Conditions {
-					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-						return true, nil
-					}
-				}
-			}
-			return false, nil
-		}), "wait for replacement controller")
-		release()
-		recovered := f.waitExecution(t, execution.GetId(), apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		releases = append(releases, release)
+		// Parallel subtests resume only after the parent returns. Keep setup
+		// before this barrier so every execution is running at the shared restart.
+		t.Parallel()
+		require.True(t, restarted, "shared controller restart did not complete")
+		recovered := f.waitExecution(t, execution.GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
 		require.Equal(t, execution.GetSessionId(), recovered.GetSessionId())
 		require.Equal(t, execution.GetTaskId(), recovered.GetTaskId())
 		require.EqualValues(t, 1, calls.Load(), "restart must not resend the original prompt")
 		f.assertCompletedTask(t, recovered)
 	})
+	// A subtest filter may select no harnesses. Failed setup must also leave the
+	// controller alone; the deferred releases still unblock prepared executions.
+	if len(releases) == 0 || t.Failed() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	kube := interactionKubeClient(t)
+	pods := &corev1.PodList{}
+	require.NoError(t, kube.List(ctx, pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
+	require.Len(t, pods.Items, 1, "restart test requires a single controller replica")
+	old := pods.Items[0]
+	require.NoError(t, kube.Delete(ctx, &old))
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 90*time.Second, true, func(ctx context.Context) (bool, error) {
+		current := &corev1.PodList{}
+		if err := kube.List(ctx, current, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}); err != nil {
+			return false, err
+		}
+		for _, pod := range current.Items {
+			if pod.UID == old.UID {
+				continue
+			}
+			for _, condition := range pod.Status.Conditions {
+				if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "wait for replacement controller")
+	newControllerConn(t, interactionTarget(t))
+	restarted = true
 }
 
 type scheduledFixture struct {
 	ctx       context.Context
-	schedules apiv1alpha1.ScheduledRunServiceClient
-	sessions  apiv1alpha1.SessionServiceClient
-	system    apiv1alpha1.SystemServiceClient
+	schedules apiv1.ScheduledRunServiceClient
+	sessions  apiv1.SessionServiceClient
+	system    apiv1.SystemServiceClient
 	tasks     a2apb.A2AServiceClient
-	schedule  *apiv1alpha1.ScheduledRun
+	schedule  *apiv1.ScheduledRun
 }
 
 func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL string, paused bool, timeout time.Duration) *scheduledFixture {
 	t.Helper()
 	template := createInteractionTemplate(t, harness, modelURL)
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 5*time.Minute)
 	t.Cleanup(cancel)
-	f := &scheduledFixture{ctx: ctx, schedules: apiv1alpha1.NewScheduledRunServiceClient(conn), sessions: apiv1alpha1.NewSessionServiceClient(conn), system: apiv1alpha1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
-	created, err := f.schedules.CreateScheduledRun(ctx, &apiv1alpha1.CreateScheduledRunRequest{
+	f := &scheduledFixture{ctx: ctx, schedules: apiv1.NewScheduledRunServiceClient(conn), sessions: apiv1.NewSessionServiceClient(conn), system: apiv1.NewSystemServiceClient(conn), tasks: a2apb.NewA2AServiceClient(conn)}
+	created, err := f.schedules.CreateScheduledRun(ctx, &apiv1.CreateScheduledRunRequest{
 		RequestId: uuid.NewString(),
-		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
-		Config:    &apiv1alpha1.ScheduledRunConfig{Name: t.Name(), Schedule: "* * * * *", TimeZone: "UTC", Prompt: "What is 2+2?", Paused: paused, ExecutionTimeout: durationpb.New(timeout)},
+		Agent:     &apiv1.ResourceReference{Namespace: "kagent", Name: template},
+		Config:    &apiv1.ScheduledRunConfig{Name: t.Name(), Schedule: "* * * * *", TimeZone: "UTC", Prompt: "What is 2+2?", Paused: paused, ExecutionTimeout: durationpb.New(timeout)},
 	})
 	require.NoError(t, err)
 	f.schedule = created.GetScheduledRun()
@@ -191,11 +208,11 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), 2*time.Minute)
 		defer cleanupCancel()
-		_, err := f.schedules.DeleteScheduledRun(cleanupCtx, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
+		_, err := f.schedules.DeleteScheduledRun(cleanupCtx, &apiv1.DeleteScheduledRunRequest{ScheduledRunId: f.schedule.GetId()})
 		if err != nil {
 			t.Errorf("delete schedule: %v", err)
 		}
-		executions, err := f.schedules.ListScheduledRunExecutions(cleanupCtx, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: f.schedule.GetId(), Page: &apiv1alpha1.PageRequest{Limit: 100}})
+		executions, err := f.schedules.ListScheduledRunExecutions(cleanupCtx, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: f.schedule.GetId(), Page: &apiv1.PageRequest{Limit: 100}})
 		if err != nil {
 			t.Errorf("list executions for cleanup: %v", err)
 			return
@@ -212,20 +229,20 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 	return f
 }
 
-func (f *scheduledFixture) trigger(t *testing.T) *apiv1alpha1.ScheduledRunExecution {
+func (f *scheduledFixture) trigger(t *testing.T) *apiv1.ScheduledRunExecution {
 	t.Helper()
-	result, err := f.schedules.TriggerScheduledRun(f.ctx, &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()})
+	result, err := f.schedules.TriggerScheduledRun(f.ctx, &apiv1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()})
 	require.NoError(t, err)
 	return result.GetExecution()
 }
 
-func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1alpha1.ScheduledRunExecutionState) *apiv1alpha1.ScheduledRunExecution {
+func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1.ScheduledRunExecutionState) *apiv1.ScheduledRunExecution {
 	t.Helper()
-	var execution *apiv1alpha1.ScheduledRunExecution
+	var execution *apiv1.ScheduledRunExecution
 	err := wait.PollUntilContextTimeout(f.ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		result, err := f.schedules.GetScheduledRunExecution(callCtx, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: id})
+		result, err := f.schedules.GetScheduledRunExecution(callCtx, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: id})
 		if status.Code(err) == codes.Unavailable || status.Code(err) == codes.DeadlineExceeded {
 			return false, nil
 		}
@@ -247,7 +264,7 @@ func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1alph
 	return execution
 }
 
-func (f *scheduledFixture) task(t *testing.T, execution *apiv1alpha1.ScheduledRunExecution) *a2atype.Task {
+func (f *scheduledFixture) task(t *testing.T, execution *apiv1.ScheduledRunExecution) *a2atype.Task {
 	t.Helper()
 	request, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{Tenant: f.schedule.GetAgent().GetNamespace() + "/" + f.schedule.GetAgent().GetName(), ID: a2atype.TaskID(execution.GetTaskId())})
 	require.NoError(t, err)
@@ -255,14 +272,14 @@ func (f *scheduledFixture) task(t *testing.T, execution *apiv1alpha1.ScheduledRu
 	require.NoError(t, err)
 	task, err := pbconv.FromProtoTask(result)
 	require.NoError(t, err)
-	session, err := f.sessions.GetSession(f.ctx, &apiv1alpha1.GetSessionRequest{SessionId: execution.GetSessionId()})
+	session, err := f.sessions.GetSession(f.ctx, &apiv1.GetSessionRequest{SessionId: execution.GetSessionId()})
 	require.NoError(t, err)
 	require.NotEmpty(t, session.GetSession().GetContextId())
 	require.Equal(t, session.GetSession().GetContextId(), task.ContextID)
 	return task
 }
 
-func (f *scheduledFixture) assertCompletedTask(t *testing.T, execution *apiv1alpha1.ScheduledRunExecution) {
+func (f *scheduledFixture) assertCompletedTask(t *testing.T, execution *apiv1.ScheduledRunExecution) {
 	t.Helper()
 	task := f.task(t, execution)
 	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
@@ -270,9 +287,9 @@ func (f *scheduledFixture) assertCompletedTask(t *testing.T, execution *apiv1alp
 	f.assertQuiescent(t, execution)
 }
 
-func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.ScheduledRunExecution) {
+func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1.ScheduledRunExecution) {
 	t.Helper()
-	result, err := f.sessions.GetSession(f.ctx, &apiv1alpha1.GetSessionRequest{SessionId: execution.GetSessionId()})
+	result, err := f.sessions.GetSession(f.ctx, &apiv1.GetSessionRequest{SessionId: execution.GetSessionId()})
 	require.NoError(t, err)
 	// The public A2A authority identifies the Actor without reading internal DB state.
 	actorName, rest, _ := strings.Cut(result.GetSession().GetA2AAuthority(), ".")
@@ -281,9 +298,9 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1alpha1.
 	require.NotEmpty(t, actorName)
 	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
 		for token := ""; ; {
-			page, err := f.system.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
+			page, err := f.system.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{
 				Atespace: atespace,
-				Page:     &apiv1alpha1.PageRequest{Limit: 100, PageToken: token},
+				Page:     &apiv1.PageRequest{Limit: 100, PageToken: token},
 			})
 			if err != nil {
 				return false, err

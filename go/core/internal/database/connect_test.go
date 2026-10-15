@@ -2,14 +2,16 @@ package database
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
@@ -17,7 +19,7 @@ func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
 	defer cancel()
 
 	_, err := retryDBConnection(ctx, &PostgresConfig{
-		URL: "postgres://user:pass@localhost:1/nodb?connect_timeout=1",
+		Pool: testPoolConfig(t, "postgres://user:pass@localhost:1/nodb?connect_timeout=1"),
 	})
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
@@ -54,53 +56,67 @@ func TestApplyPoolConfig(t *testing.T) {
 	})
 }
 
-func TestResolveURLFile(t *testing.T) {
-	tests := []struct {
-		name        string
-		fileContent string
-		wantUrl     string
-		wantErr     bool
-	}{
-		{
-			name:        "reads URL from file",
-			fileContent: "postgres://testuser:testpass@host:5432/testdb",
-			wantUrl:     "postgres://testuser:testpass@host:5432/testdb",
-		},
-		{
-			name:        "trims whitespace and newlines",
-			fileContent: "  postgres://user:pass@host:5432/db\n",
-			wantUrl:     "postgres://user:pass@host:5432/db",
-		},
-		{
-			name:        "empty file returns error",
-			fileContent: "",
-			wantErr:     true,
-		},
-		{
-			name:        "whitespace-only file returns error",
-			fileContent: "  \n\t\n  ",
-			wantErr:     true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpFile := filepath.Join(t.TempDir(), "db-url")
-			err := os.WriteFile(tmpFile, []byte(tt.fileContent), 0600)
-			assert.NoError(t, err)
-
-			url, err := resolveURLFile(tmpFile)
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tt.wantUrl, url)
-		})
-	}
-
-	t.Run("missing file returns error", func(t *testing.T) {
-		_, err := resolveURLFile("/nonexistent/path/db-url")
-		assert.Error(t, err)
+func TestPoolConfigSetsSchema(t *testing.T) {
+	config, err := poolConfig(&PostgresConfig{
+		Pool:   testPoolConfig(t, "postgres://user:password@database:5432/app?sslmode=disable"),
+		Schema: "kagent",
 	})
+	require.NoError(t, err)
+	assert.Equal(t, `"kagent"`, config.ConnConfig.RuntimeParams["search_path"])
+}
+
+func TestPoolConfigRejectsMissingRuntimeSchema(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skip the PostgreSQL test in short mode")
+	}
+	const schema = "missing_kagent_schema_for_connect_test"
+	config, err := poolConfig(&PostgresConfig{Pool: dbtest.PoolConfig(sharedConnStr), Schema: schema})
+	require.NoError(t, err)
+	conn, err := pgx.ConnectConfig(t.Context(), config.ConnConfig.Copy())
+	require.NoError(t, err)
+	defer conn.Close(t.Context())
+
+	err = config.AfterConnect(t.Context(), conn)
+	require.ErrorContains(t, err, `PostgreSQL schema "`+schema+`" is not accessible`)
+}
+
+func TestPoolConfigPreservesHooksAndLimits(t *testing.T) {
+	maxConns := int32(8)
+	minConns := int32(1)
+	idleTime := time.Minute
+	lifetime := 10 * time.Minute
+	config, err := poolConfig(&PostgresConfig{
+		Pool:            testPoolConfig(t, "postgres://user:password@database:5432/app?sslmode=disable"),
+		VectorEnabled:   true,
+		Schema:          "public",
+		VectorSchema:    "public",
+		MaxConns:        &maxConns,
+		MinConns:        &minConns,
+		MaxConnIdleTime: &idleTime,
+		MaxConnLifetime: &lifetime,
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, config.BeforeConnect)
+	assert.NotNil(t, config.AfterConnect)
+	assert.Equal(t, maxConns, config.MaxConns)
+	assert.Equal(t, minConns, config.MinConns)
+	assert.Equal(t, idleTime, config.MaxConnIdleTime)
+	assert.Equal(t, lifetime, config.MaxConnLifetime)
+}
+
+func TestPoolConfigRequiresTableSchemaForVectors(t *testing.T) {
+	_, err := poolConfig(&PostgresConfig{
+		Pool:          testPoolConfig(t, "postgres://user:password@database:5432/app?sslmode=disable"),
+		VectorEnabled: true,
+		VectorSchema:  "public",
+	})
+	require.ErrorContains(t, err, "database schema is required")
+}
+
+func testPoolConfig(t *testing.T, url string) *pgxpool.Config {
+	t.Helper()
+	config, err := postgres.PoolConfig(url, "kagent_owner")
+	require.NoError(t, err)
+	return config
 }

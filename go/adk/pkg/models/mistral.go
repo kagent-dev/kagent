@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // DefaultMistralBaseURL is the default endpoint for the Mistral AI cloud API.
@@ -23,10 +24,9 @@ type MistralConfig struct {
 	TransportConfig
 	Model       string
 	BaseUrl     string
-	MaxTokens   *int
+	MaxTokens   *int64
 	Temperature *float64
 	TopP        *float64
-	Timeout     *int
 }
 
 // MistralModel implements model.LLM (see mistral_adk.go) for Mistral AI.
@@ -45,7 +45,7 @@ func NewMistralModel(ctx context.Context, config *MistralConfig) (*MistralModel,
 	logger := logging.FromContext(ctx)
 	apiKey := "passthrough" // placeholder; real auth set per-request by transport
 	if !config.APIKeyPassthrough {
-		apiKey = os.Getenv("MISTRAL_API_KEY")
+		apiKey = env.MistralAPIKey.Get()
 		if apiKey == "" {
 			return nil, fmt.Errorf("MISTRAL_API_KEY environment variable is not set")
 		}
@@ -53,7 +53,7 @@ func NewMistralModel(ctx context.Context, config *MistralConfig) (*MistralModel,
 
 	baseURL := config.BaseUrl
 	if baseURL == "" {
-		baseURL = os.Getenv("MISTRAL_API_BASE")
+		baseURL = env.MistralAPIBase.Get()
 	}
 	if baseURL == "" {
 		baseURL = DefaultMistralBaseURL

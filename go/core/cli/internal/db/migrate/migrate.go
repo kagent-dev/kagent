@@ -7,34 +7,31 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
 	"github.com/spf13/cobra"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
-const (
-	dbURLEnv   = "POSTGRES_DATABASE_URL"
-	sourceFlag = "source"
-)
+const sourceFlag = "source"
 
-var (
-	sourceNameRE    = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-	migrationFileRE = regexp.MustCompile(`^([0-9]+)_.+\.sql$`)
-)
+var sourceNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 // SourcesFunc gets the migration sources for one command.
 type SourcesFunc func(ctx context.Context) ([]migrations.Source, error)
 
 type commandState struct {
 	dbURL     string
+	dbURLFile string
+	dbRole    string
 	source    string
 	resolveFn SourcesFunc
 
@@ -93,9 +90,13 @@ func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
 		Use:   "migrate",
 		Short: "Apply, roll back, and inspect database migrations",
 		Long: `Apply, roll back, and inspect database migrations.
-The command reads POSTGRES_DATABASE_URL when --db-url is empty.`,
+Migrations run as the owner login. Connection settings come from database.owner in
+the CLI configuration or explicit database flags.`,
 	}
-	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL")
+	command.PersistentFlags().StringVar(&state.dbURL, "db-url", "", "PostgreSQL connection URL for the owner login")
+	command.PersistentFlags().StringVar(&state.dbURLFile, "db-url-file", "", "File containing the owner login's PostgreSQL connection URL")
+	command.MarkFlagsMutuallyExclusive("db-url", "db-url-file")
+	command.PersistentFlags().StringVar(&state.dbRole, "db-role", "", "Owner role to assume after authentication (required)")
 	command.PersistentFlags().StringVar(&state.source, sourceFlag, "", "Migration source for down, goto, or version")
 	command.AddCommand(newUpCmd(state))
 	command.AddCommand(newDownCmd(state))
@@ -105,15 +106,34 @@ The command reads POSTGRES_DATABASE_URL when --db-url is empty.`,
 	return command
 }
 
+func (s *commandState) role() (string, error) {
+	if role := strings.TrimSpace(s.dbRole); role != "" {
+		return role, nil
+	}
+	return "", errors.New("database.owner.role or --db-role is required")
+}
+
 func (s *commandState) resolveDSN() (string, error) {
-	dsn := strings.TrimSpace(s.dbURL)
-	if dsn == "" {
-		dsn = os.Getenv(dbURLEnv)
+	if dsn := strings.TrimSpace(s.dbURL); dsn != "" {
+		return dsn, nil
 	}
-	if dsn == "" {
-		return "", fmt.Errorf("set the database URL with --db-url or %s", dbURLEnv)
+	if s.dbURLFile != "" {
+		return config.ReadSecret(s.dbURLFile)
 	}
-	return dsn, nil
+	return "", errors.New("database.owner.urlFile, --db-url-file, or --db-url is required")
+}
+
+// poolConfig builds the migration connection from the database URL and role.
+func (s *commandState) poolConfig() (*pgxpool.Config, error) {
+	dsn, err := s.resolveDSN()
+	if err != nil {
+		return nil, err
+	}
+	role, err := s.role()
+	if err != nil {
+		return nil, err
+	}
+	return postgres.PoolConfig(dsn, role)
 }
 
 func (s *commandState) resolveSource(ctx context.Context) (migrations.Source, error) {
@@ -149,33 +169,6 @@ func sourceNames(sources []migrations.Source) string {
 	return strings.Join(names, ", ")
 }
 
-func sourceFileVersions(source migrations.Source) ([]int64, error) {
-	entries, err := fs.ReadDir(source.FS, source.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("read migration directory %s: %w", source.Dir, err)
-	}
-	versions := make([]int64, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-		if strings.HasSuffix(entry.Name(), ".up.sql") || strings.HasSuffix(entry.Name(), ".down.sql") {
-			return nil, fmt.Errorf("invalid migration file %s", entry.Name())
-		}
-		match := migrationFileRE.FindStringSubmatch(entry.Name())
-		if match == nil {
-			return nil, fmt.Errorf("invalid migration file %s", entry.Name())
-		}
-		version, err := strconv.ParseInt(match[1], 10, 64)
-		if err != nil || version < 1 {
-			return nil, fmt.Errorf("invalid migration version in %s", entry.Name())
-		}
-		versions = append(versions, version)
-	}
-	slices.Sort(versions)
-	return versions, nil
-}
-
 func readVersion(ctx context.Context, provider *goose.Provider) (int64, error) {
 	version, err := provider.GetDBVersion(ctx)
 	if err != nil {
@@ -193,7 +186,7 @@ func newUpCmd(state *commandState) *cobra.Command {
 			if state.source != "" {
 				return errors.New("up applies all sources. --source is not applicable")
 			}
-			dsn, err := state.resolveDSN()
+			config, err := state.poolConfig()
 			if err != nil {
 				return err
 			}
@@ -204,7 +197,7 @@ func newUpCmd(state *commandState) *cobra.Command {
 			if len(sources) == 0 {
 				return errors.New("no migration sources are registered")
 			}
-			if err := migrations.RunUp(command.Context(), dsn, sources); err != nil {
+			if err := migrations.RunUp(command.Context(), config, sources); err != nil {
 				return err
 			}
 			fmt.Fprintln(command.OutOrStdout(), "schema is up to date")
@@ -224,7 +217,7 @@ func newDownCmd(state *commandState) *cobra.Command {
 			if err != nil || count < 1 {
 				return fmt.Errorf("n must be a positive integer, got %q", args[0])
 			}
-			dsn, err := state.resolveDSN()
+			config, err := state.poolConfig()
 			if err != nil {
 				return err
 			}
@@ -232,11 +225,11 @@ func newDownCmd(state *commandState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			versions, err := sourceFileVersions(source)
+			versions, err := migrations.Versions(source)
 			if err != nil {
 				return err
 			}
-			return migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+			return migrations.WithProvider(command.Context(), config, source, func(provider *goose.Provider) error {
 				current, err := readVersion(command.Context(), provider)
 				if err != nil {
 					return err
@@ -295,7 +288,7 @@ func newStatusCmd(state *commandState) *cobra.Command {
 			if output != "text" && output != "json" {
 				return fmt.Errorf("invalid --output %q. Use text or json", output)
 			}
-			dsn, err := state.resolveDSN()
+			config, err := state.poolConfig()
 			if err != nil {
 				return err
 			}
@@ -312,11 +305,11 @@ func newStatusCmd(state *commandState) *cobra.Command {
 			pendingTotal := 0
 			for _, source := range sources {
 				line := lineRow{source: source}
-				versions, err := sourceFileVersions(source)
+				versions, err := migrations.Versions(source)
 				if err != nil {
 					return err
 				}
-				err = migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+				err = migrations.WithProvider(command.Context(), config, source, func(provider *goose.Provider) error {
 					status, err := provider.Status(command.Context())
 					if err != nil {
 						return err
@@ -334,9 +327,7 @@ func newStatusCmd(state *commandState) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if len(versions) > 0 {
-					line.ahead = line.dbVersion > versions[len(versions)-1]
-				}
+				line.ahead = line.dbVersion > versions[len(versions)-1]
 				lines = append(lines, line)
 				appliedTotal += line.applied
 				pendingTotal += line.pending
@@ -411,7 +402,7 @@ func newVersionCmd(state *commandState) *cobra.Command {
 		Short: "Show the applied migration version",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			dsn, err := state.resolveDSN()
+			config, err := state.poolConfig()
 			if err != nil {
 				return err
 			}
@@ -432,7 +423,7 @@ func newVersionCmd(state *commandState) *cobra.Command {
 				sources = sources[index : index+1]
 			}
 			for _, source := range sources {
-				err := migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+				err := migrations.WithProvider(command.Context(), config, source, func(provider *goose.Provider) error {
 					version, err := readVersion(command.Context(), provider)
 					if err != nil {
 						return err
@@ -471,7 +462,7 @@ func newGotoCmd(state *commandState) *cobra.Command {
 			if err != nil || target < 0 {
 				return fmt.Errorf("v must be a non-negative integer, got %q", args[0])
 			}
-			dsn, err := state.resolveDSN()
+			config, err := state.poolConfig()
 			if err != nil {
 				return err
 			}
@@ -479,14 +470,14 @@ func newGotoCmd(state *commandState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			versions, err := sourceFileVersions(source)
+			versions, err := migrations.Versions(source)
 			if err != nil {
 				return err
 			}
 			if target != 0 && !slices.Contains(versions, target) {
 				return fmt.Errorf("version %d is not available. Valid versions are %s", target, formatVersionList(versions))
 			}
-			return migrations.WithProvider(command.Context(), dsn, source, func(provider *goose.Provider) error {
+			return migrations.WithProvider(command.Context(), config, source, func(provider *goose.Provider) error {
 				current, err := readVersion(command.Context(), provider)
 				if err != nil {
 					return err

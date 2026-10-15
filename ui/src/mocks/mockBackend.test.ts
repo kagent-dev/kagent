@@ -43,13 +43,13 @@ afterEach(() => clearApiExtensions());
  * entry here fails to compile, so the sweep below cannot silently stop covering
  * the whole surface.
  */
-for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{description:"Inline fixture"},harnessRef:{name:"k8s-agent"}}}});
+for (const name of ["draft-assistant", "disposable-agent"]) saveAgent({name, namespace:"kagent", ref:`kagent/${name}`, resource:{metadata:{name, namespace:"kagent"},spec:{template:{inline:{description:"Inline fixture"}},harnessRef:{name:"k8s-agent"}}}});
 
 const INPUTS = {
   "agents.list": {namespace:"kagent"},
   "agents.get": {namespace:"kagent", name:"k8s-agent-7f3a91c"},
-  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{templateRef:{name:"note-taker"},harnessRef:{name:"k8s-agent"}}}},
-  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{description:"Changed inline"},harnessRef:{name:"k8s-agent"}}}},
+  "agents.create": {namespace:"kagent", name:"swept-agent", resource:{metadata:{name:"swept-agent",namespace:"kagent"},spec:{template:{ref:{name:"note-taker"}},harnessRef:{name:"k8s-agent"}}}},
+  "agents.update": {namespace:"kagent", name:"draft-assistant", resource:{metadata:{name:"draft-assistant",namespace:"kagent"},spec:{template:{inline:{description:"Changed inline"}},harnessRef:{name:"k8s-agent"}}}},
   "agents.delete": {namespace:"kagent", name:"disposable-agent"},
 
   "scheduledRuns.list": {},
@@ -129,7 +129,6 @@ const INPUTS = {
   "agentInstances.shares.create": {
 
     id: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-    permission: "readOnly",
   },
   // The seeded share, not one the sweep created: the sweep runs everything at once,
   // so revoking the create above would be a race with it.
@@ -280,9 +279,9 @@ describe("the fixture backend", () => {
       name: "coder-template",
       phase: "Ready",
       sandboxClass: "gvisor",
-      workerSelector: "pool=default-pool",
+      workerSelector: "pool=kagent-default",
     });
-    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
+    expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });
     expect(page.actors.find((actor) => actor.actorId === "actor-7f21")).toMatchObject({
       atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
     });

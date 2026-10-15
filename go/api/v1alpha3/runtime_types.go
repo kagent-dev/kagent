@@ -5,22 +5,18 @@ package v1alpha3
 
 import corev1 "k8s.io/api/core/v1"
 
-// RuntimeEnvVar configures one runtime environment variable.
-//
-// +kubebuilder:validation:XValidation:rule="has(self.value) != has(self.credentialRef)",message="exactly one of value or credentialRef must be specified"
-// +kubebuilder:validation:XValidation:rule="!has(self.credentialRef) || self.credentialRef.name.size() > 0",message="credentialRef name must not be empty"
+// RuntimeEnvVar configures one literal runtime environment variable.
 type RuntimeEnvVar struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
 
 	// Value is a literal value, including an empty string.
-	// +optional
-	Value *string `json:"value,omitempty"`
+	// +required
+	Value string `json:"value"`
 
-	// CredentialRef references a key in a same-namespace Secret.
-	// +optional
-	CredentialRef *corev1.SecretKeySelector `json:"credentialRef,omitempty"`
+	// Deferred until secret-backed environment injection is supported.
+	// CredentialRef *corev1.SecretKeySelector `json:"credentialRef,omitempty"`
 }
 
 // RuntimeSnapshotPolicy configures storage for Substrate snapshots.

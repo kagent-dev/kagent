@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/ollama/ollama/api"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // OllamaConfig holds Ollama configuration
@@ -288,7 +289,7 @@ func NewOllamaModel(ctx context.Context, config *OllamaConfig) (*OllamaModel, er
 	logger := logging.FromContext(ctx)
 	host := config.Host
 	if host == "" {
-		host = os.Getenv("OLLAMA_API_BASE")
+		host = env.OllamaAPIBase.Get()
 	}
 	host = resolveOllamaEndpoint(config, host)
 

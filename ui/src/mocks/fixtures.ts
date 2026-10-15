@@ -22,6 +22,7 @@ import type {
   SubstrateWorkerPoolEntry,
 } from "@/api/domain/substrate";
 import type { Harness } from "@/api/domain/harnesses";
+import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 
 export const mockModels: ModelConfig[] = [
@@ -129,8 +130,8 @@ export const mockProviders: Provider[] = [
   {
     name: "AzureOpenAI",
     type: "AzureOpenAI",
-    requiredParams: ["azureEndpoint", "apiVersion"],
-    optionalParams: ["azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP"],
+    requiredParams: ["azureEndpoint"],
+    optionalParams: ["apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"],
   },
   {
     name: "Ollama",
@@ -290,7 +291,7 @@ export const mockSubstrateInventory: {
 } = {
   ateApiError: "ate-api list actors timed out after 5s; actors may be incomplete",
   workerPools: [
-    { namespace: "kagent", name: "default-pool", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" },
+    { namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" },
     { namespace: "platform", name: "gpu-pool", replicas: 1, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" },
   ],
   actorTemplates: [
@@ -300,7 +301,7 @@ export const mockSubstrateInventory: {
       phase: "Ready",
       goldenTag: "ate-golden/snap-2026-07-28",
       sandboxClass: "gvisor",
-      workerSelector: "pool=default-pool",
+      workerSelector: "pool=kagent-default",
     },
     {
       atespace: "platform",
@@ -316,10 +317,10 @@ export const mockSubstrateInventory: {
       actorTemplateAtespace: "kagent",
       actorTemplateName: "coder-template",
       ateomPodNamespace: "kagent",
-      ateomPodName: "ateom-default-pool-0",
+      ateomPodName: "ateom-kagent-default-0",
       ateomPodIp: "10.42.1.19",
       latestSnapshot: "snap-2026-07-29",
-      workerPoolName: "default-pool",
+      workerPoolName: "kagent-default",
       version: 4,
     },
     { actorId: "actor-9c03", atespace: "kagent", status: "Suspending", inProgressSnapshot: "snap-2026-07-30", version: 2 },
@@ -327,7 +328,15 @@ export const mockSubstrateInventory: {
     // it has no name for — a fixture of tidy words would let `ACTOR_STATE_CRASHED`
     // reach the page unread and no test object.
     { actorId: "actor-0aa1", atespace: "kagent", status: "ACTOR_STATE_CRASHED", version: 1 },
-    { actorId: "actor-3b55", atespace: "kagent", status: "Running", version: 1 },
+    // Shares the first worker with actor-7f21, so one worker reports two actors.
+    {
+      actorId: "actor-3b55",
+      atespace: "kagent",
+      status: "Running",
+      ateomPodNamespace: "kagent",
+      ateomPodName: "ateom-kagent-default-0",
+      version: 1,
+    },
     // Parked rather than broken, and the only status here that reads as neither:
     // without it nothing on the page is drawn in the idle tone.
     { actorId: "actor-5d17", atespace: "kagent", status: "Paused", version: 1 },
@@ -349,12 +358,12 @@ export const mockSubstrateInventory: {
   workers: [
     {
       workerNamespace: "kagent",
-      workerPool: "default-pool",
-      workerPod: "ateom-default-pool-0",
+      workerPool: "kagent-default",
+      workerPod: "ateom-kagent-default-0",
       ip: "10.42.1.19",
       version: 4,
     },
-    { workerNamespace: "kagent", workerPool: "default-pool", workerPod: "ateom-default-pool-1" },
+    { workerNamespace: "kagent", workerPool: "kagent-default", workerPod: "ateom-kagent-default-1" },
   ],
 };
 
@@ -613,7 +622,8 @@ export const mockHarnesses: Harness[] = [
       metadata: { name: "k8s-agent", namespace: "kagent" },
       spec: {
         kagent: {},
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        workload: { image: "ghcr.io/kagent-dev/kagent/golang-adk@sha256:3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a" },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -632,7 +642,8 @@ export const mockHarnesses: Harness[] = [
       metadata: { name: "support-triage", namespace: "kagent" },
       spec: {
         claude: {},
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        workload: { image: "ghcr.io/kagent-dev/kagent/claude-adk@sha256:9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e" },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -649,7 +660,8 @@ export const mockHarnesses: Harness[] = [
       metadata: { name: "fast-lane", namespace: "kagent" },
       spec: {
         codex: {},
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        workload: { image: "ghcr.io/kagent-dev/kagent/codex-adk@sha256:4e8a7c30d5f6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b" },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -673,7 +685,7 @@ export const mockHarnesses: Harness[] = [
           command: ["/app/echo-agent"],
           args: ["--port=8080"],
         },
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -690,7 +702,8 @@ export const mockHarnesses: Harness[] = [
       metadata: { name: "reporting", namespace: "analytics" },
       spec: {
         kagent: {},
-        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: "OnIdle" },
+        workload: { image: "ghcr.io/kagent-dev/kagent/golang-adk@sha256:6e9b2a4c8d1e7f0b3a6c9d2e5f8a3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f" },
+        substrate: { workerPoolRef: { name: "kagent-default" }, snapshotPolicy: { location: "gs://snapshots/kagent/" } },
       },
     },
   },
@@ -820,127 +833,58 @@ export const mockAgentTemplates: AgentTemplate[] = [
   },
 ];
 
-export const mockAgents: import("@/api/domain/agents").Agent[] = [
-  {
-    "ref": "kagent/k8s-agent-7f3a91c",
-    "namespace": "kagent",
-    "name": "k8s-agent-7f3a91c",
-    "resource": {
-      "metadata": {
-        "name": "k8s-agent-7f3a91c",
-        "namespace": "kagent"
-      },
-      "spec": {
-        "templateRef": {
-          "name": "k8s-agent-7f3a91c"
-        },
-        "harnessRef": {
-          "name": "k8s-agent"
-        }
-      },
-      "status": {
-        "desiredRevision": "rev-7f3a91c",
-        "latestSuccessfulRevision": "rev-7f3a91c"
-      }
-    }
-  },
-  {
-    "ref": "kagent/support-triage-2b91d0e",
-    "namespace": "kagent",
-    "name": "support-triage-2b91d0e",
-    "resource": {
-      "metadata": {
-        "name": "support-triage-2b91d0e",
-        "namespace": "kagent"
-      },
-      "spec": {
-        "templateRef": {
-          "name": "support-triage-2b91d0e"
-        },
-        "harnessRef": {
-          "name": "support-triage"
-        }
-      },
-      "status": {
-        "desiredRevision": "rev-2b91d0e",
-        "conditions": [
-          {
-            "type": "Ready",
-            "status": "False",
-            "reason": "ActorTemplateNotReady",
-            "message": "Waiting for the golden snapshot of the support-triage harness."
-          }
-        ]
-      }
-    }
-  },
-  {
-    "ref": "kagent/shared-brain-fast",
-    "namespace": "kagent",
-    "name": "shared-brain-fast",
-    "resource": {
-      "metadata": {
-        "name": "shared-brain-fast",
-        "namespace": "kagent"
-      },
-      "spec": {
-        "templateRef": {
-          "name": "shared-brain"
-        },
-        "harnessRef": {
-          "name": "fast-lane"
-        }
-      },
-      "status": {
-        "desiredRevision": "rev-shared-fast",
-        "latestSuccessfulRevision": "rev-shared-fast"
-      }
-    }
-  },
-  {
-    "ref": "kagent/shared-brain",
-    "namespace": "kagent",
-    "name": "shared-brain",
-    "resource": {
-      "metadata": {
-        "name": "shared-brain",
-        "namespace": "kagent"
-      },
-      "spec": {
-        "templateRef": {
-          "name": "shared-brain"
-        },
-        "harnessRef": {
-          "name": "k8s-agent"
-        }
-      },
-      "status": {
-        "desiredRevision": "rev-shared-k8s",
-        "latestSuccessfulRevision": "rev-shared-k8s"
-      }
-    }
-  },
-  {
-    "ref": "analytics/reporting-agent-9d4e2f1",
-    "namespace": "analytics",
-    "name": "reporting-agent-9d4e2f1",
-    "resource": {
-      "metadata": {
-        "name": "reporting-agent-9d4e2f1",
-        "namespace": "analytics"
-      },
-      "spec": {
-        "templateRef": {
-          "name": "reporting-agent-9d4e2f1"
-        },
-        "harnessRef": {
-          "name": "reporting"
-        }
-      },
-      "status": {
-        "desiredRevision": "rev-9d4e2f1",
-        "latestSuccessfulRevision": "rev-9d4e2f1"
-      }
-    }
-  }
+/** The conditions the controller writes once an Agent's golden snapshot is ready (`controller/status.go`). */
+function readyStatus(revision: string): AgentStatus {
+  return {
+    observedGeneration: 1,
+    desiredRevision: revision,
+    latestSuccessfulRevision: revision,
+    conditions: [
+      { type: "Accepted", status: "True", reason: "Accepted", message: "Agent explicitly selects its template and harness" },
+      { type: "ResolvedRefs", status: "True", reason: "Resolved", message: "All runtime references resolved" },
+      { type: "Compatible", status: "True", reason: "Compatible", message: "Resolved configuration is compatible with the Harness" },
+      { type: "Ready", status: "True", reason: "Ready", message: "ActorTemplate golden snapshot is ready" },
+    ],
+  };
+}
+
+function agent(namespace: string, name: string, spec: AgentSpec, status: AgentStatus = readyStatus(`rev-${name}`)): Agent {
+  return { ref: `${namespace}/${name}`, namespace, name, resource: { metadata: { name, namespace, generation: status.observedGeneration }, spec, status } };
+}
+
+/** Referenced and inline templates paired with platform-managed Harnesses. */
+export const mockAgents: Agent[] = [
+  agent("kagent", "k8s-agent-7f3a91c", { template: { ref: { name: "k8s-agent-7f3a91c" } }, harnessRef: { name: "k8s-agent" } }),
+  agent("kagent", "support-triage-2b91d0e", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }, {
+    observedGeneration: 1,
+    desiredRevision: "rev-2b91d0e",
+    conditions: [
+      { type: "Accepted", status: "True", reason: "Accepted", message: "Agent explicitly selects its template and harness" },
+      { type: "ResolvedRefs", status: "True", reason: "Resolved", message: "All runtime references resolved" },
+      { type: "Compatible", status: "True", reason: "Compatible", message: "Resolved configuration is compatible with the Harness" },
+      { type: "Ready", status: "False", reason: "ActorTemplatePending", message: "waiting for the ActorTemplate golden snapshot" },
+    ],
+  }),
+  agent("kagent", "shared-brain-fast", { template: { ref: { name: "shared-brain" } }, harnessRef: { name: "fast-lane" } }),
+  agent("kagent", "shared-brain", { template: { ref: { name: "shared-brain" } }, harnessRef: { name: "k8s-agent" } }),
+  // Same refs as `shared-brain`: still a separate agent with its own conversations.
+  agent("kagent", "shared-brain-twin", { template: { ref: { name: "shared-brain" } }, harnessRef: { name: "k8s-agent" } }),
+  agent("kagent", "release-notes", {
+    template: { inline: {
+      modelConfig: { name: "default-model-config" },
+      description: "Drafts release notes from merged pull requests.",
+      systemPrompt: "You write short, accurate release notes.",
+    } },
+    harnessRef: { name: "k8s-agent" },
+  }),
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
+  agent("kagent", "scratchpad", {
+    template: { inline: {
+      modelConfig: { name: "default-model-config" },
+      description: "A throwaway agent for trying prompts.",
+      systemPrompt: "You are a helpful assistant.",
+    } },
+    harnessRef: { name: "k8s-agent" },
+  }),
+  agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harnessRef: { name: "reporting" } }),
 ];

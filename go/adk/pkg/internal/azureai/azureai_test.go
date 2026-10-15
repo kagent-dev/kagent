@@ -12,6 +12,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go/v3"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type fakeCredential struct {
@@ -245,9 +247,9 @@ func TestNewAnthropicClientWorkloadIdentity(t *testing.T) {
 }
 
 func TestResolveFoundryUsesProvidedValues(t *testing.T) {
-	t.Setenv(FoundryEndpointEnvVar, "env-endpoint")
-	t.Setenv(FoundryDeploymentEnvVar, "env-deployment")
-	t.Setenv(FoundryAPIVersionEnvVar, "env-version")
+	t.Setenv(env.FoundryEndpoint.Name(), "env-endpoint")
+	t.Setenv(env.FoundryDeployment.Name(), "env-deployment")
+	t.Setenv(env.FoundryAPIVersion.Name(), "env-version")
 
 	ep, dep, ver := ResolveFoundry("cfg-endpoint", "cfg-deployment", "cfg-version")
 	if ep != "cfg-endpoint" || dep != "cfg-deployment" || ver != "cfg-version" {
@@ -256,9 +258,9 @@ func TestResolveFoundryUsesProvidedValues(t *testing.T) {
 }
 
 func TestResolveFoundryFallsBackToEnv(t *testing.T) {
-	t.Setenv(FoundryEndpointEnvVar, "env-endpoint")
-	t.Setenv(FoundryDeploymentEnvVar, "env-deployment")
-	t.Setenv(FoundryAPIVersionEnvVar, "env-version")
+	t.Setenv(env.FoundryEndpoint.Name(), "env-endpoint")
+	t.Setenv(env.FoundryDeployment.Name(), "env-deployment")
+	t.Setenv(env.FoundryAPIVersion.Name(), "env-version")
 
 	ep, dep, ver := ResolveFoundry("", "", "")
 	if ep != "env-endpoint" || dep != "env-deployment" || ver != "env-version" {
@@ -267,12 +269,12 @@ func TestResolveFoundryFallsBackToEnv(t *testing.T) {
 }
 
 func TestResolveFoundryDefaultsAPIVersion(t *testing.T) {
-	t.Setenv(FoundryEndpointEnvVar, "")
-	t.Setenv(FoundryDeploymentEnvVar, "")
-	t.Setenv(FoundryAPIVersionEnvVar, "")
+	t.Setenv(env.FoundryEndpoint.Name(), "")
+	t.Setenv(env.FoundryDeployment.Name(), "")
+	t.Setenv(env.FoundryAPIVersion.Name(), "")
 
 	ep, dep, ver := ResolveFoundry("e", "d", "")
-	if ep != "e" || dep != "d" || ver != FoundryDefaultAPIVersion {
+	if ep != "e" || dep != "d" || ver != env.FoundryAPIVersion.DefaultValue() {
 		t.Fatalf("ResolveFoundry() = (%q, %q, %q), want default api-version", ep, dep, ver)
 	}
 }
@@ -369,4 +371,38 @@ func TestResolveImplicitAuth(t *testing.T) {
 			t.Fatalf("ResolveImplicitAuth() error = %v, want credential-not-resolved", err)
 		}
 	})
+}
+
+func TestNewOpenAIClientV1(t *testing.T) {
+	var gotPath, gotQuery, gotAPIKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery, gotAPIKey = r.URL.Path, r.URL.RawQuery, r.Header.Get("Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"object":"list","data":[],"model":"m","usage":{"prompt_tokens":0,"total_tokens":0}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAIClient(ClientConfig{
+		Endpoint:   server.URL + "/",
+		Deployment: "dep",
+		APIVersion: "2024-10-21",
+		APIKey:     "secret",
+		V1:         true,
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAIClient() error = %v", err)
+	}
+	_, _ = client.Embeddings.New(context.Background(), openai.EmbeddingNewParams{
+		Model: openai.EmbeddingModel("dep"),
+		Input: openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: []string{"x"}},
+	})
+	if gotPath != "/openai/v1/embeddings" {
+		t.Fatalf("path = %q, want the v1 path without the deployment", gotPath)
+	}
+	if gotQuery != "" {
+		t.Fatalf("query = %q, want no api-version on the v1 path", gotQuery)
+	}
+	if gotAPIKey != "secret" {
+		t.Fatalf("Api-Key = %q", gotAPIKey)
+	}
 }

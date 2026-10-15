@@ -3,17 +3,15 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
-
-	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
@@ -27,20 +25,22 @@ import (
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/stats"
 
+	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
-	a2aMaxContentLengthEnvVar = "A2A_MAX_CONTENT_LENGTH"
-	defaultMaxContentLength   = int64(10 * 1024 * 1024)
+	defaultMaxContentLength = int64(10 * 1024 * 1024)
 )
 
 // ServerConfig holds configuration for the A2A server.
 type ServerConfig struct {
-	Host            string
-	Port            string
-	ShutdownTimeout time.Duration
+	// Nil uses the default; zero permits unlimited HTTP request size.
+	MaxContentLength *int64
+	Host             string
+	Port             string
+	ShutdownTimeout  time.Duration
 	// HealthPaths are literal exact paths served by HealthHandler and excluded from tracing.
 	HealthPaths   []string
 	HealthHandler http.Handler
@@ -68,8 +68,15 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		newInvocationInterceptor(logger, config.Telemetry, config.Flush)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
-	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
-		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, *maxContentLength)
+	maxContentLength := defaultMaxContentLength
+	if config.MaxContentLength != nil {
+		maxContentLength = *config.MaxContentLength
+	}
+	if maxContentLength < 0 {
+		return nil, fmt.Errorf("max content length must be nonnegative")
+	}
+	if maxContentLength > 0 {
+		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, maxContentLength)
 	}
 
 	healthPaths := defaultHealthPaths()
@@ -91,8 +98,12 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 
-	grpcServer := grpc.NewServer(grpc.StatsHandler(rpcEndSignal{otelgrpc.NewServerHandler(
-		otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))}))
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(client.DefaultGRPCMaxMessageSize),
+		grpc.MaxSendMsgSize(client.DefaultGRPCMaxMessageSize),
+		grpc.StatsHandler(rpcEndSignal{otelgrpc.NewServerHandler(
+			otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))}),
+	)
 	a2agrpc.NewHandler(requestHandler).RegisterWith(grpcServer)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus(a2apb.A2AService_ServiceDesc.ServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
@@ -198,32 +209,6 @@ func (h rpcEndSignal) HandleRPC(ctx context.Context, rpcStats stats.RPCStats) {
 			close(ended)
 		}
 	}
-}
-
-func getMaxContentLength(logger *slog.Logger) *int64 {
-	value, ok := os.LookupEnv(a2aMaxContentLengthEnvVar)
-	if !ok {
-		maxContentLength := defaultMaxContentLength
-		return &maxContentLength
-	}
-
-	trimmedValue := strings.TrimSpace(value)
-	switch strings.ToLower(trimmedValue) {
-	case "0", "none", "unlimited":
-		return nil
-	}
-
-	maxContentLength, err := strconv.ParseInt(trimmedValue, 10, 64)
-	if err != nil || maxContentLength < 0 {
-		logger.Info(
-			"invalid A2A request size limit, using default",
-			"environment_variable", a2aMaxContentLengthEnvVar,
-			"value", value,
-			"default", defaultMaxContentLength,
-		)
-		maxContentLength = defaultMaxContentLength
-	}
-	return &maxContentLength
 }
 
 func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handler {

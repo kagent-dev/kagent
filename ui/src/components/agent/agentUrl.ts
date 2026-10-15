@@ -18,7 +18,7 @@ function fill(template: string, ref: Partial<AgentInstanceRef>): string {
   return template.replace(":id", encodeURIComponent(ref.id));
 }
 
-/** Instance chat and details links. Editable configuration lives on the Agent. */
+/** A conversation's two surfaces. It has no spec to edit; its Agent does, at `paths.agentEdit`. */
 export const agentUrl = {
   details: (ref: Partial<AgentInstanceRef>) => fill(paths.agentDetail, ref),
   chat: (ref: Partial<AgentInstanceRef>) => fill(paths.agentChat, ref),

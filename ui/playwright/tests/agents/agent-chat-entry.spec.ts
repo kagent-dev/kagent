@@ -38,13 +38,13 @@ test("agents: the list is the way in to a conversation, through the agent", asyn
     // matching a cell's text would pass just as well on a name that links nowhere,
     // which is the exact bug this spec exists for.
     await expect(
-      page.getByTestId(`agent-link-kagent-${agents.k8s.template}-${agents.k8s.harness}`),
+      page.getByTestId(`agent-link-kagent-${agents.k8s.name}`),
     ).toBeVisible();
   });
 
   await test.step("2. clicking an agent offers a new conversation, and creates nothing", async () => {
     await page
-      .getByTestId(`agent-link-kagent-${agents.k8s.template}-${agents.k8s.harness}`)
+      .getByTestId(`agent-link-kagent-${agents.k8s.name}`)
       .click();
     // A conversation that does not exist yet, addressed by the agent. It must not open
     // somebody's existing chat, and it must not create one: an instance created by a
@@ -54,6 +54,10 @@ test("agents: the list is the way in to a conversation, through the agent", asyn
     await expectSettled(page);
     await expect(page.getByTestId("new-chat-empty")).toBeVisible();
     await expect(page.getByTestId("chat-input")).toBeVisible();
+    await expect(page.getByTestId(`chat-session-${instances.ready}`)).toBeVisible();
+    await expect(
+      page.getByTestId(`chat-session-${instances.someoneElses}`),
+    ).toHaveCount(0);
   });
 
   await test.step("3. and a conversation already open with it is one click away", async () => {

@@ -13,6 +13,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -34,7 +35,7 @@ func (f fakeRunner) Run(ctx context.Context, turn runtime.Turn, sink runtime.Eve
 type fakePendingTurn struct {
 	request runtime.InputRequest
 	resume  func(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error)
-	cancel  func(context.Context) error
+	cancel  func(context.Context, runtime.ModelCallSink) error
 }
 
 func (f *fakePendingTurn) Request() runtime.InputRequest { return f.request }
@@ -43,11 +44,11 @@ func (f *fakePendingTurn) Resume(ctx context.Context, response runtime.InputResp
 	return f.resume(ctx, response, sink)
 }
 
-func (f *fakePendingTurn) Cancel(ctx context.Context) error {
+func (f *fakePendingTurn) Cancel(ctx context.Context, sink runtime.ModelCallSink) error {
 	if f.cancel == nil {
 		return nil
 	}
-	return f.cancel(ctx)
+	return f.cancel(ctx, sink)
 }
 
 type fakeContinuation struct {
@@ -333,7 +334,7 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 		<-ctx.Done()
 		return runtime.Outcome{Pending: &fakePendingTurn{
 			request: &runtime.ApprovalRequest{ID: "approval-1", CallID: "call-1", Name: "protected.write"},
-			cancel: func(context.Context) error {
+			cancel: func(context.Context, runtime.ModelCallSink) error {
 				close(pendingCancelStarted)
 				<-releasePendingCancel
 				return nil
@@ -395,7 +396,7 @@ func TestCancelParkedTurn(t *testing.T) {
 				request: &runtime.ApprovalRequest{
 					ID: "approval-1", CallID: "call-1", Name: "protected.write", Hint: "Approve?",
 				},
-				cancel: func(context.Context) error {
+				cancel: func(context.Context, runtime.ModelCallSink) error {
 					canceled = true
 					return nil
 				},

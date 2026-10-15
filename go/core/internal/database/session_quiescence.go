@@ -7,17 +7,33 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // SessionQuiescence grants one worker permission to pause an idle session or
 // suspend it and record its snapshot. Task publication has already completed.
 type SessionQuiescence struct {
-	Session    *apiv1alpha1.Session
+	Session    *apiv1.Session
 	TaskID     string
 	State      a2a.TaskState
 	Version    int64
 	ExecutorID uuid.UUID
+}
+
+// HasPendingSessionQuiescence includes ready sessions temporarily blocked by
+// dispatch, checkpoints, lifecycle operations, or row locks. Already claimed
+// work is excluded: its runtime outcome may be uncertain and cannot be retried
+// by another worker. Suspended/deleted sessions need no automatic runtime work.
+func (c *Client) HasPendingSessionQuiescence(ctx context.Context) (bool, error) {
+	return queryOne(ctx, c.db, `
+		SELECT EXISTS (
+			SELECT 1 FROM session_task_event e JOIN session_record i ON i.history_id = e.history_id
+			WHERE e.published AND e.quiescence_pending = TRUE
+			  AND e.quiescence_executor_id IS NULL
+			  AND i.state = 'RUNTIME_STATE_READY'
+		)
+	`, pgx.RowTo[bool])
 }
 
 // ClaimSessionQuiescence claims an idle session at its latest settled task

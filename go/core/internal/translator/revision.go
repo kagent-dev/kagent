@@ -9,9 +9,10 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 const shortRevisionBytes = 6
@@ -64,7 +65,7 @@ type Revision struct {
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
-	// EgressDestinations is the hostname allowlist required by this revision.
+	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
 }
 
@@ -84,8 +85,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 	sandboxClass := r.SandboxClass
 	switch sandboxClass {
 	case "", atev1alpha1.SandboxClassGvisor:
-		// Omit the default class to preserve pre-selection revision digests.
-		sandboxClass = ""
+		sandboxClass = atev1alpha1.SandboxClassGvisor
 	case atev1alpha1.SandboxClassMicroVM:
 	default:
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
@@ -104,13 +104,17 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Provenance         json.RawMessage          `json:"provenance"`
 		Credentials        []egress.Credential      `json:"credentials,omitempty"`
 		EgressDestinations []string                 `json:"egressDestinations"`
-		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass,omitempty"`
+		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass"`
+
+		// Placement now matches the pool's namespace as well as its name.
+		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
+		WorkerPoolNamespace string `json:"workerPoolNamespace"`
 	}{
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
 		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
-		SandboxClass: sandboxClass,
+		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

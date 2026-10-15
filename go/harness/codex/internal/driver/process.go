@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
@@ -47,6 +48,7 @@ type processSession struct {
 	wait       <-chan error
 	stderr     *utils.BoundedBuffer
 	translator *eventTranslator
+	stopOnce   sync.Once
 }
 
 // pendingTurn owns an App Server process blocked on the correlated server
@@ -108,13 +110,18 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		return runtime.Outcome{}, fmt.Errorf("start Codex App Server: %w", err)
 	}
 	wait := make(chan error, 1)
-	go func() { wait <- command.Wait(); close(wait) }()
 	client := newRPCClient(stdin, stdout, d.config.MaxFrameBytes)
+	go func() {
+		// Wait closes StdoutPipe; let the RPC reader consume the final reports first.
+		<-client.readDone
+		wait <- command.Wait()
+		close(wait)
+	}()
 	session := &processSession{command: command, stdin: stdin, client: client, wait: wait, stderr: stderr}
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			d.stopSession(session)
+			d.stopSession(session, sink)
 		}
 	}()
 
@@ -124,7 +131,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		// Unknown experimental server requests still fail closed below.
 		"capabilities": map[string]bool{"experimentalApi": true},
 	}
-	if _, err := client.call(ctx, 1, "initialize", initialize); err != nil {
+	if _, err := client.call(ctx, 1, "initialize", initialize, nil); err != nil {
 		return runtime.Outcome{}, d.protocolError(err, stderr)
 	}
 	if err := client.notify("initialized", map[string]any{}); err != nil {
@@ -135,7 +142,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		result, err := client.call(ctx, 2, "thread/start", map[string]any{
 			"cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
-		})
+		}, nil)
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
 		}
@@ -147,7 +154,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		result, err := client.call(ctx, 2, "thread/resume", map[string]any{
 			"threadId": threadID, "cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
-		})
+		}, nil)
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
 		}
@@ -164,7 +171,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	}
 	result, err := client.call(ctx, 3, "turn/start", map[string]any{
 		"threadId": threadID, "input": []map[string]any{{"type": "text", "text": turn.Prompt}},
-	})
+	}, nil)
 	if err != nil {
 		return runtime.Outcome{}, d.protocolError(err, stderr)
 	}
@@ -194,24 +201,19 @@ func mcpOnlyApprovalPolicy() map[string]any {
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
-	client, command, wait, stderr, translator := session.client, session.command, session.wait, session.stderr, session.translator
+	client, wait, stderr, translator := session.client, session.wait, session.stderr, session.translator
 	for {
 		select {
 		case <-ctx.Done():
-			interruptCtx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
-			_, err := client.call(interruptCtx, 4, "turn/interrupt", map[string]string{"threadId": translator.threadID, "turnId": translator.turnID})
-			cancel()
+			interrupted := time.Now()
+			err := d.interrupt(session, sink)
 			if err != nil {
-				_ = utils.KillProcessGroup(command.Process)
-			} else {
-				_ = utils.TerminateProcessGroup(command.Process)
+				_ = utils.KillProcessGroup(session.command.Process)
 			}
-			select {
-			case <-wait:
-			case <-time.After(d.config.InterruptGrace):
-				_ = utils.KillProcessGroup(command.Process)
-				<-wait
-			}
+			// An interrupt response can precede the final usage report. Let Codex
+			// flush it on stdin EOF before escalating to process-group signals.
+			d.stopSession(session, sink)
+			translator.flushOpenCall(interrupted, sink)
 			return runtime.Outcome{}, ctx.Err()
 		case waitErr := <-wait:
 			if waitErr != nil {
@@ -235,6 +237,9 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 					return runtime.Outcome{}, err
 				}
 				if expose {
+					// Every pause is inside a tool, and Codex reports usage only after the tools,
+					// so the open calls end here unless their first tools already ended them.
+					translator.endOpenCalls()
 					return runtime.Outcome{Pending: &pendingTurn{
 						driver: d, session: session, request: request,
 						id: append(json.RawMessage(nil), message.ID...),
@@ -277,6 +282,7 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 		} `json:"_meta"`
 		Message    string `json:"message"`
 		ServerName string `json:"serverName"`
+		ThreadID   string `json:"threadId"`
 	}
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, false, fmt.Errorf("decode Codex MCP approval request: %w", err)
@@ -288,7 +294,7 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	if _, protected := d.config.ApprovalServers[params.ServerName]; !protected {
 		return nil, false, client.respond(message.ID, map[string]any{"action": "accept", "content": map[string]any{}})
 	}
-	callID, name, err := translator.approvalTool(params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
+	callID, name, err := translator.approvalTool(params.ThreadID, params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
 	if err != nil {
 		return nil, false, err
 	}
@@ -313,7 +319,9 @@ func decodeAskUserRequest(message rpcMessage, translator *eventTranslator) (*run
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, fmt.Errorf("decode Codex ask-user request: %w", err)
 	}
-	if params.ThreadID != translator.threadID || params.TurnID != translator.turnID {
+	// A spawned subagent asks from its own thread and turn.
+	_, subagent := translator.spawnedBy[params.ThreadID]
+	if !subagent && (params.ThreadID != translator.threadID || params.TurnID != translator.turnID) {
 		return nil, fmt.Errorf("Codex ask-user request does not match the active turn")
 	}
 	if len(params.Questions) == 0 {
@@ -370,7 +378,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
-			p.driver.stopSession(p.session)
+			p.driver.stopSession(p.session, sink)
 		}
 	}()
 	native, err := codexInputResponse(p.request, response)
@@ -387,7 +395,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 
 // Cancel resolves the outstanding request when possible, interrupts the Codex
 // turn, and always reaps the App Server process.
-func (p *pendingTurn) Cancel(ctx context.Context) error {
+func (p *pendingTurn) Cancel(_ context.Context, sink runtime.ModelCallSink) error {
 	responded := true
 	if _, approval := p.request.(*runtime.ApprovalRequest); approval {
 		responded = p.session.client.respond(p.id, map[string]any{
@@ -395,15 +403,41 @@ func (p *pendingTurn) Cancel(ctx context.Context) error {
 		}) == nil
 	}
 	if responded {
-		interruptCtx, cancel := context.WithTimeout(ctx, p.driver.config.InterruptGrace)
-		_, _ = p.session.client.call(interruptCtx, 4, "turn/interrupt", map[string]string{
-			"threadId": p.session.translator.threadID,
-			"turnId":   p.session.translator.turnID,
-		})
-		cancel()
+		_ = p.driver.interrupt(p.session, sink)
 	}
-	p.driver.stopSession(p.session)
+	p.driver.stopSession(p.session, sink)
 	return nil
+}
+
+// interrupt asks Codex to stop the turn. Usage and final errors Codex reports until it answers,
+// including buffered ones, still reach sink; stopSession records what arrives after.
+func (d *ProcessDriver) interrupt(session *processSession, sink runtime.ModelCallSink) error {
+	ctx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
+	defer cancel()
+	params := map[string]string{"threadId": session.translator.threadID, "turnId": session.translator.turnID}
+	_, err := session.client.call(ctx, 4, "turn/interrupt", params, func(message rpcMessage) { session.recordUsage(message, sink) })
+	return err
+}
+
+func (s *processSession) recordUsage(message rpcMessage, sink runtime.ModelCallSink) {
+	if s.translator == nil {
+		return // Initialization failed before a turn started.
+	}
+	switch message.Method {
+	case "thread/tokenUsage/updated":
+		_ = s.translator.usage(message.Params, sink)
+	case "error":
+		_ = s.translator.codexError(message.Params, sink)
+	case "turn/completed":
+		var params struct {
+			ThreadID string
+			Turn     struct{ ID, Status string }
+		}
+		if json.Unmarshal(message.Params, &params) == nil && params.ThreadID == s.translator.threadID &&
+			params.Turn.ID == s.translator.turnID && params.Turn.Status == "completed" {
+			s.translator.completed = true
+		}
+	}
 }
 
 // codexInputResponse maps the runtime-neutral input request onto Codex's input response,
@@ -446,21 +480,34 @@ func codexInputResponse(request runtime.InputRequest, response runtime.InputResp
 	}
 }
 
-func (d *ProcessDriver) stopSession(session *processSession) {
-	_ = session.stdin.Close()
-	select {
-	case <-session.wait:
-		return
-	case <-time.After(d.config.InterruptGrace):
-	}
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) {
+	session.stopOnce.Do(func() {
+		// Drain on every exit path so a full frame buffer cannot block the reader
+		// and prevent Wait from reaping the process.
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for frame := range session.client.frames {
+				session.recordUsage(frame.message, sink)
+			}
+		}()
+		defer func() { <-drained }()
 
-	_ = utils.TerminateProcessGroup(session.command.Process)
-	select {
-	case <-session.wait:
-	case <-time.After(d.config.InterruptGrace):
-		_ = utils.KillProcessGroup(session.command.Process)
-		<-session.wait
-	}
+		_ = session.stdin.Close()
+		select {
+		case <-session.wait:
+			return
+		case <-time.After(d.config.InterruptGrace):
+		}
+
+		_ = utils.TerminateProcessGroup(session.command.Process)
+		select {
+		case <-session.wait:
+		case <-time.After(d.config.InterruptGrace):
+			_ = utils.KillProcessGroup(session.command.Process)
+			<-session.wait
+		}
+	})
 }
 
 var _ runtime.PendingTurn = (*pendingTurn)(nil)

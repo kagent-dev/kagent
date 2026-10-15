@@ -6,10 +6,11 @@ import (
 	"reflect"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
+
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 // Sandbox preparation uses the same informer graph as Agents. Only observations

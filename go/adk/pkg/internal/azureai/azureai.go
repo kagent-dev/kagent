@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -21,6 +20,8 @@ import (
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // CognitiveServicesScope is the Azure data-plane scope used to request AAD tokens
@@ -41,37 +42,24 @@ func resolveScope(scope string) string {
 	return scope
 }
 
-// Foundry-specific configuration conventions. These are the environment variables
-// the controller injects for a Foundry ModelConfig plus the default api-version.
-const (
-	FoundryEndpointEnvVar   = "FOUNDRY_ENDPOINT"
-	FoundryDeploymentEnvVar = "FOUNDRY_DEPLOYMENT"
-	FoundryAPIVersionEnvVar = "FOUNDRY_API_VERSION"
-	FoundryAPIKeyEnvVar     = "FOUNDRY_API_KEY"
-)
-
-// FoundryDefaultAPIVersion is the Foundry OpenAI-compatible data-plane API
-// version used when none is configured.
-const FoundryDefaultAPIVersion = "2024-10-21"
-
 // ResolveFoundry applies FOUNDRY_* environment-variable fallbacks and the default
 // api-version. Empty endpoint/deployment are returned as-is so callers can
 // produce context-specific validation errors.
 func ResolveFoundry(endpoint, deployment, apiVersion string) (ep, dep, ver string) {
 	ep = endpoint
 	if ep == "" {
-		ep = os.Getenv(FoundryEndpointEnvVar)
+		ep = env.FoundryEndpoint.Get()
 	}
 	dep = deployment
 	if dep == "" {
-		dep = os.Getenv(FoundryDeploymentEnvVar)
+		dep = env.FoundryDeployment.Get()
 	}
 	ver = apiVersion
 	if ver == "" {
-		ver = os.Getenv(FoundryAPIVersionEnvVar)
+		ver = env.FoundryAPIVersion.Get()
 	}
 	if ver == "" {
-		ver = FoundryDefaultAPIVersion
+		ver = env.FoundryAPIVersion.DefaultValue()
 	}
 	return ep, dep, ver
 }
@@ -134,13 +122,15 @@ type ClientConfig struct {
 	// HTTPClient is the transport used by the client. Defaults to
 	// http.DefaultClient when nil.
 	HTTPClient *http.Client
+	// V1 roots the client at {endpoint}/openai/v1/ with no api-version: the only Azure path with the Responses API.
+	V1 bool
 }
 
 // NewOpenAIClient builds an openai-go client for the Azure providers'
 // OpenAI-compatible surface (chat + embeddings), rooted at
-// {endpoint}/openai/deployments/{deployment}/ with the api-version query and
-// implicit auth: the Api-Key header when APIKey is set, otherwise an Azure AD
-// bearer token from Credential.
+// {endpoint}/openai/deployments/{deployment}/ with the api-version query (or at
+// {endpoint}/openai/v1/ when V1 is set) and implicit auth: the Api-Key header
+// when APIKey is set, otherwise an Azure AD bearer token from Credential.
 func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 	if cfg.Endpoint == "" {
 		return openai.Client{}, fmt.Errorf("endpoint is required")
@@ -157,11 +147,15 @@ func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 		httpClient = http.DefaultClient
 	}
 
-	baseURL := strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/deployments/" + url.PathEscape(cfg.Deployment) + "/"
-	opts := []option.RequestOption{
-		option.WithBaseURL(baseURL),
-		option.WithQueryAdd("api-version", cfg.APIVersion),
-		option.WithHTTPClient(httpClient),
+	endpoint := strings.TrimSuffix(cfg.Endpoint, "/")
+	opts := []option.RequestOption{option.WithHTTPClient(httpClient)}
+	if cfg.V1 {
+		opts = append(opts, option.WithBaseURL(endpoint+"/openai/v1/"))
+	} else {
+		opts = append(opts,
+			option.WithBaseURL(endpoint+"/openai/deployments/"+url.PathEscape(cfg.Deployment)+"/"),
+			option.WithQueryAdd("api-version", cfg.APIVersion),
+		)
 	}
 	if cfg.APIKey != "" {
 		// Azure authenticates via the Api-Key header. openai-go otherwise derives

@@ -32,7 +32,7 @@ func MaterializeFromEnv(configDir string) error {
 }
 
 func materializeEnvToFile(envKey, path string) error {
-	value := strings.TrimSpace(os.Getenv(envKey))
+	value := strings.TrimSpace(os.Getenv(envKey)) //nolint:forbidigo // Controller-generated payloads and credentials, not user configuration.
 	if value == "" {
 		return nil
 	}
@@ -67,7 +67,7 @@ func expandConfigEnv(raw string) (string, error) {
 			const prefix, suffix = "__KAGENT_ENV[", "]__"
 			if strings.HasPrefix(value, prefix) && strings.HasSuffix(value, suffix) {
 				name := strings.TrimSuffix(strings.TrimPrefix(value, prefix), suffix)
-				resolved, ok := os.LookupEnv(name)
+				resolved, ok := os.LookupEnv(name) //nolint:forbidigo // Resolve arbitrary credential placeholders in compiled configuration.
 				if !ok {
 					return nil, fmt.Errorf("required environment variable %s is not set", name)
 				}

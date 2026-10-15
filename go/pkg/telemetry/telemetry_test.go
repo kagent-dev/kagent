@@ -23,6 +23,25 @@ import (
 
 func restoreGlobals(t *testing.T) {
 	t.Helper()
+	environment := os.Environ()
+	clear := func() {
+		for _, entry := range os.Environ() {
+			name, _, _ := strings.Cut(entry, "=")
+			if strings.HasPrefix(name, "OTEL_") {
+				_ = os.Unsetenv(name)
+			}
+		}
+	}
+	clear()
+	t.Cleanup(func() {
+		clear()
+		for _, entry := range environment {
+			name, value, _ := strings.Cut(entry, "=")
+			if strings.HasPrefix(name, "OTEL_") {
+				_ = os.Setenv(name, value)
+			}
+		}
+	})
 	tracer, meter, propagator := otel.GetTracerProvider(), otel.GetMeterProvider(), otel.GetTextMapPropagator()
 	t.Cleanup(func() {
 		otel.SetTracerProvider(tracer)
@@ -51,23 +70,12 @@ func resourceAttributes(t *testing.T, opts Options) map[string]string {
 	return got
 }
 
-func TestResourceEnvironmentWinsOverDefaults(t *testing.T) {
-	t.Setenv("OTEL_SERVICE_NAME", "demo-claude")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=team,gen_ai.agent.name=demo-claude,kagent.runtime=forged")
-	got := resourceAttributes(t, Options{
-		Runtime:  conv.KagentRuntimeClaude,
-		Defaults: []attribute.KeyValue{semconv.ServiceName("fallback"), semconv.ServiceNamespace("default")},
-	})
-	for key, want := range map[string]string{
-		"service.name":           "demo-claude",
-		"service.namespace":      "team",
-		"gen_ai.agent.name":      "demo-claude",
-		"kagent.runtime":         conv.KagentRuntimeClaude,
-		"telemetry.sdk.language": "go",
-	} {
-		if got[key] != want {
-			t.Errorf("%s = %q, want %q", key, got[key], want)
-		}
+func TestEnvironmentResourceAttributesOverrideFileDefaults(t *testing.T) {
+	t.Setenv("OTEL_SERVICE_NAME", "override")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=override")
+	got := resourceAttributes(t, Options{Identity: []attribute.KeyValue{conv.KagentRuntimeKey.String(conv.KagentRuntimeClaude)}, Defaults: []attribute.KeyValue{semconv.ServiceName("fallback")}, Config: Config{ResourceAttributes: map[string]string{"service.name": "demo", "service.namespace": "team"}}})
+	if got["service.name"] != "override" || got["service.namespace"] != "override" || got["kagent.runtime"] != conv.KagentRuntimeClaude {
+		t.Fatal(got)
 	}
 }
 
@@ -80,6 +88,26 @@ func TestResourceDefaultsFillUnsetKeys(t *testing.T) {
 	}
 	if _, ok := got["kagent.runtime"]; ok {
 		t.Fatal("kagent.runtime set without a runtime")
+	}
+}
+
+func TestResourceIdentityOverridesFileAndEnvironment(t *testing.T) {
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "kagent.runtime=forged,gen_ai.main_agent.name=forged,gen_ai.main_agent.id=forged,service.version=revision")
+	got := resourceAttributes(t, Options{
+		Identity: []attribute.KeyValue{
+			conv.KagentRuntimeKey.String(conv.KagentRuntimeClaude),
+			conv.GenAIMainAgentNameKey.String("assistant"),
+			conv.GenAIMainAgentIDKey.String("team/assistant"),
+		},
+		Config: Config{ResourceAttributes: map[string]string{"gen_ai.main_agent.name": "file"}},
+	})
+	for key, want := range map[string]string{
+		"kagent.runtime": conv.KagentRuntimeClaude, "gen_ai.main_agent.name": "assistant",
+		"gen_ai.main_agent.id": "team/assistant", "service.version": "revision",
+	} {
+		if got[key] != want {
+			t.Errorf("resource %s = %q, want %q", key, got[key], want)
+		}
 	}
 }
 
@@ -97,7 +125,7 @@ func TestInitLeavesDisabledSignalsOff(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if providers.TracesEnabled() || providers.meter != nil || providers.logger != nil {
+			if providers.TracesEnabled() || providers.meter.Load() != nil || providers.logger != nil {
 				t.Fatal("a disabled signal got a provider")
 			}
 			if err := providers.ForceFlush(t.Context()); err != nil {
@@ -107,39 +135,20 @@ func TestInitLeavesDisabledSignalsOff(t *testing.T) {
 	}
 }
 
-func TestInitKeepsWorkingSignalsWhenOneFails(t *testing.T) {
+func TestInitRejectsInvalidExporter(t *testing.T) {
 	restoreGlobals(t)
-	setExporters(t, "not-an-exporter", "none", "console")
-	providers, err := Init(t.Context(), Options{})
-	if err == nil || !strings.Contains(err.Error(), "traces") {
-		t.Fatalf("error = %v, want the traces failure", err)
+	providers, err := Init(t.Context(), Options{Config: Config{Traces: &OTLPConfig{Endpoint: "file:///invalid", Protocol: "grpc"}}})
+	if err == nil || !strings.Contains(err.Error(), "traces.endpoint") {
+		t.Fatalf("error = %v", err)
 	}
-	if providers.TracesEnabled() || providers.logger == nil {
-		t.Fatal("a failing signal must stay off without disabling the others")
-	}
-	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
-}
-
-func TestInitKeepsSignalsWithAMalformedResourceAttribute(t *testing.T) {
-	restoreGlobals(t)
-	setExporters(t, "console", "none", "none")
-	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "team=a,b,service.instance.id=uid")
-	providers, err := Init(t.Context(), Options{})
-	if err == nil || !strings.Contains(err.Error(), "partial resource") {
-		t.Fatalf("error = %v, want the partial resource reported", err)
-	}
-	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
-	if !providers.TracesEnabled() {
-		t.Fatal("a malformed resource attribute turned traces off")
+	if providers.TracesEnabled() {
+		t.Fatal("invalid exporter enabled")
 	}
 }
 
 func TestInitAppliesDefaultsWithoutBaggage(t *testing.T) {
 	restoreGlobals(t)
 	setExporters(t, "none", "none", "none")
-	for _, value := range Defaults {
-		t.Setenv(value.Name, "")
-	}
 	t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "none")
 	if _, err := Init(t.Context(), Options{}); err != nil {
 		t.Fatal(err)
@@ -190,15 +199,10 @@ func TestForceFlushReturnsExportError(t *testing.T) {
 	}
 }
 
-func TestWithDefaultsKeepsExplicitSettings(t *testing.T) {
-	got := WithDefaults([]string{"PATH=/bin", "OTEL_PROPAGATORS=b3", "OTEL_EXPORTER_OTLP_COMPRESSION="})
-	want := []string{
-		"PATH=/bin", "OTEL_PROPAGATORS=b3", "OTEL_EXPORTER_OTLP_COMPRESSION=",
-		"OTEL_EXPORTER_OTLP_COMPRESSION=gzip",
-		"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION=base2_exponential_bucket_histogram",
-	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("WithDefaults = %v, want %v", got, want)
+func TestChildEnvironmentPreservesOverrides(t *testing.T) {
+	got := Environment([]string{"PATH=/bin", "OTEL_PROPAGATORS=baggage", "OTEL_TRACES_EXPORTER=console", "OTEL_EXPORTER_OTLP_HEADERS=secret"}, Config{})
+	if !slices.Contains(got, "PATH=/bin") || !slices.Contains(got, "OTEL_TRACES_EXPORTER=console") || !slices.Contains(got, "OTEL_PROPAGATORS=baggage") || !slices.Contains(got, "OTEL_EXPORTER_OTLP_HEADERS=secret") {
+		t.Fatal(got)
 	}
 }
 
@@ -225,9 +229,10 @@ func (e *countingMetricExporter) Shutdown(context.Context) error { return nil }
 
 func TestForceFlushExportsMetricsWithTracesOff(t *testing.T) {
 	exporter := &countingMetricExporter{}
-	providers := &Providers{meter: sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Hour))))}
+	providers := &Providers{}
+	providers.meter.Store(sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(time.Hour)))))
 	t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
-	counter, err := providers.meter.Meter("test").Int64Counter("turns")
+	counter, err := providers.meter.Load().Meter("test").Int64Counter("turns")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,5 +272,78 @@ func TestForceFlushSkipsAfterAFailureInTheSameRequest(t *testing.T) {
 	span.End()
 	if err := providers.ForceFlush(WithFlushRecord(t.Context())); err == nil {
 		t.Fatal("a new request must try to export again")
+	}
+}
+
+func TestStartMetricsGivesEachProcessItsOwnInstance(t *testing.T) {
+	restoreGlobals(t)
+	setExporters(t, "none", "none", "none")
+	instance := func() string {
+		reader := sdkmetric.NewManualReader()
+		providers, err := Init(t.Context(), Options{
+			Config:        Config{ResourceAttributes: map[string]string{"deployment.environment.name": "test"}},
+			Identity:      []attribute.KeyValue{conv.KagentRuntimeKey.String(conv.KagentRuntimeClaude)},
+			Defaults:      []attribute.KeyValue{semconv.ServiceName("assistant")},
+			MetricReaders: []sdkmetric.Reader{reader}, DeferMetrics: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
+		if providers.meter.Load() != nil {
+			t.Fatal("DeferMetrics installed a meter provider before StartMetrics")
+		}
+		providers.StartMetrics()
+		first := providers.meter.Load()
+		providers.StartMetrics()
+		if providers.meter.Load() != first {
+			t.Fatal("a second StartMetrics replaced the meter provider")
+		}
+		var metrics metricdata.ResourceMetrics
+		if err := reader.Collect(t.Context(), &metrics); err != nil {
+			t.Fatal(err)
+		}
+		for key, want := range map[attribute.Key]string{
+			"deployment.environment.name": "test",
+			conv.KagentRuntimeKey:         conv.KagentRuntimeClaude,
+			semconv.ServiceNameKey:        "assistant",
+		} {
+			if value, ok := metrics.Resource.Set().Value(key); !ok || value.AsString() != want {
+				t.Errorf("deferred metric resource %s = %q, want %q", key, value.AsString(), want)
+			}
+		}
+		id, ok := metrics.Resource.Set().Value(semconv.ServiceInstanceIDKey)
+		if !ok || id.AsString() == "" {
+			t.Fatalf("resource %v has no service.instance.id", metrics.Resource)
+		}
+		return id.AsString()
+	}
+	if a, b := instance(), instance(); a == b {
+		t.Fatalf("two processes share service.instance.id %q", a)
+	}
+}
+
+func TestInitChecksTheDeferredMetricExporter(t *testing.T) {
+	tests := []struct {
+		name     string
+		exporter string
+		wantErr  bool
+	}{
+		{name: "bad exporter is reported at startup", exporter: "bogus", wantErr: true},
+		{name: "good exporter is built and released", exporter: "console"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restoreGlobals(t)
+			setExporters(t, "none", tt.exporter, "none")
+			providers, err := Init(t.Context(), Options{DeferMetrics: true})
+			if gotErr := err != nil && strings.Contains(err.Error(), "metrics"); gotErr != tt.wantErr {
+				t.Fatalf("error = %v, want metric exporter error %v", err, tt.wantErr)
+			}
+			t.Cleanup(func() { _ = providers.Shutdown(context.Background()) })
+			if providers.meter.Load() != nil {
+				t.Fatal("the startup check installed a meter provider")
+			}
+		})
 	}
 }

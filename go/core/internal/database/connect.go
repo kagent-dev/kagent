@@ -2,25 +2,28 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // PostgresConfig holds the connection parameters for a Postgres database.
-// URL must be a resolved connection string — use ResolveURL to resolve from
-// a file path before constructing this config.
-//
+// Pool is the login's base configuration from postgres.PoolConfig; Connect
+// copies it and never modifies it.
 // Pool fields are optional: nil leaves the corresponding pgxpool.Config value
 // from ParseConfig unchanged (pgx library defaults).
+// Schema is required when vectors are enabled; VectorSchema defaults to extensions.
 type PostgresConfig struct {
-	URL             string
+	Pool            *pgxpool.Config
+	Schema          string
+	VectorSchema    string
 	VectorEnabled   bool
 	MaxConns        *int32
 	MinConns        *int32
@@ -65,6 +68,61 @@ func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) error {
 	return nil
 }
 
+func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
+	config := cfg.Pool.Copy()
+	if err := applyPoolConfig(config, cfg); err != nil {
+		return nil, err
+	}
+	vectorSchema := cfg.VectorSchema
+	if vectorSchema == "" {
+		vectorSchema = consts.DefaultPgvectorSchema
+	}
+	if cfg.VectorEnabled && cfg.Schema == "" {
+		return nil, errors.New("database schema is required when pgvector is enabled")
+	}
+	var searchPath string
+	if cfg.Schema != "" {
+		searchPath = pgx.Identifier{cfg.Schema}.Sanitize()
+		config.ConnConfig.RuntimeParams["search_path"] = searchPath
+	}
+
+	if cfg.VectorEnabled || cfg.Schema != "" {
+		assumeRole := config.AfterConnect
+		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			if err := assumeRole(ctx, conn); err != nil {
+				return err
+			}
+			if cfg.Schema != "" {
+				var currentSchema string
+				if err := conn.QueryRow(ctx, "SELECT COALESCE(current_schema(), '')").Scan(&currentSchema); err != nil {
+					return fmt.Errorf("check PostgreSQL schema %q: %w", cfg.Schema, err)
+				}
+				if currentSchema != cfg.Schema {
+					return fmt.Errorf("PostgreSQL schema %q is not accessible (current schema is %q)", cfg.Schema, currentSchema)
+				}
+			}
+			if cfg.VectorEnabled {
+				if cfg.Schema != "" && vectorSchema != cfg.Schema {
+					if _, err := conn.Exec(ctx, "SELECT set_config('search_path', $1, false)", pgx.Identifier{vectorSchema}.Sanitize()); err != nil {
+						return fmt.Errorf("select pgvector schema %q: %w", vectorSchema, err)
+					}
+				}
+				if err := pgvectorpgx.RegisterTypes(ctx, conn); err != nil {
+					return err
+				}
+				if cfg.Schema != "" && vectorSchema != cfg.Schema {
+					if _, err := conn.Exec(ctx, "SELECT set_config('search_path', $1, false)", searchPath); err != nil {
+						return fmt.Errorf("restore PostgreSQL search path: %w", err)
+					}
+				}
+				return nil
+			}
+			return nil
+		}
+	}
+	return config, nil
+}
+
 // retryDBConnection opens and verifies a pool, registering vector types when enabled.
 // Failed pings retry with exponential backoff until cancellation or the two-minute
 // timeout; an unsuccessful pool is closed before returning the error.
@@ -72,17 +130,9 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
 	defer cancel()
 
-	config, err := pgxpool.ParseConfig(cfg.URL)
+	config, err := poolConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse database URL: %w", err)
-	}
-	if err := applyPoolConfig(config, cfg); err != nil {
 		return nil, err
-	}
-	if cfg.VectorEnabled {
-		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-			return pgvectorpgx.RegisterTypes(ctx, conn)
-		}
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
@@ -109,28 +159,4 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 			delay = defaultMaxDelay
 		}
 	}
-}
-
-// ResolveURL returns url unless urlFile is set, in which case it returns the file's
-// trimmed contents. An unreadable or empty file returns an error without falling
-// back to url.
-func ResolveURL(url, urlFile string) (string, error) {
-	if urlFile != "" {
-		return resolveURLFile(urlFile)
-	}
-	return url, nil
-}
-
-// resolveURLFile reads a database connection URL from a file and returns the
-// trimmed contents. Returns an error if the file cannot be read or is empty.
-func resolveURLFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("reading URL file: %w", err)
-	}
-	url := strings.TrimSpace(string(content))
-	if url == "" {
-		return "", fmt.Errorf("URL file %s is empty or contains only whitespace", path)
-	}
-	return url, nil
 }

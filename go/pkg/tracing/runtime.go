@@ -9,6 +9,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
@@ -24,14 +26,20 @@ const (
 	// AttributeOperationName is the GenAI operation. An invocation span carries
 	// OperationInvokeAgent; model and tool spans come from the runtime itself.
 	AttributeOperationName = string(conv.GenAIOperationNameKey)
-	// AttributeRuntime names the runtime behind an invocation. A Harness
-	// object's configurable name is not its runtime.
+	// AttributeRuntime names the runtime on the resource. A Harness object's
+	// configurable name is not its runtime.
 	AttributeRuntime = string(conv.KagentRuntimeKey)
+	// AttributeGenAIProducer names the component that writes a native process's model and tool spans.
+	AttributeGenAIProducer = string(conv.KagentGenaiProducerKey)
 	// AttributeAgentName is the compiled agent identity, <agent>.
 	AttributeAgentName = string(conv.GenAIAgentNameKey)
 	// AttributeAgentID is the agent identity qualified by its namespace, which
 	// is what makes it unique within a cluster.
 	AttributeAgentID = string(conv.GenAIAgentIDKey)
+	// AttributeMainAgentName and AttributeMainAgentID carry the same identity
+	// on the resource, where the conventions keep gen_ai.agent.* off.
+	AttributeMainAgentName = string(conv.GenAIMainAgentNameKey)
+	AttributeMainAgentID   = string(conv.GenAIMainAgentIDKey)
 	// AttributeProviderName is the model provider the agent is compiled against,
 	// in the GenAI conventions' vocabulary.
 	AttributeProviderName = string(conv.GenAIProviderNameKey)
@@ -130,14 +138,8 @@ func (r Runtime) NativeHarness() bool {
 	return r == RuntimeClaude || r == RuntimeCodex
 }
 
-// CaptureContentEnvironmentVariable is the OpenTelemetry GenAI instrumentation
-// switch for recording prompts and responses. The controller renders it into
-// every runtime from one setting, so the runtimes that read it directly and
-// the ones that carry the decision in their compiled configuration agree.
-const CaptureContentEnvironmentVariable = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
-
-// Values the controller renders for CaptureContentEnvironmentVariable. The ADK
-// runtimes read the variable as a mode and treat a plain true as log records
+// Values the controller renders for OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT.
+// The ADK runtimes read the variable as a mode and treat a plain true as log records
 // only, so the span form is spelled out; false is what every runtime,
 // including kagent's own ADK payload capture, reads as off.
 const (
@@ -161,11 +163,14 @@ const MaxCaptureBytes = 64 << 10
 // conversations, tasks, and users.
 //
 // A configuration without this section stays valid: the runtime keeps its
-// environment-derived service identity and capture stays off.
+// standalone service identity and capture stays off.
 type RuntimeTelemetry struct {
-	Runtime        Runtime `json:"runtime,omitempty"`
-	AgentName      string  `json:"agent_name,omitempty"`
-	AgentNamespace string  `json:"agent_namespace,omitempty"`
+	Exporters           *telemetry.Config `json:"exporters,omitempty"`
+	CaptureRawAPIBodies bool              `json:"capture_raw_api_bodies,omitempty"`
+	OpenAINativeTracing bool              `json:"openai_native_tracing,omitempty"`
+	Runtime             Runtime           `json:"runtime,omitempty"`
+	AgentName           string            `json:"agent_name,omitempty"`
+	AgentNamespace      string            `json:"agent_namespace,omitempty"`
 	// Provider and Model describe the model the agent is compiled against, in
 	// the GenAI conventions' vocabulary. They let a consumer attribute usage
 	// that a native runtime reports without naming the model.
@@ -177,6 +182,16 @@ type RuntimeTelemetry struct {
 
 // Validate rejects configurations a compiler could not have produced.
 func (t RuntimeTelemetry) Validate() error {
+	if t.Exporters != nil {
+		if err := t.Exporters.Validate(); err != nil {
+			return err
+		}
+		for _, key := range []attribute.Key{semconv.ServiceNameKey, semconv.ServiceNamespaceKey} {
+			if _, ok := t.Exporters.ResourceAttributes[string(key)]; ok {
+				return fmt.Errorf("runtime telemetry resource_attributes must not override compiled %s", key)
+			}
+		}
+	}
 	switch t.Runtime {
 	case "", RuntimeADKGo, RuntimeClaude, RuntimeCodex:
 	default:
@@ -214,21 +229,35 @@ func (t RuntimeTelemetry) AgentID() string {
 }
 
 // Identity returns the trusted static attributes stamped on every invocation
-// span and on the runtime resource.
+// span.
 func (t RuntimeTelemetry) Identity() []attribute.KeyValue {
-	attributes := make([]attribute.KeyValue, 0, 5)
-	for _, entry := range []struct{ key, value string }{
-		{AttributeRuntime, string(t.Runtime)},
-		{AttributeAgentName, t.AgentName},
-		{AttributeAgentID, t.AgentID()},
-		{AttributeProviderName, t.Provider},
-		{AttributeRequestModel, t.Model},
-	} {
-		if entry.value != "" {
-			attributes = append(attributes, attribute.String(entry.key, entry.value))
+	return nonEmpty(
+		attribute.String(AttributeAgentName, t.AgentName),
+		attribute.String(AttributeAgentID, t.AgentID()),
+		attribute.String(AttributeProviderName, t.Provider),
+		attribute.String(AttributeRequestModel, t.Model),
+	)
+}
+
+// ResourceIdentity returns the same identity in its resource form.
+func (t RuntimeTelemetry) ResourceIdentity() []attribute.KeyValue {
+	return nonEmpty(
+		attribute.String(AttributeRuntime, string(t.Runtime)),
+		attribute.String(AttributeMainAgentName, t.AgentName),
+		attribute.String(AttributeMainAgentID, t.AgentID()),
+		attribute.String(AttributeProviderName, t.Provider),
+		attribute.String(AttributeRequestModel, t.Model),
+	)
+}
+
+func nonEmpty(attributes ...attribute.KeyValue) []attribute.KeyValue {
+	result := make([]attribute.KeyValue, 0, len(attributes))
+	for _, attr := range attributes {
+		if attr.Value.AsString() != "" {
+			result = append(result, attr)
 		}
 	}
-	return attributes
+	return result
 }
 
 // ResourceDefaults names the service when the environment does not.
@@ -243,14 +272,22 @@ func (t RuntimeTelemetry) ResourceDefaults(fallbackName string) []attribute.KeyV
 	return attributes
 }
 
-// ChildResource returns the resource attributes a native child process shares
-// with the wrapper that supervises it: the identity plus the compiled
-// namespace, so both producers group under one service.namespace. The child
-// keeps its own service.name.
+// ChildResource returns the resource attributes a native child process shares with its
+// wrapper: the agent identity and namespace, but not the compiled provider and model.
 func (t RuntimeTelemetry) ChildResource() []attribute.KeyValue {
-	attributes := t.Identity()
+	attributes := nonEmpty(
+		attribute.String(AttributeRuntime, string(t.Runtime)),
+		attribute.String(AttributeMainAgentName, t.AgentName),
+		attribute.String(AttributeMainAgentID, t.AgentID()),
+	)
 	if t.AgentNamespace != "" {
 		attributes = append(attributes, semconv.ServiceNamespaceKey.String(t.AgentNamespace))
+	}
+	if t.Runtime.NativeHarness() {
+		// Empty values clear the model inherited from the pod environment, because
+		// Claude Code copies resource keys onto every span and each would look like a model call.
+		attributes = append(attributes, attribute.String(AttributeGenAIProducer, conv.KagentGenaiProducerRuntime),
+			attribute.String(AttributeProviderName, ""), attribute.String(AttributeRequestModel, ""))
 	}
 	return attributes
 }
@@ -353,16 +390,13 @@ func encodeResourceValue(value string) string {
 	return builder.String()
 }
 
-// ResourceEnvironmentVariable is the standard OTEL resource attribute carrier.
-const ResourceEnvironmentVariable = "OTEL_RESOURCE_ATTRIBUTES"
-
 // ResourceEnvironment merges owned attributes into the OTEL_RESOURCE_ATTRIBUTES
 // entry of a child process environment, so a native runtime reports the same
 // identity as the Go wrapper that supervises it. User-supplied attributes
 // survive; owned keys are replaced. The variable is dropped when the merge
 // leaves nothing to set.
 func ResourceEnvironment(environment []string, owned []attribute.KeyValue) []string {
-	prefix := ResourceEnvironmentVariable + "="
+	prefix := env.OTELResourceAttributes.Name() + "="
 	existing := ""
 	result := make([]string, 0, len(environment)+1)
 	for _, variable := range environment {
@@ -377,4 +411,30 @@ func ResourceEnvironment(environment []string, owned []attribute.KeyValue) []str
 		return result
 	}
 	return append(result, prefix+merged)
+}
+
+// ExporterConfig returns the resolved exporters, disabled when omitted.
+func (t RuntimeTelemetry) ExporterConfig() telemetry.Config {
+	if t.Exporters == nil {
+		return telemetry.Config{}
+	}
+	return *t.Exporters
+}
+
+// WithEnvironment applies the standard GenAI instrumentation override for this
+// process. Compiler configuration never reads the controller environment.
+func (t RuntimeTelemetry) WithEnvironment(environment []string) RuntimeTelemetry {
+	for _, entry := range environment {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || name != env.OTELGenAICaptureMessageContent.Name() {
+			continue
+		}
+		switch strings.ToUpper(strings.TrimSpace(value)) {
+		case "SPAN_ONLY", "SPAN_AND_EVENT", "TRUE":
+			t.CaptureContent = true
+		case "NO_CONTENT", "FALSE":
+			t.CaptureContent = false
+		}
+	}
+	return t
 }

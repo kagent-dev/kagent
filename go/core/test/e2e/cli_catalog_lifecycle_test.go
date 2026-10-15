@@ -10,14 +10,17 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"k8s.io/client-go/tools/clientcmd"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		templateName := createInteractionTemplate(t, harness, startInteractionMock(t))
 		binary := kagentCLI(t)
@@ -47,12 +50,12 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			"--agent", templateName, "--request-id", requestID,
 		}
 		createdJSON := run(t.Context(), createArgs...)
-		var created apiv1alpha1.CreateSessionResponse
+		var created apiv1.CreateSessionResponse
 		if err := protojson.Unmarshal([]byte(createdJSON), &created); err != nil {
 			t.Fatalf("decode create Session stdout %q: %v", createdJSON, err)
 		}
 		session := created.GetSession()
-		if session.GetId() == "" || session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
+		if session.GetId() == "" || session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
 			t.Fatalf("created Session = %#v, want ID and READY state", session)
 		}
 		deleted := false
@@ -63,7 +66,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 		})
 
 		replayedJSON := run(t.Context(), createArgs...)
-		var replayed apiv1alpha1.CreateSessionResponse
+		var replayed apiv1.CreateSessionResponse
 		if err := protojson.Unmarshal([]byte(replayedJSON), &replayed); err != nil {
 			t.Fatalf("decode replayed create stdout %q: %v", replayedJSON, err)
 		}
@@ -71,7 +74,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 			t.Fatalf("replayed create ID = %q, want %q", replayed.GetSession().GetId(), session.GetId())
 		}
 
-		listedSessions := run(t.Context(), "agent", "session", "list")
+		listedSessions := listKagentCLISessionPage(t, t.Context(), binary, baseArgs, session.GetId())
 		if !strings.Contains(listedSessions, session.GetId()) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listedSessions, session.GetId())
 		}
@@ -82,11 +85,11 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 
 		deletedJSON := run(t.Context(), "--output-format", "json", "agent", "session", "delete", session.GetId())
 		deleted = true
-		var deletedResponse apiv1alpha1.DeleteSessionResponse
+		var deletedResponse apiv1.DeleteSessionResponse
 		if err := protojson.Unmarshal([]byte(deletedJSON), &deletedResponse); err != nil {
 			t.Fatalf("decode delete Session stdout %q: %v", deletedJSON, err)
 		}
-		if deletedResponse.GetSession().GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+		if deletedResponse.GetSession().GetState() != apiv1.RuntimeState_RUNTIME_STATE_DELETED {
 			t.Fatalf("deleted Session state = %s, want DELETED", deletedResponse.GetSession().GetState())
 		}
 	})
@@ -95,6 +98,7 @@ func TestE2ECLIAgentCatalogAndSessionLifecycle(t *testing.T) {
 func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		target := interactionTarget(t)
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
 		binary := kagentCLI(t)
@@ -105,7 +109,7 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 			"--user-id", "e2e",
 		}
 
-		listOutput := runKagentCLI(t, fixture.ctx, binary, append(baseArgs, "agent", "session", "list")...)
+		listOutput := listKagentCLISessionPage(t, fixture.ctx, binary, baseArgs, fixture.sessionID)
 		if !strings.Contains(listOutput, fixture.sessionID) {
 			t.Fatalf("list Sessions stdout = %q, want session %s", listOutput, fixture.sessionID)
 		}
@@ -158,10 +162,34 @@ func TestE2ECLISessionDiscoveryAndInvoke(t *testing.T) {
 	})
 }
 
+// Locate the fixture through pagination, then exercise the table output for its
+// page. Repeated local runs may leave more than one page of unrelated Sessions.
+func listKagentCLISessionPage(t *testing.T, ctx context.Context, binary string, baseArgs []string, sessionID string) string {
+	t.Helper()
+	for pageToken := ""; ; {
+		args := append(append([]string{}, baseArgs...), "agent", "session", "list", "--page-token", pageToken)
+		output := runKagentCLI(t, ctx, binary, append(append([]string{}, args...), "--output-format", "json")...)
+		var response apiv1.ListSessionsResponse
+		if err := protojson.Unmarshal([]byte(output), &response); err != nil {
+			t.Fatalf("decode list Sessions stdout: %v", err)
+		}
+		for _, session := range response.GetSessions() {
+			if session.GetId() == sessionID {
+				return runKagentCLI(t, ctx, binary, args...)
+			}
+		}
+		next := response.GetPage().GetNextPageToken()
+		if next == "" || next == pageToken {
+			t.Fatalf("list Sessions omitted %s after following pagination", sessionID)
+		}
+		pageToken = next
+	}
+}
+
 func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(ctx, binary, args...)
-	kubeconfig := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	kubeconfig := kagentenv.Kubeconfig.Get()
 	if kubeconfig == "" {
 		kubeconfig = clientcmd.RecommendedHomeFile
 	}
@@ -180,7 +208,7 @@ func runKagentCLI(t *testing.T, ctx context.Context, binary string, args ...stri
 
 func kagentCLI(t *testing.T) string {
 	t.Helper()
-	binary := os.Getenv("KAGENT_E2E_CLI")
+	binary := kagentenv.E2ECLI.Get()
 	if binary == "" {
 		t.Fatal("KAGENT_E2E_CLI is not set; run E2E tests through `make -C go e2e`")
 	}

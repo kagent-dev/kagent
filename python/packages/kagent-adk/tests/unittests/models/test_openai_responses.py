@@ -21,7 +21,7 @@ from openai.types.responses import (
     ResponseTextDeltaEvent,
     ResponseUsage,
 )
-from pydantic import ValidationError
+from protovalidate import ValidationError, validate
 
 from kagent.adk.models import OpenAI
 from kagent.adk.models._openai import (
@@ -29,8 +29,8 @@ from kagent.adk.models._openai import (
     _convert_responses_output_to_llm_response,
     _convert_tools_to_responses,
 )
+from kagent.adk.types import ModelConfig, _create_llm_from_model_config
 from kagent.adk.types import OpenAI as OpenAIModelConfig
-from kagent.adk.types import _create_llm_from_model_config
 
 
 def _make_response(output, status="completed", usage=None, error=None) -> Response:
@@ -84,20 +84,20 @@ async def _collect_kwargs(llm, llm_request, response):
 
 
 def test_create_llm_from_model_config_passes_through_api_format():
-    model_config = OpenAIModelConfig(model="gpt-4o", type="openai", api_format="responses")
+    model_config = ModelConfig(model="gpt-4o", openai=OpenAIModelConfig(api_format="responses"))
     llm = _create_llm_from_model_config(model_config)
     assert llm.api_format == "responses"
 
 
 def test_create_llm_from_model_config_defaults_api_format_to_none():
-    model_config = OpenAIModelConfig(model="gpt-4o", type="openai")
+    model_config = ModelConfig(model="gpt-4o", openai=OpenAIModelConfig())
     llm = _create_llm_from_model_config(model_config)
     assert llm.api_format is None
 
 
 def test_model_config_rejects_unknown_api_format():
     with pytest.raises(ValidationError):
-        OpenAIModelConfig(model="gpt-4o", type="openai", api_format="Responses")
+        validate(ModelConfig(model="gpt-4o", openai=OpenAIModelConfig(api_format="Responses")))
 
 
 def test_convert_content_to_responses_input_user_message():
@@ -161,6 +161,37 @@ def test_convert_content_to_responses_input_stringifies_non_string_result():
     )
 
     assert input_items[1]["output"] == "3"
+
+
+def test_convert_content_to_responses_input_includes_embedded_text_resource():
+    fc_part = Part.from_function_call(name="get_file_contents", args={"path": "README.md"})
+    fc_part.function_call.id = "call_1"
+    fr_part = Part.from_function_response(
+        name="get_file_contents",
+        response={
+            "content": [
+                {"type": "text", "text": "successfully downloaded text file (SHA: abc123)"},
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "repo://owner/repo/contents/README.md",
+                        "mimeType": "text/markdown",
+                        "text": "file body",
+                    },
+                },
+            ]
+        },
+    )
+    fr_part.function_response.id = "call_1"
+
+    input_items = _convert_content_to_responses_input(
+        [
+            Content(role="model", parts=[fc_part]),
+            Content(role="user", parts=[fr_part]),
+        ]
+    )
+
+    assert input_items[1]["output"] == "successfully downloaded text file (SHA: abc123)\nfile body"
 
 
 def test_convert_content_to_responses_input_multimodal_user_message():

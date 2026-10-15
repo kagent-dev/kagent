@@ -24,18 +24,13 @@ export interface McpToolBinding {
   requireApproval?: boolean;
 }
 
-/** Another AgentTemplate exposed to this one as a tool it can route work to. */
+/** Another AgentTemplate exposed as a tool in the parent's runtime. */
 export interface SubAgentToolBinding {
   name: string;
   description: string;
   templateRef: AgentTemplateLocalRef;
-  /**
-   * Whether the referenced template shares this one's runtime boundary.
-   *
-   * `Shared` is the CRD's default. `Dedicated` gives the sub-agent its own
-   * boundary, which costs a separate runtime and isolates it.
-   */
-  isolation?: "Shared" | "Dedicated";
+  // Deferred until Dedicated subagent execution is available.
+  // agentRef?: AgentTemplateLocalRef;
 }
 
 /** Exactly one of `mcp` or `subAgent` — the CRD rejects both and neither. */

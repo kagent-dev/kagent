@@ -3,9 +3,10 @@ package adkconfig
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
@@ -37,7 +38,6 @@ func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := &adk.AgentConfig{}
-			runtime := &modelRuntime{data: &modelDeploymentData{}}
 			server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{
 				URL: "https://mcp.example.test", Protocol: test.protocol,
 			}}
@@ -46,7 +46,7 @@ func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
 				tools = []string{"write"}
 			}
 
-			err := (&Builder{}).addRemoteMCPServer(config, runtime, server, tools, true, nil)
+			err := (&Builder{}).addRemoteMCPServer(config, server, tools, true, nil)
 			require.NoError(t, err)
 			test.assert(t, config)
 		})

@@ -5,10 +5,10 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
-
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/pgvector/pgvector-go"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 type Tool struct {
@@ -51,9 +51,10 @@ type AgentMemorySearchResult struct {
 
 // AgentDefinition tracks the desired and last successful runtime for an Agent UID.
 type AgentDefinition struct {
-	Namespace       string
-	AgentName       string
-	AgentUID        string
+	Namespace string
+	AgentName string
+	AgentUID  string
+	// DesiredRevision is a compiled runtime digest, or empty while inputs are unresolved.
 	DesiredRevision string
 }
 
@@ -75,7 +76,7 @@ type RuntimeRevision struct {
 type SessionQuery struct {
 	UserID   string
 	AllUsers bool
-	Agent    *apiv1alpha1.ResourceReference
+	Agent    *apiv1.ResourceReference
 	AfterID  string
 	Limit    int
 }

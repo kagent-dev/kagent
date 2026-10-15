@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
@@ -15,7 +16,6 @@ import (
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
-	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
 const (

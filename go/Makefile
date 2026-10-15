@@ -1,10 +1,12 @@
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/-dirty//' | grep v || echo "v0.0.0-$(GIT_COMMIT)")
+SUBSTRATE_VERSION ?= $(shell awk '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go.mod)
 
 LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VERSION)    \
            -X github.com/kagent-dev/kagent/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE)
+           -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE) \
+           -X github.com/kagent-dev/kagent/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -21,9 +23,11 @@ help: ## list makefile targets
 
 ##@ Code Generation (api module)
 
+CRD_OUTPUT_DIR := ../helm/kagent-crds/templates
+
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=$(CRD_OUTPUT_DIR)
 
 .PHONY: generate
 generate: controller-gen client-generate ## Generate DeepCopy methods and Kubernetes clients.
@@ -48,29 +52,27 @@ fmt: ## Run go fmt.
 vet: ## Run go vet.
 	go vet ./...
 
-KAL_SO = $(LOCALBIN)/kube-api-linter.so
-GO_TOOLCHAIN := $(shell go env GOVERSION)
+KUBE_API_LINTER_TOOL ?= golangci-lint-kube-api-linter
+KUBE_API_LINTER_PACKAGES ?= ./api/v1alpha3
 
 .PHONY: lint
-lint: golangci-lint $(KAL_SO) ## Run golangci-lint.
+lint: golangci-lint kube-api-lint ## Run golangci-lint and kube-api-linter.
 	$(GOLANGCI_LINT) run
 
+.PHONY: kube-api-lint
+kube-api-lint: ## Run kube-api-linter against the Kubernetes API packages.
+	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
+		GOOS=linux "$$KUBE_API_LINTER_BIN" run --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
+
 .PHONY: lint-fix
-lint-fix: golangci-lint $(KAL_SO) ## Run golangci-lint with auto-fix.
+lint-fix: golangci-lint ## Run golangci-lint and kube-api-linter with auto-fix.
 	$(GOLANGCI_LINT) run --fix
+	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
+		GOOS=linux "$$KUBE_API_LINTER_BIN" run --fix --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
 
 .PHONY: lint-config
 lint-config: golangci-lint ## Verify golangci-lint linter configuration.
 	$(GOLANGCI_LINT) config verify
-
-$(KAL_SO):
-	@mkdir -p $(LOCALBIN)
-	@echo "Building kube-api-linter plugin..."
-	@rm -rf $(LOCALBIN)/golangci-lint-src
-	@git clone --depth 1 --branch $(GOLANGCI_LINT_VERSION) --quiet https://github.com/golangci/golangci-lint.git $(LOCALBIN)/golangci-lint-src
-	@cd $(LOCALBIN)/golangci-lint-src && GOTOOLCHAIN=$(GO_TOOLCHAIN) go get sigs.k8s.io/kube-api-linter@$(KAL_VERSION)
-	@cd $(LOCALBIN)/golangci-lint-src && GOTOOLCHAIN=$(GO_TOOLCHAIN) go build -buildmode=plugin -o $(KAL_SO) sigs.k8s.io/kube-api-linter/pkg/plugin
-	@rm -rf $(LOCALBIN)/golangci-lint-src
 
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck.
@@ -116,8 +118,6 @@ core/bin/kagent-windows-amd64.exe.sha256: core/bin/kagent-windows-amd64.exe
 .PHONY: clean
 clean:
 	rm -f core/bin/kagent* && mkdir -p core/bin
-	rm -f $(LOCALBIN)/kube-api-linter.so
-	rm -rf $(LOCALBIN)/golangci-lint-src
 
 .PHONY: build
 build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 core/bin/kagent-darwin-amd64.sha256 core/bin/kagent-darwin-arm64.sha256 core/bin/kagent-windows-amd64.exe.sha256
@@ -128,7 +128,7 @@ run: fmt vet ## Run a controller from your host.
 
 .PHONY: test
 test: ## Run all unit tests.
-	UPDATE_GOLDEN=$(UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
+	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
 
 # Pin e2e tests to the kind cluster so a stray current-context (or an
 # ambient KUBECONFIG) can't leak resources onto a remote cluster. Override
@@ -162,13 +162,12 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.19.0
+CONTROLLER_TOOLS_VERSION ?= v0.22.0
 #ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 GOLANGCI_LINT_VERSION ?= v2.13.0
-KAL_VERSION ?= v0.0.0-20260423112246-3fa174937a6b
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.

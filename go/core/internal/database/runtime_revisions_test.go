@@ -13,9 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/stretchr/testify/require"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestRetireAgentIdentities(t *testing.T) {
@@ -29,7 +30,7 @@ func TestRetireAgentIdentities(t *testing.T) {
 		{name: "replacement template", except: &AgentDefinition{AgentUID: "replacement-uid"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			client := NewClient(setupTestDB(t))
+			client := NewClient(setupTestDB(t), "public")
 			ctx := t.Context()
 			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 			sessionFixture(t, client, ctx, "team-b", "other-namespace", "assistant", "kagent")
@@ -54,7 +55,7 @@ func TestRetireAgentIdentities(t *testing.T) {
 }
 
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 
@@ -82,7 +83,7 @@ func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 }
 
 func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
@@ -112,7 +113,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
 	}, "alice", "checkpoint")
 	require.NoError(t, err)
@@ -142,7 +143,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 }
 
 func TestRuntimeRevisionPairReplacement(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "old", "assistant", "kagent")
 	revision, err := client.GetRuntimeRevision(ctx, "old")
@@ -210,7 +211,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 		for _, referenceFirst := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/reference_first=%t", source, referenceFirst), func(t *testing.T) {
 				pool := setupTestDB(t)
-				client := NewClient(pool)
+				client := NewClient(pool, "public")
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
@@ -229,7 +230,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 				t.Cleanup(creatingPool.Close)
 				created := make(chan error, 1)
 				go func() {
-					creating := NewClient(creatingPool)
+					creating := NewClient(creatingPool, "public")
 					if source == "session" {
 						_, _, err := creating.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "session")
 						created <- err
@@ -289,7 +290,7 @@ func TestRuntimeRevisionDeletionSerializesWithReferenceAcquisition(t *testing.T)
 
 func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	pair := AgentDefinition{
@@ -319,7 +320,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, false), ErrObjectDeleting)
 	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, true), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
-	restarted := NewClient(pool)
+	restarted := NewClient(pool, "public")
 	revisions, err := restarted.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
@@ -350,7 +351,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 		for _, finalizeFirst := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/finalize_first=%t", operation, finalizeFirst), func(t *testing.T) {
 				pool := setupTestDB(t)
-				client := NewClient(pool)
+				client := NewClient(pool, "public")
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
 				sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
@@ -382,7 +383,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 				blockedPool, err := pgxpool.NewWithConfig(ctx, config)
 				require.NoError(t, err)
 				t.Cleanup(blockedPool.Close)
-				creating, deleting := NewClient(blockedPool), client
+				creating, deleting := NewClient(blockedPool, "public"), client
 				if finalizeFirst {
 					creating, deleting = client, creating
 				}
@@ -434,7 +435,7 @@ func TestRuntimeRevisionFinalizationSerializesWithPairWrites(t *testing.T) {
 
 func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	pool := setupTestDB(t)
-	c := NewClient(pool)
+	c := NewClient(pool, "public")
 	ctx := t.Context()
 	revision := RuntimeRevision{
 		Revision: "first", Namespace: "team", AgentName: "assistant", AgentUID: "template-uid",
@@ -448,10 +449,10 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	}
 	assertAvailableRevision := func(want string) {
 		t.Helper()
-		session, _, err := c.CreateSession(ctx, &apiv1alpha1.Session{
+		session, _, err := c.CreateSession(ctx, &apiv1.Session{
 			Id: uuid.NewString(), Creator: "alice",
 
-			Agent: &apiv1alpha1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
+			Agent: &apiv1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
 		}, uuid.NewString())
 		if want == "" {
 			require.ErrorIs(t, err, ErrNotFound)
@@ -490,7 +491,7 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 }
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"api.example.com"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, false))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)

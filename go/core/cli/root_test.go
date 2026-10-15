@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
@@ -71,9 +72,9 @@ func TestRootCommandsOwnIndependentFlagState(t *testing.T) {
 	assert.Equal(t, "kagent", second.PersistentFlags().Lookup("namespace").Value.String())
 }
 
-func TestRootCommandDoesNotValidateClientFlagsForIndependentCommand(t *testing.T) {
+func TestRootCommandVersionWorksWithoutConfig(t *testing.T) {
 	rootCmd := cli.Root()
-	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "env"})
+	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "version"})
 	rootCmd.SetOut(&bytes.Buffer{})
 
 	require.NoError(t, rootCmd.ExecuteContext(t.Context()))
@@ -132,7 +133,15 @@ func TestRootCommandV2CatalogAndLifecycleContract(t *testing.T) {
 	for _, command := range sessionCmd.Commands() {
 		sessionCommands = append(sessionCommands, command.Name())
 	}
-	assert.ElementsMatch(t, []string{"create", "list", "get", "delete"}, sessionCommands)
+	assert.ElementsMatch(t, []string{"create", "list", "get", "delete", "push"}, sessionCommands)
+	for _, operation := range []string{"create", "get", "list", "delete"} {
+		_, _, err := rootCmd.Find([]string{"agent", "session", "push", operation})
+		assert.NoError(t, err)
+	}
+	invokeCmd, _, err := rootCmd.Find([]string{"agent", "invoke"})
+	require.NoError(t, err)
+	assert.NotNil(t, invokeCmd.Flags().Lookup("push-url"))
+	assert.NotNil(t, invokeCmd.Flags().Lookup("push-id"))
 }
 
 func TestRootCommandRemovesLegacyPaths(t *testing.T) {
@@ -194,7 +203,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 			err := rootCmd.ExecuteContext(t.Context())
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `unsupported output format "bogus"`)
+			assert.Contains(t, err.Error(), "output.format")
 		})
 	}
 }

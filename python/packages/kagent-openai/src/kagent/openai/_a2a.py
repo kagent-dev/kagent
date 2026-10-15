@@ -11,7 +11,6 @@ import logging
 import os
 from collections.abc import Callable
 
-from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
@@ -19,15 +18,17 @@ from agents import Agent, set_default_openai_api, set_default_openai_client, set
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app, signal_enabled
+from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
+    TelemetryRequestHandler,
     get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
-from kagent.core.tracing import signal_enabled
-from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+from kagent.core.telemetry import conv, shutdown_lifespan
+from opentelemetry.instrumentation.genai.openai_agents import OpenAIAgentsInstrumentor
 
 from openai import AsyncOpenAI
 
@@ -51,9 +52,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
-
-
 def _configure_openai_client() -> None:
     """
     Configure the default OpenAI client to use OPENAI_API_BASE.
@@ -75,7 +73,7 @@ def _configure_openai_client() -> None:
         logger.info(f"Configured OpenAI client with base URL: {openai_api_base}")
 
 
-def _configure_openai_agents_tracing() -> None:
+def _openai_agents_instrument_options(keep_native: bool = False) -> dict[str, dict[str, bool]]:
     """Export OpenAI Agents SDK traces through OpenTelemetry only.
 
     The SDK's built-in processor POSTs to a hardcoded https://api.openai.com/v1/traces/ingest
@@ -84,22 +82,20 @@ def _configure_openai_agents_tracing() -> None:
     The instrumentor adds its processor alongside that one, and set_tracing_disabled(True)
     would silence the OpenTelemetry spans too, so drop the built-in processor instead.
 
-    KAGENT_OPENAI_AGENTS_NATIVE_TRACING=true keeps it, for real OpenAI platform keys.
+    runtime.telemetry.openai_native_tracing keeps it for OpenAI platform keys.
     """
-    keep_native = os.getenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", "false").strip().lower() == "true"
     if keep_native:
         logger.info("Keeping the OpenAI Agents SDK native trace exporter alongside OpenTelemetry")
     else:
         logger.info("Disabling the OpenAI Agents SDK native trace exporter; traces are exported via OpenTelemetry")
 
-    OpenAIAgentsInstrumentor(replace_existing_processors=not keep_native).instrument()
-
     if os.getenv("OPENAI_AGENTS_DISABLE_TRACING", "false").strip().lower() in ("true", "1"):
         logger.warning(
             "OPENAI_AGENTS_DISABLE_TRACING is set, which switches off the Agents SDK tracing that the "
             "OpenTelemetry instrumentation feeds on, so no agent spans will be exported. Unset it and rely "
-            "on KAGENT_OPENAI_AGENTS_NATIVE_TRACING=false (the default) to keep traces away from OpenAI."
+            "on runtime.telemetry.openai_native_tracing=false (the default) to keep traces away from OpenAI."
         )
+    return {"openai_agents": {"disable_openai_trace_export": not keep_native}}
 
 
 class KAgentApp:
@@ -163,31 +159,24 @@ class KAgentApp:
         faulthandler.enable()
 
         # Create FastAPI app with lifespan
-        app = FastAPI(lifespan=controller.lifespan())
+        app = FastAPI(lifespan=shutdown_lifespan(controller.lifespan()))
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         if self.tracing:
-            try:
-                # OpenAIAgentsInstrumentor (below) covers OpenAI; skip the low-level
-                # OpenAIInstrumentor, whose SDK monkeypatch breaks Agents SDK streaming.
-                logger.info("Configuring tracing for KAgent OpenAI app")
-                configure_tracing(self.config.name, self.config.namespace, app, instrument_openai_client=False)
-                logger.info("Tracing configured for KAgent OpenAI app")
-            except Exception as e:
-                logger.error(f"Failed to configure tracing: {e}")
-
-            try:
-                if signal_enabled("TRACES"):
-                    logger.info("Enabling OpenAI Agents SDK tracing")
-                    _configure_openai_agents_tracing()
-                else:
-                    logger.info("Disabling OpenAI Agents SDK tracing")
-                    set_tracing_disabled(True)
-            except Exception as e:
-                logger.error(f"Failed to configure OpenAI Agents SDK tracing: {e}")
+            bootstrap(
+                conv.KagentRuntimeValues.OPENAI_AGENTS,
+                fallback_name=self.agent_card.name,
+                config=self.config.runtime,
+                instrument_options=_openai_agents_instrument_options(
+                    self.config.runtime.telemetry.openai_native_tracing
+                ),
+            )
+            instrument_app(app)
+            if not signal_enabled("TRACES") or not OpenAIAgentsInstrumentor().is_instrumented_by_opentelemetry:
+                set_tracing_disabled(True)
 
         # Add health check endpoints
         app.add_route("/health", methods=["GET"], route=health_check)
@@ -227,7 +216,7 @@ class KAgentApp:
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandlerV2(
+        request_handler = TelemetryRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
             agent_card=self.agent_card,
@@ -241,7 +230,7 @@ class KAgentApp:
         app = FastAPI()
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         # Add health check endpoints

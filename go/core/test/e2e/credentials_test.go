@@ -8,16 +8,19 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestModelCredentialDelivery(t *testing.T) {
+	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		t.Parallel()
 		const token = "gateway-injection-e2e-token"
 		header, wantCredential := "Authorization", "Bearer "+token
 		if harness.name == claudeE2EHarness {

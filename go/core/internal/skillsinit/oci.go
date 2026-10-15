@@ -18,9 +18,8 @@ import (
 // extracts it into ref.Dest. It is the in-process replacement for the old
 // `krane export | tar xf -` pipeline.
 //
-// Auth comes from the standard DOCKER_CONFIG mechanism (set by the caller
-// after MergeDockerConfigs). Platform follows the host arch — same as the
-// old script's case statement on `uname -m`.
+// Auth comes from the standard DOCKER_CONFIG mechanism. Platform follows the
+// host arch.
 func FetchOCI(ref OCIRef, insecure bool) error {
 	platform, err := hostPlatform()
 	if err != nil {

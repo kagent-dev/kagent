@@ -18,7 +18,6 @@ linters:
     - importas
     - ineffassign
     - iotamixing
-    - kubeapilinter
     - loggercheck
     - makezero
     - misspell
@@ -30,43 +29,6 @@ linters:
     - unused
     - whitespace
   settings:
-    custom:
-      kubeapilinter:
-        path: "bin/kube-api-linter.so"
-        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
-        original-url: sigs.k8s.io/kube-api-linter
-        settings:
-          linters:
-            enable:
-              - "conflictingmarkers"
-              - "duplicatemarkers"
-              - "nofloats"
-              - "optionalorrequired"
-              - "statussubresource"
-              - "uniquemarkers"
-              - "statusoptional"
-              - "nophase"
-              - "nonullable"
-              - "forbiddenmarkers"
-              - "nomaps"
-            disable:
-              - "*"
-          lintersConfig:
-            conflictingmarkers:
-              conflicts:
-              - name: "default_vs_required"
-                sets:
-                  - ["default", "kubebuilder:default"]
-                  - ["required", "kubebuilder:validation:Required", "k8s:required"]
-                description: "A field with a default value cannot be required"
-            forbiddenmarkers:
-              markers:
-                - identifier: "+kubebuilder:pruning:PreserveUnknownFields"
-                - identifier: "+kubebuilder:validation:XPreserveUnknownFields"
-                - identifier: "+kubebuilder:validation:items:XPreserveUnknownFields"
-                - identifier: "+kubebuilder:validation:EmbeddedResource"
-                - identifier: "+kubebuilder:validation:XEmbeddedResource"
-                - identifier: "+kubebuilder:validation:items:XEmbeddedResource"
     depguard:
       rules:
         forbid-pkg-errors:
@@ -90,9 +52,12 @@ linters:
         - shadow
       enable-all: true
     forbidigo:
+      analyze-types: true
       forbid:
         - pattern: ^log\.(Fatal|Fatalf|Fatalln|Print|Printf|Println|Panic|Panicf|Panicln)$
           msg: Use log/slog with the shared logging package
+        - pattern: ^os\.(Getenv|LookupEnv)$
+          msg: Use a registered accessor from core/pkg/env for configurable settings
     importas:
       alias:
         - pkg: k8s.io/api/core/v1
@@ -158,8 +123,14 @@ linters:
       - .*conversion.*\.go$
     rules:
       - linters:
-          - kubeapilinter
-        path-except: "api/v1alpha"
+          - forbidigo
+        text: Use a registered accessor from core/pkg/env
+        path: '(^|/)core/pkg/env/'
+      - linters:
+          - forbidigo
+        text: Use a registered accessor from core/pkg/env
+        # Unit tests may inspect process state; core/test E2E settings use the registry.
+        path: '(^|/)(api|adk|harness|pkg|sandbox|core/(cli|internal|pkg))/.*_test\.go$'
       # ST1005 allows proper nouns, but treats single-word Title Case as a sentence start.
       - linters:
           - staticcheck
@@ -170,8 +141,15 @@ issues:
   max-same-issues: 0
 formatters:
   enable:
+    - gci
     - gofmt
-    - goimports
+  settings:
+    gci:
+      custom-order: true
+      sections:
+        - standard
+        - default
+        - prefix(github.com/kagent-dev/kagent)
   exclusions:
     generated: strict
     paths:

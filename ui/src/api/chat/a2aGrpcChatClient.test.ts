@@ -77,7 +77,12 @@ function statusFrame(options: {
   message?: {
     messageId: string;
     role: Role;
-    parts: (ReturnType<typeof text> | ReturnType<typeof data>)[];
+    parts: (
+      | ReturnType<typeof text>
+      | ReturnType<typeof data>
+      | { content: { case: "raw"; value: Uint8Array }; filename: string; mediaType: string }
+      | { content: { case: "url"; value: string }; filename: string; mediaType: string }
+    )[];
     metadata?: Record<string, unknown>;
     extensions?: string[];
   };
@@ -270,6 +275,85 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it.each([TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED])(
+    "reads tool approval directly from a task snapshot in state %s",
+    async (state) => {
+      const events = await turn([{
+        payload: {
+          case: "task",
+          value: {
+            id: "task-1",
+            contextId: CONVERSATION.id,
+            status: {
+              state,
+              message: {
+                messageId: "approval-request",
+                role: Role.AGENT,
+                parts: [text("Allow describe?")],
+                extensions: ["https://kagent.dev/extensions/hitl/v1"],
+                metadata: {
+                  "https://kagent.dev/extensions/hitl/v1": {
+                    type: "tool_approval_request",
+                    tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      }]);
+      expect(transcript(events)).toEqual([]);
+      expect(events).toContainEqual({
+        type: "status",
+        state: "input_required",
+        taskId: "task-1",
+        awaiting: {
+          kind: "tool_approval",
+          taskId: "task-1",
+          tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+          hint: undefined,
+          askedBy: undefined,
+        },
+      });
+    },
+  );
+
+  it("reads ask-user choices directly from a task snapshot", async () => {
+    const events = await turn([{
+      payload: {
+        case: "task",
+        value: {
+          id: "task-1",
+          status: {
+            state: TaskState.INPUT_REQUIRED,
+            message: {
+              messageId: "ask-request",
+              role: Role.AGENT,
+              parts: [text("Which database?")],
+              extensions: ["https://kagent.dev/extensions/hitl/v1"],
+              metadata: {
+                "https://kagent.dev/extensions/hitl/v1": {
+                  type: "ask_user_request",
+                  id: "ask-1",
+                  questions: [{ question: "Which database?", choices: ["PostgreSQL"] }],
+                },
+              },
+            },
+          },
+        },
+      },
+    }]);
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status", state: "input_required", taskId: "task-1",
+      awaiting: {
+        kind: "ask_user", taskId: "task-1", requestId: "ask-1",
+        questions: [{ question: "Which database?", choices: ["PostgreSQL"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
   it("shows only the interactive card when ask_user parks the turn", async () => {
     const events = await turn([
       {
@@ -847,7 +931,7 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
-  it("orders a canonically positioned approval between its tool call and result", async () => {
+  it("keeps earlier tool activity before a positioned approval on reload", async () => {
     const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
@@ -855,6 +939,12 @@ describe("A2AGrpcChatClient.history", () => {
         contextId: CONVERSATION.id,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [
+          {
+            messageId: "opening",
+            role: Role.USER,
+            parts: [text("List pods and delete one")],
+            metadata: position("2025-12-31T23:59:59.000000001Z"),
+          },
           {
             messageId: "request",
             role: Role.AGENT,
@@ -884,6 +974,16 @@ describe("A2AGrpcChatClient.history", () => {
         ],
         artifacts: [
           {
+            artifactId: "list-call",
+            parts: [data({ id: "list-1", name: "list_pods", args: {} })],
+            metadata: position("2025-12-31T23:59:59.000000002Z"),
+          },
+          {
+            artifactId: "list-result",
+            parts: [data({ id: "list-1", name: "list_pods", response: { result: "old" } })],
+            metadata: position("2025-12-31T23:59:59.000000003Z"),
+          },
+          {
             artifactId: "call",
             parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
             metadata: position("2026-01-01T00:00:00.000000001Z"),
@@ -898,7 +998,9 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages.map((message) => message.id)).toEqual(["call", "approval", "result"]);
+    expect(messages.map((message) => message.id)).toEqual([
+      "opening", "list-call", "list-result", "call", "approval", "result",
+    ]);
   });
 
   it("replays a completed ask_user exchange as one structured record", async () => {
@@ -1372,5 +1474,90 @@ describe("A2AGrpcChatClient.history", () => {
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
     expect(messages.map((message) => textOf(message))).toEqual(["task-1", "task-2"]);
+  });
+});
+
+describe("A2AGrpcChatClient files", () => {
+  it("sends each file as a raw part, typed by extension when the browser says nothing", async () => {
+    let captured: SendMessageRequest | undefined;
+    serve(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* (request) {
+          captured = request;
+        },
+      });
+    });
+    const notes = new File(["# hi"], "notes.md", { type: "" });
+    for await (const event of new A2AGrpcChatClient().send({
+      conversation: CONVERSATION,
+      text: "",
+      files: [notes],
+    })) {
+      void event;
+    }
+    // Files alone: no empty text part ahead of them.
+    expect(captured?.message?.parts).toHaveLength(1);
+    const part = captured?.message?.parts[0];
+    expect(part?.content.case).toBe("raw");
+    expect(part?.filename).toBe("notes.md");
+    expect(part?.mediaType).toBe("text/markdown");
+    expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
+  });
+
+  it("renders a file the agent sent rather than dropping it", async () => {
+    const events = await turn([
+      statusFrame({
+        state: TaskState.WORKING,
+        message: {
+          messageId: "m-file",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "raw" as const, value: new TextEncoder().encode("ok") },
+              filename: "report.csv",
+              mediaType: "text/csv",
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.csv",
+        mediaType: "text/csv",
+        size: 2,
+        blob: expect.any(Blob),
+      },
+    ]);
+  });
+
+  it("names a linked file by its path and drops non-http links", async () => {
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-url",
+          role: Role.AGENT,
+          parts: [
+            {
+              content: { case: "url" as const, value: "https://files.example/out/report.pdf?sig=abc" },
+              filename: "",
+              mediaType: "application/pdf",
+            },
+            { content: { case: "url" as const, value: "javascript:alert(1)" }, filename: "x.pdf", mediaType: "application/pdf" },
+            { content: { case: "url" as const, value: "data:text/html,<b>hi</b>" }, filename: "y.html", mediaType: "text/html" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      {
+        kind: "file",
+        name: "report.pdf",
+        mediaType: "application/pdf",
+        url: "https://files.example/out/report.pdf?sig=abc",
+      },
+    ]);
   });
 });
