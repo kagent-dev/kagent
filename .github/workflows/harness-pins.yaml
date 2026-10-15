@@ -1,7 +1,7 @@
 name: Harness CLI pins
 
-# Fork (giantswarm/kagent-upstream): Renovate moves the Claude Code and Codex
-# CLI versions of the harness images (renovate.json), but not their
+# Fork (giantswarm/kagent-upstream): Renovate moves the Claude Code, Codex and
+# omp CLI versions of the harness images (renovate.json), but not their
 # per-architecture sha256 ARGs, which come from the vendors' own checksum
 # documents and no Renovate datasource reads. This workflow completes the bump
 # on Renovate's branch: it writes the vendors' checksums for the new versions
@@ -13,7 +13,7 @@ name: Harness CLI pins
 # branch, and every rebase runs this again.
 on:
   push:
-    branches: ["renovate/claude-code-**", "renovate/codex-cli-**"]
+    branches: ["renovate/claude-code-**", "renovate/codex-cli-**", "renovate/oh-my-pi-**"]
 
 permissions:
   contents: read

@@ -600,6 +600,15 @@ runtimeImages:
     registry: ""
     repository: kagent-dev/kagent/codex-harness
     digest: ""
+  # -- The oh-my-pi (omp) runtime image, a BYO Harness adapter: kagent has no
+  # omp runtime, so a Harness names this image by digest with
+  # workload.command set. The chart renders nothing from it and leaves it out
+  # of the ConfigMap; a published chart carries its build's digest for the
+  # Harness that runs it.
+  ompHarness:
+    registry: ""
+    repository: kagent-dev/kagent/omp-harness
+    digest: ""
 
 # ==============================================================================
 # UI CONFIGURATION

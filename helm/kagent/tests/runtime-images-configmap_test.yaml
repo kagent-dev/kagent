@@ -114,3 +114,11 @@ tests:
                 - ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
                 - ghcr.io/kagent-dev/kagent/claude-harness@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
                 - ghcr.io/kagent-dev/kagent/codex-harness@sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd
+
+  - it: should leave the omp image out, a BYO Harness the chart does not render
+    set:
+      runtimeImages.ompHarness.digest: "sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    asserts:
+      - notMatchRegex:
+          path: data["substrate-values.yaml"]
+          pattern: omp-harness

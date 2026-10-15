@@ -14,8 +14,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 # builds.md's columns. A column is only ever added at the end and the header of
 # an existing file is moved to the current one on the next append, so every
 # older row keeps its cells under the same names.
-builds_columns='| published (UTC) | version | commit | upstream pin | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run | codex-harness |'
-builds_rule='|---|---|---|---|---|---|---|---|---|---|---|---|'
+builds_columns='| published (UTC) | version | commit | upstream pin | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run | codex-harness | omp-harness |'
+builds_rule='|---|---|---|---|---|---|---|---|---|---|---|---|---|'
 
 header() {
   case $1 in
@@ -23,8 +23,9 @@ header() {
 # Builds
 
 Every dev build and release published by the CircleCI pipeline, newest last (see FORK.md). Image
-digests are the multi-arch index digests — what a `Harness` pins. codex-harness is the last
-column, so the rows written before the line published it keep their columns and leave it empty.
+digests are the multi-arch index digests — what a `Harness` pins. codex-harness and omp-harness
+are the last columns, so the rows written before the line published them keep their columns and
+leave them empty.
 
 H
       printf '%s\n%s\n' "$builds_columns" "$builds_rule"

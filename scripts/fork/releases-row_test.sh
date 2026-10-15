@@ -109,5 +109,21 @@ scripts/fork/releases-row.sh v1.10.0 >/dev/null
 grep -F '| `1.10.0` |' FORK.md | grep -qF '| `sha256:c2`, `sha256:u2`, `sha256:a2`, `sha256:h2`, `sha256:x2` | `sha256:k2`, `sha256:r2` |' &&
   pass "a build with codex-harness lists it after claude-harness" || fail "row of 1.10.0: $(grep -F '| `1.10.0` |' FORK.md)"
 
+# 7. A build row with the omp-harness column lists that image after codex-harness.
+(
+  cd "$origin"
+  g tag v1.11.0 giantswarm
+  sha11=$(git rev-parse v1.11.0)
+  g checkout -q ledger
+  printf '| 2026-10-17 09:00 | `1.11.0` | `%s` | `92dd6ca` (2026-10-11) | `sha256:c3` | `sha256:u3` | `sha256:a3` | `sha256:h3` | `sha256:k3` | `sha256:r3` | [run](https://circleci.com/gh/o/r/3) | `sha256:x3` | `sha256:o3` |\n' "${sha11:0:7}" >> builds.md
+  g commit -q -am ledger
+  g checkout -q giantswarm
+)
+git fetch -q --tags origin && git fetch -q origin +ledger:refs/remotes/origin/ledger
+git checkout -q giantswarm && git pull -q --ff-only origin giantswarm
+scripts/fork/releases-row.sh v1.11.0 >/dev/null
+grep -F '| `1.11.0` |' FORK.md | grep -qF '| `sha256:c3`, `sha256:u3`, `sha256:a3`, `sha256:h3`, `sha256:x3`, `sha256:o3` | `sha256:k3`, `sha256:r3` |' &&
+  pass "a build with omp-harness lists it after codex-harness" || fail "row of 1.11.0: $(grep -F '| `1.11.0` |' FORK.md)"
+
 [ "$failures" -eq 0 ] || { echo "${failures} failed" >&2; exit 1; }
 echo "all passed"

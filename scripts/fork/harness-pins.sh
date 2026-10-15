@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Claude Code and Codex CLI pins of the harness images. Renovate moves a
+# The Claude Code, Codex and omp CLI pins of the harness images. Renovate moves a
 # pin's version (renovate.json: the ARG line of go/harness/<cli>/Dockerfile and
 # the Pinned*Version constant the harness checks the installed binary against);
 # the per-architecture sha256 ARGs come from the vendor's own checksums, which
@@ -10,14 +10,17 @@
 #
 # Claude Code: downloads.claude.ai/claude-code-releases/<version>/manifest.json.
 # Codex: the release's codex-package_SHA256SUMS.
+# omp: the release's SHA256SUMS.txt.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
 claude_df=go/harness/claude/Dockerfile
 codex_df=go/harness/codex/Dockerfile
+omp_df=go/harness/omp/Dockerfile
 claude_go=go/harness/claude/config/config.go
 codex_go=go/harness/codex/config/config.go
+omp_go=go/harness/omp/internal/config/config.go
 
 mode=${1:-}
 case "$mode" in check | update) ;; *)
@@ -68,7 +71,12 @@ sums=$(fetch "https://github.com/openai/codex/releases/download/rust-v${codex_ve
 codex_amd=$(awk '$2 == "codex-package-x86_64-unknown-linux-musl.tar.gz" {print $1}' <<<"$sums")
 codex_arm=$(awk '$2 == "codex-package-aarch64-unknown-linux-musl.tar.gz" {print $1}' <<<"$sums")
 
-for sum in "$claude_amd" "$claude_arm" "$codex_amd" "$codex_arm"; do
+omp_version=$(arg "$omp_df" OMP_VERSION)
+sums=$(fetch "https://github.com/can1357/oh-my-pi/releases/download/v${omp_version}/SHA256SUMS.txt")
+omp_amd=$(awk '$2 == "omp-linux-musl-x64" {print $1}' <<<"$sums")
+omp_arm=$(awk '$2 == "omp-linux-musl-arm64" {print $1}' <<<"$sums")
+
+for sum in "$claude_amd" "$claude_arm" "$codex_amd" "$codex_arm" "$omp_amd" "$omp_arm"; do
 	[[ $sum =~ ^[0-9a-f]{64}$ ]] || {
 		echo "harness-pins: a vendor checksum is missing or malformed ('$sum')" >&2
 		exit 1
@@ -79,6 +87,8 @@ pin "Claude Code" "$claude_df" CLAUDE_CODE_VERSION CLAUDE_CODE_AMD64_SHA256 CLAU
 	"$claude_go" PinnedClaudeVersion "$claude_amd" "$claude_arm"
 pin "Codex" "$codex_df" CODEX_CLI_VERSION CODEX_CLI_AMD64_SHA256 CODEX_CLI_ARM64_SHA256 \
 	"$codex_go" PinnedCodexVersion "$codex_amd" "$codex_arm"
+pin "omp" "$omp_df" OMP_VERSION OMP_AMD64_SHA256 OMP_ARM64_SHA256 \
+	"$omp_go" PinnedOmpVersion "$omp_amd" "$omp_arm"
 
 if [ "$mode" = update ]; then
 	# The checksums are now the vendor's; only a version disagreement remains a problem.
