@@ -112,6 +112,7 @@ ES384, RS256 or PS256, with a `kid`), whose payload is:
 {
   "iss": "<issuer>", "aud": "<audience>", "sub": "<the caller>",
   "exp": 0, "nbf": 0,
+  "agent_namespace": "<the namespace of the session's Agent>",
   "volume": {"driver": "nfs.csi.k8s.io", "handle": "<the driver's volume handle>"},
   "mounts": [
     {"sub_path": "sessions/${SESSION_ID}"},
@@ -128,7 +129,9 @@ ES384, RS256 or PS256, with a `kid`), whose payload is:
 It is admitted when the signature verifies against a key of the issuer's JWKS,
 `iss` and `aud` are the configured ones, `exp` has not passed and `nbf` has
 (30 seconds of leeway), `sub` is the caller as the authenticator identifies it
-(`KAGENT_AUTH_USER_ID_CLAIM`), the grant's volume is the request's, and every
+(`KAGENT_AUTH_USER_ID_CLAIM`), `agent_namespace` is the namespace of the
+session's Agent (a grant without it is refused), the grant's volume is the
+request's, and every
 requested mount's sub-path is one the grant allows, read-only where the grant
 says so. `changed` lists repositories, relative to the session's working
 directory, whose origin moved since the volume's last sync; each provider is a

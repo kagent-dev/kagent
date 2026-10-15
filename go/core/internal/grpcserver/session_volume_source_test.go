@@ -19,7 +19,7 @@ import (
 // admitEverySource stands in for an installation's configured admission.
 type admitEverySource struct{}
 
-func (admitEverySource) Admit(context.Context, string, *apiv1alpha1.SessionVolumeSource, string) (sessionsvc.Admitted, error) {
+func (admitEverySource) Admit(context.Context, string, *apiv1alpha1.ResourceReference, *apiv1alpha1.SessionVolumeSource, string) (sessionsvc.Admitted, error) {
 	return sessionsvc.Admitted{}, nil
 }
 

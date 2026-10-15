@@ -1,7 +1,8 @@
 // Package jwtadmission admits a Session volume source with a short-lived JWT
 // grant: signed by an issuer the installation trusts, verified against the
-// issuer's published JWKS, naming the caller, the volume and the mounts of it
-// the Session may have, and carrying what the Session is admitted with.
+// issuer's published JWKS, naming the caller, the namespace of the Agent the
+// Session may run on, the volume and the mounts of it the Session may have,
+// and carrying what the Session is admitted with.
 package jwtadmission
 
 import (
@@ -70,7 +71,7 @@ type Refused struct {
 }
 
 // Admit refuses the grant: the installation's admission is misconfigured.
-func (r Refused) Admit(context.Context, string, *apiv1alpha1.SessionVolumeSource, string) (session.Admitted, error) {
+func (r Refused) Admit(context.Context, string, *apiv1alpha1.ResourceReference, *apiv1alpha1.SessionVolumeSource, string) (session.Admitted, error) {
 	return session.Admitted{}, serviceerrors.NewFailedPrecondition("this installation's Session admission is misconfigured and admits no volume source", r.Cause)
 }
 
@@ -122,17 +123,21 @@ type provider struct {
 // claims is a grant's payload.
 type claims struct {
 	jwt.RegisteredClaims
-	Volume    volume     `json:"volume"`
-	Mounts    []mount    `json:"mounts"`
-	Changed   []string   `json:"changed,omitempty"`
-	Providers []provider `json:"providers,omitempty"`
+	// AgentNamespace is the namespace of the Agents the grant admits a
+	// Session on: a workspace's grant opens its volume and its providers to
+	// that namespace's Agents only.
+	AgentNamespace string     `json:"agent_namespace"`
+	Volume         volume     `json:"volume"`
+	Mounts         []mount    `json:"mounts"`
+	Changed        []string   `json:"changed,omitempty"`
+	Providers      []provider `json:"providers,omitempty"`
 }
 
-// Admit verifies token and admits caller to a Session on source with the
-// grant's providers and changed repositories. Every refusal is
+// Admit verifies token and admits caller to a Session of agent on source with
+// the grant's providers and changed repositories. Every refusal is
 // PermissionDenied with its reason, except an issuer whose keys cannot be
 // fetched, which is Unavailable: the grant may well be valid.
-func (a *Admission) Admit(ctx context.Context, caller string, source *apiv1alpha1.SessionVolumeSource, token string) (session.Admitted, error) {
+func (a *Admission) Admit(ctx context.Context, caller string, agent *apiv1alpha1.ResourceReference, source *apiv1alpha1.SessionVolumeSource, token string) (session.Admitted, error) {
 	if token == "" {
 		return session.Admitted{}, serviceerrors.NewPermissionDenied("no admission grant", nil)
 	}
@@ -156,6 +161,11 @@ func (a *Admission) Admit(ctx context.Context, caller string, source *apiv1alpha
 	}
 	if grant.Subject != caller {
 		return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant names another person", nil)
+	}
+	// A grant without the claim is refused too: it names no namespace, so it
+	// would admit a Session on an Agent in any.
+	if grant.AgentNamespace == "" || grant.AgentNamespace != agent.GetNamespace() {
+		return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is for another namespace", nil)
 	}
 	if err := allows(grant, source); err != nil {
 		return session.Admitted{}, err

@@ -60,8 +60,9 @@ type sessionWorkflow interface {
 // names a volume is refused, so no caller mounts a volume of its choosing.
 type VolumeAdmission interface {
 	// Admit returns what the session is admitted with when token proves that
-	// caller may create a session on source, and the refusal otherwise.
-	Admit(ctx context.Context, caller string, source *apiv1alpha1.SessionVolumeSource, token string) (Admitted, error)
+	// caller may create a session of agent on source, and the refusal
+	// otherwise.
+	Admit(ctx context.Context, caller string, agent *apiv1alpha1.ResourceReference, source *apiv1alpha1.SessionVolumeSource, token string) (Admitted, error)
 }
 
 // Admitted is what an admission grants a session beside its volume source,
@@ -334,7 +335,7 @@ func (s *Service) admitVolume(ctx context.Context, caller string, request Create
 	if s.volumeAdmission == nil {
 		return Admitted{}, serviceerrors.NewFailedPrecondition("this installation admits no Session volume", nil)
 	}
-	admitted, err := s.volumeAdmission.Admit(ctx, caller, request.VolumeSource, request.AdmissionToken)
+	admitted, err := s.volumeAdmission.Admit(ctx, caller, request.Agent, request.VolumeSource, request.AdmissionToken)
 	var refusal *serviceerrors.Error
 	if errors.As(err, &refusal) {
 		return Admitted{}, err

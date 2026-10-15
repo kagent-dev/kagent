@@ -37,10 +37,11 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 		},
 	}
 	token, err := signer.SignGrant("alice", grant.Grant{
-		Volume:    grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs.example.test#exports#workspace-1##"},
-		Mounts:    []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
-		Changed:   []string{"acme/api"},
-		Providers: []grant.Provider{{Hostname: "github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "workspaces"}},
+		AgentNamespace: "team-a",
+		Volume:         grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs.example.test#exports#workspace-1##"},
+		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
+		Changed:        []string{"acme/api"},
+		Providers:      []grant.Provider{{Hostname: "github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "workspaces"}},
 	}, time.Minute)
 	require.NoError(t, err)
 	wantProvider := &apiv1alpha1.SessionProvider{Hostname: "github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "workspaces"}
@@ -72,6 +73,12 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 	_, err = server.CreateSession(bob, &apiv1alpha1.CreateSessionRequest{Agent: agent, RequestId: "stolen-grant", VolumeSource: source, AdmissionToken: token})
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "error = %v", err)
 	require.ErrorContains(t, err, "admission grant names another person")
+
+	// Alice cannot start a Session on an Agent in another namespace with it.
+	other := &apiv1alpha1.ResourceReference{Namespace: "team-b", Name: "assistant"}
+	_, err = server.CreateSession(ctx, &apiv1alpha1.CreateSessionRequest{Agent: other, RequestId: "other-namespace", VolumeSource: source, AdmissionToken: token})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "error = %v", err)
+	require.ErrorContains(t, err, "admission grant is for another namespace")
 	listed, err = server.ListSessions(bob, &apiv1alpha1.ListSessionsRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.GetSessions(), "a refused grant reserves no Session")

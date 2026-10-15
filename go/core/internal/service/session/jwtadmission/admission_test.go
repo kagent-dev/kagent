@@ -27,11 +27,17 @@ const (
 
 func workspaceGrant() grant.Grant {
 	return grant.Grant{
-		Volume:    grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs.example.test#exports#workspace-1##"},
-		Mounts:    []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
-		Changed:   []string{"acme/api", "acme/web"},
-		Providers: []grant.Provider{{Hostname: "github.com", Audience: "https://github.com", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"}},
+		AgentNamespace: "team-a",
+		Volume:         grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs.example.test#exports#workspace-1##"},
+		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
+		Changed:        []string{"acme/api", "acme/web"},
+		Providers:      []grant.Provider{{Hostname: "github.com", Audience: "https://github.com", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"}},
 	}
+}
+
+// agent is the Agent the Sessions under test run on, in the grant's namespace.
+func agent() *apiv1alpha1.ResourceReference {
+	return &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
 }
 
 func workspaceSource() *apiv1alpha1.SessionVolumeSource {
@@ -117,7 +123,7 @@ func TestAdmitsAValidGrant(t *testing.T) {
 	signer := newSigner(t, issuer, audience)
 	admission, _, _ := newTestAdmission(t, signer)
 
-	admitted, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	admitted, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, []string{"acme/api", "acme/web"}, admitted.Changed)
 	require.Len(t, admitted.Providers, 1)
@@ -129,7 +135,7 @@ func TestAdmitsAValidGrant(t *testing.T) {
 	// read-write also read-only.
 	source := workspaceSource()
 	source.Mounts = []*apiv1alpha1.SessionVolumeMount{{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace", ReadOnly: true}}
-	_, err = admission.Admit(t.Context(), person, source, sign(t, signer, person, workspaceGrant(), time.Minute))
+	_, err = admission.Admit(t.Context(), person, agent(), source, sign(t, signer, person, workspaceGrant(), time.Minute))
 	require.NoError(t, err)
 }
 
@@ -188,7 +194,7 @@ func TestRefusesWithTheNamedReason(t *testing.T) {
 			if test.source != nil {
 				test.source(source)
 			}
-			admitted, err := admission.Admit(t.Context(), caller, source, test.token)
+			admitted, err := admission.Admit(t.Context(), caller, agent(), source, test.token)
 			require.True(t, serviceerrors.IsCode(err, test.code), "Admit() error = %v, want code %s", err, test.code)
 			require.ErrorContains(t, err, test.reason)
 			require.Equal(t, session.Admitted{}, admitted)
@@ -199,10 +205,46 @@ func TestRefusesWithTheNamedReason(t *testing.T) {
 	}
 }
 
+// A grant opens its workspace to the Agents of the namespace it names: a
+// Session on an Agent of another namespace is refused, and so is one with a
+// grant that names none, which would otherwise admit any namespace.
+func TestAdmitsOnlyTheGrantsAgentNamespace(t *testing.T) {
+	signer := newSigner(t, issuer, audience)
+	admission, _, _ := newTestAdmission(t, signer)
+
+	admitted, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	require.NoError(t, err, "the grant's namespace admits")
+	require.Len(t, admitted.Providers, 1)
+
+	other := agent()
+	other.Namespace = "team-b"
+	without := workspaceGrant()
+	without.AgentNamespace = ""
+	unnamed := agent()
+	unnamed.Namespace = ""
+	for _, test := range []struct {
+		name  string
+		agent *apiv1alpha1.ResourceReference
+		grant grant.Grant
+	}{
+		{name: "an Agent of another namespace", agent: other, grant: workspaceGrant()},
+		{name: "a grant without the claim", agent: agent(), grant: without},
+		{name: "neither naming a namespace", agent: unnamed, grant: without},
+		{name: "no Agent", agent: nil, grant: workspaceGrant()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			admitted, err := admission.Admit(t.Context(), person, test.agent, workspaceSource(), sign(t, signer, person, test.grant, time.Minute))
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Admit() error = %v", err)
+			require.ErrorContains(t, err, "admission grant is for another namespace")
+			require.Equal(t, session.Admitted{}, admitted)
+		})
+	}
+}
+
 func TestRefusesATokenWithoutAVolumeSource(t *testing.T) {
 	signer := newSigner(t, issuer, audience)
 	admission, keys, _ := newTestAdmission(t, signer)
-	_, err := admission.Admit(t.Context(), person, nil, sign(t, signer, person, workspaceGrant(), time.Minute))
+	_, err := admission.Admit(t.Context(), person, agent(), nil, sign(t, signer, person, workspaceGrant(), time.Minute))
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), "Admit() error = %v", err)
 	require.Zero(t, keys.fetches, "nothing to admit needs no key")
 }
@@ -212,17 +254,17 @@ func TestRefusesATokenWithoutAVolumeSource(t *testing.T) {
 func TestAcceptsARotatedKeyWithoutARestart(t *testing.T) {
 	before := newSigner(t, issuer, audience)
 	admission, keys, at := newTestAdmission(t, before)
-	_, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, before, person, workspaceGrant(), time.Minute))
+	_, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, before, person, workspaceGrant(), time.Minute))
 	require.NoError(t, err)
 
 	after := newSigner(t, issuer, audience)
 	keys.publish(after)
 	at.advance(refreshInterval)
-	_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, after, person, workspaceGrant(), time.Minute))
+	_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, after, person, workspaceGrant(), time.Minute))
 	require.NoError(t, err, "the rotated key admits")
 	require.Equal(t, 2, keys.fetches)
 
-	_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, before, person, workspaceGrant(), time.Minute))
+	_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, before, person, workspaceGrant(), time.Minute))
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Admit() error = %v", err)
 	require.ErrorContains(t, err, "unknown key")
 }
@@ -232,7 +274,7 @@ func TestUnknownKeysDoNotHammerTheIssuer(t *testing.T) {
 	signer := newSigner(t, issuer, audience)
 	admission, keys, _ := newTestAdmission(t, signer)
 	for range 5 {
-		_, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, newSigner(t, issuer, audience), person, workspaceGrant(), time.Minute))
+		_, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, newSigner(t, issuer, audience), person, workspaceGrant(), time.Minute))
 		require.ErrorContains(t, err, "unknown key")
 	}
 	require.Equal(t, 1, keys.fetches)
@@ -243,7 +285,7 @@ func TestAnUnreachableJWKSIsUnavailable(t *testing.T) {
 		signer := newSigner(t, issuer, audience)
 		admission, keys, _ := newTestAdmission(t, signer)
 		keys.takeDown()
-		_, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		_, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "Admit() error = %v, want Unavailable", err)
 		require.False(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
 		require.ErrorContains(t, err, "admission grant keys are unavailable")
@@ -254,7 +296,7 @@ func TestAnUnreachableJWKSIsUnavailable(t *testing.T) {
 		admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience}, nil)
 		require.NoError(t, err)
 		signer := newSigner(t, issuer, audience)
-		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "Admit() error = %v, want Unavailable", err)
 	})
 	t.Run("no answer", func(t *testing.T) {
@@ -265,20 +307,20 @@ func TestAnUnreachableJWKSIsUnavailable(t *testing.T) {
 		admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, AllowHTTP: true, Issuer: issuer, Audience: audience}, &http.Client{Timeout: 50 * time.Millisecond})
 		require.NoError(t, err)
 		signer := newSigner(t, issuer, audience)
-		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "Admit() error = %v, want Unavailable", err)
 		require.NotErrorIs(t, err, context.DeadlineExceeded, "the caller's deadline did not pass")
 	})
 	t.Run("fresh keys still admit, stale keys do not", func(t *testing.T) {
 		signer := newSigner(t, issuer, audience)
 		admission, keys, at := newTestAdmission(t, signer)
-		_, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		_, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.NoError(t, err)
 		keys.takeDown()
-		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.NoError(t, err, "keys fetched within keysMaxAge admit while the issuer is down")
 		at.advance(keysMaxAge)
-		_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+		_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnavailable), "Admit() error = %v, want Unavailable", err)
 	})
 }
@@ -319,7 +361,7 @@ func TestNewRequiresHTTPSUnlessHTTPIsAllowed(t *testing.T) {
 func TestRefusedAdmitsNothing(t *testing.T) {
 	signer := newSigner(t, issuer, audience)
 	cause := fmt.Errorf("JWKS URL is plain http: %w", ErrPlainHTTP)
-	_, err := Refused{Cause: cause}.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	_, err := Refused{Cause: cause}.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 	require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(err))
 	require.ErrorIs(t, err, ErrPlainHTTP)
 }
@@ -334,7 +376,7 @@ func TestAdmitsOverHTTPWhenAllowed(t *testing.T) {
 	t.Cleanup(server.Close)
 	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, AllowHTTP: true, Issuer: issuer, Audience: audience}, server.Client())
 	require.NoError(t, err)
-	_, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 	require.NoError(t, err)
 }
 
@@ -360,13 +402,13 @@ func TestRefusesAGrantNamingAnUnknownBroker(t *testing.T) {
 	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, Brokers: []string{"workspaces"}}, server.Client())
 	require.NoError(t, err)
 
-	admitted, err := admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
+	admitted, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, workspaceGrant(), time.Minute))
 	require.NoError(t, err)
 	require.Len(t, admitted.Providers, 1)
 
 	unknown := workspaceGrant()
 	unknown.Providers = append(unknown.Providers, grant.Provider{Hostname: "api.github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "elsewhere"})
-	admitted, err = admission.Admit(t.Context(), person, workspaceSource(), sign(t, signer, person, unknown, time.Minute))
+	admitted, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), sign(t, signer, person, unknown, time.Minute))
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Admit() error = %v", err)
 	require.ErrorContains(t, err, `admission grant names an unknown broker "elsewhere"`)
 	require.Equal(t, session.Admitted{}, admitted)

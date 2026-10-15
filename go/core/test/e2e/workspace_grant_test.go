@@ -120,13 +120,14 @@ func createWhenGone(ctx context.Context, kube ctrlclient.Client, object ctrlclie
 }
 
 // workspaceGrant signs a grant admitting the e2e caller to the fixture's
-// volume with the workspace layout's mounts.
+// volume with the workspace layout's mounts, on the Agents of namespace kagent.
 func (f *workspaceFixture) workspaceGrant(t *testing.T) string {
 	t.Helper()
 	token, err := workspaceGrantSigner(t).SignGrant(workspaceGrantSubject, grant.Grant{
-		Volume:  grant.Volume{Driver: f.Volume.Driver, Handle: f.Volume.Handle},
-		Mounts:  []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
-		Changed: f.Changed,
+		AgentNamespace: "kagent",
+		Volume:         grant.Volume{Driver: f.Volume.Driver, Handle: f.Volume.Handle},
+		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
+		Changed:        f.Changed,
 	}, workspaceGrantTTL)
 	require.NoError(t, err)
 	return token
