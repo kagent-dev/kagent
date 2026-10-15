@@ -75,7 +75,7 @@ func (g *Generator) GenerateTool(projectRoot string, config mcp.ToolConfig) erro
 
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("1. Edit src/main/java/com/example/tools/%s.java to implement your tool logic\n", toolNamePascalCase)
-	fmt.Printf("2. Configure any required environment variables in kmcp.yaml\n")
+	fmt.Printf("2. Configure any required environment variables in your shell or deployment\n")
 	fmt.Printf("3. Run 'mvn clean install' to build the project\n")
 	fmt.Printf("4. Run 'mvn exec:java -Dexec.mainClass=\"com.example.Main\"' to start the server\n")
 

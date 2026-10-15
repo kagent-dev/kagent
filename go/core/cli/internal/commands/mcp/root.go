@@ -20,7 +20,6 @@ Model Context Protocol servers with dynamic tool loading.`,
 
 	mcpCmd.AddCommand(newInitCmd())
 	mcpCmd.AddCommand(newBuildCmd())
-	mcpCmd.AddCommand(newDeployCmd())
 	mcpCmd.AddCommand(newAddToolCmd())
 	mcpCmd.AddCommand(newRunCmd())
 	mcpCmd.AddCommand(newSecretsCmd())
@@ -192,116 +191,6 @@ Examples:
 		"Name of the kind cluster to load image into (default: current cluster)")
 	cmd.Flags().StringVarP(&cfg.ProjectDir, "project-dir", "d", "", "Build directory (default: current directory)")
 	cmd.Flags().StringVar(&cfg.Platform, "platform", "", "Target platform (e.g., linux/amd64,linux/arm64)")
-
-	return cmd
-}
-
-func newDeployCmd() *cobra.Command {
-	cfg := &DeployCfg{}
-
-	currentNamespace := GetCurrentNamespace()
-
-	cmd := &cobra.Command{
-		Use:   "deploy",
-		Short: "Deploy MCP server to Kubernetes",
-		Long: `Deploy an MCP server to Kubernetes by generating MCPServer CRDs.
-
-This command generates MCPServer Custom Resource Definitions (CRDs) based on:
-- Project configuration from manifest.yaml
-- Docker image built with 'kagent mcp build --docker'
-- Deployment configuration options
-
-The generated MCPServer will include:
-- Docker image reference from the build
-- Transport configuration (stdio/http)
-- Port and command configuration
-- Environment variables and secrets
-
-The command can also apply Kubernetes secret YAML files to the cluster before deploying the MCPServer.
-The secrets will be referenced in the MCPServer CRD for mounting as volumes to the MCP server container.
-Secret namespace will be overridden with the deployment namespace to avoid the need for reference grants
-to enable cross-namespace references.
-
-Examples:
-  kagent mcp deploy                               # Deploy with project name to cluster
-  kagent mcp deploy my-server                     # Deploy with custom name
-  kagent mcp deploy --namespace staging           # Deploy to staging namespace
-  kagent mcp deploy --dry-run                     # Generate manifest without applying to cluster
-  kagent mcp deploy --image custom:tag            # Use custom image
-  kagent mcp deploy --transport http              # Use HTTP transport
-  kagent mcp deploy --output deploy.yaml          # Save to file
-  kagent mcp deploy --file /path/to/manifest.yaml # Use custom manifest.yaml file
-  kagent mcp deploy --environment staging         # Target environment for deployment (e.g., staging, production)`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := setVerbose(cmd, &cfg.Verbose); err != nil {
-				return err
-			}
-			return DeployMcp(cfg)
-		},
-	}
-
-	cmd.Flags().StringVarP(&cfg.Namespace, "namespace", "n", currentNamespace, "Kubernetes namespace")
-	cmd.Flags().BoolVar(&cfg.DryRun, "dry-run", false, "Generate manifest without applying to cluster")
-	cmd.Flags().StringVarP(&cfg.Output, "output", "", "", "Output file for the generated YAML")
-	cmd.Flags().StringVar(&cfg.Image, "image", "", "Docker image to deploy (overrides build image)")
-	cmd.Flags().StringVar(&cfg.Transport, "transport", "", "Transport type (stdio, http)")
-	cmd.Flags().IntVar(&cfg.Port, "port", 0, "Container port (default: from project config)")
-	cmd.Flags().StringVar(&cfg.Command, "command", "", "Command to run (overrides project config)")
-	cmd.Flags().StringSliceVar(&cfg.Args, "args", []string{}, "Command arguments")
-	cmd.Flags().StringSliceVar(&cfg.Env, "env", []string{}, "Environment variables (KEY=VALUE)")
-	cmd.Flags().BoolVar(&cfg.Force, "force", false, "Force deployment even if validation fails")
-	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Path to manifest.yaml file (default: current directory)")
-	cmd.Flags().BoolVar(&cfg.NoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
-	cmd.Flags().StringVar(&cfg.Environment, "environment", "staging",
-		"Target environment for deployment (e.g., staging, production)")
-
-	// Package subcommand
-	packageCfg := &DeployCfg{}
-	packageCmd := &cobra.Command{
-		Use:   "package",
-		Short: "Deploy an MCP server using a package manager (npx, uvx)",
-		Long: `Deploy an MCP server using a package manager to run Model Context Protocol servers.
-
-This subcommand creates an MCPServer Custom Resource Definition (CRD) that runs
-an MCP server using npx (for npm packages) or uvx (for Python packages).
-
-The deployment name, manager, and args are required. The package manager must be either 'npx' or 'uvx'.
-
-Examples:
-  kagent mcp deploy package --deployment-name github-server --manager npx --args @modelcontextprotocol/server-github                             # Deploy GitHub MCP server
-  kagent mcp deploy package --deployment-name github-server --manager npx --args @modelcontextprotocol/server-github  --dry-run                  # Print YAML without deploying
-  kagent mcp deploy package --deployment-name my-server --manager npx --args my-package --env "KEY1=value1,KEY2=value2"                          # Set environment variables
-  kagent mcp deploy package --deployment-name github-server --manager npx --args @modelcontextprotocol/server-github  --secrets secret1,secret2  # Mount Kubernetes secrets
-  kagent mcp deploy package --deployment-name my-server --manager npx --args my-package --no-inspector                                           # Deploy without starting inspector
-  kagent mcp deploy package --deployment-name my-server --manager uvx --args mcp-server-git                                                      # Use UV and write managed tools and installables to /tmp directories`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := setVerbose(cmd, &packageCfg.Verbose); err != nil {
-				return err
-			}
-			return PackageDeployMcp(packageCfg)
-		},
-	}
-
-	packageCmd.Flags().StringVar(&packageCfg.PackageName, "deployment-name", "", "Name for the deployment (required)")
-	packageCmd.Flags().StringVar(&packageCfg.PackageManager, "manager", "", "Package manager to use (npx or uvx) (required)")
-	packageCmd.Flags().StringSliceVar(&packageCfg.PackageSecrets, "secrets", []string{}, "List of Kubernetes secret names to mount")
-	packageCmd.Flags().StringSliceVar(&packageCfg.Args, "args", []string{}, "Arguments to pass to the package manager (e.g., package names) (required)")
-	packageCmd.Flags().StringSliceVar(&packageCfg.Env, "env", []string{}, "Environment variables (KEY=VALUE)")
-	packageCmd.Flags().BoolVar(&packageCfg.DryRun, "dry-run", false, "Generate manifest without applying to cluster")
-	packageCmd.Flags().StringVarP(&packageCfg.Namespace, "namespace", "n", "", "Kubernetes namespace")
-	packageCmd.Flags().StringVar(&packageCfg.Image, "image", "", "Docker image to deploy (overrides default)")
-	packageCmd.Flags().StringVar(&packageCfg.Transport, "transport", "", "Transport type (stdio, http)")
-	packageCmd.Flags().IntVar(&packageCfg.Port, "port", 0, "Container port (default: 3000)")
-	packageCmd.Flags().BoolVar(&packageCfg.NoInspector, "no-inspector", true, "Do not start the MCP inspector after deployment")
-	packageCmd.Flags().StringVarP(&packageCfg.Output, "output", "", "", "Output file for the generated YAML")
-
-	_ = packageCmd.MarkFlagRequired("deployment-name")
-	_ = packageCmd.MarkFlagRequired("manager")
-	_ = packageCmd.MarkFlagRequired("args")
-
-	cmd.AddCommand(packageCmd)
 
 	return cmd
 }

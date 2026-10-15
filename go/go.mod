@@ -34,7 +34,6 @@ require (
 	github.com/improbable-eng/grpc-web v0.15.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/kagent-dev/kmcp v0.4.0
 	github.com/kagent-dev/mockllm v0.1.0
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
 	github.com/modelcontextprotocol/go-sdk v1.8.0

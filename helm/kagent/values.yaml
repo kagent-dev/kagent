@@ -23,7 +23,7 @@ global:
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
   # grafana-mcp, substrateWorkerPool.workerImage, and built-in Harness images
   # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
-  # (kagent-tools, kmcp) adopt it when their pinned versions bump.
+  # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
   # pod's own imagePullSecrets, so a local secret is never removed. Coverage
@@ -705,16 +705,6 @@ providers:
     # apiKey: ""
 
 # ==============================================================================
-# KMCP
-# ==============================================================================
-
-kmcp:
-  enabled: true
-  nameOverride: "kmcp"
-  fullnameOverride: "" # Override if desired
-  namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
-
-# ==============================================================================
 # BUILT-IN TOOLS
 # ==============================================================================
 
@@ -764,7 +754,7 @@ kagent-tools:
 # This proxy applies to all internally-built k8s URLs:
 # - Agents as tools (agent -> agent traffic)
 # - Services as MCP Tools
-# - MCPServer resources and RemoteMCPServer resources with internal k8s URLs
+# - RemoteMCPServer resources with internal k8s URLs
 # Set this once and the controller will apply it to all agents automatically
 # Note: RemoteMCPServer resources use user-supplied URLs and do not use this proxy unless the URL is an internal k8s URL.
 proxy:

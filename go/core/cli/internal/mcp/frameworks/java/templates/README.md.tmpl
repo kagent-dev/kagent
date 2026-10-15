@@ -19,7 +19,6 @@ This is a Model Context Protocol (MCP) server built with Java. It provides tools
 - ✅ Project scaffolding and tool generation work
 - ✅ Maven build and packaging work
 - ✅ Docker containerization works
-- ✅ KMCP CLI integration works
 - ✅ Official MCP SDK integration (version 0.11.3)
 - ✅ Dynamic tool loading and registration
 - ✅ Input schema support for tools
@@ -190,17 +189,16 @@ mvn test
 
 ## Deployment
 
-### Local Deployment
+### Local container
 
 ```bash
-kagent mcp deploy
+docker build -t {{.ProjectName}}:latest .
+docker run --rm -i {{.ProjectName}}:latest
 ```
 
-### Kubernetes Deployment
-
-```bash
-kagent mcp deploy --namespace production
-```
+The generated Java server uses stdio MCP transport. To register it with kagent,
+deploy it behind an MCP-compatible HTTP bridge and create a `RemoteMCPServer`
+for that endpoint.
 
 ## Contributing
 

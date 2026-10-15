@@ -40,11 +40,11 @@ tests/                  # Generated tests
    # Stdio mode (default MCP transport)
    uv run python src/main.py
    
-   # HTTP mode with WebSocket MCP endpoint
-   uv run python src/main.py --http
-   
+   # Streamable HTTP mode
+   uv run python src/main.py --transport http
+
    # HTTP mode with custom host/port
-   uv run python src/main.py --http --host 0.0.0.0 --port 8080
+   uv run python src/main.py --transport http --host 0.0.0.0 --port 8080
    ```
 
 3. **Using uv Scripts**:
@@ -80,12 +80,7 @@ tests/                  # Generated tests
    docker run -i {{.ProjectName}}:latest
    ```
 
-3. **Deploy to Kubernetes**:
-   ```bash
-   kagent mcp deploy mcp --apply
-   ```
-
-4. **Add New Tools**:
+3. **Add New Tools**:
    ```bash
    # Create a new tool
    kagent mcp add-tool weather
@@ -102,13 +97,13 @@ The server supports running in HTTP mode for development and integration purpose
 
 ```bash
 # Command line flag
-python src/main.py --http
+python src/main.py --transport http
 
 # Environment variable
 MCP_TRANSPORT_MODE=http python src/main.py
 
 # Custom host and port
-python src/main.py --http --host localhost --port 8080
+python src/main.py --transport http --host localhost --port 8080
 ```
 
 ## Creating Tools
@@ -210,12 +205,10 @@ kagent mcp build
 docker run -i {{.ProjectName}}:latest
 ```
 
-### Kubernetes
+Deploy the image on your container platform, expose its HTTP MCP endpoint, and
+register that endpoint in kagent with a `RemoteMCPServer`.
 
 ```bash
-# Deploy to Kubernetes
-kagent mcp deploy mcp --apply
-
-# Check deployment status
-kubectl get mcpserver {{.ProjectName}}
+docker run --rm -p 3000:3000 {{.ProjectName}}:latest \
+  python src/main.py --transport http --host 0.0.0.0 --port 3000
 ```

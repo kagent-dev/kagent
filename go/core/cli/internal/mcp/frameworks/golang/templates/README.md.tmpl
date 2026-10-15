@@ -33,15 +33,14 @@ kagent mcp build
 
 This will create an image named `{{.ProjectName}}:latest`.
 
-### Deploying to Kubernetes
+### Deploying
 
-To deploy the MCP server to Kubernetes, first ensure you have a running cluster and `kubectl` is configured. Then, run:
+Deploy the built image on your container platform, expose its HTTP MCP endpoint,
+and register that endpoint in kagent with a `RemoteMCPServer`.
 
 ```bash
-kagent mcp deploy mcp
+docker run --rm -p 8080:8080 {{.ProjectName}}:latest --http :8080
 ```
-
-This will create an `MCPServer` custom resource in the `default` namespace.
 
 ## 🛠️ Adding a New Tool
 
@@ -51,4 +50,4 @@ To add a new tool to your project, use the `kagent mcp add-tool` command:
 kagent mcp add-tool <tool-name>
 ```
 
-This will generate a new Go file in the `tools/` directory with a template for your new tool. You will need to add the new tool to the `main.go` file. 
+This will generate a new Go file in the `tools/` directory with a template for your new tool. You will need to add the new tool to the `main.go` file.

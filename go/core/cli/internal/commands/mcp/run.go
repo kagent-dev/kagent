@@ -9,6 +9,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/manifests"
 )
 
+const transportHTTP = "http"
+
 // RunCfg contains configuration for MCP run command
 type RunCfg struct {
 	ProjectDir  string

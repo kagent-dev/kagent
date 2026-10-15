@@ -170,8 +170,6 @@ jobs:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
           ui:
             replicas: 0
-          kmcp:
-            enabled: false
           kagent-tools:
             enabled: false
           grafana-mcp:

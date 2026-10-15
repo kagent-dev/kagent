@@ -513,11 +513,11 @@ on(ToolService.method.createToolServer, (input) => {
     input.resource,
     "tool server",
   );
-  saveToolServer(input.type, server.metadata);
+  saveToolServer(server.metadata);
   // The RPC answers with the created resource rather than with a list row, which
   // is what the client assembles the row from.
   return {
-    resource: structured(input.type, server, input.type === "MCPServer" ? "kagent.dev/v1alpha1" : undefined),
+    resource: structured(input.type, server),
   };
 });
 

@@ -312,7 +312,7 @@ All new CRD API surface goes in `v1alpha3`.
 - Ownership rules:
   - A controller **MUST NOT** modify (patch, annotate, update status of,
     delete) resources it does not own — including resources owned by other
-    controllers (e.g. kmcp) and user-created resources such as secrets.
+    controllers and user-created resources such as secrets.
   - Secondary resources the controller creates **MUST** carry
     `OwnerReferences` (`controllerutil.SetControllerReference`) so they are
     garbage-collected with the parent. Use finalizers when cleanup involves

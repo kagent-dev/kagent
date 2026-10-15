@@ -192,7 +192,7 @@ export const mockProviders: Provider[] = [
 export const mockMcpServers: ToolServerResponse[] = [
   {
     ref: "kagent/kagent-tool-server",
-    groupKind: "MCPServer.kagent.dev",
+    groupKind: "RemoteMCPServer.api.kagent.dev",
     discoveredTools: [
       { name: "k8s_get_pods", description: "List pods in a namespace." },
       { name: "k8s_describe_resource", description: "Describe any cluster resource." },
