@@ -23,7 +23,10 @@ branch=fork-ledger/releases-${version}
 title="docs(fork): the Releases table carries ${version}"
 here=$(cd "$(dirname "$0")" && pwd)
 
-open=$(gh pr list --repo "$repo" --head "$branch" --state open --json url --jq '.[0].url // empty')
+# Only a pull request from this repository's own branch counts: a fork's
+# branch of the same name proposes nothing the pipeline wrote.
+open=$(gh pr list --repo "$repo" --head "$branch" --state open --json url,isCrossRepository \
+  --jq '[.[] | select(.isCrossRepository == false)][0].url // empty')
 if [ -n "$open" ]; then
   echo "the row of ${version} is proposed in ${open}"
   exit 0
