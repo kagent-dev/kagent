@@ -127,15 +127,83 @@ tests:
       - failedTemplate:
           errorPattern: 'harnesses\[1\]: a Harness named "claude" is already rendered'
 
+  - it: should render a codex Harness on the chart's Codex image at its digest
+    set:
+      runtimeImages.codexHarness.digest: "sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+      harnesses:
+        - name: codex
+          runtime: codex
+          snapshotLocation: s3://snapshots/codex
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: codex
+      - equal:
+          path: spec.codex
+          value: {}
+      - notExists:
+          path: spec.claude
+      - notExists:
+          path: spec.kagent
+      - equal:
+          path: spec.workload.image
+          value: ghcr.io/kagent-dev/kagent/codex-harness@sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd
+      - equal:
+          path: spec.substrate.workerPoolRef.name
+          value: kagent-default
+      - equal:
+          path: spec.substrate.snapshotPolicy.location
+          value: s3://snapshots/codex
+
+  - it: should render a codex entry on its own image
+    set:
+      harnesses:
+        - name: codex-go
+          runtime: codex
+          image: example.com/codex-go@sha256:2222222222222222222222222222222222222222222222222222222222222222
+          snapshotLocation: s3://snapshots/codex-go
+    asserts:
+      - equal:
+          path: spec.codex
+          value: {}
+      - equal:
+          path: spec.workload.image
+          value: example.com/codex-go@sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+  - it: should fail without a digest for the chart's Codex image
+    set:
+      harnesses:
+        - name: codex
+          runtime: codex
+          snapshotLocation: s3://snapshots/codex
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\] \(codex\) needs its runtime image.s digest: set runtimeImages.codexHarness.digest'
+
+  - it: should fail on compaction for a codex entry
+    set:
+      runtimeImages.codexHarness.digest: "sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+      harnesses:
+        - name: codex
+          runtime: codex
+          snapshotLocation: s3://snapshots/codex
+          compaction:
+            tokenThreshold: 600000
+    asserts:
+      - failedTemplate:
+          errorPattern: 'harnesses\[0\].compaction: the codex runtime has no compaction setting'
+
   - it: should fail on an unknown runtime
     set:
       harnesses:
         - name: x
-          runtime: codex
+          runtime: omp
           snapshotLocation: s3://snapshots/x
     asserts:
       - failedTemplate:
-          errorPattern: 'harnesses\[0\].runtime "codex": claude or kagent'
+          errorPattern: 'harnesses\[0\].runtime "omp": claude, codex or kagent'
 
   - it: should fail on a tag instead of a digest
     set:

@@ -1,7 +1,8 @@
 {{- /*
 Further Harnesses beside the chart's own (harness.yaml), one per entry of
-`harnesses`: a coding Harness on the chart's claude-harness image, a
-toolchain Harness on an image built from it, or another Go ADK Harness. Each
+`harnesses`: a coding Harness on the chart's claude-harness or codex-harness
+image, a toolchain Harness on an image built from one, or another Go ADK
+Harness. Each
 entry has the policy shape of harness.*: a WorkerPool, a snapshot location,
 an environment. An Agent names the Harness it runs
 on by spec.harnessRef.name, so the names of the entries and of the chart's own
@@ -22,15 +23,16 @@ deletes its Harness on the next upgrade.
 {{- end }}
 {{- $_ := set $names $name true }}
 {{- $runtime := $entry.runtime | default "claude" }}
-{{- if not (has $runtime (list "claude" "kagent")) }}
-{{- fail (printf "%s.runtime %q: claude or kagent" $key $runtime) }}
+{{- $digestKeys := dict "claude" "runtimeImages.claudeHarness.digest" "codex" "runtimeImages.codexHarness.digest" "kagent" "controller.agentImage.digest" }}
+{{- if not (hasKey $digestKeys $runtime) }}
+{{- fail (printf "%s.runtime %q: claude, codex or kagent" $key $runtime) }}
 {{- end }}
-{{- if and (eq $runtime "claude") $entry.compaction }}
-{{- fail (printf "%s.compaction: the claude runtime has no compaction setting (Harness.spec.kagent.compaction is the Go ADK's)" $key) }}
+{{- if and (ne $runtime "kagent") $entry.compaction }}
+{{- fail (printf "%s.compaction: the %s runtime has no compaction setting (Harness.spec.kagent.compaction is the Go ADK's)" $key $runtime) }}
 {{- end }}
 {{- $image := include "kagent.harnesses.image" (dict "root" $root "entry" $entry) }}
 {{- if not $image }}
-{{- fail (printf "%s (%s) needs its runtime image's digest: set %s (sha256:<64 hex digits>; a published chart carries it) or %s.image (<repository>@sha256:<64 hex digits>)" $key $name (ternary "runtimeImages.claudeHarness.digest" "controller.agentImage.digest" (eq $runtime "claude")) $key) }}
+{{- fail (printf "%s (%s) needs its runtime image's digest: set %s (sha256:<64 hex digits>; a published chart carries it) or %s.image (<repository>@sha256:<64 hex digits>)" $key $name (get $digestKeys $runtime) $key) }}
 {{- end }}
 {{- if not (regexMatch "^[^[:space:]@]+@sha256:[a-f0-9]{64}$" $image) }}
 {{- fail (printf "%s image %q: a Harness pins its runtime image by digest (<repository>@sha256:<64 hex digits>); a tag is not accepted" $key $image) }}
@@ -49,6 +51,8 @@ metadata:
 spec:
   {{- if eq $runtime "claude" }}
   claude: {}
+  {{- else if eq $runtime "codex" }}
+  codex: {}
   {{- else }}
   {{- with $entry.compaction }}
   kagent:

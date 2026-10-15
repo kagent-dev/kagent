@@ -86,3 +86,31 @@ tests:
                 - ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
                 - ghcr.io/kagent-dev/kagent/claude-harness@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
                 - example.com/harness-go@sha256:1111111111111111111111111111111111111111111111111111111111111111
+
+  - it: should leave the Codex image out until an entry runs it
+    set:
+      runtimeImages.codexHarness.digest: "sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    asserts:
+      - notMatchRegex:
+          path: data["substrate-values.yaml"]
+          pattern: codex-harness
+
+  - it: should list the Codex image at its digest once a codex entry is enabled
+    set:
+      controller.agentImage.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      runtimeImages.claudeHarness.digest: "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+      runtimeImages.codexHarness.digest: "sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+      harnesses:
+        - name: codex
+          runtime: codex
+          snapshotLocation: s3://snapshots/codex
+    asserts:
+      - equal:
+          path: data["substrate-values.yaml"]
+          value: |
+            atelet:
+              imageCache:
+                pinnedImages:
+                - ghcr.io/kagent-dev/kagent/golang-adk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+                - ghcr.io/kagent-dev/kagent/claude-harness@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+                - ghcr.io/kagent-dev/kagent/codex-harness@sha256:abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd

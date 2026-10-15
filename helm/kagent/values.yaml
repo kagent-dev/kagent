@@ -548,16 +548,18 @@ harness:
   compaction: {}
 
 # -- Further Harnesses beside the chart's own (harness.*), one entry each: a
-# coding Harness on the chart's claude-harness image, a toolchain Harness on an
-# image built from it, or another Go ADK Harness. Empty by default. Each entry
-# takes the keys of harness.* (name, image, workerPoolRef, snapshotLocation,
-# env, compaction for a kagent runtime) plus `runtime`: `claude` (the
-# default; image empty selects the chart's Claude image,
-# runtimeImages.claudeHarness at its digest) or `kagent` (image empty selects
-# the chart's Go ADK image). The digest rules of harness.* apply per entry. An
-# Agent names the Harness it runs on (spec.harnessRef.name), so every name must
-# differ from the chart's own Harness and from the other entries; the render
-# fails on a repeat. compaction on a claude entry fails the render. `limits`
+# coding Harness on the chart's claude-harness or codex-harness image, a
+# toolchain Harness on an image built from one, or another Go ADK Harness.
+# Empty by default. Each entry takes the keys of harness.* (name, image,
+# workerPoolRef, snapshotLocation, env, compaction for a kagent runtime) plus
+# `runtime`: `claude` (the default; image empty selects the chart's Claude
+# image, runtimeImages.claudeHarness at its digest), `codex` (image empty
+# selects runtimeImages.codexHarness at its digest) or `kagent` (image empty
+# selects the chart's Go ADK image). The digest rules of harness.* apply per
+# entry. An Agent names the Harness it runs on (spec.harnessRef.name), so every
+# name must differ from the chart's own Harness and from the other entries; the
+# render fails on a repeat. compaction on a claude or codex entry fails the
+# render. `limits`
 # on an entry is ignored: the Harness API has no turn limits, and the key
 # can leave a release's values after the release runs this chart. Each
 # entry's image is listed in the `<fullname>-images` ConfigMap.
@@ -580,7 +582,9 @@ harnesses: []
 # the ConfigMap `<fullname>-images` (in the release namespace) as a values
 # fragment for Agent Substrate's image cache (`atelet.imageCache.pinnedImages`),
 # so worker nodes pre-pull the images agents run on: the image the chart's
-# Harness runs and the ones below. An image without a digest is left out; a
+# Harness runs, the Claude image below and the image of every harnesses[]
+# entry (the Codex image only when an entry runs it). An image without a
+# digest is left out; a
 # published chart carries the digests of its build. The ConfigMap is labelled
 # `reconcile.fluxcd.io/watch: Enabled`, so a Flux HelmRelease that reads it
 # through valuesFrom follows a changed image reference at once.
@@ -589,6 +593,12 @@ runtimeImages:
   claudeHarness:
     registry: ""
     repository: kagent-dev/kagent/claude-harness
+    digest: ""
+  # -- The Codex runtime image (the `codex` Harness adapter), the image of a
+  # harnesses[] entry with `runtime: codex` and no image of its own.
+  codexHarness:
+    registry: ""
+    repository: kagent-dev/kagent/codex-harness
     digest: ""
 
 # ==============================================================================
