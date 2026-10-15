@@ -289,7 +289,10 @@ constraints. Unrelated files outside the selected package are ignored. It copies
 selected standalone and Agent Plugins skills to the harness's existing discovery
 directory: `/skills` for Go ADK,
 `/data/codex/skills` for Codex, and `/data/generated/claude/.claude/skills` for
-Claude. Unselected Agent Plugins skills are not installed. Claude-format plugin
+Claude. Claude loads these selected skills through a generated `kagent-skills`
+plugin passed with `--plugin-dir`; `--add-dir` discovery is disabled by the
+harness's `--setting-sources` policy. Unselected Agent Plugins skills are not
+installed. Claude-format plugin
 roots can use the mounted directory directly. Mounted sources do not use the
 download cache or fall back to an in-runtime OCI pull.
 

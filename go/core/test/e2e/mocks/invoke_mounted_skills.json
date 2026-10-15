@@ -154,8 +154,8 @@
             "type": "function_call",
             "status": "completed",
             "call_id": "call_load_standalone_PHASE",
-            "name": "shell_command",
-            "arguments": "{\"command\": \"cat ROOT/standalone/SKILL.md\"}"
+            "name": "exec_command",
+            "arguments": "{\"cmd\": \"cat ROOT/standalone/SKILL.md\"}"
           }
         ],
         "parallel_tool_calls": false,
@@ -171,7 +171,7 @@
       "name": "skill_PHASE_load_selected",
       "match": {
         "match_type": "contains",
-        "input": "call_load_standalone_PHASE"
+        "input": "SKILL_BODY_STANDALONE"
       },
       "response": {
         "id": "skill_PHASE_load_selected",
@@ -184,8 +184,8 @@
             "type": "function_call",
             "status": "completed",
             "call_id": "call_load_selected_PHASE",
-            "name": "shell_command",
-            "arguments": "{\"command\": \"cat ROOT/selected/SKILL.md\"}"
+            "name": "exec_command",
+            "arguments": "{\"cmd\": \"cat ROOT/selected/SKILL.md\"}"
           }
         ],
         "parallel_tool_calls": false,
@@ -201,7 +201,7 @@
       "name": "skill_PHASE_execute",
       "match": {
         "match_type": "contains",
-        "input": "call_load_selected_PHASE"
+        "input": "SKILL_BODY_SELECTED"
       },
       "response": {
         "id": "skill_PHASE_execute",
@@ -214,8 +214,8 @@
             "type": "function_call",
             "status": "completed",
             "call_id": "call_skill_PHASE",
-            "name": "shell_command",
-            "arguments": "COMMAND_ARGUMENTS"
+            "name": "exec_command",
+            "arguments": "CODEX_COMMAND_ARGUMENTS"
           }
         ],
         "parallel_tool_calls": false,
@@ -231,7 +231,7 @@
       "name": "skill_PHASE_result",
       "match": {
         "match_type": "contains",
-        "input": "call_skill_PHASE"
+        "input": "mounted-standalone-volume-PHASE:mounted-standalone-PHASE:mounted-selected-PHASE"
       },
       "response": {
         "id": "skill_PHASE_result",

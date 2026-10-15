@@ -37,7 +37,6 @@ type ProcessConfig struct {
 	MCPConfigPath        string
 	SettingsPath         string
 	PermissionPromptTool string
-	SkillRoot            string
 	PluginDirs           []string
 	Environment          []string
 	MaxEventBytes        int
@@ -136,11 +135,6 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	}
 	if d.config.MCPConfigPath != "" {
 		args = append(args, "--mcp-config", d.config.MCPConfigPath)
-	}
-	if d.config.SkillRoot != "" {
-		// --add-dir exposes compiler-selected skills materialized beneath
-		// SkillRoot/.claude/skills.
-		args = append(args, "--add-dir", d.config.SkillRoot)
 	}
 	for _, dir := range d.config.PluginDirs {
 		args = append(args, "--plugin-dir", dir)

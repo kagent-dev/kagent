@@ -151,9 +151,15 @@ func startMountedSkillsMock(t *testing.T, root string) (*modelRecorder, func(str
 		require.NoError(t, err)
 		encodedArgs, err := json.Marshal(string(args))
 		require.NoError(t, err)
+		codexArgs, err := json.Marshal(struct {
+			Command string `json:"cmd"`
+		}{command})
+		require.NoError(t, err)
+		encodedCodexArgs, err := json.Marshal(string(codexArgs))
+		require.NoError(t, err)
 		encodedCommand, err := json.Marshal(command)
 		require.NoError(t, err)
-		data := strings.NewReplacer("PHASE", phase, "ROOT", root, `"COMMAND_ARGUMENTS"`, string(encodedArgs), `"COMMAND"`, string(encodedCommand)).Replace(string(fixture))
+		data := strings.NewReplacer("PHASE", phase, "ROOT", root, `"COMMAND_ARGUMENTS"`, string(encodedArgs), `"CODEX_COMMAND_ARGUMENTS"`, string(encodedCodexArgs), `"COMMAND"`, string(encodedCommand)).Replace(string(fixture))
 		var part mockllm.Config
 		require.NoError(t, json.Unmarshal([]byte(data), &part))
 		upstream, err := url.Parse(startMockLLMConfig(t, part))

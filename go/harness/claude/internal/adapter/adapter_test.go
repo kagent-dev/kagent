@@ -73,6 +73,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	for path, want := range map[string]string{
 		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
+		filepath.Join(skillRoot, ".claude-plugin", "plugin.json"):           `{"name":"kagent-skills","skills":"./.claude/skills/"}`,
 	} {
 		contents, err := os.ReadFile(path)
 		if err != nil || string(contents) != want {
@@ -93,7 +94,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	if len(mcpConfig.Servers) != 2 || mcpConfig.Servers["tools"].URL != "https://mcp.example.com/mcp" || mcpConfig.Servers[approvalMCPServerName].URL == "" {
 		t.Fatalf("invalid MCP configuration")
 	}
-	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
+	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--plugin-dir\n"+skillRoot) {
 		t.Fatalf("arguments do not expose materialized skills: %s", args)
 	}
 }
