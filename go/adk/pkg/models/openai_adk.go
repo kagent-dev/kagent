@@ -262,7 +262,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			if part == nil {
 				continue
 			}
-			if part.Text != "" {
+			if part.Text != "" && !part.Thought {
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
@@ -273,7 +273,8 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			}
 		}
 
-		if len(functionCalls) > 0 && (role == openAIRoleModel || role == openAIRoleAssistant) {
+		mistralContent := mistralAssistantContent(content.Parts)
+		if (len(functionCalls) > 0 || len(mistralContent) > 0) && (role == openAIRoleModel || role == openAIRoleAssistant) {
 			toolCalls := make([]openai.ChatCompletionMessageToolCallUnionParam, 0, len(functionCalls))
 			var toolResponseMessages []openai.ChatCompletionMessageParamUnion
 			for _, fc := range functionCalls {
@@ -313,7 +314,9 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 				Role:      constant.Assistant("assistant"),
 				ToolCalls: toolCalls,
 			}
-			if len(textParts) > 0 {
+			if len(mistralContent) > 0 {
+				asst.Content.OfArrayOfContentParts = mistralContent
+			} else if len(textParts) > 0 {
 				asst.Content.OfString = param.NewOpt(textContent)
 			}
 			messages = append(messages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
@@ -383,6 +386,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	stream := m.Client.Chat.Completions.NewStreaming(ctx, params, openAIPassthroughOpts(ctx, m)...)
 	defer stream.Close()
 
+	var aggregatedParts []*genai.Part
 	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
@@ -400,12 +404,27 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		}
 		choice := chunk.Choices[0]
 		delta := choice.Delta
-		if delta.Content != "" {
-			aggregatedText.WriteString(delta.Content)
+		parts, err := openAIContentToParts(delta.Content, delta.JSON.Content.Raw())
+		if err != nil {
+			yield(&model.LLMResponse{ErrorCode: openAIContentError, ErrorMessage: err.Error()}, nil)
+			return
+		}
+		for _, part := range parts {
+			if part.Thought {
+				if aggregatedText.Len() > 0 {
+					aggregatedParts = append(aggregatedParts, &genai.Part{Text: aggregatedText.String()})
+					aggregatedText.Reset()
+				}
+				aggregatedParts = append(aggregatedParts, part)
+			} else {
+				aggregatedText.WriteString(part.Text)
+			}
+		}
+		if len(parts) > 0 {
 			if !yield(&model.LLMResponse{
 				Partial:      true,
 				TurnComplete: choice.FinishReason != "",
-				Content:      &genai.Content{Role: string(genai.RoleModel), Parts: []*genai.Part{{Text: delta.Content}}},
+				Content:      &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 			}, nil) {
 				return
 			}
@@ -449,10 +468,9 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		indices = append(indices, k)
 	}
 	slices.Sort(indices)
-	finalParts := make([]*genai.Part, 0, 1+nToolCalls)
-	text := aggregatedText.String()
-	if text != "" {
-		finalParts = append(finalParts, &genai.Part{Text: text})
+	finalParts := aggregatedParts
+	if aggregatedText.Len() > 0 {
+		finalParts = append(finalParts, &genai.Part{Text: aggregatedText.String()})
 	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]
@@ -505,14 +523,9 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMResponse {
 	choice := completion.Choices[0]
 	msg := choice.Message
-	nParts := 0
-	if msg.Content != "" {
-		nParts++
-	}
-	nParts += len(msg.ToolCalls)
-	parts := make([]*genai.Part, 0, nParts)
-	if msg.Content != "" {
-		parts = append(parts, &genai.Part{Text: msg.Content})
+	parts, err := openAIContentToParts(msg.Content, msg.JSON.Content.Raw())
+	if err != nil {
+		return &model.LLMResponse{ErrorCode: openAIContentError, ErrorMessage: err.Error()}
 	}
 	for _, tc := range msg.ToolCalls {
 		if tc.Type == openAIToolTypeFunction && tc.Function.Name != "" {
