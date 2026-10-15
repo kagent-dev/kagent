@@ -93,7 +93,8 @@ The shared compiler builds a draft from model and MCP inputs. EgressPolicy
 grants are live authorization and stay out of the draft. The extension can only
 add bindings for eligible destinations in that draft. Core validates the result,
 preserves explicit authentication, and pins it in the revision. Nil adds no
-bindings.
+bindings. Secret-backed and extension bindings render the same SDK key and MCP
+header placeholders.
 
 References use `ate-secret://<provider>/<path>` with a lowercase, port-free
 provider name registered in Substrate. Arbitrary clients must send the bound

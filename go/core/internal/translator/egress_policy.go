@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func credentialOrigin(raw string) (string, error) {
@@ -106,7 +107,7 @@ func ResolvePolicy(input *HarnessInput, compiler HarnessCompiler, extension egre
 	}
 	result := ResolvedPolicy{
 		access: access, modelBindings: map[*ResolvedModelConfig]bool{}, secretModels: map[string]bool{},
-		secretMCP: secretMCPRefs(input.Root), headers: extensionHeaders(original, access),
+		secretMCP: secretMCPRefs(input.Root), headers: clientCredentialHeaders(original, access),
 	}
 	for _, model := range models {
 		if err := result.resolveModel(model, requirements[model].CredentialRequired); err != nil {
@@ -131,11 +132,15 @@ func secretMCPRefs(root *AgentInput) map[string]bool {
 	return refs
 }
 
-// extensionHeaders lists, by origin, the headers of bindings the extension added.
-func extensionHeaders(original egressext.PolicyDraft, access egress.Access) map[string][]string {
+// clientCredentialHeaders excludes origins that preserve explicit authentication.
+func clientCredentialHeaders(original egressext.PolicyDraft, access egress.Access) map[string][]string {
+	preserved := map[string]bool{}
+	for _, requirement := range original.Requirements {
+		preserved[requirement.Origin] = preserved[requirement.Origin] || requirement.Preserve
+	}
 	headers := map[string][]string{}
 	for _, binding := range access.Credentials {
-		if !slices.Contains(original.Credentials, egressext.Credential(binding)) {
+		if !preserved[binding.Origin] {
 			headers[binding.Origin] = append(headers[binding.Origin], binding.Header)
 		}
 	}
@@ -167,7 +172,7 @@ func (p *ResolvedPolicy) resolveModel(resolved *ResolvedModelConfig, required bo
 		}
 	case required && !bound:
 		return NewValidationError("model %q requires apiKeySecret or a resolved gateway credential for %s", resolved.Config.Name, origin)
-	// Optional SDK authentication keeps its default mode unless the extension adds a binding.
+	// Optional SDK authentication uses bindings only at unpreserved origins.
 	case bound && (required || slices.Contains(p.headers[origin], target.Header)):
 		p.modelBindings[resolved] = true
 		p.modelKeys = append(p.modelKeys, target.Environment)
@@ -218,7 +223,10 @@ func (b *draftBuilder) addModel(model *ResolvedModelConfig, harnessEnv []v1alpha
 	spec := model.Config.Spec
 	// A literal Harness value overrides the model Secret in the rendered environment.
 	literal := slices.ContainsFunc(harnessEnv, func(variable v1alpha3.RuntimeEnvVar) bool { return variable.Name == target.Environment })
-	preserve := literal || modelPreservesAuth(spec)
+	signing := spec.Provider == v1alpha3.ModelProviderBedrock && slices.ContainsFunc(harnessEnv, func(variable v1alpha3.RuntimeEnvVar) bool {
+		return variable.Name == env.AWSAccessKeyID.Name() || variable.Name == env.AWSSecretAccessKey.Name() || variable.Name == env.AWSSessionToken.Name()
+	})
+	preserve := literal || signing || modelPreservesAuth(spec)
 	origin, err := b.allowTarget(target.Endpoint, egressext.AuthenticationRequirement{
 		Header: target.Header, Prefix: target.Prefix, Preserve: preserve,
 		Required: requirements.CredentialRequired && spec.APIKeySecret == "" && !preserve,

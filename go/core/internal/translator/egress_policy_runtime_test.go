@@ -21,6 +21,7 @@ import (
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 )
@@ -391,5 +392,60 @@ func TestHarnessLiteralKeyOverridesModelSecretBinding(t *testing.T) {
 			require.Contains(t, result.Environment, corev1.EnvVar{Name: test.env, Value: "explicit"})
 			require.Empty(t, result.Credentials, "the gateway must not replace an explicit Harness key")
 		})
+	}
+}
+
+func TestHarnessBedrockSigningCredentialsPreserved(t *testing.T) {
+	for _, kind := range []translator.HarnessType{translator.HarnessTypeKagent, translator.HarnessTypeBYO} {
+		for _, test := range []struct {
+			name   string
+			env    []v1alpha3.RuntimeEnvVar
+			bearer bool
+		}{
+			{name: "signing pair", env: []v1alpha3.RuntimeEnvVar{{Name: env.AWSAccessKeyID.Name(), Value: "access"}, {Name: env.AWSSecretAccessKey.Name(), Value: "secret"}}},
+			{name: "empty access key", env: []v1alpha3.RuntimeEnvVar{{Name: env.AWSAccessKeyID.Name()}}},
+			{name: "empty secret key", env: []v1alpha3.RuntimeEnvVar{{Name: env.AWSSecretAccessKey.Name()}}},
+			{name: "empty session token", env: []v1alpha3.RuntimeEnvVar{{Name: env.AWSSessionToken.Name()}}},
+			{name: "bearer Secret and signing key", env: []v1alpha3.RuntimeEnvVar{{Name: env.AWSAccessKeyID.Name(), Value: "access"}}, bearer: true},
+		} {
+			t.Run(string(kind)+"/"+test.name, func(t *testing.T) {
+				harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+					Env: test.env, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+				}}
+				if kind == translator.HarnessTypeKagent {
+					harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+				} else {
+					harness.Spec.BYO = &v1alpha3.BYOHarness{}
+				}
+				model := modelConfig()
+				model.Spec = v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}
+				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{env.AWSBearerTokenBedrock.Name(): []byte("bearer")}}
+				if test.bearer {
+					model.Spec.APIKeySecret = secret.Name
+				}
+				template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+					ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help",
+				}}
+				collections := mockCollections(t, harness, model, secret, defaultWorkerPool())
+				ctx := krt.TestingDummyContext{}
+				compilers := map[translator.HarnessType]translator.HarnessCompiler{
+					translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+					translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+				}
+				result, err := translator.NewCompiler(ctx, collections, compilers, nil, defaultPolicyTranslator{uri: "ate-secret://provider.example/token"}).CompileAgent(t.Context(), inlineAgent(harness, template))
+				require.NoError(t, err)
+				for _, variable := range test.env {
+					require.Contains(t, result.Environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
+				}
+				if test.bearer {
+					require.Equal(t, []egress.Credential{{Origin: "https://bedrock-runtime.us-east-1.amazonaws.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/test/model-auth/AWS_BEARER_TOKEN_BEDROCK"}}, result.Credentials)
+					require.Contains(t, result.Environment, corev1.EnvVar{Name: env.AWSBearerTokenBedrock.Name(), Value: translator.CredentialPlaceholder})
+				} else {
+					require.Empty(t, result.Credentials)
+					require.False(t, slices.ContainsFunc(result.Environment, func(variable corev1.EnvVar) bool { return variable.Name == env.AWSBearerTokenBedrock.Name() }))
+				}
+			})
+		}
 	}
 }

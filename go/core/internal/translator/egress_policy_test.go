@@ -3,6 +3,7 @@ package translator
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type policyTranslatorFunc func(types.NamespacedName, egressext.PolicyDraft) (egressext.PolicyDraft, error)
@@ -59,6 +61,10 @@ func TestPolicyPreservesExplicitAuthentication(t *testing.T) {
 		{"harness key", func(input *HarnessInput) {
 			input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OPENAI_API_KEY", Value: "literal"}}
 		}},
+		{"Bedrock signing key", func(input *HarnessInput) {
+			input.Root.ResolvedModelConfig.Config.Spec = v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}}
+			input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: env.AWSAccessKeyID.Name()}}
+		}},
 		{"literal MCP header", func(input *HarnessInput) {
 			input.Root.MCPTools = []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://api.openai.com/mcp", HeadersFrom: []v1alpha3.ValueRef{{Name: "X-Trace", Value: "literal"}}}}}}
 		}},
@@ -69,6 +75,7 @@ func TestPolicyPreservesExplicitAuthentication(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI})
 			test.configure(input)
+			target := modelCredentialTarget(input.Root.ResolvedModelConfig)
 			_, err := ResolvePolicy(input, nil, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
 				for _, requirement := range draft.Requirements {
 					require.True(t, requirement.Preserve)
@@ -77,7 +84,7 @@ func TestPolicyPreservesExplicitAuthentication(t *testing.T) {
 			}))
 			require.NoError(t, err)
 			_, err = ResolvePolicy(input, nil, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
-				draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://api.openai.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/token"})
+				draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: target.Endpoint, Header: target.Header, Prefix: target.Prefix, URI: "ate-secret://provider.example/token"})
 				return draft, nil
 			}))
 			require.ErrorContains(t, err, "preserves explicit authentication")
@@ -236,27 +243,88 @@ func TestPolicyModelDestinations(t *testing.T) {
 	}
 }
 
-func TestPolicyPreservesExistingBindingClientBehavior(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic})
-	input.Root.MCPTools = []ResolvedMCPTool{
-		{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://api.anthropic.com/mcp", HeadersFrom: []v1alpha3.ValueRef{
-			{Name: "x-api-key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}},
-		}}}},
-		{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://api.anthropic.com/other"}}},
+func TestPolicyBindingSourcesRenderSameClients(t *testing.T) {
+	render := func(input *HarnessInput, extension egressext.PolicyTranslator) ([]corev1.EnvVar, map[string]string) {
+		policy, err := ResolvePolicy(input, nil, extension)
+		require.NoError(t, err)
+		environment, err := policy.RenderEnvironment(nil)
+		require.NoError(t, err)
+		headers, err := policy.MCPHeaders("https://api.anthropic.com/other", nil)
+		require.NoError(t, err)
+		return environment, headers
 	}
+	other := ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://api.anthropic.com/other"}}}
+	secret := ResolvedMCPTool{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://api.anthropic.com/mcp", HeadersFrom: []v1alpha3.ValueRef{
+		{Name: "X-Api-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}},
+	}}}}
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic})
+	input.Root.MCPTools = []ResolvedMCPTool{secret, other}
+	environment, headers := render(input, nil)
+	require.Equal(t, []corev1.EnvVar{{Name: "ANTHROPIC_API_KEY", Value: CredentialPlaceholder}}, environment)
+	require.Equal(t, map[string]string{"x-api-key": CredentialPlaceholder}, headers)
 	policy, err := ResolvePolicy(input, nil, nil)
 	require.NoError(t, err)
-	environment, err := policy.RenderEnvironment(nil)
+	secretHeaders, err := policy.MCPHeaders("https://api.anthropic.com/mcp", map[string]string{"X-Api-Key": CredentialPlaceholder})
 	require.NoError(t, err)
-	require.Empty(t, environment, "existing bindings do not select SDK authentication")
-	headers, err := policy.MCPHeaders("https://api.anthropic.com/other", nil)
-	require.NoError(t, err)
-	require.Empty(t, headers, "existing bindings do not add client headers")
-	unchanged, err := ResolvePolicy(input, nil, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
+	require.Equal(t, map[string]string{"X-Api-Key": CredentialPlaceholder}, secretHeaders, "do not duplicate a Secret header with different casing")
+	input.Root.MCPTools = []ResolvedMCPTool{other}
+	contributedEnvironment, contributedHeaders := render(input, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
+		draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://api.anthropic.com:443", Header: "x-api-key", URI: "ate-secret://provider.example/token"})
 		return draft, nil
 	}))
-	require.NoError(t, err)
-	require.Equal(t, policy, unchanged)
+	require.Equal(t, environment, contributedEnvironment, "Secret and extension bindings render the same clients")
+	require.Equal(t, headers, contributedHeaders)
+}
+
+func TestPolicyExistingBindingsPreserveClientAuthentication(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		provider   v1alpha3.ModelProvider
+		modelHeads map[string]string
+		env        []v1alpha3.RuntimeEnvVar
+		mcpHeaders []v1alpha3.ValueRef
+		headers    map[string]string
+	}{
+		{name: "keyless Gemini", provider: v1alpha3.ModelProviderGemini},
+		{name: "model headers", modelHeads: map[string]string{"Authorization": "literal"}},
+		{name: "literal model key", env: []v1alpha3.RuntimeEnvVar{{Name: "ANTHROPIC_API_KEY", Value: "literal"}}},
+		{name: "literal MCP header", mcpHeaders: []v1alpha3.ValueRef{{Name: "X-Trace", Value: "literal"}}, headers: map[string]string{"X-Trace": "literal"}},
+		{name: "ConfigMap MCP header", mcpHeaders: []v1alpha3.ValueRef{{Name: "X-Trace", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "trace", Key: "value"}}}, headers: map[string]string{"X-Trace": "configured"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			provider := test.provider
+			if provider == "" {
+				provider = v1alpha3.ModelProviderAnthropic
+			}
+			input := credentialInput(v1alpha3.ModelConfigSpec{Provider: provider, DefaultHeaders: test.modelHeads})
+			input.Harness.Spec.Env = test.env
+			target := modelCredentialTarget(input.Root.ResolvedModelConfig)
+			input.Root.MCPTools = []ResolvedMCPTool{
+				{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: target.Endpoint + "/mcp", HeadersFrom: test.mcpHeaders}}},
+				{Server: &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{URL: target.Endpoint + "/other"}}},
+				{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: target.Endpoint + "/secret", HeadersFrom: []v1alpha3.ValueRef{
+					{Name: target.Header, ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}},
+				}}}},
+			}
+			policy, err := ResolvePolicy(input, nil, nil)
+			require.NoError(t, err)
+			require.Len(t, policy.access.Credentials, 1, "preservation must retain the Secret binding")
+			require.False(t, policy.ModelUsesGateway(input.Root.ResolvedModelConfig))
+			var environment []corev1.EnvVar
+			for _, variable := range test.env {
+				environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
+			}
+			rendered, err := policy.RenderEnvironment(environment)
+			require.NoError(t, err)
+			require.Equal(t, environment, rendered)
+			headers, err := policy.MCPHeaders(target.Endpoint+"/mcp", maps.Clone(test.headers))
+			require.NoError(t, err)
+			require.Equal(t, test.headers, headers, "do not add auth to explicitly authenticated clients")
+			otherHeaders, err := policy.MCPHeaders(target.Endpoint+"/other", nil)
+			require.NoError(t, err)
+			require.Empty(t, otherHeaders, "preservation applies to every client at the origin")
+		})
+	}
 }
 
 type requiredModelCredentials []v1alpha3.ModelProvider
