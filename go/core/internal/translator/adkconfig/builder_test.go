@@ -16,6 +16,84 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
+func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
+	model := &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-model", Namespace: "agents"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderOpenAI,
+			Model:    "gpt-4.1-mini",
+			DefaultHeaders: map[string]string{
+				"X-Tenant":   "acme",
+				"x-agent-id": "user-provided",
+			},
+		},
+	}}
+	builder := NewBuilder(krt.TestingDummyContext{}, translator.Collections{})
+
+	for _, test := range []struct {
+		name       string
+		template   string
+		wantHeader string
+	}{
+		{name: "refund agent", template: "refund-agent", wantHeader: "agents/refund-agent"},
+		{name: "ticket agent", template: "ticket-agent", wantHeader: "agents/ticket-agent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := builder.BuildWithAgentID(context.Background(), &translator.HarnessInput{
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &translator.AgentInput{
+					Template:            &translator.TemplateConfiguration{Name: test.template, Namespace: "agents"},
+					ResolvedModelConfig: model,
+				},
+			})
+			require.NoError(t, err)
+
+			require.NotNil(t, result.Config.Model)
+			require.Equal(t, test.wantHeader, result.Config.Model.Headers[adk.ModelAgentIDHeader])
+			require.Equal(t, "acme", result.Config.Model.Headers["X-Tenant"])
+			require.NotContains(t, result.Config.Model.Headers, "x-agent-id")
+		})
+	}
+
+	require.Equal(t, map[string]string{
+		"X-Tenant":   "acme",
+		"x-agent-id": "user-provided",
+	}, model.Config.Spec.DefaultHeaders, "compilation must not mutate the shared ModelConfig")
+
+	t.Run("default build leaves headers unchanged", func(t *testing.T) {
+		result, err := builder.Build(context.Background(), &translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
+			Root: &translator.AgentInput{
+				Template:            &translator.TemplateConfiguration{Name: "byo-agent", Namespace: "agents"},
+				ResolvedModelConfig: model,
+			},
+		})
+		require.NoError(t, err)
+
+		require.NotNil(t, result.Config.Model)
+		require.Equal(t, model.Config.Spec.DefaultHeaders, result.Config.Model.Headers)
+	})
+
+	t.Run("shared agent uses its own identity", func(t *testing.T) {
+		result, err := builder.BuildWithAgentID(context.Background(), &translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+			Root: &translator.AgentInput{
+				Template:            &translator.TemplateConfiguration{Name: "refund-agent", Namespace: "agents"},
+				ResolvedModelConfig: model,
+				Shared: []translator.AgentInputBinding{{Name: "ticket", Agent: &translator.AgentInput{
+					Template:            &translator.TemplateConfiguration{Name: "ticket-agent", Namespace: "agents"},
+					ResolvedModelConfig: model,
+				}}},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, result.Config.SubAgents, 1)
+		child := result.Config.SubAgents[0].Model
+		require.NotNil(t, child)
+		require.Equal(t, "agents/ticket-agent", child.Headers[adk.ModelAgentIDHeader])
+	})
+}
+
 func TestBuildModelStreaming(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

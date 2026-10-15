@@ -33,7 +33,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	compiled, err := c.config.Build(ctx, input)
+	compiled, err := c.config.BuildWithAgentID(ctx, input)
 	if err != nil {
 		return nil, err
 	}

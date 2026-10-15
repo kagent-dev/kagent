@@ -56,6 +56,10 @@ type OutputConfig = configv1.ADKOutputConfig
 type RuntimeConfig = configv1.ADKRuntimeConfig
 type TokenPropagationConfig = configv1.TokenPropagationConfig
 
+// ModelAgentIDHeader attributes outbound model requests to the AgentTemplate
+// whose compiled runtime model issued them.
+const ModelAgentIDHeader = "X-Agent-Id"
+
 const (
 	ModelTypeOpenAI           = "openai"
 	ModelTypeAzureOpenAI      = "azure_openai"
