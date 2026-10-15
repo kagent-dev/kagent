@@ -4,7 +4,8 @@ name: Fork ledger
 # change under fork/carried/ (FORK.md, "Which kagent are we running"). Every
 # pull request and push verifies that the files name commits which sit on top
 # of the pin, each once, that FORK.md's Substrate pin rows name the pin, and the run's summary
-# shows the table in that order.
+# shows the table in that order. The public-links job keeps the ledger free of
+# citations of a private repository: this repository is public.
 on:
   push:
     branches: [giantswarm, "sync/**"]
@@ -38,3 +39,22 @@ jobs:
         run: scripts/fork/releases-row_test.sh
       - name: Show the table
         run: scripts/fork/carried.sh >> "$GITHUB_STEP_SUMMARY"
+
+  public-links:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # A pull request is checked on the lines it adds, against its base.
+          fetch-depth: 0
+      - name: Check that FORK.md and fork/ cite public repositories only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            scripts/fork/public-links.sh --added "$BASE_SHA"
+          else
+            scripts/fork/public-links.sh
+          fi

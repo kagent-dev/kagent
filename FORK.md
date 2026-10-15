@@ -371,6 +371,10 @@ write access.
   decides what goes upstream and opens it, and an agent never opens, comments on, reviews or closes anything on the
   upstream repository. Once one is opened, the `Upstream` column links it and the upstream pull request names the
   fork commit, so the two reference each other.
+- **The ledger cites public sources only.** This repository is public: `FORK.md` and `fork/` link no issue,
+  pull request or file of a private repository, and a reason that lives in one is written out in a sentence
+  instead. The `public-links` job of `fork-ledger.yaml` fails a pull request that adds such a citation
+  (`scripts/fork/public-links.sh --added <base>`; without arguments it checks every citation).
 - **Lint with `make -C go lint`** (`make -C go lint-fix` to apply the fixes), the command CI's `go-lint`
   runs. `go/.golangci.yaml` enables `kubeapilinter`, a custom linter loaded as a Go plugin from
   `go/bin/kube-api-linter.so`; a plugin loads only into a binary built with the same toolchain and
