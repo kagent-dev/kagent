@@ -133,7 +133,7 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 
 func TestInstallUsesSeparateSubstrateReleases(t *testing.T) {
 	originalPrepareSubstrate := prepareSubstrate
-	prepareSubstrate = func(context.Context) error { return nil }
+	prepareSubstrate = func(context.Context, string) error { return nil }
 	t.Cleanup(func() { prepareSubstrate = originalPrepareSubstrate })
 
 	dir := t.TempDir()

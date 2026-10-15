@@ -13,7 +13,10 @@ metadata:
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
   workerImage: {{ include "kagent.mirroredImage" (dict "root" . "image" .Values.substrateWorkerPool.workerImage) | quote }}
-  sandboxClass: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
+  sandboxClasses:
+    - name: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
+      configRef:
+        name: {{ if eq (.Values.substrateWorkerPool.sandboxClass | default "gvisor") "microvm" }}microvm{{ else }}gvisor-default{{ end }}
   template:
     {{- toYaml (set (deepCopy (.Values.substrateWorkerPool.template | default dict)) "serviceAccountName" (include "kagent.substrateWorkerPool.serviceAccountName" .)) | nindent 4 }}
 {{- end }}

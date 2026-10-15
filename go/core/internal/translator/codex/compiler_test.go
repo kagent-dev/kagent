@@ -26,6 +26,34 @@ import (
 
 const credentialValue = "credential-must-not-be-serialized"
 
+func TestCompileWorkloadOverrides(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		command, args []string
+	}{
+		{name: "image defaults"},
+		{name: "command", command: []string{"/launcher"}},
+		{name: "args", args: []string{"--check"}},
+		{name: "command and args", command: []string{"/launcher"}, args: []string{"--check"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, reader := testInput(t, v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+				APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+				OpenAI: &v1alpha3.OpenAIConfig{APIFormat: new(v1alpha3.OpenAIAPIFormatResponses)},
+			}, map[string][]byte{"api-key": []byte("secret")})
+			input.Harness.Spec.Workload.Command, input.Harness.Spec.Workload.Args = test.command, test.args
+			result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()).Compile(t.Context(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(result.Command, test.command) || !reflect.DeepEqual(result.Args, test.args) {
+				t.Fatalf("compiled command/args = %v / %v, want %v / %v", result.Command, result.Args, test.command, test.args)
+			}
+		})
+	}
+}
+
 func TestCompileProviderCredentials(t *testing.T) {
 	responses := v1alpha3.OpenAIAPIFormatResponses
 	tests := []struct {

@@ -171,7 +171,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	}
 	result.AgentName = agentName
 	result.Image = image
-	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	result.SandboxClass = (*workerPool).Spec.DefaultSandboxClass()
 	return result, nil
 }
 

@@ -57,9 +57,8 @@ func (c *Client) ListActorsPage(ctx context.Context, atespace string, pageSize i
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ListActors(ctx, &ateapipb.ListActorsRequest{
-		Atespace:  atespace,
-		PageSize:  pageSize,
-		PageToken: pageToken,
+		Atespace: atespace,
+		Options:  &ateapipb.ListOptions{PageSize: pageSize, PageToken: pageToken},
 	})
 	if err != nil {
 		return nil, "", err
@@ -76,8 +75,7 @@ func (c *Client) ListWorkersPage(ctx context.Context, pageSize int32, pageToken 
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ListWorkers(ctx, &ateapipb.ListWorkersRequest{
-		PageSize:  pageSize,
-		PageToken: pageToken,
+		Options: &ateapipb.ListOptions{PageSize: pageSize, PageToken: pageToken},
 	})
 	if err != nil {
 		return nil, "", err
@@ -94,8 +92,8 @@ func (c *Client) ListActorTemplatesPage(ctx context.Context, atespace string, pa
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ControlClient.ListActorTemplates(ctx, &ateapipb.ListActorTemplatesRequest{
-		Atespace:  atespace,
-		PageToken: pageToken,
+		Atespace: atespace,
+		Options:  &ateapipb.ListOptions{PageToken: pageToken},
 	})
 	if err != nil {
 		return nil, "", err

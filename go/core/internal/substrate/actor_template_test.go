@@ -21,13 +21,13 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		class      atev1alpha1.SandboxClass
-		wantClass  ateapipb.SandboxClass
+		wantClass  string
 		wantConfig string
 		wantError  string
 	}{
-		{name: "default", wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
-		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
-		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, wantConfig: "microvm"},
+		{name: "default", wantClass: "gvisor", wantConfig: "gvisor-default"},
+		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: "gvisor", wantConfig: "gvisor-default"},
+		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: "microvm", wantConfig: "microvm"},
 		{name: "unsupported", class: "unsupported", wantError: `unsupported sandbox class "unsupported"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -93,10 +93,11 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if !slices.Equal(container.Command, spec.Command) || !slices.Equal(container.Args, spec.Args) {
 		t.Fatalf("container command/args = %v %v", container.Command, container.Args)
 	}
-	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
+	if template.GetSandboxConfig().GetSandboxClass() != "gvisor" || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, template.GetSnapshotConfig().GetOnCommit())
+	require.Equal(t, ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, template.GetSnapshotConfig().GetPreferredFidelity())
+	require.Equal(t, ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED, template.GetSnapshotConfig().GetGoldenSnapshotConfig().GetMode())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable

@@ -58,7 +58,8 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if bytes.Contains(configContents, []byte("environment =")) {
 		t.Fatalf("generated OTEL configuration overrides Codex's environment default:\n%s", configContents)
 	}
-	var native nativeConfig
+	// Seed the upstream default so an omitted false value fails this check.
+	native := nativeConfig{Features: nativeFeatures{UnboundedConnectionRetries: true}}
 	if err := toml.Unmarshal(configContents, &native); err != nil {
 		t.Fatalf("decode generated Codex configuration: %v", err)
 	}
@@ -70,6 +71,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
+	}
+	if native.Features.UnboundedConnectionRetries {
+		t.Fatal("generated Codex configuration does not disable unbounded connection retries")
 	}
 	if native.Otel == nil || !native.Otel.LogUserPrompt ||
 		native.Otel.TraceExporter == nil || native.Otel.TraceExporter.OTLPHTTP == nil ||
@@ -249,6 +253,9 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	}
 	if !featureEnabled(featuresOutput, "default_mode_request_user_input") {
 		t.Fatalf("default-mode request_user_input feature is not enabled:\n%s", featuresOutput)
+	}
+	if featureEnabled(featuresOutput, "unbounded_connection_retries") {
+		t.Fatalf("unbounded connection retries remain enabled:\n%s", featuresOutput)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

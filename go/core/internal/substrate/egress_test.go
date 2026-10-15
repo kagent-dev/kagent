@@ -18,8 +18,8 @@ func TestEnsureActorEgressPolicyRetriesLostResponse(t *testing.T) {
 	policy := &ateapipb.EgressPolicy{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"},
 		Rules: []*ateapipb.EgressRule{
-			{Http: &ateapipb.HTTPRule{Hostnames: []string{"api.example.com"}}},
-			{Https: &ateapipb.HTTPSRule{Hostnames: []string{"api.example.com"}}},
+			{Http: &ateapipb.HttpRule{Hostnames: []string{"api.example.com"}}},
+			{Https: &ateapipb.HttpsRule{Hostnames: []string{"api.example.com"}}},
 		},
 	}
 	require.ErrorIs(t, client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", policy), context.DeadlineExceeded)
@@ -55,6 +55,9 @@ func (f *egressPolicyFake) CreateActorEgressPolicy(_ context.Context, req *ateap
 }
 
 func (f *egressPolicyFake) GetActorEgressPolicy(_ context.Context, req *ateapipb.GetActorEgressPolicyRequest, _ ...grpc.CallOption) (*ateapipb.EgressPolicy, error) {
+	if req.GetName() != "default" {
+		return nil, status.Error(codes.InvalidArgument, "singleton policy name must be default")
+	}
 	f.actor = req.Actor
 	return f.policy, f.getErr
 }
