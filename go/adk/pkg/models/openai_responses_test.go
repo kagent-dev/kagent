@@ -316,7 +316,7 @@ func TestGenaiContentsToResponsesInput_DocumentBytes(t *testing.T) {
 		Role: "user",
 		Parts: []*genai.Part{
 			{Text: "summarize"},
-			{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: []byte("%PDF"), DisplayName: "report.pdf"}},
+			{InlineData: &genai.Blob{MIMEType: "Application/PDF; name=report.pdf", Data: []byte("%PDF"), DisplayName: "report.pdf"}},
 		},
 	}}, nil)
 	require.NoError(t, err)
@@ -331,6 +331,7 @@ func TestGenaiContentsToResponsesInput_DocumentBytes(t *testing.T) {
 
 func TestOpenAIModelProviderAccepts(t *testing.T) {
 	pdf := &genai.Part{InlineData: &genai.Blob{MIMEType: "application/pdf"}}
+	pdfWithParams := &genai.Part{InlineData: &genai.Blob{MIMEType: "Application/PDF; name=a.pdf"}}
 	csv := &genai.Part{InlineData: &genai.Blob{MIMEType: "text/csv"}}
 	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
 	text := genai.NewPartFromText("hi")
@@ -344,6 +345,7 @@ func TestOpenAIModelProviderAccepts(t *testing.T) {
 		want bool
 	}{
 		{"responses pdf bytes", responsesModel, pdf, true},
+		{"responses pdf bytes with params", responsesModel, pdfWithParams, true},
 		{"responses link", responsesModel, link, true},
 		{"responses csv stays text", responsesModel, csv, false},
 		{"responses text part", responsesModel, text, false},

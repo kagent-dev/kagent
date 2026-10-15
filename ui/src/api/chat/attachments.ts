@@ -103,7 +103,7 @@ export function isHttpUrl(url: string): boolean {
  * The media type sent with a link part, by the path's extension, since the browser
  * cannot read another origin's Content-Type. "" for no known extension.
  */
-export function linkMediaType(url: string): string {
+function linkMediaType(url: string): string {
   return TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))] ?? "";
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"mime"
 	"strings"
 
 	"github.com/openai/openai-go/v3/packages/param"
@@ -133,11 +134,11 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 					part.InlineData.MIMEType,
 					base64.StdEncoding.EncodeToString(part.InlineData.Data),
 				)))
-			} else if part.InlineData != nil && role == genai.RoleUser && responsesFileTypes[part.InlineData.MIMEType] {
+			} else if part.InlineData != nil && role == genai.RoleUser && responsesFileType(part.InlineData) != "" {
 				hasFile = true
 				contentParts = append(contentParts, fileNameParts(part.InlineData.DisplayName)...)
 				file := responses.ResponseInputFileParam{
-					FileData: param.NewOpt(fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data))),
+					FileData: param.NewOpt(fmt.Sprintf("data:%s;base64,%s", responsesFileType(part.InlineData), base64.StdEncoding.EncodeToString(part.InlineData.Data))),
 					Filename: param.NewOpt(cmp.Or(part.InlineData.DisplayName, "file")),
 				}
 				contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
@@ -446,8 +447,20 @@ var responsesFileTypes = map[string]bool{
 	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
 }
 
+// responsesFileType is b's media type, without parameters, when input_file reads it
+// from bytes, else "".
+func responsesFileType(b *genai.Blob) string {
+	mediaType, _, _ := mime.ParseMediaType(b.MIMEType)
+	if responsesFileTypes[mediaType] {
+		return mediaType
+	}
+	return ""
+}
+
+var _ fileextract.FileSender = (*OpenAIModel)(nil)
+
 // ProviderAccepts implements fileextract.FileSender: the Responses API takes links,
 // and pdf and Office files as bytes. Chat Completions takes neither.
 func (m *OpenAIModel) ProviderAccepts(p *genai.Part) bool {
-	return m.apiFormat() == OpenAIAPIFormatResponses && (p.FileData != nil || p.InlineData != nil && responsesFileTypes[p.InlineData.MIMEType])
+	return m.apiFormat() == OpenAIAPIFormatResponses && (p.FileData != nil || p.InlineData != nil && responsesFileType(p.InlineData) != "")
 }
