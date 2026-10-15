@@ -365,7 +365,7 @@ write access.
   change is one upstream-ready commit, with its `fork/carried/` file. Beside it, push its upstream branch
   `upstream/<slug>` to this repository: the commit on the mirror's `main` at the pin (or on the upstream
   branch it depends on), DCO-signed, with no fork references, its message the upstream pull request's
-  text, and queue it as a row on [giantswarm/giantswarm#37742](https://github.com/giantswarm/giantswarm/issues/37742). The carried file's `Upstream` column records it:
+  text, and hand it to the maintainers' upstream review. The carried file's `Upstream` column records it:
   "to file — prepared in the fork: branch `upstream/<slug>`", with what the branch is based on and the upstream
   search. Opening the upstream pull request (kagent-dev/kagent) is not a step of the fork pull request: a human
   decides what goes upstream and opens it, and an agent never opens, comments on, reviews or closes anything on the
