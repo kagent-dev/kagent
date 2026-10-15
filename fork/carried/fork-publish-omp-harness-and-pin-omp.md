@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `ci(fork): publish omp-harness and pin omp with Renovate` | a BYO Harness pins its image by digest; the line publishes omp-harness from CircleCI like the other five images — multi-arch, cosign-signed, attested — stamps `runtimeImages.ompHarness.digest` into the published chart (which renders nothing from it), records the digest in `builds.md` (a new last column), and moves the omp pin with Renovate, its checksums from the release's `SHA256SUMS.txt` through `scripts/fork/harness-pins.sh` and the `Harness CLI pins` workflow | fork-only, never upstream — ours to keep |
