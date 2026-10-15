@@ -9,9 +9,9 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Sandbox preparation uses the same informer graph as Agents. Only observations
