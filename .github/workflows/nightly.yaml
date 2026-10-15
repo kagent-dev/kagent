@@ -70,7 +70,6 @@ jobs:
         image:
           - controller
           - ui
-          - kagent-adk
           - golang-adk
           - claude-harness
           - codex-harness

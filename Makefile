@@ -76,7 +76,6 @@ KAGENT_POSTGRES_READWRITE_SECRET ?= kagent-postgres-readwrite
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
-KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 
 CLAUDE_HARNESS_IMAGE_NAME ?= claude-harness
@@ -84,14 +83,12 @@ CODEX_HARNESS_IMAGE_NAME ?= codex-harness
 SANDBOX_GUEST_IMAGE_NAME ?= sandbox-guest
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
-KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 CLAUDE_HARNESS_IMAGE_TAG ?= $(VERSION)
 CODEX_HARNESS_IMAGE_TAG ?= $(VERSION)
 SANDBOX_GUEST_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 CLAUDE_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CLAUDE_HARNESS_IMAGE_NAME):$(CLAUDE_HARNESS_IMAGE_TAG)
 CODEX_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CODEX_HARNESS_IMAGE_NAME):$(CODEX_HARNESS_IMAGE_TAG)
@@ -333,15 +330,13 @@ build-all: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/codex/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/sandbox/guest/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
-	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-kagent-adk build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
+build: buildx-create build-ui build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
-	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Claude Harness Image: $(CLAUDE_HARNESS_IMG)"
 	@echo "Codex Harness Image: $(CODEX_HARNESS_IMG)"
@@ -371,7 +366,6 @@ build-cli-local: $(BUILD_PROTO_GENERATE)
 build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
-	@echo kagent-adk=$(KAGENT_ADK_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo claude-harness=$(CLAUDE_HARNESS_IMG)
 	@echo codex-harness=$(CODEX_HARNESS_IMG)
@@ -394,12 +388,6 @@ build-ui: ## Build and push the UI image
 build-ui: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
-
-.PHONY: build-kagent-adk
-build-kagent-adk: ## Build and push the Python kagent ADK image
-build-kagent-adk: $(BUILD_PROTO_GENERATE) buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
-	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
@@ -435,8 +423,8 @@ build-sandbox-guest: buildx-create
 	$(DOCKER_PUSH) $(SANDBOX_GUEST_IMG)
 
 .PHONY: push
-push: ## Push all component images (controller, ui, ADKs)
-push: push-controller push-ui push-kagent-adk push-golang-adk
+push: ## Push all component images (controller, ui, Go ADK)
+push: push-controller push-ui push-golang-adk
 
 
 ##@ Testing
@@ -738,7 +726,6 @@ report/image-cve: ## Scan built images with grype and write CVE CSV reports to r
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
-	grype $(CONTAINER_RUNTIME):$(KAGENT_ADK_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/kagent-adk-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 
 
