@@ -167,6 +167,11 @@ type nativeModelProvider struct {
 	WireAPI string `toml:"wire_api"`
 	EnvKey  string `toml:"env_key"`
 	BaseURL string `toml:"base_url,omitempty"`
+	// TODO: REMOVE these zero retry budgets once upstream fixes Kubernetes DNS:
+	// https://github.com/agent-substrate/substrate/issues/2663
+	// Restore native defaults by omitting both fields, not by leaving zeros.
+	RequestMaxRetries uint `toml:"request_max_retries"`
+	StreamMaxRetries  uint `toml:"stream_max_retries"`
 }
 
 type nativeAgent struct {
@@ -194,8 +199,8 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
 		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
 		SandboxMode:    "danger-full-access", WebSearch: "cached",
-		// DNS policy denials look like connection failures. Let the native
-		// retry budget expire so a permanently denied task can reach FAILED.
+		// DNS denials look like connection failures. Keep retries bounded even
+		// after the temporary zero provider retry budgets are removed.
 		Features:   nativeFeatures{DefaultModeRequestUserInput: true, UnboundedConnectionRetries: false},
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),

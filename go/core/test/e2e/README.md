@@ -208,12 +208,12 @@ on the stock worker DNS settings and the same destination allowlist.
 
 `TestSessionEgressDeniesUnconfiguredDestination` first proves the redirect
 destination works when configured, then verifies that an unconfigured redirect
-fails without reaching it. Temporary native Harnesses disable retries using
-Claude's `CLAUDE_CODE_MAX_RETRIES=0` and Codex's provider retry CLI overrides.
-The allowed control call uses the same temporary Harness. The denied call must
-reach FAILED within 30 seconds, with exactly one model request and no access to
-the denied destination. Production retry budgets are unchanged; the Codex
-adapter still disables unbounded connection retries.
+fails without reaching it. Both calls use the standard Harness and its production
+retry settings. The denied call must reach FAILED within 30 seconds, with exactly
+one model request and no access to the denied destination. Codex's OpenAI provider
+and Claude temporarily disable native retries pending the upstream DNS fix.
+TODO: revisit the one-request assertion and deadline when restoring native retries
+after https://github.com/agent-substrate/substrate/issues/2663 is fixed.
 
 For tracing, configure the controller's
 OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
