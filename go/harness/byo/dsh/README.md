@@ -107,6 +107,14 @@ state. Continue completed work with a new A2A task in the same conversation.
 These guards do not replay prompts or apply approvals after ownership is lost;
 they provide explicit failure, not automatic approval recovery.
 
+For business actions that must wait across process replacement, the optional
+[external approval service](approval-mcp/README.md) offers a different contract:
+DSH submits a durable operation through MCP and completes its current turn; an
+external worker executes the saved action after approval, then starts a new A2A
+task in the same conversation. This does not resume a native ACP permission
+request or change the guards above. It runs independently with its own database,
+credentials and image, so it can move with the BYO integration to another repo.
+
 If only the DSH subprocess exits while awaiting approval, the surviving adapter
 still owns the pending task and its cleanup confirmation. A later approval or
 rejection ends that task as failed; cancellation ends it as canceled. Once the

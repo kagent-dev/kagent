@@ -1,0 +1,19 @@
+{
+  "scope": "deployment-assistant-conversation-7",
+  "listen": ":8080",
+  "database_url_file": "/secrets/database-url",
+  "agent_token_file": "/secrets/agent-token",
+  "approver_token_file": "/secrets/approver-token",
+  "approver": "deployment-reviewer",
+  "upstream_url": "https://deployment-tools.example.com/mcp",
+  "upstream_token_file": "/secrets/upstream-token",
+  "target_revision": "deployment-account-v1",
+  "tools": ["deploy"],
+  "approval_ttl_seconds": 86400,
+  "call_timeout_seconds": 60,
+  "continuation": {
+    "url": "https://kagent.example.com/your-agent-a2a-jsonrpc-endpoint",
+    "context_id": "existing-kagent-conversation-id",
+    "token_file": "/secrets/kagent-token"
+  }
+}
