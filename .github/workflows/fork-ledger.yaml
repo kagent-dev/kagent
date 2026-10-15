@@ -34,5 +34,7 @@ jobs:
         run: scripts/fork/carried.sh --check
       - name: Check the Substrate pin rows
         run: scripts/fork/ledger-check.sh pin
+      - name: Test the Releases table's writer and gate
+        run: scripts/fork/releases-row_test.sh
       - name: Show the table
         run: scripts/fork/carried.sh >> "$GITHUB_STEP_SUMMARY"

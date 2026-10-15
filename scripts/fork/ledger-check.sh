@@ -13,7 +13,11 @@
 # releases <version>: every stable release tag below <version> (from
 # LEDGER_FROM on) has a row in the Releases table, so a promote whose
 # predecessor's row is missing is refused before an image is built. The new
-# release's own row is written after its tag, from the run summary.
+# release's own row is written after its publish: the pipeline's `record` job
+# proposes it as a pull request (scripts/fork/releases-row-pr.sh). A row
+# counts when it is in the checkout's FORK.md or in the consumed branch's
+# (CONSUMED_BRANCH, default giantswarm, fetched from origin): a candidate cut
+# before the row's pull request merged is promoted all the same.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -35,15 +39,21 @@ check_pin() {
 }
 
 check_releases() {
-  local release=${1#v} tag version
+  local release=${1#v} tag version ledgers consumed=${CONSUMED_BRANCH:-giantswarm}
   [[ "$release" =~ $stable ]] || { echo "${1:-dev build}: not a stable release, the Releases table is not checked"; return; }
+  ledgers=$(cat "$fork")
+  if git fetch -q origin "$consumed" 2>/dev/null; then
+    ledgers+=$'\n'$(git show FETCH_HEAD:"$fork" 2>/dev/null || true)
+  else
+    echo "WARNING: cannot fetch ${consumed}: only the checkout's ${fork} is read" >&2
+  fi
   while read -r tag; do
     version=${tag#v}
     [[ "$version" =~ $stable ]] || continue
     [ "$(printf '%s\n%s\n' "$ledger_from" "$version" | sort -V | head -1)" = "$ledger_from" ] || continue
     [ "$(printf '%s\n%s\n' "$version" "$release" | sort -V | head -1)" = "$version" ] && [ "$version" != "$release" ] || continue
-    grep -qF "| \`${version}\` | \`v${version}\` " "$fork" ||
-      problems+=("the Releases table of ${fork} has no row for ${version}")
+    grep -qF "| \`${version}\` | \`v${version}\` " <<<"$ledgers" ||
+      problems+=("the Releases table of ${fork} has no row for ${version}: merge the pull request \"docs(fork): the Releases table carries ${version}\" the publish of v${version} opened, or run scripts/fork/releases-row.sh ${version}")
   done < <(git tag -l 'v*')
 }
 

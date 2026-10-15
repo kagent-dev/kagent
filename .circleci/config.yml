@@ -311,6 +311,22 @@ jobs:
             cat /tmp/requires.md >> /tmp/notes.md
             gh release edit "$CIRCLE_TAG" --notes-file /tmp/notes.md
             echo "the notes of ${CIRCLE_TAG} name Substrate ${SUBSTRATE_VERSION}"
+      - run:
+          name: Propose the stable release's row of FORK.md's Releases table
+          command: |
+            set -euo pipefail
+            # The next stable's gate refuses while this release has no row
+            # in FORK.md's Releases table (FORK.md, "Releases"). The row is
+            # written here from the builds.md row appended above and opened
+            # as a pull request against the consumed branch; a candidate's
+            # tag has no row, and a re-run of the job opens nothing twice.
+            [[ "${CIRCLE_TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 0
+            GIT_CONFIG_GLOBAL=/dev/null \
+            GH_TOKEN="$GITHUB_TOKEN" \
+            GH_REPO="${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}" \
+            LEDGER_GIT_NAME='circleci-architect[bot]' \
+            LEDGER_GIT_EMAIL='240937895+circleci-architect[bot]@users.noreply.github.com' \
+              scripts/fork/releases-row-pr.sh "$CIRCLE_TAG"
       - store_artifacts:
           path: /tmp/published.md
           destination: published.md
