@@ -24,7 +24,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiadk "github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -39,7 +39,7 @@ type KAgentExecutorConfig struct {
 	Stream         bool
 	AppName        string
 	Logger         *slog.Logger
-	Output         *apiadk.OutputConfig
+	Output         *configv1.ADKOutputConfig
 	Flush          func(context.Context) error
 	AgentName      string
 }
@@ -187,7 +187,7 @@ func finalStructuredOutput(event *adksession.Event) (any, error) {
 
 // resolveStructuredOutput compiles the configured JSON Schema once so every
 // execution can validate its final value with the same immutable validator.
-func resolveStructuredOutput(config *apiadk.OutputConfig) (*structuredOutput, error) {
+func resolveStructuredOutput(config *configv1.ADKOutputConfig) (*structuredOutput, error) {
 	if config == nil {
 		return nil, nil
 	}

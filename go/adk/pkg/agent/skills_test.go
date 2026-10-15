@@ -17,7 +17,7 @@ import (
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 // Exercise the runtime configuration through agent construction and the runner,
@@ -57,11 +57,11 @@ func TestSkillToolsRespectRuntimeDisableBash(t *testing.T) {
 				skillsDir := t.TempDir()
 				require.NoError(t, os.Mkdir(filepath.Join(skillsDir, "demo"), 0755))
 				require.NoError(t, os.WriteFile(filepath.Join(skillsDir, "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Demo skill.\n---\nRead files.\n"), 0644))
-				model := &adk.Model{Model: "gpt-4o", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{BaseUrl: server.URL}}}
-				cfg := &adk.Config{
-					Runtime: &adk.RuntimeConfig{SkillTools: &adk.SkillToolsConfig{DisableBash: disableBash, FileSearchTools: fileSearch}},
-					Agent: &adk.AgentConfig{Model: model, SkillsDirectory: skillsDir, Stream: new(false),
-						SubAgents: []*adk.AgentConfig{{Name: "child", Model: model, SkillsDirectory: skillsDir, Stream: new(false)}},
+				model := &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{BaseUrl: server.URL}}}
+				cfg := &configv1.ADKConfig{
+					Runtime: &configv1.ADKRuntimeConfig{SkillTools: &configv1.SkillToolsConfig{DisableBash: disableBash, FileSearchTools: fileSearch}},
+					Agent: &configv1.ADKAgentConfig{Model: model, SkillsDirectory: skillsDir, Stream: new(false),
+						SubAgents: []*configv1.ADKAgentConfig{{Name: "child", Model: model, SkillsDirectory: skillsDir, Stream: new(false)}},
 					},
 				}
 				root, err := CreateGoogleADKAgent(t.Context(), cfg, "root", nil)

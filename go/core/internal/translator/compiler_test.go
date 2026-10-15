@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -73,8 +73,8 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.command, result.Command)
 			require.Equal(t, tt.args, result.Args)
-			var process adk.Config
-			require.NoError(t, adk.Unmarshal(result.ConfigJSON, &process))
+			var process configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &process))
 			require.Equal(t, uint32(80), process.Runtime.GetPort())
 			for _, variable := range result.Environment {
 				require.NotEqual(t, "KAGENT_A2A_GRPC_ADDRESS", variable.Name)
@@ -162,8 +162,8 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	}
 	require.Equal(t, harness.Spec.Workload.Command, spec.Command)
 	require.Equal(t, harness.Spec.Workload.Args, spec.Args)
-	var config adk.Config
-	if err := adk.Unmarshal(spec.ConfigJSON, &config); err != nil {
+	var config configv1.ADKConfig
+	if err := runtimeconfig.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
 	}
 	// The driver is part of the assertion, not incidental. The Python runtime opens
@@ -388,8 +388,8 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 
 	revision, err := compiler(t, modelConfig(), configMap, child, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
 	require.NoError(t, err)
-	var config adk.Config
-	require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+	var config configv1.ADKConfig
+	require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
 	require.JSONEq(t, schema, string(config.Agent.Output.JsonSchema))
 	require.Len(t, config.Agent.Output.Sha256, 64)
 	require.Len(t, config.Agent.SubAgents, 1)
@@ -681,8 +681,8 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			}
 			revision, err := compiler(t, modelConfig(), child, runtimeHarness, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(runtimeHarness, root))
 			require.NoError(t, err)
-			var config adk.Config
-			require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
 			require.Len(t, config.Agent.SubAgents, 1)
 			require.Equal(t, "web_researcher", config.Agent.SubAgents[0].Name)
 			require.Equal(t, "research the web", config.Agent.SubAgents[0].Description)
@@ -948,8 +948,8 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 						result, err := c.CompileAgent(t.Context(), agent)
 						require.NoError(t, err)
 						if kind == translator.HarnessTypeKagent || kind == translator.HarnessTypeBYO {
-							var cfg adk.Config
-							require.NoError(t, adk.Unmarshal(result.ConfigJSON, &cfg))
+							var cfg configv1.ADKConfig
+							require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &cfg))
 							require.Equal(t, name, cfg.Runtime.Name)
 							require.Equal(t, agent.Namespace, cfg.Runtime.Namespace)
 						} else {
@@ -962,8 +962,8 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 						}
 						require.Equal(t, strings.ReplaceAll(name, "-", "_"), result.AgentCard.Name)
 						if kind == translator.HarnessTypeKagent {
-							var config adk.Config
-							require.NoError(t, adk.Unmarshal(result.ConfigJSON, &config))
+							var config configv1.ADKConfig
+							require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &config))
 							require.NotNil(t, config.Agent.Memory)
 						}
 					})

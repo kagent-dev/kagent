@@ -6,7 +6,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
@@ -32,8 +31,8 @@ func TelemetryConfigFromSettings(cfg *configv1.TelemetryConfig) (TelemetryConfig
 
 // RuntimeConfig builds the per-agent ADK or BYO process configuration from the
 // controller's validated runtime defaults, without reading process environment.
-func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) *adk.RuntimeConfig {
-	return &adk.RuntimeConfig{
+func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) *configv1.ADKRuntimeConfig {
+	return &configv1.ADKRuntimeConfig{
 		ControlPlaneUrl: cfg.GetControlPlaneUrl(), GatewayUrl: cfg.GetGatewayUrl(),
 		Name: name, Namespace: namespace, LogLevel: cfg.GetLogging().GetLevel(), Port: new(uint32(80)),
 		// Preserve optional presence: zero disables the runtime's request limit.

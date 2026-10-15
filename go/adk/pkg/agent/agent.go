@@ -22,13 +22,14 @@ import (
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -45,17 +46,17 @@ const (
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 // Optional stsPlugin can be provided for token propagation to MCP tools; pass
 // nil if token propagation is not needed.
-func CreateGoogleADKAgent(ctx context.Context, config *adk.Config, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
+func CreateGoogleADKAgent(ctx context.Context, config *configv1.ADKConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
 	if config.GetAgent() == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
 	if err := protovalidate.Validate(config); err != nil {
 		return nil, err
 	}
-	return createGoogleADKAgent(ctx, config.Agent, agentName, stsPlugin, adk.ProcessConfig(config), extraTools...)
+	return createGoogleADKAgent(ctx, config.Agent, agentName, stsPlugin, runtimeconfig.ProcessConfig(config), extraTools...)
 }
 
-func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime *adk.RuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
+func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime *configv1.ADKRuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logging.FromContext(ctx)
 
 	if agentConfig == nil {
@@ -212,16 +213,16 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 // usesRawOutputSchema reports whether the kagent provider adapter has a native
 // raw JSON Schema request field. Gemini is intentionally absent: upstream ADK
 // owns its native-vs-set_model_response selection using the typed projection.
-func usesRawOutputSchema(model *adk.Model) bool {
+func usesRawOutputSchema(model *configv1.ADKModelConfig) bool {
 	switch model.GetProvider().(type) {
-	case *adk.Model_Openai, *adk.Model_AzureOpenai, *adk.Model_Anthropic, *adk.Model_GeminiAnthropic, *adk.Model_Bedrock, *adk.Model_Foundry:
+	case *configv1.ADKModelConfig_Openai, *configv1.ADKModelConfig_AzureOpenai, *configv1.ADKModelConfig_Anthropic, *configv1.ADKModelConfig_GeminiAnthropic, *configv1.ADKModelConfig_Bedrock, *configv1.ADKModelConfig_Foundry:
 		return true
 	default:
 		return false
 	}
 }
 
-func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
+func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
 	var localTools []tool.Tool
 	if agentConfig.Memory != nil {
 		log.Info("memory configuration detected, adding memory tools")
@@ -249,12 +250,12 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 // The native Gemini models read generation config from the per-request
 // LLMRequest.Config rather than from the model definition, so a
 // ModelConfig-level setting such as maxOutputTokens must be applied here.
-func generateContentConfig(m *adk.Model) *genai.GenerateContentConfig {
+func generateContentConfig(m *configv1.ADKModelConfig) *genai.GenerateContentConfig {
 	var maxOutputTokens *int64
 	switch p := m.GetProvider().(type) {
-	case *adk.Model_Gemini:
+	case *configv1.ADKModelConfig_Gemini:
 		maxOutputTokens = p.Gemini.MaxOutputTokens
-	case *adk.Model_GeminiVertexAi:
+	case *configv1.ADKModelConfig_GeminiVertexAi:
 		maxOutputTokens = p.GeminiVertexAi.MaxOutputTokens
 	}
 	if maxOutputTokens == nil || *maxOutputTokens <= 0 {
@@ -265,9 +266,9 @@ func generateContentConfig(m *adk.Model) *genai.GenerateContentConfig {
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.
 // This is exported to allow reuse of model creation logic (e.g., for memory summarization).
-func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
+func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, error) {
 	switch p := m.GetProvider().(type) {
-	case *adk.Model_Openai:
+	case *configv1.ADKModelConfig_Openai:
 		cfg := &models.OpenAIConfig{
 			TransportConfig:     transportConfigFromBase(m, modelDuration(p.Openai.Timeout)),
 			Model:               m.Model,
@@ -285,7 +286,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewOpenAIModel(ctx, cfg)
 
-	case *adk.Model_AzureOpenai:
+	case *configv1.ADKModelConfig_AzureOpenai:
 		cfg := &models.AzureOpenAIConfig{
 			TransportConfig: transportConfigFromBase(m, nil),
 			Model:           m.Model,
@@ -296,7 +297,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
-	case *adk.Model_Gemini:
+	case *configv1.ADKModelConfig_Gemini:
 		apiKey := env.GoogleAPIKey.Get()
 		if apiKey == "" {
 			apiKey = env.GeminiAPIKey.Get()
@@ -317,7 +318,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 			HTTPClient: httpClient,
 		})
 
-	case *adk.Model_GeminiVertexAi:
+	case *configv1.ADKModelConfig_GeminiVertexAi:
 		project := env.GoogleCloudProject.Get()
 		location := env.GoogleCloudLocation.Get()
 		if location == "" {
@@ -336,7 +337,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 			Location: location,
 		})
 
-	case *adk.Model_Anthropic:
+	case *configv1.ADKModelConfig_Anthropic:
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultAnthropicModel
@@ -354,7 +355,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 
-	case *adk.Model_Mistral:
+	case *configv1.ADKModelConfig_Mistral:
 		cfg := &models.MistralConfig{
 			TransportConfig: transportConfigFromBase(m, modelDuration(p.Mistral.Timeout)),
 			Model:           m.Model,
@@ -365,7 +366,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewMistralModel(ctx, cfg)
 
-	case *adk.Model_Ollama:
+	case *configv1.ADKModelConfig_Ollama:
 		// Leave the host empty when the controller did not set one: NewOllamaModel
 		// then applies the cloud/local routing. Defaulting it to localhost here
 		// would look like an operator-chosen endpoint and pin every cloud model
@@ -386,7 +387,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewOllamaModel(ctx, cfg)
 
-	case *adk.Model_Bedrock:
+	case *configv1.ADKModelConfig_Bedrock:
 		region := p.Bedrock.Region
 		if region == "" {
 			region = env.AWSRegion.Get()
@@ -423,7 +424,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewBedrockModel(ctx, cfg)
 
-	case *adk.Model_GeminiAnthropic:
+	case *configv1.ADKModelConfig_GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
 		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
 		project := env.GoogleCloudProject.Get()
@@ -444,7 +445,7 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewAnthropicVertexAIModel(ctx, cfg, region, project)
 
-	case *adk.Model_SapAiCore:
+	case *configv1.ADKModelConfig_SapAiCore:
 		cfg := models.SAPAICoreConfig{
 			Model:         m.Model,
 			BaseUrl:       p.SapAiCore.BaseUrl,
@@ -454,8 +455,8 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		}
 		return models.NewSAPAICoreModel(ctx, cfg)
 
-	case *adk.Model_Foundry:
-		if p.Foundry.ApiFormat == adk.FoundryAPIFormatAnthropic {
+	case *configv1.ADKModelConfig_Foundry:
+		if p.Foundry.ApiFormat == runtimeconfig.FoundryAPIFormatAnthropic {
 			// Claude on Foundry uses the Anthropic Messages API, not the
 			// OpenAI-compatible surface, so it maps to an AnthropicModel.
 			// The request model is the Foundry deployment name (the constructor
@@ -476,12 +477,12 @@ func CreateLLM(ctx context.Context, m *adk.Model) (adkmodel.LLM, error) {
 		return models.NewFoundryModel(ctx, cfg)
 
 	default:
-		return nil, fmt.Errorf("unsupported model type: %s", adk.ModelType(m))
+		return nil, fmt.Errorf("unsupported model type: %s", runtimeconfig.ModelType(m))
 	}
 }
 
 // transportConfigFromBase builds a TransportConfig from the shared model fields.
-func transportConfigFromBase(b *adk.Model, timeout *time.Duration) models.TransportConfig {
+func transportConfigFromBase(b *configv1.ADKModelConfig, timeout *time.Duration) models.TransportConfig {
 	return models.TransportConfig{
 		Headers:               extractHeaders(b.Headers),
 		TLSInsecureSkipVerify: b.TlsInsecureSkipVerify,

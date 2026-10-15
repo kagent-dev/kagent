@@ -159,6 +159,9 @@ process settings have one schema. Process settings live in the root `runtime`
 object. Agent behavior lives under `agent`, whose recursive `sub_agents`
 contain only `ADKAgentConfig` messages. Runtime fields cannot be set on any
 agent node; the entire tree shares the top-level process settings.
+Go callers use the generated types from `go/api/gen/kagent/config/v1` directly.
+`go/adk/pkg/config` owns validated ProtoJSON encoding and decoding, runtime
+defaults, and model and plugin conversions shared by the compiler and runtime.
 Native Claude and Codex retain their harness-specific Go structs. The controller
 compiles `runtimeDefaults` into these payloads independently of its own settings.
 

@@ -27,7 +27,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
@@ -78,7 +78,7 @@ func newMockEmbeddingClient(t *testing.T) (*embedding.Client, *httptest.Server) 
 			"model": "test",
 		}))
 	}))
-	client, err := embedding.New(embedding.Config{EmbeddingConfig: &adk.EmbeddingConfig{
+	client, err := embedding.New(embedding.Config{EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 		Provider: "openai",
 		Model:    "test-model",
 		BaseUrl:  server.URL + "/v1",
@@ -288,7 +288,7 @@ func TestKagentMemoryServiceExtractSessionContent(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	validEmbedding := &adk.EmbeddingConfig{Provider: "openai", Model: "text-embedding-3-small"}
+	validEmbedding := &configv1.ADKEmbeddingConfig{Provider: "openai", Model: "text-embedding-3-small"}
 	controllerClient := &controllerclient.Client{}
 	tests := []struct {
 		name    string

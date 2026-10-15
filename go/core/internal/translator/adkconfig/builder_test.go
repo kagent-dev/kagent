@@ -10,7 +10,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -39,10 +40,10 @@ func TestBuildModelStreaming(t *testing.T) {
 			require.NoError(t, err)
 			// The runtime consumes serialized configuration. In particular, false
 			// must survive omitempty rather than reverting to the runtime default.
-			payload, err := adk.Marshal(&adk.Config{Agent: result.Config})
+			payload, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: result.Config})
 			require.NoError(t, err)
-			var config adk.Config
-			require.NoError(t, adk.Unmarshal(payload, &config))
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(payload, &config))
 			require.NotNil(t, config.Agent.Stream)
 			require.Equal(t, tc.want, config.Agent.GetStream())
 		})
@@ -103,7 +104,7 @@ func TestBuildCompaction(t *testing.T) {
 		require.NoError(t, err)
 		// The agent's own model is the runtime's default summarizer, so it is
 		// not repeated in the configuration.
-		require.Equal(t, &adk.AgentContextConfig{Compaction: &adk.AgentCompressionConfig{
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
 			CompactionInterval: new(int64(5)), OverlapSize: new(int64(2)), TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
 			PromptTemplate: "Summarize.\n\n{conversation_history}",
 		}}, result.Config.ContextConfig)

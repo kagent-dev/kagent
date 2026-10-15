@@ -10,7 +10,7 @@ from kagent.core._runtime_config import RuntimeConfig, parse_runtime_config
 
 
 def test_shared_go_runtime_contract():
-    path = Path(__file__).resolve().parents[4] / "go/api/adk/testdata/runtime.json"
+    path = Path(__file__).resolve().parents[4] / "go/adk/pkg/config/testdata/runtime.json"
     cfg = parse_runtime_config(path.read_text())
     assert cfg.max_content_length == 0
     assert cfg.token_propagation.enabled is False

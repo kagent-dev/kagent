@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 // TestConfigDeserialization_OpenAI verifies that a realistic OpenAI config.json
@@ -30,8 +31,8 @@ func TestConfigDeserialization_OpenAI(t *testing.T) {
   }
 }`
 
-	var cfg adk.Config
-	if err := adk.Unmarshal([]byte(configJSON), &cfg); err != nil {
+	var cfg configv1.ADKConfig
+	if err := runtimeconfig.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
 
@@ -39,14 +40,14 @@ func TestConfigDeserialization_OpenAI(t *testing.T) {
 		t.Fatal("model is nil after deserialization")
 	}
 
-	if adk.ModelType(cfg.Agent.Model) != "openai" {
-		t.Errorf("model type = %q, want %q", adk.ModelType(cfg.Agent.Model), "openai")
+	if runtimeconfig.ModelType(cfg.Agent.Model) != "openai" {
+		t.Errorf("model type = %q, want %q", runtimeconfig.ModelType(cfg.Agent.Model), "openai")
 	}
 
 	openai := cfg.Agent.Model.GetOpenai()
 	ok := openai != nil
 	if !ok {
-		t.Fatalf("model is %T, want *adk.OpenAI", cfg.Agent.Model)
+		t.Fatalf("model is %T, want *configv1.ADKOpenAI", cfg.Agent.Model)
 	}
 
 	if cfg.Agent.Model.Model != "gpt-4o" {
@@ -75,15 +76,15 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
   }
 }`
 
-	var cfg adk.Config
-	if err := adk.Unmarshal([]byte(configJSON), &cfg); err != nil {
+	var cfg configv1.ADKConfig
+	if err := runtimeconfig.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
 
 	anthropic := cfg.Agent.Model.GetAnthropic()
 	ok := anthropic != nil
 	if !ok {
-		t.Fatalf("model is %T, want *adk.Anthropic", cfg.Agent.Model)
+		t.Fatalf("model is %T, want *configv1.ADKAnthropic", cfg.Agent.Model)
 	}
 
 	if cfg.Agent.Model.Model != "claude-sonnet-4-20250514" {
@@ -101,7 +102,7 @@ func TestConfigDeserialization_Anthropic(t *testing.T) {
 // the Anthropic model, which is where the cache_control markers are set.
 func TestCreateLLM_AnthropicPromptCaching(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
-	m := &adk.Model{Model: "claude-sonnet-4-6", Provider: &adk.Model_Anthropic{Anthropic: &adk.Anthropic{
+	m := &configv1.ADKModelConfig{Model: "claude-sonnet-4-6", Provider: &configv1.ADKModelConfig_Anthropic{Anthropic: &configv1.ADKAnthropic{
 		PromptCaching: true,
 		CacheTtl:      "1h"}}}
 
@@ -210,8 +211,8 @@ func TestConfigDeserialization_AllTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			configJSON := `{"agent":{"model":` + tt.json + `,"description":"test","instruction":"test"}}`
 
-			var cfg adk.Config
-			if err := adk.Unmarshal([]byte(configJSON), &cfg); err != nil {
+			var cfg configv1.ADKConfig
+			if err := runtimeconfig.Unmarshal([]byte(configJSON), &cfg); err != nil {
 				t.Fatalf("failed to unmarshal: %v", err)
 			}
 
@@ -219,8 +220,8 @@ func TestConfigDeserialization_AllTypes(t *testing.T) {
 				t.Fatal("model is nil")
 			}
 
-			if adk.ModelType(cfg.Agent.Model) != tt.wantType {
-				t.Errorf("type = %q, want %q", adk.ModelType(cfg.Agent.Model), tt.wantType)
+			if runtimeconfig.ModelType(cfg.Agent.Model) != tt.wantType {
+				t.Errorf("type = %q, want %q", runtimeconfig.ModelType(cfg.Agent.Model), tt.wantType)
 			}
 
 			base := cfg.Agent.Model
@@ -248,15 +249,15 @@ func TestCreateLLMConfig_OpenAI(t *testing.T) {
   }
 }`
 
-	var cfg adk.Config
-	if err := adk.Unmarshal([]byte(configJSON), &cfg); err != nil {
+	var cfg configv1.ADKConfig
+	if err := runtimeconfig.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
 	openai := cfg.Agent.Model.GetOpenai()
 	ok := openai != nil
 	if !ok {
-		t.Fatalf("model is %T, want *adk.OpenAI", cfg.Agent.Model)
+		t.Fatalf("model is %T, want *configv1.ADKOpenAI", cfg.Agent.Model)
 	}
 
 	// This is what createLLM does: it reads m.Model for the OpenAIConfig
@@ -316,7 +317,7 @@ func TestModelName_ReturnsModelNotProvider(t *testing.T) {
 	})
 }
 
-// TestCreateLLMConfig_Mistral verifies that createLLM wires an *adk.Mistral
+// TestCreateLLMConfig_Mistral verifies that createLLM wires an *configv1.ADKMistral
 // into a MistralModel whose inner OpenAI client keeps the model name (not the
 // type discriminator "mistral") and inherits the Mistral base URL.
 func TestCreateLLMConfig_Mistral(t *testing.T) {
@@ -338,15 +339,15 @@ func TestCreateLLMConfig_Mistral(t *testing.T) {
   }
 }`
 
-	var cfg adk.Config
-	if err := adk.Unmarshal([]byte(configJSON), &cfg); err != nil {
+	var cfg configv1.ADKConfig
+	if err := runtimeconfig.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
 	mistral := cfg.Agent.Model.GetMistral()
 	ok := mistral != nil
 	if !ok {
-		t.Fatalf("model is %T, want *adk.Mistral", cfg.Agent.Model)
+		t.Fatalf("model is %T, want *configv1.ADKMistral", cfg.Agent.Model)
 	}
 	if cfg.Agent.Model.Model != "mistral-large-latest" {
 		t.Errorf("model = %q, want %q", cfg.Agent.Model.Model, "mistral-large-latest")
@@ -387,15 +388,15 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
   }
 }`
 
-	var cfg adk.Config
-	if err := adk.Unmarshal([]byte(configJSON), &cfg); err != nil {
+	var cfg configv1.ADKConfig
+	if err := runtimeconfig.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		t.Fatalf("failed to unmarshal config: %v", err)
 	}
 
 	br := cfg.Agent.Model.GetBedrock()
 	ok := br != nil
 	if !ok {
-		t.Fatalf("model is %T, want *adk.Bedrock", cfg.Agent.Model)
+		t.Fatalf("model is %T, want *configv1.ADKBedrock", cfg.Agent.Model)
 	}
 
 	if cfg.Agent.Model.Model != "anthropic.claude-3-sonnet-20240229-v1:0" {
@@ -412,7 +413,7 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
 func TestCreateLLM_BedrockTimeouts(t *testing.T) {
 	read := 1500 * time.Millisecond
 	connect := 250 * time.Millisecond
-	m := &adk.Model{Model: "anthropic.claude-3-sonnet-20240229-v1:0", Provider: &adk.Model_Bedrock{Bedrock: &adk.Bedrock{
+	m := &configv1.ADKModelConfig{Model: "anthropic.claude-3-sonnet-20240229-v1:0", Provider: &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{
 		Region:         "us-east-1",
 		ReadTimeout:    durationpb.New(read),
 		ConnectTimeout: durationpb.New(connect)}}}
@@ -436,7 +437,7 @@ func TestCreateLLM_BedrockTimeouts(t *testing.T) {
 // TestCreateLLM_BedrockTimeoutsUnset verifies that omitting the timeouts leaves
 // them nil so each runtime keeps its own default behavior.
 func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
-	m := &adk.Model{Model: "anthropic.claude-3-sonnet-20240229-v1:0", Provider: &adk.Model_Bedrock{Bedrock: &adk.Bedrock{
+	m := &configv1.ADKModelConfig{Model: "anthropic.claude-3-sonnet-20240229-v1:0", Provider: &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{
 		Region: "us-east-1"}}}
 
 	llm, err := CreateLLM(context.Background(), m)
@@ -465,26 +466,26 @@ func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
 func TestAgentConfigFieldUsage(t *testing.T) {
 	tests := []struct {
 		name              string
-		config            *adk.AgentConfig
+		config            *configv1.ADKAgentConfig
 		expectMemoryTools bool
 	}{
 		{
 			name: "all_fields_populated",
-			config: &adk.AgentConfig{
+			config: &configv1.ADKAgentConfig{
 				Name: "root",
-				Model: &adk.Model{
-					Model: "gpt-4o-mini", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{
+				Model: &configv1.ADKModelConfig{
+					Model: "gpt-4o-mini", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{
 						BaseUrl: "https://api.openai.com/v1"}}},
 				Description:     "Test agent with all fields",
 				Instruction:     "You are a helpful test assistant",
 				SkillsDirectory: "/skills",
-				SubAgents: []*adk.AgentConfig{{
-					Name: "helper", Model: &adk.Model{Model: "gpt-4o-mini", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}},
+				SubAgents: []*configv1.ADKAgentConfig{{
+					Name: "helper", Model: &configv1.ADKModelConfig{Model: "gpt-4o-mini", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 				}},
 				Stream: new(true),
-				Memory: &adk.MemoryConfig{
+				Memory: &configv1.ADKMemoryConfig{
 					TtlDays: 15,
-					Embedding: &adk.EmbeddingConfig{
+					Embedding: &configv1.ADKEmbeddingConfig{
 						Provider: "openai",
 						Model:    "text-embedding-3-large",
 						BaseUrl:  "https://api.openai.com/v1",
@@ -495,9 +496,9 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 		},
 		{
 			name: "minimal_config",
-			config: &adk.AgentConfig{
-				Model: &adk.Model{
-					Model: "gpt-4o-mini", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{
+			config: &configv1.ADKAgentConfig{
+				Model: &configv1.ADKModelConfig{
+					Model: "gpt-4o-mini", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{
 						BaseUrl: "https://api.openai.com/v1"}}},
 				Description: "Minimal test agent",
 				Instruction: "You are helpful",
@@ -506,13 +507,13 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 		},
 		{
 			name: "memory_only",
-			config: &adk.AgentConfig{
-				Model: &adk.Model{
-					Model: "gpt-4o-mini", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{
+			config: &configv1.ADKAgentConfig{
+				Model: &configv1.ADKModelConfig{
+					Model: "gpt-4o-mini", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{
 						BaseUrl: "https://api.openai.com/v1"}}},
 				Description: "Agent with memory",
 				Instruction: "You are helpful with memory",
-				Memory: &adk.MemoryConfig{
+				Memory: &configv1.ADKMemoryConfig{
 					TtlDays: 30,
 				},
 			},
@@ -552,15 +553,15 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 
 func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
-	model := func() *adk.Model {
-		return &adk.Model{Model: "gpt-4o", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{BaseUrl: "https://api.openai.com/v1"}}}
+	model := func() *configv1.ADKModelConfig {
+		return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{BaseUrl: "https://api.openai.com/v1"}}}
 	}
-	config := &adk.AgentConfig{
+	config := &configv1.ADKAgentConfig{
 		Model: model(), Description: "root", Instruction: "coordinate", SkillsDirectory: t.TempDir(),
-		SubAgents: []*adk.AgentConfig{{Name: "researcher", Model: model(), Description: "research", Instruction: "investigate"}},
+		SubAgents: []*configv1.ADKAgentConfig{{Name: "researcher", Model: model(), Description: "research", Instruction: "investigate"}},
 	}
 
-	root, err := CreateGoogleADKAgent(context.Background(), &adk.Config{Agent: config}, "root", nil)
+	root, err := CreateGoogleADKAgent(context.Background(), &configv1.ADKConfig{Agent: config}, "root", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,18 +573,18 @@ func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
 func TestUsesRawOutputSchema(t *testing.T) {
 	tests := []struct {
 		name  string
-		model *adk.Model
+		model *configv1.ADKModelConfig
 		want  bool
 	}{
-		{name: "OpenAI", model: &adk.Model{Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}}}, want: true},
-		{name: "Azure OpenAI", model: &adk.Model{Provider: &adk.Model_AzureOpenai{AzureOpenai: &adk.AzureOpenAI{}}}, want: true},
-		{name: "Anthropic", model: &adk.Model{Provider: &adk.Model_Anthropic{Anthropic: &adk.Anthropic{}}}, want: true},
-		{name: "Anthropic on Vertex", model: &adk.Model{Provider: &adk.Model_GeminiAnthropic{GeminiAnthropic: &adk.GeminiAnthropic{}}}, want: true},
-		{name: "Bedrock Converse", model: &adk.Model{Provider: &adk.Model_Bedrock{Bedrock: &adk.Bedrock{}}}, want: true},
-		{name: "Foundry OpenAI", model: &adk.Model{Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{}}}, want: true},
-		{name: "Foundry Anthropic", model: &adk.Model{Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{ApiFormat: adk.FoundryAPIFormatAnthropic}}}, want: true},
-		{name: "Gemini", model: &adk.Model{Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{}}}, want: false},
-		{name: "Ollama", model: &adk.Model{Provider: &adk.Model_Ollama{Ollama: &adk.Ollama{}}}, want: false},
+		{name: "OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}}, want: true},
+		{name: "Azure OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{}}}, want: true},
+		{name: "Anthropic", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Anthropic{Anthropic: &configv1.ADKAnthropic{}}}, want: true},
+		{name: "Anthropic on Vertex", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_GeminiAnthropic{GeminiAnthropic: &configv1.ADKGeminiAnthropic{}}}, want: true},
+		{name: "Bedrock Converse", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{}}}, want: true},
+		{name: "Foundry OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{}}}, want: true},
+		{name: "Foundry Anthropic", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{ApiFormat: runtimeconfig.FoundryAPIFormatAnthropic}}}, want: true},
+		{name: "Gemini", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{}}}, want: false},
+		{name: "Ollama", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Ollama{Ollama: &configv1.ADKOllama{}}}, want: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -1,4 +1,4 @@
-package adk
+package config
 
 import (
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
