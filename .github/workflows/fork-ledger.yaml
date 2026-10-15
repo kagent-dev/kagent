@@ -3,7 +3,8 @@ name: Fork ledger
 # Fork (giantswarm/kagent-upstream): the carried-commit ledger is one file per
 # change under fork/carried/ (FORK.md, "Which kagent are we running"). Every
 # pull request and push verifies that the files name commits which sit on top
-# of the pin, each once, that FORK.md's Substrate pin rows name the pin, and the run's summary
+# of the pin, each once, that FORK.md's Substrate pin rows name the pin, that the harness images' Claude
+# Code and Codex pins agree with the Go constants and carry the vendors' checksums, and the run's summary
 # shows the table in that order. The public-links job keeps the ledger free of
 # citations of a private repository: this repository is public.
 on:
@@ -35,6 +36,8 @@ jobs:
         run: scripts/fork/carried.sh --check
       - name: Check the Substrate pin rows
         run: scripts/fork/ledger-check.sh pin
+      - name: Check the harness CLI pins
+        run: scripts/fork/harness-pins.sh check
       - name: Test the Releases table's writer and gate
         run: scripts/fork/releases-row_test.sh
       - name: Show the table

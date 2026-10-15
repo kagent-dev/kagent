@@ -6,9 +6,12 @@
 // is re-pinned; see FORK.md.
 //
 // The one exception is what a carried patch pins itself: the GitHub CLI in
-// the Go runtime and Claude harness images (go/github-cli.version) and the
-// GitLab CLI in the Claude harness image (go/gitlab-cli.version). Only the
-// regex managers below run, so no other manager opens a pull request.
+// the Go runtime and Claude harness images (go/github-cli.version), the
+// GitLab CLI in the Claude harness image (go/gitlab-cli.version), and the
+// Claude Code and Codex CLIs of the harness images (the ARG lines of
+// go/harness/{claude,codex}/Dockerfile and the Pinned*Version constant the
+// harness checks the installed binary against). Only the regex managers below
+// run, so no other manager opens a pull request.
 //
 // This repository is a GitHub fork, which Renovate skips unless its default
 // config file, renovate.json (never renovate.json5), sets forkProcessing to
@@ -21,6 +24,16 @@
   "forkProcessing": "enabled",
   "dependencyDashboard": true,
   "enabledManagers": ["custom.regex"],
+  "packageRules": [
+    {
+      // A bump of either CLI is one reviewable pull request: the image's ARG
+      // lines and the Go constant move together.
+      "matchDepNames": ["claude-code", "codex-cli"],
+      "prBodyNotes": [
+        "The image installs the vendor's binary by `*_SHA256` ARGs, which Renovate does not move; run `scripts/fork/harness-pins.sh update` on this branch (the fork-ledger check fails until then). For Claude Code also recheck the telemetry gate in `go/harness/claude/internal/driver` (see `PinnedClaudeVersion`)."
+      ]
+    }
+  ],
   "customManagers": [
     {
       // The GitHub CLI release both images install (go/install-github-cli.sh):
@@ -48,6 +61,46 @@
       "datasourceTemplate": "repology",
       "packageNameTemplate": "alpine_3_24/glab",
       "versioningTemplate": "loose"
+    },
+    {
+      // Claude Code: the tag of go/harness/claude/Dockerfile and the version
+      // the harness expects of the installed binary. The two per-architecture
+      // sha256 ARGs are the vendor manifest's checksums
+      // (downloads.claude.ai/claude-code-releases/<version>/manifest.json), a
+      // per-version document no Renovate datasource reads, so they do not move
+      // here: scripts/fork/harness-pins.sh refreshes them and its check, a step
+      // of the fork-ledger workflow, fails a pull request that leaves them
+      // stale.
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^go/harness/claude/Dockerfile$/",
+        "/^go/harness/claude/config/config\\.go$/"
+      ],
+      "matchStrings": [
+        "ARG CLAUDE_CODE_VERSION=(?<currentValue>\\S+)",
+        "PinnedClaudeVersion\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "claude-code",
+      "datasourceTemplate": "npm",
+      "packageNameTemplate": "@anthropic-ai/claude-code"
+    },
+    {
+      // Codex: the tag of go/harness/codex/Dockerfile and the version the
+      // harness expects of the installed binary. The checksums move with
+      // scripts/fork/harness-pins.sh, as for Claude Code above.
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^go/harness/codex/Dockerfile$/",
+        "/^go/harness/codex/config/config\\.go$/"
+      ],
+      "matchStrings": [
+        "ARG CODEX_CLI_VERSION=(?<currentValue>\\S+)",
+        "PinnedCodexVersion\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "codex-cli",
+      "datasourceTemplate": "github-releases",
+      "packageNameTemplate": "openai/codex",
+      "extractVersionTemplate": "^rust-v(?<version>.+)$"
     }
   ]
 }

@@ -257,7 +257,7 @@ may be listed there.
 
 Upstream automation the fork does not need is off: Dependabot version updates are disabled on this fork (a
 fork's default; dependency updates arrive through the re-pin), Renovate runs only its regex managers for the
-GitHub CLI pin in `go/github-cli.version` and the GitLab CLI pin in `go/gitlab-cli.version`, and keeps its Dependency Dashboard issue as the record of the scan
+GitHub CLI pin in `go/github-cli.version`, the GitLab CLI pin in `go/gitlab-cli.version` and the Claude Code and Codex pins of the harness images (the `ARG` lines of `go/harness/claude/Dockerfile` and `go/harness/codex/Dockerfile`, the single source of the pinned versions, with the `Pinned*Version` constant each harness checks the binary against; Renovate moves the tags, `scripts/fork/harness-pins.sh update` the per-architecture checksums, and the `fork-ledger` check fails until they agree), and keeps its Dependency Dashboard issue as the record of the scan
 (`renovate.json`, the name Renovate reads to admit a fork, with `forkProcessing: "enabled"`), `stalebot`, `conventional-label` and
 `label-pull-requests` are disabled workflows (repository setting, not a file edit), `migration-immutability`
 only fires on pull requests to `main`/`release/**`, which do not exist here. Upstream's workflow files do start
