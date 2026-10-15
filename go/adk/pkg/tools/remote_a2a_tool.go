@@ -278,6 +278,12 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 
 		opts := []a2aclient.FactoryOption{
 			a2aclient.WithJSONRPCTransport(s.httpClient),
+			// The outbound call targets the Agent identified by the card URL, so the
+			// caller's inbound tenant must not be inherited from the context: the A2A
+			// gateway rejects a tenant that differs from the Agent in the URL
+			// ("tenant does not match the Agent URL"). The gateway attaches the
+			// correct tenant from the URL itself (a2agateway httpAgentRoute).
+			a2aclient.WithConfig(a2aclient.Config{DisableTenantPropagation: true}),
 		}
 		interceptors := []a2aclient.CallInterceptor{
 			a2aext.NewActivator(a2a.HITLExtensionURI),

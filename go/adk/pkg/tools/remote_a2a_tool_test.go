@@ -2,6 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -261,5 +265,68 @@ func TestHandleInputRequiredWithoutHITLExtensionFails(t *testing.T) {
 	}
 	if response.SubagentSessionID != "child-context" {
 		t.Fatalf("SubagentSessionID = %q, want %q", response.SubagentSessionID, "child-context")
+	}
+}
+
+// TestRemoteA2AToolDoesNotForwardInboundTenant is a regression test for #3210:
+// a BYO agent calling another Agent through the remote A2A tool was rejected by
+// the A2A gateway with "tenant does not match the Agent URL". The outbound call
+// targets the Agent selected by the card URL, so the caller's inbound tenant
+// must not be inherited from the context by the client ensureClient builds —
+// the gateway attaches the correct tenant from the URL itself.
+func TestRemoteA2AToolDoesNotForwardInboundTenant(t *testing.T) {
+	sent := make(chan string, 1)
+	mux := http.NewServeMux()
+	var base string
+	// Card shape mirrors the A2A gateway (go/core/internal/a2agateway): a
+	// JSON-RPC interface without a tenant, and a gRPC interface carrying the
+	// Agent's tenant. JSON-RPC is preferred, so the selected endpoint has no
+	// tenant of its own and the client would otherwise fall back to the
+	// context tenant — the inbound caller's.
+	mux.HandleFunc("/agents/kagent/target/.well-known/agent-card.json", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(&a2atype.AgentCard{
+			Name: "target", Description: "t", Version: "v1",
+			SupportedInterfaces: []*a2atype.AgentInterface{
+				a2atype.NewAgentInterface(base+"/agents/kagent/target", a2atype.TransportProtocolJSONRPC),
+				{URL: base, ProtocolBinding: a2atype.TransportProtocolGRPC, Tenant: "kagent/target", ProtocolVersion: a2atype.Version},
+			},
+			Skills: []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
+		})
+	})
+	mux.HandleFunc("/agents/kagent/target", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Params struct {
+				Tenant string `json:"tenant"`
+			} `json:"params"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		select {
+		case sent <- body.Params.Tenant:
+		default:
+		}
+		http.Error(w, "test target", http.StatusTeapot)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base = srv.URL
+
+	state := &remoteA2AState{
+		name:       "target",
+		baseURL:    base + "/agents/kagent/target/.well-known/agent-card.json",
+		httpClient: withOTelTransport(&http.Client{}),
+	}
+	// The gateway calls the caller's runtime with the caller's tenant attached
+	// to the context; the tool's outbound call runs under that same context.
+	ctx := a2atype.AttachTenant(context.Background(), "kagent/caller")
+	client, err := state.ensureClient(ctx)
+	if err != nil {
+		t.Fatalf("ensureClient() error = %v", err)
+	}
+	_, _ = client.SendMessage(ctx, &a2atype.SendMessageRequest{
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+	})
+	if got := <-sent; got != "" {
+		t.Fatalf("outbound tenant = %q, want none: the JSON-RPC URL selects the Agent, and the gateway rejects a different tenant", got)
 	}
 }
