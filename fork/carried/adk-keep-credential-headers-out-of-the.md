@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `fix(adk): keep credential headers out of the persisted session state` | the Python ADK handed a turn its request headers as persisted session state, so an actor-local SQLite session store kept every caller's `Authorization` header at rest in the session row and in each turn's event, and with it in the actor's durable directory and its snapshots. Credential-bearing headers now reach the turn through ADK `temp:` state only, and `LocalSessionService` removes the ones a store written before holds, once, at its first use. The Go ADK keeps request headers in the call context and persists none | to file — prepared in the fork: branch `upstream/adk-credential-headers-not-persisted` |
