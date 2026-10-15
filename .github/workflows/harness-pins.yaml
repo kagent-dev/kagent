@@ -30,6 +30,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # The push below authenticates as the App (git-push-as.sh); a
+          # persisted checkout header would be sent beside it and refused.
+          persist-credentials: false
       - name: Write the vendors' checksums for the pinned versions
         id: update
         run: |
