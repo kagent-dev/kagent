@@ -38,7 +38,7 @@ const (
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
+	env.KagentName.Name(): {}, env.KagentNamespace.Name(): {}, env.KagentAgentTemplate.Name(): {}, env.KagentAPIURL.Name(): {},
 }
 
 type Compiler struct {
@@ -94,9 +94,12 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
+	// The adapter names the agent on every model call from KAGENT_AGENT_TEMPLATE
+	// and KAGENT_NAMESPACE, the identity the Go ADK runtime sends.
 	environment = append(environment,
 		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
 		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
+		corev1.EnvVar{Name: env.KagentAgentTemplate.Name(), Value: template.Name},
 		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
 	)
 	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)

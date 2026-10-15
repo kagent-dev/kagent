@@ -516,7 +516,9 @@ Every model call a runtime makes names the agent it is made for and the user of
 the turn, as request headers: `x-kagent-agent` and `x-kagent-agent-namespace`
 carry the `AgentTemplate`'s name and namespace (the controller injects them as
 `KAGENT_AGENT_TEMPLATE` and `KAGENT_NAMESPACE`; the Claude harness sends the same
-two through `ANTHROPIC_CUSTOM_HEADERS`), `x-kagent-user` the authenticated user
+two through `ANTHROPIC_CUSTOM_HEADERS`, the Codex harness through its model
+provider's `env_http_headers`, or `http_headers` on Amazon Bedrock, whose built-in
+provider takes no others), `x-kagent-user` the authenticated user
 of the turn — the identity the controller resolved from the caller's validated
 token and forwarded to the actor as metadata of the same name; absent when
 there is none. A gateway between the runtime and the

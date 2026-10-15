@@ -9,7 +9,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
@@ -67,7 +69,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
 		return nil, err
 	}
-	configTOML, err := renderConfig(cfg, codexHome)
+	configTOML, err := renderConfig(cfg, codexHome, input.Environment)
 	if err != nil {
 		return nil, err
 	}
@@ -144,11 +146,15 @@ type nativeOTLPHTTP struct {
 	Protocol string `toml:"protocol"`
 }
 
+// nativeModelProvider is a custom provider, or the subset of a built-in
+// Bedrock provider that Codex lets a configuration override (http_headers).
 type nativeModelProvider struct {
-	Name    string `toml:"name"`
-	WireAPI string `toml:"wire_api"`
-	EnvKey  string `toml:"env_key"`
-	BaseURL string `toml:"base_url,omitempty"`
+	Name           string            `toml:"name,omitempty"`
+	WireAPI        string            `toml:"wire_api,omitempty"`
+	EnvKey         string            `toml:"env_key,omitempty"`
+	BaseURL        string            `toml:"base_url,omitempty"`
+	HTTPHeaders    map[string]string `toml:"http_headers,omitempty,inline"`
+	EnvHTTPHeaders map[string]string `toml:"env_http_headers,omitempty,inline"`
 }
 
 type nativeAgent struct {
@@ -170,9 +176,17 @@ type nativeAgentConfig struct {
 	DeveloperInstructions string `toml:"developer_instructions"`
 }
 
+// agentHeaderEnvironment maps each header that names the agent on a model call
+// to the compiled variable holding its value: the identity the Go ADK runtime
+// sends, so a gateway in front of the model providers attributes the call.
+var agentHeaderEnvironment = map[string]string{
+	adk.AgentHeader:          env.KagentAgentTemplate.Name(),
+	adk.AgentNamespaceHeader: env.KagentNamespace.Name(),
+}
+
 // renderConfig translates the versioned Kagent contract into the pinned
 // Codex CLI's native TOML without copying credential values into durable state.
-func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
+func renderConfig(cfg config.Config, codexHome string, environment []string) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
 		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
@@ -182,11 +196,19 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),
 	}
-	if cfg.Provider.Name == "openai" {
+	switch cfg.Provider.Name {
+	case "openai":
 		native.ModelProviders = map[string]nativeModelProvider{
 			"kagent-openai": {
 				Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
+				EnvHTTPHeaders: agentHeaderEnvironment,
 			},
+		}
+	case "amazon-bedrock":
+		// The built-in Bedrock provider takes http_headers but not
+		// env_http_headers, so the identity is written as literal values.
+		if headers := agentHeaders(environment); len(headers) != 0 {
+			native.ModelProviders = map[string]nativeModelProvider{"amazon-bedrock": {HTTPHeaders: headers}}
 		}
 	}
 	if cfg.Telemetry != nil {
@@ -226,6 +248,29 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		return nil, fmt.Errorf("encode Codex configuration: %w", err)
 	}
 	return contents, nil
+}
+
+// agentHeaders resolves agentHeaderEnvironment against the process
+// environment, omitting a header whose variable is unset or empty as Codex does
+// for env_http_headers.
+func agentHeaders(environment []string) map[string]string {
+	headers := make(map[string]string, len(agentHeaderEnvironment))
+	for header, name := range agentHeaderEnvironment {
+		if value := lookupEnvironment(environment, name); strings.TrimSpace(value) != "" {
+			headers[header] = value
+		}
+	}
+	return headers
+}
+
+func lookupEnvironment(environment []string, name string) string {
+	prefix := name + "="
+	for _, item := range slices.Backward(environment) {
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 func nativeExporter(exporterConfig *config.OTLPExporter) *nativeOtelExporter {

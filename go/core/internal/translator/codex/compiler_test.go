@@ -139,6 +139,7 @@ func TestCompileTracing(t *testing.T) {
 		"OTEL_SERVICE_NAME":                "runnable-agent",
 		"KAGENT_NAME":                      "runnable-agent",
 		"KAGENT_NAMESPACE":                 "test",
+		"KAGENT_AGENT_TEMPLATE":            "assistant",
 	} {
 		if environment[name] != value {
 			t.Errorf("environment[%s] = %q, want %q", name, environment[name], value)
@@ -173,6 +174,26 @@ func TestCompileRejectsManagedOTELEnvironment(t *testing.T) {
 	var validation *translator.ValidationError
 	if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
 		t.Fatalf("Compile() error = %v, want managed OTEL environment conflict", err)
+	}
+}
+
+func TestCompileRejectsHarnessEnvironmentCodexOwns(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex",
+		APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
+		OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses},
+	}
+	for _, name := range []string{"KAGENT_NAME", "KAGENT_NAMESPACE", "KAGENT_AGENT_TEMPLATE", "KAGENT_API_URL"} {
+		t.Run(name, func(t *testing.T) {
+			input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+			input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: name, Value: "other"}}
+			_, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+			var validation *translator.ValidationError
+			if !errors.As(err, &validation) || !strings.Contains(err.Error(), "conflicts with Codex's compiled configuration") {
+				t.Fatalf("Compile() error = %v, want %s conflict", err, name)
+			}
+		})
 	}
 }
 

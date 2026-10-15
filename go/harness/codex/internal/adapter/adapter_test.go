@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -74,6 +76,9 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	if native.ModelProvider != "kagent-openai" || provider.WireAPI != "responses" || provider.EnvKey != "OPENAI_API_KEY" || provider.BaseURL != cfg.Provider.BaseURL {
 		t.Fatalf("generated provider configuration = %#v, provider name = %q", provider, native.ModelProvider)
 	}
+	if want := map[string]string{"x-kagent-agent": "KAGENT_AGENT_TEMPLATE", "x-kagent-agent-namespace": "KAGENT_NAMESPACE"}; !maps.Equal(provider.EnvHTTPHeaders, want) || len(provider.HTTPHeaders) != 0 {
+		t.Fatalf("generated provider headers = %#v / %#v, want env_http_headers %v", provider.HTTPHeaders, provider.EnvHTTPHeaders, want)
+	}
 	if !native.Features.DefaultModeRequestUserInput {
 		t.Fatal("generated Codex configuration does not enable request_user_input in default mode")
 	}
@@ -132,7 +137,7 @@ func TestRenderConfigOmitsDisabledSignalExporter(t *testing.T) {
 			cfg := config.Production("gpt-5.2-codex", "work carefully")
 			cfg.Provider = config.Provider{Name: "openai"}
 			cfg.Telemetry = test.telemetry
-			contents, err := renderConfig(cfg, t.TempDir())
+			contents, err := renderConfig(cfg, t.TempDir(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -142,6 +147,45 @@ func TestRenderConfigOmitsDisabledSignalExporter(t *testing.T) {
 			}
 			if native.Otel == nil || (native.Otel.Exporter != nil) != test.wantLogs || (native.Otel.TraceExporter != nil) != test.wantTraces {
 				t.Fatalf("generated OTEL configuration = %#v", native.Otel)
+			}
+		})
+	}
+}
+
+func TestRenderConfigNamesTheAgentOnBedrockModelCalls(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment []string
+		want        map[string]nativeModelProvider
+	}{
+		{
+			name:        "identity compiled",
+			environment: []string{"PATH=/bin", "KAGENT_AGENT_TEMPLATE=stale", "KAGENT_AGENT_TEMPLATE=assistant", "KAGENT_NAMESPACE=team"},
+			want: map[string]nativeModelProvider{"amazon-bedrock": {HTTPHeaders: map[string]string{
+				"x-kagent-agent": "assistant", "x-kagent-agent-namespace": "team",
+			}}},
+		},
+		{
+			name:        "namespace only",
+			environment: []string{"KAGENT_AGENT_TEMPLATE= ", "KAGENT_NAMESPACE=team"},
+			want:        map[string]nativeModelProvider{"amazon-bedrock": {HTTPHeaders: map[string]string{"x-kagent-agent-namespace": "team"}}},
+		},
+		{name: "no identity", environment: []string{"PATH=/bin"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := config.Production("gpt-5.2", "work carefully")
+			cfg.Provider = config.Provider{Name: "amazon-bedrock"}
+			contents, err := renderConfig(cfg, t.TempDir(), test.environment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var native nativeConfig
+			if err := toml.Unmarshal(contents, &native); err != nil {
+				t.Fatal(err)
+			}
+			if native.ModelProvider != "amazon-bedrock" || !reflect.DeepEqual(native.ModelProviders, test.want) {
+				t.Fatalf("model_provider = %q, model_providers = %#v, want %#v:\n%s", native.ModelProvider, native.ModelProviders, test.want, contents)
 			}
 		})
 	}
@@ -196,11 +240,13 @@ func assertPinnedCodexAcceptsConfig(t *testing.T, executable string, provider co
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(context.Background(), Input{ConfigJSON: raw, Workspace: filepath.Join(durable, "workspace"), DurableDir: durable, Environment: os.Environ()}); err != nil {
+	identity := []string{"KAGENT_AGENT_TEMPLATE=assistant", "KAGENT_NAMESPACE=team"}
+	if _, err := New(context.Background(), Input{ConfigJSON: raw, Workspace: filepath.Join(durable, "workspace"), DurableDir: durable, Environment: append(os.Environ(), identity...)}); err != nil {
 		t.Fatal(err)
 	}
 	codexHome := filepath.Join(durable, "codex")
 	environment := append(os.Environ(), "CODEX_HOME="+codexHome, "OPENAI_API_KEY=test", "AWS_REGION=us-east-1", "AWS_BEARER_TOKEN_BEDROCK=test")
+	environment = append(environment, identity...)
 	featuresCommand := exec.Command(executable, "features", "list")
 	featuresCommand.Env = environment
 	featuresOutput, err := featuresCommand.CombinedOutput()
