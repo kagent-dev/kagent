@@ -6,6 +6,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -55,7 +56,15 @@ func TestSessionExpirationTaskAdmission(t *testing.T) {
 func TestSessionExpirationRechecksActivity(t *testing.T) {
 	client, session := expirationFixture(t)
 	ctx := t.Context()
-	before := time.Now()
+	// Event timestamps come from PostgreSQL. Use its clock for the precise
+	// before/after cutoffs too: a container's clock can lag the test host.
+	databaseTime := func() time.Time {
+		t.Helper()
+		now, err := queryOne(ctx, client.db, `SELECT clock_timestamp()`, pgx.RowTo[time.Time])
+		require.NoError(t, err)
+		return now
+	}
+	before := databaseTime()
 	ids, err := client.ListIdleSessions(ctx, before, "", 100)
 	require.NoError(t, err)
 	require.Equal(t, []string{session.Id}, ids)
@@ -64,13 +73,13 @@ func TestSessionExpirationRechecksActivity(t *testing.T) {
 	task.ContextID, task.Status.State = session.ContextId, a2a.TaskStateCompleted
 	version, err := client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("completed"), task, "")
 	require.NoError(t, err)
-	savedBefore := time.Now()
-	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	savedBefore := databaseTime()
+	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, databaseTime())
 	require.ErrorIs(t, err, ErrConflict, "unpublished runtime cleanup blocks expiration")
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
 	work, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
-	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
+	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, databaseTime())
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a claimed suspension blocks expiration")
 	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", ContentScope: "FULL"}))
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, before)

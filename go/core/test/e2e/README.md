@@ -54,6 +54,14 @@ The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness
 fixtures, and each test owns the templates and API resources it creates.
 
+`TestSessionUnpublishedBoundaryDeletion` keeps a live runtime blocked at a model
+request and stages a terminal or waiting boundary through its private TaskStore
+API without acknowledging cleanup. It checks that public deletion removes the
+Actor, revokes stale runtime writes, and prevents sends from recreating compute.
+The waiting case also discards a successful deletion reply and retries through
+a fresh public call. This uses the shared harness matrix and can be selected for
+one harness using the same subtest filters as other interaction cases.
+
 Shared AgentTemplate and Session tests use `forEachHarness`, which runs
 every case on kagent, Codex, Claude, and configured BYO (the Go ADK image through
 the BYO compiler). Each harness gets a named subtest and independent resources,
