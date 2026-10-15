@@ -26,6 +26,13 @@ describe("textLinks", () => {
     ["what is https://github.com/kagent-dev/kagent", []],
     ["https://example.com/index.html", []],
     ["ftp://example.com/a.pdf example.com/a.pdf", []],
+    ["read [the report](https://example.com/a.pdf) now", ["https://example.com/a.pdf"]],
+    ["read <https://example.com/a.pdf> now", ["https://example.com/a.pdf"]],
+    ["https://example.com/a.pdf?v=(2)", ["https://example.com/a.pdf?v=(2)"]],
+    ["(see https://example.com/a.pdf?v=(2)).", ["https://example.com/a.pdf?v=(2)"]],
+    ["run `curl https://example.com/a.pdf` here", []],
+    // GFM links www. as http://www., which is not in the text as written.
+    ["www.example.com/a.pdf", []],
     ["", []],
   ])("%j is %j", (text, expected) => {
     expect(textLinks(text)).toEqual(expected);

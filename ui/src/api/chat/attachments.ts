@@ -1,3 +1,8 @@
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import { visit } from "unist-util-visit";
+
 // One cap for the whole message: the gateway's gRPC limit is 16 MiB, framing included.
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 
@@ -18,7 +23,6 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
-  // Read from bytes by Responses-format models only; other models get a "could not be read" note.
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -67,19 +71,23 @@ export class LinkFile extends File {
   }
 }
 
+// The model reads the text as markdown, so links are found the same way: bare URLs,
+// <autolinks> and [markdown](links), but none inside code.
+const markdown = unified().use(remarkParse).use(remarkGfm);
+
 /**
  * The links in `text` to send as url parts: http(s) URLs to a file of a known type,
  * as written in the text, so the runtime finds them there. A web page stays text only:
  * no provider is known to read one as a file.
  */
 export function textLinks(text: string): string[] {
-  // ponytail: whitespace split and trimmed punctuation, not a full URL grammar; a URL
-  // that ends in ")" loses it. Use a linkify parser if users paste such links.
-  const links = text
-    .split(/\s+/)
-    .map((token) => token.replace(/^[(<"'[]+/, "").replace(/[.,;:!?)>"'\]]+$/, ""))
-    .filter((url) => isHttpUrl(url) && !["", "text/html"].includes(linkMediaType(url)));
-  return [...new Set(links)];
+  const links = new Set<string>();
+  visit(markdown.parse(text), "link", ({ url }) => {
+    if (text.includes(url) && isHttpUrl(url) && !["", "text/html"].includes(linkMediaType(url))) {
+      links.add(url);
+    }
+  });
+  return [...links];
 }
 
 export function isHttpUrl(url: string): boolean {

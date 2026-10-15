@@ -1559,6 +1559,23 @@ describe("A2AGrpcChatClient files", () => {
     ]);
   });
 
+  it("shows no chip for a link whose URL is in the message text", async () => {
+    const link = "https://files.example/a.pdf";
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-text-link",
+          role: Role.USER,
+          parts: [
+            { content: { case: "text" as const, value: `summarize ${link}` } },
+            { content: { case: "url" as const, value: link }, filename: "a.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([{ kind: "text", text: `summarize ${link}` }]);
+  });
+
   it("names a linked file by its path and drops non-http links", async () => {
     const events = await turn([
       statusFrame({
