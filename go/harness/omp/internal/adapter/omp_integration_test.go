@@ -90,7 +90,8 @@ func TestOmpTurnsAgainstFakeModel(t *testing.T) {
 	assert.Equal(t, 120, outcome.Usage.InputTokens, "input plus cache reads")
 	assert.Equal(t, 20, outcome.Usage.CachedTokens)
 	assert.Equal(t, 7, outcome.Usage.OutputTokens)
-	assert.Greater(t, outcome.Usage.TotalCostUSD, 0.0, "the catalog prices claude-sonnet-4-5")
+	require.NotNil(t, outcome.Usage.TotalCostUSD)
+	assert.Greater(t, *outcome.Usage.TotalCostUSD, 0.0, "the catalog prices claude-sonnet-4-5")
 
 	second := &recordingSink{}
 	outcome, err = runner.Run(ctx, runtime.Turn{Prompt: "and again", ContinuationID: first.sessionID}, second)

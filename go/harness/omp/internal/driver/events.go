@@ -160,8 +160,10 @@ type sessionStats struct {
 // counts every prompt token as input and the cache reads among them.
 func turnUsage(before, after sessionStats) *runtime.Usage {
 	cacheRead := after.Tokens.CacheRead - before.Tokens.CacheRead
+	// omp always reports a cost: its catalog's price, zero for an unpriced model.
+	cost := after.Cost - before.Cost
 	return &runtime.Usage{
-		TotalCostUSD: after.Cost - before.Cost,
+		TotalCostUSD: &cost,
 		NumTurns:     after.AssistantMessages - before.AssistantMessages,
 		InputTokens: after.Tokens.Input - before.Tokens.Input + cacheRead +
 			after.Tokens.CacheWrite - before.Tokens.CacheWrite,

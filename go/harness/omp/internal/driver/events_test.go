@@ -144,8 +144,9 @@ func TestTurnUsage(t *testing.T) {
 		return s
 	}
 	usage := turnUsage(stats(2, 300, 40, 100, 50, 0.25), stats(5, 400, 47, 120, 80, 0.75))
+	cost := 0.5
 	assert.Equal(t, &runtime.Usage{
-		TotalCostUSD: 0.5, NumTurns: 3,
+		TotalCostUSD: &cost, NumTurns: 3,
 		InputTokens: 100 + 20 + 30, CachedTokens: 20, OutputTokens: 7,
 	}, usage, "the turn's usage is the difference, every prompt token counted as input")
 }
