@@ -15,6 +15,8 @@ executor, and serves private gRPC on port 80 and readiness on port 8081.
 - Text replies and text tool results, including tool errors.
 - ACP cancellation and session resumption after the DSH process exits.
 - DSH one-shot permission requests mapped to kagent's approval messages.
+- `requireApproval` on HTTP MCP servers, enforced by the adapter before dispatch
+  and answered through the same kagent HITL flow.
 
 ACP emits committed semantic updates, rather than raw provider token deltas.
 Context occupancy is not per-call token usage, so the bridge does not report
@@ -23,10 +25,9 @@ auxiliary web tools are disabled; the kagent wrapper retains its telemetry path.
 
 Unsupported configuration is rejected at startup: Responses API, model
 generation overrides, API-key passthrough, custom TLS, SSE/stdio MCP bindings,
-tool subsets, SSE read-timeout overrides, forwarded caller headers, and kagent `requireApproval` bindings.
-DSH's ACP server has no per-MCP-server approval policy, so accepting that field
-would not enforce the requested gate. DSH sandbox permission requests are a
-separate channel and can still be answered through kagent.
+tool subsets, SSE read-timeout overrides, and forwarded caller headers.
+DSH sandbox permission requests and adapter-owned MCP approvals are separate
+channels; both use kagent's approval messages.
 
 The proxy discovers the remote tool catalog at each turn. It preserves the
 CRD's default 30-second timeout and `terminateOnClose: true`; an explicit false
@@ -91,28 +92,63 @@ The CLI profile and compiled overlay use a disposable home outside `/data`.
 Do not delete the native session logs while retaining the continuation binding.
 Public tasks and history remain in kagent's controller-backed TaskStore.
 
-Pending approvals also need the live ACP process. They cannot currently recover
-from a DATA-only snapshot or process replacement. The shared durable-input work
-in [kagent #3165](https://github.com/kagent-dev/kagent/pull/3165) is a migration
-dependency, but DSH must also support resuming the exact pending call without
-replaying a tool before this adapter can adopt that recovery path.
+Native ACP permission requests need the live process. They cannot recover
+from a DATA-only snapshot or process replacement.
 In DSH 0.2.0-rc.2, native session resume closes the interrupted call with an
 unknown-outcome tool result. The approval audit log does not reconstruct the
 execution point or the ACP permission response. Saving its request ID and
 reissuing the original prompt would therefore not implement approval recovery.
-Until then, the DSH adapter accepts a send referencing an existing task only
-when that task owns the live pending approval. It rejects both approval decisions
+The DSH adapter accepts a send referencing an existing task only
+when that task owns a pending approval. It rejects both approval decisions
 and plain replies to a lost task before the SDK appends history or changes task
 state. Continue completed work with a new A2A task in the same conversation.
 These guards do not replay prompts or apply approvals after ownership is lost;
-they provide explicit failure, not automatic approval recovery.
+they provide explicit failure for lost native ACP ownership.
+
+### Protected MCP approvals
+
+Set `requireApproval: true` on an HTTP MCP binding to use the adapter-owned
+path. The proxy holds the call before dispatch, correlates its name and arguments
+with the ACP tool event, and stops DSH before publishing `input-required`.
+`/data/adapter/dsh-approval.json` retains the exact call and its public task IDs.
+The conversation binding comes from the A2A executor and is recorded in
+`dsh-approval-owner.json`; the model supplies neither routing nor scope. Each
+Actor has its own DATA. Do not share one Actor or DATA directory between
+conversations.
+
+Approval executes the saved call once and persists its result. Denial records a
+declined result without dispatch; canceling a waiting request does not execute
+it. DSH then resumes its session in a new native turn with the saved result as
+context, while kagent continues the original A2A task. This does not reconstruct
+the original native stack. Request protected tools sequentially; approval batches
+are not supported. Other native or unprotected tools retain their own policies.
+
+The shared `PendingRestorer` contract in
+[kagent #3165](https://github.com/kagent-dev/kagent/pull/3165) is required to
+restore that **public task ownership after replacing the adapter**. The adapter
+implements the contract, but this PR does not include its shared runtime changes.
+On the current base, live HITL works and replacement requests are rejected safely.
+Recovery must not be advertised as available until the shared dependency lands.
+The separate dependency test uses #3165 at `4fe32fdb`, real DSH and MCP, and a
+controller TaskStore fixture; it is not Actor replacement acceptance in a cluster.
+
+Transport discovery or native setup failures that prove non-execution preserve
+the approval for retry. A persisted result is reused. A crash during dispatch or
+native continuation leaves an uncertain record and blocks automatic replay.
+HTTP cancellation cannot certify that a remote side effect stopped; cancellation
+of an uncertain operation returns an error instead of publishing `CANCELED`.
+Inspect the upstream outcome before recovering the conversation. Generic
+exactly-once execution and remote reconciliation are not provided. Target
+configuration changes, malformed records, wrong-context decisions and late
+decisions fail closed. The existing #3010 shared recovery boundary still applies.
 
 For business actions that must wait across process replacement, the optional
 [external approval service](approval-mcp/README.md) offers a different contract:
 DSH submits a durable operation through MCP and completes its current turn; an
 external worker executes the saved action after approval, then starts a new A2A
-task in the same conversation. This does not resume a native ACP permission
-request or change the guards above. It runs independently with its own database,
+task in the same conversation. Use the protected-binding path above when the
+approval must continue the original public task. The business service does not
+resume a native ACP permission request. It runs with its own database,
 credentials and image, so it can move with the BYO integration to another repo.
 
 If only the DSH subprocess exits while awaiting approval, the surviving adapter
@@ -166,7 +202,8 @@ kubectl get harness,agent -n kagent
 
 After preparation succeeds, open `dsh-agent` in the kagent UI and create a
 conversation. To bind an MCP server, add a normal `tools[].mcp` binding to the
-inline AgentTemplate, omit the `tools` subset, and leave `requireApproval` unset.
+inline AgentTemplate and omit the `tools` subset. Set `requireApproval: true`
+when that whole MCP server requires human approval.
 The server must use Streamable HTTP and the platform trust bundle.
 
 ## Verification

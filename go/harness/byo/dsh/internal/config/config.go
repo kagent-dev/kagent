@@ -80,8 +80,8 @@ func Parse(data []byte) (*Config, error) {
 	model.BaseUrl = baseURL
 	c := &Config{Agent: agent, Model: model}
 	for i, server := range agent.HttpTools {
-		if len(server.Tools) != 0 || server.RequireApproval || len(server.AllowedHeaders) != 0 {
-			return nil, fmt.Errorf("MCP binding %d: tool selection, requireApproval and forwarded headers are unsupported by DSH ACP", i)
+		if len(server.Tools) != 0 || len(server.AllowedHeaders) != 0 {
+			return nil, fmt.Errorf("MCP binding %d: tool selection and forwarded headers are unsupported by DSH ACP", i)
 		}
 		if server.Params.SseReadTimeout != nil || server.Params.TLSCACertPath != nil || server.Params.TLSDisableSystemCAs != nil || (server.Params.TLSInsecureSkipVerify != nil && *server.Params.TLSInsecureSkipVerify) {
 			return nil, fmt.Errorf("MCP binding %d: connection overrides are unsupported by DSH ACP", i)

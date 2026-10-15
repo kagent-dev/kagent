@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,11 +26,13 @@ type mcpProxy struct {
 	sessions   []*mcp.ClientSession
 	transports []*http.Transport
 	servers    []config.MCPServer
+	approvals  chan *heldTool
+	held       atomic.Bool
 }
 
 func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServer) (_ *mcpProxy, returnErr error) {
 	root, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	p := &mcpProxy{cancel: cancel}
+	p := &mcpProxy{cancel: cancel, approvals: make(chan *heldTool, 1)}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			returnErr = fmt.Errorf("failed to initialize MCP proxy: %v", recovered)
@@ -87,6 +90,9 @@ func startMCP(ctx context.Context, cfg *config.Config, bindings []config.MCPServ
 			for _, tool := range listed.Tools {
 				name := tool.Name
 				server.AddTool(tool, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+					if cfg.Agent.HttpTools[i].RequireApproval {
+						return p.hold(ctx, i, binding.Name, name, request.Params.Arguments)
+					}
 					callCtx, callCancel := context.WithTimeout(ctx, timeout)
 					defer callCancel()
 					return session.CallTool(callCtx, &mcp.CallToolParams{Name: name, Arguments: request.Params.Arguments})

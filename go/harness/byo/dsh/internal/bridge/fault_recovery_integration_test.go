@@ -101,7 +101,9 @@ func TestRealDSHApprovalProcessDeathAllowsNextTask(t *testing.T) {
 				return nil
 			})
 			t.Cleanup(func() {
-				if id := executor.ReservedTaskID(); id != "" {
+				id, err := executor.reservedTask()
+				require.NoError(t, err)
+				if id != "" {
 					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 					defer cancel()
 					req, err := pbconv.ToProtoCancelTaskRequest(&a2atype.CancelTaskRequest{ID: id})

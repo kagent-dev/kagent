@@ -11,6 +11,13 @@ import (
 
 const valid = `{"model":{"type":"openai","model":"deepseek-chat","base_url":"https://api.deepseek.com/v1"},"instruction":"Answer accurately.","runtime":{"control_plane_url":"http://controller:8083"}}`
 
+func TestProtectedMCPBindingUsesAdapterApproval(t *testing.T) {
+	c, err := Parse([]byte(strings.TrimSuffix(valid, "}") + `,"http_tools":[{"params":{"url":"https://tools.example/mcp"},"require_approval":true}]}`))
+	require.NoError(t, err)
+	require.True(t, c.Agent.HttpTools[0].RequireApproval)
+	require.Len(t, c.MCP, 1)
+}
+
 func TestParseRejectsUnsupportedSemantics(t *testing.T) {
 	for _, test := range []struct{ name, field string }{
 		{"missing model", `"model":null`},
@@ -24,7 +31,6 @@ func TestParseRejectsUnsupportedSemantics(t *testing.T) {
 		{"SSE", `"sse_tools":[{}]`},
 		{"non-streaming", `"stream":false`},
 		{"MCP tool subset", `"http_tools":[{"params":{"url":"https://tools.example/mcp"},"tools":["read"]}]`},
-		{"MCP approval", `"http_tools":[{"params":{"url":"https://tools.example/mcp"},"require_approval":true}]`},
 		{"MCP forwarded headers", `"http_tools":[{"params":{"url":"https://tools.example/mcp"},"allowed_headers":["authorization"]}]`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

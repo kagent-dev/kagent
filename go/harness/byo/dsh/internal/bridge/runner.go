@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/byo/dsh/internal/config"
@@ -27,12 +29,14 @@ const (
 )
 
 type Runner struct {
-	config      *config.Config
-	executable  string
-	dataDir     string
-	workspace   string
-	environment []string
-	servers     []config.MCPServer
+	config       *config.Config
+	executable   string
+	dataDir      string
+	workspace    string
+	environment  []string
+	servers      []config.MCPServer
+	approvalMu   sync.Mutex
+	approvalBusy atomic.Bool
 }
 
 var _ runtimea2a.Runner = (*Runner)(nil)
@@ -84,14 +88,17 @@ func (r *Runner) Validate(ctx context.Context) error {
 }
 
 type process struct {
-	stdin   io.WriteCloser
-	control io.Closer
-	wire    *wire
-	done    chan struct{}
-	waitErr error
-	home    string
-	events  events
-	mcp     *mcpProxy
+	stdin       io.WriteCloser
+	control     io.Closer
+	wire        *wire
+	done        chan struct{}
+	waitErr     error
+	home        string
+	events      events
+	mcp         *mcpProxy
+	runner      *Runner
+	cleanupOnce sync.Once
+	cleanupErr  error
 }
 
 func (r *Runner) start(ctx context.Context) (*process, error) {
@@ -127,7 +134,7 @@ func (r *Runner) start(ctx context.Context) (*process, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("failed to start DSH: %w", err), stdin.Close(), stdout.Close(), os.RemoveAll(home))
 	}
-	p := &process{stdin: stdin, control: control, wire: newWire(stdin, stdout), done: make(chan struct{}), home: home, events: events{tools: make(map[string]tool)}}
+	p := &process{stdin: stdin, control: control, wire: newWire(stdin, stdout), done: make(chan struct{}), home: home, runner: r, events: events{tools: make(map[string]tool)}}
 	go func() { p.waitErr = control.Wait(); close(p.done) }()
 	proxy, err := startMCP(ctx, r.config, r.servers)
 	if err != nil {
@@ -138,6 +145,28 @@ func (r *Runner) start(ctx context.Context) (*process, error) {
 }
 
 func (r *Runner) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (out runtime.Outcome, returnErr error) {
+	return r.run(ctx, turn, sink, "", nil)
+}
+
+type turnNotStartedError struct{ error }
+
+func (e *turnNotStartedError) Unwrap() error { return e.error }
+
+type processCleanupError struct{ error }
+
+func (e *processCleanupError) Unwrap() error { return e.error }
+
+func (r *Runner) run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink, resolvedApproval string, resolvedResult *runtime.ToolResult) (out runtime.Outcome, returnErr error) {
+	started := false
+	defer func() {
+		var cleanupErr *processCleanupError
+		if returnErr != nil && !started && !errors.As(returnErr, &cleanupErr) {
+			returnErr = &turnNotStartedError{returnErr}
+		}
+	}()
+	if err := r.admitApprovalTurn(ctx, resolvedApproval); err != nil {
+		return out, err
+	}
 	if strings.TrimSpace(turn.Prompt) == "" {
 		return out, fmt.Errorf("DSH prompt is required")
 	}
@@ -212,6 +241,14 @@ func (r *Runner) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventS
 	if err := sink.SessionStarted(runtime.SessionStarted{ContinuationID: id}); err != nil {
 		return out, err
 	}
+	// After publishing the saved result or attempting the prompt write, a retry
+	// cannot prove non-execution. Only earlier setup failures can safely repark.
+	started = true
+	if resolvedResult != nil {
+		if err := sink.ToolResult(*resolvedResult); err != nil {
+			return out, err
+		}
+	}
 	if err := p.wire.send(ctx, message{JSONRPC: "2.0", ID: json.RawMessage(promptID), Method: "session/prompt"}, struct {
 		SessionID string    `json:"sessionId"`
 		Prompt    []content `json:"prompt"`
@@ -229,8 +266,42 @@ func ValidateSessionID(id string) error {
 }
 
 func (p *process) collect(ctx context.Context, sink runtime.EventSink) (runtime.Outcome, error) {
+	var held *heldTool
+	var associate <-chan time.Time
+	var timer *time.Timer
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
 	for {
-		m, err := p.wire.next(ctx)
+		if held != nil {
+			callID, err := p.events.heldCallID(held)
+			if err != nil {
+				return runtime.Outcome{}, err
+			}
+			if callID != "" {
+				return p.deferTool(ctx, held, callID)
+			}
+		}
+		var m message
+		var err error
+		select {
+		case held = <-p.mcp.approvals:
+			timer = time.NewTimer(setupTimeout)
+			associate = timer.C
+			continue
+		case <-associate:
+			return runtime.Outcome{}, fmt.Errorf("protected MCP call has no matching ACP event")
+		case <-ctx.Done():
+			err = ctx.Err()
+		case f, ok := <-p.wire.frames:
+			if !ok {
+				err = fmt.Errorf("DSH ACP stream closed")
+			} else {
+				m, err = f.message, f.err
+			}
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return runtime.Outcome{}, errors.Join(ctx.Err(), p.cancel())
@@ -243,6 +314,9 @@ func (p *process) collect(ctx context.Context, sink runtime.EventSink) (runtime.
 				return runtime.Outcome{}, err
 			}
 		case m.Method == "session/request_permission" && len(m.ID) != 0:
+			if held != nil {
+				return runtime.Outcome{}, fmt.Errorf("native permission and protected MCP requests must be sequential")
+			}
 			request, allow, reject, err := p.events.approval(m.ID, m.Params)
 			if err != nil {
 				return runtime.Outcome{}, err
@@ -382,6 +456,15 @@ func (p *process) stop() error {
 // cleanup always waits for confirmed process-tree cleanup. The caller decides
 // whether a nonzero exit is an error or an already classified failed outcome.
 func (p *process) cleanup() error {
+	p.cleanupOnce.Do(func() {
+		if err := p.cleanupResources(); err != nil {
+			p.cleanupErr = &processCleanupError{err}
+		}
+	})
+	return p.cleanupErr
+}
+
+func (p *process) cleanupResources() error {
 	close(p.wire.done)
 	err := p.stdin.Close()
 	if errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {

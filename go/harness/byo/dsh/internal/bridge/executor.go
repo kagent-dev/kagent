@@ -17,6 +17,7 @@ import (
 type Executor struct {
 	a2asrv.PassthroughCallInterceptor
 	*runtimea2a.Executor
+	runner *Runner
 }
 
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
@@ -29,26 +30,72 @@ func NewExecutor(runner *Runner, store runtimea2a.ContinuationStore, telemetry t
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{Executor: executor}, nil
+	return &Executor{Executor: executor, runner: runner}, nil
 }
 
-// Before admits task continuations only for the live parked turn. In this
+// The shared executor generates/validates these identities before Runner.Run.
+// Keep them out of model-controlled tool arguments and persisted DSH profiles.
+func (e *Executor) Execute(ctx context.Context, req *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	if req != nil {
+		ctx = context.WithValue(ctx, approvalOwnerKey{}, approvalOwner{TaskID: string(req.TaskID), ContextID: req.ContextID})
+	}
+	return e.Executor.Execute(ctx, req)
+}
+
+// #3165 makes admission restore durable ownership and return read errors.
+// Keep this BYO adapter buildable against main while consuming that contract
+// when available; do not copy the shared executor's recovery implementation.
+func (e *Executor) reservedTask() (a2atype.TaskID, error) {
+	switch executor := any(e.Executor).(type) {
+	case interface {
+		ReservedTaskID() (a2atype.TaskID, error)
+	}:
+		return executor.ReservedTaskID()
+	case interface{ ReservedTaskID() a2atype.TaskID }:
+		return executor.ReservedTaskID(), nil
+	default:
+		return "", a2atype.ErrUnsupportedOperation
+	}
+}
+
+// Before admits task continuations only for an owned parked turn. In this
 // single-turn adapter, active work cannot accept another send and completed work
 // continues as a new A2A task. Reject at the call boundary: even the SDK's history
 // append can settle a stored input-required task before Executor.Execute runs.
-// TODO: replace this rejection with exact pending-call recovery once
-// https://github.com/kagent-dev/kagent/pull/3165 and DSH support that contract.
-// Adoption requires restoring the native execution point, not just the session
-// ID: DSH 0.2.0-rc.2 closes interrupted calls with an unknown-outcome result on
-// resume. Decisions must be bound to that saved call, and execution with an
-// uncommitted result must not be replayed automatically.
+// Protected MCP calls use Runner.RestorePending once the shared contract in
+// https://github.com/kagent-dev/kagent/pull/3165 lands. Keep this guard for native
+// ACP permissions: DSH 0.2.0-rc.2 cannot reconstruct their execution point from
+// a session ID. Never replay a native call with an uncommitted result.
 func (e *Executor) Before(ctx context.Context, _ *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
 	if send, ok := request.Payload.(*a2atype.SendMessageRequest); ok && send.Message != nil {
+		if err := e.runner.checkApprovalContext(send.Message.ContextID); err != nil {
+			return ctx, nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, err.Error())
+		}
+		reserved, err := e.reservedTask()
+		if err != nil {
+			return ctx, nil, err
+		}
 		message := send.Message
 		payload, _ := message.Metadata[apia2a.HITLExtensionURI].(map[string]any)
 		approval := payload["type"] == apia2a.HITLTypeToolApprovalResponse
-		if (message.TaskID != "" || approval) && (message.TaskID == "" || e.ReservedTaskID() != message.TaskID) {
+		if (message.TaskID != "" || approval) && (message.TaskID == "" || reserved != message.TaskID) {
 			return ctx, nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "DSH task has no live continuation owner; the request was not applied and no tool was replayed")
+		}
+		if approval {
+			saved, err := e.runner.loadApproval()
+			if err != nil {
+				return ctx, nil, err
+			}
+			if saved != nil && string(message.TaskID) == saved.Owner.TaskID && (saved.Phase == "waiting" || saved.Phase == "result") {
+				response, err := apia2a.ParseToolApprovalResponse(message)
+				if err != nil || response == nil || len(response.Approvals) != 1 || response.Approvals[0].ID != saved.Request.ID {
+					return ctx, nil, a2atype.NewError(a2atype.ErrInvalidParams, "approval decision does not match saved DSH call")
+				}
+				decision := response.Approvals[0]
+				if saved.Decision != nil && (saved.Decision.Approved != decision.Approved || saved.Decision.RejectionReason != decision.RejectionReason) {
+					return ctx, nil, a2atype.NewError(a2atype.ErrInvalidParams, "approval decision changed after execution")
+				}
+			}
 		}
 	}
 	return ctx, nil, nil
@@ -71,6 +118,16 @@ func (e *Executor) Cancel(ctx context.Context, input *a2asrv.ExecutorContext) it
 		emitted := false
 		for event, err := range e.Executor.Cancel(ctx, input) {
 			emitted = true
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State == a2atype.TaskStateCanceled {
+				saved, readErr := e.runner.loadApproval()
+				if readErr != nil || saved != nil && (saved.Phase == "executing" || saved.Phase == "continuing") {
+					// A remote MCP effect can outlive HTTP cancellation. Until the
+					// shared cleanup/fencing contract in #3010 can certify it, do not
+					// publish a successful cancel for an uncertain external operation.
+					yield(nil, a2atype.NewError(a2atype.ErrTaskNotCancelable, "DSH approval outcome is uncertain; cancellation cannot certify remote cleanup"))
+					return
+				}
+			}
 			if !yield(event, err) {
 				return
 			}

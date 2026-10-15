@@ -119,7 +119,9 @@ func TestLiveApprovalThroughDSHExecutor(t *testing.T) {
 				req, err := pbconv.ToProtoCancelTaskRequest(&a2atype.CancelTaskRequest{ID: a2atype.TaskID(task.Id)})
 				require.NoError(t, err)
 				// A completed task is already cleaned; only cancel a parked test turn.
-				if executor.ReservedTaskID() != "" {
+				id, err := executor.reservedTask()
+				require.NoError(t, err)
+				if id != "" {
 					_, err = client.CancelTask(cleanup, req)
 					require.NoError(t, err)
 				}
