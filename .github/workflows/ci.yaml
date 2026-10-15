@@ -30,7 +30,7 @@ env:
   BUILDX_VERSION: v0.23.0
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
@@ -74,7 +74,7 @@ jobs:
           restore-keys: |
             e2e-go-${{ runner.os }}-${{ runner.arch }}-
       - name: Allow unprivileged user namespaces
-        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # Ubuntu 24.04 enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
         # to fail with EPERM on unshare(CLONE_NEWUSER)
         # See https://github.com/openai/codex/issues/14919
@@ -302,7 +302,7 @@ jobs:
 
   proto-check:
     name: Protobuf Contract Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -321,7 +321,7 @@ jobs:
 
   semconv-check:
     name: Telemetry Contract Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -428,7 +428,7 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -455,7 +455,7 @@ jobs:
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -584,7 +584,7 @@ jobs:
         working-directory: ./
 
   go-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -602,7 +602,7 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -629,7 +629,7 @@ jobs:
         run: make test
 
   python-lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -661,7 +661,7 @@ jobs:
           fi
 
   manifests-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

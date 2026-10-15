@@ -15,7 +15,7 @@ concurrency:
 # Build the selected workflow ref's commit; create its tag only when publishing the release.
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -73,7 +73,7 @@ jobs:
     needs:
     - setup
     - push-images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -90,7 +90,7 @@ jobs:
     needs: setup
     env:
       VERSION: ${{ needs.setup.outputs.version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -133,7 +133,7 @@ jobs:
 
   build-release-artifacts:
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -156,7 +156,7 @@ jobs:
     - build-release-artifacts
     - push-helm-chart
     - release-python-packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
