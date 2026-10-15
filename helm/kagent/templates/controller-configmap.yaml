@@ -17,6 +17,7 @@
 {{- if and $config.sandboxes $config.sandboxes.guestImage -}}
 {{- $_ := set $config.sandboxes "guestImage" (include "kagent.mirroredImage" (dict "root" . "image" $config.sandboxes.guestImage)) -}}
 {{- end -}}
+{{- $_ := set $config "harnessImages" (include "kagent.builtinHarnessImages" . | mustFromJson) -}}
 {{- if .Values.controller.push.signing.secretName -}}
 {{- $_ := set $config.gateway.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
 {{- end -}}

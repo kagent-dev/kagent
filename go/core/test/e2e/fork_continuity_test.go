@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // checkpointForksSupported is false while Substrate 0.5 snapshots carry process
@@ -26,9 +26,9 @@ import (
 const checkpointForksSupported = false
 
 // requireForkRejected asserts the rejection checkpointForksSupported describes.
-func requireForkRejected(ctx context.Context, t *testing.T, checkpoints apiv1alpha1.CheckpointServiceClient, checkpointID string) {
+func requireForkRejected(ctx context.Context, t *testing.T, checkpoints apiv1.CheckpointServiceClient, checkpointID string) {
 	t.Helper()
-	_, err := checkpoints.ForkSession(ctx, &apiv1alpha1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
+	_, err := checkpoints.ForkSession(ctx, &apiv1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
 	require.Equal(t, codes.FailedPrecondition, status.Code(err), "fork a process-memory checkpoint: %v", err)
 }
 
@@ -46,7 +46,7 @@ func TestSessionPausedTaskCheckpointRejected(t *testing.T) {
 		require.Equal(t, a2atype.TaskStateInputRequired, waiting.Status.State)
 		require.NotNil(t, adka2a.GetAskUserRequest(waiting.Status.Message))
 
-		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
+		_, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1.CreateCheckpointRequest{
 			SessionId: fixture.sessionID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(waiting.ID),
 		})
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))

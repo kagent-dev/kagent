@@ -1,7 +1,7 @@
 import { createClient } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
-import { AgentService } from "../../../src/generated/kagent/api/v1alpha1/agents_pb";
-import { SessionService } from "../../../src/generated/kagent/api/v1alpha1/sessions_pb";
+import { AgentService } from "../../../src/generated/kagent/api/v1/agents_pb";
+import { SessionService } from "../../../src/generated/kagent/api/v1/sessions_pb";
 
 /** The controller's gRPC API through the dev server's `/api` proxy, for setup reads and teardown. */
 export function liveApi(baseURL: string) {

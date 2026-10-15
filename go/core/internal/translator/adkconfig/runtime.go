@@ -16,7 +16,7 @@ import (
 // modelResult is the runtime configuration contributed by one ModelConfig.
 type modelResult struct {
 	Resolved    *translator.ResolvedModelConfig
-	Model       adk.Model
+	Model       *adk.Model
 	Environment []corev1.EnvVar
 	Egress      []string
 }
@@ -62,10 +62,10 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 		return nil
 	}
 	compaction := &adk.AgentCompressionConfig{
-		CompactionInterval: spec.CompactionInterval,
-		OverlapSize:        spec.OverlapSize,
-		TokenThreshold:     spec.TokenThreshold,
-		EventRetentionSize: spec.EventRetentionSize,
+		CompactionInterval: runtimeInt(spec.CompactionInterval),
+		OverlapSize:        runtimeInt(spec.OverlapSize),
+		TokenThreshold:     runtimeInt(spec.TokenThreshold),
+		EventRetentionSize: runtimeInt(spec.EventRetentionSize),
 	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
@@ -100,8 +100,8 @@ func applyOutputSchema(config *adk.AgentConfig, output *translator.ResolvedOutpu
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
 	config.Output = &adk.OutputConfig{
-		JSONSchema: append(json.RawMessage(nil), output.Schema...),
-		SHA256:     output.SHA256,
+		JsonSchema: append(json.RawMessage(nil), output.Schema...),
+		Sha256:     output.SHA256,
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}
-	result.Config.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model.Model)}
+	result.Config.Memory = &adk.MemoryConfig{TtlDays: int64(memory.TTLDays), Embedding: adk.ModelToEmbeddingConfig(model.Model)}
 	result.Models = append(result.Models, model.Resolved)
 	result.Environment = append(result.Environment, model.Environment...)
 	result.Egress = append(result.Egress, model.Egress...)

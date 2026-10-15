@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -33,41 +32,41 @@ func TestCompactionStrategies(t *testing.T) {
 	}{
 		{
 			name:     "sliding window only",
-			settings: adk.AgentCompressionConfig{CompactionInterval: new(5), OverlapSize: new(2)},
+			settings: adk.AgentCompressionConfig{CompactionInterval: new(int64(5)), OverlapSize: new(int64(2))},
 			want:     compaction.Config{CompactionInterval: 5, OverlapSize: 2},
 		},
 		{
 			name:     "unset settings leave their strategy off",
-			settings: adk.AgentCompressionConfig{CompactionInterval: new(3)},
+			settings: adk.AgentCompressionConfig{CompactionInterval: new(int64(3))},
 			want:     compaction.Config{CompactionInterval: 3},
 		},
 		{
 			name: "both strategies",
 			settings: adk.AgentCompressionConfig{
-				CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
+				CompactionInterval: new(int64(5)), OverlapSize: new(int64(2)), TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
 			},
 			want: compaction.Config{CompactionInterval: 5, OverlapSize: 2, TokenThreshold: 50000, EventRetentionSize: 10},
 		},
 		{
 			name:     "tail retention only",
-			settings: adk.AgentCompressionConfig{TokenThreshold: new(50000), EventRetentionSize: new(10)},
+			settings: adk.AgentCompressionConfig{TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10))},
 			want:     compaction.Config{TokenThreshold: 50000, EventRetentionSize: 10},
 		},
 		{
 			name:        "overlap without an interval is ignored",
-			settings:    adk.AgentCompressionConfig{OverlapSize: new(2), TokenThreshold: new(100), EventRetentionSize: new(4)},
+			settings:    adk.AgentCompressionConfig{OverlapSize: new(int64(2)), TokenThreshold: new(int64(100)), EventRetentionSize: new(int64(4))},
 			want:        compaction.Config{TokenThreshold: 100, EventRetentionSize: 4},
 			wantIgnored: 1,
 		},
 		{
 			name:        "token threshold without a retention size is ignored",
-			settings:    adk.AgentCompressionConfig{CompactionInterval: new(5), TokenThreshold: new(100)},
+			settings:    adk.AgentCompressionConfig{CompactionInterval: new(int64(5)), TokenThreshold: new(int64(100))},
 			want:        compaction.Config{CompactionInterval: 5},
 			wantIgnored: 1,
 		},
 		{
 			name:        "retention size without a token threshold is ignored",
-			settings:    adk.AgentCompressionConfig{CompactionInterval: new(5), EventRetentionSize: new(4)},
+			settings:    adk.AgentCompressionConfig{CompactionInterval: new(int64(5)), EventRetentionSize: new(int64(4))},
 			want:        compaction.Config{CompactionInterval: 5},
 			wantIgnored: 1,
 		},
@@ -78,16 +77,17 @@ func TestCompactionStrategies(t *testing.T) {
 		},
 		{
 			name:     "only an ignored setting leaves no strategy",
-			settings: adk.AgentCompressionConfig{TokenThreshold: new(100)},
+			settings: adk.AgentCompressionConfig{TokenThreshold: new(int64(100))},
 			wantErr:  "no compaction strategy is enabled",
 		},
 		{
 			name:     "negative values are rejected",
-			settings: adk.AgentCompressionConfig{CompactionInterval: new(-1)},
+			settings: adk.AgentCompressionConfig{CompactionInterval: new(int64(-1))},
 			wantErr:  "must not be negative",
 		},
 	}
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			got, ignored, err := compactionStrategies(&tt.settings)
 			if tt.wantErr != "" {
@@ -104,7 +104,7 @@ func TestCompactionStrategies(t *testing.T) {
 func TestCompactionConfig(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	ctx := logging.IntoContext(t.Context(), slog.New(slog.DiscardHandler))
-	agentModel := &adk.OpenAI{BaseModel: adk.BaseModel{Type: "openai", Model: "gpt-4.1-mini"}, BaseUrl: "http://127.0.0.1:1/v1"}
+	agentModel := &adk.Model{Model: "gpt-4.1-mini", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{BaseUrl: "http://127.0.0.1:1/v1"}}}
 	withCompaction := func(c *adk.AgentCompressionConfig) *adk.AgentConfig {
 		return &adk.AgentConfig{Model: agentModel, ContextConfig: &adk.AgentContextConfig{Compaction: c}}
 	}
@@ -122,7 +122,7 @@ func TestCompactionConfig(t *testing.T) {
 	})
 
 	t.Run("agent model summarizes by default", func(t *testing.T) {
-		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(5), OverlapSize: new(2)}))
+		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(int64(5)), OverlapSize: new(int64(2))}))
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Equal(t, 5, cfg.CompactionInterval)
@@ -132,8 +132,8 @@ func TestCompactionConfig(t *testing.T) {
 
 	t.Run("dedicated summarizer model", func(t *testing.T) {
 		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{
-			CompactionInterval: new(5),
-			SummarizerModel:    &adk.OpenAI{BaseModel: adk.BaseModel{Type: "openai", Model: "gpt-4.1-nano"}, BaseUrl: "http://127.0.0.1:1/v1"},
+			CompactionInterval: new(int64(5)),
+			SummarizerModel:    &adk.Model{Model: "gpt-4.1-nano", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{BaseUrl: "http://127.0.0.1:1/v1"}}},
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
@@ -142,7 +142,7 @@ func TestCompactionConfig(t *testing.T) {
 
 	t.Run("custom prompt runs on the agent model", func(t *testing.T) {
 		cfg, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{
-			CompactionInterval: new(5),
+			CompactionInterval: new(int64(5)),
 			PromptTemplate:     "Summarize this.\n\n{conversation_history}",
 		}))
 		require.NoError(t, err)
@@ -152,14 +152,14 @@ func TestCompactionConfig(t *testing.T) {
 
 	t.Run("custom prompt without the history placeholder is rejected", func(t *testing.T) {
 		_, err := CompactionConfig(ctx, withCompaction(&adk.AgentCompressionConfig{
-			CompactionInterval: new(5),
+			CompactionInterval: new(int64(5)),
 			PromptTemplate:     "Summarize this.",
 		}))
 		require.ErrorContains(t, err, compaction.ConversationHistoryPlaceholder)
 	})
 
 	t.Run("custom prompt without any model is rejected", func(t *testing.T) {
-		agentConfig := withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(5), PromptTemplate: "{conversation_history}"})
+		agentConfig := withCompaction(&adk.AgentCompressionConfig{CompactionInterval: new(int64(5)), PromptTemplate: "{conversation_history}"})
 		agentConfig.Model = nil
 		_, err := CompactionConfig(ctx, agentConfig)
 		require.ErrorContains(t, err, "needs a model")
@@ -174,24 +174,37 @@ func TestCompactionConfig(t *testing.T) {
 		// The context_config block as the controller compiles it from
 		// spec.declarative.context.compaction.
 		configJSON := `{
-			"model": {"type": "openai", "model": "gpt-4o", "base_url": "http://127.0.0.1:1/v1"},
-			"description": "Agent with context management",
-			"instruction": "You are a helpful assistant.",
-			"context_config": {
-				"compaction": {
-					"compaction_interval": 5,
-					"overlap_size": 2,
-					"summarizer_model": {"type": "openai", "model": "gpt-4o-mini", "base_url": "http://127.0.0.1:1/v1"},
-					"prompt_template": "Summarize the following conversation events concisely.\n\n{conversation_history}",
-					"token_threshold": 50000,
-					"event_retention_size": 10
-				}
-			}
-		}`
-		var agentConfig adk.AgentConfig
-		require.NoError(t, json.Unmarshal([]byte(configJSON), &agentConfig))
+  "agent": {
+    "model": {
+      "model": "gpt-4o",
+      "openai": {
+        "base_url": "http://127.0.0.1:1/v1"
+      }
+    },
+    "description": "Agent with context management",
+    "instruction": "You are a helpful assistant.",
+    "context_config": {
+      "compaction": {
+        "compaction_interval": 5,
+        "overlap_size": 2,
+        "summarizer_model": {
+          "model": "gpt-4o-mini",
+          "openai": {
+            "base_url": "http://127.0.0.1:1/v1"
+          }
+        },
+        "prompt_template": "Summarize the following conversation events concisely.\n\n{conversation_history}",
+        "token_threshold": 50000,
+        "event_retention_size": 10
+      }
+    }
+  }
+}`
+		var config adk.Config
+		require.NoError(t, adk.Unmarshal([]byte(configJSON), &config))
+		agentConfig := config.Agent
 
-		cfg, err := CompactionConfig(ctx, &agentConfig)
+		cfg, err := CompactionConfig(ctx, agentConfig)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Equal(t, 5, cfg.CompactionInterval)
@@ -302,7 +315,7 @@ func contentTexts(contents []*genai.Content) []string {
 
 func TestCompactionSlidingWindowFiresAfterInterval(t *testing.T) {
 	ctx := logging.IntoContext(t.Context(), slog.New(slog.DiscardHandler))
-	cfg, _, err := compactionStrategies(&adk.AgentCompressionConfig{CompactionInterval: new(2)})
+	cfg, _, err := compactionStrategies(&adk.AgentCompressionConfig{CompactionInterval: new(int64(2))})
 	require.NoError(t, err)
 	m := &scriptedModel{}
 	c := newCompactingRunner(t, ctx, m, &cfg)
@@ -329,7 +342,7 @@ func TestCompactionSlidingWindowFiresAfterInterval(t *testing.T) {
 
 func TestCompactionTailRetentionFiresOverTokenThreshold(t *testing.T) {
 	ctx := logging.IntoContext(t.Context(), slog.New(slog.DiscardHandler))
-	cfg, _, err := compactionStrategies(&adk.AgentCompressionConfig{TokenThreshold: new(100), EventRetentionSize: new(1)})
+	cfg, _, err := compactionStrategies(&adk.AgentCompressionConfig{TokenThreshold: new(int64(100)), EventRetentionSize: new(int64(1))})
 	require.NoError(t, err)
 	m := &scriptedModel{promptTokens: 5000}
 	c := newCompactingRunner(t, ctx, m, &cfg)

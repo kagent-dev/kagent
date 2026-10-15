@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
@@ -153,7 +153,7 @@ func createClaudeLocalAgentTemplates(t *testing.T, kube ctrlclient.Client, model
 
 func assertNoClaudeChildSession(t *testing.T, fixture *interactionFixture, childTemplate string) {
 	t.Helper()
-	sessions, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1alpha1.ListSessionsRequest{})
+	sessions, err := fixture.sessions.ListSessions(fixture.ctx, &apiv1.ListSessionsRequest{})
 	if err != nil {
 		t.Fatalf("list Claude Sessions: %v", err)
 	}

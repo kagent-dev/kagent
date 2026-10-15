@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
@@ -53,12 +53,12 @@ func (*testAuthenticator) UpstreamAuth(*http.Request, pkgauth.Session, pkgauth.P
 }
 
 type testShareStore struct {
-	sessionShare    *apiv1alpha1.SessionShare
+	sessionShare    *apiv1.SessionShare
 	sessionShareErr error
 	ownerUserID     string
 }
 
-func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte) (*apiv1alpha1.SessionShare, string, error) {
+func (s *testShareStore) GetSessionShareByTokenHash(context.Context, []byte) (*apiv1.SessionShare, string, error) {
 	if s.sessionShare == nil && s.sessionShareErr == nil {
 		return nil, "", database.ErrNotFound
 	}
@@ -131,7 +131,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("a Session share is attached to a read call", func(t *testing.T) {
 		store := &testShareStore{
-			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
+			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
@@ -159,7 +159,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 
 	t.Run("a read-only Session share cannot create a catalog resource", func(t *testing.T) {
 		store := &testShareStore{
-			sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
+			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 		}
 		ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "share"))
 		_, err := authenticationUnaryInterceptor(&testAuthenticator{session: session}, nil, store, policies)(
@@ -190,7 +190,7 @@ func TestAuthenticationUnaryInterceptor(t *testing.T) {
 func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "visitor"}}}
 	store := &testShareStore{
-		sessionShare: &apiv1alpha1.SessionShare{
+		sessionShare: &apiv1.SessionShare{
 			SessionId: testSessionID.String(),
 		},
 		ownerUserID: "owner",

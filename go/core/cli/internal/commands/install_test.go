@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
@@ -93,7 +93,7 @@ func TestBundledPostgresImage(t *testing.T) {
 }
 
 func TestBundledPostgresAssets(t *testing.T) {
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	config.DefaultCLI(cfg)
 	manifest, err := bundledPostgresManifest("demo", cfg.Install.GetBundledPostgresImage())
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	cmd := NewInstallCmd()
 	require.NotNil(t, cmd.Flags().Lookup("skip-database-setup"))
 
-	chart := &apiv1.ChartConfig{Repository: new("./charts/"), Version: new("v1.2.3"), ValuesFiles: []string{"custom.yaml"}}
+	chart := &configv1.ChartConfig{Repository: new("./charts/"), Version: new("v1.2.3"), ValuesFiles: []string{"custom.yaml"}}
 	config := setupHelmConfig(chart, "OpenAI", "fake")
 	require.Contains(t, config.inlineValues, "substrateClientCertificate:\n    enabled: true")
 	require.Equal(t, []string{"custom.yaml"}, config.valuesFiles)

@@ -1,8 +1,8 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
-import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
+import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
 import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
-import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
  *
@@ -41,29 +41,29 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1alpha1/scheduled_r
  * the chat reads boundaries from the list and nothing removes one yet.
  */
 
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
-import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
-import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
-import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import { SessionService } from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { Session as PbSession } from "@/generated/kagent/api/v1alpha1/sessions_pb";
+} from "@/generated/kagent/api/v1/system_pb";
+import { HarnessService } from "@/generated/kagent/api/v1/harnesses_pb";
+import type { Harness as PbHarness } from "@/generated/kagent/api/v1/harnesses_pb";
+import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
+import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1/agent_templates_pb";
+import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
+import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1/sessions_pb";
+import type { Session as PbSession } from "@/generated/kagent/api/v1/sessions_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
-} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
-import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
-import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1alpha1/tools_pb";
+} from "@/generated/kagent/api/v1/checkpoints_pb";
+import type { Checkpoint as PbCheckpoint } from "@/generated/kagent/api/v1/checkpoints_pb";
+import type { ToolServer as PbToolServer } from "@/generated/kagent/api/v1/tools_pb";
 import type {
   SubstrateWorkerPool as PbSubstrateWorkerPool,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
-import type { StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
+} from "@/generated/kagent/api/v1/system_pb";
+import type { StructuredObject } from "@/generated/kagent/api/v1/common_pb";
 import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
 import { operationContext, serviceClient } from "../transport";
 import {

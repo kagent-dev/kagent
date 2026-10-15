@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type staticTokenProvider struct {
@@ -101,7 +101,7 @@ func callEveryKind(t *testing.T, url string, options ...ClientOption) []error {
 	gateway, err := NewGateway(url, options...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = gateway.Close() })
-	a2aClient, err := gateway.A2A.ForAgent(context.Background(), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"})
+	a2aClient, err := gateway.A2A.ForAgent(context.Background(), &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"})
 	require.NoError(t, err)
 	request := &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi"))}
 	_, err = a2aClient.SendMessage(context.Background(), request)

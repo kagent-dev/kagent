@@ -10,13 +10,13 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // toSessionShare decodes a share, rejects disagreement between its payload and
 // indexed identity or session, and takes its expiry from the column.
-func toSessionShare(row sessionShareRow) (*apiv1alpha1.SessionShare, error) {
-	share := &apiv1alpha1.SessionShare{}
+func toSessionShare(row sessionShareRow) (*apiv1.SessionShare, error) {
+	share := &apiv1.SessionShare{}
 	if err := proto.Unmarshal(row.Data, share); err != nil {
 		return nil, fmt.Errorf("decode Session share %s: %w", row.ID, err)
 	}
@@ -32,11 +32,11 @@ func toSessionShare(row sessionShareRow) (*apiv1alpha1.SessionShare, error) {
 // session returns ErrNotFound. Callers authorize sharing and generate the token;
 // the plaintext token is never stored. Insertion locks the live session so
 // concurrent deletion either revokes this share or prevents its creation.
-func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.SessionShare, tokenHash []byte, userID string) (*apiv1alpha1.SessionShare, error) {
+func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1.SessionShare, tokenHash []byte, userID string) (*apiv1.SessionShare, error) {
 	if share == nil {
 		return nil, fmt.Errorf("missing Session share")
 	}
-	value := proto.Clone(share).(*apiv1alpha1.SessionShare)
+	value := proto.Clone(share).(*apiv1.SessionShare)
 	value.CreatedAt = timestamppb.Now()
 	var expiresAt *time.Time
 	if value.ExpiresAt != nil {
@@ -68,7 +68,7 @@ func (c *Client) CreateSessionShare(ctx context.Context, share *apiv1alpha1.Sess
 // GetSessionShareByTokenHash resolves a token digest to its share and the session
 // owner's ID, or ErrNotFound, which an expired share is too. Callers restrict access
 // to read-only operations on the shared session.
-func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1alpha1.SessionShare, string, error) {
+func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byte) (*apiv1.SessionShare, string, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT s.id, s.session_id, s.data, s.expires_at, i.user_id AS owner_user_id
 		FROM session_share s
@@ -89,7 +89,7 @@ func (c *Client) GetSessionShareByTokenHash(ctx context.Context, tokenHash []byt
 // ListSessionShares returns shares only for a session owned by userID, in
 // ascending ID order after afterID, up to limit. A missing or unowned session yields an
 // empty page.
-func (c *Client) ListSessionShares(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1alpha1.SessionShare, error) {
+func (c *Client) ListSessionShares(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1.SessionShare, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT s.id, s.session_id, s.data, s.expires_at FROM session_share s
 		JOIN session_record i ON i.id = s.session_id
@@ -103,7 +103,7 @@ func (c *Client) ListSessionShares(ctx context.Context, sessionID, userID, after
 	if err != nil {
 		return nil, fmt.Errorf("list Session shares: %w", err)
 	}
-	result := make([]*apiv1alpha1.SessionShare, 0, len(rows))
+	result := make([]*apiv1.SessionShare, 0, len(rows))
 	for _, row := range rows {
 		share, err := toSessionShare(row)
 		if err != nil {

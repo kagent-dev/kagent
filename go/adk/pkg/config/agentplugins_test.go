@@ -21,8 +21,8 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 	}
 	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
 	agentConfig := &adk.AgentConfig{
-		AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}},
-		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}}}},
+		AgentPlugins: adk.PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}}),
+		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: adk.PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}})}},
 	}
 	for _, path := range []string{
 		filepath.Join(paths.Packages, "standalone-0"),
@@ -63,7 +63,7 @@ func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
-	agentConfig := &adk.AgentConfig{AgentPlugins: &agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}}}
+	agentConfig := &adk.AgentConfig{AgentPlugins: adk.PluginConfig(agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}})}
 	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err == nil {
 		t.Fatal("MaterializeAgentPlugins() accepted a Claude-format plugin")
 	}

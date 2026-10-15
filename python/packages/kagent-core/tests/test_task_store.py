@@ -12,8 +12,8 @@ from a2a.server.events import event_queue_v2
 from a2a.server.events.event_queue import create_async_queue
 from a2a.types import a2a_pb2 as a2a
 from a2a.utils.errors import InternalError, UnsupportedOperationError
-from kagent.api.v1alpha1 import task_store_pb2 as storepb
-from kagent.api.v1alpha1 import task_store_pb2_grpc as storerpc
+from kagent.runtime.v1 import task_store_pb2 as storepb
+from kagent.runtime.v1 import task_store_pb2_grpc as storerpc
 
 from kagent.core._grpc import AsyncControllerClient
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore

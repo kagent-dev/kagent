@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestSessionSharesAreReadOnly(t *testing.T) {
@@ -18,13 +18,13 @@ func TestSessionSharesAreReadOnly(t *testing.T) {
 		t.Parallel()
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startInteractionMock(t))
 		_, _, task := fixture.send(t, "What is 2+2?")
-		created, err := fixture.sessions.CreateSessionShare(fixture.ctx, &apiv1alpha1.CreateSessionShareRequest{
+		created, err := fixture.sessions.CreateSessionShare(fixture.ctx, &apiv1.CreateSessionShareRequest{
 			SessionId: fixture.sessionID,
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, created.Token)
 		visitor := metadata.NewOutgoingContext(fixture.ctx, metadata.Pairs("x-user-id", "share-reader", "x-share-token", created.Token))
-		read, err := fixture.sessions.GetSession(visitor, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
+		read, err := fixture.sessions.GetSession(visitor, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
 		require.Equal(t, fixture.sessionID, read.Session.Id)
 		_, err = fixture.client.GetTask(visitor, &a2apb.GetTaskRequest{Tenant: fixture.tenant, Id: string(task.ID)})
@@ -54,11 +54,11 @@ func TestSessionSharesAreReadOnly(t *testing.T) {
 				return err
 			}},
 			{name: "rename", call: func() error {
-				_, err := fixture.sessions.UpdateSessionName(visitor, &apiv1alpha1.UpdateSessionNameRequest{SessionId: fixture.sessionID, Name: "changed"})
+				_, err := fixture.sessions.UpdateSessionName(visitor, &apiv1.UpdateSessionNameRequest{SessionId: fixture.sessionID, Name: "changed"})
 				return err
 			}},
 			{name: "suspend", call: func() error {
-				_, err := fixture.sessions.SuspendSession(visitor, &apiv1alpha1.SuspendSessionRequest{SessionId: fixture.sessionID})
+				_, err := fixture.sessions.SuspendSession(visitor, &apiv1.SuspendSessionRequest{SessionId: fixture.sessionID})
 				return err
 			}},
 		} {
@@ -66,9 +66,9 @@ func TestSessionSharesAreReadOnly(t *testing.T) {
 				require.Equal(t, codes.PermissionDenied, status.Code(mutation.call()))
 			})
 		}
-		_, err = fixture.sessions.RevokeSessionShare(fixture.ctx, &apiv1alpha1.RevokeSessionShareRequest{ShareId: created.Share.Id})
+		_, err = fixture.sessions.RevokeSessionShare(fixture.ctx, &apiv1.RevokeSessionShareRequest{ShareId: created.Share.Id})
 		require.NoError(t, err)
-		_, err = fixture.sessions.GetSession(visitor, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
+		_, err = fixture.sessions.GetSession(visitor, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
 }

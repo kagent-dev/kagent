@@ -15,7 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
@@ -30,13 +30,13 @@ func TestSandboxAgentMCP(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{}
 	require.NoError(t, kube.Get(f.ctx, ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: "kagent-api"}, server), "Helm must install the kagent-api RemoteMCPServer")
 	prepared := f.create(t, 5*time.Minute)
-	_, err := f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: prepared.Id})
+	_, err := f.client.DeleteSandbox(f.ctx, &apiv1.DeleteSandboxRequest{SandboxId: prepared.Id})
 	require.NoError(t, err)
 	source := &v1alpha3.SandboxTemplate{}
 	require.NoError(t, kube.Get(f.ctx, ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: f.template.Name}, source))
 	harness := &v1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "scratch-agent-", Namespace: f.template.Namespace},
-		Spec:       v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: image}, Substrate: source.Spec.Substrate},
+		Spec:       v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new(image)}, Substrate: source.Spec.Substrate},
 	}
 	require.NoError(t, kube.Create(f.ctx, harness))
 	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), harness)) })
@@ -69,9 +69,9 @@ func TestSandboxAgentMCP(t *testing.T) {
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
 	conn := newControllerConn(t, target)
-	instances := apiv1alpha1.NewSessionServiceClient(conn)
-	created, err := instances.CreateSession(f.ctx, &apiv1alpha1.CreateSessionRequest{
-		Agent: &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name}, RequestId: uuid.NewString(),
+	instances := apiv1.NewSessionServiceClient(conn)
+	created, err := instances.CreateSession(f.ctx, &apiv1.CreateSessionRequest{
+		Agent: &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name}, RequestId: uuid.NewString(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -84,12 +84,12 @@ func TestSandboxAgentMCP(t *testing.T) {
 	_, _, task := agent.send(t, "Create a scratch sandbox.")
 	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "%s", taskText(task))
 	require.Contains(t, taskText(task), "Created the scratch sandbox")
-	owned, err := f.client.ListSandboxes(f.ctx, &apiv1alpha1.ListSandboxesRequest{SandboxTemplate: f.template})
+	owned, err := f.client.ListSandboxes(f.ctx, &apiv1.ListSandboxesRequest{SandboxTemplate: f.template})
 	require.NoError(t, err)
 	require.Len(t, owned.Sandboxes, 1, "MCP must create a sandbox for the invoking user")
 	for _, instance := range owned.Sandboxes {
 		require.Equal(t, "e2e", instance.Creator)
-		_, err := f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: instance.Id})
+		_, err := f.client.DeleteSandbox(f.ctx, &apiv1.DeleteSandboxRequest{SandboxId: instance.Id})
 		require.NoError(t, err)
 	}
 }

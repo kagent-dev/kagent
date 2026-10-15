@@ -5,8 +5,8 @@ from . import _telemetry_defaults
 # isort: split
 
 from ._a2a import KAgentApp
-from .types import AgentConfig
+from .types import AgentConfig, Config
 
 __version__ = importlib.metadata.version("kagent_adk")
 
-__all__ = ["KAgentApp", "AgentConfig"]
+__all__ = ["KAgentApp", "AgentConfig", "Config"]

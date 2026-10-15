@@ -10,7 +10,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 )
 
@@ -118,7 +118,7 @@ func stableRequestID(id string) string {
 	return uuid.NewString()
 }
 
-func checkpointSummary(value *apiv1alpha1.Checkpoint) CheckpointSummary {
+func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {
 	result := CheckpointSummary{
 		ID: value.GetId(), SessionID: value.GetSessionId(), Name: value.GetName(),
 		HeadTaskID: value.GetHeadTaskId(), HistorySequence: value.GetHistorySequence(), State: value.GetState().String(),
@@ -132,7 +132,7 @@ func checkpointSummary(value *apiv1alpha1.Checkpoint) CheckpointSummary {
 	return result
 }
 
-func sessionSummary(session *apiv1alpha1.Session) SessionSummary {
+func sessionSummary(session *apiv1.Session) SessionSummary {
 	return SessionSummary{
 		ID:    session.GetId(),
 		Agent: session.GetAgent().GetName(),

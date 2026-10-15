@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 var (
@@ -20,7 +20,7 @@ var (
 	ErrValueTooLarge = errors.New("structured object exceeds configured size limit")
 )
 
-func FromGo(value any, apiVersion, kind string, maxBytes int) (*apiv1alpha1.StructuredObject, error) {
+func FromGo(value any, apiVersion, kind string, maxBytes int) (*apiv1.StructuredObject, error) {
 	if kind == "" {
 		return nil, ErrEmptyKind
 	}
@@ -48,14 +48,14 @@ func FromGo(value any, apiVersion, kind string, maxBytes int) (*apiv1alpha1.Stru
 	if err != nil {
 		return nil, fmt.Errorf("create protobuf struct: %w", err)
 	}
-	return &apiv1alpha1.StructuredObject{
+	return &apiv1.StructuredObject{
 		ApiVersion: apiVersion,
 		Kind:       kind,
 		Value:      valueStruct,
 	}, nil
 }
 
-func ToGo(object *apiv1alpha1.StructuredObject, expectedKind string, destination any, maxBytes int) error {
+func ToGo(object *apiv1.StructuredObject, expectedKind string, destination any, maxBytes int) error {
 	if object == nil || object.GetValue() == nil {
 		return ErrNilValue
 	}

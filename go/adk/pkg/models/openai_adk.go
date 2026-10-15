@@ -208,9 +208,9 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	// max_completion_tokens (the modern, superset parameter) takes precedence
 	// when both are configured.
 	if cfg.MaxCompletionTokens != nil {
-		params.MaxCompletionTokens = openai.Int(int64(*cfg.MaxCompletionTokens))
+		params.MaxCompletionTokens = openai.Int(*cfg.MaxCompletionTokens)
 	} else if cfg.MaxTokens != nil {
-		params.MaxTokens = openai.Int(int64(*cfg.MaxTokens))
+		params.MaxTokens = openai.Int(*cfg.MaxTokens)
 	}
 	if cfg.TopP != nil {
 		params.TopP = openai.Float(*cfg.TopP)
@@ -222,10 +222,10 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 		params.PresencePenalty = openai.Float(*cfg.PresencePenalty)
 	}
 	if cfg.Seed != nil {
-		params.Seed = openai.Int(int64(*cfg.Seed))
+		params.Seed = openai.Int(*cfg.Seed)
 	}
 	if cfg.N != nil {
-		params.N = openai.Int(int64(*cfg.N))
+		params.N = openai.Int(*cfg.N)
 	}
 	if cfg.ReasoningEffort != nil {
 		params.ReasoningEffort = shared.ReasoningEffort(*cfg.ReasoningEffort)

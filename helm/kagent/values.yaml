@@ -21,7 +21,8 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # grafana-mcp, and substrateWorkerPool.workerImage. The vendored subcharts
+  # grafana-mcp, substrateWorkerPool.workerImage, and built-in Harness images
+  # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
   # (kagent-tools, kmcp) adopt it when their pinned versions bump.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
@@ -145,6 +146,10 @@ rbac:
 # Kubernetes kind/version envelope. Durations use seconds (e.g. 3600s).
 # Namespace, listeners, endpoints and secret paths are supplied by the chart.
 config:
+  # Digest-pinned built-in Harness images, merged over the packaged release
+  # catalog. Keys: release, kagent, claude, codex. Empty images disable defaults.
+  # global.imageRegistry rewrites both packaged defaults and overrides set here.
+  harnessImages: {}
   kubernetes: {}
   server:
     auth:

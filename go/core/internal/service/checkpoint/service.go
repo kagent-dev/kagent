@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -27,19 +27,19 @@ const (
 )
 
 type store interface {
-	ReserveSessionCheckpoint(context.Context, *apiv1alpha1.Checkpoint, string, string) (*apiv1alpha1.Checkpoint, *database.SessionTaskSnapshot, error)
-	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1alpha1.Checkpoint, error)
-	GetSessionCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error)
-	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error)
+	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
+	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
+	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
+	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	DeleteSessionCheckpoint(context.Context, string, string) error
-	ForkSession(context.Context, string, string, string, string) (*apiv1alpha1.Session, bool, error)
-	UpdateCheckpointName(context.Context, string, string, string) (*apiv1alpha1.Checkpoint, error)
+	ForkSession(context.Context, string, string, string, string) (*apiv1.Session, bool, error)
+	UpdateCheckpointName(context.Context, string, string, string) (*apiv1.Checkpoint, error)
 }
 
 type workflow interface {
-	Create(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 }
 
 type tagClient interface {
@@ -67,7 +67,7 @@ type ListRequest struct {
 }
 
 type ListResult struct {
-	Checkpoints   []*apiv1alpha1.Checkpoint
+	Checkpoints   []*apiv1.Checkpoint
 	NextPageToken string
 }
 
@@ -75,7 +75,7 @@ func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflo
 	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow}
 }
 
-func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1alpha1.Checkpoint, error) {
+func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
 	if err := validateCreate(sessionID, requestID); err != nil {
 		return nil, err
 	}
@@ -93,15 +93,15 @@ func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHead
 	if err != nil {
 		return nil, err
 	}
-	return result.(*apiv1alpha1.Checkpoint), nil
+	return result.(*apiv1.Checkpoint), nil
 }
 
-func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expectedHeadTaskID string) (*apiv1alpha1.Checkpoint, error) {
+func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: id.String(), SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID)
+	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: id.String(), SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID)
 	if errors.Is(err, database.ErrCheckpointAdvanced) || errors.Is(err, database.ErrSnapshotPending) {
 		reason := "KAGENT_CHECKPOINT_CONVERSATION_ADVANCED"
 		if errors.Is(err, database.ErrSnapshotPending) {
@@ -125,7 +125,7 @@ func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expe
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve checkpoint", err)
 	}
-	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING {
+	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_CREATING {
 		return checkpoint, nil
 	}
 
@@ -150,7 +150,7 @@ func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expe
 // The CREATING reservation blocks task admission and lifecycle changes while
 // CreateTag copies the Actor's current snapshot. Verify both sides of the copy
 // because ate-api also permits Actors to be changed outside kagent.
-func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1alpha1.Checkpoint, reference *database.SessionTaskSnapshot) (*ateapipb.Tag, error) {
+func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1.Checkpoint, reference *database.SessionTaskSnapshot) (*ateapipb.Tag, error) {
 	actorName := substrate.ActorName(checkpoint.GetSessionId())
 	actor, err := s.verifySnapshot(ctx, actorName, reference)
 	if err != nil {
@@ -200,7 +200,7 @@ func (s *Service) verifySnapshot(ctx context.Context, actorName string, referenc
 	return actor, nil
 }
 
-func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1alpha1.Checkpoint, error) {
+func (s *Service) Get(ctx context.Context, checkpointID string) (*apiv1.Checkpoint, error) {
 	if err := validateIdentity(checkpointID); err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 
 // Rename sets the checkpoint's display name, which forks taken from it inherit. It
 // authorizes as a write: reading a checkpoint must not confer retitling it.
-func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1alpha1.Checkpoint, error) {
+func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1.Checkpoint, error) {
 	if err := validateIdentity(checkpointID); err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (s *Service) Rename(ctx context.Context, checkpointID, name string) (*apiv1
 	return checkpoint, nil
 }
 
-func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1alpha1.Session, error) {
+func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*apiv1.Session, error) {
 	if err := validateCreate(checkpointID, requestID); err != nil {
 		return nil, err
 	}

@@ -147,7 +147,6 @@ jobs:
         name: release-artifacts
         path: |
           go/core/bin/kagent-*
-          dist/kagent-*.tgz
         if-no-files-found: error
 
   release:
@@ -164,6 +163,11 @@ jobs:
     - uses: actions/download-artifact@v8
       with:
         name: release-artifacts
+        path: go/core/bin
+    - uses: actions/download-artifact@v8
+      with:
+        name: release-charts
+        path: dist
     - name: Release
       uses: softprops/action-gh-release@v3
       with:

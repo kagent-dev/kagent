@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
@@ -44,7 +44,7 @@ install:
 `), 0600))
 	output, err := executeConfig(t, "--config", path, "config", "view", "--namespace", "flag-ns", "--timeout", "0", "--verbose=false")
 	require.NoError(t, err)
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
 	require.Equal(t, "flag-ns", cfg.GetConnection().GetNamespace())
 	require.Equal(t, "file-user", cfg.GetConnection().GetUserId())
@@ -72,7 +72,7 @@ func TestDefaultConfigIsOptionalAndCommandTreesAreIndependent(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	first, err := executeConfig(t, "config", "view", "--namespace", "first")
 	require.NoError(t, err)
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(first), cfg))
 	require.Equal(t, "first", cfg.GetConnection().GetNamespace())
 	second, err := executeConfig(t, "config", "view")

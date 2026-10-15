@@ -11,7 +11,7 @@ import grpc
 from a2a.server.context import ServerCallContext
 from a2a.types import a2a_pb2 as a2a
 from a2a.utils.errors import UnsupportedOperationError
-from kagent.api.v1alpha1 import task_store_pb2 as storage
+from kagent.runtime.v1 import task_store_pb2 as storage
 from test_task_store import Runner
 from test_task_store import send as make_send
 

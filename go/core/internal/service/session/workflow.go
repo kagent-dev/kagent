@@ -10,7 +10,7 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
@@ -19,13 +19,13 @@ type workflowStore interface {
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
-	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
+	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
-	BeginSessionOperation(context.Context, string, apiv1alpha1.RuntimeOperation) (*database.SessionOperation, error)
+	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
-	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1alpha1.Session, error)
+	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
 }
 
@@ -52,7 +52,7 @@ func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake ch
 
 // Pause checkpoints the runtime on its current worker without changing the
 // Session logical state or persisting A2A task state.
-func (w *ActorWorkflow) Pause(ctx context.Context, session *apiv1alpha1.Session) error {
+func (w *ActorWorkflow) Pause(ctx context.Context, session *apiv1.Session) error {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
 		return fmt.Errorf("load prepared revision: %w", err)
@@ -78,7 +78,7 @@ func (w *ActorWorkflow) Pause(ctx context.Context, session *apiv1alpha1.Session)
 // Quiesce durably suspends the runtime without changing the Session's
 // logical READY state and records its external snapshot URI. Only a checkpoint
 // retains a copy after the Actor advances.
-func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Session) (*database.SessionTaskSnapshot, error) {
+func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*database.SessionTaskSnapshot, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
@@ -118,29 +118,29 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1alpha1.Sessio
 
 // Create provisions the persisted session once, using its pinned checkpoint for
 // forks. Retries return current state; an uncertain prior creation blocks execution.
-func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
+func (w *ActorWorkflow) Create(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 }
 
 // Suspend returns after the Actor and session are suspended. A retry observes
 // the same operation rather than issuing a second mutation.
-func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+func (w *ActorWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 }
 
 // Resume returns after the Actor is running and the session is ready. Missing
 // Actors are errors; Resume never creates replacement compute.
-func (w *ActorWorkflow) Resume(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+func (w *ActorWorkflow) Resume(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 }
 
 // Delete closes admission before stopping and deleting compute. It can supersede
 // unissued creation, but never deletes a session while a prior call is uncertain.
-func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.run(ctx, session.GetId(), apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+func (w *ActorWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return w.run(ctx, session.GetId(), apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 }
 
-func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1alpha1.RuntimeOperation) (*apiv1alpha1.Session, error) {
+func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind apiv1.RuntimeOperation) (*apiv1.Session, error) {
 	ctx, cancelAttempt := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancelAttempt()
 	operation, err := w.store.BeginSessionOperation(ctx, sessionID, requestedKind)
@@ -148,7 +148,7 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 		return nil, err
 	}
 	result, err := w.execute(ctx, operation)
-	if err == nil && result.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
+	if err == nil && result.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY {
 		// A resume can make old unclaimed idle work eligible again.
 		w.wakeQuiescence()
 	}
@@ -160,9 +160,9 @@ func (w *ActorWorkflow) run(ctx context.Context, sessionID string, requestedKind
 // runtime mutations for a bounded attempt. Errors retain the operation and its
 // resource pins so a client retry can continue it. Session admission still
 // serializes lifecycle against runtime writes, idle work, and checkpoints.
-func (w *ActorWorkflow) execute(ctx context.Context, operation *database.SessionOperation) (_ *apiv1alpha1.Session, err error) {
+func (w *ActorWorkflow) execute(ctx context.Context, operation *database.SessionOperation) (_ *apiv1.Session, err error) {
 	sessionID := operation.Instance.Id
-	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if operation.Instance.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operationOutcome(operation)
 	}
 	kind := operation.Instance.Operation
@@ -173,7 +173,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	}
 	var snapshot *database.SessionTaskSnapshot
 	var tagName string
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE && operation.SourceCheckpointID != nil {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE && operation.SourceCheckpointID != nil {
 		snapshot, _, err = w.store.GetSessionCheckpointSnapshot(ctx, operation.SourceCheckpointID.String(), session.Creator)
 		if err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("load pinned checkpoint: %w", err))
@@ -187,7 +187,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(session.Id),
 		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		policy, err := substrate.ActorEgressPolicy(binding.Atespace, revision.EgressDestinations, revision.Credentials)
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
@@ -206,7 +206,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		return w.failPreparation(ctx, operation, err)
 	}
 
-	if uid := transition.ActorUID(); uid != "" && kind != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if uid := transition.ActorUID(); uid != "" && kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		if _, err := w.store.GetSessionForRuntime(ctx, session.Id, uid); err != nil {
 			return w.failPreparation(ctx, operation, fmt.Errorf("verify runtime actor UID: %w", err))
 		}
@@ -237,7 +237,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 		return nil, fmt.Errorf("lifecycle operation %s remains pending: %w", operation.ID, err)
 	}
 	var authority string
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		authority = substrate.ActorHost(binding.Atespace, binding.Name, "")
 	}
 
@@ -250,7 +250,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 // failPreparation releases only unissued work. If another caller won, observe
 // the same generation instead. Completion returns current state; supersession
 // returns a conflict. A local preparation error cannot clear a newer operation.
-func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1alpha1.Session, error) {
+func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.SessionOperation, cause error) (*apiv1.Session, error) {
 	if admitted.ExecutorID != uuid.Nil {
 		return nil, cause // An earlier attempt may have issued work; retain its intent.
 	}
@@ -267,8 +267,8 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 	return nil, errors.Join(cause, err)
 }
 
-func operationOutcome(operation *database.SessionOperation) (*apiv1alpha1.Session, error) {
-	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+func operationOutcome(operation *database.SessionOperation) (*apiv1.Session, error) {
+	if operation.Instance.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operation.Instance, nil
 	}
 	return nil, fmt.Errorf("lifecycle operation %s is pending; runtime effects may be unresolved: %w", operation.ID, database.ErrConflict)
@@ -277,7 +277,7 @@ func operationOutcome(operation *database.SessionOperation) (*apiv1alpha1.Sessio
 // Verify the recorded actor UID before issuing lifecycle work. Names and
 // templates alone also match an externally replaced actor, which we must not
 // adopt or checkpoint as this session's runtime.
-func (w *ActorWorkflow) verifyActor(ctx context.Context, session *apiv1alpha1.Session, revision *database.RuntimeRevision, actor *ateapipb.Actor) error {
+func (w *ActorWorkflow) verifyActor(ctx context.Context, session *apiv1.Session, revision *database.RuntimeRevision, actor *ateapipb.Actor) error {
 	if !validActorIdentity(actor, revision, substrate.ActorName(session.Id)) {
 		return fmt.Errorf("runtime actor identity or template changed")
 	}

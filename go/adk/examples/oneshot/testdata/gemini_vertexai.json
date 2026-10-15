@@ -1,8 +1,10 @@
 {
-  "model": {
-    "type": "gemini_vertex_ai",
-    "model": "gemini-3.5-flash"
-  },
-  "description": "Gemini Vertex AI test agent",
-  "instruction": "You are a helpful assistant. Answer concisely in one sentence."
+  "agent": {
+    "model": {
+      "model": "gemini-3.5-flash",
+      "gemini_vertex_ai": {}
+    },
+    "description": "Gemini Vertex AI test agent",
+    "instruction": "You are a helpful assistant. Answer concisely in one sentence."
+  }
 }

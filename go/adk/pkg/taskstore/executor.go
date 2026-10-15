@@ -13,7 +13,7 @@ import (
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -277,7 +277,7 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	}
 	id, settleErr := e.store.sessionID()
 	if settleErr == nil {
-		request := &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: id, TaskId: string(input.TaskID), Version: version}
+		request := &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: id, TaskId: string(input.TaskID), Version: version}
 		settleErr = e.store.retry(finish, func(ctx context.Context) error {
 			_, err := e.store.client.TaskStoreService().SettleTask(ctx, request)
 			return err

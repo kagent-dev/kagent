@@ -13,7 +13,7 @@ from a2a.server.request_handlers.request_handler import validate_request_params
 from a2a.server.tasks import TaskStore
 from a2a.types import a2a_pb2
 from a2a.utils.errors import InternalError, InvalidParamsError, UnsupportedOperationError
-from kagent.api.v1alpha1 import task_store_pb2
+from kagent.runtime.v1 import task_store_pb2
 
 from kagent.core._grpc import AsyncControllerClient
 

@@ -9,6 +9,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
@@ -18,6 +19,7 @@ type Compiler struct {
 	ctx              krt.HandlerContext
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
+	images           *configv1.HarnessImagesConfig
 }
 
 // HarnessType identifies the runtime selected by a Harness.
@@ -88,8 +90,8 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images}
 }
 
 // CompileAgent resolves inline or referenced behavior with its referenced
@@ -154,6 +156,10 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 		return nil, err
 	}
 	input.AgentName = agentName
+	image, err := harnessImage(harness, c.images)
+	if err != nil {
+		return nil, err
+	}
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
@@ -164,6 +170,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
 	result.AgentName = agentName
+	result.Image = image
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
 	return result, nil
 }

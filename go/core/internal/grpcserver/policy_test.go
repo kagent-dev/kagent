@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -24,16 +24,16 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 		method string
 		want   pkgauth.AccessMode
 	}{
-		{name: "create", method: apiv1alpha1.SessionService_CreateSession_FullMethodName, want: pkgauth.AccessCreate},
-		{name: "get", method: apiv1alpha1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
-		{name: "list", method: apiv1alpha1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
-		{name: "rename is a write", method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "suspend", method: apiv1alpha1.SessionService_SuspendSession_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "resume", method: apiv1alpha1.SessionService_ResumeSession_FullMethodName, want: pkgauth.AccessUpdate},
-		{name: "delete", method: apiv1alpha1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
-		{name: "create share", method: apiv1alpha1.SessionService_CreateSessionShare_FullMethodName, want: pkgauth.AccessCreate},
-		{name: "list shares", method: apiv1alpha1.SessionService_ListSessionShares_FullMethodName, want: pkgauth.AccessRead},
-		{name: "revoke share", method: apiv1alpha1.SessionService_RevokeSessionShare_FullMethodName, want: pkgauth.AccessDelete},
+		{name: "create", method: apiv1.SessionService_CreateSession_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "get", method: apiv1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
+		{name: "list", method: apiv1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
+		{name: "rename is a write", method: apiv1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "suspend", method: apiv1.SessionService_SuspendSession_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "resume", method: apiv1.SessionService_ResumeSession_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "delete", method: apiv1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
+		{name: "create share", method: apiv1.SessionService_CreateSessionShare_FullMethodName, want: pkgauth.AccessCreate},
+		{name: "list shares", method: apiv1.SessionService_ListSessionShares_FullMethodName, want: pkgauth.AccessRead},
+		{name: "revoke share", method: apiv1.SessionService_RevokeSessionShare_FullMethodName, want: pkgauth.AccessDelete},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := policies[test.method]
@@ -60,16 +60,16 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 	}{
 		{
 			name:   "read-only share may read",
-			method: apiv1alpha1.SessionService_GetSession_FullMethodName, wantCode: codes.OK,
+			method: apiv1.SessionService_GetSession_FullMethodName, wantCode: codes.OK,
 		},
 		{
 			name:   "read-only share may not rename",
-			method: apiv1alpha1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.PermissionDenied,
+			method: apiv1.SessionService_UpdateSessionName_FullMethodName, wantCode: codes.PermissionDenied,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			shareStore := &testShareStore{
-				sessionShare: &apiv1alpha1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
+				sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
 			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, nil, shareStore, DefaultMethodPolicies())

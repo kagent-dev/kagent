@@ -258,13 +258,13 @@ supplies the guest entrypoint. It does not inherit a Harness. Use
 `docs/architecture/sandboxes.md` and `go/api/v1alpha3/sandboxtemplate_types.go`
 for its schema and preparation requirements.
 
-For a gRPC client, use `kagent.api.v1alpha1.SandboxService` for lifecycle and
+For a gRPC client, use `kagent.api.v1.SandboxService` for lifecycle and
 upstream `ateenv.v1alpha.ProcessService` / `FileSystemService` on the same
 apiserver connection for guest work. Send exactly one `kagent-sandbox-id`
 metadata value with the Sandbox UUID plus the connection's normal authentication.
 Route through kagent; Actor IDs and private guest endpoints are not client APIs.
 
 Source contracts: `go/core/internal/mcp/sandboxes.go`,
-`proto/kagent/api/v1alpha1/sandboxes.proto`, and
+`proto/kagent/api/v1/sandboxes.proto`, and
 `proto/ateenv/v1alpha/guest.proto`. Runtime limits and process semantics are in
 `go/sandbox/guest/README.md`.

@@ -16,7 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -67,11 +67,11 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		t.Fatalf("grpc.NewClient() error = %v", err)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
-	client := apiv1alpha1.NewPromptTemplateServiceClient(connection)
+	client := apiv1.NewPromptTemplateServiceClient(connection)
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "prompt-user"))
-	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "a-created"}
+	ref := &apiv1.ResourceReference{Namespace: "team", Name: "a-created"}
 
-	created, err := client.CreatePromptTemplate(ctx, &apiv1alpha1.CreatePromptTemplateRequest{
+	created, err := client.CreatePromptTemplate(ctx, &apiv1.CreatePromptTemplateRequest{
 		Ref:  ref,
 		Data: map[string]string{"intro": "hello", "rules": "be concise"},
 	})
@@ -83,13 +83,13 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		"rules": "be concise",
 	})
 
-	_, err = client.CreatePromptTemplate(ctx, &apiv1alpha1.CreatePromptTemplateRequest{
+	_, err = client.CreatePromptTemplate(ctx, &apiv1.CreatePromptTemplateRequest{
 		Ref:  ref,
 		Data: map[string]string{"intro": "duplicate"},
 	})
 	assertPromptTemplateGRPCCode(t, err, codes.AlreadyExists)
 
-	got, err := client.GetPromptTemplate(ctx, &apiv1alpha1.GetPromptTemplateRequest{Ref: ref})
+	got, err := client.GetPromptTemplate(ctx, &apiv1.GetPromptTemplateRequest{Ref: ref})
 	if err != nil {
 		t.Fatalf("GetPromptTemplate() error = %v", err)
 	}
@@ -98,7 +98,7 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		"rules": "be concise",
 	})
 
-	updated, err := client.UpdatePromptTemplate(ctx, &apiv1alpha1.UpdatePromptTemplateRequest{
+	updated, err := client.UpdatePromptTemplate(ctx, &apiv1.UpdatePromptTemplateRequest{
 		Ref:  ref,
 		Data: map[string]string{"replacement": "only value"},
 	})
@@ -109,7 +109,7 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		"replacement": "only value",
 	})
 
-	listed, err := client.ListPromptTemplates(ctx, &apiv1alpha1.ListPromptTemplatesRequest{Namespace: "team"})
+	listed, err := client.ListPromptTemplates(ctx, &apiv1.ListPromptTemplatesRequest{Namespace: "team"})
 	if err != nil {
 		t.Fatalf("ListPromptTemplates() error = %v", err)
 	}
@@ -126,20 +126,20 @@ func TestPromptTemplateServiceGeneratedClient(t *testing.T) {
 		t.Fatalf("ListPromptTemplates()[1].keys = %v, want [a z]", keys)
 	}
 
-	_, err = client.ListPromptTemplates(ctx, &apiv1alpha1.ListPromptTemplatesRequest{})
+	_, err = client.ListPromptTemplates(ctx, &apiv1.ListPromptTemplatesRequest{})
 	assertPromptTemplateGRPCCode(t, err, codes.InvalidArgument)
-	_, err = client.GetPromptTemplate(ctx, &apiv1alpha1.GetPromptTemplateRequest{})
+	_, err = client.GetPromptTemplate(ctx, &apiv1.GetPromptTemplateRequest{})
 	assertPromptTemplateGRPCCode(t, err, codes.InvalidArgument)
 
-	_, err = client.DeletePromptTemplate(ctx, &apiv1alpha1.DeletePromptTemplateRequest{Ref: ref})
+	_, err = client.DeletePromptTemplate(ctx, &apiv1.DeletePromptTemplateRequest{Ref: ref})
 	if err != nil {
 		t.Fatalf("DeletePromptTemplate() error = %v", err)
 	}
-	_, err = client.GetPromptTemplate(ctx, &apiv1alpha1.GetPromptTemplateRequest{Ref: ref})
+	_, err = client.GetPromptTemplate(ctx, &apiv1.GetPromptTemplateRequest{Ref: ref})
 	assertPromptTemplateGRPCCode(t, err, codes.NotFound)
 }
 
-func assertPromptTemplate(t *testing.T, template *apiv1alpha1.PromptTemplate, namespace, name string, data map[string]string) {
+func assertPromptTemplate(t *testing.T, template *apiv1.PromptTemplate, namespace, name string, data map[string]string) {
 	t.Helper()
 	if template.GetRef().GetNamespace() != namespace || template.GetRef().GetName() != name {
 		t.Fatalf("PromptTemplate ref = %+v, want %s/%s", template.GetRef(), namespace, name)

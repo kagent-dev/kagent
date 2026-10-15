@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -33,11 +33,11 @@ import (
 
 type sandboxFixture struct {
 	ctx       context.Context
-	client    apiv1alpha1.SandboxServiceClient
+	client    apiv1.SandboxServiceClient
 	processes guestpb.ProcessServiceClient
 	files     guestpb.FileSystemServiceClient
-	template  *apiv1alpha1.ResourceReference
-	system    apiv1alpha1.SystemServiceClient
+	template  *apiv1.ResourceReference
+	system    apiv1.SystemServiceClient
 }
 
 func newSandboxFixture(t *testing.T) *sandboxFixture {
@@ -56,7 +56,7 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 6*time.Minute)
 	t.Cleanup(cancel)
-	ref := &apiv1alpha1.ResourceReference{Namespace: namespace, Name: "scratch-" + uuid.NewString()[:8]}
+	ref := &apiv1.ResourceReference{Namespace: namespace, Name: "scratch-" + uuid.NewString()[:8]}
 	value, err := structpb.NewStruct(map[string]any{
 		"spec": map[string]any{
 			"workload": map[string]any{"image": image},
@@ -67,26 +67,26 @@ func newSandboxFixture(t *testing.T) *sandboxFixture {
 		},
 	})
 	require.NoError(t, err)
-	catalog := apiv1alpha1.NewSandboxTemplateServiceClient(conn)
-	_, err = catalog.CreateSandboxTemplate(ctx, &apiv1alpha1.CreateSandboxTemplateRequest{
-		Ref: ref, Resource: &apiv1alpha1.StructuredObject{ApiVersion: "api.kagent.dev/v1alpha3", Kind: "SandboxTemplate", Value: value},
+	catalog := apiv1.NewSandboxTemplateServiceClient(conn)
+	_, err = catalog.CreateSandboxTemplate(ctx, &apiv1.CreateSandboxTemplateRequest{
+		Ref: ref, Resource: &apiv1.StructuredObject{ApiVersion: "api.kagent.dev/v1alpha3", Kind: "SandboxTemplate", Value: value},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		cleanup, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
-		_, err := catalog.DeleteSandboxTemplate(cleanup, &apiv1alpha1.DeleteSandboxTemplateRequest{Ref: ref})
+		_, err := catalog.DeleteSandboxTemplate(cleanup, &apiv1.DeleteSandboxTemplateRequest{Ref: ref})
 		if status.Code(err) != codes.NotFound {
 			require.NoError(t, err)
 		}
 	})
-	return &sandboxFixture{ctx: ctx, client: apiv1alpha1.NewSandboxServiceClient(conn), processes: guestpb.NewProcessServiceClient(conn), files: guestpb.NewFileSystemServiceClient(conn), template: ref, system: apiv1alpha1.NewSystemServiceClient(conn)}
+	return &sandboxFixture{ctx: ctx, client: apiv1.NewSandboxServiceClient(conn), processes: guestpb.NewProcessServiceClient(conn), files: guestpb.NewFileSystemServiceClient(conn), template: ref, system: apiv1.NewSystemServiceClient(conn)}
 }
 
-func (f *sandboxFixture) create(t *testing.T, ttl time.Duration) *apiv1alpha1.Sandbox {
+func (f *sandboxFixture) create(t *testing.T, ttl time.Duration) *apiv1.Sandbox {
 	t.Helper()
-	request := &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString(), Ttl: durationpb.New(ttl)}
-	var instance *apiv1alpha1.Sandbox
+	request := &apiv1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString(), Ttl: durationpb.New(ttl)}
+	var instance *apiv1.Sandbox
 	var lastErr error
 	err := wait.PollUntilContextTimeout(f.ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		response, err := f.client.CreateSandbox(ctx, request)
@@ -105,22 +105,22 @@ func (f *sandboxFixture) create(t *testing.T, ttl time.Duration) *apiv1alpha1.Sa
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
-		_, err := f.client.DeleteSandbox(ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: instance.Id})
+		_, err := f.client.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: instance.Id})
 		require.NoError(t, err)
 	})
-	return f.wait(t, instance.Id, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
+	return f.wait(t, instance.Id, apiv1.RuntimeState_RUNTIME_STATE_READY)
 }
 
-func (f *sandboxFixture) wait(t *testing.T, id string, state apiv1alpha1.RuntimeState) *apiv1alpha1.Sandbox {
+func (f *sandboxFixture) wait(t *testing.T, id string, state apiv1.RuntimeState) *apiv1.Sandbox {
 	t.Helper()
-	var current *apiv1alpha1.Sandbox
+	var current *apiv1.Sandbox
 	err := wait.PollUntilContextTimeout(f.ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
-		response, err := f.client.GetSandbox(ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: id})
+		response, err := f.client.GetSandbox(ctx, &apiv1.GetSandboxRequest{SandboxId: id})
 		if err != nil {
 			return false, err
 		}
 		current = response.GetSandbox()
-		return current.State == state && current.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, nil
+		return current.State == state && current.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, nil
 	})
 	require.NoError(t, err, "sandbox %s did not reach %s; last sandbox: %v", id, state, current)
 	return current
@@ -151,9 +151,9 @@ func TestSandboxLifecycle(t *testing.T) {
 	sandbox := f.create(t, 5*time.Minute)
 	id := sandbox.Id
 	other := metadata.NewOutgoingContext(f.ctx, metadata.Pairs("x-user-id", "another-owner"))
-	_, err := f.client.GetSandbox(other, &apiv1alpha1.GetSandboxRequest{SandboxId: id})
+	_, err := f.client.GetSandbox(other, &apiv1.GetSandboxRequest{SandboxId: id})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	listed, err := f.client.ListSandboxes(other, &apiv1alpha1.ListSandboxesRequest{})
+	listed, err := f.client.ListSandboxes(other, &apiv1.ListSandboxesRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.Sandboxes)
 
@@ -210,21 +210,21 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.processes.StartProcess(f.guestContext(id), &guestpb.StartProcessRequest{Command: []string{"sleep", "300"}})
 	require.NoError(t, err)
-	_, err = f.client.SuspendSandbox(f.ctx, &apiv1alpha1.SuspendSandboxRequest{SandboxId: id})
+	_, err = f.client.SuspendSandbox(f.ctx, &apiv1.SuspendSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED)
-	_, err = f.client.ResumeSandbox(f.ctx, &apiv1alpha1.ResumeSandboxRequest{SandboxId: id})
+	f.wait(t, id, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED)
+	_, err = f.client.ResumeSandbox(f.ctx, &apiv1.ResumeSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
+	f.wait(t, id, apiv1.RuntimeState_RUNTIME_STATE_READY)
 	require.Equal(t, data, f.read(t, id, "binary.dat"))
 	// Sandboxes take FULL snapshots until Substrate's lifecycle v2, so the guest's
 	// in-memory process registry survives suspend and resume.
 	restored, err := f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: process.ProcessId})
 	require.NoError(t, err)
 	require.Equal(t, guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED, restored.Status)
-	_, err = f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: id})
+	_, err = f.client.DeleteSandbox(f.ctx, &apiv1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	f.wait(t, id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
+	f.wait(t, id, apiv1.RuntimeState_RUNTIME_STATE_DELETED)
 }
 
 func TestSandboxMCP(t *testing.T) {
@@ -243,11 +243,11 @@ func TestSandboxMCP(t *testing.T) {
 	}
 	request := map[string]any{"namespace": f.template.Namespace, "template": f.template.Name, "request_id": uuid.NewString(), "ttl_seconds": 60}
 	call("create_sandbox", request, &created)
-	f.wait(t, created.ID, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
+	f.wait(t, created.ID, apiv1.RuntimeState_RUNTIME_STATE_READY)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(f.ctx), time.Minute)
 		defer cancel()
-		_, err := f.client.DeleteSandbox(ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: created.ID})
+		_, err := f.client.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: created.ID})
 		require.NoError(t, err)
 	})
 	var retry struct {
@@ -277,14 +277,14 @@ func TestSandboxMCP(t *testing.T) {
 		State string `json:"state"`
 	}
 	call("delete_sandbox", map[string]any{"sandbox_id": created.ID}, &deleted)
-	f.wait(t, created.ID, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
+	f.wait(t, created.ID, apiv1.RuntimeState_RUNTIME_STATE_DELETED)
 }
 
 func TestSandboxExpiration(t *testing.T) {
 	t.Parallel()
 	f := newSandboxFixture(t)
 	sandbox := f.create(t, 15*time.Second)
-	f.wait(t, sandbox.Id, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED)
+	f.wait(t, sandbox.Id, apiv1.RuntimeState_RUNTIME_STATE_DELETED)
 }
 
 func TestSandboxTemplateRevisionRetention(t *testing.T) {
@@ -304,7 +304,7 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 	}, time.Minute, time.Second)
 	second := f.create(t, 5*time.Minute)
 	require.NotEqual(t, first.PreparedRevision, second.PreparedRevision)
-	current, err := f.client.GetSandbox(f.ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: first.Id})
+	current, err := f.client.GetSandbox(f.ctx, &apiv1.GetSandboxRequest{SandboxId: first.Id})
 	require.NoError(t, err)
 	require.Equal(t, first.PreparedRevision, current.Sandbox.PreparedRevision)
 	// Deleting configuration must not remove the pinned runtime inputs.
@@ -312,15 +312,15 @@ func TestSandboxTemplateRevisionRetention(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return apierrors.IsNotFound(kube.Get(f.ctx, key, &v1alpha3.SandboxTemplate{}))
 	}, time.Minute, time.Second)
-	_, err = f.client.CreateSandbox(f.ctx, &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString()})
+	_, err = f.client.CreateSandbox(f.ctx, &apiv1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString()})
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	for _, instance := range []*apiv1alpha1.Sandbox{first, second} {
-		_, err := f.client.SuspendSandbox(f.ctx, &apiv1alpha1.SuspendSandboxRequest{SandboxId: instance.Id})
+	for _, instance := range []*apiv1.Sandbox{first, second} {
+		_, err := f.client.SuspendSandbox(f.ctx, &apiv1.SuspendSandboxRequest{SandboxId: instance.Id})
 		require.NoError(t, err)
-		f.wait(t, instance.Id, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED)
-		_, err = f.client.ResumeSandbox(f.ctx, &apiv1alpha1.ResumeSandboxRequest{SandboxId: instance.Id})
+		f.wait(t, instance.Id, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED)
+		_, err = f.client.ResumeSandbox(f.ctx, &apiv1.ResumeSandboxRequest{SandboxId: instance.Id})
 		require.NoError(t, err)
-		f.wait(t, instance.Id, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY)
+		f.wait(t, instance.Id, apiv1.RuntimeState_RUNTIME_STATE_READY)
 		started, err := f.processes.StartProcess(f.guestContext(instance.Id), &guestpb.StartProcessRequest{
 			Command: []string{"sh", "-c", "printf '%s' \"$REVISION_MARKER\" > marker"},
 		})
@@ -379,8 +379,8 @@ func TestSandboxControllerRestart(t *testing.T) {
 		return false
 	}, 90*time.Second, time.Second, "replacement controller did not become ready")
 	require.Eventually(t, func() bool {
-		response, err := f.client.GetSandbox(f.ctx, &apiv1alpha1.GetSandboxRequest{SandboxId: instance.Id})
-		return err == nil && response.Sandbox.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+		response, err := f.client.GetSandbox(f.ctx, &apiv1.GetSandboxRequest{SandboxId: instance.Id})
+		return err == nil && response.Sandbox.State == apiv1.RuntimeState_RUNTIME_STATE_READY
 	}, 90*time.Second, time.Second)
 	after, err := findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
 	require.NoError(t, err)

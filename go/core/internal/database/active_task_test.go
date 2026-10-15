@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestCheckpointCreationBlocksSessionTaskWrites(t *testing.T) {
@@ -25,7 +25,7 @@ func TestCheckpointCreationBlocksSessionTaskWrites(t *testing.T) {
 	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
 	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx,
-		&apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
+		&apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 
 	next := newSessionTask("next", "next-message")

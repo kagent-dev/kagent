@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -195,7 +195,7 @@ func (g *Gateway) finishSend(ctx context.Context, agent types.NamespacedName, me
 // observe owns only this observer's actor connection. Disconnecting cannot
 // cancel execution. Final results come from the service after native cleanup
 // acknowledges their saved version, independently of actor pause or suspend.
-func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, session *apiv1alpha1.Session, taskID a2atype.TaskID, message *a2atype.Message, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
+func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, session *apiv1.Session, taskID a2atype.TaskID, message *a2atype.Message, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
 	// Keep the original operation's permissions when reading its result. The
 	// actor may assign a task ID, but that does not turn a send into an update.
 	readResult := func() (*a2atype.Task, error) {
@@ -292,7 +292,7 @@ func recoverBoundary(task *a2atype.Task, err error) (*a2atype.Task, error) {
 	return nil, nil
 }
 
-func (g *Gateway) dial(ctx context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
+func (g *Gateway) dial(ctx context.Context, session *apiv1.Session) (*a2aclient.Client, error) {
 	client, err := g.dialer.Dial(ctx, session)
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "connect to runtime", "session_id", session.Id, "error", err)

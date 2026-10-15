@@ -193,7 +193,7 @@ kagent --config config.yaml install
 
 ## Application configuration
 
-`config` follows the [ControllerConfig schema](../proto/kagent/api/v1alpha1/config.proto).
+`config` follows the [ControllerConfig schema](../proto/kagent/config/v1/config.proto).
 It is rendered as `/etc/kagent/controller.yaml`; secret files are projected separately.
 Configure controller and agent telemetry independently using `config.telemetry`
 and `config.runtimeDefaults.telemetry`. Standard OTEL overrides can be supplied

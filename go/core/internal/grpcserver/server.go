@@ -23,7 +23,8 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
@@ -132,23 +133,23 @@ func New(config Config) (*Server, error) {
 	grpcServer := grpc.NewServer(serverOptions...)
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
-	apiv1alpha1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
-	apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
-	apiv1alpha1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
-	apiv1alpha1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
-	apiv1alpha1.RegisterSandboxServiceServer(grpcServer, &sandboxServer{service: config.SandboxService})
+	apiv1.RegisterSystemServiceServer(grpcServer, newSystemServer(config.SystemService, config.MaxMessageBytes))
+	apiv1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
+	apiv1.RegisterAgentTemplateServiceServer(grpcServer, newAgentTemplateServer(config.AgentTemplateService, config.MaxMessageBytes))
+	apiv1.RegisterHarnessServiceServer(grpcServer, newHarnessServer(config.HarnessService, config.MaxMessageBytes))
+	apiv1.RegisterSandboxServiceServer(grpcServer, &sandboxServer{service: config.SandboxService})
 	guestServer := &sandboxGuestServer{service: config.SandboxService}
 	guestpb.RegisterProcessServiceServer(grpcServer, guestServer)
 	guestpb.RegisterFileSystemServiceServer(grpcServer, guestServer)
-	apiv1alpha1.RegisterSandboxTemplateServiceServer(grpcServer, &sandboxTemplateServer{service: config.SandboxTemplateService, maxMessageBytes: config.MaxMessageBytes})
-	apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
-	apiv1alpha1.RegisterToolServiceServer(grpcServer, newToolServer(config.ToolService, config.MaxMessageBytes))
-	apiv1alpha1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))
-	apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
-	apiv1alpha1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
-	apiv1alpha1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
-	apiv1alpha1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
-	apiv1alpha1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
+	apiv1.RegisterSandboxTemplateServiceServer(grpcServer, &sandboxTemplateServer{service: config.SandboxTemplateService, maxMessageBytes: config.MaxMessageBytes})
+	apiv1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
+	apiv1.RegisterToolServiceServer(grpcServer, newToolServer(config.ToolService, config.MaxMessageBytes))
+	apiv1.RegisterPromptTemplateServiceServer(grpcServer, newPromptTemplateServer(config.PromptTemplateService))
+	runtimev1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))
+	runtimev1.RegisterTaskStoreServiceServer(grpcServer, &taskStoreServer{service: config.TaskStoreService})
+	apiv1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
+	apiv1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
+	apiv1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
 	// The pinned SDK gRPC handler drops the next-page token for push config List.
 	// Override only that method until upstream preserves the service response.
 	a2apb.RegisterA2AServiceServer(grpcServer, &pushListGRPCHandler{

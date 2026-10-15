@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -86,7 +86,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("grpc.NewClient() error = %v", err)
 	}
 	t.Cleanup(func() { _ = connection.Close() })
-	client := apiv1alpha1.NewModelServiceClient(connection)
+	client := apiv1.NewModelServiceClient(connection)
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "test-user"))
 
 	createResource := modelConfigResource(t, &v1alpha3.ModelConfig{
@@ -96,8 +96,8 @@ func TestModelServiceCRUD(t *testing.T) {
 			Provider: v1alpha3.ModelProviderOpenAI,
 		},
 	})
-	created, err := client.CreateModelConfig(ctx, &apiv1alpha1.CreateModelConfigRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
+	created, err := client.CreateModelConfig(ctx, &apiv1.CreateModelConfigRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "default", Name: "test-config"},
 		Resource: createResource,
 	})
 	if err != nil {
@@ -105,22 +105,22 @@ func TestModelServiceCRUD(t *testing.T) {
 	}
 	assertModelConfigResponse(t, created.GetModelConfig(), "default", "test-config", "gpt-4")
 
-	_, err = client.CreateModelConfig(ctx, &apiv1alpha1.CreateModelConfigRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
+	_, err = client.CreateModelConfig(ctx, &apiv1.CreateModelConfigRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "default", Name: "test-config"},
 		Resource: createResource,
 	})
 	assertGRPCCode(t, err, codes.AlreadyExists)
 
-	got, err := client.GetModelConfig(ctx, &apiv1alpha1.GetModelConfigRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
+	got, err := client.GetModelConfig(ctx, &apiv1.GetModelConfigRequest{
+		Ref: &apiv1.ResourceReference{Namespace: "default", Name: "test-config"},
 	})
 	if err != nil {
 		t.Fatalf("GetModelConfig() error = %v", err)
 	}
 	assertModelConfigResponse(t, got.GetModelConfig(), "default", "test-config", "gpt-4")
 
-	updated, err := client.UpdateModelConfig(ctx, &apiv1alpha1.UpdateModelConfigRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
+	updated, err := client.UpdateModelConfig(ctx, &apiv1.UpdateModelConfigRequest{
+		Ref: &apiv1.ResourceReference{Namespace: "default", Name: "test-config"},
 		Resource: modelConfigResource(t, &v1alpha3.ModelConfig{Spec: v1alpha3.ModelConfigSpec{
 			Model:    "gpt-4.1",
 			Provider: v1alpha3.ModelProviderOpenAI,
@@ -131,37 +131,37 @@ func TestModelServiceCRUD(t *testing.T) {
 	}
 	assertModelConfigResponse(t, updated.GetModelConfig(), "default", "test-config", "gpt-4.1")
 
-	listed, err := client.ListModelConfigs(ctx, &apiv1alpha1.ListModelConfigsRequest{})
+	listed, err := client.ListModelConfigs(ctx, &apiv1.ListModelConfigsRequest{})
 	if err != nil {
 		t.Fatalf("ListModelConfigs() error = %v", err)
 	}
 	if len(listed.GetModelConfigs()) != 1 {
 		t.Fatalf("ListModelConfigs() count = %d, want 1", len(listed.GetModelConfigs()))
 	}
-	_, err = client.DeleteModelConfig(ctx, &apiv1alpha1.DeleteModelConfigRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
+	_, err = client.DeleteModelConfig(ctx, &apiv1.DeleteModelConfigRequest{
+		Ref: &apiv1.ResourceReference{Namespace: "default", Name: "test-config"},
 	})
 	if err != nil {
 		t.Fatalf("DeleteModelConfig() error = %v", err)
 	}
 
-	_, err = client.GetModelConfig(ctx, &apiv1alpha1.GetModelConfigRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: "default", Name: "test-config"},
+	_, err = client.GetModelConfig(ctx, &apiv1.GetModelConfigRequest{
+		Ref: &apiv1.ResourceReference{Namespace: "default", Name: "test-config"},
 	})
 	assertGRPCCode(t, err, codes.NotFound)
 
-	_, err = client.GetModelConfig(ctx, &apiv1alpha1.GetModelConfigRequest{})
+	_, err = client.GetModelConfig(ctx, &apiv1.GetModelConfigRequest{})
 	assertGRPCCode(t, err, codes.InvalidArgument)
 
 	invalidResource := modelConfigResource(t, &v1alpha3.ModelConfig{})
 	invalidResource.Kind = "Agent"
-	_, err = client.CreateModelConfig(ctx, &apiv1alpha1.CreateModelConfigRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Name: "invalid"},
+	_, err = client.CreateModelConfig(ctx, &apiv1.CreateModelConfigRequest{
+		Ref:      &apiv1.ResourceReference{Name: "invalid"},
 		Resource: invalidResource,
 	})
 	assertGRPCCode(t, err, codes.InvalidArgument)
 
-	modelProviders, err := client.ListSupportedModelProviders(ctx, &apiv1alpha1.ListSupportedModelProvidersRequest{})
+	modelProviders, err := client.ListSupportedModelProviders(ctx, &apiv1.ListSupportedModelProvidersRequest{})
 	if err != nil {
 		t.Fatalf("ListSupportedModelProviders() error = %v", err)
 	}
@@ -172,7 +172,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListSupportedModelProviders() = %+v", modelProviders.GetProviders())
 	}
 
-	configuredProviders, err := client.ListConfiguredProviders(ctx, &apiv1alpha1.ListConfiguredProvidersRequest{})
+	configuredProviders, err := client.ListConfiguredProviders(ctx, &apiv1.ListConfiguredProvidersRequest{})
 	if err != nil {
 		t.Fatalf("ListConfiguredProviders() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListConfiguredProviders() = %+v", configuredProviders.GetProviders())
 	}
 
-	cachedModels, err := client.ListProviderModels(ctx, &apiv1alpha1.ListProviderModelsRequest{ProviderName: "provider-config"})
+	cachedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config"})
 	if err != nil {
 		t.Fatalf("ListProviderModels(cached) error = %v", err)
 	}
@@ -188,7 +188,7 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListProviderModels(cached) = %+v", cachedModels)
 	}
 
-	refreshedModels, err := client.ListProviderModels(ctx, &apiv1alpha1.ListProviderModelsRequest{ProviderName: "provider-config", Refresh: true})
+	refreshedModels, err := client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider-config", Refresh: true})
 	if err != nil {
 		t.Fatalf("ListProviderModels(refresh) error = %v", err)
 	}
@@ -196,10 +196,10 @@ func TestModelServiceCRUD(t *testing.T) {
 		t.Fatalf("ListProviderModels(refresh) = %+v, refresher = %+v", refreshedModels, refresher)
 	}
 
-	_, err = client.ListProviderModels(ctx, &apiv1alpha1.ListProviderModelsRequest{})
+	_, err = client.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{})
 	assertGRPCCode(t, err, codes.InvalidArgument)
 
-	supportedModels, err := client.ListSupportedModels(ctx, &apiv1alpha1.ListSupportedModelsRequest{})
+	supportedModels, err := client.ListSupportedModels(ctx, &apiv1.ListSupportedModelsRequest{})
 	if err != nil {
 		t.Fatalf("ListSupportedModels() error = %v", err)
 	}
@@ -211,7 +211,7 @@ func TestModelServiceCRUD(t *testing.T) {
 	}
 }
 
-func modelConfigResource(t *testing.T, modelConfig *v1alpha3.ModelConfig) *apiv1alpha1.StructuredObject {
+func modelConfigResource(t *testing.T, modelConfig *v1alpha3.ModelConfig) *apiv1.StructuredObject {
 	t.Helper()
 	resource, err := structuredobject.FromGo(
 		modelConfig,
@@ -225,7 +225,7 @@ func modelConfigResource(t *testing.T, modelConfig *v1alpha3.ModelConfig) *apiv1
 	return resource
 }
 
-func assertModelConfigResponse(t *testing.T, response *apiv1alpha1.ModelConfig, namespace, name, model string) {
+func assertModelConfigResponse(t *testing.T, response *apiv1.ModelConfig, namespace, name, model string) {
 	t.Helper()
 	if response == nil || response.GetRef() == nil {
 		t.Fatal("ModelConfig response or ref is nil")

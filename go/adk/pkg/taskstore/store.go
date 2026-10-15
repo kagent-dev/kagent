@@ -20,7 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 type Store struct {
@@ -85,11 +85,11 @@ func (s *Store) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVe
 	if executionFailed(ctx) {
 		return 0, fmt.Errorf("previous task persistence failed")
 	}
-	request := &apiv1alpha1.TaskStoreServiceCreateTaskRequest{SessionId: id, Task: wire}
+	request := &runtimev1.TaskStoreServiceCreateTaskRequest{SessionId: id, Task: wire}
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		request.DispatchId = state.dispatchID
 	}
-	var response *apiv1alpha1.TaskStoreServiceCreateTaskResponse
+	var response *runtimev1.TaskStoreServiceCreateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
 		response, err = s.client.TaskStoreService().CreateTask(ctx, request)
@@ -119,11 +119,11 @@ func (s *Store) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) 
 	if err != nil {
 		return 0, err
 	}
-	request := &apiv1alpha1.TaskStoreServiceUpdateTaskRequest{SessionId: id, Task: task, Event: event, ExpectedVersion: int64(update.PrevVersion)}
+	request := &runtimev1.TaskStoreServiceUpdateTaskRequest{SessionId: id, Task: task, Event: event, ExpectedVersion: int64(update.PrevVersion)}
 	if state, ok := ctx.Value(executionKey{}).(*execution); ok {
 		request.DispatchId = state.dispatchID
 	}
-	var response *apiv1alpha1.TaskStoreServiceUpdateTaskResponse
+	var response *runtimev1.TaskStoreServiceUpdateTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
 		response, err = s.client.TaskStoreService().UpdateTask(ctx, request)
@@ -142,10 +142,10 @@ func (s *Store) Get(ctx context.Context, taskID a2a.TaskID) (*sdktaskstore.Store
 	if err != nil {
 		return nil, err
 	}
-	var response *apiv1alpha1.TaskStoreServiceGetTaskResponse
+	var response *runtimev1.TaskStoreServiceGetTaskResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().GetTask(ctx, &apiv1alpha1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: string(taskID)})
+		response, err = s.client.TaskStoreService().GetTask(ctx, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: string(taskID)})
 		return err
 	})
 	if err != nil {
@@ -167,10 +167,10 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 	if err != nil {
 		return nil, err
 	}
-	var response *apiv1alpha1.TaskStoreServiceListTasksResponse
+	var response *runtimev1.TaskStoreServiceListTasksResponse
 	err = s.retry(ctx, func(ctx context.Context) error {
 		var err error
-		response, err = s.client.TaskStoreService().ListTasks(ctx, &apiv1alpha1.TaskStoreServiceListTasksRequest{SessionId: id, Request: wire})
+		response, err = s.client.TaskStoreService().ListTasks(ctx, &runtimev1.TaskStoreServiceListTasksRequest{SessionId: id, Request: wire})
 		return err
 	})
 	if err != nil {
@@ -203,7 +203,7 @@ func (s *Store) retry(ctx context.Context, call func(context.Context) error) err
 	panic("unreachable")
 }
 
-func fromStored(stored *apiv1alpha1.StoredTask) (*sdktaskstore.StoredTask, error) {
+func fromStored(stored *runtimev1.StoredTask) (*sdktaskstore.StoredTask, error) {
 	if stored == nil || stored.Task == nil || stored.Version <= 0 {
 		return nil, fmt.Errorf("TaskStore returned an invalid stored task")
 	}

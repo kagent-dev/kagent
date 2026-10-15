@@ -1,6 +1,6 @@
 import grpc
 import pytest
-from kagent.api.v1alpha1 import memory_pb2, memory_pb2_grpc
+from kagent.runtime.v1 import memory_pb2, memory_pb2_grpc
 
 
 class MemoryService(memory_pb2_grpc.MemoryServiceServicer):

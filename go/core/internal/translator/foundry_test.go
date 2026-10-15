@@ -1,7 +1,6 @@
 package translator_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				Spec: v1alpha3.HarnessSpec{
 					Kagent: &v1alpha3.KagentHarness{},
 
-					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
+					Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
 						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
@@ -73,20 +72,20 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}
 				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
-				var config adk.AgentConfig
-				require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-				runtimeModel := config.Model
+				var config adk.Config
+				require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+				runtimeModel := config.Agent.Model
 				if location == "shared agent" {
-					require.Len(t, config.SubAgents, 1)
-					runtimeModel = config.SubAgents[0].Model
+					require.Len(t, config.Agent.SubAgents, 1)
+					runtimeModel = config.Agent.SubAgents[0].Model
 				}
 				if location == "memory" {
-					require.NotNil(t, config.Memory)
-					require.NotNil(t, config.Memory.Embedding)
-					require.Equal(t, endpoint, config.Memory.Embedding.Endpoint)
+					require.NotNil(t, config.Agent.Memory)
+					require.NotNil(t, config.Agent.Memory.Embedding)
+					require.Equal(t, endpoint, config.Agent.Memory.Embedding.Endpoint)
 				} else {
-					require.IsType(t, &adk.Foundry{}, runtimeModel)
-					require.Equal(t, endpoint, runtimeModel.(*adk.Foundry).Endpoint)
+					require.IsType(t, &adk.Model{Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{}}}, runtimeModel)
+					require.Equal(t, endpoint, runtimeModel.GetFoundry().Endpoint)
 				}
 				require.Contains(t, revision.Environment, corev1.EnvVar{Name: "FOUNDRY_ENDPOINT", Value: endpoint})
 				require.Len(t, revision.Credentials, 1)

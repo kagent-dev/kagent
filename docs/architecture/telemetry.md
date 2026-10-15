@@ -229,6 +229,11 @@ Build the controller and native harness images from the same commit. Their
 private JSON contract version must match; the runtime rejects unknown versions
 before serving requests.
 
+Published charts supply matching digest-pinned runtime defaults. Harnesses that
+omit `spec.workload.image` use the installed release's image; explicit overrides
+should be updated alongside controller upgrades. Default selection does not
+inspect the CLI or configuration version inside an override.
+
 ## Changing the contract
 
 Edit the registry, then regenerate and commit the result:

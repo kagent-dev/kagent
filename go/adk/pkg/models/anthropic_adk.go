@@ -75,10 +75,10 @@ func buildAnthropicParams(req *model.LLMRequest, cfg *AnthropicConfig) (anthropi
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(modelName),
 		Messages:  messages,
-		MaxTokens: int64(defaultAnthropicMaxTokens), // required by the Messages API
+		MaxTokens: defaultAnthropicMaxTokens, // required by the Messages API
 	}
 	if cfg.MaxTokens != nil {
-		params.MaxTokens = int64(*cfg.MaxTokens)
+		params.MaxTokens = *cfg.MaxTokens
 	}
 	if systemPrompt != "" {
 		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
@@ -108,7 +108,7 @@ func applyAnthropicConfig(params *anthropic.MessageNewParams, cfg *AnthropicConf
 		params.TopP = anthropic.Float(*cfg.TopP)
 	}
 	if cfg.TopK != nil {
-		params.TopK = anthropic.Int(int64(*cfg.TopK))
+		params.TopK = anthropic.Int(*cfg.TopK)
 	}
 }
 

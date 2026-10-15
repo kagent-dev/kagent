@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -32,18 +32,18 @@ func (testAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Res
 }
 
 type testStore struct {
-	prepared    *apiv1alpha1.Checkpoint
+	prepared    *apiv1.Checkpoint
 	snapshot    *database.SessionTaskSnapshot
 	tagUID      string
 	snapshotErr error
-	forked      *apiv1alpha1.Session
+	forked      *apiv1.Session
 	failed      string
 	deleted     bool
 	finalizeErr error
 	reserveErr  error
 }
 
-func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv1alpha1.Checkpoint, _, _ string) (*apiv1alpha1.Checkpoint, *database.SessionTaskSnapshot, error) {
+func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv1.Checkpoint, _, _ string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error) {
 	if s.reserveErr != nil {
 		return nil, nil, s.reserveErr
 	}
@@ -53,26 +53,26 @@ func (s *testStore) ReserveSessionCheckpoint(_ context.Context, checkpoint *apiv
 	checkpoint.HeadTaskId = "task-1"
 	checkpoint.HistorySequence = 7
 	s.snapshot = &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}
-	checkpoint.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING
+	checkpoint.State = apiv1.CheckpointState_CHECKPOINT_STATE_CREATING
 	checkpoint.CreatedAt = timestamppb.Now()
 	s.prepared = checkpoint
 	return checkpoint, s.snapshot, nil
 }
 
-func (s *testStore) FinalizeSessionCheckpoint(_ context.Context, _ string, tagUID, snapshotURI, failure string) (*apiv1alpha1.Checkpoint, error) {
+func (s *testStore) FinalizeSessionCheckpoint(_ context.Context, _ string, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
 	if s.finalizeErr != nil {
 		return nil, s.finalizeErr
 	}
 	if failure != "" {
-		s.prepared.State, s.failed = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED, failure
+		s.prepared.State, s.failed = apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, failure
 	} else {
-		s.prepared.State, s.tagUID = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, tagUID
+		s.prepared.State, s.tagUID = apiv1.CheckpointState_CHECKPOINT_STATE_READY, tagUID
 		s.snapshot.URI = snapshotURI
 	}
 	return s.prepared, nil
 }
 
-func (s *testStore) GetSessionCheckpoint(context.Context, string, string) (*apiv1alpha1.Checkpoint, error) {
+func (s *testStore) GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error) {
 	if s.prepared == nil {
 		return nil, database.ErrNotFound
 	}
@@ -89,7 +89,7 @@ func (s *testStore) GetSessionCheckpointSnapshot(context.Context, string, string
 	return s.snapshot, s.tagUID, nil
 }
 
-func (*testStore) ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1alpha1.Checkpoint, error) {
+func (*testStore) ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error) {
 	return nil, nil
 }
 
@@ -97,7 +97,7 @@ func (s *testStore) BeginDeleteSessionCheckpoint(context.Context, string, string
 	if s.prepared == nil {
 		return nil, "", database.ErrNotFound
 	}
-	s.prepared.State = apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
+	s.prepared.State = apiv1.CheckpointState_CHECKPOINT_STATE_DELETING
 	return s.snapshot, s.tagUID, nil
 }
 
@@ -106,7 +106,7 @@ func (s *testStore) DeleteSessionCheckpoint(context.Context, string, string) err
 	return nil
 }
 
-func (s *testStore) UpdateCheckpointName(_ context.Context, _, _, name string) (*apiv1alpha1.Checkpoint, error) {
+func (s *testStore) UpdateCheckpointName(_ context.Context, _, _, name string) (*apiv1.Checkpoint, error) {
 	if s.prepared == nil {
 		return nil, database.ErrNotFound
 	}
@@ -114,11 +114,11 @@ func (s *testStore) UpdateCheckpointName(_ context.Context, _, _, name string) (
 	return s.prepared, nil
 }
 
-func (s *testStore) ForkSession(_ context.Context, _ string, userID, _ string, sessionID string) (*apiv1alpha1.Session, bool, error) {
+func (s *testStore) ForkSession(_ context.Context, _ string, userID, _ string, sessionID string) (*apiv1.Session, bool, error) {
 	if s.forked == nil {
-		s.forked = &apiv1alpha1.Session{
+		s.forked = &apiv1.Session{
 			Id: sessionID, Creator: userID,
-			State: apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING,
+			State: apiv1.RuntimeState_RUNTIME_STATE_CREATING,
 		}
 		return s.forked, true, nil
 	}
@@ -126,12 +126,12 @@ func (s *testStore) ForkSession(_ context.Context, _ string, userID, _ string, s
 }
 
 type testWorkflow struct {
-	session *apiv1alpha1.Session
+	session *apiv1.Session
 }
 
-func (w *testWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (w *testWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	w.session = session
-	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+	session.State = apiv1.RuntimeState_RUNTIME_STATE_READY
 	return session, nil
 }
 
@@ -251,7 +251,7 @@ func TestRenameValidatesBeforeReachingTheStore(t *testing.T) {
 	_, err = service.Rename(ctx, checkpointID, "Before the detour")
 	require.Equal(t, serviceerrors.CodeNotFound, serviceerrors.CodeOf(err))
 
-	store.prepared = &apiv1alpha1.Checkpoint{Id: checkpointID}
+	store.prepared = &apiv1.Checkpoint{Id: checkpointID}
 	renamed, err := service.Rename(ctx, checkpointID, "Before the detour")
 	require.NoError(t, err)
 	require.Equal(t, "Before the detour", renamed.GetName())
@@ -300,7 +300,7 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 }
 
 func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
-	checkpoint := &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY}
+	checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1.CheckpointState_CHECKPOINT_STATE_READY}
 	store := &testStore{prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}, tagUID: "tag-uid"}
 	tags := &testTags{created: &ateapipb.Tag{
 		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.GetId()), Uid: "tag-uid"},
@@ -314,19 +314,19 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 	if err := service.Delete(ctx, checkpoint.GetId()); err == nil {
 		t.Fatal("Delete() succeeded without verifying the snapshot tag")
 	}
-	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 0 || store.deleted {
+	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 0 || store.deleted {
 		t.Fatal("tag lookup failure must leave deletion pending without deleting the tag")
 	}
 	tags.getErr = nil
 	if err := service.Delete(ctx, checkpoint.GetId()); err != nil {
 		t.Fatal(err)
 	}
-	if checkpoint.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 1 || !store.deleted {
+	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_DELETING || tags.deleteCalls != 1 || !store.deleted {
 		t.Fatalf("checkpoint state = %s, tag deletes = %d, row deleted = %v", checkpoint.State, tags.deleteCalls, store.deleted)
 	}
 }
 func TestForkCreatesSessionFromCheckpoint(t *testing.T) {
-	checkpoint := &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY}
+	checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1.CheckpointState_CHECKPOINT_STATE_READY}
 	store := &testStore{prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}}
 	workflow := &testWorkflow{}
 	store.tagUID = "tag-uid"
@@ -338,7 +338,7 @@ func TestForkCreatesSessionFromCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY ||
+	if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY ||
 		workflow.session != store.forked || store.forked.GetId() == "" {
 		t.Fatalf("fork = %+v, checkpoint = %+v", session, checkpoint)
 	}
@@ -351,14 +351,14 @@ func TestCreateRetriesRetainedTagAfterPublishFailure(t *testing.T) {
 	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 	_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 	require.Error(t, err)
-	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 	require.Equal(t, 0, tags.deleteCalls)
 	retained := tags.created
 	store.finalizeErr = nil
 	checkpoint, err := service.Create(ctx, store.prepared.SessionId, "request-1", "task-1")
 	require.NoError(t, err)
 	require.Same(t, retained, tags.created)
-	require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY, checkpoint.State)
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_READY, checkpoint.State)
 	require.Equal(t, "s3://tags/checkpoint", store.snapshot.URI)
 }
 
@@ -383,18 +383,18 @@ func TestCreateRejectsInvalidTagAndKeepsCleanupRetryable(t *testing.T) {
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Error(t, err)
-			require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
+			require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State)
 			tags.deleteErr = nil
 			_, err = service.Create(ctx, store.prepared.SessionId, "request-1", "task-1")
 			require.Error(t, err)
-			require.Equal(t, apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED, store.prepared.State)
+			require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, store.prepared.State)
 			require.Nil(t, tags.created)
 		})
 	}
 }
 
 func TestForkRejectsReplacedTag(t *testing.T) {
-	checkpoint := &apiv1alpha1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc"}
+	checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc"}
 	snapshot := &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://tags/checkpoint", ContentScope: "DATA"}
 	for _, tc := range []struct{ name, uid, uri string }{
 		{"recreated tag", "other-uid", snapshot.URI},

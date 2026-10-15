@@ -26,7 +26,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
 	"github.com/kagent-dev/kagent/go/core/cli"
 )
@@ -34,11 +34,11 @@ import (
 const sandboxTestID = "33333333-3333-4333-8333-333333333333"
 
 type sandboxTestServer struct {
-	apiv1alpha1.UnimplementedSandboxServiceServer
+	apiv1.UnimplementedSandboxServiceServer
 	guestpb.UnimplementedProcessServiceServer
 	guestpb.UnimplementedFileSystemServiceServer
 	mu           sync.Mutex
-	created      *apiv1alpha1.CreateSandboxRequest
+	created      *apiv1.CreateSandboxRequest
 	starts       int
 	command      *guestpb.StartProcessRequest
 	startErr     error
@@ -58,7 +58,7 @@ func newSandboxTestServer(t *testing.T) (*sandboxTestServer, string) {
 	s := &sandboxTestServer{files: map[string][]byte{}, stdout: []byte("hello"), stderr: []byte("warning")}
 	server := grpc.NewServer()
 	healthpb.RegisterHealthServer(server, health.NewServer())
-	apiv1alpha1.RegisterSandboxServiceServer(server, s)
+	apiv1.RegisterSandboxServiceServer(server, s)
 	guestpb.RegisterProcessServiceServer(server, s)
 	guestpb.RegisterFileSystemServiceServer(server, s)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -94,14 +94,14 @@ func checkGuestMetadata(ctx context.Context) error {
 	return nil
 }
 
-func (s *sandboxTestServer) CreateSandbox(ctx context.Context, request *apiv1alpha1.CreateSandboxRequest) (*apiv1alpha1.CreateSandboxResponse, error) {
+func (s *sandboxTestServer) CreateSandbox(ctx context.Context, request *apiv1.CreateSandboxRequest) (*apiv1.CreateSandboxResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.created = proto.Clone(request).(*apiv1alpha1.CreateSandboxRequest)
+	s.created = proto.Clone(request).(*apiv1.CreateSandboxRequest)
 	md, _ := metadata.FromIncomingContext(ctx)
-	return &apiv1alpha1.CreateSandboxResponse{Sandbox: &apiv1alpha1.Sandbox{
+	return &apiv1.CreateSandboxResponse{Sandbox: &apiv1.Sandbox{
 		Id: sandboxTestID, Creator: md.Get("x-user-id")[0], SandboxTemplate: request.SandboxTemplate,
-		State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour)),
+		State: apiv1.RuntimeState_RUNTIME_STATE_READY, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour)),
 	}}, nil
 }
 
@@ -222,7 +222,7 @@ func TestSandboxCLICreateRetainsRequestIdentity(t *testing.T) {
 		require.Equal(t, sandboxTestID, value.ID)
 		require.Equal(t, "cli-test", value.Creator)
 		s.mu.Lock()
-		request := proto.Clone(s.created).(*apiv1alpha1.CreateSandboxRequest)
+		request := proto.Clone(s.created).(*apiv1.CreateSandboxRequest)
 		s.mu.Unlock()
 		require.Equal(t, "retained-request", request.RequestId)
 		require.Equal(t, "team-a", request.SandboxTemplate.Namespace)

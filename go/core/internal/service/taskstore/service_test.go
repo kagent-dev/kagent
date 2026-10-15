@@ -9,7 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -24,8 +25,8 @@ type settlementStore struct {
 
 var _ Store = (*settlementStore)(nil)
 
-func (s *settlementStore) GetSessionForRuntime(_ context.Context, id, _ string) (*apiv1alpha1.Session, error) {
-	return &apiv1alpha1.Session{Id: id, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
+func (s *settlementStore) GetSessionForRuntime(_ context.Context, id, _ string) (*apiv1.Session, error) {
+	return &apiv1.Session{Id: id, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
 }
 
 func (s *settlementStore) SettleSessionTask(context.Context, string, string, int64) error {
@@ -60,7 +61,7 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)
 				go func() {
-					_, err := service.SettleTask(ctx, &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: "session", TaskId: "task", Version: 1})
+					_, err := service.SettleTask(ctx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: "session", TaskId: "task", Version: 1})
 					done <- err
 				}()
 				synctest.Wait()

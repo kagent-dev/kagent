@@ -12,20 +12,17 @@ import (
 )
 
 // LoadAgentConfig loads agent configuration from config.json file
-func LoadAgentConfig(configPath string) (*adk.AgentConfig, error) {
+func LoadAgentConfig(configPath string) (*adk.Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	var config adk.AgentConfig
-	if err := json.Unmarshal(data, &config); err != nil {
+	var config adk.Config
+	if err := adk.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	if err := config.ValidateRuntime(); err != nil {
-		return nil, err
-	}
 	return &config, nil
 }
 
@@ -45,7 +42,7 @@ func LoadAgentCard(cardPath string) (*a2a.AgentCard, error) {
 }
 
 // LoadAgentConfigs loads both config and agent card from the config directory
-func LoadAgentConfigs(configDir string) (*adk.AgentConfig, *a2a.AgentCard, error) {
+func LoadAgentConfigs(configDir string) (*adk.Config, *a2a.AgentCard, error) {
 	configPath := filepath.Join(configDir, "config.json")
 	cardPath := filepath.Join(configDir, "agent-card.json")
 
@@ -54,7 +51,7 @@ func LoadAgentConfigs(configDir string) (*adk.AgentConfig, *a2a.AgentCard, error
 		return nil, nil, fmt.Errorf("failed to load agent config: %w", err)
 	}
 
-	if err := ValidateAgentConfigUsage(config); err != nil {
+	if err := ValidateAgentConfigUsage(config.Agent); err != nil {
 		return nil, nil, fmt.Errorf("invalid agent config: %w", err)
 	}
 

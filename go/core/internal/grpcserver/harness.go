@@ -5,8 +5,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
@@ -25,7 +26,7 @@ const (
 )
 
 type harnessServer struct {
-	apiv1alpha1.UnimplementedHarnessServiceServer
+	apiv1.UnimplementedHarnessServiceServer
 	service         *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.HarnessList]
 	maxMessageBytes int
 }
@@ -34,12 +35,12 @@ func newHarnessServer(service *kubecrud.Service[*v1alpha3.Harness, *v1alpha3.Har
 	return &harnessServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 
-func (s *harnessServer) ListHarnesses(ctx context.Context, request *apiv1alpha1.ListHarnessesRequest) (*apiv1alpha1.ListHarnessesResponse, error) {
+func (s *harnessServer) ListHarnesses(ctx context.Context, request *apiv1.ListHarnessesRequest) (*apiv1.ListHarnessesResponse, error) {
 	items, err := s.service.List(ctx, request.GetNamespace())
 	if err != nil {
 		return nil, err
 	}
-	harnesses := make([]*apiv1alpha1.Harness, 0, len(items))
+	harnesses := make([]*apiv1.Harness, 0, len(items))
 	for _, item := range items {
 		encoded, err := s.harness(item)
 		if err != nil {
@@ -47,10 +48,10 @@ func (s *harnessServer) ListHarnesses(ctx context.Context, request *apiv1alpha1.
 		}
 		harnesses = append(harnesses, encoded)
 	}
-	return &apiv1alpha1.ListHarnessesResponse{Harnesses: harnesses}, nil
+	return &apiv1.ListHarnessesResponse{Harnesses: harnesses}, nil
 }
 
-func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.CreateHarnessRequest) (*apiv1alpha1.CreateHarnessResponse, error) {
+func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1.CreateHarnessRequest) (*apiv1.CreateHarnessResponse, error) {
 	incoming := &v1alpha3.Harness{}
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
@@ -64,10 +65,10 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.CreateHarnessResponse{Harness: encoded}, nil
+	return &apiv1.CreateHarnessResponse{Harness: encoded}, nil
 }
 
-func (s *harnessServer) DeleteHarness(ctx context.Context, request *apiv1alpha1.DeleteHarnessRequest) (*apiv1alpha1.DeleteHarnessResponse, error) {
+func (s *harnessServer) DeleteHarness(ctx context.Context, request *apiv1.DeleteHarnessRequest) (*apiv1.DeleteHarnessResponse, error) {
 	ref, err := requiredHarnessRef(request.GetRef())
 	if err != nil {
 		return nil, err
@@ -75,19 +76,19 @@ func (s *harnessServer) DeleteHarness(ctx context.Context, request *apiv1alpha1.
 	if err := s.service.Delete(ctx, ref); err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.DeleteHarnessResponse{}, nil
+	return &apiv1.DeleteHarnessResponse{}, nil
 }
 
-func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1alpha1.Harness, error) {
+func (s *harnessServer) harness(object *v1alpha3.Harness) (*apiv1.Harness, error) {
 	resource, err := structuredobject.FromGo(object, v1alpha3.GroupVersion.String(), harnessKind, s.maxMessageBytes)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode Harness resource", err)
 	}
-	return &apiv1alpha1.Harness{
-		Ref:           &apiv1alpha1.ResourceReference{Namespace: object.Namespace, Name: object.Name},
+	return &apiv1.Harness{
+		Ref:           &apiv1.ResourceReference{Namespace: object.Namespace, Name: object.Name},
 		Resource:      resource,
 		Runtime:       harnessRuntime(object),
-		WorkloadImage: object.Spec.Workload.Image,
+		WorkloadImage: ptr.Deref(object.Spec.Workload.Image, ""),
 		Ready:         meta.IsStatusConditionTrue(object.Status.Conditions, v1alpha3.HarnessConditionTypeReady),
 	}, nil
 }
@@ -113,7 +114,7 @@ func harnessRuntime(object *v1alpha3.Harness) string {
 // decodeResource reads the CR out of the request and forces its metadata to
 // agree with the ref, so a payload naming a different object cannot be used to
 // write outside the namespace the caller was authorized against.
-func (s *harnessServer) decodeResource(ref *apiv1alpha1.ResourceReference, resource *apiv1alpha1.StructuredObject, destination *v1alpha3.Harness) error {
+func (s *harnessServer) decodeResource(ref *apiv1.ResourceReference, resource *apiv1.StructuredObject, destination *v1alpha3.Harness) error {
 	if ref == nil || ref.GetNamespace() == "" || ref.GetName() == "" {
 		return serviceerrors.NewInvalidArgument("Harness namespace and name are required", nil)
 	}
@@ -131,7 +132,7 @@ func (s *harnessServer) decodeResource(ref *apiv1alpha1.ResourceReference, resou
 	return nil
 }
 
-func requiredHarnessRef(ref *apiv1alpha1.ResourceReference) (types.NamespacedName, error) {
+func requiredHarnessRef(ref *apiv1.ResourceReference) (types.NamespacedName, error) {
 	if ref == nil || ref.GetNamespace() == "" || ref.GetName() == "" {
 		return types.NamespacedName{}, serviceerrors.NewInvalidArgument("Harness namespace and name are required", nil)
 	}

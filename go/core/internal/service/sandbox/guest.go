@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -53,7 +53,7 @@ func (d *GuestDialer) Close() error { return d.conn.Close() }
 
 // context replaces outgoing metadata. A caller cannot redirect a guest request
 // with an incoming actor header, authority, environment ID, or gRPC target.
-func (d *GuestDialer) context(ctx context.Context, instance *apiv1alpha1.Sandbox, revision *database.SandboxRevision) (context.Context, error) {
+func (d *GuestDialer) context(ctx context.Context, instance *apiv1.Sandbox, revision *database.SandboxRevision) (context.Context, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, d.endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (s *Service) guestAccess(ctx context.Context, id string, verb auth.Verb) (c
 	if err != nil {
 		return nil, nil, err
 	}
-	if instance.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || !time.Now().Before(instance.ExpiresAt.AsTime()) {
+	if instance.State != apiv1.RuntimeState_RUNTIME_STATE_READY || !time.Now().Before(instance.ExpiresAt.AsTime()) {
 		return nil, nil, serviceerrors.NewFailedPrecondition("Sandbox is not ready or has expired", database.ErrFailedPrecondition)
 	}
 	revision, err := s.config.Store.GetSandboxRevision(ctx, instance.PreparedRevision)

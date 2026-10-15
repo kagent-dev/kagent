@@ -1,4 +1,4 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
@@ -29,15 +29,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
+} from "@/generated/kagent/api/v1/system_pb";
 import {
   SessionService,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
+} from "@/generated/kagent/api/v1/sessions_pb";
 import { ApiError, isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
@@ -317,7 +317,7 @@ describe("tool servers and tools", () => {
           tools: [
             {
               resource: {
-                apiVersion: "kagent.api/v1alpha1",
+                apiVersion: "kagent.api/v1",
                 kind: "Tool",
                 value: {
                   id: "k8s_get_resources",

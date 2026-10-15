@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -106,9 +106,9 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, retained, "last-successful A must remain protected without any sessions")
 
-			session, _, err := store.CreateSession(ctx, &apiv1alpha1.Session{
+			session, _, err := store.CreateSession(ctx, &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}, "last-good-session")
 			require.NoError(t, err)
 			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
@@ -537,7 +537,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
-	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
 	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -564,7 +564,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-	}, collections.AgentRuntimeObservations, opts, testCompilerSettings())
+	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), nil)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()

@@ -39,18 +39,20 @@ type rpcFrame struct {
 // rpcClient owns newline-delimited JSON-RPC framing for one App Server
 // process. App Server notifications share the same stream as call responses.
 type rpcClient struct {
-	writer  io.WriteCloser
-	writeMu sync.Mutex
-	frames  chan rpcFrame
+	writer   io.WriteCloser
+	writeMu  sync.Mutex
+	frames   chan rpcFrame
+	readDone chan struct{}
 }
 
 func newRPCClient(writer io.WriteCloser, reader io.Reader, maxFrameBytes int) *rpcClient {
-	client := &rpcClient{writer: writer, frames: make(chan rpcFrame, 16)}
+	client := &rpcClient{writer: writer, frames: make(chan rpcFrame, 16), readDone: make(chan struct{})}
 	go client.read(reader, maxFrameBytes)
 	return client
 }
 
 func (c *rpcClient) read(reader io.Reader, max int) {
+	defer close(c.readDone)
 	defer close(c.frames)
 	buffered := bufio.NewReaderSize(reader, max+1)
 	for {

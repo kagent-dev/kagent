@@ -55,7 +55,7 @@ type AgentSpec struct {
 }
 
 // AgentTemplateSource selects portable behavior inline or by local reference.
-// +kubebuilder:validation:XValidation:rule="has(self.inline) != has(self.ref)",message="exactly one of inline or ref must be specified"
+// +kubebuilder:validation:ExactlyOneOf=inline;ref
 type AgentTemplateSource struct {
 	// Inline defines the Agent's portable behavior directly. It cannot be set
 	// together with Ref.
@@ -85,6 +85,11 @@ type AgentStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	LatestSuccessfulRevision string `json:"latestSuccessfulRevision,omitempty"`
+	// WorkloadImage is the digest-pinned image selected for the desired revision.
+	// Existing Sessions may still use an older revision and image.
+	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
+	// +optional
+	WorkloadImage *string `json:"workloadImage,omitempty"`
 	// Warnings reports non-blocking compatibility decisions made while compiling
 	// this Agent.
 	// +kubebuilder:validation:MaxItems=100

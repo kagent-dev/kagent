@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
@@ -113,7 +113,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
 	}, "alice", "checkpoint")
 	require.NoError(t, err)
@@ -449,10 +449,10 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	}
 	assertAvailableRevision := func(want string) {
 		t.Helper()
-		session, _, err := c.CreateSession(ctx, &apiv1alpha1.Session{
+		session, _, err := c.CreateSession(ctx, &apiv1.Session{
 			Id: uuid.NewString(), Creator: "alice",
 
-			Agent: &apiv1alpha1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
+			Agent: &apiv1.ResourceReference{Namespace: pair.Namespace, Name: pair.AgentName},
 		}, uuid.NewString())
 		if want == "" {
 			require.ErrorIs(t, err, ErrNotFound)

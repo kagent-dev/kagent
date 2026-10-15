@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/db"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands/mcp"
@@ -48,7 +48,7 @@ func WithExtraMigrations(sources func(ctx context.Context) ([]migrations.Source,
 // ConfigFromContext returns the CLI configuration the root command resolved
 // from the configuration file and flags, or nil before it has run. A command
 // added by an embedding binary reads it from cmd.Context() in RunE.
-func ConfigFromContext(ctx context.Context) *apiv1.CLIConfig {
+func ConfigFromContext(ctx context.Context) *configv1.CLIConfig {
 	return cliconfig.FromContext(ctx)
 }
 

@@ -17,7 +17,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -89,7 +89,7 @@ func testHarness(namespace, name, workerPool string) *v1alpha3.Harness {
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.HarnessSpec{
 			Codex:    &v1alpha3.CodexHarness{},
-			Workload: v1alpha3.HarnessWorkload{Image: testHarnessImage},
+			Workload: v1alpha3.HarnessWorkload{Image: new(testHarnessImage)},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{
 				WorkerPoolRef:  corev1.LocalObjectReference{Name: workerPool},
 				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
@@ -98,7 +98,7 @@ func testHarness(namespace, name, workerPool string) *v1alpha3.Harness {
 	}
 }
 
-func structured(t *testing.T, value any, kind string) *apiv1alpha1.StructuredObject {
+func structured(t *testing.T, value any, kind string) *apiv1.StructuredObject {
 	t.Helper()
 	resource, err := structuredobject.FromGo(value, v1alpha3.GroupVersion.String(), kind, DefaultMaxMessageSize)
 	if err != nil {
@@ -117,13 +117,13 @@ func assertCode(t *testing.T, err error, want codes.Code) {
 func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	existing := testAgentTemplate("team", "z-existing", "gpt")
 
-	client := apiv1alpha1.NewAgentTemplateServiceClient(newTemplateAndHarnessConnection(t, existing))
+	client := apiv1.NewAgentTemplateServiceClient(newTemplateAndHarnessConnection(t, existing))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
-	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "a-created"}
+	ref := &apiv1.ResourceReference{Namespace: "team", Name: "a-created"}
 
 	createdTemplate := testAgentTemplate("team", "a-created", "gpt")
 	createdTemplate.Labels = map[string]string{"runtime": "kagent"}
-	created, err := client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{
+	created, err := client.CreateAgentTemplate(ctx, &apiv1.CreateAgentTemplateRequest{
 		Ref:      ref,
 		Resource: structured(t, createdTemplate, agentTemplateKind),
 	})
@@ -137,13 +137,13 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 		t.Fatalf("CreateAgentTemplate() resource kind = %q, want %q", got, agentTemplateKind)
 	}
 
-	_, err = client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{
+	_, err = client.CreateAgentTemplate(ctx, &apiv1.CreateAgentTemplateRequest{
 		Ref:      ref,
 		Resource: structured(t, testAgentTemplate("team", "a-created", "gpt"), agentTemplateKind),
 	})
 	assertCode(t, err, codes.AlreadyExists)
 
-	got, err := client.GetAgentTemplate(ctx, &apiv1alpha1.GetAgentTemplateRequest{Ref: ref})
+	got, err := client.GetAgentTemplate(ctx, &apiv1.GetAgentTemplateRequest{Ref: ref})
 	if err != nil {
 		t.Fatalf("GetAgentTemplate() error = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 
 	updatedTemplate := testAgentTemplate("team", "a-created", "claude")
 	updatedTemplate.Labels = map[string]string{"runtime": "codex"}
-	updated, err := client.UpdateAgentTemplate(ctx, &apiv1alpha1.UpdateAgentTemplateRequest{
+	updated, err := client.UpdateAgentTemplate(ctx, &apiv1.UpdateAgentTemplateRequest{
 		Ref:      ref,
 		Resource: structured(t, updatedTemplate, agentTemplateKind),
 	})
@@ -171,7 +171,7 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 		t.Fatalf("UpdateAgentTemplate() label runtime = %q, want codex", got)
 	}
 
-	listed, err := client.ListAgentTemplates(ctx, &apiv1alpha1.ListAgentTemplatesRequest{Namespace: "team"})
+	listed, err := client.ListAgentTemplates(ctx, &apiv1.ListAgentTemplatesRequest{Namespace: "team"})
 	if err != nil {
 		t.Fatalf("ListAgentTemplates() error = %v", err)
 	}
@@ -184,36 +184,36 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 
 	// A resource whose metadata names a different object must be rejected rather
 	// than silently written to the ref the caller was authorized against.
-	_, err = client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "mismatch"},
+	_, err = client.CreateAgentTemplate(ctx, &apiv1.CreateAgentTemplateRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "team", Name: "mismatch"},
 		Resource: structured(t, testAgentTemplate("other", "elsewhere", "gpt"), agentTemplateKind),
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	_, err = client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "wrong-kind"},
+	_, err = client.CreateAgentTemplate(ctx, &apiv1.CreateAgentTemplateRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "team", Name: "wrong-kind"},
 		Resource: structured(t, testHarness("team", "wrong-kind", "pool-a"), harnessKind),
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	listed, err = client.ListAgentTemplates(ctx, &apiv1alpha1.ListAgentTemplatesRequest{})
+	listed, err = client.ListAgentTemplates(ctx, &apiv1.ListAgentTemplatesRequest{})
 	if err != nil {
 		t.Fatalf("ListAgentTemplates() without namespace error = %v", err)
 	}
 	if len(listed.GetAgentTemplates()) != 2 {
 		t.Fatalf("ListAgentTemplates() without namespace count = %d, want 2", len(listed.GetAgentTemplates()))
 	}
-	_, err = client.GetAgentTemplate(ctx, &apiv1alpha1.GetAgentTemplateRequest{})
+	_, err = client.GetAgentTemplate(ctx, &apiv1.GetAgentTemplateRequest{})
 	assertCode(t, err, codes.InvalidArgument)
-	_, err = client.GetAgentTemplate(ctx, &apiv1alpha1.GetAgentTemplateRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "absent"},
+	_, err = client.GetAgentTemplate(ctx, &apiv1.GetAgentTemplateRequest{
+		Ref: &apiv1.ResourceReference{Namespace: "team", Name: "absent"},
 	})
 	assertCode(t, err, codes.NotFound)
 
-	if _, err := client.DeleteAgentTemplate(ctx, &apiv1alpha1.DeleteAgentTemplateRequest{Ref: ref}); err != nil {
+	if _, err := client.DeleteAgentTemplate(ctx, &apiv1.DeleteAgentTemplateRequest{Ref: ref}); err != nil {
 		t.Fatalf("DeleteAgentTemplate() error = %v", err)
 	}
-	_, err = client.DeleteAgentTemplate(ctx, &apiv1alpha1.DeleteAgentTemplateRequest{Ref: ref})
+	_, err = client.DeleteAgentTemplate(ctx, &apiv1.DeleteAgentTemplateRequest{Ref: ref})
 	assertCode(t, err, codes.NotFound)
 }
 
@@ -227,11 +227,11 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 			LastTransitionTime: metav1.Now(),
 		}},
 	}
-	client := apiv1alpha1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, existing))
+	client := apiv1.NewHarnessServiceClient(newTemplateAndHarnessConnection(t, existing))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "harness-user"))
-	ref := &apiv1alpha1.ResourceReference{Namespace: "team", Name: "a-created"}
+	ref := &apiv1.ResourceReference{Namespace: "team", Name: "a-created"}
 
-	created, err := client.CreateHarness(ctx, &apiv1alpha1.CreateHarnessRequest{
+	created, err := client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
 		Ref:      ref,
 		Resource: structured(t, testHarness("team", "a-created", "pool-a"), harnessKind),
 	})
@@ -245,13 +245,13 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 		t.Fatal("CreateHarness() ready = true, want false before the controller observes it")
 	}
 
-	_, err = client.CreateHarness(ctx, &apiv1alpha1.CreateHarnessRequest{
+	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
 		Ref:      ref,
 		Resource: structured(t, testHarness("team", "a-created", "pool-a"), harnessKind),
 	})
 	assertCode(t, err, codes.AlreadyExists)
 
-	listed, err := client.ListHarnesses(ctx, &apiv1alpha1.ListHarnessesRequest{Namespace: "team"})
+	listed, err := client.ListHarnesses(ctx, &apiv1.ListHarnessesRequest{Namespace: "team"})
 	if err != nil {
 		t.Fatalf("ListHarnesses() error = %v", err)
 	}
@@ -262,30 +262,30 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 		t.Fatal("ListHarnesses()[1].ready = false, want the Ready condition reflected")
 	}
 
-	_, err = client.CreateHarness(ctx, &apiv1alpha1.CreateHarnessRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "mismatch"},
+	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "team", Name: "mismatch"},
 		Resource: structured(t, testHarness("other", "elsewhere", "pool-a"), harnessKind),
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
 	// A payload for another kind must not be accepted here.
-	_, err = client.CreateHarness(ctx, &apiv1alpha1.CreateHarnessRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "wrong-kind"},
+	_, err = client.CreateHarness(ctx, &apiv1.CreateHarnessRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "team", Name: "wrong-kind"},
 		Resource: structured(t, map[string]any{}, "OtherHarness"),
 	})
 	assertCode(t, err, codes.InvalidArgument)
 
-	listed, err = client.ListHarnesses(ctx, &apiv1alpha1.ListHarnessesRequest{})
+	listed, err = client.ListHarnesses(ctx, &apiv1.ListHarnessesRequest{})
 	if err != nil {
 		t.Fatalf("ListHarnesses() without namespace error = %v", err)
 	}
 	if len(listed.GetHarnesses()) != 2 {
 		t.Fatalf("ListHarnesses() without namespace count = %d, want 2", len(listed.GetHarnesses()))
 	}
-	if _, err := client.DeleteHarness(ctx, &apiv1alpha1.DeleteHarnessRequest{Ref: ref}); err != nil {
+	if _, err := client.DeleteHarness(ctx, &apiv1.DeleteHarnessRequest{Ref: ref}); err != nil {
 		t.Fatalf("DeleteHarness() error = %v", err)
 	}
-	_, err = client.DeleteHarness(ctx, &apiv1alpha1.DeleteHarnessRequest{Ref: ref})
+	_, err = client.DeleteHarness(ctx, &apiv1.DeleteHarnessRequest{Ref: ref})
 	assertCode(t, err, codes.NotFound)
 }
 

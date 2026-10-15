@@ -25,7 +25,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -44,7 +44,7 @@ func main() {
 }
 
 func run(path string, check bool, level string) error {
-	cfg := &apiv1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	if err := config.Load(path, cfg); err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func controllerAuthenticator(mode, userIDClaim string) (auth.AuthProvider, error
 	}
 }
 
-func podTelemetryDefaults(cfg *apiv1.ControllerConfig, getenv func(string) string) {
+func podTelemetryDefaults(cfg *configv1.ControllerConfig, getenv func(string) string) {
 	if cfg.Telemetry.ResourceAttributes == nil {
 		cfg.Telemetry.ResourceAttributes = map[string]string{}
 	}

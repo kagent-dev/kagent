@@ -23,12 +23,8 @@ const (
 )
 
 type TelemetryConfig struct {
-	Exporters               *telemetry.Config
-	Traces, Metrics, Logs   SignalConfig
-	CaptureSensitiveContent bool
-	CaptureRawAPIBodies     bool
-	OpenAINativeTracing     bool
-	MaxCaptureBytes         int
+	Runtime               tracing.RuntimeTelemetry
+	Traces, Metrics, Logs SignalConfig
 }
 
 type SignalConfig struct {
@@ -57,8 +53,8 @@ func (c TelemetryConfig) Destinations(environment []corev1.EnvVar) []string {
 		raw = append(raw, item.Name+"="+item.Value)
 	}
 	cfg := telemetry.Config{}
-	if c.Exporters != nil {
-		cfg = *c.Exporters
+	if c.Runtime.Exporters != nil {
+		cfg = *c.Runtime.Exporters
 	}
 	raw = telemetry.Environment(raw, cfg)
 	var hosts []string
@@ -75,12 +71,10 @@ func (c TelemetryConfig) Destinations(environment []corev1.EnvVar) []string {
 // its resource, including the model the agent is bound to, so usage a native
 // runtime reports without naming the model can still be attributed.
 func (c TelemetryConfig) RuntimeTelemetry(runtime tracing.Runtime, agentName, namespace string, model v1alpha3.ModelConfigSpec) tracing.RuntimeTelemetry {
-	return tracing.RuntimeTelemetry{
-		Runtime: runtime, AgentName: agentName, AgentNamespace: namespace,
-		Provider: ProviderName(model.Provider), Model: strings.TrimSpace(model.Model),
-		CaptureContent: c.CaptureSensitiveContent, MaxCaptureBytes: c.MaxCaptureBytes,
-		Exporters: c.Exporters, CaptureRawAPIBodies: c.CaptureRawAPIBodies, OpenAINativeTracing: c.OpenAINativeTracing,
-	}
+	result := c.Runtime
+	result.Runtime, result.AgentName, result.AgentNamespace = runtime, agentName, namespace
+	result.Provider, result.Model = ProviderName(model.Provider), strings.TrimSpace(model.Model)
+	return result
 }
 
 // ProviderName maps a ModelConfig provider onto the GenAI conventions'
@@ -114,8 +108,8 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 // TelemetryEnvironment adapts settings for opaque BYO images.
 func (c TelemetryConfig) TelemetryEnvironment(identity tracing.RuntimeTelemetry, environment []corev1.EnvVar) []corev1.EnvVar {
 	cfg := telemetry.Config{}
-	if c.Exporters != nil {
-		cfg = *c.Exporters
+	if c.Runtime.Exporters != nil {
+		cfg = *c.Runtime.Exporters
 	}
 	// Opaque SDKs do not read the runtime JSON. Supply a service-name default
 	// through resource attributes so their own OTEL_SERVICE_NAME still wins.

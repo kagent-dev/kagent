@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/test/bufconn"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
@@ -55,7 +55,7 @@ func TestServerServesGRPCAndHTTP(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = connection.Close() })
 
-	response, err := apiv1alpha1.NewSystemServiceClient(connection).GetVersion(t.Context(), &apiv1alpha1.GetVersionRequest{})
+	response, err := apiv1.NewSystemServiceClient(connection).GetVersion(t.Context(), &apiv1.GetVersionRequest{})
 	if err != nil {
 		cancel()
 		t.Fatalf("GetVersion() error = %v", err)
