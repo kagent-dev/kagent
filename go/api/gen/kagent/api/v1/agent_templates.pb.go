@@ -7,6 +7,7 @@
 package apiv1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -564,14 +565,14 @@ var File_kagent_api_v1_agent_templates_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_agent_templates_proto_rawDesc = "" +
 	"\n" +
-	"#kagent/api/v1/agent_templates.proto\x12\rkagent.api.v1\x1a\x1akagent/api/v1/common.proto\"\x89\x02\n" +
+	"#kagent/api/v1/agent_templates.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1akagent/api/v1/common.proto\"\x89\x02\n" +
 	"\rAgentTemplate\x122\n" +
 	"\x03ref\x18\x01 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x03ref\x12;\n" +
 	"\bresource\x18\x02 \x01(\v2\x1f.kagent.api.v1.StructuredObjectR\bresource\x12J\n" +
 	"\x10model_config_ref\x18\x03 \x01(\v2 .kagent.api.v1.ResourceReferenceR\x0emodelConfigRef\x12 \n" +
-	"\vdescription\x18\x04 \x01(\tR\vdescriptionJ\x04\b\x05\x10\x06R\x13admitting_harnesses\"i\n" +
-	"\x19ListAgentTemplatesRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12.\n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescriptionJ\x04\b\x05\x10\x06R\x13admitting_harnesses\"\x96\x01\n" +
+	"\x19ListAgentTemplatesRequest\x12I\n" +
+	"\tnamespace\x18\x01 \x01(\tB+\xbaH(\xd8\x01\x01r#\x18?2\x1f^[a-z0-9]([-a-z0-9]*[a-z0-9])?$R\tnamespace\x12.\n" +
 	"\x04page\x18\x02 \x01(\v2\x1a.kagent.api.v1.PageRequestR\x04page\"\x94\x01\n" +
 	"\x1aListAgentTemplatesResponse\x12E\n" +
 	"\x0fagent_templates\x18\x01 \x03(\v2\x1c.kagent.api.v1.AgentTemplateR\x0eagentTemplates\x12/\n" +
