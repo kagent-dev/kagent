@@ -2,11 +2,10 @@ package auth
 
 import "context"
 
-// ShareContext holds the context derived from a validated X-Share-Token header.
+// ShareContext grants read-only access from a validated X-Share-Token header.
 type ShareContext struct {
-	Token    string // the raw share token
-	UserID   string // owner's user ID — used for DB lookups
-	ReadOnly bool   // when true, only read operations are allowed
+	Token  string // the raw share token
+	UserID string // owner's user ID — used for DB lookups
 
 	// SessionID is the conversation this token grants access to.
 	SessionID string

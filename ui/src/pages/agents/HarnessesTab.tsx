@@ -68,7 +68,7 @@ export function HarnessesTab() {
 
   const agents = useAgentsAcrossNamespaces(namespaces.data?.map(row => row.name));
   const referenced = (harness: Harness) => (agents.data?.agents ?? []).filter(agent =>
-    agent.namespace === harness.namespace && agent.resource.spec.harnessRef?.name === harness.name);
+    agent.namespace === harness.namespace && agent.resource.spec.harnessRef.name === harness.name);
 
   const invalidateTemplates = useInvalidateAgentTemplates();
 
@@ -113,7 +113,7 @@ export function HarnessesTab() {
           copyable={image ? { text: image } : false}
           css={{ fontFamily: theme.font.mono, fontSize: 11, maxWidth: 260 }}
         >
-          {image || "Not reported"}
+          {image || "Release default"}
         </Text>
       ),
     },

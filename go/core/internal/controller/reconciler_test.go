@@ -9,24 +9,24 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"google.golang.org/protobuf/encoding/protowire"
-	"google.golang.org/protobuf/proto"
-
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
-	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestReconcilerPersistsPairInOrder(t *testing.T) {
@@ -35,7 +35,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
 	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
-	revision := &v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
+	revision := &translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
 	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
 	revisionID, err := revision.Digest()
 	if err != nil {
@@ -114,7 +114,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
 	state.Target.ActorTemplate.Metadata.Name = "assistant-next-revision"
-	state.Target.Revision = v2translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
+	state.Target.Revision = translator.Revision{AgentCard: &a2apb.AgentCard{Name: "updated assistant"}}
 	state.Target.RevisionID, err = state.Target.Revision.Digest()
 	require.NoError(t, err)
 	templates.template = nil
@@ -150,10 +150,10 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			ctx := t.Context()
 			dsn := dbtest.StartT(ctx, t)
 			dbtest.MigrateT(t, dsn, false)
-			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+			pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			store := database.NewClient(pool)
+			store := database.NewClient(pool, "public")
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
@@ -164,7 +164,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				},
 				templates: templates, store: store,
 			}
-			revision := &v2translator.Revision{
+			revision := &translator.Revision{
 				AgentCard: &a2apb.AgentCard{Name: "assistant"}, Provenance: []byte("{}"), EgressDestinations: []string{},
 			}
 			id, err := revision.Digest()
@@ -188,14 +188,14 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
-			request := &apiv1alpha1.Session{
+			request := &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), session.GetPreparedRevision())
-			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()
 			claimed, err := store.ClaimSessionOperation(ctx, session.Id, operation.ID, executor)
@@ -217,9 +217,16 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			} else {
 				templates.deleteErr, templates.deletedBeforeError = deleteErr, test.deletedBeforeError
 			}
-			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail pair reconciliation")
-			collector := NewRuntimeRevisionGC(gcStore, templates)
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()), "GC failures must not fail agent reconciliation")
+			collector, registry := newTestRuntimeRevisionGC(t, gcStore, templates)
+			_, err = collector.discover(ctx)
+			require.NoError(t, err)
+			before := gatherRuntimeRevisionGCMetrics(t, registry)
+			require.Equal(t, int64(1), before.gauges[gcPendingMetric])
 			require.ErrorIs(t, collector.collect(ctx, id.String()), deleteErr)
+			failed := gatherRuntimeRevisionGCMetrics(t, registry)
+			require.Equal(t, uint64(1), failed.attempts["collection"])
+			require.Equal(t, int64(1), failed.failures["collection"])
 			if test.finalizeFailure || test.deletedBeforeError {
 				require.Nil(t, templates.template)
 			}
@@ -230,9 +237,19 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.NoError(t, err)
 			_, _, err = store.CreateSession(ctx, request, "replacement-session")
 			require.ErrorIs(t, err, database.ErrNotFound)
+			restarted, restartedRegistry := newTestRuntimeRevisionGC(t, database.NewClient(pool, "public"), templates)
+			_, err = restarted.discover(ctx)
+			require.NoError(t, err)
+			afterRestart := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
+			require.Equal(t, int64(1), afterRestart.gauges[gcPendingMetric])
+			require.Empty(t, afterRestart.failures, "new process histogram totals are not durable backlog state")
+			require.Equal(t, map[string]uint64{"discovery": 1}, afterRestart.attempts)
 			templates.deleteErr = nil
-			restarted := NewRuntimeRevisionGC(database.NewClient(pool), templates)
 			restarted.sweep(ctx)
+			collected := gatherRuntimeRevisionGCMetrics(t, restartedRegistry)
+			require.Equal(t, map[string]int64{gcPendingMetric: 0}, collected.gauges)
+			require.Equal(t, map[string]uint64{"discovery": 3, "collection": 1}, collected.attempts)
+			require.Empty(t, collected.failures)
 			require.Nil(t, templates.template)
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List())
 			_, err = store.GetRuntimeRevision(ctx, id.String())

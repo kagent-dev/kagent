@@ -128,6 +128,45 @@ export function AgentTemplateForm({
     ? ({ open: false, variant: "borderless", suffixIcon: null } as const)
     : {};
 
+  const modelOptions = (models.data ?? [])
+    .filter((model) => model.ref.startsWith(`${namespace}/`))
+    .map((model) => {
+      const name = model.ref.slice(namespace.length + 1);
+      return {
+        value: name,
+        // `title` carries the label verbatim, which is what a spec
+        // locates an option by — `getByRole("option")` matches
+        // rc-select's hidden screen-reader listbox instead.
+        title: name,
+        label: (
+          <Space size={8}>
+            <span>{name}</span>
+            <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+              {model.spec.model}
+            </Text>
+          </Space>
+        ),
+      };
+    });
+
+  // A load error shows only when it leaves nothing to choose from. An empty list
+  // may mean none exist or access hides them, so the hint names both.
+  const modelHelp =
+    !readOnly && models.error && (!models.data || modelOptions.length === 0) ? (
+    "Model configurations could not be loaded. Bring-your-own (BYO) harnesses do not need one. If you need one, refresh the page."
+  ) : !readOnly && !models.isLoading && modelOptions.length === 0 ? (
+    <span data-testid="template-form-model-availability">
+      No model configurations found in {namespace}.{" "}
+      Bring-your-own (BYO) harnesses do not need one.{" "}
+      {isCreate
+        ? "If you need one, create it or choose another namespace."
+        : "If you need one, create it."} If
+      one should be listed, check your access.
+    </span>
+  ) : (
+    "A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO)."
+  );
+
   /** The tools each server exposes, so the tool picker offers real names. */
   const toolsByServer = useMemo(() => {
     const grouped = new Map<string, string[]>();
@@ -182,7 +221,7 @@ export function AgentTemplateForm({
 
         <Form.Item
           label="Model configuration"
-          extra="A ModelConfig in this template's own namespace. Every harness needs one except bring-your-own (BYO)."
+          extra={modelHelp}
         >
           <div data-testid="template-form-model">
             <Select
@@ -192,26 +231,7 @@ export function AgentTemplateForm({
               placeholder={placeholder("Choose a model configuration")}
               popupMatchSelectWidth={false}
               onChange={(value: string) => set("modelConfig", value)}
-              options={(models.data ?? [])
-                .filter((model) => model.ref.startsWith(`${namespace}/`))
-                .map((model) => {
-                  const name = model.ref.slice(namespace.length + 1);
-                  return {
-                    value: name,
-                    // `title` carries the label verbatim, which is what a spec
-                    // locates an option by — `getByRole("option")` matches
-                    // rc-select's hidden screen-reader listbox instead.
-                    title: name,
-                    label: (
-                      <Space size={8}>
-                        <span>{name}</span>
-                        <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                          {model.spec.model}
-                        </Text>
-                      </Space>
-                    ),
-                  };
-                })}
+              options={modelOptions}
               {...readOnlySelect}
             />
           </div>

@@ -10,7 +10,8 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -145,7 +146,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 }
 
 // ListSubstrateActors returns one upstream page without changing its order or token.
-func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
+func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return SubstrateActorPage{}, err
 	}
@@ -163,7 +164,7 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1alpha1.Li
 
 // ListSubstrateWorkers filters one upstream page by namespace and preserves its token.
 // A page with no workers in scope may still have a next page.
-func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1alpha1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
+func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
 	namespaces, err := s.substrateScope(ctx, input.GetNamespace())
 	if err != nil {
 		return SubstrateWorkerPage{}, err

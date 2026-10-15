@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"log/slog"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -33,7 +32,7 @@ func TestEmbeddingHTTPClientTLS(t *testing.T) {
 	}
 
 	insecure := true
-	client, err := embeddingHTTPClient(&adk.EmbeddingConfig{TLSInsecureSkipVerify: &insecure})
+	client, err := embeddingHTTPClient(&adk.EmbeddingConfig{TlsInsecureSkipVerify: &insecure})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +125,7 @@ func TestOpenAIProvider_APIKeyPassthrough(t *testing.T) {
 			Provider:          "openai",
 			Model:             "text-embedding-3-small",
 			BaseUrl:           srv.URL,
-			APIKeyPassthrough: true,
+			ApiKeyPassthrough: true,
 		},
 	})
 	if err != nil {
@@ -321,7 +320,7 @@ func TestAzureOpenAIProvider_APIKeyPassthrough(t *testing.T) {
 			Provider:          "azure_openai",
 			Model:             "text-embedding-3-small",
 			Endpoint:          srv.URL,
-			APIKeyPassthrough: true,
+			ApiKeyPassthrough: true,
 		},
 	})
 	if err != nil {
@@ -356,7 +355,7 @@ func TestAzureOpenAIProvider_APIKeyPassthroughOverridesStaticKey(t *testing.T) {
 			Provider:          "azure_openai",
 			Model:             "text-embedding-3-small",
 			Endpoint:          srv.URL,
-			APIKeyPassthrough: true,
+			ApiKeyPassthrough: true,
 		},
 	})
 	if err != nil {

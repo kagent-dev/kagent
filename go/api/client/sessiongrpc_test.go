@@ -12,31 +12,32 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const sessionClientTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 
 type recordingSessionService struct {
-	apiv1alpha1.UnimplementedSessionServiceServer
+	apiv1.UnimplementedSessionServiceServer
 	observation callObservation
 }
 
-func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1alpha1.CreateSessionRequest) (*apiv1alpha1.CreateSessionResponse, error) {
+func (s *recordingSessionService) CreateSession(ctx context.Context, _ *apiv1.CreateSessionRequest) (*apiv1.CreateSessionResponse, error) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
 	s.observation = callObservation{userID: first(values.Get(userIDHeader)), hasDeadline: hasDeadline}
-	return &apiv1alpha1.CreateSessionResponse{}, nil
+	return &apiv1.CreateSessionResponse{}, nil
 }
 
-func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1alpha1.GetSessionRequest) (*apiv1alpha1.GetSessionResponse, error) {
-	return &apiv1alpha1.GetSessionResponse{Session: &apiv1alpha1.Session{
-		Id: request.SessionId, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+func (s *recordingSessionService) GetSession(_ context.Context, request *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error) {
+	return &apiv1.GetSessionResponse{Session: &apiv1.Session{
+		Id: request.SessionId, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}}, nil
 }
 
@@ -77,6 +78,19 @@ func (s *recordingA2AService) SubscribeToTask(req *a2apb.SubscribeToTaskRequest,
 	return stream.Send(response)
 }
 
+func (s *recordingA2AService) ListTaskPushNotificationConfigs(ctx context.Context, req *a2apb.ListTaskPushNotificationConfigsRequest) (*a2apb.ListTaskPushNotificationConfigsResponse, error) {
+	s.observe(ctx, req.Tenant, "")
+	return &a2apb.ListTaskPushNotificationConfigsResponse{
+		Configs:       []*a2apb.TaskPushNotificationConfig{{Id: "callback", TaskId: req.TaskId, Url: "https://receiver.example/callback"}},
+		NextPageToken: "next",
+	}, nil
+}
+
+func (s *recordingA2AService) CreateTaskPushNotificationConfig(ctx context.Context, req *a2apb.TaskPushNotificationConfig) (*a2apb.TaskPushNotificationConfig, error) {
+	s.observe(ctx, req.Tenant, "")
+	return req, nil
+}
+
 func (s *recordingA2AService) observe(ctx context.Context, tenant, contextID string) {
 	values, _ := metadata.FromIncomingContext(ctx)
 	_, hasDeadline := ctx.Deadline()
@@ -96,7 +110,7 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	sessionService := &recordingSessionService{}
 	a2aService := &recordingA2AService{}
 	server := grpc.NewServer()
-	apiv1alpha1.RegisterSessionServiceServer(server, sessionService)
+	apiv1.RegisterSessionServiceServer(server, sessionService)
 	a2apb.RegisterA2AServiceServer(server, a2aService)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
@@ -123,11 +137,11 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, gatewayClient.Close()) })
 
-	_, err = apiClient.Session.CreateSession(context.Background(), &apiv1alpha1.CreateSessionRequest{})
+	_, err = apiClient.Session.CreateSession(context.Background(), &apiv1.CreateSessionRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, callObservation{userID: "caller", hasDeadline: true}, sessionService.observation)
 
-	a2aClient, err := gatewayClient.A2A.ForAgent(context.Background(), &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"})
+	a2aClient, err := gatewayClient.A2A.ForAgent(context.Background(), &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"})
 	require.NoError(t, err)
 	a2aCtx := a2aclient.AttachServiceParams(context.Background(), a2aclient.ServiceParams{
 		"authorization": {"Bearer model-key"},
@@ -156,6 +170,21 @@ func TestSessionAndA2AClientsUseTheirEndpoints(t *testing.T) {
 	a2aService.mu.Lock()
 	require.Equal(t, sessionClientTestID, a2aService.observations[3].contextID)
 	require.Equal(t, "team-a/assistant", a2aService.observations[3].id)
+	a2aService.mu.Unlock()
+	created, err := sessionClient.CreateTaskPushConfig(context.Background(), &a2atype.PushConfig{
+		TaskID: "task-id", ID: "callback", URL: "https://receiver.example/callback",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "callback", created.ID)
+	a2aService.mu.Lock()
+	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[4])
+	a2aService.mu.Unlock()
+	page, err := gatewayClient.A2A.ListTaskPushConfigsPage(context.Background(), sessionClientTestID, "task-id", 1, "previous")
+	require.NoError(t, err)
+	require.Equal(t, "next", page.GetNextPageToken())
+	require.Equal(t, "callback", page.GetConfigs()[0].GetId())
+	a2aService.mu.Lock()
+	require.Equal(t, a2aCallObservation{id: "team-a/assistant", userID: "caller", hasDeadline: true}, a2aService.observations[5])
 	a2aService.mu.Unlock()
 	assert.Equal(t, int32(2), dialCount.Load())
 }

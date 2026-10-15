@@ -10,8 +10,9 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // ActorEgressPolicy compiles HTTP(S) origins into an actor's default allowlist.

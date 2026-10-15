@@ -13,16 +13,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
 	// sessionCountMetric is the Prometheus name of claude_code.session.count,
 	// which Claude Code increments only after its telemetry initializes. That
-	// ordering is an implementation detail, verified on 2.1.260 and 2.1.282, and
+	// ordering is an implementation detail, verified on 2.1.260, 2.1.282 and 2.1.285, and
 	// can change without notice. Once a release waits for telemetry
 	// initialization in print mode, the gate can likely be removed.
 	sessionCountMetric = "claude_code_session_count"
@@ -70,7 +72,7 @@ func newTracingGate() (*tracingGate, error) {
 func (g *tracingGate) environment(environment []string) []string {
 	exporters := []string{"prometheus"}
 	for _, item := range environment {
-		value, ok := strings.CutPrefix(item, "OTEL_METRICS_EXPORTER=")
+		value, ok := strings.CutPrefix(item, env.OTELMetrics.Exporter.Name()+"=")
 		if !ok {
 			continue
 		}
@@ -84,9 +86,9 @@ func (g *tracingGate) environment(environment []string) []string {
 			exporters = append(exporters, "prometheus")
 		}
 	}
-	environment = replaceEnvironment(environment, "OTEL_METRICS_EXPORTER", strings.Join(exporters, ","))
-	environment = replaceEnvironment(environment, "OTEL_EXPORTER_PROMETHEUS_HOST", "127.0.0.1")
-	return replaceEnvironment(environment, "OTEL_EXPORTER_PROMETHEUS_PORT", strconv.Itoa(g.port))
+	environment = replaceEnvironment(environment, env.OTELMetrics.Exporter.Name(), strings.Join(exporters, ","))
+	environment = replaceEnvironment(environment, env.OTELExporterPrometheusHost.Name(), "127.0.0.1")
+	return replaceEnvironment(environment, env.OTELExporterPrometheusPort.Name(), strconv.Itoa(g.port))
 }
 
 var (

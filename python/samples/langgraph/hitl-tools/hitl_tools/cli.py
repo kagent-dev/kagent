@@ -19,7 +19,7 @@ def main():
     with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
         agent_card = json.load(f)
 
-    config = KAgentConfig()
+    config = KAgentConfig.from_file()
     app = KAgentApp(
         graph=graph,
         agent_card=agent_card,

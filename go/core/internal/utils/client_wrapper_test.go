@@ -6,7 +6,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 )
 
 func TestNewKubeClientWrapper(t *testing.T) {

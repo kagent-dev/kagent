@@ -6,17 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
-	"log/slog"
-
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
 	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 )
 
 // evictAfterIdle bounds an entry whose tokens state no expiry, so that such an

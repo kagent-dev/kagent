@@ -1,3 +1,18 @@
+{{/* Release metadata is packaged after the independent image builds finish. */}}
+{{- define "kagent.builtinHarnessImages" -}}
+{{- $images := dict -}}
+{{- with .Files.Get "files/builtin-harness-images.json" -}}
+  {{- $images = mustFromJson . -}}
+{{- end -}}
+{{- $images = mergeOverwrite $images .Values.config.harnessImages -}}
+{{- range $runtime := list "kagent" "claude" "codex" -}}
+  {{- with get $images $runtime -}}
+    {{- $_ := set $images $runtime (include "kagent.mirroredImage" (dict "root" $ "image" .)) -}}
+  {{- end -}}
+{{- end -}}
+{{- $images | mustToJson -}}
+{{- end -}}
+
 {{/*
 Create a default fully qualified app name.
 */}}
@@ -52,14 +67,14 @@ Allows overriding it for multi-namespace deployments in combined charts.
 
 {{/*
 Watch namespaces - transforms the list of namespaces cached by the controller into a comma-separated string.
-controller.watchNamespaces is an explicit override; otherwise the watch scope is the resolved RBAC scope
+config.kubernetes.watchNamespaces is an explicit override; otherwise the watch scope is the resolved RBAC scope
 (kagent.rbacNamespaces), so the controller never watches a namespace its Roles do not cover and never
 holds a cluster-wide cache when RBAC is namespaced. An explicit rbac.namespaces: [] therefore also
 clears the watch scope back to cluster-wide.
 */}}
 {{- define "kagent.watchNamespaces" -}}
-{{- if .Values.controller.watchNamespaces -}}
-  {{- .Values.controller.watchNamespaces | uniq | join "," -}}
+{{- if .Values.config.kubernetes.watchNamespaces -}}
+  {{- .Values.config.kubernetes.watchNamespaces | uniq | join "," -}}
 {{- else -}}
   {{- include "kagent.rbacNamespaces" . | fromJsonArray | join "," -}}
 {{- end -}}
@@ -75,7 +90,7 @@ hasKey, not coalesce: an explicit `rbac.namespaces: []` means "cluster-scoped",
 and coalesce would skip it as empty -- silently namespacing an install that
 asked not to be. A present key always wins, even empty.
 
-controller.watchNamespaces joins the scope: the controller needs a Role in
+config.kubernetes.watchNamespaces joins the scope: the controller needs a Role in
 every namespace it watches, so a watch entry outside the RBAC list would be a
 permanent Forbidden loop. kagent.rbac.validate rejects that mix for an explicit
 rbac.namespaces; under the global the watch entries are folded in instead.
@@ -91,7 +106,7 @@ there the operator is talking about this chart.
 {{- if and .Values.rbac (hasKey .Values.rbac "namespaces") -}}
 {{- $scope = .Values.rbac.namespaces | default list -}}
 {{- else if ((.Values.global).watchNamespaces) -}}
-{{- $scope = concat (.Values.global).watchNamespaces (.Values.controller.watchNamespaces | default list) (list (include "kagent.namespace" .)) -}}
+{{- $scope = concat (.Values.global).watchNamespaces (.Values.config.kubernetes.watchNamespaces | default list) (list (include "kagent.namespace" .)) -}}
 {{- end -}}
 {{- $scope | uniq | sortAlpha | toJson -}}
 {{- end -}}
@@ -115,9 +130,9 @@ watches namespaces its Roles do not cover, and every reconcile there returns
 Forbidden at runtime with only a log line to show for it. Narrower is fine --
 an operator may grant Roles broadly and watch a subset to keep the cache small.
 */}}
-{{- range $ns := (.Values.controller.watchNamespaces | default list) -}}
+{{- range $ns := (.Values.config.kubernetes.watchNamespaces | default list) -}}
 {{- if not (has $ns $.Values.rbac.namespaces) -}}
-{{- fail (printf "controller.watchNamespaces includes %q but rbac.namespaces does not. The controller would watch a namespace it has no Role in, and every list/watch there returns Forbidden at runtime. Add %q to rbac.namespaces, or remove it from controller.watchNamespaces. Prefer setting only global.watchNamespaces, which scopes RBAC and the watch together." $ns $ns) -}}
+{{- fail (printf "config.kubernetes.watchNamespaces includes %q but rbac.namespaces does not. The controller would watch a namespace it has no Role in, and every list/watch there returns Forbidden at runtime. Add %q to rbac.namespaces, or remove it from config.kubernetes.watchNamespaces. Prefer setting only global.watchNamespaces, which scopes RBAC and the watch together." $ns $ns) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -185,6 +200,13 @@ Controller ServiceAccount name
 {{- end }}
 
 {{/*
+Substrate worker ServiceAccount name
+*/}}
+{{- define "kagent.substrateWorkerPool.serviceAccountName" -}}
+{{- default .Values.substrateWorkerPool.name .Values.substrateWorkerPool.serviceAccount.name }}
+{{- end }}
+
+{{/*
 Engine selector labels
 */}}
 {{- define "kagent.engine.selectorLabels" -}}
@@ -217,7 +239,7 @@ app.kubernetes.io/component: engine
 {{- end }}
 
 {{/*
-Extract the TCP port from controller.metrics.bindAddress.
+Extract the TCP port from config.metrics.bindAddress.
 
 Anchors the digit run to the end of the string so every Go-style
 address form the controller binary accepts is handled correctly: bare
@@ -227,7 +249,7 @@ disable sentinel is in use; callers must consult
 `kagent.controller.metricsEnabled` before rendering manifests.
 */}}
 {{- define "kagent.controller.metricsPort" -}}
-{{- regexFind "[0-9]+$" (.Values.controller.metrics.bindAddress | toString) -}}
+{{- regexFind "[0-9]+$" (.Values.config.metrics.bindAddress | toString) -}}
 {{- end -}}
 
 {{/*
@@ -259,7 +281,7 @@ controller serves. Shared by the metrics Service and the ServiceMonitor
 endpoint so the two can never drift apart.
 */}}
 {{- define "kagent.controller.metricsPortName" -}}
-{{- ternary "https" "http-metrics" .Values.controller.metrics.secureServing -}}
+{{- ternary "https" "http-metrics" .Values.config.metrics.secure -}}
 {{- end -}}
 
 {{/*
@@ -276,34 +298,10 @@ Controller gRPC observability Grafana dashboard ConfigMap name.
 {{- printf "%s-controller-grpc-dashboard" (include "kagent.fullname" .) -}}
 {{- end -}}
 
-{{/*
-PostgreSQL service name for the bundled postgres instance
-*/}}
-{{- define "kagent.postgresqlServiceName" -}}
-{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
-{{- end -}}
-
-{{/*
-Bundled PostgreSQL image - constructs the full image reference from registry/repository/name/tag
-*/}}
-{{- define "kagent.postgresql.image" -}}
-{{- $pg := .Values.database.postgres.bundled -}}
-{{- $registry := default $pg.image.registry (include "kagent.globalImageRegistry" .) -}}
-{{- $parts := compact (list $registry $pg.image.repository $pg.image.name) -}}
-{{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
-{{- end -}}
-
-{{/*
-Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWORD.
-*/}}
-{{- define "kagent.passwordSecretName" -}}
-{{- printf "%s-postgresql" (include "kagent.fullname" .) -}}
-{{- end -}}
-
 {{/* Public A2A endpoint advertised by Session Agent Cards. */}}
 {{- define "kagent.a2aGatewayUrl" -}}
-{{- if .Values.controller.a2aGatewayUrl -}}
-{{- .Values.controller.a2aGatewayUrl -}}
+{{- if .Values.config.gateway.publicUrl -}}
+{{- .Values.config.gateway.publicUrl -}}
 {{- else -}}
 {{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
@@ -350,39 +348,6 @@ imagePullSecrets:
 {{- end -}}
 
 {{/*
-Endpoint the controller dials to reach ateapi.
-
-An explicit controller.substrate.ateApiEndpoint always wins. Otherwise, when
-substrate is installed as a subchart of this release, its own helper is asked
-for the endpoint: the chart prefixes resource names with the release name for
-any release not called "substrate", so the Service is not at the canonical
-api.ate-system.svc and only the subchart knows what it rendered.
-
-Empty when substrate is not a subchart, which leaves the controller on its
-compiled-in default — correct for the topology where substrate is installed as
-its own release and the endpoint is passed explicitly.
-*/}}
-{{- define "kagent.substrate.ateApiEndpoint" -}}
-{{- if .Values.controller.substrate.ateApiEndpoint -}}
-{{- .Values.controller.substrate.ateApiEndpoint -}}
-{{- else if and .Values.substrate .Values.substrate.enabled -}}
-{{- include "substrate.ateApi.endpoint" . -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-URL the controller uses to reach atenet-router, resolved the same way as
-kagent.substrate.ateApiEndpoint.
-*/}}
-{{- define "kagent.substrate.atenetRouterURL" -}}
-{{- if .Values.controller.substrate.atenetRouterURL -}}
-{{- .Values.controller.substrate.atenetRouterURL -}}
-{{- else if and .Values.substrate .Values.substrate.enabled -}}
-{{- include "substrate.atenetRouter.url" . -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
 Body of oauth2-proxy's custom sign_in.html template (see
 templates/oauth2-proxy-templates.yaml). Kept as its own named template, rather
 than inline in that ConfigMap, so oauth2-proxy.extraEnv in values.yaml can hash
@@ -418,16 +383,6 @@ call. The top-level tag wins over the component tag, as it always has.
 {{- $root := dict "registry" (.Values.controller.image.registry | default .Values.registry) "repository" .Values.controller.image.repository "tag" (coalesce .Values.tag .Values.controller.image.tag .Chart.Version) -}}
 {{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
-{{- end -}}
-
-{{/* Pass the configured guest digest through to Substrate. */}}
-{{- define "kagent.sandboxGuestImage" -}}
-{{- $image := .Values.controller.sandbox.guestImage -}}
-{{- if $image.digest -}}
-{{- $root := dict "registry" ($image.registry | default .Values.registry) "repository" $image.repository "digest" $image.digest -}}
-{{- $global := dict "imageRegistry" (include "kagent.globalImageRegistry" .) -}}
-{{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
-{{- end -}}
 {{- end -}}
 
 {{/*
@@ -479,17 +434,7 @@ tag wins over the component tag.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
-{{/*
-Operator resource attributes as an OTEL_RESOURCE_ATTRIBUTES value.
-*/}}
-{{- define "kagent.otel.resourceAttributes" -}}
-{{- $entries := list -}}
-{{- range $key, $value := .Values.otel.resourceAttributes -}}
-{{- if or (contains "," $key) (contains "=" $key) -}}
-{{- fail (printf "otel.resourceAttributes key %q must not contain ',' or '='" $key) -}}
+{{/* "true" when the controller skips migrations and so needs no owner login. */}}
+{{- define "kagent.database.skipMigrations" -}}
+{{- if dig "database" "skipMigrations" false (.Values.config | default dict) -}}true{{- end -}}
 {{- end -}}
-{{- $encoded := toString $value | replace "%" "%25" | replace "," "%2C" | replace "=" "%3D" -}}
-{{- $entries = append $entries (printf "%s=%s" $key $encoded) -}}
-{{- end -}}
-{{- join "," $entries -}}
-{{- end }}

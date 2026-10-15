@@ -15,13 +15,6 @@ import (
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/jackc/pgx/v5/pgxpool"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -30,6 +23,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	sandboxservice "github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type testSession string
@@ -126,7 +127,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	pool, err := pgxpool.New(t.Context(), conn)
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
-	store := database.NewClient(pool)
+	store := database.NewClient(pool, "public")
 	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
@@ -159,7 +160,7 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	t.Cleanup(func() { require.NoError(t, guests.Close()) })
 	actors := &testActors{}
 	service, err := sandboxservice.NewService(sandboxservice.Config{Store: store, Kube: kube, Authorizer: auth.NoopAuthorizer{}, Actors: actors, Guests: guests,
-		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour})
+		DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour, ExpirationPollInterval: time.Second})
 	require.NoError(t, err)
 	return service, auth.AuthSessionTo(t.Context(), testSession("alice")), actors, func() http.Header {
 		mu.Lock()
@@ -168,15 +169,15 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	}
 }
 
-func createRequest() *apiv1alpha1.CreateSandboxRequest {
-	return &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "scratch"}, RequestId: "create"}
+func createRequest() *apiv1.CreateSandboxRequest {
+	return &apiv1.CreateSandboxRequest{SandboxTemplate: &apiv1.ResourceReference{Namespace: "team-a", Name: "scratch"}, RequestId: "create"}
 }
 
 func TestSandboxGuestLifecycle(t *testing.T) {
 	service, ctx, actors, headers := guestFixture(t)
 	instance, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, instance.State)
 	require.Equal(t, []string{"create", "policy", "resume"}, actors.observedCalls())
 	retry, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
@@ -189,7 +190,7 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, database.ErrNotFound)
 	_, err = service.StartProcess(mallory, instance.Id, &guestpb.StartProcessRequest{})
 	require.ErrorIs(t, err, database.ErrNotFound)
-	list, err := service.List(mallory, &apiv1alpha1.ListSandboxesRequest{})
+	list, err := service.List(mallory, &apiv1.ListSandboxesRequest{})
 	require.NoError(t, err)
 	require.Empty(t, list.Sandboxes)
 
@@ -286,7 +287,7 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	}
 	instance, err = service.Suspend(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, instance.State)
 	unblock()
 	require.ErrorIs(t, <-writeResult, io.ErrUnexpectedEOF)
 
@@ -294,10 +295,10 @@ func TestSandboxGuestLifecycle(t *testing.T) {
 	require.ErrorIs(t, err, database.ErrFailedPrecondition)
 	instance, err = service.Resume(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, instance.State)
 	instance, err = service.Delete(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, instance.State)
 	deletedActor, err := actors.GetActor(ctx, "", "")
 	require.Nil(t, deletedActor)
 	require.Equal(t, codes.NotFound, status.Code(err))

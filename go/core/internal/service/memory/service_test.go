@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
 
 type memoryStore struct {

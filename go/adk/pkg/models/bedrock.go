@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,9 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
+	smithyjson "github.com/aws/smithy-go/document/json"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // bedrockToolIDValid matches Bedrock's toolUseId constraint: [a-zA-Z0-9_.:-]+
@@ -73,7 +76,7 @@ type BedrockConfig struct {
 	TransportConfig
 	Model                        string
 	Region                       string
-	MaxTokens                    *int
+	MaxTokens                    *int32
 	Temperature                  *float64
 	TopP                         *float64
 	AdditionalModelRequestFields map[string]any
@@ -91,6 +94,31 @@ type BedrockConfig struct {
 	GuardrailIdentifier string
 	GuardrailVersion    string
 	GuardrailTrace      string
+}
+
+// DecodeBedrockRequestFields preserves provider JSON numbers using the AWS
+// document decoder, whose number type is understood by the Converse encoder.
+func DecodeBedrockRequestFields(raw []byte) (map[string]any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var fields map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("bedrock additionalModelRequestFields must be valid JSON")
+	}
+	if err := decoder.Decode(&fields); err != nil {
+		return nil, fmt.Errorf("decode bedrock additionalModelRequestFields: %w", err)
+	}
+	if fields == nil {
+		return nil, fmt.Errorf("bedrock additionalModelRequestFields must be a JSON object")
+	}
+	var result map[string]any
+	if err := (&smithyjson.Decoder{}).DecodeJSONInterface(fields, &result); err != nil {
+		return nil, fmt.Errorf("decode bedrock document: %w", err)
+	}
+	return result, nil
 }
 
 func bedrockGuardrailConfig(c *BedrockConfig) *types.GuardrailConfiguration {
@@ -151,7 +179,7 @@ func (m *BedrockModel) Name() string {
 func NewBedrockModel(ctx context.Context, config *BedrockConfig) (*BedrockModel, error) {
 	logger := logging.FromContext(ctx)
 	if config.Model == "" {
-		return nil, fmt.Errorf("bedrock model name is required (e.g., anthropic.claude-3-sonnet-20240229-v1:0)")
+		return nil, fmt.Errorf("bedrock model name is required (e.g., global.anthropic.claude-sonnet-4-6)")
 	}
 
 	region := config.Region
@@ -693,6 +721,11 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				continue
 			}
 
+			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				contentBlocks = append(contentBlocks, &types.ContentBlockMemberText{Value: unsupportedImageNote(part.InlineData)})
+				continue
+			}
+
 			// Handle function call (tool use in Bedrock terminology).
 			// Use the sanitized name from nameMap so Bedrock can correlate the
 			// tool call with the tool spec sent in the same request.
@@ -701,22 +734,10 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				if sanitized, ok := nameMap[callName]; ok {
 					callName = sanitized
 				}
-				// Bedrock requires toolUse.input to be a JSON object. A tool call
-				// with no arguments arrives here with a nil Args map (genai's
-				// FunctionCall.Args is `json:"args,omitempty"`, so an empty map is
-				// dropped when the event is persisted to the session store and
-				// reloaded as nil). NewLazyDocument(nil) serializes to `null`, which
-				// Bedrock rejects with "ValidationException: Malformed input request"
-				// ("The value at messages.N.content.M.toolUse.input is empty").
-				// Coerce nil to an empty object so no-argument tool calls round-trip.
-				args := part.FunctionCall.Args
-				if args == nil {
-					args = map[string]any{}
-				}
 				toolUse := types.ToolUseBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionCall.ID, idMap, &idCounter)),
 					Name:      aws.String(callName),
-					Input:     document.NewLazyDocument(args),
+					Input:     document.NewLazyDocument(nonNilFunctionCallArgs(part.FunctionCall.Args)),
 				}
 				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolUse{
 					Value: toolUse,
@@ -859,7 +880,7 @@ func buildInferenceConfig(cfg *BedrockConfig, thinkingEnabled bool) *types.Infer
 	}
 	ic := &types.InferenceConfiguration{}
 	if cfg.MaxTokens != nil {
-		ic.MaxTokens = aws.Int32(int32(*cfg.MaxTokens))
+		ic.MaxTokens = cfg.MaxTokens
 	}
 	if !thinkingEnabled {
 		if cfg.Temperature != nil {

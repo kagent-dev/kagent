@@ -31,7 +31,7 @@ app = KAgentApp(
         "defaultInputModes": ["text"],
         "defaultOutputModes": ["text"],
     },
-    config=KAgentConfig(),
+    config=KAgentConfig.from_file(),
 )
 
 fastapi_app = app.build()
@@ -84,12 +84,20 @@ The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but use
 For local development, configure the HTTP endpoint used by protocol traffic:
 
 ```bash
-export KAGENT_API_URL=http://localhost:8083
-export KAGENT_GATEWAY_URL=http://localhost:8083
-export KAGENT_NAME=my-agent
-export KAGENT_NAMESPACE=default
+# Load process settings from /config/config.json (see Configuration).
 ```
 
 ## Deployment
 
 The uses the same deployment approach as other KAgent A2A applications (ADK / LangGraph). You can refer to `samples/crewai/` for examples.
+
+### Runtime configuration file
+
+Managed runtimes receive `/config/config.json` from the controller. For a standalone
+process, create that file and load it with `KAgentConfig.from_file()`:
+
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
+```
+
+Provider credentials and standard `OTEL_*` overrides remain environment inputs.

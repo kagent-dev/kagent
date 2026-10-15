@@ -20,7 +20,6 @@ import type {
 import type {
   AgentInstance,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
 } from "@/api/domain/agentInstances";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
@@ -249,7 +248,6 @@ export const SEEDED_INSTANCE_SHARE: AgentInstanceShare = {
   id: "mock-instance-share-seed",
 
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  permission: "readOnly",
   createdAt: "2026-08-01T09:00:00Z",
 };
 
@@ -297,13 +295,11 @@ function readTokens(): Record<string, string> {
 
 export function createInstanceShare(
   agentInstanceId: string,
-  permission: AgentInstanceSharePermission,
 ): { share: AgentInstanceShare; token: string } {
   const existing = readInstanceShares();
   const share: AgentInstanceShare = {
     id: `mock-share-${existing.length + 1}`,
     agentInstanceId,
-    permission,
     createdAt: new Date().toISOString(),
   };
   // Obviously fake, and long enough to look like the controller's own.

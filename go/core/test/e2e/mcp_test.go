@@ -14,12 +14,13 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const (
@@ -173,7 +174,7 @@ func TestMCPCheckpointFork(t *testing.T) {
 		t.Cleanup(func() {
 			ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 			defer cancel()
-			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{CheckpointId: checkpointID})
+			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1.DeleteCheckpointRequest{CheckpointId: checkpointID})
 			if err != nil && status.Code(err) != codes.NotFound {
 				t.Errorf("delete checkpoint: %v", err)
 			}
@@ -187,6 +188,16 @@ func TestMCPCheckpointFork(t *testing.T) {
 			t.Fatalf("listed checkpoints = %#v", listed)
 		}
 
+		if !checkpointForksSupported {
+			result := mcpCall(t, endpoint, "tools/call", map[string]any{
+				"name":      "fork_session",
+				"arguments": map[string]any{"checkpoint_id": checkpointID},
+			}, false)["result"].(map[string]any)
+			if result["isError"] != true {
+				t.Fatalf("fork_session accepted a process-memory checkpoint: %#v", result)
+			}
+			return
+		}
 		forked := mcpCall(t, endpoint, "tools/call", map[string]any{
 			"name":      "fork_session",
 			"arguments": map[string]any{"checkpoint_id": checkpointID},

@@ -4,26 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
-	"log/slog"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/ollama/ollama/api"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"google.golang.org/genai"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/ollama/ollama/api"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"google.golang.org/genai"
 )
 
 const (
@@ -143,7 +143,7 @@ func embeddingPassthroughOpts(ctx context.Context, cfg *adk.EmbeddingConfig, isA
 	if cfg == nil {
 		return nil
 	}
-	token, ok := models.PassthroughToken(ctx, cfg.APIKeyPassthrough)
+	token, ok := models.PassthroughToken(ctx, cfg.ApiKeyPassthrough)
 	if !ok {
 		return nil
 	}
@@ -165,7 +165,7 @@ type azureOpenAIProvider struct {
 // newAzureOpenAIProvider builds an Azure OpenAI embedding provider. Tests can
 // inject a credential with cred; a nil cred uses the default Azure credential.
 func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*azureOpenAIProvider, error) {
-	apiVersion := cfg.APIVersion
+	apiVersion := cfg.ApiVersion
 	if apiVersion == "" {
 		apiVersion = env.OpenAIAPIVersion.Get()
 	}
@@ -204,7 +204,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 	// overwritten per request by embeddingPassthroughOpts), otherwise the
 	// AZURE_OPENAI_API_KEY Api-Key header, otherwise DefaultAzureCredential.
 	apiKey := env.AzureOpenAIAPIKey.Get()
-	if cfg.APIKeyPassthrough {
+	if cfg.ApiKeyPassthrough {
 		apiKey = "passthrough"
 	}
 	if err := azureai.ApplyImplicitAuth(context.Background(), &clientCfg, azureai.AuthOptions{
@@ -374,11 +374,11 @@ type bedrockEmbeddingResponse struct {
 }
 
 func embeddingHTTPClient(cfg *adk.EmbeddingConfig) (*http.Client, error) {
-	timeout := int((5 * time.Minute) / time.Second)
+	timeout := 5 * time.Minute
 	return models.BuildHTTPClient(models.TransportConfig{
-		TLSInsecureSkipVerify: cfg.TLSInsecureSkipVerify,
-		TLSCACertPath:         cfg.TLSCACertPath,
-		TLSDisableSystemCAs:   cfg.TLSDisableSystemCAs,
+		TLSInsecureSkipVerify: cfg.TlsInsecureSkipVerify,
+		TLSCACertPath:         cfg.TlsCaCertPath,
+		TLSDisableSystemCAs:   cfg.TlsDisableSystemCas,
 		Timeout:               &timeout,
 	})
 }
@@ -440,7 +440,7 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 	if deployment == "" {
 		deployment = cfg.Model
 	}
-	endpoint, deployment, apiVersion := azureai.ResolveFoundry(cfg.Endpoint, deployment, cfg.APIVersion)
+	endpoint, deployment, apiVersion := azureai.ResolveFoundry(cfg.Endpoint, deployment, cfg.ApiVersion)
 	if endpoint == "" {
 		return nil, fmt.Errorf("endpoint is required for Foundry embeddings")
 	}
@@ -461,7 +461,7 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 	// See newAzureOpenAIProvider - the passthrough placeholder short-circuits
 	// past DefaultAzureCredential resolution the same way it does for chat.
 	apiKey := env.FoundryAPIKey.Get()
-	if cfg.APIKeyPassthrough {
+	if cfg.ApiKeyPassthrough {
 		apiKey = "passthrough"
 	}
 	if err := azureai.ApplyImplicitAuth(context.Background(), &clientCfg, azureai.AuthOptions{

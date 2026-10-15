@@ -9,7 +9,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const userIDHeader = "x-user-id"
@@ -25,20 +26,45 @@ func newA2AClient(client *baseClient) *A2AClient {
 
 // ForAgent creates a client for a named Agent. Sending without context or task
 // creates a conversation; subsequent messages use the returned context ID.
-func (c *A2AClient) ForAgent(ctx context.Context, agent *apiv1alpha1.ResourceReference) (*a2aclient.Client, error) {
+func (c *A2AClient) ForAgent(ctx context.Context, agent *apiv1.ResourceReference) (*a2aclient.Client, error) {
 	return c.forAgent(ctx, agent, "")
 }
 
 // ForSession resolves its Agent and supplies the conversation context on sends.
 func (c *A2AClient) ForSession(ctx context.Context, id string) (*a2aclient.Client, error) {
-	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1alpha1.GetSessionRequest{SessionId: id})
+	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1.GetSessionRequest{SessionId: id})
 	if err != nil {
 		return nil, err
 	}
 	return c.forAgent(ctx, response.GetSession().GetAgent(), id)
 }
 
-func (c *A2AClient) forAgent(ctx context.Context, agent *apiv1alpha1.ResourceReference, contextID string) (*a2aclient.Client, error) {
+// ListTaskPushConfigsPage preserves the pagination token that the upstream
+// a2aclient.Client List method currently discards.
+func (c *A2AClient) ListTaskPushConfigsPage(ctx context.Context, sessionID, taskID string, pageSize int32, pageToken string) (*a2apb.ListTaskPushNotificationConfigsResponse, error) {
+	response, err := newSessionClient(c.client).GetSession(ctx, &apiv1.GetSessionRequest{SessionId: sessionID})
+	if err != nil {
+		return nil, err
+	}
+	agent := response.GetSession().GetAgent()
+	if agent.GetNamespace() == "" || agent.GetName() == "" {
+		return nil, fmt.Errorf("agent namespace and name are required")
+	}
+	connection, err := c.client.grpcConnection()
+	if err != nil {
+		return nil, err
+	}
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	return a2apb.NewA2AServiceClient(connection).ListTaskPushNotificationConfigs(callContext, &a2apb.ListTaskPushNotificationConfigsRequest{
+		Tenant:    agent.Namespace + "/" + agent.Name,
+		TaskId:    taskID,
+		PageSize:  pageSize,
+		PageToken: pageToken,
+	})
+}
+
+func (c *A2AClient) forAgent(ctx context.Context, agent *apiv1.ResourceReference, contextID string) (*a2aclient.Client, error) {
 	if agent.GetNamespace() == "" || agent.GetName() == "" {
 		return nil, fmt.Errorf("agent namespace and name are required")
 	}

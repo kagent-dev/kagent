@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
 
 func TestRuntimeTelemetryValidate(t *testing.T) {
@@ -20,6 +22,9 @@ func TestRuntimeTelemetryValidate(t *testing.T) {
 		{name: "adk go", telemetry: RuntimeTelemetry{Runtime: RuntimeADKGo, AgentName: "a-h", AgentNamespace: "kagent"}},
 		{name: "model identity", telemetry: RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "a-h", AgentNamespace: "kagent", Provider: "openai", Model: "gpt-5.2-codex"}},
 		{name: "capture without identity", telemetry: RuntimeTelemetry{CaptureContent: true, MaxCaptureBytes: 1024}},
+		{name: "resource attributes", telemetry: RuntimeTelemetry{Exporters: &telemetry.Config{ResourceAttributes: map[string]string{"deployment.environment.name": "production"}}}},
+		{name: "service name in file", telemetry: RuntimeTelemetry{Exporters: &telemetry.Config{ResourceAttributes: map[string]string{"service.name": "shared"}}}, wantError: true},
+		{name: "service namespace in file", telemetry: RuntimeTelemetry{Exporters: &telemetry.Config{ResourceAttributes: map[string]string{"service.namespace": "shared"}}}, wantError: true},
 		{name: "unknown runtime", telemetry: RuntimeTelemetry{Runtime: "gemini", AgentName: "a-h", AgentNamespace: "kagent"}, wantError: true},
 		{name: "identity without runtime", telemetry: RuntimeTelemetry{AgentName: "a-h", AgentNamespace: "kagent"}, wantError: true},
 		{name: "identity without name", telemetry: RuntimeTelemetry{Runtime: RuntimeCodex, AgentNamespace: "kagent"}, wantError: true},
@@ -64,7 +69,6 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 	}
 	got := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}.Identity()
 	want := []attribute.KeyValue{
-		attribute.String(AttributeRuntime, "codex"),
 		attribute.String(AttributeAgentName, "reporter-codex"),
 		attribute.String(AttributeAgentID, "team/reporter-codex"),
 	}
@@ -79,7 +83,6 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 		Runtime: RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-4-5",
 	}.Identity()
 	wantModel := []attribute.KeyValue{
-		attribute.String(AttributeRuntime, "claude"),
 		attribute.String(AttributeAgentName, "reporter-claude"),
 		attribute.String(AttributeAgentID, "team/reporter-claude"),
 		attribute.String(AttributeProviderName, "anthropic"),
@@ -90,9 +93,36 @@ func TestIdentityOmitsUnsetFields(t *testing.T) {
 	}
 }
 
-func TestChildResourceAddsTheCompiledNamespace(t *testing.T) {
-	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team"}
-	want := append(telemetry.Identity(), attribute.String("service.namespace", "team"))
+func TestResourceIdentityUsesTheMainAgentKeys(t *testing.T) {
+	got := RuntimeTelemetry{
+		Runtime: RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-4-5",
+	}.ResourceIdentity()
+	want := []attribute.KeyValue{
+		attribute.String(AttributeRuntime, "claude"),
+		attribute.String(AttributeMainAgentName, "reporter-claude"),
+		attribute.String(AttributeMainAgentID, "team/reporter-claude"),
+		attribute.String(AttributeProviderName, "anthropic"),
+		attribute.String(AttributeRequestModel, "claude-sonnet-4-5"),
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ResourceIdentity() = %v, want %v", got, want)
+	}
+	if got := (RuntimeTelemetry{}).ResourceIdentity(); len(got) != 0 {
+		t.Fatalf("ResourceIdentity() = %v, want none", got)
+	}
+}
+
+func TestChildResourceSharesIdentityButNotTheModel(t *testing.T) {
+	telemetry := RuntimeTelemetry{Runtime: RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team", Provider: "openai", Model: "gpt-5"}
+	want := []attribute.KeyValue{
+		attribute.String(AttributeRuntime, "codex"),
+		attribute.String(AttributeMainAgentName, "reporter-codex"),
+		attribute.String(AttributeMainAgentID, "team/reporter-codex"),
+		attribute.String("service.namespace", "team"),
+		attribute.String(AttributeGenAIProducer, "runtime"),
+		attribute.String(AttributeProviderName, ""),
+		attribute.String(AttributeRequestModel, ""),
+	}
 	if got := telemetry.ChildResource(); !slices.Equal(got, want) {
 		t.Fatalf("ChildResource() = %v, want %v", got, want)
 	}
@@ -118,21 +148,22 @@ func TestRequestIdentity(t *testing.T) {
 }
 
 func TestMergeResourceAttributes(t *testing.T) {
-	owned := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude"}.Identity()
+	owned := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude"}.ResourceIdentity()
+	child := RuntimeTelemetry{Runtime: RuntimeClaude, AgentName: "reporter-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-4-5"}.ChildResource()
 	for _, test := range []struct {
 		name     string
 		existing string
 		owned    []attribute.KeyValue
 		want     string
 	}{
-		{name: "empty existing", owned: owned, want: "gen_ai.agent.name=reporter-claude,kagent.runtime=claude"},
+		{name: "empty existing", owned: owned, want: "gen_ai.main_agent.name=reporter-claude,kagent.runtime=claude"},
 		{
 			name: "user attributes preserved", existing: "deployment.environment=prod,team=sre", owned: owned,
-			want: "deployment.environment=prod,team=sre,gen_ai.agent.name=reporter-claude,kagent.runtime=claude",
+			want: "deployment.environment=prod,team=sre,gen_ai.main_agent.name=reporter-claude,kagent.runtime=claude",
 		},
 		{
 			name: "owned key replaces user value", existing: "kagent.runtime=codex,team=sre", owned: owned,
-			want: "team=sre,gen_ai.agent.name=reporter-claude,kagent.runtime=claude",
+			want: "team=sre,gen_ai.main_agent.name=reporter-claude,kagent.runtime=claude",
 		},
 		{
 			// The OpenTelemetry SDK resolves the same string to the last value, so
@@ -143,6 +174,13 @@ func TestMergeResourceAttributes(t *testing.T) {
 		{
 			name: "duplicate user key keeps its original position", existing: "team=sre,zone=a,team=platform", owned: nil,
 			want: "team=platform,zone=a",
+		},
+		{
+			// The pod environment carries the compiled model; the native child must not report it.
+			name: "child resource clears the inherited model", owned: child,
+			existing: "gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-4-5,team=sre",
+			want: "team=sre,gen_ai.main_agent.id=team/reporter-claude,gen_ai.main_agent.name=reporter-claude," +
+				"kagent.genai.producer=runtime,kagent.runtime=claude,service.namespace=team",
 		},
 		{name: "unparsable entries dropped", existing: "novalue, ,=orphan,team=sre", owned: nil, want: "team=sre"},
 		{name: "empty owned value dropped", owned: []attribute.KeyValue{attribute.String("kagent.runtime", "  ")}, want: ""},
@@ -162,7 +200,7 @@ func TestMergeResourceAttributes(t *testing.T) {
 
 func TestResourceEnvironmentReplacesOnlyTheResourceVariable(t *testing.T) {
 	environment := []string{"PATH=/usr/bin", "OTEL_RESOURCE_ATTRIBUTES=team=sre,kagent.runtime=stale", "HOME=/data"}
-	got := ResourceEnvironment(environment, RuntimeTelemetry{Runtime: RuntimeCodex}.Identity())
+	got := ResourceEnvironment(environment, RuntimeTelemetry{Runtime: RuntimeCodex}.ResourceIdentity())
 	want := []string{"PATH=/usr/bin", "HOME=/data", "OTEL_RESOURCE_ATTRIBUTES=team=sre,kagent.runtime=codex"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ResourceEnvironment() = %v, want %v", got, want)
@@ -186,7 +224,8 @@ func TestResourceEnvironmentDropsTheVariableWhenNothingRemains(t *testing.T) {
 func TestAttributeNamesAreNotNamespaces(t *testing.T) {
 	names := []string{
 		AttributeOperationName, AttributeRuntime, AttributeAgentName, AttributeAgentID, AttributeProviderName,
-		AttributeRequestModel, AttributeConversationID, AttributeTaskID, AttributeUserID, AttributeMethod,
+		AttributeMainAgentName, AttributeMainAgentID, AttributeRequestModel, AttributeConversationID, AttributeTaskID,
+		AttributeUserID, AttributeMethod,
 		AttributeTaskState, AttributeSegment, AttributeDisposition, AttributeInputMessages, AttributeInputTruncated,
 		AttributeOutputMessages, AttributeOutputTruncated, AttributeErrorType, AttributeLinkRelationship,
 	}

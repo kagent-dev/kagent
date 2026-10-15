@@ -33,7 +33,7 @@ var (
 
 var (
 	TestPython                = RegisterStringVar("KAGENT_TEST_PYTHON", "", "Python executable enabling the Python TaskStore/PostgreSQL interoperability test. That subtest is not run when unset.", ComponentTesting)
-	E2EAPIURL                 = RegisterStringVar("KAGENT_E2E_API_URL", "", "Controller URL for Go E2E tests. Falls back to KAGENT_API_URL; tests skip when neither is set.", ComponentTesting)
+	E2EAPIURL                 = RegisterStringVar("KAGENT_E2E_API_URL", "", "Controller URL for Go E2E tests. Tests skip when it is unset.", ComponentTesting)
 	E2ECLI                    = RegisterStringVar("KAGENT_E2E_CLI", "", "CLI executable for catalog lifecycle E2E tests; make -C go e2e builds and supplies it.", ComponentTesting)
 	E2ERuntimeImage           = RegisterStringVar("KAGENT_E2E_RUNTIME_IMAGE", "", "Required digest-pinned Go ADK image for sandbox E2E tests and lifecycle manifests.", ComponentTesting)
 	_                         = RegisterStringVar("KAGENT_E2E_BYO_IMAGE", "", "Digest-pinned BYO image substituted into E2E lifecycle manifests.", ComponentTesting)
@@ -42,6 +42,7 @@ var (
 	E2ESandboxNamespace       = RegisterStringVar("KAGENT_E2E_SANDBOX_NAMESPACE", "kagent", "Namespace for sandbox E2E resources.", ComponentTesting)
 	E2ESandboxWorkerPool      = RegisterStringVar("KAGENT_E2E_SANDBOX_WORKER_POOL", "kagent-default", "Worker pool used by sandbox E2E resources.", ComponentTesting)
 	E2EOTLPListenAddress      = RegisterStringVar("KAGENT_E2E_OTLP_LISTEN_ADDRESS", "", "Listen address for the E2E suite's OTLP trace receiver. Unset disables the shared receiver.", ComponentTesting)
+	E2ELiveCheckEndpoint      = RegisterStringVar("KAGENT_E2E_LIVE_CHECK_ENDPOINT", "", "gRPC address of a Weaver live-check OTLP listener. After the tests, the suite replays every trace and metric export its receiver got, except those of native child processes, to this address. Unset disables the replay.", ComponentTesting)
 	E2ERequireTracing         = RegisterStringVar("KAGENT_E2E_REQUIRE_TRACING", "false", "Fail instead of skip when expected native harness tracing support is unavailable. Enabled by true, ignoring case and surrounding whitespace.", ComponentTesting)
 	E2ERunUpgradeTests        = RegisterStringVar("KAGENT_E2E_RUN_UPGRADE_TESTS", "false", "Run upgrade integration tests when exactly true.", ComponentTesting)
 	E2ERunRollingUpgradeTests = RegisterStringVar("KAGENT_E2E_RUN_ROLLING_UPGRADE_TESTS", "false", "Run rolling upgrade integration tests when exactly true.", ComponentTesting)

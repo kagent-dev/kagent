@@ -11,27 +11,32 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"k8s.io/apimachinery/pkg/types"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 )
 
 type interactionService interface {
 	GetTask(context.Context, types.NamespacedName, *a2a.GetTaskRequest) (*a2a.Task, error)
 	ListTasks(context.Context, types.NamespacedName, *a2a.ListTasksRequest) (*a2a.ListTasksResponse, error)
 	PrepareSend(context.Context, types.NamespacedName, *a2a.SendMessageRequest) (*sessionsvc.PreparedSend, error)
-	PrepareCancelTask(context.Context, types.NamespacedName, *a2a.CancelTaskRequest) (*apiv1alpha1.Session, *a2a.Task, error)
-	PrepareTaskSubscription(context.Context, types.NamespacedName, *a2a.SubscribeToTaskRequest) (*apiv1alpha1.Session, *a2a.Task, error)
+	PrepareCancelTask(context.Context, types.NamespacedName, *a2a.CancelTaskRequest) (*apiv1.Session, *a2a.Task, error)
+	PrepareTaskSubscription(context.Context, types.NamespacedName, *a2a.SubscribeToTaskRequest) (*apiv1.Session, *a2a.Task, error)
 	RevokeSend(context.Context, types.NamespacedName, *a2a.Message, uuid.UUID) (bool, error)
 	GetTaskByMessage(context.Context, types.NamespacedName, *a2a.Message) (*a2a.Task, error)
 	GetSendResult(context.Context, types.NamespacedName, *a2a.Message, a2a.TaskID, *int) (*a2a.Task, error)
 	GetCancelResult(context.Context, types.NamespacedName, a2a.TaskID) (*a2a.Task, error)
 	GetSettledTask(context.Context, types.NamespacedName, string, a2a.TaskID, *int) (*a2a.Task, error)
 	GetAgentCard(context.Context, types.NamespacedName) (*a2a.AgentCard, error)
+	CreateTaskPushConfig(context.Context, types.NamespacedName, *a2a.PushConfig) (*a2a.PushConfig, error)
+	GetTaskPushConfig(context.Context, types.NamespacedName, *a2a.GetTaskPushConfigRequest) (*a2a.PushConfig, error)
+	ListTaskPushConfigs(context.Context, types.NamespacedName, *a2a.ListTaskPushConfigRequest) (*a2a.ListTaskPushConfigResponse, error)
+	DeleteTaskPushConfig(context.Context, types.NamespacedName, *a2a.DeleteTaskPushConfigRequest) error
 }
 
 type runtimeDialer interface {
-	Dial(context.Context, *apiv1alpha1.Session) (*a2aclient.Client, error)
+	Dial(context.Context, *apiv1.Session) (*a2aclient.Client, error)
 }
 
 // Gateway owns actor dispatch and live observation for both public transports.
@@ -102,19 +107,35 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2a.SubscribeToTaskR
 }
 
 func (g *Gateway) GetTaskPushConfig(ctx context.Context, req *a2a.GetTaskPushConfigRequest) (*a2a.PushConfig, error) {
-	return nil, a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return g.interactions.GetTaskPushConfig(ctx, agent, req)
 }
 
 func (g *Gateway) ListTaskPushConfigs(ctx context.Context, req *a2a.ListTaskPushConfigRequest) (*a2a.ListTaskPushConfigResponse, error) {
-	return nil, a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return g.interactions.ListTaskPushConfigs(ctx, agent, req)
 }
 
 func (g *Gateway) CreateTaskPushConfig(ctx context.Context, req *a2a.PushConfig) (*a2a.PushConfig, error) {
-	return nil, a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return g.interactions.CreateTaskPushConfig(ctx, agent, req)
 }
 
 func (g *Gateway) DeleteTaskPushConfig(ctx context.Context, req *a2a.DeleteTaskPushConfigRequest) error {
-	return a2a.ErrPushNotificationNotSupported
+	agent, err := route(ctx)
+	if err != nil {
+		return err
+	}
+	return g.interactions.DeleteTaskPushConfig(ctx, agent, req)
 }
 
 func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
@@ -146,7 +167,7 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2a.GetExtended
 	// answering an agent's question undiscoverable while the card still rendered
 	// perfectly.
 	extensions := card.Capabilities.Extensions
-	card.Capabilities = a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true, Extensions: extensions}
+	card.Capabilities = a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true, PushNotifications: true, Extensions: extensions}
 	card.SecurityRequirements = nil
 	card.SecuritySchemes = nil
 	card.Signatures = nil

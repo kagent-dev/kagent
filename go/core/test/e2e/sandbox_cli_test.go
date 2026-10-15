@@ -9,11 +9,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 func TestSandboxCLI(t *testing.T) {
@@ -21,7 +22,7 @@ func TestSandboxCLI(t *testing.T) {
 	f := newSandboxFixture(t)
 	// Wait for preparation using the suite's existing template fixture.
 	prepared := f.create(t, 5*time.Minute)
-	_, err := f.client.DeleteSandbox(f.ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: prepared.Id})
+	_, err := f.client.DeleteSandbox(f.ctx, &apiv1.DeleteSandboxRequest{SandboxId: prepared.Id})
 	require.NoError(t, err)
 	run := func(args ...string) (string, error) {
 		cmd := cli.Root()
@@ -37,13 +38,13 @@ func TestSandboxCLI(t *testing.T) {
 	}
 	created, err := run("create", f.template.Name, "--request-id", uuid.NewString(), "--ttl", "5m", "-o", "json")
 	require.NoError(t, err)
-	var value apiv1alpha1.Sandbox
+	var value apiv1.Sandbox
 	require.NoError(t, protojson.Unmarshal([]byte(created), &value))
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, value.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, value.State)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
 		defer cancel()
-		_, err := f.client.DeleteSandbox(ctx, &apiv1alpha1.DeleteSandboxRequest{SandboxId: value.Id})
+		_, err := f.client.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: value.Id})
 		require.NoError(t, err)
 	})
 	data := bytes.Repeat([]byte{0, 255, 42, 10}, 300000)
@@ -70,7 +71,7 @@ func TestSandboxCLI(t *testing.T) {
 	require.Equal(t, 7, exitError.ExitCode())
 	deleted, err := run("delete", value.Id, "-o", "json")
 	require.NoError(t, err)
-	var tombstone apiv1alpha1.Sandbox
+	var tombstone apiv1.Sandbox
 	require.NoError(t, protojson.Unmarshal([]byte(deleted), &tombstone))
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED, tombstone.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, tombstone.State)
 }

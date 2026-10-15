@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,9 +17,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -27,6 +26,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestNativeInvocationOutlivesDisconnectDuringInitialSave(t *testing.T) {
@@ -155,28 +158,28 @@ func TestInvocationOwnershipWhenNativeNeverStarts(t *testing.T) {
 }
 
 type settlementServer struct {
-	apiv1alpha1.UnimplementedTaskStoreServiceServer
+	runtimev1.UnimplementedTaskStoreServiceServer
 	exporter *tracetest.InMemoryExporter
 	fail     bool
 	settled  atomic.Bool
 }
 
-func (*settlementServer) UpdateTask(context.Context, *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
-	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: 2}, nil
+func (*settlementServer) UpdateTask(context.Context, *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceUpdateTaskResponse{Version: 2}, nil
 }
 
-func (s *settlementServer) SettleTask(context.Context, *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
+func (s *settlementServer) SettleTask(context.Context, *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
 	// The final UpdateTask client span must already be exported when settlement
 	// can first make the actor eligible for suspension.
 	spans := s.exporter.GetSpans()
-	if len(spans) != 1 || spans[0].Name != "kagent.api.v1alpha1.TaskStoreService/UpdateTask" {
+	if len(spans) != 1 || spans[0].Name != "kagent.runtime.v1.TaskStoreService/UpdateTask" {
 		return nil, status.Error(codes.Internal, "final save span was not flushed before settlement")
 	}
 	s.settled.Store(true)
 	if s.fail {
 		return nil, status.Error(codes.FailedPrecondition, "settlement rejected")
 	}
-	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 
 func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
@@ -201,7 +204,7 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			api := &settlementServer{exporter: exporter, fail: test.failSettle}
 			listener := bufconn.Listen(1 << 20)
 			server := grpc.NewServer()
-			apiv1alpha1.RegisterTaskStoreServiceServer(server, api)
+			runtimev1.RegisterTaskStoreServiceServer(server, api)
 			go func() { _ = server.Serve(listener) }()
 			t.Cleanup(server.Stop)
 			client, err := controllerclient.New(controllerclient.Config{
@@ -243,7 +246,164 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			require.Equal(t, 2, flushes)
 			spans := exporter.GetSpans()
 			require.Len(t, spans, 2)
-			require.Equal(t, "kagent.api.v1alpha1.TaskStoreService/SettleTask", spans[1].Name)
+			require.Equal(t, "kagent.runtime.v1.TaskStoreService/SettleTask", spans[1].Name)
+		})
+	}
+}
+
+// recordingStore reports SDK saves to the executor, as Store does over gRPC,
+// and keeps each task's saved states by its first message.
+type recordingStore struct {
+	*sdktaskstore.InMemory
+	mu     *sync.Mutex
+	states map[a2a.Text][]a2a.TaskState
+}
+
+func (s recordingStore) Create(ctx context.Context, task *a2a.Task) (sdktaskstore.TaskVersion, error) {
+	version, err := s.InMemory.Create(ctx, task)
+	s.record(ctx, task, version, err)
+	return version, err
+}
+
+func (s recordingStore) Update(ctx context.Context, update *sdktaskstore.UpdateRequest) (sdktaskstore.TaskVersion, error) {
+	version, err := s.InMemory.Update(ctx, update)
+	s.record(ctx, update.Task, version, err)
+	return version, err
+}
+
+func (s recordingStore) record(ctx context.Context, task *a2a.Task, version sdktaskstore.TaskVersion, err error) {
+	if err == nil {
+		recordSave(ctx, task, int64(version))
+		s.mu.Lock()
+		key := task.History[0].Parts[0].Content.(a2a.Text)
+		s.states[key] = append(s.states[key], task.Status.State)
+		s.mu.Unlock()
+	}
+}
+
+func (s recordingStore) saved(key a2a.Text) []a2a.TaskState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.states[key])
+}
+
+type beforeHook struct {
+	a2asrv.PassthroughCallInterceptor
+	run func(context.Context, *a2asrv.Request)
+}
+
+func (h beforeHook) Before(ctx context.Context, _ *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
+	h.run(ctx, request)
+	return ctx, nil, nil
+}
+
+func receive[T any](t *testing.T, ch <-chan T) T {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the runtime")
+		panic("unreachable")
+	}
+}
+
+func TestSendAdmissionReleasesWhenCallEndsBeforeExecution(t *testing.T) {
+	ended := (&Store{}).WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", nil)
+	call, end := context.WithCancel(t.Context())
+	call, callCtx := a2asrv.NewCallContext(call, nil)
+	_, _, err := ended.Before(call, callCtx, &a2asrv.Request{Payload: &a2a.SendMessageRequest{Message: a2a.NewMessage(a2a.MessageRoleUser)}})
+	require.NoError(t, err)
+	end()
+	require.Eventually(t, func() bool {
+		ended.mu.Lock()
+		defer ended.mu.Unlock()
+		return ended.admitted == nil
+	}, 5*time.Second, time.Millisecond, "a call that ends before execution must free the slot")
+
+	for _, test := range []struct {
+		name string
+		// park first leaves a task waiting for input; A then replies to it.
+		park bool
+		key  a2a.Text
+		want []a2a.TaskState
+	}{
+		{name: "new task is canceled", key: "A", want: []a2a.TaskState{a2a.TaskStateSubmitted, a2a.TaskStateCanceled}},
+		// The SDK saves the reply into history before the runtime's working event.
+		{name: "reply returns its task to waiting", park: true, key: "park", want: []a2a.TaskState{a2a.TaskStateSubmitted,
+			a2a.TaskStateInputRequired, a2a.TaskStateInputRequired, a2a.TaskStateWorking, a2a.TaskStateInputRequired}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			text := func(message *a2a.Message) a2a.Text { return message.Parts[0].Content.(a2a.Text) }
+			started, release := make(chan a2a.Text, 4), make(chan struct{})
+			releaseB := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(releaseB)
+			wrapper := (&Store{}).WrapExecutor(a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+				return func(yield func(a2a.Event, error) bool) {
+					started <- text(input.Message)
+					switch text(input.Message) {
+					case "park":
+						yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateInputRequired, nil), nil)
+						return
+					case "B":
+						<-release
+					}
+					yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateCompleted, nil), nil)
+				}
+			}), "", nil)
+			tasks := recordingStore{sdktaskstore.NewInMemory(nil), &sync.Mutex{}, map[a2a.Text][]a2a.TaskState{}}
+			var handler a2asrv.RequestHandler
+			send := func(ctx context.Context, message *a2a.Message) (a2a.SendMessageResult, error) {
+				return handler.SendMessage(ctx, &a2a.SendMessageRequest{Message: message})
+			}
+			newMessage := func(body a2a.Text) *a2a.Message {
+				return a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(string(body)))
+			}
+			doneB := make(chan error, 1)
+			// Free A's slot after admission, as its call ending would, then let B take
+			// and hold it while the SDK starts A. Calling release directly avoids
+			// AfterFunc's goroutine and the SDK aborting a canceled reply.
+			hook := beforeHook{run: func(ctx context.Context, request *a2asrv.Request) {
+				if send, ok := request.Payload.(*a2a.SendMessageRequest); !ok || text(send.Message) != "A" {
+					return
+				}
+				wrapper.release(ctx.Value(executionKey{}).(*execution))
+				go func() {
+					_, err := send(t.Context(), newMessage("B"))
+					doneB <- err
+				}()
+				require.Equal(t, a2a.Text("B"), receive(t, started))
+			}}
+			handler = a2asrv.NewHandler(wrapper, a2asrv.WithTaskStore(tasks), a2asrv.WithCallInterceptors(wrapper, hook))
+
+			reply := newMessage("A")
+			if test.park {
+				parked, err := send(t.Context(), newMessage("park"))
+				require.NoError(t, err)
+				require.Equal(t, a2a.Text("park"), receive(t, started))
+				reply.TaskID, reply.ContextID = parked.TaskInfo().TaskID, parked.TaskInfo().ContextID
+				// The in-memory store exposes the waiting event before SDK cleanup.
+				// Production replies wait for settlement, which releases this slot first.
+				require.Eventually(t, func() bool {
+					wrapper.mu.Lock()
+					defer wrapper.mu.Unlock()
+					return len(wrapper.pending) == 0 && wrapper.admitted == nil
+				}, 5*time.Second, time.Millisecond, "parked execution must release its slot before the reply")
+			}
+			_, err := send(t.Context(), reply)
+			require.NoError(t, err)
+			_, err = send(t.Context(), newMessage("busy"))
+			require.ErrorIs(t, err, a2a.ErrUnsupportedOperation, "simultaneous sends must not both run")
+			require.Eventually(t, func() bool { return slices.Equal(tasks.saved(test.key), test.want) },
+				5*time.Second, 10*time.Millisecond, "the superseded send must reach a boundary without native work")
+			releaseB()
+			require.NoError(t, receive(t, doneB))
+			require.Eventually(t, func() bool {
+				_, err := send(t.Context(), newMessage("C"))
+				return err == nil
+			}, 5*time.Second, 10*time.Millisecond)
+			require.Equal(t, a2a.Text("C"), receive(t, started))
+			require.Empty(t, started, "the superseded send must never start native work")
 		})
 	}
 }

@@ -21,7 +21,7 @@ type AgentPluginPaths struct {
 // and adds their skills and MCP servers to the ADK runtime configuration.
 func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, paths AgentPluginPaths) error {
 	if agentConfig.AgentPlugins != nil {
-		materialization, err := agentplugins.Materialize(ctx, *agentConfig.AgentPlugins, agentplugins.Paths{
+		materialization, err := agentplugins.Materialize(ctx, adk.PluginResources(agentConfig.AgentPlugins), agentplugins.Paths{
 			Packages: paths.Packages,
 			Skills:   paths.Skills,
 		})
@@ -53,17 +53,17 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *adk.AgentConfig, 
 
 func addMCPConfig(agentConfig *adk.AgentConfig, mcpConfig agentplugins.MCPConfig) {
 	for _, server := range mcpConfig.StreamableHTTP {
-		agentConfig.HttpTools = append(agentConfig.HttpTools, adk.HttpMcpServerConfig{
-			Params: adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers},
+		agentConfig.HttpTools = append(agentConfig.HttpTools, &adk.HttpMcpServerConfig{
+			Params: &adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers},
 		})
 	}
 	for _, server := range mcpConfig.SSE {
-		agentConfig.SseTools = append(agentConfig.SseTools, adk.SseMcpServerConfig{
-			Params: adk.SseConnectionParams{Url: server.URL, Headers: server.Headers},
+		agentConfig.SseTools = append(agentConfig.SseTools, &adk.SseMcpServerConfig{
+			Params: &adk.SseConnectionParams{Url: server.URL, Headers: server.Headers},
 		})
 	}
 	for _, server := range mcpConfig.Stdio {
-		agentConfig.StdioTools = append(agentConfig.StdioTools, adk.StdioMcpServerConfig{
+		agentConfig.StdioTools = append(agentConfig.StdioTools, &adk.StdioMcpServerConfig{
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,

@@ -14,8 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 const (

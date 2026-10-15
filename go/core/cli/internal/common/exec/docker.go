@@ -93,18 +93,3 @@ func (d *DockerExecutor) Push(imageName string) error {
 	fmt.Printf("✅ Successfully pushed Docker image: %s\n", imageName)
 	return nil
 }
-
-// GetComposeCommand returns the appropriate docker compose command for the system.
-// It tries "docker compose" (newer version) first, then falls back to "docker-compose" (older version).
-func GetComposeCommand() []string {
-	// Try docker compose (newer version)
-	if _, err := exec.LookPath("docker"); err == nil {
-		cmd := exec.Command("docker", "compose", "version")
-		if err := cmd.Run(); err == nil {
-			return []string{"docker", "compose"}
-		}
-	}
-
-	// Fall back to docker-compose (older version)
-	return []string{"docker-compose"}
-}

@@ -5,12 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +18,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type fakeDiscoveryStore struct {

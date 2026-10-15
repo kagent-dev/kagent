@@ -5,7 +5,7 @@ import pytest
 from google.adk.events import Event
 from google.adk.sessions import Session
 from google.genai import types
-from kagent.api.v1alpha1 import memory_pb2
+from kagent.runtime.v1 import memory_pb2
 
 from kagent.adk._memory_service import KagentMemoryService
 from kagent.adk._request_identity import request_user_id

@@ -1,15 +1,17 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"testing"
 
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 var suiteTraceReceiver *otlpTraceReceiver
@@ -30,6 +32,11 @@ func TestMain(m *testing.M) {
 	receiver, stop := serveOTLPTraceReceiver(listener)
 	suiteTraceReceiver = receiver
 	code := m.Run()
+	if target := kagentenv.E2ELiveCheckEndpoint.Get(); target != "" {
+		if err := receiver.replay(context.Background(), target); err != nil {
+			fmt.Fprintf(os.Stderr, "replay OTLP traces to %s: %v\n", target, err)
+		}
+	}
 	if err := stop(); err != nil {
 		fmt.Fprintf(os.Stderr, "serve OTLP traces: %v\n", err)
 		code = 1

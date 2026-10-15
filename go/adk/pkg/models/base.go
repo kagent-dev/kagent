@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 )
 
 // defaultTimeout is the default execution timeout used by model implementations.
@@ -25,8 +26,8 @@ type TransportConfig struct {
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
 	APIKeyPassthrough     bool
-	Timeout               *int // seconds; nil = defaultTimeout. Bounds the whole request (connect + write + read).
-	ConnectTimeout        *int // seconds; nil = Go transport default. Bounds connection establishment only.
+	Timeout               *time.Duration // nil = defaultTimeout. Bounds the whole request (connect + write + read).
+	ConnectTimeout        *time.Duration // nil = Go transport default. Bounds connection establishment only.
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
@@ -46,7 +47,7 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	// never mutate the shared http.DefaultTransport that BuildTLSTransport
 	// returns when no TLS override is set.
 	if tc.ConnectTimeout != nil {
-		transport, err = withConnectTimeout(transport, time.Duration(*tc.ConnectTimeout)*time.Second)
+		transport, err = withConnectTimeout(transport, *tc.ConnectTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +64,7 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 
 	timeout := defaultTimeout
 	if tc.Timeout != nil {
-		timeout = time.Duration(*tc.Timeout) * time.Second
+		timeout = *tc.Timeout
 	}
 
 	return &http.Client{Timeout: timeout, Transport: transport}, nil
@@ -155,6 +156,19 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
+// nonNilFunctionCallArgs returns args, substituting an empty map for nil.
+// A no-argument FunctionCall reloads from the session store with nil Args
+// (omitempty drops the empty map), and some providers reject null or "null".
+//
+// TODO: remove once the pinned go-genai fixes
+// https://github.com/googleapis/go-genai/issues/920.
+func nonNilFunctionCallArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
 // parametersJsonSchemaToMap converts a genai.FunctionDeclaration.ParametersJsonSchema value
 // to map[string]any. ParametersJsonSchema is typed as `any` and can hold:
 //   - map[string]any (rare — only if someone constructs it manually)
@@ -176,6 +190,16 @@ func parametersJsonSchemaToMap(v any) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// unsupportedImageNote stands in for an image a text-only adapter cannot send,
+// so an image-only turn is not dropped.
+func unsupportedImageNote(blob *genai.Blob) string {
+	name := blob.DisplayName
+	if name == "" {
+		name = "image"
+	}
+	return fmt.Sprintf("[Image %q was not sent: this provider integration cannot pass images.]", name)
 }
 
 // extractFunctionResponseContent converts a tool/function response value to a plain string:

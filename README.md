@@ -131,7 +131,7 @@ There are many ways to get involved:
 
 ### Local development
 
-For instructions on how to run everything locally, see the [DEVELOPMENT.md](DEVELOPMENT.md) file.
+For instructions on running Kagent locally, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ### Contributors
 

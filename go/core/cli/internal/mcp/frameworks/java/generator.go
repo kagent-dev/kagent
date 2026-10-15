@@ -9,10 +9,11 @@ import (
 	"strings"
 	texttemplate "text/template"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/frameworks/common"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+
+	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/mcp/frameworks/common"
 )
 
 //go:embed all:templates

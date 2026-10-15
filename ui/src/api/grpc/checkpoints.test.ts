@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
-import { CheckpointService, CheckpointState } from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+import { CheckpointService, CheckpointState } from "@/generated/kagent/api/v1/checkpoints_pb";
 import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
 import { setApiTransport } from "../transport";
 import { defaultOperations } from "./operations";

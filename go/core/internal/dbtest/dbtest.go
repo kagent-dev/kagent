@@ -3,15 +3,23 @@ package dbtest
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/jackc/pgx/v5/pgxpool"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
+
+// Role is the test database's login user. Test connections assume it as their
+// role, which PostgreSQL allows for any login.
+const Role = "postgres"
 
 // Start starts a pgvector Postgres container and returns the connection string
 // and a cleanup function. Callers are responsible for calling cleanup when done.
@@ -19,7 +27,7 @@ func Start(ctx context.Context) (connStr string, cleanup func(), err error) {
 	pgContainer, err := tcpostgres.Run(ctx,
 		"pgvector/pgvector:pg18-trixie",
 		tcpostgres.WithDatabase("kagent_test"),
-		tcpostgres.WithUsername("postgres"),
+		tcpostgres.WithUsername(Role),
 		tcpostgres.WithPassword("kagent"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
@@ -60,11 +68,31 @@ func StartT(ctx context.Context, t *testing.T) string {
 	return connStr
 }
 
-// Migrate runs the embedded migrations against connStr and returns any error.
-// If vectorEnabled is true the vector pass is also applied.
+// Migrate installs pgvector for the test database when enabled, then runs the
+// embedded migrations against connStr.
 // Use MigrateT in tests that have a *testing.T; use Migrate in TestMain where no T is available.
 func Migrate(connStr string, vectorEnabled bool) error {
-	return migrations.RunUp(context.Background(), connStr, migrations.BuiltinSources(vectorEnabled))
+	if vectorEnabled {
+		db, err := sql.Open("pgx", connStr)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		if _, err := db.Exec("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"); err != nil {
+			return err
+		}
+	}
+	return migrations.RunUp(context.Background(), PoolConfig(connStr), migrations.BuiltinSourcesInSchema(vectorEnabled, "public", "public"))
+}
+
+// PoolConfig returns the pool configuration for connStr that assumes Role. It
+// panics on a malformed connection string, which only a broken test can produce.
+func PoolConfig(connStr string) *pgxpool.Config {
+	config, err := postgres.PoolConfig(connStr, Role)
+	if err != nil {
+		panic(err)
+	}
+	return config
 }
 
 // MigrateT runs the embedded migrations against connStr and calls t.Fatal on error.

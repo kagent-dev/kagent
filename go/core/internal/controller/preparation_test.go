@@ -12,12 +12,6 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
-	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,6 +21,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
@@ -42,10 +43,10 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			ctx := t.Context()
 			dsn := dbtest.StartT(ctx, t)
 			dbtest.MigrateT(t, dsn, false)
-			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+			pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
-			store := database.NewClient(pool)
+			store := database.NewClient(pool, "public")
 			collections, harnesses := newPreparationTestCollections(t, "gvisor")
 			initial := collections.Reconciliations.List()[0]
 			templates := &fakeActorTemplates{template: proto.CloneOf(initial.Target.ActorTemplate)}
@@ -105,14 +106,15 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, retained, "last-successful A must remain protected without any sessions")
 
-			session, _, err := store.CreateSession(ctx, &apiv1alpha1.Session{
+			session, _, err := store.CreateSession(ctx, &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}, "last-good-session")
 			require.NoError(t, err)
 			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
 
-			require.NoError(t, NewRuntimeRevisionGC(store, templates).collect(ctx, abandoned.Revision))
+			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
+			require.NoError(t, collector.collect(ctx, abandoned.Revision))
 			require.Nil(t, templates.template)
 			_, err = store.GetRuntimeRevision(ctx, abandoned.Revision)
 			require.ErrorIs(t, err, database.ErrNotFound)
@@ -535,7 +537,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
-	runtimeHarness.Spec.Workload.Image = "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
 	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -549,7 +551,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	collections := Collections{
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 		Harnesses:                harnesses,
-		ResolvedModelConfigs:     krttest.GetMockCollection[v2translator.ResolvedModelConfig](mock),
+		ResolvedModelConfigs:     krttest.GetMockCollection[translator.ResolvedModelConfig](mock),
 		RemoteMCPServers:         krttest.GetMockCollection[*kagentv1alpha3.RemoteMCPServer](mock),
 		ConfigMaps:               krttest.GetMockCollection[*corev1.ConfigMap](mock),
 		Secrets:                  krttest.GetMockCollection[*corev1.Secret](mock),
@@ -558,11 +560,11 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		ModelConfigStatuses:      krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]](mock),
 	}
 	collections.Agents = krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{testAgent(template, runtimeHarness)}, opts.WithName("Agents")...)
-	collections.Reconciliations = newAgentReconciliations(collections.Agents, v2translator.Collections{
+	collections.Reconciliations = newAgentReconciliations(collections.Agents, translator.Collections{
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
-	}, collections.AgentRuntimeObservations, opts)
+	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), nil)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()

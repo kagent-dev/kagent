@@ -3,10 +3,11 @@ package translator
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestCompileCredentialDestinations(t *testing.T) {
@@ -85,7 +86,7 @@ func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
 		resolved.FoundryEndpoint = spec.Foundry.Endpoint
 	}
 	return &HarnessInput{
-		Harness: &HarnessConfiguration{Name: "", Namespace: "team", Source: &metav1.ObjectMeta{Namespace: "team"}},
+		Harness: &HarnessConfiguration{Name: "", Namespace: "team", Source: metav1.ObjectMeta{Namespace: "team"}},
 		Root:    &AgentInput{Template: &TemplateConfiguration{}, ResolvedModelConfig: resolved},
 	}
 }

@@ -8,10 +8,6 @@ import (
 	"sync"
 	"time"
 
-	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/controllers"
@@ -21,6 +17,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 const (
@@ -57,10 +58,10 @@ func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRe
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
 
 func (s *SandboxReconciler) Start(ctx context.Context) error {
-	preparations := newReconciliationQueue("v2-sandbox-preparation", func(item any) error {
+	preparations := newReconciliationQueue("sandbox-preparation", func(item any) error {
 		return s.reconcile(ctx, item.(string))
 	})
-	statuses := newReconciliationQueue("v2-sandbox-status", func(item any) error {
+	statuses := newReconciliationQueue("sandbox-status", func(item any) error {
 		return s.reconcileStatus(ctx, item.(string))
 	})
 	handler := s.collections.states.Register(func(event krt.Event[sandboxReconciliation]) {
