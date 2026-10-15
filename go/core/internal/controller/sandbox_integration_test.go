@@ -158,7 +158,7 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 
 	// A dependency update alone must change the persisted revision.
 	changedPool := pool.DeepCopy()
-	changedPool.Spec.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	changedPool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
 	pools.UpdateObject(changedPool)
 	require.Eventually(t, func() bool {
 		store.mu.Lock()

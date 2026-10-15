@@ -82,7 +82,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 			Command:      []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"},
 			Args:         []string{"--listen=:80", "--workspace=/data/workspace", "--log-dir=/data/guest-logs"},
 			Env:          environment,
-			WakeupProbe:  &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}, TimeoutSeconds: 30},
+			WakeupProbe:  &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}, TimeoutSeconds: 30},
 			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}, {Name: "guest", MountPath: "/run/kagent/guest"}, {Name: egressTrustVolume, MountPath: egressTrustMount}},
 		}},
 		Volumes: []*ateapipb.Volume{
@@ -91,8 +91,10 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}}}}},
 		},
 		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: template.Spec.Substrate.SnapshotPolicy.Location,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			StorageLocation:   template.Spec.Substrate.SnapshotPolicy.Location,
+			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			// Pin the server default so immutable comparison survives creation.
+			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
 	}
 	// Hash the compiled template and source identity. Live policy references

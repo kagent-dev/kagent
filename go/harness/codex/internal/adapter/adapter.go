@@ -135,6 +135,7 @@ type nativeGranularApprovalPolicy struct {
 
 type nativeFeatures struct {
 	DefaultModeRequestUserInput bool `toml:"default_mode_request_user_input"`
+	UnboundedConnectionRetries  bool `toml:"unbounded_connection_retries"`
 }
 
 type nativeAnalytics struct {
@@ -193,7 +194,9 @@ func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
 		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
 		SandboxMode:    "danger-full-access", WebSearch: "cached",
-		Features:   nativeFeatures{DefaultModeRequestUserInput: true},
+		// DNS policy denials look like connection failures. Let the native
+		// retry budget expire so a permanently denied task can reach FAILED.
+		Features:   nativeFeatures{DefaultModeRequestUserInput: true, UnboundedConnectionRetries: false},
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),

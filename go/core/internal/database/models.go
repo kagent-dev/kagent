@@ -86,9 +86,9 @@ type SessionQuery struct {
 // SessionTaskSnapshot records the external snapshot at an A2A turn boundary.
 // Only an explicit checkpoint retains a copy after the Actor advances or is deleted.
 type SessionTaskSnapshot struct {
-	Atespace     string
-	URI          string
-	ContentScope string
+	Atespace string
+	URI      string
+	Fidelity string
 }
 
 // RuntimeArtifact identifies backend resources retained by either runtime kind.

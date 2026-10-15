@@ -49,6 +49,11 @@ Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 `KAGENT_AGENT_CARD_JSON`. Private A2A is served on port 80 and readiness on
 `/readyz` at port 8081.
 
+The adapter disables Codex's default `unbounded_connection_retries` feature.
+Substrate DNS policy denials appear as connection failures, so retrying them
+indefinitely would leave a task working until canceled. Native bounded request
+and stream retries remain enabled; exhausted retries produce a failed A2A task.
+
 ## Human-in-the-loop flow
 
 An MCP binding with `requireApproval: true` is emitted with Codex's default

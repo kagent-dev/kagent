@@ -217,7 +217,7 @@ func TestSandboxLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	f.wait(t, id, apiv1.RuntimeState_RUNTIME_STATE_READY)
 	require.Equal(t, data, f.read(t, id, "binary.dat"))
-	// DATA restores restart the guest with durable files and a fresh process registry.
+	// VOLUMES restores restart the guest with durable files and a fresh process registry.
 	for _, processID := range []string{process.ProcessId, active.ProcessId} {
 		_, err = f.processes.GetProcess(f.guestContext(id), &guestpb.GetProcessRequest{ProcessId: processID})
 		require.Equal(t, codes.NotFound, status.Code(err))

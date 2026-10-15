@@ -102,6 +102,9 @@ func (f *egressPolicyFake) CreateActorEgressPolicy(_ context.Context, req *ateap
 }
 
 func (f *egressPolicyFake) GetActorEgressPolicy(_ context.Context, req *ateapipb.GetActorEgressPolicyRequest, _ ...grpc.CallOption) (*ateapipb.EgressPolicy, error) {
+	if req.GetName() != "default" {
+		return nil, status.Error(codes.InvalidArgument, "singleton policy name must be default")
+	}
 	f.actor = req.Actor
 	if f.getErr != nil {
 		return nil, f.getErr

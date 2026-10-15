@@ -433,7 +433,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, pending, "exhausted work must not keep fast polling active")
 	task.Status.State = a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	next, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, next, "a new publication resets exhausted retries")
@@ -480,7 +480,7 @@ func TestPushDeliveryExpiredFinalLeaseExhaustsDelivery(t *testing.T) {
 	require.Nil(t, blocked)
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task,
-		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	next, err := client.ClaimDuePushDelivery(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, next, "expiring the final lease retains the registration for future publications")
@@ -618,7 +618,7 @@ func TestPushDeliverySupersededOutcomeCannotChangeNewGeneration(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, old)
 			task.Status.State = a2a.TaskStateCompleted
-			require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+			require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 			current, err := client.IsPushDeliveryCurrent(ctx, *old)
 			require.NoError(t, err)
 			require.False(t, current)
@@ -972,7 +972,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			require.NoError(t, err)
 			badTask.Status.State = a2a.TaskStateCompleted
 			require.NoError(t, saveRuntimeTask(t, client, badSession.Id, badTask, badTask,
-				&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
+				&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 			delivery, err = client.ClaimDuePushDelivery(ctx)
 			require.NoError(t, err)
 			require.NotNil(t, delivery)

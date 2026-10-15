@@ -212,7 +212,7 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })
 
 	pool := (*pools.GetKey("team-a/default")).DeepCopy()
-	pool.Spec.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	pool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
 	pools.UpdateObject(pool)
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != original.RevisionID })
 	changed := s.collections.states.GetKey(key)

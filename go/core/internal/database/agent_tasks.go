@@ -38,7 +38,7 @@ func (c *Client) ListAgentTasks(ctx context.Context, sessionIDs []string, afterI
 	}
 	rows, err := queryMany(ctx, c.db, `
 		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at,
-		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
+		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_fidelity,
 		    t.history_sequence, t.position FROM session_task t
 		JOIN session_record i ON i.history_id = t.history_id
 		WHERE i.id = ANY($1::uuid[]) AND i.state <> 'RUNTIME_STATE_DELETED'

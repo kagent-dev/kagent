@@ -311,7 +311,7 @@ func (f *scheduledFixture) assertQuiescent(t *testing.T, execution *apiv1.Schedu
 			for _, actor := range page.GetActors() {
 				if actor.GetMetadata().GetName() == actorName && actor.GetMetadata().GetAtespace() == atespace {
 					state := actor.GetStatus().GetState()
-					return state == ateapipb.ActorState_ACTOR_STATE_SUSPENDED || state == ateapipb.ActorState_ACTOR_STATE_PAUSED, nil
+					return state == ateapipb.ActorState_ACTOR_STATE_SUSPENDED, nil
 				}
 			}
 			token = page.GetPage().GetNextPageToken()

@@ -107,7 +107,7 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 		}
 		boundaryEvent.SnapshotAtespace = &checkpoint.SnapshotAtespace
 		boundaryEvent.SnapshotURI = &checkpoint.SnapshotURI
-		boundaryEvent.SnapshotContentScope = &checkpoint.SnapshotContentScope
+		boundaryEvent.SnapshotFidelity = &checkpoint.SnapshotFidelity
 		tasks, err := replayTaskEvents(events, sourceContextID.String())
 		if err != nil {
 			return fmt.Errorf("replay checkpoint events: %w", err)
@@ -127,15 +127,15 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 		sequences := make(map[int64]int64, len(events))
 		for _, source := range events {
 			copiedHistorySequence, err = insertTaskEvent(ctx, tx, taskEventWrite{
-				HistoryID:            historyID,
-				TaskID:               source.TaskID,
-				MessageID:            source.MessageID,
-				Data:                 source.Data,
-				SnapshotAtespace:     source.SnapshotAtespace,
-				SnapshotURI:          source.SnapshotURI,
-				SnapshotContentScope: source.SnapshotContentScope,
-				TaskPosition:         source.TaskPosition,
-				CreatedAt:            &source.CreatedAt,
+				HistoryID:        historyID,
+				TaskID:           source.TaskID,
+				MessageID:        source.MessageID,
+				Data:             source.Data,
+				SnapshotAtespace: source.SnapshotAtespace,
+				SnapshotURI:      source.SnapshotURI,
+				SnapshotFidelity: source.SnapshotFidelity,
+				TaskPosition:     source.TaskPosition,
+				CreatedAt:        &source.CreatedAt,
 			})
 			if err != nil {
 				return fmt.Errorf("copy checkpoint event %d: %w", source.Sequence, err)
@@ -268,7 +268,7 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 			return fmt.Errorf("get latest Session task boundary: %w", err)
 		}
 		if boundary.SnapshotAtespace == nil || boundary.SnapshotURI == nil ||
-			boundary.SnapshotContentScope == nil || boundary.HistorySequence == nil || *boundary.HistorySequence != current.Sequence {
+			boundary.SnapshotFidelity == nil || boundary.HistorySequence == nil || *boundary.HistorySequence != current.Sequence {
 			return ErrSnapshotPending
 		}
 
@@ -285,16 +285,16 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		}
 		row, err := queryOne(ctx, tx, `
 			INSERT INTO session_checkpoint (id, source_session_id, user_id, request_id, head_task_id,
-			    history_sequence, snapshot_atespace, snapshot_uri, snapshot_content_scope, source_history_id,
+			    history_sequence, snapshot_atespace, snapshot_uri, snapshot_fidelity, source_history_id,
 			    prepared_revision, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
 			    $10, $11, $12, 'CREATING')
 			ON CONFLICT DO NOTHING
 			RETURNING id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-			    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+			    snapshot_uri, snapshot_fidelity, tag_uid, state, data, source_history_id, prepared_revision
 		`,
 			pgx.RowToStructByName[sessionCheckpointRow], checkpoint.GetId(),
 			checkpoint.GetSessionId(), userID, requestID, boundary.ID, *boundary.HistorySequence,
-			*boundary.SnapshotAtespace, *boundary.SnapshotURI, *boundary.SnapshotContentScope, session.HistoryID,
+			*boundary.SnapshotAtespace, *boundary.SnapshotURI, *boundary.SnapshotFidelity, session.HistoryID,
 			session.PreparedRevision, data,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -411,7 +411,7 @@ func (c *Client) GetSessionCheckpointSnapshot(ctx context.Context, id, userID st
 // validating the external snapshot.
 func checkpointSnapshot(row sessionCheckpointRow) *SessionTaskSnapshot {
 	return &SessionTaskSnapshot{
-		Atespace: row.SnapshotAtespace, URI: row.SnapshotURI, ContentScope: row.SnapshotContentScope,
+		Atespace: row.SnapshotAtespace, URI: row.SnapshotURI, Fidelity: row.SnapshotFidelity,
 	}
 }
 
@@ -421,7 +421,7 @@ func checkpointSnapshot(row sessionCheckpointRow) *SessionTaskSnapshot {
 func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		    snapshot_uri, snapshot_fidelity, tag_uid, state, data, source_history_id, prepared_revision
 		FROM session_checkpoint
 		WHERE source_session_id = $1
 		  AND user_id = $2
@@ -571,20 +571,20 @@ func toSessionCheckpoint(row sessionCheckpointRow) (*apiv1.Checkpoint, error) {
 }
 
 type sessionCheckpointRow struct {
-	ID                   uuid.UUID
-	SourceSessionID      uuid.UUID
-	UserID               string
-	RequestID            string
-	HeadTaskID           string
-	HistorySequence      int64
-	SnapshotAtespace     string
-	SnapshotURI          string
-	SnapshotContentScope string
-	TagUID               string
-	State                string
-	Data                 []byte
-	SourceHistoryID      uuid.UUID
-	PreparedRevision     *string
+	ID               uuid.UUID
+	SourceSessionID  uuid.UUID
+	UserID           string
+	RequestID        string
+	HeadTaskID       string
+	HistorySequence  int64
+	SnapshotAtespace string
+	SnapshotURI      string
+	SnapshotFidelity string
+	TagUID           string
+	State            string
+	Data             []byte
+	SourceHistoryID  uuid.UUID
+	PreparedRevision *string
 }
 
 // lockCheckpoint locks a checkpoint until the caller's transaction ends, optionally
@@ -593,7 +593,7 @@ type sessionCheckpointRow struct {
 func lockCheckpoint(ctx context.Context, db pgx.Tx, id string, allUsers bool, userID string, state *string) (sessionCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		    snapshot_uri, snapshot_fidelity, tag_uid, state, data, source_history_id, prepared_revision
 		FROM session_checkpoint
 		WHERE id = $1
 		  -- Only internal finalization explicitly opts out of owner filtering.
@@ -609,7 +609,7 @@ func lockCheckpoint(ctx context.Context, db pgx.Tx, id string, allUsers bool, us
 func readCheckpointEvents(ctx context.Context, db dbExecutor, checkpointID uuid.UUID) ([]sessionTaskEventRow, error) {
 	return queryMany(ctx, db, `
 		SELECT e.sequence, e.history_id, e.task_id, e.data, e.created_at, e.message_id, e.task_position,
-		    e.snapshot_atespace, e.snapshot_uri, e.snapshot_content_scope
+		    e.snapshot_atespace, e.snapshot_uri, e.snapshot_fidelity
 		FROM session_checkpoint c
 		JOIN session_task_event e
 		  ON e.history_id = c.source_history_id
@@ -627,12 +627,12 @@ func insertReplayedTask(ctx context.Context, db dbExecutor, task sessionTaskRow)
 		INSERT INTO session_task (
 		    history_id, id, state, status_timestamp, data, created_at,
 		    snapshot_atespace, snapshot_uri,
-		    snapshot_content_scope, history_sequence, position
+		    snapshot_fidelity, history_sequence, position
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`,
 		task.HistoryID, task.ID, task.State, task.StatusTimestamp, task.Data, task.CreatedAt,
 		task.SnapshotAtespace, task.SnapshotURI,
-		task.SnapshotContentScope, task.HistorySequence, task.Position,
+		task.SnapshotFidelity, task.HistorySequence, task.Position,
 	)
 }
 
@@ -641,7 +641,7 @@ func insertReplayedTask(ctx context.Context, db dbExecutor, task sessionTaskRow)
 func readCheckpoint(ctx context.Context, db dbExecutor, id, userID string, state *string) (sessionCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		    snapshot_uri, snapshot_fidelity, tag_uid, state, data, source_history_id, prepared_revision
 		FROM session_checkpoint
 		WHERE id = $1 AND user_id = $2
 		  -- Lifecycle work also reads creating and deleting checkpoints.
@@ -654,7 +654,7 @@ func readCheckpoint(ctx context.Context, db dbExecutor, id, userID string, state
 func readCheckpointRequest(ctx context.Context, db dbExecutor, userID, requestID string) (sessionCheckpointRow, error) {
 	return queryOne(ctx, db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
-		    snapshot_uri, snapshot_content_scope, tag_uid, state, data, source_history_id, prepared_revision
+		    snapshot_uri, snapshot_fidelity, tag_uid, state, data, source_history_id, prepared_revision
 		FROM session_checkpoint
 		WHERE user_id = $1 AND request_id = $2
 	`, pgx.RowToStructByName[sessionCheckpointRow], userID, requestID)

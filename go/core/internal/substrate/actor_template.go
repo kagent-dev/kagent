@@ -98,7 +98,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			Command: append([]string(nil), spec.Command...),
 			Args:    append([]string(nil), spec.Args...),
 			Env:     actorEnv,
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
+			WakeupProbe: &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
@@ -110,8 +110,10 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: spec.SnapshotLocation,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			StorageLocation:   spec.SnapshotLocation,
+			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			// Pin the server default so immutable comparison survives creation.
+			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
@@ -239,12 +241,12 @@ func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxCon
 	switch class {
 	case "", atev1alpha1.SandboxClassGvisor:
 		return &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
+			SandboxClass: "gvisor",
 			ConfigName:   "gvisor-default",
 		}, nil
 	case atev1alpha1.SandboxClassMicroVM:
 		return &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM,
+			SandboxClass: "microvm",
 			ConfigName:   "microvm",
 		}, nil
 	default:

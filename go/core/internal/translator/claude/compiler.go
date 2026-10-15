@@ -125,6 +125,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Revision: translator.Revision{
 			Namespace:   template.Namespace,
 			SkillImages: skills.Images,
+			Command:     slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 			Environment: environment,
 			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,

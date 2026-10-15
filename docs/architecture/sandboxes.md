@@ -173,7 +173,7 @@ prevent old results from overwriting newer database state.
 Creation must finish before suspend/resume; deletion can supersede creation or
 other operations and cannot be canceled into a live sandbox. Resume preserves
 durable files; process handles last only as long as the guest's in-memory registry.
-Sandboxes take DATA snapshots (see
+Sandboxes take VOLUMES snapshots (see
 [Runtime and lifecycle](runtime-and-lifecycle.md)). Resume starts a fresh guest
 with the saved durable directories. Running processes stop during suspension,
 and old process handles become unavailable after resume. Commands are not replayed;

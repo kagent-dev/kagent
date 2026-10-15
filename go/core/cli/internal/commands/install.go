@@ -198,7 +198,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 
 	s.Suffix = " Preparing Substrate prerequisites"
-	if err := prepareSubstrate(ctx); err != nil {
+	if err := prepareSubstrate(ctx, cfg.Namespace); err != nil {
 		return fmt.Errorf("prepare Substrate prerequisites: %w", err)
 	}
 

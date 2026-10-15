@@ -17,6 +17,8 @@ ipv6:
 # Values under `global` are visible to this chart and to every subchart. A parent
 # chart or an operator sets one value here instead of one value per chart.
 global:
+  # -- Kubernetes DNS domain used in runtime-facing service URLs.
+  clusterDomain: cluster.local
   # -- Registry that overrides every per-image registry when set. This is the
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
