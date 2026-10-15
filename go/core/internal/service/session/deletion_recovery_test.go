@@ -32,7 +32,7 @@ func TestDeleteSessionWithUnpublishedRuntimeBoundary(t *testing.T) {
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			name := substrate.ActorName(session.Id)
-			_, err = actors.ResumeActor(t.Context(), "team-a", name)
+			actor, err := actors.ResumeActor(t.Context(), "team-a", name)
 			require.NoError(t, err)
 			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("work"))
 			message.ContextID = session.ContextId
@@ -42,7 +42,7 @@ func TestDeleteSessionWithUnpublishedRuntimeBoundary(t *testing.T) {
 			require.NoError(t, err)
 			task.Status = a2a.TaskStatus{State: state, Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("saved boundary"))}
 			digest = sha256.Sum256([]byte("boundary"))
-			_, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
+			boundaryVersion, err := store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 			require.NoError(t, err)
 
 			// Timeout is not cleanup proof. Admission closes, but the task's
@@ -59,6 +59,16 @@ func TestDeleteSessionWithUnpublishedRuntimeBoundary(t *testing.T) {
 			_, err = store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.ErrorIs(t, err, database.ErrConflict)
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""), database.ErrConflict)
+			// A runtime with stale credentials may still be alive after an
+			// ambiguous delete. Neither a fresh task nor a new update is admitted.
+			late := a2a.NewSubmittedTask(message, message)
+			lateDigest := sha256.Sum256([]byte("late runtime write"))
+			_, err = store.CreateRuntimeTask(t.Context(), session.Id, lateDigest[:], late, "")
+			require.ErrorIs(t, err, database.ErrConflict)
+			update := *task
+			update.Status = a2a.TaskStatus{State: a2a.TaskStateWorking}
+			_, err = store.UpdateSessionTask(t.Context(), session.Id, boundaryVersion, lateDigest[:], &update, &update, "")
+			require.ErrorIs(t, err, database.ErrConflict)
 
 			// A fresh controller reconciles both a failed deletion and a lost
 			// response after the Actor was already deleted.
@@ -71,6 +81,11 @@ func TestDeleteSessionWithUnpublishedRuntimeBoundary(t *testing.T) {
 			_, err = actors.GetActor(t.Context(), "team-a", name)
 			require.Equal(t, codes.NotFound, status.Code(err))
 			_, err = store.GetSessionTask(t.Context(), session.Id, string(task.ID), nil)
+			require.ErrorIs(t, err, database.ErrNotFound)
+			_, err = store.GetSessionForRuntime(t.Context(), session.Id, actor.GetMetadata().GetUid())
+			require.ErrorIs(t, err, database.ErrNotFound)
+			require.ErrorIs(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), boundaryVersion), database.ErrNotFound)
+			_, err = store.CreateRuntimeTask(t.Context(), session.Id, lateDigest[:], late, "")
 			require.ErrorIs(t, err, database.ErrNotFound)
 			again, err := workflow.Delete(t.Context(), current)
 			require.NoError(t, err)

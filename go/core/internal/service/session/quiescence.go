@@ -85,6 +85,12 @@ func (w *ActorWorkflow) quiesceIdleSession(ctx context.Context, work *database.S
 	if err != nil {
 		// No timeout-based takeover: the Substrate request may still complete.
 		// Keep admission closed until its outcome can be safely reconciled.
+		// Recovery gap related to https://github.com/kagent-dev/kagent/issues/3010:
+		// the published boundary's claim survives this return, and startup scans
+		// exclude claimed work. Delete's unpublished-boundary exception cannot
+		// release it. The related fork work in giantswarm/kagent-upstream#172
+		// reconciles failed Pause/Suspend; controller loss after claiming also
+		// needs safe ownership recovery before this guard can be relaxed.
 		logging.FromContext(ctx).ErrorContext(ctx, "runtime boundary outcome unknown", "session_id", work.Session.Id, "version", work.Version, "error", err)
 		return
 	}

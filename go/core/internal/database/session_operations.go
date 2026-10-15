@@ -92,12 +92,16 @@ func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind ap
 			return err
 		}
 	} else {
-		// https://github.com/kagent-dev/kagent/issues/3010: an unpublished
-		// boundary must not prevent explicit deletion when its runtime died.
+		// https://github.com/kagent-dev/kagent/issues/3010 (case B): exhausted
+		// SettleTask retries can strand an unpublished boundary in Go ADK too;
+		// see TestGoADKDeletionAfterSettlementOutage in grpcserver.
 		// Delete closes admission before stopping compute and retains its
 		// durable intent until Substrate confirms deletion. This does not
 		// publish the boundary or authorize reuse of the old conversation.
 		// Claimed controller work still has to finish before deletion starts.
+		// Revisit this exception when shared recovery can fence the old runtime
+		// and reconcile its boundary. Closing #3010 or merging #3011 alone is
+		// not evidence of that contract; unknown-task cancellation is separate.
 		pending, err := queryOne(ctx, tx, `
 			SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
 			    AND quiescence_pending AND quiescence_executor_id IS NOT NULL)
