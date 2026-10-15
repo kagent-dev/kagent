@@ -43,9 +43,6 @@ type grpcTransport struct {
 	credentials     credentials.TransportCredentials
 	dialOptions     []grpc.DialOption
 
-	tokenProvider          TokenProvider
-	insecureTokenTransport bool
-
 	mu   sync.Mutex
 	conn *grpc.ClientConn
 }
@@ -158,9 +155,6 @@ func (c *baseClient) grpcConnection() (*grpc.ClientConn, error) {
 			grpc.MaxCallRecvMsgSize(transport.maxMessageBytes),
 			grpc.MaxCallSendMsgSize(transport.maxMessageBytes),
 		))
-	}
-	if transport.tokenProvider != nil {
-		dialOptions = append(dialOptions, newTokenAuth(transport, transportCredentials.Info().SecurityProtocol).dialOptions()...)
 	}
 	dialOptions = append(dialOptions, transport.dialOptions...)
 

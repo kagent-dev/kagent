@@ -18,21 +18,8 @@ from typing import Optional
 bearer_token: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("kagent_bearer_token", default=None)
 
 
-# A caller that authenticates with its own bearer token sends the model API key
-# here instead, and passthrough picks it over that credential. The value is the
-# key itself, with no scheme.
-MODEL_API_KEY_HEADER = "x-kagent-model-api-key"
-
-
-def extract_passthrough_token(headers: dict) -> Optional[str]:
-    """Return the model API key for passthrough from an A2A request's headers dict.
-
-    The model API key header wins; otherwise the Authorization Bearer token,
-    for callers whose identity token is also their model credential.
-    """
-    model_api_key = (headers.get(MODEL_API_KEY_HEADER) or "").strip()
-    if model_api_key:
-        return model_api_key
+def extract_bearer_token(headers: dict) -> Optional[str]:
+    """Extract the Bearer token from an A2A request's headers dict."""
     auth_header = headers.get("authorization") or headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None

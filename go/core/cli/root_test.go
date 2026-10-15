@@ -87,10 +87,10 @@ func TestRootCommandInvokeContract(t *testing.T) {
 
 	invokeCmd, _, err := rootCmd.Find([]string{"agent", "invoke"})
 	require.NoError(t, err)
-	for _, flag := range []string{"session", "task", "file", "stream", "token"} {
+	for _, flag := range []string{"session", "task", "file", "stream"} {
 		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
-	for _, legacyFlag := range []string{"agent", "url-override"} {
+	for _, legacyFlag := range []string{"agent", "url-override", "token"} {
 		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
 	}
 

@@ -19,9 +19,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 )
 
-type fixedToken string
-
-func (t fixedToken) Token(context.Context) (string, error) { return string(t), nil }
+// addAuthorization stands in for an embedding binary's interceptor.
+func addAuthorization(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return invoker(metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer user-token"), method, req, reply, cc, opts...)
+}
 
 // startAuthorizationRecorder serves gRPC health on loopback and records the
 // authorization metadata of every call.
@@ -48,19 +49,14 @@ func startAuthorizationRecorder(t *testing.T) (string, func() []string) {
 	}
 }
 
-func TestRootWithoutOptionsHasNoTokenFlag(t *testing.T) {
-	require.Nil(t, cli.Root().PersistentFlags().Lookup("allow-insecure-token-transport"))
-	require.NotNil(t, cli.Root(cli.WithTokenProvider(fixedToken(""))).PersistentFlags().Lookup("allow-insecure-token-transport"))
-}
-
 // An embedding binary adds a command that calls its own service over Dial.
-// The call must carry the token, and the command must see the resolved
-// configuration.
-func TestEmbeddedCommandDialsWithTheTokenProvider(t *testing.T) {
+// Its interceptor must run on that call and on the reachability check, and the
+// command must see the resolved configuration.
+func TestEmbeddedCommandDialsWithDialOptions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	endpoint, seen := startAuthorizationRecorder(t)
-	root := cli.Root(cli.WithTokenProvider(fixedToken("user-token")))
+	root := cli.Root(cli.WithGRPCDialOptions(grpc.WithChainUnaryInterceptor(addAuthorization)))
 	root.AddCommand(&cobra.Command{
 		Use: "probe",
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -68,18 +68,6 @@ def test_convert_request_sets_bearer_token_context_var():
     assert bearer_token.get() == "the-callers-token"
 
 
-def test_convert_request_prefers_model_api_key_over_bearer_token():
-    # The caller's own credential must never reach the model provider when it
-    # sent a model API key alongside it.
-    headers = {"authorization": "Bearer the-callers-credential", "x-kagent-model-api-key": "model-key"}
-    context = _request_context(state={"headers": headers})
-    executor = A2aAgentExecutor(runner=lambda: None, config=A2aAgentExecutorConfig())
-
-    executor._convert_request(context, None)
-
-    assert bearer_token.get() == "model-key"
-
-
 def test_convert_request_clears_bearer_token_when_no_auth_header():
     context = _request_context(state={"headers": {}})
     executor = A2aAgentExecutor(runner=lambda: None, config=A2aAgentExecutorConfig())

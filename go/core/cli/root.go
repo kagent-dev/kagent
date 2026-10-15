@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
-	"github.com/kagent-dev/kagent/go/api/client"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/commands"
 	dbcli "github.com/kagent-dev/kagent/go/core/cli/internal/commands/db"
@@ -23,19 +22,15 @@ import (
 type Option func(*options)
 
 type options struct {
-	tokenProvider   client.TokenProvider
+	dialOptions     []grpc.DialOption
 	extraMigrations func(context.Context) ([]migrations.Source, error)
 }
 
-// WithTokenProvider sends the provider's token on every call the CLI makes:
-// the reachability check, the control-plane API, and the A2A gateway. It also
-// registers --allow-insecure-token-transport, which permits a plaintext
-// non-loopback endpoint. client.TokenProvider states when the provider is
-// asked and how an empty token or an error is handled; a provider that also
-// implements client.UnauthenticatedHinter supplies the next step when the
-// server rejects a call.
-func WithTokenProvider(provider client.TokenProvider) Option {
-	return func(o *options) { o.tokenProvider = provider }
+// WithGRPCDialOptions adds gRPC dial options, such as interceptors, to every
+// connection the CLI makes: the reachability check, the control-plane API,
+// the A2A gateway, and Dial.
+func WithGRPCDialOptions(dialOptions ...grpc.DialOption) Option {
+	return func(o *options) { o.dialOptions = append(o.dialOptions, dialOptions...) }
 }
 
 // WithExtraMigrations adds migration tracks to the db commands, after the
@@ -53,8 +48,8 @@ func ConfigFromContext(ctx context.Context) *configv1.CLIConfig {
 }
 
 // Dial connects to the control-plane API the way every CLI command does: the
-// same URL and TLS flags, the port-forward fallback, and the token provider.
-// It is for an embedding binary that calls a service of its own on that API.
+// same URL and TLS flags, port-forward fallback, and dial options. Calls on
+// it carry no x-user-id and no default deadline; the caller sets its own.
 // Call it from RunE; the returned function closes the connection and stops
 // any port-forward.
 func Dial(cmd *cobra.Command) (grpc.ClientConnInterface, func() error, error) {
@@ -91,18 +86,16 @@ func Root(opts ...Option) *cobra.Command {
 	connection.RegisterFlags(rootCmd.PersistentFlags())
 	rootCmd.PersistentFlags().StringP(clioutput.FlagName, "o", string(clioutput.FormatTable), "Output format")
 	cliconfig.Register(rootCmd)
-	if o.tokenProvider != nil {
-		connection.RegisterTokenFlags(rootCmd.PersistentFlags())
-		// Every command resolves its connection from its context, so the
-		// provider rides in after configuration loads. Cobra runs only the
-		// nearest PersistentPreRunE; a command that sets its own must call the
-		// root's, as db does.
+	if len(o.dialOptions) > 0 {
+		// Commands resolve their connection from their context. Cobra runs only
+		// the nearest PersistentPreRunE, so a command that sets its own and does
+		// not call the root's, as db does, gets no dial options.
 		loadConfig := rootCmd.PersistentPreRunE
 		rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 			if err := loadConfig(cmd, args); err != nil {
 				return err
 			}
-			cmd.SetContext(connection.WithTokenProvider(cmd.Context(), o.tokenProvider))
+			cmd.SetContext(connection.WithDialOptions(cmd.Context(), o.dialOptions))
 			return nil
 		}
 	}

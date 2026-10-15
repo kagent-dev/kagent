@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -43,9 +44,10 @@ type Options struct {
 	Timeout    time.Duration
 	UserID     string
 
-	// TokenProvider, when set, supplies the bearer token for every call.
-	TokenProvider               client.TokenProvider
-	AllowInsecureTokenTransport bool
+	// DialOptions are added to every client built from these options, after
+	// the ones the CLI sets, so a binary that embeds the CLI can add
+	// interceptors.
+	DialOptions []grpc.DialOption
 }
 
 func DefaultOptions() Options {
@@ -69,11 +71,8 @@ func (o *Options) clientOptions() []client.ClientOption {
 			ServerName: o.ServerName,
 		}))
 	}
-	if o.TokenProvider != nil {
-		clientOptions = append(clientOptions, client.WithTokenProvider(o.TokenProvider))
-	}
-	if o.AllowInsecureTokenTransport {
-		clientOptions = append(clientOptions, client.WithInsecureTokenTransport())
+	if len(o.DialOptions) > 0 {
+		clientOptions = append(clientOptions, client.WithGRPCDialOptions(o.DialOptions...))
 	}
 	return clientOptions
 }
