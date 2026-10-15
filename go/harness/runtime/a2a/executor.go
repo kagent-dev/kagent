@@ -776,19 +776,25 @@ var _ runtime.EventSink = (*executionSink)(nil)
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
 // usageMetadata carries a turn's usage under the canonical usage key, in the
-// token fields every runtime reports, plus the cost and model turns Claude Code
-// also reports.
+// token fields every runtime reports, plus the cost and model turns when the
+// runtime reports them, as Claude Code does. An unreported cost is absent,
+// never zero.
 func usageMetadata(outcome runtime.Outcome) map[string]any {
 	metadata := map[string]any{}
 	if usage := outcome.Usage; usage != nil {
-		metadata[apia2a.UsageMetadataKey] = map[string]any{
+		fields := map[string]any{
 			"promptTokenCount":        usage.InputTokens,
 			"cachedContentTokenCount": usage.CachedTokens,
 			"candidatesTokenCount":    usage.OutputTokens,
 			"totalTokenCount":         usage.InputTokens + usage.OutputTokens,
-			"costUsd":                 usage.TotalCostUSD,
-			"numTurns":                usage.NumTurns,
 		}
+		if usage.TotalCostUSD != nil {
+			fields["costUsd"] = *usage.TotalCostUSD
+		}
+		if usage.NumTurns > 0 {
+			fields["numTurns"] = usage.NumTurns
+		}
+		metadata[apia2a.UsageMetadataKey] = fields
 	}
 	return metadata
 }

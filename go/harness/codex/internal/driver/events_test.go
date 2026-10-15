@@ -71,6 +71,90 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	}
 }
 
+func TestTranslateSumsTheTurnsUsageOntoItsOutcome(t *testing.T) {
+	usage := func(thread, turn string, total, last string) string {
+		return `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"` + thread + `","turnId":"` + turn +
+			`","tokenUsage":{"total":` + total + `,"last":` + last + `,"modelContextWindow":258400}}}`
+	}
+	calls := []string{
+		usage("thread", "turn", `{"inputTokens":100,"cachedInputTokens":0,"outputTokens":10,"reasoningOutputTokens":4}`, `{"inputTokens":100,"cachedInputTokens":0,"outputTokens":10,"reasoningOutputTokens":4}`),
+		// A replayed notification repeats its running total and is counted once.
+		usage("thread", "turn", `{"inputTokens":100,"cachedInputTokens":0,"outputTokens":10,"reasoningOutputTokens":4}`, `{"inputTokens":100,"cachedInputTokens":0,"outputTokens":10,"reasoningOutputTokens":4}`),
+		// A subagent's thread runs its own turn; its calls are part of this one.
+		usage("subagent", "subagent-turn", `{"inputTokens":30,"cachedInputTokens":10,"outputTokens":3}`, `{"inputTokens":30,"cachedInputTokens":10,"outputTokens":3}`),
+		usage("thread", "turn", `{"inputTokens":250,"cachedInputTokens":90,"outputTokens":30}`, `{"inputTokens":150,"cachedInputTokens":90,"outputTokens":20}`),
+		// Another turn of the root thread is not this turn's.
+		usage("thread", "earlier-turn", `{"inputTokens":999,"outputTokens":9}`, `{"inputTokens":999,"outputTokens":9}`),
+	}
+	want := runtime.Usage{InputTokens: 280, CachedTokens: 100, OutputTokens: 33}
+	for _, test := range []struct {
+		status  string
+		failure string
+	}{
+		{status: "completed"},
+		{status: "failed", failure: "Codex execution failed"},
+		{status: "interrupted", failure: "Codex execution was interrupted"},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			translator := newEventTranslator("thread", "turn")
+			outcome := translateAll(t, translator, append(calls,
+				`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"`+test.status+`"}}}`))
+			if outcome.Usage == nil || *outcome.Usage != want {
+				t.Fatalf("usage = %#v, want %#v", outcome.Usage, want)
+			}
+			if outcome.Usage.TotalCostUSD != nil || outcome.Usage.NumTurns != 0 {
+				t.Fatalf("Codex reports no cost or model turns: %#v", outcome.Usage)
+			}
+			failure := ""
+			if outcome.Failure != nil {
+				failure = outcome.Failure.Message
+			}
+			if failure != test.failure {
+				t.Fatalf("failure = %q, want %q", failure, test.failure)
+			}
+		})
+	}
+}
+
+func TestTranslateReportsNoUsageWhenCodexReportsNone(t *testing.T) {
+	outcome := translateAll(t, newEventTranslator("thread", "turn"), []string{
+		`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"completed"}}}`,
+	})
+	if outcome.Usage != nil {
+		t.Fatalf("usage = %#v, want none", outcome.Usage)
+	}
+}
+
+func TestTranslateRejectsMalformedUsage(t *testing.T) {
+	var message rpcMessage
+	if err := json.Unmarshal([]byte(`{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thread","turnId":"turn","tokenUsage":{"last":{"inputTokens":"many"}}}}`), &message); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := newEventTranslator("thread", "turn").translate(message, &recordingSink{}); err == nil {
+		t.Fatal("translate() accepted a malformed token usage")
+	}
+}
+
+// translateAll feeds messages to translator and returns the terminal outcome.
+func translateAll(t *testing.T, translator *eventTranslator, messages []string) runtime.Outcome {
+	t.Helper()
+	for _, raw := range messages {
+		var message rpcMessage
+		if err := json.Unmarshal([]byte(raw), &message); err != nil {
+			t.Fatal(err)
+		}
+		outcome, done, err := translator.translate(message, &recordingSink{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if done {
+			return outcome
+		}
+	}
+	t.Fatal("no terminal event")
+	return runtime.Outcome{}
+}
+
 func TestApprovalToolCorrelatesActiveCall(t *testing.T) {
 	translator := newEventTranslator("thread", "turn")
 	sink := &recordingSink{}

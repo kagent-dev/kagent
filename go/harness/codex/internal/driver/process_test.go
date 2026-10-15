@@ -200,10 +200,12 @@ printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
 read turn
 printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":100,"cachedInputTokens":40,"outputTokens":10},"last":{"inputTokens":100,"cachedInputTokens":40,"outputTokens":10}}}}'
 printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
 read approval
 printf '%s\n' "$approval" > "$CAPTURE"
 printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
+printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":220,"cachedInputTokens":130,"outputTokens":15},"last":{"inputTokens":120,"cachedInputTokens":90,"outputTokens":5}}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 sleep 5
 `
@@ -239,6 +241,10 @@ sleep 5
 	}, sink)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	// The pause does not split the turn: its usage counts the model calls on both sides.
+	if want := (runtime.Usage{InputTokens: 220, CachedTokens: 130, OutputTokens: 15}); outcome.Usage == nil || *outcome.Usage != want {
+		t.Fatalf("resume usage = %#v, want %#v", outcome.Usage, want)
 	}
 	response, err := os.ReadFile(capture)
 	if err != nil {

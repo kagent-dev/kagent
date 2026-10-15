@@ -16,10 +16,21 @@ type eventTranslator struct {
 	threadID string
 	turnID   string
 	tools    map[string]activeTool
+	// usage sums the model calls of the turn, its subagent threads' included.
+	usage runtime.Usage
+	// seenTotals holds each thread's last running total, to skip a replayed notification.
+	seenTotals map[string]codexUsage
 }
 
 func newEventTranslator(threadID, turnID string) *eventTranslator {
-	return &eventTranslator{threadID: threadID, turnID: turnID, tools: make(map[string]activeTool)}
+	return &eventTranslator{
+		threadID: threadID, turnID: turnID, tools: make(map[string]activeTool), seenTotals: map[string]codexUsage{},
+	}
+}
+
+// codexUsage is the token breakdown of a thread/tokenUsage/updated notification.
+type codexUsage struct {
+	InputTokens, CachedInputTokens, OutputTokens int
 }
 
 type activeTool struct {
@@ -58,6 +69,8 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 			return runtime.Outcome{}, false, err
 		}
 		return runtime.Outcome{}, false, nil
+	case "thread/tokenUsage/updated":
+		return runtime.Outcome{}, false, t.recordUsage(message.Params)
 	case "turn/completed":
 		var params struct {
 			ThreadID string
@@ -77,11 +90,11 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		}
 		switch params.Turn.Status {
 		case "completed":
-			return runtime.Outcome{}, true, nil
+			return runtime.Outcome{Usage: t.turnUsage()}, true, nil
 		case "interrupted":
-			return runtime.Outcome{Failure: &runtime.Failure{Message: "Codex execution was interrupted"}}, true, nil
+			return runtime.Outcome{Failure: &runtime.Failure{Message: "Codex execution was interrupted"}, Usage: t.turnUsage()}, true, nil
 		case "failed":
-			return runtime.Outcome{Failure: &runtime.Failure{Message: "Codex execution failed"}}, true, nil
+			return runtime.Outcome{Failure: &runtime.Failure{Message: "Codex execution failed"}, Usage: t.turnUsage()}, true, nil
 		default:
 			return runtime.Outcome{}, false, fmt.Errorf("unsupported Codex terminal status %q", params.Turn.Status)
 		}
@@ -90,6 +103,42 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		// the public text/tool/terminal contract are safe to ignore.
 		return runtime.Outcome{}, false, nil
 	}
+}
+
+// recordUsage adds one model call's tokens to the turn. Codex reports tokens, never a price, so
+// the turn's usage carries no cost.
+func (t *eventTranslator) recordUsage(raw json.RawMessage) error {
+	var params struct {
+		ThreadID, TurnID string
+		TokenUsage       struct{ Total, Last codexUsage }
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return fmt.Errorf("decode Codex token usage: %w", err)
+	}
+	// The process serves one turn, so another thread is a subagent whose calls also count.
+	if params.ThreadID == t.threadID && params.TurnID != t.turnID {
+		return nil
+	}
+	if total := params.TokenUsage.Total; total != (codexUsage{}) {
+		if t.seenTotals[params.ThreadID] == total {
+			return nil
+		}
+		t.seenTotals[params.ThreadID] = total
+	}
+	last := params.TokenUsage.Last
+	t.usage.InputTokens += last.InputTokens
+	t.usage.CachedTokens += last.CachedInputTokens
+	t.usage.OutputTokens += last.OutputTokens
+	return nil
+}
+
+// turnUsage is the turn's usage, or nil when Codex reported none.
+func (t *eventTranslator) turnUsage() *runtime.Usage {
+	if t.usage == (runtime.Usage{}) {
+		return nil
+	}
+	usage := t.usage
+	return &usage
 }
 
 func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, sink runtime.EventSink) error {

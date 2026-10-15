@@ -96,8 +96,10 @@ type Outcome struct {
 
 // Usage is what one turn consumed, as the runtime reported it.
 type Usage struct {
-	TotalCostUSD float64
-	NumTurns     int
+	// TotalCostUSD is nil when the runtime reports no cost, as Codex does.
+	TotalCostUSD *float64
+	// NumTurns is zero when the runtime reports no model turns.
+	NumTurns int
 	// InputTokens counts every prompt token, CachedTokens the part of them
 	// read from the provider's prompt cache.
 	InputTokens  int

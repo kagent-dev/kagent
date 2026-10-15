@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,32 @@ func TestE2ECodexMockBuiltinToolEvents(t *testing.T) {
 	}
 	assertToolEvents(t, streamed.toolEvents, "command_execution")
 	assertToolEvents(t, taskToolEvents(getTask(t, fixture, streamed.taskID)), "command_execution")
+}
+
+// A completed Codex turn reports the tokens its model calls spent on its final
+// status, and no cost: Codex reports none.
+func TestCodexTurnReportsItsUsage(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	modelURL := reachableModelURL(t, startMockLLMServer(t, codexInteractionMocks, "mocks/invoke_codex_builtin_tools.json"))
+	template := createCodexMockTemplate(t, modelURL)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, codexE2EHarness, template)
+
+	_, _, task := fixture.send(t, "Run the requested shell command.")
+	if task.Status.State != a2atype.TaskStateCompleted || task.Status.Message == nil {
+		t.Fatalf("task state = %s, status = %#v, text = %s", task.Status.State, task.Status, taskText(task))
+	}
+	usage, ok := task.Status.Message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
+	if !ok {
+		t.Fatalf("usage metadata = %#v", task.Status.Message.Metadata[apia2a.UsageMetadataKey])
+	}
+	// The mock's two model calls: 10 + 14 prompt and 8 + 5 output tokens.
+	if usage["promptTokenCount"] != float64(24) || usage["candidatesTokenCount"] != float64(13) || usage["totalTokenCount"] != float64(37) {
+		t.Fatalf("usage metadata = %#v, want 24 prompt and 13 output tokens", usage)
+	}
+	if _, ok := usage["costUsd"]; ok {
+		t.Fatalf("a Codex turn reports no cost: %#v", usage)
+	}
 }
 
 func TestE2ECodexMockWholeServerMCP(t *testing.T) {

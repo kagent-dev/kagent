@@ -73,13 +73,13 @@ func readBoundedLine(r *bufio.Reader, max int) ([]byte, error) {
 
 func (p *parser) parseLine(line []byte, emit func(Event) error) error {
 	var envelope struct {
-		Type      string  `json:"type"`
-		Subtype   string  `json:"subtype"`
-		SessionID string  `json:"session_id"`
-		IsError   bool    `json:"is_error"`
-		Result    string  `json:"result"`
-		Cost      float64 `json:"total_cost_usd"`
-		NumTurns  int     `json:"num_turns"`
+		Type      string   `json:"type"`
+		Subtype   string   `json:"subtype"`
+		SessionID string   `json:"session_id"`
+		IsError   bool     `json:"is_error"`
+		Result    string   `json:"result"`
+		Cost      *float64 `json:"total_cost_usd"`
+		NumTurns  int      `json:"num_turns"`
 		Usage     struct {
 			InputTokens         int `json:"input_tokens"`
 			CacheReadTokens     int `json:"cache_read_input_tokens"`

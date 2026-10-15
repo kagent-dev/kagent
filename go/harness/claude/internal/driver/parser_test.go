@@ -90,7 +90,7 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 	if err := ParseJSONL(strings.NewReader(strings.Join(events, "\n")+"\n"), 4096, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if last.Kind != EventCompleted || last.Usage == nil || last.Usage.TotalCostUSD != 0.25 || last.Usage.NumTurns != 3 || last.Usage.InputTokens != 3620 || last.Usage.CachedTokens != 3000 || last.Usage.OutputTokens != 40 {
+	if last.Kind != EventCompleted || last.Usage == nil || last.Usage.TotalCostUSD == nil || *last.Usage.TotalCostUSD != 0.25 || last.Usage.NumTurns != 3 || last.Usage.InputTokens != 3620 || last.Usage.CachedTokens != 3000 || last.Usage.OutputTokens != 40 {
 		t.Fatalf("completed result = %#v, usage %#v", last, last.Usage)
 	}
 	events[1] = `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","total_cost_usd":0.1,"num_turns":2,"usage":{"input_tokens":50,"output_tokens":7},"session_id":"22222222-2222-4222-8222-222222222222"}`
@@ -100,7 +100,7 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 	if last.Kind != EventFailed || last.Category != "error_during_execution" {
 		t.Fatalf("any other error is still a failure: %#v", last)
 	}
-	if last.Usage == nil || last.Usage.TotalCostUSD != 0.1 || last.Usage.InputTokens != 50 || last.Usage.OutputTokens != 7 {
+	if last.Usage == nil || last.Usage.TotalCostUSD == nil || *last.Usage.TotalCostUSD != 0.1 || last.Usage.InputTokens != 50 || last.Usage.OutputTokens != 7 {
 		t.Fatalf("a failed turn keeps the usage it spent: %#v", last.Usage)
 	}
 }

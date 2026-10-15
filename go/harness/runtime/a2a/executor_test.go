@@ -306,7 +306,7 @@ func TestExecuteReportsTheUsageAFailedTurnSpent(t *testing.T) {
 	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
 		return runtime.Outcome{
 			Failure: &runtime.Failure{Message: "boom"},
-			Usage:   &runtime.Usage{TotalCostUSD: 0.1, NumTurns: 2, InputTokens: 50, OutputTokens: 7},
+			Usage:   &runtime.Usage{TotalCostUSD: new(0.1), NumTurns: 2, InputTokens: 50, OutputTokens: 7},
 		}, nil
 	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
 	if err != nil {
@@ -635,7 +635,7 @@ func TestExecuteReportsTheUsageACompletedTurnSpent(t *testing.T) {
 			return runtime.Outcome{}, err
 		}
 		return runtime.Outcome{
-			Usage: &runtime.Usage{TotalCostUSD: 0.05, NumTurns: 3, InputTokens: 120, OutputTokens: 40},
+			Usage: &runtime.Usage{TotalCostUSD: new(0.05), NumTurns: 3, InputTokens: 120, OutputTokens: 40},
 		}, nil
 	}}, &fakeContinuation{data: testSessionID}, tracing.RuntimeTelemetry{})
 	if err != nil {
@@ -656,5 +656,29 @@ func TestExecuteReportsTheUsageACompletedTurnSpent(t *testing.T) {
 	usage, _ := message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
 	if usage["costUsd"] != 0.05 || usage["numTurns"] != 3 {
 		t.Fatalf("usage metadata = %#v", usage)
+	}
+}
+
+func TestExecuteOmitsTheCostAndModelTurnsARuntimeDoesNotReport(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{Usage: &runtime.Usage{InputTokens: 280, CachedTokens: 100, OutputTokens: 33}}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	last := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
+	if last.Status.State != a2atype.TaskStateCompleted || last.Status.Message == nil {
+		t.Fatalf("last event = %#v, want a completed status with usage", last)
+	}
+	usage, _ := last.Status.Message.Metadata[apia2a.UsageMetadataKey].(map[string]any)
+	want := map[string]any{
+		"promptTokenCount": 280, "cachedContentTokenCount": 100, "candidatesTokenCount": 33, "totalTokenCount": 313,
+	}
+	if !reflect.DeepEqual(usage, want) {
+		t.Fatalf("usage metadata = %#v, want %#v without costUsd or numTurns", usage, want)
 	}
 }
