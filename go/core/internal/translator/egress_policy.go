@@ -216,7 +216,9 @@ func (b *draftBuilder) addModel(model *ResolvedModelConfig, harnessEnv []v1alpha
 		return nil
 	}
 	spec := model.Config.Spec
-	preserve := modelPreservesAuth(spec, harnessEnv, target.Environment)
+	// A literal Harness value overrides the model Secret in the rendered environment.
+	literal := slices.ContainsFunc(harnessEnv, func(variable v1alpha3.RuntimeEnvVar) bool { return variable.Name == target.Environment })
+	preserve := literal || modelPreservesAuth(spec)
 	origin, err := b.allowTarget(target.Endpoint, egressext.AuthenticationRequirement{
 		Header: target.Header, Prefix: target.Prefix, Preserve: preserve,
 		Required: requirements.CredentialRequired && spec.APIKeySecret == "" && !preserve,
@@ -224,7 +226,7 @@ func (b *draftBuilder) addModel(model *ResolvedModelConfig, harnessEnv []v1alpha
 	if err != nil {
 		return NewValidationError("invalid model credential destination: %v", err)
 	}
-	if spec.APIKeySecret == "" || spec.APIKeyPassthrough {
+	if spec.APIKeySecret == "" || spec.APIKeyPassthrough || literal {
 		return nil
 	}
 	key := modelSecretKey(model)
@@ -237,10 +239,9 @@ func (b *draftBuilder) addModel(model *ResolvedModelConfig, harnessEnv []v1alpha
 
 // modelPreservesAuth reports explicit model authentication that new bindings must not override.
 // Keyless Gemini is included until its runtime can use a gateway binding.
-func modelPreservesAuth(spec v1alpha3.ModelConfigSpec, harnessEnv []v1alpha3.RuntimeEnvVar, environment string) bool {
-	literal := slices.ContainsFunc(harnessEnv, func(variable v1alpha3.RuntimeEnvVar) bool { return variable.Name == environment })
+func modelPreservesAuth(spec v1alpha3.ModelConfigSpec) bool {
 	keylessGemini := spec.Provider == v1alpha3.ModelProviderGemini && spec.APIKeySecret == ""
-	return literal || spec.APIKeyPassthrough || len(spec.DefaultHeaders) != 0 || keylessGemini
+	return spec.APIKeyPassthrough || len(spec.DefaultHeaders) != 0 || keylessGemini
 }
 
 func (b *draftBuilder) addMCPServer(server *v1alpha3.RemoteMCPServer) error {

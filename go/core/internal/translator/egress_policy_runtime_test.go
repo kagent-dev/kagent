@@ -353,3 +353,43 @@ func TestPolicyResolvesAuxiliaryModelsBeforeHarnessRendering(t *testing.T) {
 	require.Len(t, result.Credentials, 3)
 	require.Equal(t, []string{"https://api.openai.com:443", "https://embeddings.example.com:443", "https://summary.example.com:443"}, result.EgressDestinations)
 }
+
+func TestHarnessLiteralKeyOverridesModelSecretBinding(t *testing.T) {
+	for _, test := range []struct {
+		name, env string
+		model     v1alpha3.ModelConfigSpec
+		secret    map[string][]byte
+	}{
+		{"bedrock", "AWS_BEARER_TOKEN_BEDROCK",
+			v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}, APIKeySecret: "model-auth"},
+			map[string][]byte{"AWS_BEARER_TOKEN_BEDROCK": []byte("secret")}},
+		{"openai", "OPENAI_API_KEY",
+			v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4o", APIKeySecret: "model-auth", APIKeySecretKey: "token"},
+			map[string][]byte{"token": []byte("secret")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+				Kagent:    &v1alpha3.KagentHarness{},
+				Env:       []v1alpha3.RuntimeEnvVar{{Name: test.env, Value: "explicit"}},
+				Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+			}}
+			model := modelConfig()
+			model.Spec = test.model
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: test.secret}
+			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+				ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help",
+			}}
+			agent := inlineAgent(harness, template)
+			collections := mockCollections(t, harness, model, secret, defaultWorkerPool())
+			ctx := krt.TestingDummyContext{}
+			compilers := map[translator.HarnessType]translator.HarnessCompiler{
+				translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+			}
+			result, err := translator.NewCompiler(ctx, collections, compilers, nil, nil).CompileAgent(t.Context(), agent)
+			require.NoError(t, err)
+			require.Contains(t, result.Environment, corev1.EnvVar{Name: test.env, Value: "explicit"})
+			require.Empty(t, result.Credentials, "the gateway must not replace an explicit Harness key")
+		})
+	}
+}
