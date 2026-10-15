@@ -267,3 +267,20 @@ func (r requiredModelCredentials) ModelRequirements(model *ResolvedModelConfig) 
 func (requiredModelCredentials) Compile(context.Context, *HarnessInput) (*CompileResult, error) {
 	panic("policy resolution must not render a client")
 }
+
+func TestMergeRequirements(t *testing.T) {
+	const origin, other = "https://models.example.com:443", "https://tools.example.com:443"
+	merged := mergeRequirements([]egressext.AuthenticationRequirement{
+		{Origin: other},
+		{Origin: origin, Header: "authorization", Prefix: "Bearer ", Required: true},
+		{Origin: origin, Preserve: true},
+		{Origin: origin, Header: "authorization", Prefix: "Bearer "},
+		{Origin: origin, Header: "x-api-key"},
+	})
+	require.Equal(t, []egressext.AuthenticationRequirement{
+		{Origin: origin, Preserve: true},
+		{Origin: origin, Header: "authorization", Prefix: "Bearer ", Preserve: true, Required: true},
+		{Origin: origin, Header: "x-api-key", Preserve: true},
+		{Origin: other},
+	}, merged)
+}

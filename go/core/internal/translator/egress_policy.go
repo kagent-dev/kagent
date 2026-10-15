@@ -26,23 +26,56 @@ func credentialOrigin(raw string) (string, error) {
 	return origin.String(), nil
 }
 
+func secretURI(namespace, name, key string) string {
+	return "ate-secret://k8s.io/default/" + namespace + "/" + name + "/" + key
+}
+
+func isSecretHeader(ref v1alpha3.ValueRef) bool {
+	return ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource
+}
+
+func bindsTarget(origin, header, prefix string) func(egress.Credential) bool {
+	return func(binding egress.Credential) bool {
+		return binding.Origin == origin && binding.Header == header && binding.Prefix == prefix
+	}
+}
+
+func publicCredentials(bindings []egress.Credential) []egressext.Credential {
+	result := make([]egressext.Credential, len(bindings))
+	for i, binding := range bindings {
+		result[i] = egressext.Credential(binding)
+	}
+	return result
+}
+
+func internalCredentials(bindings []egressext.Credential) []egress.Credential {
+	result := make([]egress.Credential, len(bindings))
+	for i, binding := range bindings {
+		result[i] = egress.Credential(binding)
+	}
+	return result
+}
+
+// policyAgents returns the root and its shared agents in depth-first order.
+func policyAgents(root *AgentInput) []*AgentInput {
+	agents := []*AgentInput{root}
+	for _, child := range root.Shared {
+		agents = append(agents, policyAgents(child.Agent)...)
+	}
+	return agents
+}
+
 func policyModels(input *HarnessInput) []*ResolvedModelConfig {
 	var models []*ResolvedModelConfig
-	var visit func(*AgentInput)
-	visit = func(agent *AgentInput) {
+	for _, agent := range policyAgents(input.Root) {
 		if agent.ResolvedModelConfig != nil {
 			models = append(models, agent.ResolvedModelConfig)
 		}
-		for _, child := range agent.Shared {
-			visit(child.Agent)
+	}
+	for _, model := range []*ResolvedModelConfig{input.SummarizerModel, input.MemoryModel} {
+		if model != nil {
+			models = append(models, model)
 		}
-	}
-	visit(input.Root)
-	if input.SummarizerModel != nil {
-		models = append(models, input.SummarizerModel)
-	}
-	if input.MemoryModel != nil {
-		models = append(models, input.MemoryModel)
 	}
 	return models
 }
@@ -71,167 +104,200 @@ func ResolvePolicy(input *HarnessInput, compiler HarnessCompiler, extension egre
 	if err != nil {
 		return ResolvedPolicy{}, err
 	}
-	result := ResolvedPolicy{access: access, modelBindings: map[*ResolvedModelConfig]bool{}, secretModels: map[string]bool{}, secretMCP: map[string]bool{}, headers: map[string][]string{}}
-	var visit func(*AgentInput)
-	visit = func(agent *AgentInput) {
-		for _, tool := range agent.MCPTools {
-			for _, ref := range tool.Server.Spec.HeadersFrom {
-				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
-					result.secretMCP[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
-				}
-			}
-		}
-		for _, child := range agent.Shared {
-			visit(child.Agent)
-		}
+	result := ResolvedPolicy{
+		access: access, modelBindings: map[*ResolvedModelConfig]bool{}, secretModels: map[string]bool{},
+		secretMCP: secretMCPRefs(input.Root), headers: extensionHeaders(original, access),
 	}
-	visit(input.Root)
-	for _, binding := range access.Credentials {
-		if !slices.Contains(original.Credentials, egressext.Credential(binding)) {
-			result.headers[binding.Origin] = append(result.headers[binding.Origin], binding.Header)
-		}
-	}
-	for _, resolved := range models {
-		model := resolved.Config
-		target := modelCredentialTarget(resolved)
-		name, endpoint, header, prefix := target.Environment, target.Endpoint, target.Header, target.Prefix
-		if name == "" {
-			continue
-		}
-		origin, err := credentialOrigin(endpoint)
-		if err != nil {
-			return ResolvedPolicy{}, NewValidationError("invalid credential destination: %v", err)
-		}
-		matches := func(binding egress.Credential) bool {
-			return binding.Origin == origin && binding.Header == header && binding.Prefix == prefix
-		}
-		bound := slices.ContainsFunc(access.Credentials, matches)
-		if model.Spec.APIKeyPassthrough {
-			if slices.ContainsFunc(access.Credentials, func(binding egress.Credential) bool { return binding.Origin == origin }) {
-				return ResolvedPolicy{}, NewValidationError("destination %q cannot combine caller-token passthrough with gateway credentials", origin)
-			}
-			result.tokenPassthroughOrigins = append(result.tokenPassthroughOrigins, origin)
-			continue
-		}
-		if model.Spec.APIKeySecret != "" {
-			if bound {
-				result.modelBindings[resolved] = true
-				result.secretModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+modelSecretKey(resolved)] = true
-			}
-			continue
-		}
-		// Optional SDK authentication keeps its default mode unless a binding is added.
-		selected := slices.Contains(result.headers[origin], header)
-		if requirements[resolved].CredentialRequired {
-			if !bound {
-				return ResolvedPolicy{}, NewValidationError("model %q requires apiKeySecret or a resolved gateway credential for %s", model.Name, origin)
-			}
-			selected = true
-		}
-		if selected && bound {
-			result.modelBindings[resolved] = true
-			result.modelKeys = append(result.modelKeys, name)
+	for _, model := range models {
+		if err := result.resolveModel(model, requirements[model].CredentialRequired); err != nil {
+			return ResolvedPolicy{}, err
 		}
 	}
 	return result, nil
 }
 
-func policyDraft(input *HarnessInput, models []*ResolvedModelConfig, requirementsByModel map[*ResolvedModelConfig]ModelRequirements) (egressext.PolicyDraft, error) {
-	var destinations []string
-	var bindings []egress.Credential
-	var requirements []egressext.AuthenticationRequirement
-	add := func(raw, header, prefix string, preserve, required bool) error {
-		origin, err := credentialOrigin(raw)
-		if err != nil {
-			return err
-		}
-		destinations = append(destinations, origin)
-		if strings.HasPrefix(origin, "https://") && !strings.Contains(origin, "*") {
-			requirements = append(requirements, egressext.AuthenticationRequirement{Origin: origin, Header: header, Prefix: prefix, Preserve: preserve, Required: required})
-		}
-		return nil
-	}
-	for _, model := range models {
-		for _, endpoint := range modelEndpoints(model) {
-			origin, err := credentialOrigin(endpoint)
-			if err != nil {
-				return egressext.PolicyDraft{}, NewValidationError("invalid model destination: %v", err)
-			}
-			destinations = append(destinations, origin)
-		}
-		destinations = append(destinations, requirementsByModel[model].Destinations...)
-		target := modelCredentialTarget(model)
-		name, endpoint, header, prefix := target.Environment, target.Endpoint, target.Header, target.Prefix
-		if name == "" {
-			continue
-		}
-		spec := model.Config.Spec
-		literal := slices.ContainsFunc(input.Harness.Spec.Env, func(variable v1alpha3.RuntimeEnvVar) bool { return variable.Name == name })
-		preserve := literal || spec.APIKeyPassthrough || len(spec.DefaultHeaders) != 0 || (spec.Provider == v1alpha3.ModelProviderGemini && spec.APIKeySecret == "")
-		if err := add(endpoint, header, prefix, preserve, requirementsByModel[model].CredentialRequired && spec.APIKeySecret == "" && !preserve); err != nil {
-			return egressext.PolicyDraft{}, NewValidationError("invalid model credential destination: %v", err)
-		}
-		if spec.APIKeySecret == "" || spec.APIKeyPassthrough {
-			continue
-		}
-		key := modelSecretKey(model)
-		if spec.Provider == v1alpha3.ModelProviderBedrock && key == "" {
-			continue
-		}
-		origin, _ := credentialOrigin(endpoint) // Validated above.
-		bindings = append(bindings, egress.Credential{Origin: origin, Header: header, Prefix: prefix, URI: "ate-secret://k8s.io/default/" + model.Config.Namespace + "/" + spec.APIKeySecret + "/" + key})
-	}
-	var visit func(*AgentInput) error
-	visit = func(agent *AgentInput) error {
+// secretMCPRefs lists the Secret keys that MCP headers may reference.
+func secretMCPRefs(root *AgentInput) map[string]bool {
+	refs := map[string]bool{}
+	for _, agent := range policyAgents(root) {
 		for _, tool := range agent.MCPTools {
-			preserve := slices.ContainsFunc(tool.Server.Spec.HeadersFrom, func(ref v1alpha3.ValueRef) bool {
-				return ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource
-			})
-			if err := add(tool.Server.Spec.URL, "", "", preserve, false); err != nil {
-				return NewValidationError("invalid MCP credential destination: %v", err)
-			}
-			origin, _ := credentialOrigin(tool.Server.Spec.URL) // Validated above.
 			for _, ref := range tool.Server.Spec.HeadersFrom {
-				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
-					bindings = append(bindings, egress.Credential{Origin: origin, Header: ref.Name, URI: "ate-secret://k8s.io/default/" + tool.Server.Namespace + "/" + ref.ValueFrom.Name + "/" + ref.ValueFrom.Key})
+				if isSecretHeader(ref) {
+					refs[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
 				}
 			}
 		}
-		for _, child := range agent.Shared {
-			if err := visit(child.Agent); err != nil {
-				return err
-			}
+	}
+	return refs
+}
+
+// extensionHeaders lists, by origin, the headers of bindings the extension added.
+func extensionHeaders(original egressext.PolicyDraft, access egress.Access) map[string][]string {
+	headers := map[string][]string{}
+	for _, binding := range access.Credentials {
+		if !slices.Contains(original.Credentials, egressext.Credential(binding)) {
+			headers[binding.Origin] = append(headers[binding.Origin], binding.Header)
 		}
+	}
+	return headers
+}
+
+// resolveModel records whether a model client authenticates through the gateway.
+func (p *ResolvedPolicy) resolveModel(resolved *ResolvedModelConfig, required bool) error {
+	spec := resolved.Config.Spec
+	target := modelCredentialTarget(resolved)
+	if target.Environment == "" {
 		return nil
 	}
-	if err := visit(input.Root); err != nil {
-		return egressext.PolicyDraft{}, err
+	origin, err := credentialOrigin(target.Endpoint)
+	if err != nil {
+		return NewValidationError("invalid credential destination: %v", err)
 	}
-	access, err := egress.CanonicalAccess(destinations, bindings)
+	bound := slices.ContainsFunc(p.access.Credentials, bindsTarget(origin, target.Header, target.Prefix))
+	switch {
+	case spec.APIKeyPassthrough:
+		if slices.ContainsFunc(p.access.Credentials, func(binding egress.Credential) bool { return binding.Origin == origin }) {
+			return NewValidationError("destination %q cannot combine caller-token passthrough with gateway credentials", origin)
+		}
+		p.tokenPassthroughOrigins = append(p.tokenPassthroughOrigins, origin)
+	case spec.APIKeySecret != "":
+		if bound {
+			p.modelBindings[resolved] = true
+			p.secretModels[target.Environment+"\x00"+spec.APIKeySecret+"\x00"+modelSecretKey(resolved)] = true
+		}
+	case required && !bound:
+		return NewValidationError("model %q requires apiKeySecret or a resolved gateway credential for %s", resolved.Config.Name, origin)
+	// Optional SDK authentication keeps its default mode unless the extension adds a binding.
+	case bound && (required || slices.Contains(p.headers[origin], target.Header)):
+		p.modelBindings[resolved] = true
+		p.modelKeys = append(p.modelKeys, target.Environment)
+	}
+	return nil
+}
+
+// draftBuilder collects application destinations, bindings and authentication requirements.
+type draftBuilder struct {
+	destinations []string
+	bindings     []egress.Credential
+	requirements []egressext.AuthenticationRequirement
+}
+
+func (b *draftBuilder) allow(raw string) (string, error) {
+	origin, err := credentialOrigin(raw)
+	if err != nil {
+		return "", err
+	}
+	b.destinations = append(b.destinations, origin)
+	return origin, nil
+}
+
+// allowTarget allows an origin that can carry credentials. Only exact HTTPS origins get a requirement.
+func (b *draftBuilder) allowTarget(raw string, requirement egressext.AuthenticationRequirement) (string, error) {
+	origin, err := b.allow(raw)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(origin, "https://") && !strings.Contains(origin, "*") {
+		requirement.Origin = origin
+		b.requirements = append(b.requirements, requirement)
+	}
+	return origin, nil
+}
+
+func (b *draftBuilder) addModel(model *ResolvedModelConfig, harnessEnv []v1alpha3.RuntimeEnvVar, requirements ModelRequirements) error {
+	for _, endpoint := range modelEndpoints(model) {
+		if _, err := b.allow(endpoint); err != nil {
+			return NewValidationError("invalid model destination: %v", err)
+		}
+	}
+	b.destinations = append(b.destinations, requirements.Destinations...)
+	target := modelCredentialTarget(model)
+	if target.Environment == "" {
+		return nil
+	}
+	spec := model.Config.Spec
+	preserve := modelPreservesAuth(spec, harnessEnv, target.Environment)
+	origin, err := b.allowTarget(target.Endpoint, egressext.AuthenticationRequirement{
+		Header: target.Header, Prefix: target.Prefix, Preserve: preserve,
+		Required: requirements.CredentialRequired && spec.APIKeySecret == "" && !preserve,
+	})
+	if err != nil {
+		return NewValidationError("invalid model credential destination: %v", err)
+	}
+	if spec.APIKeySecret == "" || spec.APIKeyPassthrough {
+		return nil
+	}
+	key := modelSecretKey(model)
+	if spec.Provider == v1alpha3.ModelProviderBedrock && key == "" {
+		return nil
+	}
+	b.bindings = append(b.bindings, egress.Credential{Origin: origin, Header: target.Header, Prefix: target.Prefix, URI: secretURI(model.Config.Namespace, spec.APIKeySecret, key)})
+	return nil
+}
+
+// modelPreservesAuth reports explicit model authentication that new bindings must not override.
+// Keyless Gemini is included until its runtime can use a gateway binding.
+func modelPreservesAuth(spec v1alpha3.ModelConfigSpec, harnessEnv []v1alpha3.RuntimeEnvVar, environment string) bool {
+	literal := slices.ContainsFunc(harnessEnv, func(variable v1alpha3.RuntimeEnvVar) bool { return variable.Name == environment })
+	keylessGemini := spec.Provider == v1alpha3.ModelProviderGemini && spec.APIKeySecret == ""
+	return literal || spec.APIKeyPassthrough || len(spec.DefaultHeaders) != 0 || keylessGemini
+}
+
+func (b *draftBuilder) addMCPServer(server *v1alpha3.RemoteMCPServer) error {
+	// Literal and ConfigMap headers can carry authentication.
+	preserve := slices.ContainsFunc(server.Spec.HeadersFrom, func(ref v1alpha3.ValueRef) bool { return !isSecretHeader(ref) })
+	origin, err := b.allowTarget(server.Spec.URL, egressext.AuthenticationRequirement{Preserve: preserve})
+	if err != nil {
+		return NewValidationError("invalid MCP credential destination: %v", err)
+	}
+	for _, ref := range server.Spec.HeadersFrom {
+		if isSecretHeader(ref) {
+			b.bindings = append(b.bindings, egress.Credential{Origin: origin, Header: ref.Name, URI: secretURI(server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key)})
+		}
+	}
+	return nil
+}
+
+func policyDraft(input *HarnessInput, models []*ResolvedModelConfig, requirementsByModel map[*ResolvedModelConfig]ModelRequirements) (egressext.PolicyDraft, error) {
+	var b draftBuilder
+	for _, model := range models {
+		if err := b.addModel(model, input.Harness.Spec.Env, requirementsByModel[model]); err != nil {
+			return egressext.PolicyDraft{}, err
+		}
+	}
+	for _, agent := range policyAgents(input.Root) {
+		for _, tool := range agent.MCPTools {
+			if err := b.addMCPServer(tool.Server); err != nil {
+				return egressext.PolicyDraft{}, err
+			}
+		}
+	}
+	access, err := egress.CanonicalAccess(b.destinations, b.bindings)
 	if err != nil {
 		return egressext.PolicyDraft{}, NewValidationError("%v", err)
 	}
-	// Requirements apply to the whole origin, including overlapping resource references.
-	for i := range requirements {
+	return egressext.PolicyDraft{Destinations: access.Destinations, Requirements: mergeRequirements(b.requirements), Credentials: publicCredentials(access.Credentials)}, nil
+}
+
+// mergeRequirements applies preservation to a whole origin, including overlapping
+// resource references, and merges requirements that share a header format.
+func mergeRequirements(requirements []egressext.AuthenticationRequirement) []egressext.AuthenticationRequirement {
+	merged := slices.Clone(requirements)
+	for i := range merged {
 		for _, other := range requirements {
-			if other.Origin != requirements[i].Origin {
+			if other.Origin != merged[i].Origin {
 				continue
 			}
-			requirements[i].Preserve = requirements[i].Preserve || other.Preserve
-			if other.Header == requirements[i].Header && other.Prefix == requirements[i].Prefix {
-				requirements[i].Required = requirements[i].Required || other.Required
+			merged[i].Preserve = merged[i].Preserve || other.Preserve
+			if other.Header == merged[i].Header && other.Prefix == merged[i].Prefix {
+				merged[i].Required = merged[i].Required || other.Required
 			}
 		}
 	}
-	slices.SortFunc(requirements, func(a, b egressext.AuthenticationRequirement) int {
+	slices.SortFunc(merged, func(a, b egressext.AuthenticationRequirement) int {
 		return cmp.Or(strings.Compare(a.Origin, b.Origin), strings.Compare(a.Header, b.Header), strings.Compare(a.Prefix, b.Prefix))
 	})
-	requirements = slices.Compact(requirements)
-	credentials := make([]egressext.Credential, len(access.Credentials))
-	for i, binding := range access.Credentials {
-		credentials[i] = egressext.Credential(binding)
-	}
-	return egressext.PolicyDraft{Destinations: access.Destinations, Requirements: requirements, Credentials: credentials}, nil
+	return slices.Compact(merged)
 }
 
 func clonePolicyDraft(draft egressext.PolicyDraft) egressext.PolicyDraft {
@@ -242,11 +308,7 @@ func validatePolicyDraft(original, translated egressext.PolicyDraft) (egress.Acc
 	if !slices.Equal(original.Destinations, translated.Destinations) || !slices.Equal(original.Requirements, translated.Requirements) {
 		return egress.Access{}, NewValidationError("policy extension cannot change destinations or authentication requirements")
 	}
-	bindings := make([]egress.Credential, len(translated.Credentials))
-	for i, binding := range translated.Credentials {
-		bindings[i] = egress.Credential(binding)
-	}
-	access, err := egress.CanonicalAccess(translated.Destinations, bindings)
+	access, err := egress.CanonicalAccess(translated.Destinations, internalCredentials(translated.Credentials))
 	if err != nil {
 		return egress.Access{}, NewValidationError("%v", err)
 	}
@@ -259,33 +321,50 @@ func validatePolicyDraft(original, translated egressext.PolicyDraft) (egress.Acc
 		if slices.Contains(original.Credentials, egressext.Credential(binding)) {
 			continue
 		}
-		allowed, known, matches := false, false, false
-		for _, requirement := range original.Requirements {
-			if requirement.Origin != binding.Origin {
-				continue
-			}
-			if requirement.Preserve {
-				return egress.Access{}, NewValidationError("credential destination %q preserves explicit authentication", binding.Origin)
-			}
-			allowed = true
-			if requirement.Header != "" {
-				known = true
-				matches = matches || (requirement.Header == binding.Header && requirement.Prefix == binding.Prefix)
-			}
-		}
-		if !allowed {
-			return egress.Access{}, NewValidationError("credential destination %q is not an eligible application target", binding.Origin)
-		}
-		if known && !matches {
-			return egress.Access{}, NewValidationError("credential for %q must match a model header and prefix", binding.Origin)
+		if err := validateAddedCredential(binding, original.Requirements); err != nil {
+			return egress.Access{}, err
 		}
 	}
-	for _, requirement := range original.Requirements {
-		if requirement.Required && !requirement.Preserve && !slices.ContainsFunc(access.Credentials, func(binding egress.Credential) bool {
-			return binding.Origin == requirement.Origin && binding.Header == requirement.Header && binding.Prefix == requirement.Prefix
-		}) {
-			return egress.Access{}, NewValidationError("model requires a gateway credential for %s header %s; configure apiKeySecret", requirement.Origin, requirement.Header)
-		}
+	if err := requireCredentials(original.Requirements, access.Credentials); err != nil {
+		return egress.Access{}, err
 	}
 	return access, nil
+}
+
+// validateAddedCredential checks an extension binding against the requirements at its origin.
+func validateAddedCredential(binding egress.Credential, requirements []egressext.AuthenticationRequirement) error {
+	allowed, known, matches := false, false, false
+	for _, requirement := range requirements {
+		if requirement.Origin != binding.Origin {
+			continue
+		}
+		if requirement.Preserve {
+			return NewValidationError("credential destination %q preserves explicit authentication", binding.Origin)
+		}
+		allowed = true
+		if requirement.Header != "" {
+			known = true
+			matches = matches || bindsTarget(requirement.Origin, requirement.Header, requirement.Prefix)(binding)
+		}
+	}
+	if !allowed {
+		return NewValidationError("credential destination %q is not an eligible application target", binding.Origin)
+	}
+	if known && !matches {
+		return NewValidationError("credential for %q must match a model header and prefix", binding.Origin)
+	}
+	return nil
+}
+
+// requireCredentials checks that every required, unpreserved requirement has a binding.
+func requireCredentials(requirements []egressext.AuthenticationRequirement, credentials []egress.Credential) error {
+	for _, requirement := range requirements {
+		if !requirement.Required || requirement.Preserve {
+			continue
+		}
+		if !slices.ContainsFunc(credentials, bindsTarget(requirement.Origin, requirement.Header, requirement.Prefix)) {
+			return NewValidationError("model requires a gateway credential for %s header %s; configure apiKeySecret", requirement.Origin, requirement.Header)
+		}
+	}
+	return nil
 }
