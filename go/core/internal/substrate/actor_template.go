@@ -139,7 +139,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		})
 	}
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
-		return nil, fmt.Errorf("runtime revision exceeds Substrate's 32-volume or mount limit with %d distinct skill images", len(spec.SkillImages))
+		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
 	return template, nil
 }

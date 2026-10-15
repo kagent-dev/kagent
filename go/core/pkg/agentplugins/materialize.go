@@ -207,16 +207,14 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		if !filepath.IsAbs(source.Directory) {
 			return "", fmt.Errorf("mounted artifact directory %q must be absolute", source.Directory)
 		}
-		if err := validatePackage(source.Directory); err != nil {
+		root, err := validatedPackageRoot(source.Directory, source.Path)
+		if err != nil {
 			return "", fmt.Errorf("validate mounted artifact: %w", err)
 		}
-		return containedPath(source.Directory, source.Path)
+		return root, nil
 	}
 	if _, err := os.Stat(destination); err == nil {
-		if err := validatePackage(destination); err != nil {
-			return "", err
-		}
-		root, err := containedPath(destination, source.Path)
+		root, err := validatedPackageRoot(destination, source.Path)
 		if err == nil {
 			for _, requiredFile := range requiredFiles {
 				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
@@ -250,14 +248,18 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	default:
 		return "", fmt.Errorf("artifact source is required")
 	}
-	if err := validatePackage(destination); err != nil {
-		return "", err
-	}
-	root, err := containedPath(destination, source.Path)
+	return validatedPackageRoot(destination, source.Path)
+}
+
+func validatedPackageRoot(root, relative string) (string, error) {
+	selected, err := containedPath(root, relative)
 	if err != nil {
 		return "", err
 	}
-	return root, nil
+	if err := validatePackage(selected); err != nil {
+		return "", err
+	}
+	return selected, nil
 }
 
 func validatePackage(root string) error {

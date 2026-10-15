@@ -33,7 +33,8 @@ func TestActorTemplateSkillVolumeLimit(t *testing.T) {
 			require.NoError(t, err)
 			actor, err := ActorTemplateForRevision(spec, id)
 			if count > 29 {
-				require.ErrorContains(t, err, "32-volume or mount limit")
+				require.ErrorContains(t, err, "33 volumes and 33 container mounts")
+				require.ErrorContains(t, err, "at most 32 volumes and 32 mounts per container")
 				require.Nil(t, actor)
 				return
 			}

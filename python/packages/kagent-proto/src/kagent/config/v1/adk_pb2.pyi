@@ -490,18 +490,16 @@ class ADKPluginBundle(_message.Message):
     def __init__(self, source: _Optional[_Union[ADKPluginSource, _Mapping]] = ..., skills: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ADKPluginSource(_message.Message):
-    __slots__ = ("oci", "git", "s3", "directory", "path")
-    OCI_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("git", "s3", "directory", "path")
     GIT_FIELD_NUMBER: _ClassVar[int]
     S3_FIELD_NUMBER: _ClassVar[int]
     DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
-    oci: str
     git: ADKPluginGitSource
     s3: ADKPluginS3Source
     directory: str
     path: str
-    def __init__(self, oci: _Optional[str] = ..., git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., directory: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
+    def __init__(self, git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., directory: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
 class ADKPluginGitSource(_message.Message):
     __slots__ = ("url", "commit")

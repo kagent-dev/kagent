@@ -26,6 +26,12 @@ func TestMaterializeMountedSelections(t *testing.T) {
 	}
 	require.NoError(t, os.Chmod(filepath.Join(root, "standalone/run.sh"), 0o755))
 	require.NoError(t, os.Symlink("run.sh", filepath.Join(root, "standalone/alias.sh")))
+	// Unselected image contents do not belong to either package.
+	require.NoError(t, os.Symlink("missing", filepath.Join(root, "unrelated-link")))
+	oversized, err := os.Create(filepath.Join(root, "unrelated-large-file"))
+	require.NoError(t, err)
+	require.NoError(t, oversized.Truncate(maxPackageBytes+1))
+	require.NoError(t, oversized.Close())
 	paths := Paths{Packages: filepath.Join(t.TempDir(), "packages"), Skills: filepath.Join(t.TempDir(), "skills")}
 	resources := agentplugin.Resources{
 		Skills:  []agentplugin.Skill{{Name: "renamed", Source: agentplugin.Source{Directory: root, Path: "standalone"}}},
@@ -78,6 +84,12 @@ func TestMaterializeMountedSourceFailures(t *testing.T) {
 		{name: "escaping symlink", prepare: func(t *testing.T, root string) agentplugin.Source {
 			require.NoError(t, os.Symlink(t.TempDir(), filepath.Join(root, "outside")))
 			return agentplugin.Source{Directory: root, Path: "outside"}
+		}, wantError: "escapes its root"},
+		{name: "symlink outside selected package", prepare: func(t *testing.T, root string) agentplugin.Source {
+			require.NoError(t, os.Mkdir(filepath.Join(root, "selected"), 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(root, "outside"), []byte("outside"), 0o644))
+			require.NoError(t, os.Symlink("../outside", filepath.Join(root, "selected/link")))
+			return agentplugin.Source{Directory: root, Path: "selected"}
 		}, wantError: "escapes artifact root"},
 		{name: "multiple sources", prepare: func(t *testing.T, root string) agentplugin.Source {
 			return agentplugin.Source{Directory: root, Git: &agentplugin.GitSource{URL: "unused"}}

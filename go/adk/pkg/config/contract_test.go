@@ -36,6 +36,7 @@ func TestAgentConfigRejectsInvalidInput(t *testing.T) {
 		`{"agent":{"runtime":{}}}`,
 		`{"agent":{"sub_agents":[{"runtime":{}}]}}`,
 		`{"agent":{"sub_agents":[{"sub_agents":[{"runtime":{}}]}]}}`,
+		`{"agent":{"agent_plugins":{"skills":[{"name":"skill","source":{"oci":"registry.example.com/skill"}}]}}}`,
 		`{"runtime":{"max_content_length":-1}}`,
 	} {
 		t.Run(raw, func(t *testing.T) {

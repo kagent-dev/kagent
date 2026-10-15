@@ -360,10 +360,11 @@ message ADKPluginBundle {
   repeated string skills = 2;
 }
 message ADKPluginSource {
+  reserved 1;
+  reserved "oci";
+
   oneof source {
     option (buf.validate.oneof).required = true;
-    // OCI artifacts are mounted by Substrate; use directory in runtime config.
-    string oci = 1 [deprecated = true];
     ADKPluginGitSource git = 2;
     ADKPluginS3Source s3 = 3;
     string directory = 5;

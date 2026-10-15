@@ -2545,7 +2545,6 @@ type ADKPluginSource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Source:
 	//
-	//	*ADKPluginSource_Oci
 	//	*ADKPluginSource_Git
 	//	*ADKPluginSource_S3
 	//	*ADKPluginSource_Directory
@@ -2592,16 +2591,6 @@ func (x *ADKPluginSource) GetSource() isADKPluginSource_Source {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in kagent/config/v1/adk.proto.
-func (x *ADKPluginSource) GetOci() string {
-	if x != nil {
-		if x, ok := x.Source.(*ADKPluginSource_Oci); ok {
-			return x.Oci
-		}
-	}
-	return ""
-}
-
 func (x *ADKPluginSource) GetGit() *ADKPluginGitSource {
 	if x != nil {
 		if x, ok := x.Source.(*ADKPluginSource_Git); ok {
@@ -2640,13 +2629,6 @@ type isADKPluginSource_Source interface {
 	isADKPluginSource_Source()
 }
 
-type ADKPluginSource_Oci struct {
-	// OCI artifacts are mounted by Substrate; use directory in runtime config.
-	//
-	// Deprecated: Marked as deprecated in kagent/config/v1/adk.proto.
-	Oci string `protobuf:"bytes,1,opt,name=oci,proto3,oneof"`
-}
-
 type ADKPluginSource_Git struct {
 	Git *ADKPluginGitSource `protobuf:"bytes,2,opt,name=git,proto3,oneof"`
 }
@@ -2658,8 +2640,6 @@ type ADKPluginSource_S3 struct {
 type ADKPluginSource_Directory struct {
 	Directory string `protobuf:"bytes,5,opt,name=directory,proto3,oneof"`
 }
-
-func (*ADKPluginSource_Oci) isADKPluginSource_Source() {}
 
 func (*ADKPluginSource_Git) isADKPluginSource_Source() {}
 
@@ -3224,14 +3204,13 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x06source\x18\x02 \x01(\v2!.kagent.config.v1.ADKPluginSourceR\x06source\"d\n" +
 	"\x0fADKPluginBundle\x129\n" +
 	"\x06source\x18\x01 \x01(\v2!.kagent.config.v1.ADKPluginSourceR\x06source\x12\x16\n" +
-	"\x06skills\x18\x02 \x03(\tR\x06skills\"\xdf\x01\n" +
-	"\x0fADKPluginSource\x12\x16\n" +
-	"\x03oci\x18\x01 \x01(\tB\x02\x18\x01H\x00R\x03oci\x128\n" +
+	"\x06skills\x18\x02 \x03(\tR\x06skills\"\xd2\x01\n" +
+	"\x0fADKPluginSource\x128\n" +
 	"\x03git\x18\x02 \x01(\v2$.kagent.config.v1.ADKPluginGitSourceH\x00R\x03git\x125\n" +
 	"\x02s3\x18\x03 \x01(\v2#.kagent.config.v1.ADKPluginS3SourceH\x00R\x02s3\x12\x1e\n" +
 	"\tdirectory\x18\x05 \x01(\tH\x00R\tdirectory\x12\x12\n" +
 	"\x04path\x18\x04 \x01(\tR\x04pathB\x0f\n" +
-	"\x06source\x12\x05\xbaH\x02\b\x01\">\n" +
+	"\x06source\x12\x05\xbaH\x02\b\x01J\x04\b\x01\x10\x02R\x03oci\">\n" +
 	"\x12ADKPluginGitSource\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06commit\x18\x02 \x01(\tR\x06commit\"\x90\x01\n" +
@@ -3421,7 +3400,6 @@ func file_kagent_config_v1_adk_proto_init() {
 	file_kagent_config_v1_adk_proto_msgTypes[23].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[27].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[32].OneofWrappers = []any{
-		(*ADKPluginSource_Oci)(nil),
 		(*ADKPluginSource_Git)(nil),
 		(*ADKPluginSource_S3)(nil),
 		(*ADKPluginSource_Directory)(nil),

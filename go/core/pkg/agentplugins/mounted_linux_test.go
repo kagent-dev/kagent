@@ -42,3 +42,18 @@ func TestMaterializeMountedPackageRejectsNamedPipe(t *testing.T) {
 		})
 	}
 }
+
+func TestMaterializeMountedPackageIgnoresUnselectedNamedPipe(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, "selected"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "selected/SKILL.md"), []byte("# Selected"), 0o644))
+	require.NoError(t, unix.Mkfifo(filepath.Join(root, "unrelated-pipe"), 0o600))
+	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
+	_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{
+		Name: "selected", Source: agentplugin.Source{Directory: root, Path: "selected"},
+	}}}, paths)
+	require.NoError(t, err)
+	content, err := os.ReadFile(filepath.Join(paths.Skills, "selected/SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, "# Selected", string(content))
+}

@@ -14,6 +14,13 @@ lint:
 breaking:
   use:
     - FILE
+    - FIELD_NO_DELETE_UNLESS_NAME_RESERVED
+    - FIELD_NO_DELETE_UNLESS_NUMBER_RESERVED
+  # Allow the pre-GA removal of ADKPluginSource.oci while requiring deleted
+  # ADK fields to reserve their names and numbers. Other FILE checks still apply.
+  ignore_only:
+    FIELD_NO_DELETE:
+      - kagent/config/v1/adk.proto
   # Vendored upstream alpha API; upgrades follow go.mod. Kagent does not expose
   # its egress policy types, which changed incompatibly in alpha3.
   ignore:

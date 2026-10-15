@@ -283,9 +283,11 @@ identity. Substrate currently limits each ActorTemplate to 32 volumes and each
 container to 32 mounts; the three runtime volumes leave room for 29 distinct
 skill images. Exceeding that limit fails ActorTemplate construction.
 
-The shared materializer validates the mounted package and resolves `source.path`
-inside it. It copies selected standalone and Agent Plugins skills to the
-harness's existing discovery directory: `/skills` for Go ADK,
+The shared materializer resolves `source.path` within the mounted image and
+validates that selected package, including its path, symlink, size, and file-type
+constraints. Unrelated files outside the selected package are ignored. It copies
+selected standalone and Agent Plugins skills to the harness's existing discovery
+directory: `/skills` for Go ADK,
 `/data/codex/skills` for Codex, and `/data/generated/claude/.claude/skills` for
 Claude. Unselected Agent Plugins skills are not installed. Claude-format plugin
 roots can use the mounted directory directly. Mounted sources do not use the
