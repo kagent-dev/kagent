@@ -14,7 +14,7 @@ version: 2.1
 # `push-charts` stamps the chart defaults with the version and the runtime
 # images' digests and pushes both charts, signed, and `record` re-reads every
 # digest from the registry, checks the chart against them and appends the row
-# to the ledger. `validate` runs the same eight builds with `push: false` on
+# to the ledger. `validate` runs the same ten builds with `push: false` on
 # every other branch of the line (pull requests, `sync/**` candidates) and
 # publishes nothing. The mirrored upstream refs (`main`, `release/v*.x`,
 # upstream's tags) run nothing: they are read-only copies, never built here.
@@ -54,6 +54,8 @@ build-args:
   ui: &build-args-ui |-
     VERSION=${DOCKER_IMAGE_TAG}
   claude-harness: &build-args-claude-harness |-
+    VERSION=${DOCKER_IMAGE_TAG}
+  codex-harness: &build-args-codex-harness |-
     VERSION=${DOCKER_IMAGE_TAG}
 
 # `publish`: the consumed branch and the line's release tags. Every job of the
@@ -163,7 +165,8 @@ jobs:
             digest() { oras manifest fetch --descriptor "$1" | jq -r .digest; }
             adk_digest=$(digest "${registry}/${repo}/golang-adk:${VERSION}")
             claude_digest=$(digest "${registry}/${repo}/claude-harness:${VERSION}")
-            test -n "${adk_digest}" && test -n "${claude_digest}"
+            codex_digest=$(digest "${registry}/${repo}/codex-harness:${VERSION}")
+            test -n "${adk_digest}" && test -n "${claude_digest}" && test -n "${codex_digest}"
             eval "$(make -s substrate-pin)"
             worker_registry="${SUBSTRATE_REPO#oci://}"
             worker_image="${worker_registry%/helm}/ateom-gvisor:${SUBSTRATE_VERSION}"
@@ -172,7 +175,8 @@ jobs:
               -e "s|^registry: \"ghcr.io\"$|registry: \"${registry}\"|" \
               -e "s|^\(\s*repository: \)kagent-dev/kagent/|\1${repo}/|" \
               -e "/^  agentImage:$/,/^  [^ #]/ s|^    digest: \"\"$|    digest: \"${adk_digest}\"|" \
-              -e "/^runtimeImages:$/,/^[^ #]/ s|^    digest: \"\"$|    digest: \"${claude_digest}\"|" \
+              -e "/^  claudeHarness:$/,/^  [^ #]/ s|^    digest: \"\"$|    digest: \"${claude_digest}\"|" \
+              -e "/^  codexHarness:$/,/^[^ ]/ s|^    digest: \"\"$|    digest: \"${codex_digest}\"|" \
               -e "s|^  workerImage: \"\"$|  workerImage: \"${worker_image}\"|" \
               helm/kagent/values.yaml
             if grep -q '^\s*repository: kagent-dev/kagent/' helm/kagent/values.yaml; then
@@ -185,6 +189,7 @@ jobs:
             stamped registry "${registry}"
             stamped controller.agentImage.digest "${adk_digest}"
             stamped runtimeImages.claudeHarness.digest "${claude_digest}"
+            stamped runtimeImages.codexHarness.digest "${codex_digest}"
             stamped substrateWorkerPool.workerImage "${worker_image}"
             for chart in kagent kagent-crds; do
               printf 'appVersion: %s\n' "${VERSION}" >> "helm/${chart}/Chart-template.yaml"
@@ -221,7 +226,7 @@ jobs:
             repo=giantswarm/kagent
             digest() { oras manifest fetch --descriptor "$1" | jq -r .digest; }
             declare -A D
-            for image in controller ui golang-adk claude-harness; do
+            for image in controller ui golang-adk claude-harness codex-harness; do
               D[$image]=$(digest "${registry}/${repo}/${image}:${VERSION}")
             done
             for chart in kagent kagent-crds; do
@@ -243,6 +248,7 @@ jobs:
             }
             check controller.agentImage.digest "${D[golang-adk]}" golang-adk
             check runtimeImages.claudeHarness.digest "${D[claude-harness]}" claude-harness
+            check runtimeImages.codexHarness.digest "${D[codex-harness]}" codex-harness
             check tag "${VERSION}" version
             check registry "${registry}" registry
             # The pin annotation on the published indexes is static in this
@@ -258,7 +264,7 @@ jobs:
               fi
               echo "WARNING: dev build ${VERSION}: ${msg}" >&2
             fi
-            row="| $(date -u +'%Y-%m-%d %H:%M') | \`${VERSION}\` | \`${CIRCLE_SHA1:0:7}\` | \`${pin:0:7}\` (${pin_date}) | \`${D[controller]}\` | \`${D[ui]}\` | \`${D[golang-adk]}\` | \`${D[claude-harness]}\` | \`${D[chart_kagent]}\` | \`${D[chart_kagent-crds]}\` | [run](${CIRCLE_BUILD_URL}) |"
+            row="| $(date -u +'%Y-%m-%d %H:%M') | \`${VERSION}\` | \`${CIRCLE_SHA1:0:7}\` | \`${pin:0:7}\` (${pin_date}) | \`${D[controller]}\` | \`${D[ui]}\` | \`${D[golang-adk]}\` | \`${D[claude-harness]}\` | \`${D[chart_kagent]}\` | \`${D[chart_kagent-crds]}\` | [run](${CIRCLE_BUILD_URL}) | \`${D[codex-harness]}\` |"
             {
               echo "## Published ${VERSION}"
               echo
@@ -266,7 +272,7 @@ jobs:
               echo
               echo "| artifact | digest |"
               echo "|---|---|"
-              for image in controller ui golang-adk claude-harness; do
+              for image in controller ui golang-adk claude-harness codex-harness; do
                 echo "| \`${registry}/${repo}/${image}:${VERSION}\` | \`${D[$image]}\` |"
               done
               echo "| \`oci://${registry}/${repo}/helm/kagent:${VERSION}\` | \`${D[chart_kagent]}\` |"
@@ -500,10 +506,49 @@ workflows:
           requires: [build-claude-harness-amd64, build-claude-harness-arm64]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
+      # codex-harness
+      - architect/build-image:
+          name: build-codex-harness-amd64
+          context: architect
+          image: giantswarm/kagent/codex-harness
+          platform: linux/amd64
+          resource_class: large
+          dockerfile: go/harness/codex/Dockerfile
+          build-context: go
+          build-args: *build-args-codex-harness
+          registries-data: *registries
+          requires: [check-substrate-pin]
+          pre-steps: *skip-tagged-commit
+          filters: *publish-filters
+      - architect/build-image:
+          name: build-codex-harness-arm64
+          context: architect
+          image: giantswarm/kagent/codex-harness
+          platform: linux/arm64
+          resource_class: arm.large
+          dockerfile: go/harness/codex/Dockerfile
+          build-context: go
+          build-args: *build-args-codex-harness
+          registries-data: *registries
+          requires: [check-substrate-pin]
+          pre-steps: *skip-tagged-commit
+          filters: *publish-filters
+      - architect/push-to-registries:
+          name: push-codex-harness
+          context: architect
+          image: giantswarm/kagent/codex-harness
+          merge-digests: true
+          platforms: linux/amd64,linux/arm64
+          registries-data: *registries
+          annotations: *annotations
+          persist-build-version: false
+          requires: [build-codex-harness-amd64, build-codex-harness-arm64]
+          pre-steps: *skip-tagged-commit
+          filters: *publish-filters
       # charts and the ledger
       - push-charts:
           context: architect
-          requires: [push-controller, push-ui, push-golang-adk, push-claude-harness]
+          requires: [push-controller, push-ui, push-golang-adk, push-claude-harness, push-codex-harness]
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
       - record:
@@ -512,7 +557,7 @@ workflows:
           pre-steps: *skip-tagged-commit
           filters: *publish-filters
 
-  # The same eight builds, nothing pushed: a Dockerfile regression surfaces on
+  # The same ten builds, nothing pushed: a Dockerfile regression surfaces on
   # the pull request instead of on the consumed branch. No credentials, no
   # digests, no attestations; with nothing pushed there is nothing to merge.
   validate:
@@ -602,6 +647,28 @@ workflows:
           dockerfile: go/harness/claude/Dockerfile
           build-context: go
           build-args: *build-args-claude-harness
+          push: false
+          pre-steps: *skip-tagged-commit
+          filters: *validate-filters
+      - architect/build-image:
+          name: validate-codex-harness-amd64
+          image: giantswarm/kagent/codex-harness
+          platform: linux/amd64
+          resource_class: large
+          dockerfile: go/harness/codex/Dockerfile
+          build-context: go
+          build-args: *build-args-codex-harness
+          push: false
+          pre-steps: *skip-tagged-commit
+          filters: *validate-filters
+      - architect/build-image:
+          name: validate-codex-harness-arm64
+          image: giantswarm/kagent/codex-harness
+          platform: linux/arm64
+          resource_class: arm.large
+          dockerfile: go/harness/codex/Dockerfile
+          build-context: go
+          build-args: *build-args-codex-harness
           push: false
           pre-steps: *skip-tagged-commit
           filters: *validate-filters

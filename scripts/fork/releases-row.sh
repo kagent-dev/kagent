@@ -33,13 +33,16 @@ commit=$(git rev-parse --verify --quiet "${tag}^{commit}") || { echo "ERROR: no 
 build=$(git show "${ledger_ref}:builds.md" 2>/dev/null | grep -F "| \`${version}\` |" | tail -1) || true
 [ -n "$build" ] || { echo "ERROR: builds.md on ${ledger_ref} has no row for ${version}: ${tag} is not published" >&2; exit 1; }
 
-# builds.md: | published | version | commit | pin (date) | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run |
-IFS='|' read -r _ published _ _ pin controller ui adk harness chart crds run _ <<<"$build"
+# builds.md: | published | version | commit | pin (date) | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run | codex-harness |
+# (codex-harness is empty on the rows written before the line published it)
+IFS='|' read -r _ published _ _ pin controller ui adk harness chart crds run codex _ <<<"$build"
 trim() { local v=${1#"${1%%[![:space:]]*}"}; printf '%s' "${v%"${v##*[![:space:]]}"}"; }
 published=$(trim "$published")
 pin=$(trim "$pin")
 run=$(trim "$run")
 images="$(trim "$controller"), $(trim "$ui"), $(trim "$adk"), $(trim "$harness")"
+codex=$(trim "${codex:-}")
+[ -z "$codex" ] || images+=", ${codex}"
 charts="$(trim "$chart"), $(trim "$crds")"
 
 candidate=$(git tag --points-at "$commit" -l "${tag}-rc.*" --sort=-v:refname | head -1)

@@ -11,17 +11,23 @@ token=${LEDGER_TOKEN:-${GITHUB_TOKEN:?LEDGER_TOKEN or GITHUB_TOKEN required}}
 remote=${LEDGER_REMOTE_URL:-$(git remote get-url origin)}
 here=$(cd "$(dirname "$0")" && pwd)
 
+# builds.md's columns. A column is only ever added at the end and the header of
+# an existing file is moved to the current one on the next append, so every
+# older row keeps its cells under the same names.
+builds_columns='| published (UTC) | version | commit | upstream pin | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run | codex-harness |'
+builds_rule='|---|---|---|---|---|---|---|---|---|---|---|---|'
+
 header() {
   case $1 in
     builds.md) cat <<'H'
 # Builds
 
 Every dev build and release published by the CircleCI pipeline, newest last (see FORK.md). Image
-digests are the multi-arch index digests — what a `Harness` pins.
+digests are the multi-arch index digests — what a `Harness` pins. codex-harness is the last
+column, so the rows written before the line published it keep their columns and leave it empty.
 
-| published (UTC) | version | commit | upstream pin | controller | ui | golang-adk | claude-harness | chart kagent | chart kagent-crds | run |
-|---|---|---|---|---|---|---|---|---|---|---|
 H
+      printf '%s\n%s\n' "$builds_columns" "$builds_rule"
     ;;
     re-pins.md) cat <<'H'
 # Re-pins
@@ -51,6 +57,11 @@ for attempt in 1 2 3 4 5; do
       printf '# Ledger\n\nMachine-written records of the kagent line (see FORK.md on the consumed branch): builds.md — every published build with its digests; re-pins.md — every re-pin onto upstream main.\n' > README.md
     fi
     [ -f "$file" ] || header "$file" > "$file"
+    if [ "$file" = builds.md ]; then
+      awk -v cols="$builds_columns" -v rule="$builds_rule" '
+        !done && /^\| published \(UTC\) \|/ { print cols; getline; print rule; done = 1; next }
+        { print }' "$file" > "$file.new" && mv "$file.new" "$file"
+    fi
     printf '%s\n' "$row" >> "$file"
     git add -A
     git -c user.name="${LEDGER_GIT_NAME:-github-actions[bot]}" -c user.email="${LEDGER_GIT_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}" \

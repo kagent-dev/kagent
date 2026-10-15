@@ -93,5 +93,21 @@ grep -qF '| `1.7.0` |' FORK.md && fail "the candidate's checkout already has the
 scripts/fork/ledger-check.sh releases v1.8.0 >/dev/null 2>&1 &&
   pass "the gate passes 1.8.0 with 1.7.0's row only on the consumed branch" || fail "the gate refused 1.8.0 with the row on the consumed branch"
 
+# 6. A build row with the codex-harness column lists that image last.
+(
+  cd "$origin"
+  g tag v1.10.0 giantswarm
+  sha10=$(git rev-parse v1.10.0)
+  g checkout -q ledger
+  printf '| 2026-10-16 09:00 | `1.10.0` | `%s` | `92dd6ca` (2026-10-11) | `sha256:c2` | `sha256:u2` | `sha256:a2` | `sha256:h2` | `sha256:k2` | `sha256:r2` | [run](https://circleci.com/gh/o/r/2) | `sha256:x2` |\n' "${sha10:0:7}" >> builds.md
+  g commit -q -am ledger
+  g checkout -q giantswarm
+)
+git fetch -q --tags origin && git fetch -q origin +ledger:refs/remotes/origin/ledger
+git checkout -q giantswarm && git pull -q --ff-only origin giantswarm
+scripts/fork/releases-row.sh v1.10.0 >/dev/null
+grep -F '| `1.10.0` |' FORK.md | grep -qF '| `sha256:c2`, `sha256:u2`, `sha256:a2`, `sha256:h2`, `sha256:x2` | `sha256:k2`, `sha256:r2` |' &&
+  pass "a build with codex-harness lists it after claude-harness" || fail "row of 1.10.0: $(grep -F '| `1.10.0` |' FORK.md)"
+
 [ "$failures" -eq 0 ] || { echo "${failures} failed" >&2; exit 1; }
 echo "all passed"
