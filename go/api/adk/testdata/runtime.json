@@ -17,8 +17,11 @@
       "tools"
     ]
   },
-  "bash_venv_path": "/opt/venv",
-  "file_search_tools": false,
+  "skill_tools": {
+    "bash_venv_path": "/opt/venv",
+    "file_search_tools": false,
+    "disable_bash": true
+  },
   "telemetry": {
     "capture_content": false,
     "max_capture_bytes": 1024,

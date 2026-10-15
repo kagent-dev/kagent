@@ -6,7 +6,7 @@ tests:
   - it: forwards the Go ADK bash setting to runtime defaults
     template: controller-configmap.yaml
     set:
-      config.runtimeDefaults.disableBash: true
+      config.runtimeDefaults.skillTools.disableBash: true
     asserts:
       - matchRegex:
           path: data["controller.yaml"]

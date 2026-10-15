@@ -172,8 +172,8 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "log_level": "info",
     "port": 80,
     "max_content_length": "0",
-    "file_search_tools": false,
-    "token_propagation": {"enabled": false}
+    "skill_tools": { "file_search_tools": false },
+    "token_propagation": { "enabled": false }
   }
 }
 ```
@@ -181,7 +181,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
 Models select exactly one provider, for example:
 
 ```json
-{"agent": {"model": {"model": "gpt-4o", "openai": {"temperature": 0}}}}
+{ "agent": { "model": { "model": "gpt-4o", "openai": { "temperature": 0 } } } }
 ```
 
 Provider-specific fields live inside the selected provider; shared transport
@@ -207,12 +207,16 @@ fields and multiple model providers fail configuration loading. Telemetry uses
 the same `TelemetryConfig` as controller settings (including protobuf durations).
 
 An absent request size limit uses the runtime default; zero means unlimited.
+
+Skill tool settings live together under `runtime.skill_tools`:
+`file_search_tools`, `bash_venv_path`, and `disable_bash`. Move existing flat
+settings into this block when updating configuration files.
 Go ADK automatically registers the built-in `bash` tool when skills are loaded.
-Set `runtime.disable_bash` to `true` to omit it for the root agent and all
+Set `runtime.skill_tools.disable_bash` to `true` to omit it for the root agent and all
 subagents. Skill discovery and loading, `read_file`, `write_file`, and `edit_file`
 remain available; `list_files` and `grep_file` still depend on
-`runtime.file_search_tools`. For controller-managed runtimes, set
-`config.runtimeDefaults.disableBash: true` in Helm values. The default is `false`;
+`runtime.skill_tools.file_search_tools`. For controller-managed runtimes, set
+`config.runtimeDefaults.skillTools.disableBash: true` in Helm values. The default is `false`;
 this setting affects only the built-in Go ADK bash tool, not Python or tools
 provided through MCP or other integrations.
 

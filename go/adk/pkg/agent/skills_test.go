@@ -59,7 +59,7 @@ func TestSkillToolsRespectRuntimeDisableBash(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(skillsDir, "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Demo skill.\n---\nRead files.\n"), 0644))
 				model := &adk.Model{Model: "gpt-4o", Provider: &adk.Model_Openai{Openai: &adk.OpenAI{BaseUrl: server.URL}}}
 				cfg := &adk.Config{
-					Runtime: &adk.RuntimeConfig{DisableBash: disableBash, FileSearchTools: fileSearch},
+					Runtime: &adk.RuntimeConfig{SkillTools: &adk.SkillToolsConfig{DisableBash: disableBash, FileSearchTools: fileSearch}},
 					Agent: &adk.AgentConfig{Model: model, SkillsDirectory: skillsDir, Stream: new(false),
 						SubAgents: []*adk.AgentConfig{{Name: "child", Model: model, SkillsDirectory: skillsDir, Stream: new(false)}},
 					},

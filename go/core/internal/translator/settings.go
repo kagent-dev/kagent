@@ -38,8 +38,7 @@ func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) 
 		Name: name, Namespace: namespace, LogLevel: cfg.GetLogging().GetLevel(), Port: new(uint32(80)),
 		// Preserve optional presence: zero disables the runtime's request limit.
 		MaxContentLength: cfg.MaxContentLength,
-		FileSearchTools:  cfg.GetFileSearchTools(), BashVenvPath: cfg.GetBashVenvPath(),
-		DisableBash:      cfg.GetDisableBash(),
+		SkillTools:       proto.CloneOf(cfg.GetSkillTools()),
 		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
 		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
 	}
