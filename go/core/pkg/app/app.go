@@ -276,7 +276,9 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return err
 	}
+	egressResolver := controller.NewEgressResolver(runtime, store, watchNamespaces)
 	actors, err := substrate.Dial(ctx, substrate.Config{
+		EgressResolver: egressResolver,
 		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
 		CAFile:         cfg.GetSubstrate().GetCaFile(),
 		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
@@ -286,6 +288,9 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
+	if err := manager.Add(controller.NewEgressReconciler(egressResolver, actors)); err != nil {
+		return fmt.Errorf("add egress reconciler: %w", err)
+	}
 	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
 	if err != nil {
 		return err

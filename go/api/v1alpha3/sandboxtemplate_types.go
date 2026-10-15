@@ -40,7 +40,7 @@ type SandboxTemplateSpec struct {
 	Substrate RuntimeSubstratePolicy `json:"substrate"`
 
 	// EgressPolicyRefs grants additional access in this template's namespace.
-	// Each sandbox retains the access pinned by its prepared revision.
+	// Changes update the access of existing sandboxes without restarting them.
 	// +optional
 	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:XValidation:rule="self.all(ref, has(ref.name) && ref.name != '')",message="egressPolicyRefs requires non-empty names"

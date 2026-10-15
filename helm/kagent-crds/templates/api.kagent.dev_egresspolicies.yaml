@@ -21,7 +21,7 @@ spec:
       openAPIV3Schema:
         description: |-
           EgressPolicy is a reusable grant of additional network access. Workloads in its
-          namespace select it explicitly; changing it affects newly prepared revisions.
+          namespace select it explicitly; changes update their existing runtime Actors.
         properties:
           apiVersion:
             description: |-

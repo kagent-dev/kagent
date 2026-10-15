@@ -56,7 +56,8 @@ spec:
                 description: |-
                   EgressPolicyRefs grants additional access to the whole runtime, including
                   shared subagents. Policies resolve in this Agent's namespace. Integration
-                  access inferred from models and tools is always included.
+                  access inferred from models and tools is always included. Changes update
+                  existing Sessions without a new invocation or runtime restart.
                 items:
                   description: |-
                     LocalObjectReference contains enough information to let you locate the

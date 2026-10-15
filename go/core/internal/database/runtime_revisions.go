@@ -97,7 +97,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
 				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
-			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials,
+			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, PassthroughOrigins: revision.PassthroughOrigins,
 		}); err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_name, agent_uid,
-		    source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
+		    source_snapshot, egress_destinations, passthrough_origins, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
 		    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
@@ -153,6 +153,7 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 		AgentName: row.AgentName, AgentUID: row.AgentUID,
 		SourceSnapshot: row.SourceSnapshot, AgentCard: card,
 		EgressDestinations:    row.EgressDestinations,
+		PassthroughOrigins:    row.PassthroughOrigins,
 		Credentials:           credentials,
 		ActorTemplateAtespace: row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
 		ActorTemplateUID: row.ActorTemplateUID,
@@ -204,7 +205,7 @@ func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revisi
 	}
 	return queryOne(ctx, tx, `
   SELECT revision, namespace, agent_name, agent_uid,
-   source_snapshot, egress_destinations, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
+   source_snapshot, egress_destinations, passthrough_origins, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
  `, pgx.RowToStructByName[runtimeRevisionRow], revision)
 }
@@ -229,6 +230,7 @@ type runtimeRevisionRecord struct {
 	RuntimeArtifact
 	SourceSnapshot     json.RawMessage
 	EgressDestinations []string
+	PassthroughOrigins []string
 	Credentials        []egress.Credential
 }
 
@@ -242,14 +244,17 @@ func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevis
 	if revision.EgressDestinations == nil {
 		revision.EgressDestinations = []string{}
 	}
+	if revision.PassthroughOrigins == nil {
+		revision.PassthroughOrigins = []string{}
+	}
 	result, err := tx.Exec(ctx, `
   INSERT INTO runtime_revision (revision, kind, namespace, source_snapshot, egress_destinations,
-   actor_template_atespace, actor_template_name, actor_template_uid, credentials)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+   actor_template_atespace, actor_template_name, actor_template_uid, credentials, passthrough_origins)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
   ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid, updated_at = NOW()
   WHERE runtime_revision.deleted_at IS NULL AND runtime_revision.kind = EXCLUDED.kind
  `, revision.Revision, revision.Kind, revision.Namespace, revision.SourceSnapshot, revision.EgressDestinations,
-		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials)
+		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials, revision.PassthroughOrigins)
 	if err != nil {
 		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
 	}
@@ -343,6 +348,7 @@ type runtimeRevisionRow struct {
 	AgentUID              string
 	SourceSnapshot        []byte
 	EgressDestinations    []string
+	PassthroughOrigins    []string
 	Credentials           []egress.Credential
 	ActorTemplateAtespace string
 	ActorTemplateName     string

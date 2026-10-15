@@ -153,28 +153,39 @@ Secret keys, invalid destinations, and conflicting bindings prevent preparation.
 The controller publishes the error on the workload's status and re-evaluates it
 when dependencies change.
 
-Resolved destinations and credential references enter the immutable revision.
-Changing a grant or Secret reference changes that revision. Secret values and
-UIDs do not; the gateway handles value rotation independently. Policy metadata
-changes do not affect the resolved grant. Reference ordering does not affect
-revision identity.
+Runtime revisions retain the integration access inferred from models and tools,
+including credential references and caller-token passthrough constraints.
+Explicit policy grants and policy references do not enter revision identity.
+Changing a grant or its Secret reference does not prepare a new runtime image.
+Secret values remain outside compiled inputs; the gateway handles value rotation.
 
-New Sessions and sandboxes pin the current desired revision only when it matches
-the latest successful revision. The store checks this atomically with creation.
-Unresolved policies and pending or failed preparation block fresh creation,
-including during ordinary configuration updates. The previous successful
-revision remains retained but cannot be selected for fresh instances while the
-current desired revision is unprepared.
+The controller resolves current grants from the owning Agent or SandboxTemplate
+and reconciles each existing Actor's Substrate policy. Kubernetes events trigger
+updates, with a periodic sweep to recover creation races and controller restarts.
+This runs independently of agent invocations and runtime preparation. Running and
+suspended Actors receive updates without replacement. Missing or invalid policies
+and Secrets revoke explicit grants; pinned integration access remains available.
+A grant that conflicts with a pinned credential or caller-token origin is also
+withheld. Deleting and recreating an Agent or SandboxTemplate does not transfer
+its grants to instances owned by the old Kubernetes UID.
 
-This gate takes effect after the controller reconciles the changed inputs into
-the database; updating or deleting a policy is not instantaneous revocation.
-Existing instances keep their original grant through creation retries and
-resume; Session checkpoint forks also retain the source revision.
+New Sessions and sandboxes pin the current desired runtime revision only when it
+matches the latest successful revision. The store checks this atomically with
+creation. Unresolved policies and pending or failed preparation block fresh
+creation after reconciliation. Existing instances and checkpoint forks retain
+their runtime configuration, but resolve current authorization on creation,
+creation retries, and resume. A fork cannot restore an old policy from a snapshot.
 
-The runtime workflow creates a suspended Actor, installs its compiled `default`
-egress policy, and resumes it only after installation succeeds. A retry uses the
-same pinned revision. Golden Actor preparation and artifact-startup egress are
-unchanged; this API controls runtime Actor access.
+The runtime workflow creates a suspended Actor and installs its current `default`
+egress policy before it can run. Policy updates use Substrate's UID and version
+preconditions; conflicting writes re-read both backend state and current grants.
+No database transaction is held across the Substrate calls.
+
+Policy convergence is asynchronous: a Kubernetes write is not a synchronous
+revocation barrier. Once the gateway observes the changed policy, subsequent
+requests use it. An update does not cancel a request already in flight. Golden
+Actor preparation and artifact-startup egress are separate from this API's runtime
+Actor access.
 
 ## Authorization and scope
 

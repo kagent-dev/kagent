@@ -46,7 +46,7 @@ type testActors struct {
 	substrate.LifecycleClient
 	mu             sync.Mutex
 	actor          *ateapipb.Actor
-	egressPolicy   *ateapipb.EgressPolicy
+	egressRevision string
 	calls          []string
 	readErr        error
 	mutationErr    error
@@ -74,11 +74,11 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, policy *ateapipb.EgressPolicy) error {
+func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "policy")
-	a.egressPolicy = proto.CloneOf(policy)
+	a.egressRevision = revision
 	return a.mutationErr
 }
 func (a *testActors) ResumeActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -216,8 +216,7 @@ func TestSandboxLifecycleClientRetriesAfterRestart(t *testing.T) {
 				}
 			}
 			require.Equal(t, 1, count, "retry must preserve the original Actor and files")
-			require.NotNil(t, actors.egressPolicy)
-			require.Empty(t, actors.egressPolicy.Rules)
+			require.NotEmpty(t, actors.egressRevision)
 		})
 	}
 }
@@ -286,10 +285,10 @@ func TestSandboxConflictingRequestCanRetryAfterActiveAttempt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
-	require.Equal(t, []string{"create", "policy", "resume", "suspend", "resume"}, actors.observedCalls())
+	require.Equal(t, []string{"create", "policy", "resume", "suspend", "policy", "resume"}, actors.observedCalls())
 }
 
-func TestSandboxInstallsPinnedGrantBeforeResume(t *testing.T) {
+func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
 	service, ctx, actors := serviceFixture(t)
 	revision := database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "policy-revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "policy-runtime", ActorTemplateUID: "policy-runtime-uid"},
@@ -303,9 +302,7 @@ func TestSandboxInstallsPinnedGrantBeforeResume(t *testing.T) {
 	instance, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
 	require.Equal(t, revision.Revision, instance.PreparedRevision)
-	expected, err := substrate.ActorEgressPolicy("team-a", revision.EgressDestinations, revision.Credentials)
-	require.NoError(t, err)
-	require.True(t, proto.Equal(expected, actors.egressPolicy))
+	require.Equal(t, revision.Revision, actors.egressRevision)
 	calls := actors.observedCalls()
 	require.Less(t, slices.Index(calls, "policy"), slices.Index(calls, "resume"))
 	require.Contains(t, calls, "policy")

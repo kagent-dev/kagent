@@ -67,6 +67,7 @@ type RuntimeRevision struct {
 	AgentCard             *a2apb.AgentCard
 	Credentials           []egress.Credential
 	EgressDestinations    []string
+	PassthroughOrigins    []string
 	ActorTemplateAtespace string
 	ActorTemplateName     string
 	ActorTemplateUID      string

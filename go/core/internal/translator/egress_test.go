@@ -50,7 +50,7 @@ func TestEgressPolicyCredentialPrefixes(t *testing.T) {
 	}
 }
 
-func TestAgentEgressPoliciesPinGrantsAcrossHarnesses(t *testing.T) {
+func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 	for _, kind := range []string{"kagent", "codex", "claude", "byo"} {
 		t.Run(kind, func(t *testing.T) {
 			policy, secret := egressPolicy()
@@ -86,9 +86,11 @@ func TestAgentEgressPoliciesPinGrantsAcrossHarnesses(t *testing.T) {
 				return result
 			}
 			result := compile()
-			require.Contains(t, result.EgressDestinations, "https://tickets.example.com:443")
-			require.Greater(t, len(result.EgressDestinations), 1, "explicit policies preserve inferred destinations")
-			require.Equal(t, "https://tickets.example.com:443", result.Credentials[len(result.Credentials)-1].Origin)
+			require.NotContains(t, result.EgressDestinations, "https://tickets.example.com:443")
+			require.NotEmpty(t, result.EgressDestinations, "preserve inferred integration access")
+			for _, binding := range result.Credentials {
+				require.NotEqual(t, "https://tickets.example.com:443", binding.Origin)
+			}
 			encoded, err := json.Marshal(result)
 			require.NoError(t, err)
 			require.NotContains(t, string(encoded), string(secret.Data["token"]))
@@ -101,7 +103,12 @@ func TestAgentEgressPoliciesPinGrantsAcrossHarnesses(t *testing.T) {
 			policy.Spec.Destinations = append(policy.Spec.Destinations, v1alpha3.EgressDestination{Origin: "https://registry.npmjs.org"})
 			updated, err := compile().Digest()
 			require.NoError(t, err)
-			require.NotEqual(t, original, updated)
+			require.Equal(t, original, updated)
+			agent.Spec.EgressPolicyRefs = nil
+			unreferenced, err := compile().Digest()
+			require.NoError(t, err)
+			require.Equal(t, original, unreferenced)
+			agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
 			require.NotContains(t, result.EgressDestinations, "https://registry.npmjs.org:443", "previous revision remains pinned")
 			// Explicit policy credentials cannot silently replace inferred model credentials.
 			policy.Spec.Destinations[0].Origin = "https://api.openai.com"

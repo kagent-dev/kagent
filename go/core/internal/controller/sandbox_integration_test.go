@@ -119,8 +119,8 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	store.mu.Lock()
 	revision := store.revision.Revision
 	require.True(t, store.ready)
-	require.Equal(t, []string{"https://tickets.example.com:443"}, store.revision.EgressDestinations)
-	require.Len(t, store.revision.Credentials, 1)
+	require.Empty(t, store.revision.EgressDestinations)
+	require.Empty(t, store.revision.Credentials)
 	require.NotContains(t, string(store.revision.SourceSnapshot), "original-token")
 	store.mu.Unlock()
 	other, err := client.ApiV1alpha3().SandboxTemplates(unwatched.Namespace).Get(t.Context(), unwatched.Name, metav1.GetOptions{})
@@ -144,20 +144,16 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	grant.Spec.Destinations = append(grant.Spec.Destinations, kagentv1alpha3.EgressDestination{Origin: "https://registry.npmjs.org"})
 	grant, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Update(t.Context(), grant, metav1.UpdateOptions{})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		store.mu.Lock()
-		defer store.mu.Unlock()
-		return store.ready && store.revision.Revision != revision && len(store.revision.EgressDestinations) == 2
-	}, 10*time.Second, 10*time.Millisecond)
-	store.mu.Lock()
-	revision = store.revision.Revision
-	store.mu.Unlock()
 	require.NoError(t, client.ApiV1alpha3().EgressPolicies(template.Namespace).Delete(t.Context(), grant.Name, metav1.DeleteOptions{}))
 	waitUnresolved("EgressPolicy")
 	grant.ResourceVersion, grant.UID = "", ""
 	_, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Create(t.Context(), grant, metav1.CreateOptions{})
 	require.NoError(t, err)
 	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
+
+	store.mu.Lock()
+	require.Equal(t, revision, store.revision.Revision, "policy changes do not reprepare the runtime")
+	store.mu.Unlock()
 
 	// A dependency update alone must change the persisted revision.
 	changedPool := pool.DeepCopy()

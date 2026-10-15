@@ -11,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
@@ -20,7 +19,7 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
 	}}
 	policy := SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}
-	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy, egress.Access{})
+	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy)
 	require.NoError(t, err)
 	require.NotEqual(t, "5bf14bc98818a54bf4e59e5aca83de9bde5df22e9efa206b65e1389069a188c3", digest,
 		"namespace-scoped placement must create a fresh immutable ActorTemplate")
@@ -33,9 +32,13 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	trust := actor.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
 	require.Equal(t, []string{"egress-mitm.ate.dev"}, trust.GetNames())
 	require.Equal(t, "trust-bundle.pem", trust.GetPath())
-	_, same, _, err := SandboxActorTemplate(template, atev1alpha1.SandboxClassGvisor, policy, egress.Access{})
+	_, same, _, err := SandboxActorTemplate(template, atev1alpha1.SandboxClassGvisor, policy)
 	require.NoError(t, err)
 	require.Equal(t, digest, same)
+	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
+	_, unchanged, _, err := SandboxActorTemplate(template, "", policy)
+	require.NoError(t, err)
+	require.Equal(t, digest, unchanged, "policy references are live authorization")
 	for _, change := range []struct {
 		name   string
 		mutate func(*v1alpha3.SandboxTemplate, *SandboxPolicy)
@@ -51,13 +54,13 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 		t.Run(change.name, func(t *testing.T) {
 			input, settings := template.DeepCopy(), policy
 			change.mutate(input, &settings)
-			_, changed, _, err := SandboxActorTemplate(input, change.class, settings, egress.Access{})
+			_, changed, _, err := SandboxActorTemplate(input, change.class, settings)
 			require.NoError(t, err)
 			require.NotEqual(t, digest, changed)
 		})
 	}
 	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: "/untrusted"}}
-	actor, _, _, err = SandboxActorTemplate(template, "", policy, egress.Access{})
+	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "reserved")
 	require.Nil(t, actor)
 }

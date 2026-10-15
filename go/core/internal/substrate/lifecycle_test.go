@@ -41,7 +41,7 @@ func (a *transitionActors) CreateActor(_ context.Context, space, name, templateS
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error {
+func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
 	a.calls = append(a.calls, "policy")
 	return a.policyErr
 }
@@ -88,9 +88,9 @@ func TestActorCreationStartupPolicy(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{policyErr: test.policyErr, resumeUID: test.resumeUID}
-			binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
 			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
-				&ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: test.resume})
+				&ActorCreation{Resume: test.resume})
 			require.NoError(t, err)
 			require.Empty(t, actors.calls, "preparation must not mutate the backend")
 			err = ApplyActorTransition(t.Context(), actors, transition)
@@ -118,8 +118,8 @@ func TestActorRetryContinuesExistingCreation(t *testing.T) {
 				Status:        &ateapipb.ActorStatus{State: state},
 			}}
 			transition, err := PrepareActorRetry(t.Context(), actors,
-				ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"},
-				apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: true})
+				ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"},
+				apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{Resume: true})
 			require.NoError(t, err)
 			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 			require.Equal(t, "original", actors.actor.Metadata.Uid)
@@ -152,8 +152,8 @@ func TestActorTransitionAdmission(t *testing.T) {
 			if test.mutate != nil {
 				test.mutate(actors.actor)
 			}
-			binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
-			_, err = PrepareActorTransition(t.Context(), actors, binding, test.operation, &ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}})
+			binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			_, err = PrepareActorTransition(t.Context(), actors, binding, test.operation, &ActorCreation{})
 			require.Error(t, err)
 			require.Empty(t, actors.calls)
 		})
@@ -166,7 +166,7 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	require.NoError(t, err)
 	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	actors.calls = nil
-	binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+	binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
 	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
@@ -191,7 +191,7 @@ func TestActorSuspendRequiresDataSnapshot(t *testing.T) {
 			actors := &transitionActors{suspendSnapshot: test.snapshot}
 			_, err := actors.CreateActor(t.Context(), "team", "instance", "team", "revision")
 			require.NoError(t, err)
-			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
+			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
 			require.NoError(t, err)
 			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "external DATA snapshot")
 		})
