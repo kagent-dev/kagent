@@ -678,10 +678,10 @@ var file_kagent_runtime_v1_task_store_proto_goTypes = []any{
 	(*TaskStoreServiceListTasksResponse)(nil),  // 8: kagent.runtime.v1.TaskStoreServiceListTasksResponse
 	(*TaskStoreServiceSettleTaskRequest)(nil),  // 9: kagent.runtime.v1.TaskStoreServiceSettleTaskRequest
 	(*TaskStoreServiceSettleTaskResponse)(nil), // 10: kagent.runtime.v1.TaskStoreServiceSettleTaskResponse
-	(*v1.Task)(nil),                            // 11: lf.a2a.v1.Task
-	(*v1.StreamResponse)(nil),                  // 12: lf.a2a.v1.StreamResponse
-	(*v1.ListTasksRequest)(nil),                // 13: lf.a2a.v1.ListTasksRequest
-	(*v1.ListTasksResponse)(nil),               // 14: lf.a2a.v1.ListTasksResponse
+	(*v1.Task)(nil),              // 11: lf.a2a.v1.Task
+	(*v1.StreamResponse)(nil),    // 12: lf.a2a.v1.StreamResponse
+	(*v1.ListTasksRequest)(nil),  // 13: lf.a2a.v1.ListTasksRequest
+	(*v1.ListTasksResponse)(nil), // 14: lf.a2a.v1.ListTasksResponse
 }
 var file_kagent_runtime_v1_task_store_proto_depIdxs = []int32{
 	11, // 0: kagent.runtime.v1.StoredTask.task:type_name -> lf.a2a.v1.Task
