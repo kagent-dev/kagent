@@ -35,11 +35,14 @@ message AgentTemplate {
 }
 
 message ListAgentTemplatesRequest {
+  // Empty lists every namespace.
   string namespace = 1;
+  PageRequest page = 2;
 }
 
 message ListAgentTemplatesResponse {
   repeated AgentTemplate agent_templates = 1;
+  PageResponse page = 2;
 }
 
 message GetAgentTemplateRequest {

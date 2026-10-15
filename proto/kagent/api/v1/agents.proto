@@ -24,15 +24,20 @@ message Agent {
 }
 
 message ListAgentsRequest {
-  string namespace = 1 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 63
-    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+  // Empty lists every namespace.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
   }];
+  PageRequest page = 2;
 }
 
 message ListAgentsResponse {
   repeated Agent agents = 1;
+  PageResponse page = 2;
 }
 
 message GetAgentRequest {

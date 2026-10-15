@@ -53,9 +53,7 @@ type sessionLister interface {
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
 func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, verbose bool) error {
-	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
-	kubeCatalog, catalogErr := newKubeCatalog()
-	m := newWorkspaceModel(ctx, cfg, api, gateway, kubeCatalog, catalogErr, verbose)
+	m := newWorkspaceModel(ctx, cfg, api, gateway, &apiCatalog{agents: api.Agent}, nil, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
@@ -77,7 +75,7 @@ type sessionHistoryLoadedMsg struct {
 	err       error
 }
 
-// catalogLoadedMsg carries Kubernetes names; on error the cascade falls back to session-derived ones.
+// catalogLoadedMsg carries Agent names; on error the cascade falls back to session-derived ones.
 type catalogLoadedMsg struct {
 	agents []string
 	err    error
@@ -162,7 +160,7 @@ func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	}
 }
 
-// loadCatalog reads the Agent names from Kubernetes.
+// loadCatalog reads the Agent names through the kagent API.
 func (m *workspaceModel) loadCatalog() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
@@ -384,7 +382,7 @@ func (m *workspaceModel) applySessions(msg sessionsLoadedMsg) tea.Cmd {
 		m.status = fmt.Sprintf("Showing the first %d Sessions; more pages are available.", len(msg.sessions))
 	}
 
-	// The API lists all sessions; this panel browses Kubernetes targets.
+	// The API lists all sessions; this panel browses one namespace.
 	m.all = slices.DeleteFunc(msg.sessions, func(session *apiv1.Session) bool {
 		targetNamespace := session.GetAgent().GetNamespace()
 		return targetNamespace != "" && targetNamespace != m.namespace
@@ -767,10 +765,10 @@ func lineCount(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// noCatalogErr explains why there is no catalog, preserving the kubeconfig failure.
+// noCatalogErr explains why there is no catalog, preserving the construction failure.
 func (m *workspaceModel) noCatalogErr() error {
 	if m.catalogErr != nil {
 		return m.catalogErr
 	}
-	return errors.New("no Kubernetes client configured")
+	return errors.New("no Agent catalog configured")
 }

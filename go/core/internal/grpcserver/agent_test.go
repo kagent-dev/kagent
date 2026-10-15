@@ -41,3 +41,33 @@ func TestAgentServiceGeneratedClient(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, listed.Agents)
 }
+
+// An empty namespace lists every namespace, and the page
+// token walks them in namespace-then-name order without server-side state.
+func TestAgentServiceListPagesAcrossNamespaces(t *testing.T) {
+	client := apiv1.NewAgentServiceClient(newTemplateAndHarnessConnection(t))
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "alice")
+	for _, ref := range []*apiv1.ResourceReference{{Namespace: "team-b", Name: "one"}, {Namespace: "team-a", Name: "two"}, {Namespace: "team-a", Name: "three"}} {
+		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name}, Spec: v1alpha3.AgentSpec{
+			Template:   v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{SystemPrompt: "review code"}},
+			HarnessRef: corev1.LocalObjectReference{Name: "runtime"},
+		}}
+		_, err := client.CreateAgent(ctx, &apiv1.CreateAgentRequest{Ref: ref, Resource: structured(t, agent, "Agent")})
+		require.NoError(t, err)
+	}
+
+	var seen []string
+	token := ""
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 3, "paging never ended")
+		listed, err := client.ListAgents(ctx, &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 2, PageToken: token}})
+		require.NoError(t, err)
+		for _, agent := range listed.Agents {
+			seen = append(seen, agent.Ref.Namespace+"/"+agent.Ref.Name)
+		}
+		if token = listed.GetPage().GetNextPageToken(); token == "" {
+			break
+		}
+	}
+	require.Equal(t, []string{"team-a/three", "team-a/two", "team-b/one"}, seen)
+}
