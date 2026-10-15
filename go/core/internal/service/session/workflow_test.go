@@ -165,12 +165,12 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*datab
 }
 
 type lifecycleTestActors struct {
-	mu          sync.Mutex
-	actors      map[string]*ateapipb.Actor
-	policyErr   error
-	policy      *ateapipb.EgressPolicy
-	policyActor string
-	policyCalls int
+	mu             sync.Mutex
+	actors         map[string]*ateapipb.Actor
+	policyErr      error
+	policyRevision string
+	policyActor    string
+	policyCalls    int
 }
 
 func actorKey(atespace, name string) string { return atespace + "/" + name }
@@ -284,11 +284,11 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	return fork, checkpoint.Id
 }
 
-func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
+func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.policyActor = actorKey(atespace, name)
-	a.policy = proto.CloneOf(policy)
+	a.policyRevision = revision
 	a.policyCalls++
 	return a.policyErr
 }
@@ -304,27 +304,15 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			actors := &retryTestActors{lifecycleTestActors: base}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			callsBefore := base.policyCalls
-			store.revision.EgressDestinations = []string{"*"}
-			_, err := workflow.Create(t.Context(), session)
-			require.ErrorContains(t, err, "invalid egress origin")
-			require.Zero(t, actors.mutations.Load(), "validate the allowlist before issuing Actor creation")
-			require.Equal(t, callsBefore, base.policyCalls)
-
-			store.revision.EgressDestinations = []string{"https://api.example.com:443", "https://other.example.com:8443"}
-			store.revision.Credentials = []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}
 			base.policyErr = context.DeadlineExceeded
-			_, err = workflow.Create(t.Context(), session)
+			_, err := workflow.Create(t.Context(), session)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_CREATING, current.State)
 			require.Empty(t, current.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
-			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
-			require.Len(t, base.policy.Rules, 2)
-			require.Equal(t, &ateapipb.CredentialHeader{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/auth/token"}, base.policy.Rules[0].GetHttps().GetEffects().GetReplaceHeaders()[0])
-			require.Equal(t, []string{"api.example.com"}, base.policy.Rules[0].GetHttps().GetHostnames())
-			require.Equal(t, []string{"other.example.com"}, base.policy.Rules[1].GetHttps().GetHostnames())
+			require.Equal(t, session.PreparedRevision, base.policyRevision)
 
 			// Retry completes policy setup for the existing Actor before readiness.
 			base.policyErr = nil

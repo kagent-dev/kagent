@@ -35,7 +35,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			}
 			input := credentialInput(test.spec)
 			environment := []corev1.EnvVar{credentialEnv(test.env, "auth", test.spec.APIKeySecretKey)}
-			got, bindings, err := CompileCredentials(input, nil, environment)
+			got, bindings, _, err := CompileCredentials(input, nil, environment)
 			require.NoError(t, err)
 			require.Equal(t, CredentialPlaceholder, got[0].Value)
 			require.Nil(t, got[0].ValueFrom)
@@ -55,30 +55,33 @@ func TestCompileCredentialsRejectsConflictingSharedModels(t *testing.T) {
 	spec.APIKeySecret = "child"
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(spec).Root}}
 	// The ADK environment is deduplicated, but every model still needs its own binding.
-	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
 	require.ErrorContains(t, err, "conflicting credentials")
+	require.Nil(t, environment)
 	input.Root.Shared[0].Agent.ResolvedModelConfig.Config.Spec.OpenAI = &v1alpha3.OpenAIConfig{BaseURL: "https://child.example.com/v1"}
-	_, bindings, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	_, bindings, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
 	require.NoError(t, err)
 	require.Len(t, bindings, 2)
 }
 
 func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
-	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot use gateway header injection")
+	require.Nil(t, environment)
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true})
-	_, bindings, err := CompileCredentials(input, nil, nil)
+	_, bindings, _, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token",
 	}).Root}}
-	_, _, err = CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
+	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+	require.Nil(t, environment)
 }
 
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
@@ -174,10 +177,13 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 
 func TestPassthroughCredentialConflictUsesCanonicalOrigin(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
+	input.Egress.Destinations = []string{"https://api.openai.com"}
 	input.Egress.Credentials = []egress.Credential{{Origin: "https://api.openai.com", Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token"}}
-	_, _, err := CompileCredentials(input, nil, nil)
+	environment, _, _, err := CompileCredentials(input, nil, nil)
 	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+	require.Nil(t, environment)
 	input.Root.ResolvedModelConfig.Config.Spec.OpenAI.BaseURL = "https://api.openai.com:8443/v1"
-	_, _, err = CompileCredentials(input, nil, nil)
+	environment, _, _, err = CompileCredentials(input, nil, nil)
+	require.Empty(t, environment)
 	require.NoError(t, err, "a different port is a distinct credential scope")
 }

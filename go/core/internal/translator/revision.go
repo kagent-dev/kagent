@@ -66,6 +66,8 @@ type Revision struct {
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
+	// PassthroughOrigins cannot receive gateway credentials, including live grants.
+	PassthroughOrigins []string
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
 }
@@ -105,6 +107,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		SnapshotLocation   string                   `json:"snapshotLocation"`
 		Provenance         json.RawMessage          `json:"provenance"`
 		Credentials        []egress.Credential      `json:"credentials,omitempty"`
+		PassthroughOrigins []string                 `json:"passthroughOrigins,omitempty"`
 		EgressDestinations []string                 `json:"egressDestinations"`
 		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass"`
 
@@ -116,7 +119,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
-		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
+		PassthroughOrigins: r.PassthroughOrigins, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})
 	if err != nil {

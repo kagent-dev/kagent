@@ -98,7 +98,7 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 				state.Failure = &ReconciliationFailure{Reason: kagentv1alpha3.SandboxTemplateReasonEgressPolicyResolutionFailed, Message: err.Error()}
 				return state
 			}
-			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy, state.Egress)
+			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy)
 			if err != nil {
 				state.CompilationError = err.Error()
 				state.Failure = &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage}

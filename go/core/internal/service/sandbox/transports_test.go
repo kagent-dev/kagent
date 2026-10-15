@@ -250,5 +250,5 @@ func TestSandboxTransports(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.DeleteSandbox(ctx, &apiv1.DeleteSandboxRequest{SandboxId: id})
 	require.NoError(t, err)
-	require.Equal(t, []string{"create", "policy", "resume", "suspend", "suspend", "resume", "suspend", "delete"}, actors.observedCalls())
+	require.Equal(t, []string{"create", "policy", "resume", "suspend", "suspend", "policy", "resume", "suspend", "delete"}, actors.observedCalls())
 }

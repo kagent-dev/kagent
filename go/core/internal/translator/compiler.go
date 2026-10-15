@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"slices"
-	"strings"
 
 	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -134,7 +131,7 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 	}
 	result.AgentUID = string(agent.UID)
 	spec := agent.Spec.DeepCopy()
-	slices.SortFunc(spec.EgressPolicyRefs, func(a, b corev1.LocalObjectReference) int { return strings.Compare(a.Name, b.Name) })
+	spec.EgressPolicyRefs = nil
 	result.Provenance, err = json.Marshal(struct {
 		AgentName string             `json:"agentName"`
 		AgentUID  string             `json:"agentUID"`
@@ -176,14 +173,10 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	if err != nil {
 		return nil, err
 	}
-	// Merge again at the shared boundary so every compiler preserves explicit
-	// grants. Built-in compilers also consume these bindings when validating
-	// model passthrough and inferred credentials.
-	combined, err := egress.CanonicalAccess(append(result.EgressDestinations, access.Destinations...), append(result.Credentials, access.Credentials...))
-	if err != nil {
+	// Explicit grants are live authorization, not immutable runtime inputs.
+	if _, err := egress.MergeAccess(egress.Access{Destinations: result.EgressDestinations, Credentials: result.Credentials}, access, result.PassthroughOrigins); err != nil {
 		return nil, NewValidationError("%v", err)
 	}
-	result.EgressDestinations, result.Credentials = combined.Destinations, combined.Credentials
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
 	if workerPool == nil {

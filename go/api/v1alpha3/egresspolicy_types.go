@@ -62,7 +62,7 @@ type EgressAuthentication struct {
 // +kubebuilder:resource:path=egresspolicies,singular=egresspolicy,scope=Namespaced,categories=kagent
 
 // EgressPolicy is a reusable grant of additional network access. Workloads in its
-// namespace select it explicitly; changing it affects newly prepared revisions.
+// namespace select it explicitly; changes update their existing runtime Actors.
 type EgressPolicy struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

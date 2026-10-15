@@ -20,9 +20,9 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // CompileCredentials replaces secret-backed environment values with inert SDK
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
-func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
-	bindings := make([]egress.Credential, 0, len(input.Egress.Credentials))
-	bindings = append(bindings, input.Egress.Credentials...)
+func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, []string, error) {
+	var bindings []egress.Credential
+	var passthroughOrigins []string
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
 	bind := func(rawURL, header, prefix, namespace, name, key string) error {
@@ -58,7 +58,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		return nil
 	}
 	if err := visit(input.Root); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, resolved := range models {
 		model := resolved.Config
@@ -83,13 +83,13 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			}
 		}
 		if err := bind(endpoint, header, prefix, model.Namespace, model.Spec.APIKeySecret, key); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
 	bindings, err := egress.CanonicalCredentials(bindings)
 	if err != nil {
-		return nil, nil, NewValidationError("%v", err)
+		return nil, nil, nil, NewValidationError("%v", err)
 	}
 	for _, resolved := range models {
 		if !resolved.Config.Spec.APIKeyPassthrough {
@@ -98,18 +98,22 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		_, endpoint, _, _ := modelCredentialTarget(resolved)
 		u, err := url.Parse(endpoint)
 		if err != nil {
-			return nil, nil, NewValidationError("invalid passthrough credential destination")
+			return nil, nil, nil, NewValidationError("invalid passthrough credential destination")
 		}
 		origin, err := egress.ParseOrigin(egress.Origin(u))
 		if err != nil {
-			return nil, nil, NewValidationError("invalid passthrough credential destination: %v", err)
+			return nil, nil, nil, NewValidationError("invalid passthrough credential destination: %v", err)
 		}
-		for _, binding := range bindings {
-			if binding.Origin == origin.String() {
-				return nil, nil, NewValidationError("destination %q cannot combine caller-token passthrough with gateway credentials", origin.String())
-			}
-		}
+		passthroughOrigins = append(passthroughOrigins, origin.String())
 	}
+	var destinations []string
+	for _, binding := range bindings {
+		destinations = append(destinations, binding.Origin)
+	}
+	if _, err := egress.MergeAccess(egress.Access{Destinations: destinations, Credentials: bindings}, input.Egress, passthroughOrigins); err != nil {
+		return nil, nil, nil, NewValidationError("%v", err)
+	}
+
 	result := append([]corev1.EnvVar(nil), environment...)
 	for i, variable := range result {
 		if variable.ValueFrom == nil {
@@ -118,11 +122,11 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		ref := variable.ValueFrom.SecretKeyRef
 		isMCP := strings.HasPrefix(variable.Name, "KAGENT_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CODEX_MCP_CREDENTIAL_") || strings.HasPrefix(variable.Name, "KAGENT_CLAUDE_MCP_CREDENTIAL_")
 		if ref == nil || (!boundModels[variable.Name+"\x00"+ref.Name+"\x00"+ref.Key] && (!isMCP || !boundMCP[ref.Name+"\x00"+ref.Key])) {
-			return nil, nil, NewValidationError("environment credential %q cannot use gateway header injection; local signing and arbitrary secret environment variables are unsupported", variable.Name)
+			return nil, nil, nil, NewValidationError("environment credential %q cannot use gateway header injection; local signing and arbitrary secret environment variables are unsupported", variable.Name)
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
-	return result, bindings, nil
+	return result, bindings, passthroughOrigins, nil
 }
 
 func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {
