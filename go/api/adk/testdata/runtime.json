@@ -30,5 +30,10 @@
     "resource_attributes": {
       "deployment.environment.name": "test"
     }
+  },
+  "a2a_retry": {
+    "enabled": false,
+    "max_attempts": 3,
+    "base_delay": "0.250s"
   }
 }

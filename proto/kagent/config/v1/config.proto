@@ -342,6 +342,26 @@ message RuntimeDefaultsConfig {
   TokenPropagationConfig token_propagation = 6;
   bool file_search_tools = 7;
   string bash_venv_path = 8;
+  A2ARetryConfig a2a_retry = 9;
+}
+
+// A2ARetryConfig retries outbound A2A requests that cannot have reached the
+// remote agent (connection refused, DNS failure), and agent card discovery on
+// any connection failure. A send that fails after delivery is never resent at
+// the transport level.
+message A2ARetryConfig {
+  bool enabled = 1;
+  // Attempts including the first. Absent selects the runtime default.
+  optional uint32 max_attempts = 2 [(buf.validate.field).uint32 = {
+    gte: 1
+    lte: 10
+  }];
+  // Delay before the first retry, doubling after each subsequent attempt.
+  // Absent selects the runtime default.
+  google.protobuf.Duration base_delay = 3 [(buf.validate.field).duration = {
+    gte: {nanos: 1000000}
+    lte: {seconds: 60}
+  }];
 }
 
 message TokenPropagationConfig {

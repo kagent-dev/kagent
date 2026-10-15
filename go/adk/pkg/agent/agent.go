@@ -102,7 +102,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		if remoteAgent.Timeout != nil {
 			httpClient = &http.Client{Timeout: remoteAgent.Timeout.AsDuration()}
 		}
-		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, httpClient, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
+		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, httpClient, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions, runtime.GetA2ARetry())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}

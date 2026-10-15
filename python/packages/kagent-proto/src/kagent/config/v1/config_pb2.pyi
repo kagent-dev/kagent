@@ -47,6 +47,16 @@ class OTLPConfig(_message.Message):
     timeout: _duration_pb2.Duration
     def __init__(self, endpoint: _Optional[str] = ..., protocol: _Optional[str] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
 
+class A2ARetryConfig(_message.Message):
+    __slots__ = ("enabled", "max_attempts", "base_delay")
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    MAX_ATTEMPTS_FIELD_NUMBER: _ClassVar[int]
+    BASE_DELAY_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    max_attempts: int
+    base_delay: _duration_pb2.Duration
+    def __init__(self, enabled: _Optional[bool] = ..., max_attempts: _Optional[int] = ..., base_delay: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+
 class TokenPropagationConfig(_message.Message):
     __slots__ = ("enabled", "sts_well_known_uri", "resources", "audiences")
     ENABLED_FIELD_NUMBER: _ClassVar[int]

@@ -41,5 +41,6 @@ func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) 
 		FileSearchTools:  cfg.GetFileSearchTools(), BashVenvPath: cfg.GetBashVenvPath(),
 		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
 		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
+		A2ARetry:         proto.CloneOf(cfg.GetA2ARetry()),
 	}
 }

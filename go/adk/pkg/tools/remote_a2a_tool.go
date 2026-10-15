@@ -21,6 +21,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -214,12 +215,15 @@ type remoteA2AResponse struct {
 // for both isolated and non-isolated tools alike.
 //
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
-// If httpClient is nil, a default client is created. The client's transport is
-// wrapped with otelhttp to propagate W3C trace context to subagents.
-func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken, isolateSessions bool) (tool.Tool, error) {
+// If httpClient is nil, a default client is created. The client's transport
+// is optionally wrapped with retryTransport (opt-in via retry.enabled), which
+// only resends requests that cannot have reached the agent, and then with
+// otelhttp to propagate W3C trace context to subagents.
+func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken, isolateSessions bool, retry *adk.A2ARetryConfig) (tool.Tool, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
+	httpClient = withRetryTransport(httpClient, retry)
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
 		name:            name,
@@ -334,7 +338,9 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 	message.ContextID = contextID
 
 	sendCtx := remoteCallContext(ctx)
-	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
+	// No task exists yet to recover from, so an ambiguous failure is
+	// reported rather than resent: the remote agent may have run it.
+	result, err := sendMessageWithRetry(sendCtx, client, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "remote agent request failed", "tool", s.name, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
@@ -395,7 +401,16 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	}
 
 	sendCtx := remoteCallContext(ctx)
-	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
+	result, err := sendMessageWithRetry(sendCtx, client, &a2atype.SendMessageRequest{Message: message})
+	if err != nil && sendCtx.Err() == nil {
+		// The decision may have reached the task before the failure. Never
+		// resend it; read the task to learn whether it was applied.
+		if task, ok := recoverResumedTask(sendCtx, client, message.TaskID, message.ID); ok {
+			logging.FromContext(ctx).InfoContext(ctx, "recovered remote agent task after ambiguous resume failure",
+				"tool", subagentName, "task_id", taskID, "error", err)
+			result, err = task, nil
+		}
+	}
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "remote agent resume failed", "tool", subagentName, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
