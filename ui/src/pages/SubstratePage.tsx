@@ -234,17 +234,18 @@ const atAGlance = (count: number) => compactNumber.format(count).replace("K", "k
  * today's sample: a reader learns that `Crashed` is a thing that happens by seeing it at
  * zero, not by waiting for one.
  *
+ * The summary groups paused actors under Suspended; only individual actor snapshots
+ * distinguish a node-local pause from a durable suspension.
+ *
  * States absent from this list are added to the legend when reported by Substrate.
  */
 const ACTOR_STATES = [
   "Crashed",
   "Deleting",
-  "Pausing",
   "Resuming",
+  "Reverting",
   "Running",
-  "Snapshotting",
   "Suspending",
-  "Paused",
   "Suspended",
   "Unknown",
 ];

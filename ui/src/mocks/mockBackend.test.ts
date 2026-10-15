@@ -286,6 +286,10 @@ describe("the fixture backend", () => {
       atespace: "team-a", status: "Running", actorTemplateAtespace: "kagent", actorTemplateName: "coder-template",
     });
     expect(page.actors.find((actor) => actor.actorId === "actor-9c03")?.status).toBe("Suspending");
+    expect(summary.actorStatusCounts).toContainEqual({ status: "Suspended", count: 2 });
+    expect(summary.actorStatusCounts.some((entry) => entry.status === "Paused")).toBe(false);
+    expect(page.actors.find((actor) => actor.actorId === "actor-5d17")?.status).toBe("Paused");
+    expect(page.actors.find((actor) => actor.actorId === "actor-c3f5")?.status).toBe("Suspended");
   });
 
   it("preserves continuation through a worker page with no namespace matches", async () => {
