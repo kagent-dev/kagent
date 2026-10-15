@@ -71,7 +71,6 @@ Target personas interact with kagent through multiple interfaces:
 
 2. **CLI (`kagent`)**: Command-line tool for:
    - Agent deployment and management (`kagent agent deploy`)
-   - MCP server configuration (`kagent mcp`)
    - Local development workflows
    - CI/CD integration
    - Installation: `curl -fsSL https://kagent.dev/install.sh | sh`
