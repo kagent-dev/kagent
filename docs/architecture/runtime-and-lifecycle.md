@@ -6,7 +6,12 @@ Kubernetes resource.
 
 ## Creation and state
 
-Creation selects the latest successful revision for the Agent, creates a deterministic Actor initially suspended, and marks the session
+Fresh creation requires the Agent's current desired revision to match its latest
+successful revision. Once reconciliation records unresolved inputs or a pending
+update, creation fails until the current revision is prepared. Creation retries
+retain the existing session's pinned revision.
+
+The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.

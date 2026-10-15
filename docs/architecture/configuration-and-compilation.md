@@ -172,9 +172,10 @@ revision. AgentTemplate is shared context with no runtime status. Child template
 references are resolved under the root Agent's Harness; they do not require
 separate Agents or matching Harness references.
 
-A failed compile or apply leaves the previous successful revision available.
-Sessions pin a prepared revision, so later template edits do not mutate a
-running session.
+A failed compile or apply retains the previous successful revision. Fresh
+Sessions require the desired and latest successful revisions to match, so
+pending or failed preparation blocks creation after reconciliation records the
+change. Existing Sessions and creation retries keep their pinned revision.
 
 Harness compilers only translate inputs. The controller and Substrate adapter own
 application and readiness. The central entry points are
@@ -391,7 +392,8 @@ no synthetic Kubernetes object is created for an inline template.
 
 Create a session with `kagent agent session create --agent assistant -n kagent`.
 The gRPC create request and ScheduledRun target one `agent` resource reference.
-The controller selects that Agent's latest successful revision. Deleting an Agent
+The store selects that Agent's current desired revision only after it has been
+successfully prepared. Deleting an Agent
 retires its definition; sessions and checkpoints retain their pinned revisions.
 Recreating the same name creates a new identity and cannot inherit the old
 Agent's last successful revision.

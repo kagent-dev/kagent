@@ -159,11 +159,17 @@ UIDs do not; the gateway handles value rotation independently. Policy metadata
 changes do not affect the resolved grant. Reference ordering does not affect
 revision identity.
 
-New Sessions and sandboxes pin a prepared revision. Existing instances keep
-their original grant through retries and resume; Session checkpoint forks also
-retain the source revision. Updating or deleting a policy is not live revocation.
-Failed preparation does not overwrite a previous successful revision, and the
-existing readiness rules prevent selecting stale inputs for new instances.
+New Sessions and sandboxes pin the current desired revision only when it matches
+the latest successful revision. The store checks this atomically with creation.
+Unresolved policies and pending or failed preparation block fresh creation,
+including during ordinary configuration updates. The previous successful
+revision remains retained but cannot be selected for fresh instances while the
+current desired revision is unprepared.
+
+This gate takes effect after the controller reconciles the changed inputs into
+the database; updating or deleting a policy is not instantaneous revocation.
+Existing instances keep their original grant through creation retries and
+resume; Session checkpoint forks also retain the source revision.
 
 The runtime workflow creates a suspended Actor, installs its compiled `default`
 egress policy, and resumes it only after installation succeeds. A retry uses the

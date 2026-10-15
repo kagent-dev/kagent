@@ -15,12 +15,17 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
@@ -107,7 +112,7 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 			Destinations: []v1alpha3.EgressDestination{{Origin: denied.Scheme + "://" + denied.Host}},
 		}}
 		require.NoError(t, kube.Create(t.Context(), grant))
-		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), grant)) })
+		t.Cleanup(func() { require.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), grant))) })
 		agent := &v1alpha3.Agent{}
 		key := ctrlclient.ObjectKey{Namespace: "kagent", Name: name}
 		require.NoError(t, kube.Get(t.Context(), key, agent))
@@ -134,5 +139,60 @@ func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
 		fixture.send(t, prompt)
 		require.Greater(t, redirects.Load(), before, "the existing session must retry the tool call")
 		require.Equal(t, allowedCalls, toolCalls(), "existing session must retain its earlier grant")
+
+		require.NoError(t, kube.Delete(t.Context(), grant))
+		require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+			if err := kube.Get(ctx, key, agent); err != nil {
+				return false, err
+			}
+			condition := apimeta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionReady)
+			return condition != nil && condition.ObservedGeneration == agent.Generation && condition.Status == metav1.ConditionFalse, nil
+		}))
+		// Check creation directly, without the fixture's preparation retry loop.
+		_, err = allowed.sessions.CreateSession(allowed.ctx, &apiv1.CreateSessionRequest{
+			Agent: &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}, RequestId: uuid.NewString(),
+		})
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		_, _, task = allowed.send(t, prompt)
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+		require.Greater(t, toolCalls(), allowedCalls, "policy deletion must preserve the existing session's pinned grant")
 	})
+}
+
+func TestSandboxEgressPolicyDeletionBlocksCreation(t *testing.T) {
+	t.Parallel()
+	f := newSandboxFixture(t)
+	kube := interactionKubeClient(t)
+	grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "sandbox-access-", Namespace: f.template.Namespace}, Spec: v1alpha3.EgressPolicySpec{
+		Destinations: []v1alpha3.EgressDestination{{Origin: "https://example.com"}},
+	}}
+	require.NoError(t, kube.Create(f.ctx, grant))
+	t.Cleanup(func() { require.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), grant))) })
+	template := &v1alpha3.SandboxTemplate{}
+	key := ctrlclient.ObjectKey{Namespace: f.template.Namespace, Name: f.template.Name}
+	require.NoError(t, kube.Get(f.ctx, key, template))
+	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: grant.Name}}
+	require.NoError(t, kube.Update(f.ctx, template))
+	// Observe the grant's generation before creating the instance to avoid
+	// selecting the template's earlier revision during reconciliation.
+	waitReady := func(want metav1.ConditionStatus) {
+		t.Helper()
+		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+			if err := kube.Get(ctx, key, template); err != nil {
+				return false, err
+			}
+			condition := apimeta.FindStatusCondition(template.Status.Conditions, "Ready")
+			return condition != nil && condition.ObservedGeneration == template.Generation && condition.Status == want, nil
+		}))
+	}
+	waitReady(metav1.ConditionTrue)
+	first := f.create(t, 5*time.Minute)
+	require.NoError(t, kube.Delete(f.ctx, grant))
+	waitReady(metav1.ConditionFalse)
+	_, err := f.client.CreateSandbox(f.ctx, &apiv1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString()})
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	current, err := f.client.GetSandbox(f.ctx, &apiv1.GetSandboxRequest{SandboxId: first.Id})
+	require.NoError(t, err)
+	require.Equal(t, first.PreparedRevision, current.Sandbox.PreparedRevision)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.Sandbox.State)
 }

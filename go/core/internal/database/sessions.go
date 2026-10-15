@@ -53,11 +53,11 @@ func sameSessionRequest(session, request *apiv1.Session) bool {
 }
 
 // CreateSession atomically reserves a session, its conversation history, and the
-// latest successful runtime revision. A repeated creator/requestID returns the existing
-// session when the Agent matches, or ErrIdempotencyConflict otherwise. A
-// deleted session returns ErrFailedPrecondition and keeps its request ID reserved. The
-// boolean reports whether this call created the session; runtime provisioning belongs to
-// the caller.
+// current desired revision, or returns ErrNotFound if it is not prepared. A repeated
+// creator/requestID returns the existing session when the Agent matches, or
+// ErrIdempotencyConflict otherwise. A deleted session returns ErrFailedPrecondition
+// and keeps its request ID reserved. The boolean reports whether this call created
+// the session; runtime provisioning belongs to the caller.
 func (c *Client) CreateSession(ctx context.Context, request *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {
 	existing, err := readSessionRequest(ctx, c.db, request.GetCreator(), requestID)
 	if err == nil {
@@ -101,22 +101,25 @@ func (c *Client) CreateSession(ctx context.Context, request *apiv1.Session, requ
 }
 
 // insertSession reserves a new conversation in CREATING/CREATE and pins the active
-// Agent's latest successful revision. Callers must supply a transaction so
-// the history and session commit together. A missing prepared target returns ErrNotFound;
-// a duplicate creator/requestID returns pgx.ErrNoRows for the caller to resolve.
+// Agent's current desired revision only when it is prepared. It locks the definition
+// before the revision to serialize creation with reconciliation. Callers must supply
+// a transaction so the history and session commit together. A missing prepared target
+// returns ErrNotFound; a duplicate creator/requestID returns pgx.ErrNoRows for the caller
+// to resolve.
 func insertSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, requestID string) (sessionRow, error) {
 	type preparedRevision struct {
 		Revision string
 		DBTime   time.Time
 	}
 	revision, err := queryOne(ctx, db, `
-		SELECT r.revision, clock_timestamp() AS db_time
+		SELECT p.latest_successful_revision AS revision, clock_timestamp() AS db_time
 		FROM agent_definition p
-		JOIN agent_runtime_revision r ON r.revision = p.latest_successful_revision
-  WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
- `, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
+		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
+		    AND p.desired_revision = p.latest_successful_revision
+		FOR UPDATE OF p
+	`, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
 	if err != nil {
-		return sessionRow{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+		return sessionRow{}, fmt.Errorf("get current prepared runtime revision: %w", notFoundOr(err))
 	}
 	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revision.Revision); err != nil {
 		return sessionRow{}, err

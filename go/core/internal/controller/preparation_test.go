@@ -106,12 +106,11 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, retained, "last-successful A must remain protected without any sessions")
 
-			session, _, err := store.CreateSession(ctx, &apiv1.Session{
+			_, _, err = store.CreateSession(ctx, &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
 				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}, "last-good-session")
-			require.NoError(t, err)
-			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
+			require.ErrorIs(t, err, database.ErrNotFound, "unresolved inputs must prevent fresh sessions from selecting the retained revision")
 
 			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
 			require.NoError(t, collector.collect(ctx, abandoned.Revision))
