@@ -7867,7 +7867,7 @@ spec:
                           summarizer:
                             description: |-
                               Summarizer configures an LLM-based summarizer for event compaction.
-                              If not specified, compacted events are dropped from the context without summarization.
+                              If not specified, the agent's own model summarizes with the runtime's default prompt.
                             properties:
                               modelConfig:
                                 description: |-
@@ -7886,6 +7886,7 @@ spec:
                             description: |-
                               Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
                               observed prompt token count meets or exceeds this threshold.
+                              Takes effect together with eventRetentionSize.
                             type: integer
                         type: object
                     type: object

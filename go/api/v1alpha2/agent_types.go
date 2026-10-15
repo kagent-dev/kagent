@@ -365,11 +365,12 @@ type ContextCompressionConfig struct {
 	// +kubebuilder:validation:Minimum=0
 	OverlapSize *int `json:"overlapSize,omitempty"`
 	// Summarizer configures an LLM-based summarizer for event compaction.
-	// If not specified, compacted events are dropped from the context without summarization.
+	// If not specified, the agent's own model summarizes with the runtime's default prompt.
 	// +optional
 	Summarizer *ContextSummarizerConfig `json:"summarizer,omitempty"`
 	// Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
 	// observed prompt token count meets or exceeds this threshold.
+	// Takes effect together with eventRetentionSize.
 	// +optional
 	TokenThreshold *int `json:"tokenThreshold,omitempty"`
 	// EventRetentionSize is the number of most recent events to always retain.
