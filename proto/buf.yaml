@@ -14,11 +14,6 @@ lint:
 breaking:
   use:
     - FILE
-  # Allow the pre-GA removal of ADKPluginSource.oci without reserving its name
-  # or number. Other FILE checks still apply.
-  ignore_only:
-    FIELD_NO_DELETE:
-      - kagent/config/v1/adk.proto
   # Vendored upstream alpha API; upgrades follow go.mod. Kagent does not expose
   # its egress policy types, which changed incompatibly in alpha3.
   ignore:
