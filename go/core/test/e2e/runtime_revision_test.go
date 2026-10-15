@@ -68,11 +68,12 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		}
 		// No FailedPrecondition retry: Ready must already be backed by a persisted
 		// successful revision when the first create request arrives.
-		created, err := sessions.CreateSession(ctx, request(templateName))
+		createRequest := request(templateName)
+		created, err := sessions.CreateSession(ctx, createRequest)
 		require.NoError(t, err)
 		source := created.GetSession()
 		t.Cleanup(func() { deleteSession(source.GetId()) })
-		sourceTaskID := send(source.GetId())
+		send(source.GetId())
 
 		// Observe the actual runtime through the public inventory API before deleting
 		// references, so an empty response cannot falsely prove cleanup later.
@@ -110,12 +111,13 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			}
 			return false, nil
 		}))
-		fallback, err := sessions.CreateSession(ctx, request(templateName))
-		require.NoError(t, err, "an invalid edit must preserve the current UID's last-good runtime")
-		t.Cleanup(func() { deleteSession(fallback.GetSession().GetId()) })
-		require.Equal(t, source.GetPreparedRevision(), fallback.GetSession().GetPreparedRevision())
-		send(fallback.GetSession().GetId())
-		deleteSession(fallback.GetSession().GetId())
+		_, err = sessions.CreateSession(ctx, request(templateName))
+		require.Equal(t, codes.FailedPrecondition, status.Code(err), "an invalid edit must block fresh sessions")
+		retried, err := sessions.CreateSession(ctx, createRequest)
+		require.NoError(t, err, "creation retries must retain the existing session's pinned runtime")
+		require.Equal(t, source.GetId(), retried.GetSession().GetId())
+		require.Equal(t, source.GetPreparedRevision(), retried.GetSession().GetPreparedRevision())
+		sourceTaskID := send(source.GetId())
 
 		checkpointResponse := createCheckpoint(t, ctx, checkpoints, &apiv1.CreateCheckpointRequest{SessionId: source.GetId(), RequestId: uuid.NewString(), ExpectedHeadTaskId: sourceTaskID})
 		checkpointID := checkpointResponse.GetCheckpoint().GetId()
@@ -132,19 +134,10 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name}}
 		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent))
 		require.NoError(t, kube.Delete(ctx, agent))
-		// Wait for the controller to retire the pair, using the same public create
-		// path as a client. Dispose of any session created before retirement wins.
-		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-			response, err := sessions.CreateSession(ctx, request(templateName))
-			if status.Code(err) == codes.FailedPrecondition {
-				return true, nil
-			}
-			if err != nil {
-				return false, err
-			}
-			deleteSession(response.GetSession().GetId())
-			return false, nil
-		}))
+		// Deletion keeps fresh creation blocked. Eventual runtime collection below
+		// verifies retirement after the final checkpoint reference is released.
+		_, err = sessions.CreateSession(ctx, request(templateName))
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
 		forked, err := checkpoints.ForkSession(ctx, &apiv1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
 		require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
 		forkID := forked.GetSession().GetId()
