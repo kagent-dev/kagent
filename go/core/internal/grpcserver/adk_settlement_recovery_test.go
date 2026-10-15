@@ -25,13 +25,16 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -151,7 +154,7 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			require.EqualValues(t, 1, llm.calls.Load())
 			taskID := response.GetTask().GetId()
 			require.NotEmpty(t, taskID)
-			stored, _, err := store.GetVersionedSessionTask(t.Context(), session.Id, taskID)
+			stored, version, err := store.GetVersionedSessionTask(t.Context(), session.Id, taskID)
 			require.NoError(t, err)
 			require.Equal(t, a2a.TaskStateCompleted, stored.Status.State)
 			public, err := store.GetSessionTask(t.Context(), session.Id, taskID, nil)
@@ -174,6 +177,13 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			_, err = store.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			t.Logf("DELETE admission: %v", err)
 			require.NoError(t, err, "explicit deletion must remain available after settlement retries are exhausted")
+			privateCtx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/session-"+session.Id+"/actor-uid"))
+			_, err = controller.TaskStoreService().SettleTask(privateCtx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: session.Id, TaskId: taskID, Version: version})
+			if fail {
+				require.Equal(t, codes.Aborted, status.Code(err), "late cleanup cannot publish after deletion admission")
+			} else {
+				require.NoError(t, err, "an already published acknowledgement remains idempotent")
+			}
 		})
 	}
 }

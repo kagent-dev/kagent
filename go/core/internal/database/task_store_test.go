@@ -182,7 +182,7 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	require.Equal(t, a2a.TaskStateWorking, public.Status.State)
 	_, err = client.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.ErrorIs(t, err, ErrConflict)
-	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	_, err = client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	_, err = client.ClaimSessionQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound) // The native cleanup callback has not finished.
@@ -217,6 +217,69 @@ func TestRuntimeCompletionDoesNotWaitForSnapshot(t *testing.T) {
 	require.Len(t, public.History, 3)
 	_, err = client.ClaimSessionQuiescence(t.Context())
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestSettlementSerializesWithSessionDeletion(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	for _, ordering := range []string{"delete_first", "settle_first", "concurrent"} {
+		t.Run(ordering, func(t *testing.T) {
+			session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
+			require.NoError(t, err)
+			session, err = markSessionReady(ctx, client, session.Id, "agent.example")
+			require.NoError(t, err)
+			task := newSessionTask(uuid.NewString(), uuid.NewString())
+			task.ContextID, task.Status.State = session.ContextId, a2a.TaskStateCompleted
+			require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, task.History[0].ID, "", &a2a.PushConfig{ID: "callback", URL: "http://receiver"}))
+			version, err := client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("completed"), task, "")
+			require.NoError(t, err)
+			settle := func() error { return client.SettleSessionTask(ctx, session.Id, string(task.ID), version) }
+			remove := func() error {
+				_, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+				return err
+			}
+			var settleErr error
+			switch ordering {
+			case "delete_first":
+				require.NoError(t, remove())
+				settleErr = settle()
+				require.ErrorIs(t, settleErr, ErrConflict)
+			case "settle_first":
+				settleErr = settle()
+				require.NoError(t, settleErr)
+				require.NoError(t, remove())
+			case "concurrent":
+				start := make(chan struct{})
+				settled, deleted := make(chan error, 1), make(chan error, 1)
+				go func() { <-start; settled <- settle() }()
+				go func() { <-start; deleted <- remove() }()
+				close(start)
+				require.NoError(t, <-deleted)
+				settleErr = <-settled
+				if settleErr != nil {
+					require.ErrorIs(t, settleErr, ErrConflict)
+				}
+			}
+			public, err := client.GetSessionTask(ctx, session.Id, string(task.ID), nil)
+			require.NoError(t, err)
+			delivery, err := client.ClaimDuePushDelivery(ctx)
+			require.NoError(t, err)
+			if settleErr == nil {
+				require.Equal(t, a2a.TaskStateCompleted, public.Status.State)
+				require.NotNil(t, delivery)
+				require.Equal(t, string(task.ID), delivery.TaskID)
+				require.NoError(t, client.FinishPushDelivery(ctx, *delivery, true))
+				// Acknowledging a publication that won the race remains idempotent.
+				require.NoError(t, settle())
+			} else {
+				require.Equal(t, a2a.TaskStateSubmitted, public.Status.State)
+				require.Nil(t, delivery)
+			}
+			_, err = client.ClaimSessionQuiescence(ctx)
+			require.ErrorIs(t, err, ErrNotFound, "deletion excludes background runtime work")
+		})
+	}
 }
 
 func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {

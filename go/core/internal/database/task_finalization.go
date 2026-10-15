@@ -13,7 +13,8 @@ import (
 // SettleSessionTask publishes a saved terminal/waiting task and its history
 // atomically after native cleanup. It does not wait for runtime pause or snapshots.
 // Retries cannot republish an old state over a later turn. Callers authenticate
-// runtime authority; a missing or deleted session returns ErrNotFound.
+// runtime authority; a missing or deleted session returns ErrNotFound. Deletion
+// supersedes unpublished boundaries; their late acknowledgements return ErrConflict.
 func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string, version int64) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, sessionID)
@@ -41,6 +42,13 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		}
 		if row.Published {
 			return nil
+		}
+		// Delete may now supersede unfinished cleanup (#3010 B). Serialize
+		// publication with deletion admission under the session lock, including
+		// after deletion preparation failed and cleared its operation. A late
+		// acknowledgement must not expose the discarded boundary or queue push.
+		if session.State == "RUNTIME_STATE_DELETING" {
+			return ErrConflict
 		}
 		stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
 		if err != nil {

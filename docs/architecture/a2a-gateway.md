@@ -86,6 +86,12 @@ It closes task admission and retains the deletion intent until Substrate confirm
 compute deletion. It does not publish the pending boundary or recover the same
 conversation. Existing dispatches, claimed idle work, and checkpoint creation
 still block deletion; a failed backend call leaves deletion pending for retry.
+Deletion admission and settlement take the same session lock. If deletion wins,
+a late acknowledgement cannot publish the pending state/history or enqueue a
+push notification, including after deletion preparation fails. If settlement
+committed first, acknowledging that published version remains idempotent.
+Idle expiration retains the native-cleanup requirement and never applies this
+explicit-deletion exception.
 
 An independent Session lifecycle worker pauses waiting actors or suspends
 terminal ones and records their matching snapshot. A new turn can supersede idle

@@ -98,7 +98,9 @@ func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind ap
 		// Delete closes admission before stopping compute and retains its
 		// durable intent until Substrate confirms deletion. This does not
 		// publish the boundary or authorize reuse of the old conversation.
-		// Claimed controller work still has to finish before deletion starts.
+		// Claimed controller work still has to finish before deletion starts;
+		// giantswarm/kagent-upstream#175 (#177, #216) tracks safe takeover.
+		// A merged fork PR alone does not make upstream takeover available.
 		// Revisit this exception when shared recovery can fence the old runtime
 		// and reconcile its boundary. Closing #3010 or merging #3011 alone is
 		// not evidence of that contract; unknown-task cancellation is separate.
