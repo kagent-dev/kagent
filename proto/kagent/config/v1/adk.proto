@@ -360,9 +360,6 @@ message ADKPluginBundle {
   repeated string skills = 2;
 }
 message ADKPluginSource {
-  reserved 1;
-  reserved "oci";
-
   oneof source {
     option (buf.validate.oneof).required = true;
     ADKPluginGitSource git = 2;
