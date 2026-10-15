@@ -34,20 +34,19 @@ func TestCompileProviderCredentials(t *testing.T) {
 		secret      map[string][]byte
 		provider    string
 		environment map[string]string
-		egress      []string
 		wantErr     string
 	}{
 		{
 			name: "OpenAI", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder},
 		},
 		{
 			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://gateway.example.com:443"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder},
 		},
 		{
 			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
-			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-east-1.amazonaws.com:443"},
+			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: translator.CredentialPlaceholder},
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
@@ -57,7 +56,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			input, reader := testInput(t, test.model, test.secret)
-			revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+			revision, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 			if test.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 					t.Fatalf("expected unsupported credential error, got %v", err)
@@ -66,6 +65,9 @@ func TestCompileProviderCredentials(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if len(revision.Credentials) != 0 {
+				t.Fatal("renderer must leave final credentials to the shared compiler")
 			}
 			var cfg codexconfig.Config
 			if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
@@ -86,13 +88,13 @@ func TestCompileProviderCredentials(t *testing.T) {
 					t.Errorf("environment[%s] = %q, want %q", name, gotEnvironment[name], value)
 				}
 			}
-			if !reflect.DeepEqual(revision.EgressDestinations, test.egress) {
-				t.Errorf("egress = %v, want %v", revision.EgressDestinations, test.egress)
+			if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083"}) {
+				t.Errorf("egress = %v, want %v", revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083"})
 			}
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("credential leaked into immutable revision")
 			}
-			again, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+			again, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 			if err != nil || !reflect.DeepEqual(revision, again) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
@@ -111,7 +113,7 @@ func TestCompileAllowsRuntimeOTELEndpoint(t *testing.T) {
 	value := "http://other-collector:4317"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: value}}
 
-	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+	result, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +133,7 @@ func TestCompileAllowsRuntimeTelemetryOverrides(t *testing.T) {
 	value := "x-tenant=team-a"
 	input.Harness.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "OTEL_EXPORTER_OTLP_HEADERS", Value: value}}
 
-	result, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+	result, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +152,7 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	}
 	for _, model := range tests {
 		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret"), awsAccessKeyEnv: []byte("access"), awsSecretKeyEnv: []byte("secret")})
-		_, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+		_, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 		var validation *translator.ValidationError
 		if !errors.As(err, &validation) {
 			t.Errorf("Compile(%s) error = %v, want validation", model.Provider, err)
@@ -175,7 +177,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 		},
 		Instruction: "Review carefully",
 	}}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+	revision, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +194,7 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
 		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools"].Headers)
 	}
-	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443"}) {
+	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
 	}
 }
@@ -218,7 +220,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 	input.Root.MCPTools = []translator.ResolvedMCPTool{{Binding: v1alpha3.MCPToolBinding{RequireApproval: true}, Server: server}}
 
-	compilation, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input)
+	compilation, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input)
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
@@ -239,7 +241,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	}
 
 	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
-	if _, err := NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults(), nil).Compile(context.Background(), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
+	if _, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, testRuntimeDefaults()), input); err == nil || !strings.Contains(err.Error(), "requires Streamable HTTP") {
 		t.Fatalf("unsupported MCP protocol Compile() error = %v", err)
 	}
 }
@@ -275,7 +277,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 
 	settings := testRuntimeDefaults()
 	settings.Telemetry = &configv1.TelemetryConfig{Traces: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
+	revision, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, settings), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +299,7 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 	}
 
 	settings.Telemetry.CaptureContent = true
-	captured, err := NewCompiler(krt.TestingDummyContext{}, reader, settings, nil).Compile(context.Background(), input)
+	captured, err := compileTestInput(context.Background(), NewCompiler(krt.TestingDummyContext{}, reader, settings), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,4 +335,32 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+}
+
+func compileTestInput(ctx context.Context, compiler *Compiler, input *translator.HarnessInput) (*translator.CompileResult, error) {
+	var resolve func(*translator.AgentInput) error
+	resolve = func(agent *translator.AgentInput) error {
+		if agent.ResolvedModelConfig != nil {
+			model, err := translator.ResolveModelConfig(compiler.ctx, compiler.collections, agent.ResolvedModelConfig.Config)
+			if err != nil {
+				return err
+			}
+			agent.ResolvedModelConfig = model
+		}
+		for _, child := range agent.Shared {
+			if err := resolve(child.Agent); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := resolve(input.Root); err != nil {
+		return nil, err
+	}
+	policy, err := translator.ResolvePolicy(input, compiler, nil)
+	if err != nil {
+		return nil, err
+	}
+	input.Policy = policy
+	return compiler.Compile(ctx, input)
 }

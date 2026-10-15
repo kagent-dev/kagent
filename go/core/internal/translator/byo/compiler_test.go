@@ -30,7 +30,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 		Description: "custom A2A agent", SystemPrompt: "be helpful",
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults(), nil).Compile(context.Background(), &translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults()).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "runnable-agent",
 		Harness:   harness, Root: &translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
@@ -66,7 +66,7 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	}}
 	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings, nil).Compile(context.Background(), &translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "runnable-agent",
 		Harness:   harness, Root: &translator.AgentInput{Template: template},
 	})
@@ -103,7 +103,7 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		harness.Spec.Env = append(harness.Spec.Env, v1alpha3.RuntimeEnvVar{Name: fmt.Sprintf("CUSTOM_%d", i), Value: "value"})
 	}
 	template := &translator.TemplateConfiguration{Name: "custom-agent", Namespace: "test", Source: &metav1.ObjectMeta{Name: "custom-agent", Namespace: "test"}}
-	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings, nil).Compile(t.Context(), &translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, settings).Compile(t.Context(), &translator.HarnessInput{
 		AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{Template: template},
 	})
 	require.NoError(t, err)

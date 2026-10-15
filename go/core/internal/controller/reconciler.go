@@ -105,7 +105,7 @@ func newAgentReconciliations(
 	opts krt.OptionsBuilder,
 	settings *configv1.RuntimeDefaultsConfig,
 	images *configv1.HarnessImagesConfig,
-	binder egressext.CredentialBinder,
+	policyTranslator egressext.PolicyTranslator,
 ) krt.Collection[AgentReconciliation] {
 	return krt.NewCollection(agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *AgentReconciliation {
 		state := &AgentReconciliation{Agent: agent}
@@ -119,11 +119,11 @@ func newAgentReconciliations(
 			state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, base, tokenOrigins)
 		}()
 		compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings, binder),
-			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings, binder),
-			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings, binder),
-			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings, binder),
-		}, images).CompileAgent(context.Background(), agent)
+			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
+			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
+			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
+			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
+		}, images, policyTranslator).CompileAgent(context.Background(), agent)
 		if err != nil {
 			state.CompilationFailure = compilationFailure(err)
 			return state

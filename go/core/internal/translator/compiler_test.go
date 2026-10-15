@@ -212,11 +212,11 @@ func compilerWithImages(t *testing.T, images *configv1.HarnessImagesConfig, obje
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
-		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
-		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
-		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults(), nil),
-	}, images)
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+	}, images, nil)
 }
 
 func defaultWorkerPool() *atev1alpha1.WorkerPool {
@@ -469,8 +469,13 @@ func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
 
 type testHarnessCompiler struct{ input *translator.HarnessInput }
 
+func (*testHarnessCompiler) ModelRequirements(*translator.ResolvedModelConfig) translator.ModelRequirements {
+	return translator.ModelRequirements{}
+}
+
 func (c *testHarnessCompiler) Compile(_ context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
-	c.input = input
+	snapshot := *input
+	c.input = &snapshot
 	return &translator.CompileResult{Revision: translator.Revision{AgentName: input.AgentName}}, nil
 }
 
@@ -488,7 +493,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 
 	revision, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
-	}, testHarnessImages).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testHarnessImages, nil).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Equal(t, "runnable-agent", revision.AgentName)
 	require.Equal(t, testHarnessImages.GetCodex(), revision.Image)
@@ -514,7 +519,7 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
-	}, testHarnessImages).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testHarnessImages, nil).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.ErrorContains(t, err, `Harness runtime "codex" does not support structured output`)
 	require.Nil(t, adapter.input)
 }
@@ -533,7 +538,7 @@ func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeCodex: adapter,
-	}, testHarnessImages).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testHarnessImages, nil).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.ErrorContains(t, err, `resolve ModelConfig "default-model": secret missing not found`)
 	require.Nil(t, adapter.input)
 }
@@ -549,7 +554,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 
 	_, err := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
 		translator.HarnessTypeBYO: adapter,
-	}, testHarnessImages).CompileAgent(context.Background(), inlineAgent(harness, template))
+	}, testHarnessImages, nil).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
 }
@@ -635,8 +640,8 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 	rotated.UID = "replacement-secret"
 	rotated.Data["token"] = []byte("rotated-token")
 	rotatedCompiler := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret, defaultWorkerPool(), harness), map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testRuntimeDefaults(), nil),
-	}, testHarnessImages)
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), server, secondServer, rotated, secondSecret), testRuntimeDefaults()),
+	}, testHarnessImages, nil)
 	next, err := rotatedCompiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	nextDigest, err := next.Digest()

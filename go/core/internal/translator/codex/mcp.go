@@ -20,11 +20,10 @@ import (
 type mcpCompilation struct {
 	servers     map[string]codexconfig.MCPServer
 	environment []corev1.EnvVar
-	egress      []string
 	warnings    []string
 }
 
-func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []translator.ResolvedMCPTool) (mcpCompilation, error) {
+func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []translator.ResolvedMCPTool, policy translator.ResolvedPolicy) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
 	}
@@ -49,13 +48,13 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		if warning := codexMCPCompatibilityWarning(server); warning != "" {
 			result.warnings = append(result.warnings, warning)
 		}
-		host, err := absoluteHTTPOrigin(server.Spec.URL)
-		if err != nil {
-			return mcpCompilation{}, translator.NewValidationError("Codex RemoteMCPServer %q URL %v", server.Name, err)
-		}
 		headers, environment, err := c.compileMCPHeaders(ctx, namespace, server.Spec.HeadersFrom)
 		if err != nil {
 			return mcpCompilation{}, fmt.Errorf("compile RemoteMCPServer %q headers: %w", server.Name, err)
+		}
+		headers, err = policy.MCPHeaders(server.Spec.URL, headers)
+		if err != nil {
+			return mcpCompilation{}, err
 		}
 		selected := append([]string(nil), tool.Binding.Tools...)
 		slices.Sort(selected)
@@ -65,7 +64,6 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 			RequireApproval: tool.Binding.RequireApproval,
 		}
 		result.environment = append(result.environment, environment...)
-		result.egress = append(result.egress, host)
 	}
 	return result, nil
 }

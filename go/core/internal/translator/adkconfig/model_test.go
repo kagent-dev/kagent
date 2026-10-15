@@ -139,7 +139,7 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			// The chart ships a default host, so this is the ordinary case for
 			// an operator who follows the values.yaml comment introducing
 			// apiKeySecretRef. The request goes to that host, so no credential
-			// binding exists, and mounting the key made CompileCredentials
+			// binding exists, and mounting the key made credential rendering
 			// reject the whole revision ("cannot use gateway header injection")
 			// instead of simply using the daemon.
 			name: "an explicit host does not mount the key even for a cloud model",
@@ -232,7 +232,7 @@ func TestWithDefaultScheme(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {
-			require.Equal(t, tt.want, withDefaultScheme(tt.host))
+			require.Equal(t, tt.want, translator.OllamaURL(tt.host))
 		})
 	}
 }

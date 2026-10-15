@@ -86,11 +86,14 @@ the caller's authentication.
 
 ## Controller credential extension
 
-Embedded controllers can set `app.Options.EgressCredentialBinder` to add gateway
-credential references for eligible model and MCP destinations. EgressPolicy
-grants are live authorization, not targets. Nil preserves built-in behavior. See [CredentialBinder](../../go/core/pkg/egressext/credentials.go)
-for the contract. Core validates contributions, preserves explicit authentication,
-and adds model/MCP placeholders without expanding network access.
+Embedded controllers can set `app.Options.EgressPolicyTranslator` to add gateway
+credential references before a Harness renders client configuration. See
+[PolicyTranslator](../../go/core/pkg/egressext/policy.go) for the contract.
+The shared compiler builds a draft from model and MCP inputs. EgressPolicy
+grants are live authorization and stay out of the draft. The extension can only
+add bindings for eligible destinations in that draft. Core validates the result,
+preserves explicit authentication, and pins it in the revision. Nil adds no
+bindings.
 
 References use `ate-secret://<provider>/<path>` with a lowercase, port-free
 provider name registered in Substrate. Arbitrary clients must send the bound

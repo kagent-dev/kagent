@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 )
@@ -22,7 +20,6 @@ import (
 type mcpCompilation struct {
 	servers     map[string]claudeconfig.MCPServer
 	environment []corev1.EnvVar
-	egress      []string
 	warnings    []string
 }
 
@@ -30,6 +27,7 @@ func (c *Compiler) compileMCP(
 	ctx context.Context,
 	namespace string,
 	tools []translator.ResolvedMCPTool,
+	policy translator.ResolvedPolicy,
 ) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
@@ -60,20 +58,19 @@ func (c *Compiler) compileMCP(
 		if compatibilityWarning != "" {
 			result.warnings = append(result.warnings, compatibilityWarning)
 		}
-		hostname, err := mcpOrigin(server.Spec.URL)
-		if err != nil {
-			return mcpCompilation{}, err
-		}
 		headers, headerEnvironment, err := c.compileMCPHeaders(ctx, namespace, server.Spec.HeadersFrom)
 		if err != nil {
 			return mcpCompilation{}, fmt.Errorf("compile RemoteMCPServer %q headers: %w", server.Name, err)
+		}
+		headers, err = policy.MCPHeaders(server.Spec.URL, headers)
+		if err != nil {
+			return mcpCompilation{}, err
 		}
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
 			RequireApproval: tool.Binding.RequireApproval,
 		}
 		result.environment = append(result.environment, headerEnvironment...)
-		result.egress = append(result.egress, hostname)
 	}
 	return result, nil
 }
@@ -142,14 +139,6 @@ func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, string, error
 	default:
 		return "", "", translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
 	}
-}
-
-func mcpOrigin(raw string) (string, error) {
-	parsed, err := url.Parse(raw)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
-		return "", translator.NewValidationError("Claude RemoteMCPServer URL must be absolute HTTP(S) without credentials or fragment")
-	}
-	return egress.Origin(parsed), nil
 }
 
 func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {

@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
@@ -19,20 +17,12 @@ type modelResult struct {
 	Resolved    *translator.ResolvedModelConfig
 	Model       *configv1.ADKModelConfig
 	Environment []corev1.EnvVar
-	Egress      []string
 }
 
 // buildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
-	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
+func buildModel(resolved *translator.ResolvedModelConfig) (*modelResult, error) {
 	if resolved == nil {
-		return nil, fmt.Errorf("model config %q not found", name)
-	}
-	if failures := resolved.SemanticFailures; len(failures) > 0 {
-		return nil, translator.NewValidationError("ModelConfig %q: %s", name, failures[0].Message)
-	}
-	if failures := resolved.ReferenceFailures; len(failures) > 0 {
-		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
+		return nil, fmt.Errorf("auxiliary model must be resolved before rendering")
 	}
 	runtime, err := resolveModel(resolved)
 	if err != nil {
@@ -43,7 +33,6 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 	}
 	return &modelResult{
 		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
-		Egress: agentConfigDestinations(&configv1.ADKAgentConfig{}, resolved.Config, runtime.Model),
 	}, nil
 }
 
@@ -57,7 +46,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 // and egress join the revision, and it joins the provenance so a change to it
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
-func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration) error {
+func applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration, resolved *translator.ResolvedModelConfig) error {
 	spec := harness.Spec.Kagent.Compaction
 	if spec == nil {
 		return nil
@@ -71,14 +60,13 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
 		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.buildModel(harness.Namespace, ref.Name)
+			model, err := buildModel(resolved)
 			if err != nil {
 				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
 			}
 			compaction.SummarizerModel = model.Model
 			result.Models = append(result.Models, model.Resolved)
 			result.Environment = append(result.Environment, model.Environment...)
-			result.Egress = append(result.Egress, model.Egress...)
 		}
 	}
 	result.Config.ContextConfig = &configv1.ADKContextConfig{Compaction: compaction}
@@ -119,19 +107,18 @@ func requireModels(input *translator.AgentInput) error {
 	return nil
 }
 
-func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfiguration) error {
+func applyMemory(result *Result, harness *translator.HarnessConfiguration, resolved *translator.ResolvedModelConfig) error {
 	memory := harness.Spec.Kagent.Memory
 	if memory == nil {
 		return nil
 	}
 	name := memory.ModelConfigRef.Name
-	model, err := c.buildModel(harness.Namespace, name)
+	model, err := buildModel(resolved)
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}
 	result.Config.Memory = &configv1.ADKMemoryConfig{TtlDays: int64(memory.TTLDays), Embedding: runtimeconfig.ModelToEmbeddingConfig(model.Model)}
 	result.Models = append(result.Models, model.Resolved)
 	result.Environment = append(result.Environment, model.Environment...)
-	result.Egress = append(result.Egress, model.Egress...)
 	return nil
 }

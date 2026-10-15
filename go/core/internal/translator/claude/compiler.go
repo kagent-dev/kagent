@@ -19,22 +19,19 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 type Compiler struct {
-	binder      egressext.CredentialBinder
 	settings    *configv1.RuntimeDefaultsConfig
 	ctx         krt.HandlerContext
 	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig, binder egressext.CredentialBinder) *Compiler {
-	return &Compiler{settings: settings, binder: binder, ctx: ctx, collections: collections}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -58,7 +55,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	runtimeTelemetry := telemetryConfig.RuntimeTelemetry(
 		tracing.RuntimeClaude, input.AgentName, template.Namespace, model.Spec)
 
-	providerEnvironment, egress, err := c.provider(ctx, model)
+	providerEnvironment, err := c.provider(ctx, model, input.Policy.ModelUsesGateway(input.Root.ResolvedModelConfig))
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +63,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools)
+	mcp, err := c.compileMCP(ctx, input.Root.Template.Namespace, input.Root.MCPTools, input.Policy)
 	if err != nil {
 		return nil, err
 	}
@@ -106,16 +103,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, additions, tokenPassthroughOrigins, err := translator.CompileCredentials(input, nil, environment, c.binder)
+	environment, err = input.Policy.RenderEnvironment(environment)
 	if err != nil {
 		return nil, err
-	}
-	for name, server := range config.MCPServers {
-		server.Headers, err = translator.CredentialHeaders(server.URL, server.Headers, additions)
-		if err != nil {
-			return nil, err
-		}
-		config.MCPServers[name] = server
 	}
 	if err := config.Validate(); err != nil {
 		return nil, translator.NewValidationError("invalid compiled Claude configuration: %v", err)
@@ -126,8 +116,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, fmt.Errorf("marshal Claude config: %w", err)
 	}
 
-	egress = append(egress, skills.Egress...)
-	egress = append(egress, mcp.egress...)
+	egress := skills.Egress
 	egress = append(egress, telemetryConfig.Destinations(environment)...)
 	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
@@ -138,9 +127,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			SkillImages: skills.Images,
 			Environment: environment,
 			ConfigJSON:  configJSON, AgentCard: card,
-			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
-			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
-			TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
+			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
+			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
+			Provenance:       provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -186,7 +175,7 @@ func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
 	return reflect.DeepEqual(root, child)
 }
 
-func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([]corev1.EnvVar, []string, error) {
+func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig, gateway bool) ([]corev1.EnvVar, error) {
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderAnthropic:
 		var baseURL string
@@ -199,30 +188,28 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				options.CacheTTL = ""
 			}
 			if !reflect.DeepEqual(options, v1alpha3.AnthropicConfig{}) {
-				return nil, nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
+				return nil, translator.NewValidationError("Claude does not support Anthropic provider options beyond baseUrl yet")
 			}
 		}
 		environment := []corev1.EnvVar{{Name: claudeconfig.AnthropicAPIKeyEnvName, Value: translator.CredentialPlaceholder}}
-		if model.Spec.APIKeySecret != "" || c.binder == nil {
+		if model.Spec.APIKeySecret != "" || !gateway {
 			if err := c.requireSecretKey(ctx, model, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey, false); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			environment[0] = secretEnvironment(claudeconfig.AnthropicAPIKeyEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)
 		}
-		egress := []string{"https://api.anthropic.com:443"}
 		if baseURL != "" {
-			hostname, err := anthropicBaseURLOrigin(baseURL)
+			err := validateAnthropicBaseURL(baseURL)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			environment = append(environment, corev1.EnvVar{Name: claudeconfig.AnthropicBaseURLEnvName, Value: baseURL})
-			egress = []string{hostname}
 		}
-		return environment, egress, nil
+		return environment, nil
 
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
-			return nil, nil, translator.NewValidationError("Claude Bedrock requires bedrock.region")
+			return nil, translator.NewValidationError("Claude Bedrock requires bedrock.region")
 		}
 		options := *model.Spec.Bedrock
 		options.Region = ""
@@ -231,24 +218,24 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 			options.CacheTTL = ""
 		}
 		if !reflect.DeepEqual(options, v1alpha3.BedrockConfig{}) {
-			return nil, nil, translator.NewValidationError("Claude does not support Bedrock provider options beyond region yet")
+			return nil, translator.NewValidationError("Claude does not support Bedrock provider options beyond region yet")
 		}
-		if model.Spec.APIKeySecret == "" && c.binder != nil {
+		if model.Spec.APIKeySecret == "" && gateway {
 			return []corev1.EnvVar{
 				{Name: claudeconfig.UseBedrockEnvName, Value: "1"},
 				{Name: claudeconfig.AWSRegionEnvName, Value: model.Spec.Bedrock.Region},
 				{Name: claudeconfig.AWSBedrockTokenEnvName, Value: translator.CredentialPlaceholder},
-			}, []string{"https://bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com:443"}, nil
+			}, nil
 		}
 		if model.Spec.APIKeySecret == "" {
-			return nil, nil, translator.NewValidationError("Claude Bedrock requires apiKeySecret with AWS credentials")
+			return nil, translator.NewValidationError("Claude Bedrock requires apiKeySecret with AWS credentials")
 		}
 		if model.Spec.APIKeySecretKey != "" {
-			return nil, nil, translator.NewValidationError("Claude Bedrock reads standard AWS keys from apiKeySecret; apiKeySecretKey must be empty")
+			return nil, translator.NewValidationError("Claude Bedrock reads standard AWS keys from apiKeySecret; apiKeySecretKey must be empty")
 		}
 		secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		environment := []corev1.EnvVar{{Name: claudeconfig.UseBedrockEnvName, Value: "1"}, {Name: claudeconfig.AWSRegionEnvName, Value: model.Spec.Bedrock.Region}}
 		if value := secret.Data[claudeconfig.AWSBedrockTokenEnvName]; len(value) != 0 {
@@ -256,7 +243,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		} else {
 			for _, key := range []string{claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName} {
 				if len(secret.Data[key]) == 0 {
-					return nil, nil, translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName, claudeconfig.AWSBedrockTokenEnvName)
+					return nil, translator.NewValidationError("Claude Bedrock Secret %q requires %s and %s, or %s", secret.Name, claudeconfig.AWSAccessKeyEnvName, claudeconfig.AWSSecretKeyEnvName, claudeconfig.AWSBedrockTokenEnvName)
 				}
 				environment = append(environment, secretEnvironment(key, secret.Name, key))
 			}
@@ -264,36 +251,36 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 				environment = append(environment, secretEnvironment(claudeconfig.AWSSessionTokenEnvName, secret.Name, claudeconfig.AWSSessionTokenEnvName))
 			}
 		}
-		return environment, []string{"https://bedrock-runtime." + model.Spec.Bedrock.Region + ".amazonaws.com:443"}, nil
+		return environment, nil
 
 	case v1alpha3.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil || strings.TrimSpace(model.Spec.AnthropicVertexAI.ProjectID) == "" || strings.TrimSpace(model.Spec.AnthropicVertexAI.Location) == "" {
-			return nil, nil, translator.NewValidationError("Claude Vertex requires anthropicVertexAI.projectID and location")
+			return nil, translator.NewValidationError("Claude Vertex requires anthropicVertexAI.projectID and location")
 		}
 		options := *model.Spec.AnthropicVertexAI
 		options.ProjectID, options.Location = "", ""
 		if !reflect.DeepEqual(options, v1alpha3.AnthropicVertexAIConfig{}) {
-			return nil, nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
+			return nil, translator.NewValidationError("Claude does not support AnthropicVertexAI provider options beyond projectID and location yet")
 		}
 		if err := c.requireGoogleCredentials(ctx, model); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		cfg := model.Spec.AnthropicVertexAI
 		return []corev1.EnvVar{
 			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+		}, nil
 	default:
-		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
+		return nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
 }
 
-func anthropicBaseURLOrigin(raw string) (string, error) {
+func validateAnthropicBaseURL(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", translator.NewValidationError("Claude Anthropic baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
+		return translator.NewValidationError("Claude Anthropic baseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment")
 	}
-	return egress.Origin(parsed), nil
+	return nil
 }
 
 func (c *Compiler) requireSecretKey(ctx context.Context, model *v1alpha3.ModelConfig, name, key string, requireJSON bool) error {
@@ -357,17 +344,6 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	return corev1.EnvVar{Name: environmentName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
 	}}}
-}
-
-func vertexHostname(location string) string {
-	switch location {
-	case "global":
-		return "aiplatform.googleapis.com"
-	case "us", "eu":
-		return "aiplatform." + location + ".rep.googleapis.com"
-	default:
-		return location + "-aiplatform.googleapis.com"
-	}
 }
 
 type provenanceEntry struct {
@@ -462,3 +438,13 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 }
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
+
+// ModelRequirements declares authentication and grants before client rendering.
+func (*Compiler) ModelRequirements(model *translator.ResolvedModelConfig) translator.ModelRequirements {
+	switch model.Config.Spec.Provider {
+	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderBedrock:
+		return translator.ModelRequirements{CredentialRequired: true}
+	default:
+		return translator.ModelRequirements{}
+	}
+}

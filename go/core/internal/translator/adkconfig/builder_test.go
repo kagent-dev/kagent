@@ -85,6 +85,12 @@ func TestBuildCompaction(t *testing.T) {
 		builder := NewBuilder(krt.TestingDummyContext{}, collections)
 		return builder.Build(context.Background(), &translator.HarnessInput{
 			Harness: harness, Root: &translator.AgentInput{Template: template, ResolvedModelConfig: agentModel},
+			SummarizerModel: func() *translator.ResolvedModelConfig {
+				if c := harness.Spec.Kagent.Compaction; c != nil && c.Summarizer != nil && c.Summarizer.ModelConfigRef != nil && c.Summarizer.ModelConfigRef.Name == "summarizer" {
+					return resolvedModel(t, collections, "summarizer")
+				}
+				return nil
+			}(),
 		})
 	}
 
@@ -123,7 +129,7 @@ func TestBuildCompaction(t *testing.T) {
 		require.Equal(t, "https://summarizer.example.com/v1", summarizer.BaseUrl)
 		require.Len(t, result.Models, 2)
 		require.Equal(t, "summarizer", result.Models[1].Config.Name)
-		require.Contains(t, result.Egress, "https://summarizer.example.com:443")
+
 		var credentials []string
 		for _, variable := range result.Environment {
 			if variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil {
@@ -151,131 +157,6 @@ func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {
 			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: baseURL},
 		},
 	}
-}
-
-func TestMistralEgressDestination(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		mistral *v1alpha3.MistralConfig
-		want    string
-	}{
-		{name: "default endpoint", want: "https://api.mistral.ai:443"},
-		{name: "base URL override", mistral: &v1alpha3.MistralConfig{BaseURL: new("https://mistral.example.com/v1")}, want: "https://mistral.example.com:443"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			model := &v1alpha3.ModelConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: "mistral", Namespace: "test"},
-				Spec: v1alpha3.ModelConfigSpec{
-					Provider: v1alpha3.ModelProviderMistral, Model: "mistral-large-latest", Mistral: test.mistral,
-				},
-			}
-			collections := contextTestCollections(t, model)
-			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
-				&translator.HarnessInput{
-					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-					Root: &translator.AgentInput{
-						Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
-						ResolvedModelConfig: resolvedModel(t, collections, "mistral"),
-					}})
-			require.NoError(t, err)
-			require.Equal(t, []string{test.want}, result.Egress)
-		})
-	}
-}
-
-// TestOllamaEgressDestination covers the one provider whose endpoint is not
-// reachable through the serialized model: it lives on the ModelConfig's own
-// Ollama field, so the generic walk over the model never sees it. Without an
-// explicit case the allowlist came back empty, which compiles into a deny-all
-// Actor egress policy and fails the model call with a 403.
-func TestOllamaEgressDestination(t *testing.T) {
-	for _, host := range []string{"http://host.docker.internal:11434", "host.docker.internal:11434"} {
-		t.Run(host, func(t *testing.T) {
-			model := &v1alpha3.ModelConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
-				Spec: v1alpha3.ModelConfigSpec{
-					Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
-					Ollama: &v1alpha3.OllamaConfig{Host: host},
-				},
-			}
-			collections := contextTestCollections(t, model)
-			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
-				&translator.HarnessInput{
-					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-					Root: &translator.AgentInput{
-						Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
-						ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
-					}})
-			require.NoError(t, err)
-			require.Equal(t, []string{"http://host.docker.internal:11434"}, result.Egress)
-		})
-	}
-
-	t.Run("no host configured", func(t *testing.T) {
-		model := &v1alpha3.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
-			Spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
-				Ollama: &v1alpha3.OllamaConfig{},
-			},
-		}
-		collections := contextTestCollections(t, model)
-		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
-			&translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-				Root: &translator.AgentInput{
-					Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
-					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
-				}})
-		require.NoError(t, err)
-		require.Empty(t, result.Egress)
-	})
-
-	// A cloud-tagged model with a key bypasses the operator's host, so the cloud
-	// host has to be allowed as well or egress policy denies the call.
-	t.Run("cloud model with a secret allows api.ollama.com", func(t *testing.T) {
-		model := &v1alpha3.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
-			Spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{},
-			},
-		}
-		collections := contextTestCollections(t, model)
-		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
-			&translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-				Root: &translator.AgentInput{
-					Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
-					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
-				}})
-		require.NoError(t, err)
-		require.Contains(t, result.Egress, "https://api.ollama.com:443")
-	})
-
-	// A local model must never pick up the cloud host, even with a key present:
-	// that is the rerouting regression the routing rules exist to prevent.
-	t.Run("local model with a key does not allow the cloud host", func(t *testing.T) {
-		model := &v1alpha3.ModelConfig{
-			ObjectMeta: metav1.ObjectMeta{Name: "ollama", Namespace: "test"},
-			Spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
-			},
-		}
-		collections := contextTestCollections(t, model)
-		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
-			&translator.HarnessInput{
-				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-				Root: &translator.AgentInput{
-					Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
-					ResolvedModelConfig: resolvedModel(t, collections, "ollama"),
-				}})
-		require.NoError(t, err)
-		require.Equal(t, []string{"http://host.docker.internal:11434"}, result.Egress)
-	})
 }
 
 func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) translator.Collections {
@@ -339,7 +220,12 @@ func TestBuildMemory(t *testing.T) {
 					ModelConfigRef: corev1.LocalObjectReference{Name: tc.modelName}, TTLDays: 7,
 				}}},
 			}
-			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{Harness: harness, Root: root})
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{Harness: harness, Root: root, MemoryModel: func() *translator.ResolvedModelConfig {
+				if tc.modelName == "embedding" {
+					return resolvedModel(t, collections, "embedding")
+				}
+				return nil
+			}()})
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				require.Nil(t, result)
@@ -350,7 +236,7 @@ func TestBuildMemory(t *testing.T) {
 			require.Equal(t, "https://embedding.example.com/v1", result.Config.Memory.Embedding.BaseUrl)
 			require.Len(t, result.Models, 2)
 			require.Equal(t, "embedding", result.Models[1].Config.Name)
-			require.Contains(t, result.Egress, "https://embedding.example.com:443")
+
 			require.Len(t, result.Environment, 2)
 			require.Equal(t, "embedding-auth", result.Environment[1].ValueFrom.SecretKeyRef.Name)
 		})

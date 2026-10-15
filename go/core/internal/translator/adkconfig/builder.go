@@ -5,20 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -71,7 +67,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 			return nil, err
 		}
 	}
-	result, err := c.compileAgent(ctx, input.Root)
+	result, err := c.compileAgent(ctx, input.Root, input.Policy)
 	if err != nil {
 		return nil, err
 	}
@@ -79,10 +75,10 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 		if err := applyOutputSchema(result.Config, input.OutputSchema); err != nil {
 			return nil, err
 		}
-		if err := c.applyCompaction(result, input.Harness, input.Root.Template); err != nil {
+		if err := applyCompaction(result, input.Harness, input.Root.Template, input.SummarizerModel); err != nil {
 			return nil, err
 		}
-		if err := c.applyMemory(result, input.Harness); err != nil {
+		if err := applyMemory(result, input.Harness, input.MemoryModel); err != nil {
 			return nil, err
 		}
 	}
@@ -92,7 +88,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 	return result, nil
 }
 
-func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput) (*Result, error) {
+func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput, policy translator.ResolvedPolicy) (*Result, error) {
 	modelRuntime := &modelRuntime{}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
@@ -123,6 +119,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
 		}
+		headers, err = policy.MCPHeaders(tool.Server.Spec.URL, headers)
+		if err != nil {
+			return nil, err
+		}
 		server := tool.Server.DeepCopy()
 		server.Spec.HeadersFrom = nil
 		if err := c.addRemoteMCPServer(cfg, server, tool.Binding.Tools, tool.Binding.RequireApproval, headers); err != nil {
@@ -133,14 +133,14 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	result := &Result{
 		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), plugins.Egress...),
+		Egress:      plugins.Egress,
 		SkillImages: plugins.Images,
 	}
 	if modelConfig != nil {
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
-		child, err := c.compileAgent(ctx, binding.Agent)
+		child, err := c.compileAgent(ctx, binding.Agent, policy)
 		if err != nil {
 			return nil, err
 		}
@@ -302,110 +302,4 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 		result = append(result, value)
 	}
 	return result
-}
-
-// agentConfigDestinations extracts the network allowlist required by the
-// resolved model and MCP configuration. Provider defaults are included when
-// no explicit endpoint appears in the serialized model.
-func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3.ModelConfig, model *configv1.ADKModelConfig) []string {
-	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
-	for _, tool := range cfg.HttpTools {
-		destinations = appendURLOrigin(destinations, tool.Params.Url)
-	}
-	for _, tool := range cfg.SseTools {
-		destinations = appendURLOrigin(destinations, tool.Params.Url)
-	}
-	modelJSON, _ := protojson.Marshal(model)
-	var values any
-	if json.Unmarshal(modelJSON, &values) == nil {
-		destinations = appendURLValues(destinations, values)
-	}
-	if modelConfig == nil {
-		slices.Sort(destinations)
-		return slices.Compact(destinations)
-	}
-	switch modelConfig.Spec.Provider {
-	case v1alpha3.ModelProviderOpenAI:
-		destinations = append(destinations, "https://api.openai.com:443")
-	case v1alpha3.ModelProviderAnthropic:
-		destinations = append(destinations, "https://api.anthropic.com:443")
-	case v1alpha3.ModelProviderGemini:
-		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
-	case v1alpha3.ModelProviderMistral:
-		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
-			destinations = append(destinations, "https://api.mistral.ai:443")
-		}
-	case v1alpha3.ModelProviderOllama:
-		// Ollama's endpoint is the provider's own field and is not part of the
-		// serialized model, so the walk above never sees it. Unlike the
-		// providers above there is no default to fall back on: the host is the
-		// operator's, so it has to be read from the spec.
-		if ollama := modelConfig.Spec.Ollama; ollama != nil {
-			if ollama.Host != "" {
-				destinations = appendURLOrigin(destinations, withDefaultScheme(ollama.Host))
-			}
-			// A cloud model with a key and no explicit host reaches
-			// api.ollama.com, so the agent needs that host allowed or the call
-			// is denied by egress policy. The condition is shared with the key
-			// reference and credential binding (models.OllamaReachesCloud).
-			//
-			// This used to add the host whenever a cloud model had any key,
-			// ignoring the operator's host. That over-allowed egress: with a
-			// host set the request goes to that host, so api.ollama.com never
-			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
-			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
-				destinations = append(destinations, "https://api.ollama.com:443")
-			}
-		}
-	}
-	slices.Sort(destinations)
-	return slices.Compact(destinations)
-}
-
-// withDefaultScheme makes a bare host:port an absolute URL. The Ollama host
-// field accepts either form, but net/url reads the bare one as a scheme, so a
-// caller that wants a hostname from it has to normalize first.
-//
-// A bare host defaults to http, which is right for a daemon (host:port on a
-// private address). It is wrong for ollama.com's API, which serves HTTPS only:
-// Cloudflare answers the http form with a redirect, and Go turns a 301 into a
-// GET, so the POST /api/chat that should carry the request comes back 405
-// Method Not Allowed. The cloud endpoint therefore has to be normalized to
-// https here, which is what the runtime's own copy of this does — the two
-// disagreed, and the actor was pinned to http://api.ollama.com.
-func withDefaultScheme(host string) string {
-	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
-		return host
-	}
-	if models.IsOllamaCloudEndpoint(host) {
-		return "https://" + host
-	}
-	return "http://" + host
-}
-
-// appendURLValues walks serialized provider config because endpoint fields are
-// provider-specific but all URLs reduce to HTTP(S) origins.
-func appendURLValues(destinations []string, value any) []string {
-	switch value := value.(type) {
-	case string:
-		return appendURLOrigin(destinations, value)
-	case []any:
-		for _, item := range value {
-			destinations = appendURLValues(destinations, item)
-		}
-	case map[string]any:
-		for _, item := range value {
-			destinations = appendURLValues(destinations, item)
-		}
-	}
-	return destinations
-}
-
-func appendURLOrigin(destinations []string, raw string) []string {
-	parsed, err := url.Parse(raw)
-	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, egress.Origin(parsed))
-	}
-	return destinations
 }

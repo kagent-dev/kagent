@@ -5,35 +5,7 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
-
-// ApplyCredentialHeaders adds gateway placeholders to the root and shared MCP clients.
-func ApplyCredentialHeaders(config *configv1.ADKAgentConfig, additions []egress.Credential) error {
-	for i := range config.HttpTools {
-		params := config.HttpTools[i].Params
-		var err error
-		params.Headers, err = translator.CredentialHeaders(params.Url, params.Headers, additions)
-		if err != nil {
-			return err
-		}
-	}
-	for i := range config.SseTools {
-		params := config.SseTools[i].Params
-		var err error
-		params.Headers, err = translator.CredentialHeaders(params.Url, params.Headers, additions)
-		if err != nil {
-			return err
-		}
-	}
-	for _, child := range config.SubAgents {
-		if err := ApplyCredentialHeaders(child, additions); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
 // This path intentionally has no proxy URL or egress-gateway indirection.

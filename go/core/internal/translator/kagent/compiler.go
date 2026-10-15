@@ -14,20 +14,18 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
-	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
 // Compiler translates resolved inputs into a kagent runtime revision.
 type Compiler struct {
-	binder   egressext.CredentialBinder
 	settings *configv1.RuntimeDefaultsConfig
 	config   *adkconfig.Builder
 }
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig, binder egressext.CredentialBinder) *Compiler {
-	return &Compiler{settings: settings, binder: binder, config: adkconfig.NewBuilder(ctx, collections)}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -52,11 +50,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, additions, tokenPassthroughOrigins, err := translator.CompileCredentials(input, compiled.Models, environment, c.binder)
+	environment, err = input.Policy.RenderEnvironment(environment)
 	if err != nil {
-		return nil, err
-	}
-	if err := adkconfig.ApplyCredentialHeaders(compiled.Config, additions); err != nil {
 		return nil, err
 	}
 
@@ -81,6 +76,11 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
+		Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
+}
+
+// ModelRequirements declares authentication and grants before client rendering.
+func (*Compiler) ModelRequirements(model *translator.ResolvedModelConfig) translator.ModelRequirements {
+	return translator.ModelRequirements{Destinations: adkconfig.AdditionalModelDestinations(model)}
 }
