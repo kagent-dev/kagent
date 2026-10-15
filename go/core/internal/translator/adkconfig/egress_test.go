@@ -1,11 +1,13 @@
 package adkconfig
 
 import (
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/stretchr/testify/require"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestRetainedADKMetadataDestinations(t *testing.T) {
