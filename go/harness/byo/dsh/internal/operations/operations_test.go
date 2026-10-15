@@ -301,7 +301,7 @@ func TestClaimCrashAndMigration(t *testing.T) {
 	require.NoError(t, err)
 	p, err := goose.NewProvider(goose.DialectPostgres, store.db, files, goose.WithTableName("dsh_approval_schema_migrations"))
 	require.NoError(t, err)
-	_, err = p.Down(t.Context())
+	_, err = p.DownTo(t.Context(), 0)
 	require.NoError(t, err)
 	_, err = p.Up(t.Context())
 	require.NoError(t, err)

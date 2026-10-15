@@ -18,6 +18,12 @@ Run the service outside the DSH Actor, with a dedicated PostgreSQL database.
 It applies its embedded Goose migration using a separate migration ledger and
 PostgreSQL advisory lock. No kagent tables or migrations are used.
 
+Payloads use PostgreSQL `JSON` to preserve valid MCP strings and numbers that
+`JSONB` cannot represent, including escaped NUL characters. Migration 2 upgrades
+existing requests and results without changing their IDs or approval digests.
+Rolling back that migration fails atomically if stored payloads cannot be
+represented as `JSONB`; it does not discard or sanitize those payloads.
+
 This reference supports **one trusted conversation/security scope per service
 configuration**. Replicas must share that configuration and database. Use a
 different scope and different tokens for a different conversation. The agent
@@ -136,6 +142,8 @@ has a terminal result, rejection or expiration, the worker sends its opaque ID
 and state as a new A2A message with **no old task ID**. DSH then queries the saved
 result in a new native turn. Tool output is fetched as data, not copied into the
 notification as instructions. The requesting turn should end before approval.
+The request sets `returnImmediately` so acknowledgement does not wait for the
+model to finish its follow-up turn.
 
 Notifications have a separate durable state:
 
@@ -175,6 +183,9 @@ expiration, concurrent claims, changed bindings, lost execution responses,
 failed result commits, notification ambiguity, scope isolation and migration
 Up/Down. A separate notification test verifies the saved context and absence of
 an old A2A task ID.
+Regression tests cover acknowledgement before a long-running A2A task completes,
+escaped NUL payloads through HTTP MCP and restart, large JSON numbers, migration
+of existing records, safe rollback refusal, and preparation of every store query.
 
 The Linux integration test `TestRealDSHExternalApprovalAcrossRestart` requires
 `DSH_TEST_BIN` (pinned DSH 0.2.0-rc.2) and `DSH_APPROVAL_TEST_DATABASE` (a disposable
