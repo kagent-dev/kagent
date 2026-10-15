@@ -1,0 +1,59 @@
+name: Harness CLI pins
+
+# Fork (giantswarm/kagent-upstream): Renovate moves the Claude Code and Codex
+# CLI versions of the harness images (renovate.json), but not their
+# per-architecture sha256 ARGs, which come from the vendors' own checksum
+# documents and no Renovate datasource reads. This workflow completes the bump
+# on Renovate's branch: it writes the vendors' checksums for the new versions
+# (scripts/fork/harness-pins.sh update) and pushes them as one commit, so the
+# pull request Renovate opened carries the pin and its checksums and its
+# checks run on the complete bump. The push is the heraldbot App's: a push with
+# the workflow's own token would start no workflow on the new head. Renovate
+# ignores the App's commits (gitIgnoredAuthors), so it keeps rebasing the
+# branch, and every rebase runs this again.
+on:
+  push:
+    branches: ["renovate/claude-code-**", "renovate/codex-cli-**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-pins-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checksums:
+    # The App's own push starts this workflow again; that run has nothing to do.
+    if: github.event.head_commit.author.email != '149080493+heraldbot[bot]@users.noreply.github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Write the vendors' checksums for the pinned versions
+        id: update
+        run: |
+          scripts/fork/harness-pins.sh update
+          scripts/fork/harness-pins.sh check
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --stat
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mint the bot token
+        if: steps.update.outputs.changed == 'true'
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.HERALD_CLIENT_ID }}
+          private-key: ${{ secrets.HERALD_APP_KEY }}
+      - name: Push the checksums to the branch
+        if: steps.update.outputs.changed == 'true'
+        env:
+          TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          git config user.name "HeraldBot[bot]"
+          git config user.email "149080493+heraldbot[bot]@users.noreply.github.com"
+          git commit -qsam "chore(deps): the harness CLI checksums of ${GITHUB_REF_NAME#renovate/}"
+          scripts/fork/git-push-as.sh "$TOKEN" origin "HEAD:${GITHUB_REF}"
