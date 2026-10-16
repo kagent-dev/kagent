@@ -119,6 +119,80 @@ func newFunctionCallPart(name string, args map[string]any, id string, thoughtSig
 	return part
 }
 
+// openAIContentTextItem is one text item inside a thinking chunk.
+type openAIContentTextItem struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// openAIContentChunk is one element of the typed chunk list that reasoning
+// models return in place of a plain content string.
+// https://docs.mistral.ai/capabilities/reasoning/
+type openAIContentChunk struct {
+	Type     string                  `json:"type"`
+	Text     string                  `json:"text"`
+	Thinking []openAIContentTextItem `json:"thinking"`
+}
+
+// openAIMessageParts converts a provider's message content into genai parts.
+// Most OpenAI-compatible providers return a plain string, which the SDK surfaces
+// in the string field with the JSON metadata marked valid. Reasoning models such
+// as Mistral's return a list of typed chunks instead; the SDK types the field as
+// string and stores that payload as raw JSON, so it would otherwise be yielded
+// verbatim — the JSON array itself — as the model's answer.
+func openAIMessageParts(content string, field respjson.Field) []*genai.Part {
+	if field.Valid() {
+		if content == "" {
+			return nil
+		}
+		return []*genai.Part{{Text: content}}
+	}
+	return openAIContentChunkParts(content)
+}
+
+// openAIContentChunkParts parses the chunk-list form of message content: text
+// chunks become text parts and thinking chunks become thought parts. A payload
+// that is not a chunk list falls back to a single text part so nothing is
+// silently dropped.
+func openAIContentChunkParts(content string) []*genai.Part {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil
+	}
+	if !strings.HasPrefix(trimmed, "[") {
+		return []*genai.Part{{Text: content}}
+	}
+	var chunks []openAIContentChunk
+	if err := json.Unmarshal([]byte(trimmed), &chunks); err != nil {
+		return []*genai.Part{{Text: content}}
+	}
+	parts := make([]*genai.Part, 0, len(chunks))
+	for _, chunk := range chunks {
+		switch chunk.Type {
+		case "text":
+			if chunk.Text != "" {
+				parts = append(parts, &genai.Part{Text: chunk.Text})
+			}
+		case "thinking":
+			if text := openAIThinkingText(chunk.Thinking); text != "" {
+				parts = append(parts, &genai.Part{Text: text, Thought: true})
+			}
+		}
+	}
+	return parts
+}
+
+// openAIThinkingText concatenates the text items of a thinking chunk.
+func openAIThinkingText(items []openAIContentTextItem) string {
+	var b strings.Builder
+	for _, item := range items {
+		if item.Type == "text" || item.Type == "" {
+			b.WriteString(item.Text)
+		}
+	}
+	return b.String()
+}
+
 // Name implements model.LLM.
 func (m *OpenAIModel) Name() string {
 	return m.Config.Model
@@ -262,6 +336,12 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			if part == nil {
 				continue
 			}
+			// Reasoning is output-only: the chat completions API has no field to
+			// send it back, so replaying a thought part as text would surface the
+			// model's reasoning to the next turn as ordinary content.
+			if part.Thought {
+				continue
+			}
 			if part.Text != "" {
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
@@ -384,6 +464,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	defer stream.Close()
 
 	var aggregatedText strings.Builder
+	var aggregatedThought strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
 	var promptTokens, completionTokens, totalTokens int64
@@ -400,12 +481,18 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		}
 		choice := chunk.Choices[0]
 		delta := choice.Delta
-		if delta.Content != "" {
-			aggregatedText.WriteString(delta.Content)
+		// Reasoning models stream their content as typed chunks rather than a
+		// plain string; each chunk is yielded as it arrives.
+		for _, part := range openAIMessageParts(delta.Content, delta.JSON.Content) {
+			if part.Thought {
+				aggregatedThought.WriteString(part.Text)
+			} else {
+				aggregatedText.WriteString(part.Text)
+			}
 			if !yield(&model.LLMResponse{
 				Partial:      true,
 				TurnComplete: choice.FinishReason != "",
-				Content:      &genai.Content{Role: string(genai.RoleModel), Parts: []*genai.Part{{Text: delta.Content}}},
+				Content:      &genai.Content{Role: string(genai.RoleModel), Parts: []*genai.Part{part}},
 			}, nil) {
 				return
 			}
@@ -449,7 +536,10 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		indices = append(indices, k)
 	}
 	slices.Sort(indices)
-	finalParts := make([]*genai.Part, 0, 1+nToolCalls)
+	finalParts := make([]*genai.Part, 0, 2+nToolCalls)
+	if thought := aggregatedThought.String(); thought != "" {
+		finalParts = append(finalParts, &genai.Part{Text: thought, Thought: true})
+	}
 	text := aggregatedText.String()
 	if text != "" {
 		finalParts = append(finalParts, &genai.Part{Text: text})
@@ -505,15 +595,9 @@ func runNonStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComp
 func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMResponse {
 	choice := completion.Choices[0]
 	msg := choice.Message
-	nParts := 0
-	if msg.Content != "" {
-		nParts++
-	}
-	nParts += len(msg.ToolCalls)
-	parts := make([]*genai.Part, 0, nParts)
-	if msg.Content != "" {
-		parts = append(parts, &genai.Part{Text: msg.Content})
-	}
+	contentParts := openAIMessageParts(msg.Content, msg.JSON.Content)
+	parts := make([]*genai.Part, 0, len(contentParts)+len(msg.ToolCalls))
+	parts = append(parts, contentParts...)
 	for _, tc := range msg.ToolCalls {
 		if tc.Type == openAIToolTypeFunction && tc.Function.Name != "" {
 			var args map[string]any
