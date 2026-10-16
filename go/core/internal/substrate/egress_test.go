@@ -15,9 +15,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
-type egressPolicyStoreFunc func(context.Context, string) (egress.Access, error)
+type egressPolicyStoreFunc func(context.Context, string) (egress.Policy, error)
 
-func (f egressPolicyStoreFunc) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
+func (f egressPolicyStoreFunc) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Policy, error) {
 	return f(ctx, revision)
 }
 
@@ -26,9 +26,9 @@ var _ egress.PolicyStore = egressPolicyStoreFunc(nil)
 func TestEnsureActorEgressPolicyUpdatesCurrentGrants(t *testing.T) {
 	fake := &egressPolicyFake{createErr: context.DeadlineExceeded}
 	access := egress.Access{Destinations: []string{"https://api.example.com:443"}}
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(_ context.Context, revision string) (egress.Access, error) {
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(_ context.Context, revision string) (egress.Policy, error) {
 		require.Equal(t, "pinned-revision", revision)
-		return access, nil
+		return egress.Policy{Access: access}, nil
 	})}}
 	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "pinned-revision") }
 	require.ErrorIs(t, reconcile(), context.DeadlineExceeded)
@@ -57,7 +57,7 @@ func TestEnsureActorEgressPolicyUpdatesCurrentGrants(t *testing.T) {
 func TestEnsureActorEgressPolicyReloadsAfterConflict(t *testing.T) {
 	fake := &egressPolicyFake{}
 	access := egress.Access{}
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })}}
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) { return egress.Policy{Access: access}, nil })}}
 	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision") }
 	require.NoError(t, reconcile())
 	access.Destinations = []string{"https://revoked.example.com:443"}
@@ -125,7 +125,7 @@ func (f *egressPolicyFake) UpdateActorEgressPolicy(_ context.Context, req *ateap
 func TestEnsureActorEgressPolicyCatchesUpdateDuringCreation(t *testing.T) {
 	fake := &egressPolicyFake{}
 	access := egress.Access{Destinations: []string{"https://revoked.example.com:443"}}
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })}}
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) { return egress.Policy{Access: access}, nil })}}
 	fake.afterCreate = func() {
 		// The controller published revocation, but its actor discovery ran before
 		// creation. There is no concurrent Substrate write to cause a CAS conflict.
@@ -140,8 +140,19 @@ func TestEnsureActorEgressPolicyCatchesUpdateDuringCreation(t *testing.T) {
 func TestEnsureActorEgressPolicyRequiresPersistedPolicy(t *testing.T) {
 	fake := &egressPolicyFake{}
 	unavailable := errors.New("intended policy unavailable")
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return egress.Access{}, unavailable })}}
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) { return egress.Policy{}, unavailable })}}
 	require.ErrorIs(t, client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision"), unavailable)
 	require.Zero(t, fake.created)
 	require.Zero(t, fake.updated)
+}
+
+func TestEnsureActorEgressPolicyAppliesFallbackDespiteWithheldGrants(t *testing.T) {
+	base := egress.Access{Destinations: []string{"https://model.example.com:443"}}
+	fake := &egressPolicyFake{}
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) {
+		return egress.Policy{Access: base, WithheldGrants: errors.New("credential conflict")}, nil
+	})}}
+	require.NoError(t, client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision"))
+	require.Len(t, fake.policy.Rules, 1)
+	require.Equal(t, []string{"model.example.com"}, fake.policy.Rules[0].GetHttps().GetHostnames())
 }

@@ -51,6 +51,7 @@ type AgentMemorySearchResult struct {
 
 // AgentDefinition tracks the desired and last successful runtime for an Agent UID.
 type AgentDefinition struct {
+	Grants    egress.Access
 	Namespace string
 	AgentName string
 	AgentUID  string

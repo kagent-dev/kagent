@@ -159,50 +159,52 @@ Explicit policy grants and policy references do not enter revision identity.
 Changing a grant or its Secret reference does not prepare a new runtime image.
 Secret values remain outside compiled inputs; the gateway handles value rotation.
 
-The elected controller compiles current grants from cached, dependency-tracked
-Kubernetes inputs and persists the intended policy for each retained revision.
-This mutable output is stored separately from immutable revision inputs.
-Preparation carries the explicit grants from the same KRT compilation as the
-revision, merges them with pinned access, and records the revision and initial
-policy in one transaction. Repeated preparation preserves the existing policy;
-only the egress reconciler updates it. Promotion remains a separate step once
-the runtime is prepared and does not wait for the publication queue.
+The elected controller's Agent and SandboxTemplate reconcilers resolve current
+grants independently of runtime compilation. A missing Harness, AgentTemplate,
+or WorkerPool cannot freeze a revocation. Each preparation queue is the sole
+writer of its source definition's grants in PostgreSQL. Definition updates
+persist canonical grants and retire replaced Kubernetes UIDs atomically, before
+recording or promoting a runtime revision. Failed runtime preparation preserves
+the last successful revision while continuing to update source grants.
 
-After recording commits, preparation enqueues the revision to catch grants that
-changed while source-event discovery could not yet see the new revision. Source
-events and sweeps use the same publication queue. It serializes writes for each
-revision and reruns with the latest grants when an event arrives during
-publication; unrelated revisions can publish concurrently.
-Each revision merges its pinned integration access with the current grants of its
-owning Agent or SandboxTemplate, even when that source's next runtime revision
-cannot be prepared.
+Effective policy is computed when read: the revision's pinned integration access
+is merged with grants from its active source UID. Retired or replaced identities
+contribute no grants. There is no separately published per-revision policy and
+no notification needed when a revision is recorded: every read joins against
+the current persisted grants, including for newly recorded revisions.
 
-Policy and Secret events update only revisions of the affected source and queue
-their existing Actors when the intended policy changes. A five-minute sweep
-repairs missed translations without rewriting unchanged policies or checking
-their Actors. Controller startup checks all Actors to recover interrupted updates.
-Actor updates retry with exponential backoff independently of successful
-updates. Running and suspended Actors receive updates without replacement or a
-new invocation. Missing or invalid policies and Secrets revoke explicit grants;
-pinned integration access remains available. Grants that conflict with pinned
-credentials or caller-token origins, or exceed the merged rule limit, are withheld
-with rate-limited warnings. Recreating an Agent or SandboxTemplate does not
-transfer its grants to revisions belonging to the previous Kubernetes UID.
+Changes to grants enqueue the source's actors across all retained revisions and
+Kubernetes UIDs. Retirement and uncertain database write outcomes also enqueue
+that source. Actor application runs in separate queues so slow Substrate calls
+do not block preparation. The applier only reads effective policy; it does not
+translate Kubernetes inputs or write grants. Startup recovery pages all allocated
+actors within the controller's namespace watch scope. Failed applications retry
+with exponential backoff. Preparation finalizers on both source kinds preserve
+deletion events through controller downtime.
+
+Running and suspended actors receive updates without replacement or a new
+invocation. Missing or invalid policy references and Secrets revoke explicit
+grants. Grants that conflict with pinned credentials or caller-token origins, or
+exceed the merged rule limit, are withheld while pinned integration access remains.
+The applier reports these conflicts with warnings limited per revision; create
+and resume apply the same fallback. Missing revisions or malformed persisted
+inputs return errors and block execution.
 
 New Sessions and sandboxes pin the latest successful runtime revision, including
 while a configuration edit is unresolved, preparing, or failed. Initial creation
 still requires a successful revision. Existing instances and checkpoint forks
 retain their runtime configuration.
 
-Create, creation retries, and resume load and apply the controller's persisted
-intended policy. They do not read or translate Kubernetes policy. The workflow
-creates a suspended Actor and installs its `default` egress policy before it can
+Create, creation retries, and resume load and apply the effective policy from
+persisted revision inputs and source grants. They do not read or translate
+Kubernetes policy. The workflow creates a suspended Actor and installs its
+`default` egress policy before it can
 run; a fork cannot restore an old policy from a snapshot. Applications read the
 Substrate policy version before loading intended policy, then write using its UID
 and version preconditions. Conflicts reload both. After applying, they recheck
 intended policy to catch updates whose actor discovery raced with creation.
-Missing or malformed persisted policy blocks execution and is retried. No database
-transaction or lock is held across Substrate calls.
+Missing revisions or malformed persisted inputs block execution and are retried.
+No database transaction or lock is held across Substrate calls.
 
 Policy convergence is asynchronous: a Kubernetes write is not a synchronous
 revocation barrier. Once the gateway observes the changed policy, subsequent

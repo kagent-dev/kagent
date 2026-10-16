@@ -15,29 +15,48 @@ import (
 )
 
 // UpsertAgentDefinition records the desired runtime revision for a
-// Agent identity. Updating an existing definition revives it if retired and
+// Kubernetes Agent identity. Updating an existing definition revives it if retired and
 // preserves its latest successful revision. It atomically retires older identities
-// at the same names and rejects revisions whose deletion has started.
-func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		if err := retireAgentIdentities(ctx, tx, definition.Namespace, definition.AgentName, &definition); err != nil {
-			return fmt.Errorf("retire replaced Agent: %w", err)
-		}
-		if err := execSQL(ctx, tx, `
-			INSERT INTO agent_definition (
-			    namespace, agent_name, agent_uid, desired_revision, retired_at
-			) VALUES ($1, $2, $3, $4, NULL)
-			ON CONFLICT (namespace, agent_uid) DO UPDATE SET
-			    agent_name = EXCLUDED.agent_name,
-			    desired_revision = EXCLUDED.desired_revision,
-			    retired_at = NULL,
-			    updated_at = NOW()
-		`,
-			definition.Namespace, definition.AgentName, definition.AgentUID,
-			definition.DesiredRevision,
-		); err != nil {
+// at the same names and rejects revisions whose deletion has started. Grants
+// are canonicalized before writing. The bool reports changed active grants or
+// retirement of another UID; errors may include an uncertain commit outcome.
+func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) (bool, error) {
+	grants, err := canonicalStoredGrants(definition.Grants)
+	if err != nil {
+		return false, fmt.Errorf("validate source grants: %w", err)
+	}
+	changed := false
+	err = c.withTx(ctx, func(tx pgx.Tx) error {
+		retired, err := tx.Exec(ctx, `
+			UPDATE agent_definition SET retired_at = NOW(), updated_at = NOW()
+			WHERE namespace = $1 AND agent_name = $2 AND agent_uid <> $3 AND retired_at IS NULL
+		`, definition.Namespace, definition.AgentName, definition.AgentUID)
+		if err != nil {
 			return err
 		}
+		changed = retired.RowsAffected() > 0
+		grantsChanged, err := queryOne(ctx, tx, `
+			WITH previous AS MATERIALIZED (
+			  SELECT grant_destinations, grant_credentials, retired_at FROM agent_definition
+			  WHERE namespace = $1 AND agent_uid = $3 FOR UPDATE
+			), updated AS (
+			  INSERT INTO agent_definition (namespace, agent_name, agent_uid, desired_revision, grant_destinations, grant_credentials)
+			  SELECT $1, $2, $3, $4, $5, $6 FROM (SELECT COUNT(*) FROM previous) locked
+			  ON CONFLICT (namespace, agent_uid) DO UPDATE SET
+			    agent_name = EXCLUDED.agent_name, desired_revision = EXCLUDED.desired_revision,
+			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
+			    retired_at = NULL, updated_at = NOW()
+			  RETURNING namespace
+			)
+			SELECT COALESCE((SELECT grant_destinations FROM previous WHERE retired_at IS NULL), '{}'::text[]) IS DISTINCT FROM $5
+			    OR COALESCE((SELECT grant_credentials FROM previous WHERE retired_at IS NULL), '[]'::jsonb) IS DISTINCT FROM $6
+			FROM updated
+		`, pgx.RowTo[bool], definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials)
+		if err != nil {
+			return err
+		}
+
+		changed = changed || grantsChanged
 		// Lock Agents before revisions. Validate the resulting definition, including
 		// its retained last-good pointer when reactivating a retired identity.
 		type revisionStatus struct {
@@ -65,13 +84,13 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 		}
 		return nil
 	})
+	return changed, err
 }
 
-// RecordRuntimeRevision atomically stores revision inputs and the initial policy
-// without making them available for new Sessions. Existing inputs and policy are
-// preserved; only the actor UID and update time are refreshed. Malformed policies
-// are rejected. Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, policy egress.Access) error {
+// RecordRuntimeRevision stores immutable inputs without making them available for
+// new Sessions. Existing inputs are preserved; actor UID and update time refresh.
+// Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
 	if revision.AgentCard == nil {
 		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
 	}
@@ -84,7 +103,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
 				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
 			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughOrigins: revision.TokenPassthroughOrigins,
-		}, policy); err != nil {
+		}); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `
@@ -239,20 +258,9 @@ type runtimeRevisionRecord struct {
 	Credentials             []egress.Credential
 }
 
-// recordRuntimeRevision writes common inputs, mutable artifact status, and an
-// insert-only initial policy. The caller must write its typed extension in the
-// same transaction. Preparation retries never replace a published live policy.
-func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevisionRecord, policy egress.Access) error {
-	policy, err := egress.CanonicalAccess(policy.Destinations, policy.Credentials)
-	if err != nil {
-		return fmt.Errorf("validate initial runtime egress policy %s: %w", revision.Revision, err)
-	}
-	if policy.Destinations == nil {
-		policy.Destinations = []string{}
-	}
-	if policy.Credentials == nil {
-		policy.Credentials = []egress.Credential{}
-	}
+// recordRuntimeRevision writes immutable common inputs and mutable artifact status.
+// The caller writes its typed extension in the same transaction.
+func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevisionRecord) error {
 	if revision.Credentials == nil {
 		revision.Credentials = []egress.Credential{}
 	}
@@ -273,16 +281,10 @@ func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevis
 	if err != nil {
 		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
 	}
-	if result.RowsAffected() == 0 {
-		if err := lockRuntimeRevisionForReference(ctx, tx, revision.Revision, revision.Kind); err != nil {
-			return err
-		}
+	if result.RowsAffected() != 0 {
+		return nil
 	}
-	return execSQL(ctx, tx, `
-		INSERT INTO runtime_egress_policy (revision, destinations, credentials)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (revision) DO NOTHING
-	`, revision.Revision, policy.Destinations, policy.Credentials)
+	return lockRuntimeRevisionForReference(ctx, tx, revision.Revision, revision.Kind)
 }
 
 // BeginRuntimeRevisionDeletion marks an unreferenced revision as deleting,

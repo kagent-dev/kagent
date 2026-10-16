@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -26,7 +27,6 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -34,7 +34,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
-	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
+	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Finalizers: []string{agentPreparationFinalizer}, Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
 	revision := &translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
 	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
@@ -56,7 +56,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
-	reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress,
+	reconciler := &Reconciler{enqueueActors: noopEnqueueActors,
 		collections: Collections{
 			Agents:                   krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
 			AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
@@ -110,7 +110,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
-	reconciler = &Reconciler{enqueueEgress: noopEnqueueEgress, collections: reconciler.collections, templates: templates, store: store, status: statusClient}
+	reconciler = &Reconciler{enqueueActors: noopEnqueueActors, collections: reconciler.collections, templates: templates, store: store, status: statusClient}
 	nextTarget := *state.Target
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
@@ -158,7 +158,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
-			reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress,
+			reconciler := &Reconciler{enqueueActors: noopEnqueueActors,
 				collections: Collections{
 					AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 					Reconciliations:          states,
@@ -178,7 +178,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
 			state := AgentReconciliation{
-				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
+				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Finalizers: []string{agentPreparationFinalizer}, Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
 				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
 			}
 			states.UpdateObject(state)
@@ -322,7 +322,6 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 type fakeRuntimeRevisionStore struct {
 	pair             *database.AgentDefinition
 	revision         *database.RuntimeRevision
-	policy           egress.Access
 	markedSuccessful bool
 	retired          string
 	revisionErr      error
@@ -332,19 +331,19 @@ type fakeRuntimeRevisionStore struct {
 	pairCalls        int
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
+func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) (bool, error) {
 	s.pairCalls++
+	changed := s.pair == nil || !reflect.DeepEqual(s.pair.Grants, pair.Grants)
 	s.pair = &pair
-	return s.pairErr
+	return changed, s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, policy egress.Access) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
 	s.recordCalls++
 	if s.revisionErr != nil {
 		return s.revisionErr
 	}
 	s.revision = &revision
-	s.policy = policy
 	return nil
 }
 
@@ -407,7 +406,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
 		statusClient,
-		noopEnqueueEgress,
+		noopEnqueueActors,
 	)
 
 	go reconciler.Run(stop)

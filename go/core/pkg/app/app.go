@@ -287,11 +287,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
-	egressReconciler := controller.NewEgressReconciler(ctx, runtime, store, actors, watchNamespaces)
-	if err := manager.Add(egressReconciler); err != nil {
-		return fmt.Errorf("add egress reconciler: %w", err)
+	egressApplier := controller.NewActorEgressApplier(ctx, store, actors, watchNamespaces)
+	if err := manager.Add(egressApplier); err != nil {
+		return fmt.Errorf("add egress applier: %w", err)
 	}
-	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors, egressReconciler.EnqueueRevision)
+	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors, egressApplier.EnqueueSource)
 	if err != nil {
 		return err
 	}
@@ -379,7 +379,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		CPU:        cfg.GetSandboxes().GetCpu(),
 		Memory:     cfg.GetSandboxes().GetMemory(),
 	}
-	preparation, err := controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy, egressReconciler.EnqueueRevision)
+	preparation, err := controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy, egressApplier.EnqueueSource)
 	if err != nil {
 		return err
 	}

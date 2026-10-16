@@ -19,6 +19,7 @@ type SandboxRevision struct {
 
 // SandboxTemplateDefinition tracks the desired and last successful runtime for a SandboxTemplate UID.
 type SandboxTemplateDefinition struct {
+	Grants              egress.Access
 	Namespace           string
 	SandboxTemplateName string
 	SandboxTemplateUID  string
@@ -27,22 +28,45 @@ type SandboxTemplateDefinition struct {
 
 // UpsertSandboxTemplateDefinition pins desired inputs before any backend mutation. A new
 // Kubernetes UID retires the former identity without inheriting its last success.
-func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition SandboxTemplateDefinition) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		if err := execSQL(ctx, tx, `
+// Grants are canonicalized before writing. The bool reports changed active grants
+// or retirement of another UID; errors may include an uncertain commit outcome.
+func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition SandboxTemplateDefinition) (bool, error) {
+	grants, err := canonicalStoredGrants(definition.Grants)
+	if err != nil {
+		return false, fmt.Errorf("validate source grants: %w", err)
+	}
+	changed := false
+	err = c.withTx(ctx, func(tx pgx.Tx) error {
+		retired, err := tx.Exec(ctx, `
 			UPDATE sandbox_template_definition SET retired_at = NOW(), updated_at = NOW()
 			WHERE namespace = $1 AND sandbox_template_name = $2 AND sandbox_template_uid <> $3 AND retired_at IS NULL
-		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID); err != nil {
+		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID)
+		if err != nil {
 			return err
 		}
-		if err := execSQL(ctx, tx, `
-			INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (namespace, sandbox_template_uid) DO UPDATE SET
-			    desired_revision = EXCLUDED.desired_revision, retired_at = NULL, updated_at = NOW()
-		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision); err != nil {
+		changed = retired.RowsAffected() > 0
+		grantsChanged, err := queryOne(ctx, tx, `
+			WITH previous AS MATERIALIZED (
+			  SELECT grant_destinations, grant_credentials, retired_at FROM sandbox_template_definition
+			  WHERE namespace = $1 AND sandbox_template_uid = $3 FOR UPDATE
+			), updated AS (
+			  INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision, grant_destinations, grant_credentials)
+			  SELECT $1, $2, $3, $4, $5, $6 FROM (SELECT COUNT(*) FROM previous) locked
+			  ON CONFLICT (namespace, sandbox_template_uid) DO UPDATE SET
+			    sandbox_template_name = EXCLUDED.sandbox_template_name, desired_revision = EXCLUDED.desired_revision,
+			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
+			    retired_at = NULL, updated_at = NOW()
+			  RETURNING namespace
+			)
+			SELECT COALESCE((SELECT grant_destinations FROM previous WHERE retired_at IS NULL), '{}'::text[]) IS DISTINCT FROM $5
+			    OR COALESCE((SELECT grant_credentials FROM previous WHERE retired_at IS NULL), '[]'::jsonb) IS DISTINCT FROM $6
+			FROM updated
+		`, pgx.RowTo[bool], definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision, grants.Destinations, grants.Credentials)
+		if err != nil {
 			return err
 		}
+
+		changed = changed || grantsChanged
 		revisions, err := queryMany(ctx, tx, `
 			SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.deleted_at
 			FROM runtime_revision r JOIN sandbox_template_definition p
@@ -62,8 +86,11 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 		}
 		return nil
 	})
+	return changed, err
 }
 
+// RetireSandboxTemplateIdentities retires active identities at this source name.
+// Missing/already-retired identities are a no-op; retained actors lose live grants.
 func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace, name string) error {
 	return execSQL(ctx, c.db, `
 		UPDATE sandbox_template_definition SET retired_at = NOW(), updated_at = NOW()
@@ -71,14 +98,12 @@ func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace,
 	`, namespace, name)
 }
 
-// RecordSandboxRevision atomically stores sandbox inputs and the initial policy
-// without promoting the revision. Existing inputs and policy are preserved; only
-// artifact identity is refreshed. Malformed policies are rejected. Deleting
-// revisions return ErrObjectDeleting.
-func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, policy egress.Access) error {
+// RecordSandboxRevision stores immutable sandbox inputs and refreshes artifact
+// identity without promoting the revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		revision.Kind = runtimeKindSandbox
-		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}, policy); err != nil {
+		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `

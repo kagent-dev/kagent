@@ -178,7 +178,6 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	if _, err := egress.MergeAccess(egress.Access{Destinations: result.EgressDestinations, Credentials: result.Credentials}, access, result.TokenPassthroughOrigins); err != nil {
 		return nil, NewValidationError("%v", err)
 	}
-	result.Egress = access
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
 	if workerPool == nil {

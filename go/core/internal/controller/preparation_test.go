@@ -27,7 +27,6 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -55,7 +54,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress, collections: collections, templates: templates, store: store}
+			reconciler := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: templates, store: store}
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
@@ -98,7 +97,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, egress.Access{}))
+			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned))
 			require.NoError(t, store.PromoteRuntimeRevision(ctx, abandoned.Revision))
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
@@ -157,7 +156,7 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "microvm")
 			initial := collections.Reconciliations.List()[0]
 			statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-			reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress, collections: collections, templates: &test.templates, store: &test.store, status: statusClient}
+			reconciler := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: &test.templates, store: &test.store, status: statusClient}
 			err := reconciler.reconcileAgent(t.Context(), initial.ResourceName())
 			require.Error(t, err)
 			require.Equal(t, test.code, status.Code(err))
@@ -238,7 +237,7 @@ func TestPreparationRevisionIsolation(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}
-	reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress, collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
+	reconciler := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
 	require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure != nil
@@ -280,7 +279,7 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 				initial := collections.Reconciliations.List()[0]
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
 				backend := &preparationTestBackend{templates: &test.templates, store: &test.store}
-				r := newReconciler(collections, backend, backend, statusClient, noopEnqueueEgress)
+				r := newReconciler(collections, backend, backend, statusClient, noopEnqueueActors)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -383,16 +382,16 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
-func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) error {
+func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, policy egress.Access) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RecordRuntimeRevision(ctx, revision, policy)
+	return p.store.RecordRuntimeRevision(ctx, revision)
 }
 
 func (p *preparationTestBackend) PromoteRuntimeRevision(ctx context.Context, revision string) error {
@@ -413,7 +412,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 		initial := collections.Reconciliations.List()[0]
 		templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "missing config")}
 		store := &fakeRuntimeRevisionStore{}
-		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), noopEnqueueEgress)
+		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), noopEnqueueActors)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go r.Run(ctx.Done())
@@ -467,7 +466,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-				r := newReconciler(collections, templates, store, statusClient, noopEnqueueEgress)
+				r := newReconciler(collections, templates, store, statusClient, noopEnqueueActors)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -526,7 +525,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	require.Nil(t, state.PreparationFailure)
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{getErr: errors.New("Substrate must not be called for an invalid target")}
-	r := &Reconciler{enqueueEgress: noopEnqueueEgress, collections: collections, templates: templates, store: store}
+	r := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: templates, store: store}
 	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
 	require.Empty(t, store.pair.DesiredRevision)
 	require.Nil(t, templates.template)
@@ -580,40 +579,4 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	return collections, harnesses
-}
-
-func TestPreparationRecordsCompiledPolicyBeforeEnqueueAndPromotion(t *testing.T) {
-	collections, _ := newPreparationTestCollections(t, "gvisor")
-	policy := egressTestPolicy("https://tickets.example.com", nil)
-	policy.Namespace = "team-a"
-	collections.EgressPolicies.(krt.StaticCollection[*kagentv1alpha3.EgressPolicy]).UpdateObject(policy)
-	agent := collections.Agents.List()[0].DeepCopy()
-	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
-	collections.Agents.(krt.StaticCollection[*kagentv1alpha3.Agent]).UpdateObject(agent)
-	waitFor(t, func() bool {
-		state := collections.Reconciliations.GetKey("team-a/assistant")
-		return state.Target != nil && len(state.Target.Egress.Destinations) == 1
-	})
-	initial := collections.Reconciliations.List()[0]
-	template := proto.CloneOf(initial.Target.ActorTemplate)
-	template.Metadata.Uid = "prepared"
-	template.Status = sandboxGoldenStatus()
-	want, err := egress.MergeAccess(egress.Access{Destinations: initial.Target.Revision.EgressDestinations, Credentials: initial.Target.Revision.Credentials}, initial.Target.Egress, initial.Target.Revision.TokenPassthroughOrigins)
-	require.NoError(t, err)
-	store := &fakeRuntimeRevisionStore{revisionErr: errors.New("record failed")}
-	queued := 0
-	r := &Reconciler{collections: collections, templates: &fakeActorTemplates{template: template}, store: store,
-		enqueueEgress: func(revision string) {
-			queued++
-			require.Equal(t, initial.Target.RevisionID.String(), revision)
-			require.Equal(t, want, store.policy, "initial policy must be recorded before enqueue")
-			require.False(t, store.markedSuccessful)
-		},
-	}
-	require.ErrorIs(t, r.reconcileAgent(t.Context(), initial.ResourceName()), store.revisionErr)
-	require.Zero(t, queued, "failed recording must not enqueue publication")
-	store.revisionErr = nil
-	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
-	require.Equal(t, 1, queued)
-	require.True(t, store.markedSuccessful, "initial readiness must not wait for the publication queue")
 }

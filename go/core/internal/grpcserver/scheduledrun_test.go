@@ -26,7 +26,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
@@ -181,12 +180,13 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1.ScheduledRunS
 	t.Cleanup(db.Close)
 	store := database.NewClient(db, "public")
 	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
-	require.NoError(t, store.UpsertAgentDefinition(t.Context(), pair))
+	_, upsertErr := store.UpsertAgentDefinition(t.Context(), pair)
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
 		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentName: pair.AgentName, AgentUID: pair.AgentUID,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
-	}, egress.Access{}))
+	}))
 	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), pair.DesiredRevision))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))

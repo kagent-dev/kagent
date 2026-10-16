@@ -15,7 +15,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
@@ -375,10 +374,10 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
 		DesiredRevision: revision.Revision,
 	}
-	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
+	if _, err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, egress.Access{}); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
@@ -535,10 +534,10 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
 		DesiredRevision: revision.Revision,
 	}
-	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
+	if _, err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, egress.Access{}); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
@@ -638,10 +637,10 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 		Namespace: namespace, AgentName: template, AgentUID: template + "-uid",
 		DesiredRevision: revisionID,
 	}
-	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
+	if _, err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, egress.Access{}); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))

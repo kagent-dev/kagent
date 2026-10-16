@@ -25,16 +25,15 @@ import (
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 // These fakes are also used by the informer/queue integration test.
 type sandboxTestStore struct {
+	upsertErr      error
 	mu             sync.Mutex
 	desired        database.SandboxTemplateDefinition
 	revision       database.SandboxRevision
-	policy         egress.Access
 	ready          bool
 	retired        bool
 	retireAttempts int
@@ -44,13 +43,14 @@ type sandboxTestStore struct {
 	recordCalls    int
 }
 
-func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) error {
+func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	changed := !reflect.DeepEqual(s.desired.Grants, value.Grants)
 	s.desired = value
-	return nil
+	return changed, s.upsertErr
 }
-func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, policy egress.Access) error {
+func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recordCalls++
@@ -58,7 +58,6 @@ func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value databa
 		return s.recordErr
 	}
 	s.revision = value
-	s.policy = policy
 	return nil
 }
 func (s *sandboxTestStore) PromoteSandboxRevision(_ context.Context, revision string) error {
@@ -144,7 +143,7 @@ func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconcil
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
 		collections:   newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
-		enqueueEgress: noopEnqueueEgress,
+		enqueueActors: noopEnqueueActors,
 		store:         store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
@@ -313,42 +312,4 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 		current, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})
 		return err == nil && apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}, 5*time.Second, 10*time.Millisecond)
-}
-
-func TestSandboxPreparationRecordsCompiledPolicyBeforeEnqueueAndPromotion(t *testing.T) {
-	ctx := t.Context()
-	inputs := newEgressTestInputs(ctx)
-	template := sandboxTestTemplate()
-	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "access"}}
-	inputs.sandboxes.UpdateObject(template)
-	policy := egressTestPolicy("https://tickets.example.com", nil)
-	policy.Namespace = template.Namespace
-	inputs.policies.UpdateObject(policy)
-	inputs.runtime.Collections.WorkerPools = krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}}, inputs.runtime.Options.WithName("Pools")...)
-	store := &sandboxTestStore{}
-	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}, autoReady: true}
-	queued := 0
-	s := &SandboxReconciler{
-		collections: newSandboxCollections(inputs.runtime.Collections, substrate.SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}, inputs.runtime.Options),
-		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
-		enqueueEgress: func(revision string) {
-			queued++
-			require.Equal(t, store.revision.Revision, revision)
-			require.Equal(t, []string{"https://tickets.example.com:443"}, store.policy.Destinations)
-			require.False(t, store.ready)
-		},
-	}
-	waitFor(t, func() bool {
-		state := s.collections.states.GetKey("team-a/scratch")
-		return state != nil && state.DesiredActorTemplate != nil
-	})
-	require.NoError(t, s.reconcile(ctx, "team-a/scratch")) // Add the finalizer.
-	syncSandboxTemplate(t, s, inputs.sandboxes)
-	store.recordErr = errors.New("record failed")
-	require.ErrorIs(t, s.reconcile(ctx, "team-a/scratch"), store.recordErr)
-	require.Zero(t, queued)
-	store.recordErr = nil
-	require.NoError(t, s.reconcile(ctx, "team-a/scratch"))
-	require.Equal(t, 1, queued)
-	require.True(t, store.ready, "initial readiness must not wait for the publication queue")
 }
