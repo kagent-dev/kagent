@@ -107,8 +107,8 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 			} else {
 				require.Equal(t, fmt.Sprintf("%d image(s) shown to the user", len(tc.images)), result[ToolResultImagesKey])
 			}
-			require.Equal(t, tc.images, TakeToolImages("invocation-1", callID))
-			require.Nil(t, TakeToolImages("invocation-1", callID), "images are taken once")
+			require.Equal(t, tc.images, TakeToolImages(ToolCallKey{InvocationID: "invocation-1", CallID: callID}))
+			require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation-1", CallID: callID}), "images are taken once")
 		})
 	}
 }
@@ -118,28 +118,28 @@ func TestStashToolImagesEvicts(t *testing.T) {
 	backdate := func(callID string, age time.Duration) {
 		imageStash.Lock()
 		defer imageStash.Unlock()
-		imageStash.calls[imageCallKey{"invocation", callID}] = stashedImages{images: images, at: time.Now().Add(-age)}
+		imageStash.calls[ToolCallKey{InvocationID: "invocation", CallID: callID}] = stashedImages{images: images, at: time.Now().Add(-age)}
 	}
 	backdate("expired", stashedImagesTTL+time.Second)
 	for i := range maxStashedImageCalls {
-		StashToolImages("invocation", fmt.Sprintf("call-%d", i), images)
+		StashToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", i)}, images)
 	}
 	backdate("call-0", time.Second)
-	StashToolImages("invocation", fmt.Sprintf("call-%d", maxStashedImageCalls), images)
-	require.Nil(t, TakeToolImages("invocation", "expired"), "expired images are dropped")
-	require.Nil(t, TakeToolImages("invocation", "call-0"), "the oldest call is dropped when the stash is full")
+	StashToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", maxStashedImageCalls)}, images)
+	require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: "expired"}), "expired images are dropped")
+	require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: "call-0"}), "the oldest call is dropped when the stash is full")
 	for i := 1; i <= maxStashedImageCalls; i++ {
-		require.Equal(t, images, TakeToolImages("invocation", fmt.Sprintf("call-%d", i)))
+		require.Equal(t, images, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", i)}))
 	}
 }
 
 func TestStashToolImagesScopesCallIDsByInvocation(t *testing.T) {
 	first := []ToolImage{{MIMEType: "image/png", Data: "Zmlyc3Q="}}
 	second := []ToolImage{{MIMEType: "image/png", Data: "c2Vjb25k"}}
-	StashToolImages("invocation-a", "call_0", first)
-	StashToolImages("invocation-b", "call_0", second)
-	require.Equal(t, second, TakeToolImages("invocation-b", "call_0"))
-	require.Equal(t, first, TakeToolImages("invocation-a", "call_0"))
+	StashToolImages(ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}, first)
+	StashToolImages(ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}, second)
+	require.Equal(t, second, TakeToolImages(ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}))
+	require.Equal(t, first, TakeToolImages(ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}))
 }
 
 // runContext is an ADK tool context backed by a Go context, enough for ADK's

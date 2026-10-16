@@ -41,46 +41,45 @@ type stashedImages struct {
 	at     time.Time
 }
 
-// imageCallKey identifies a tool call within the process. Some model providers
+// ToolCallKey identifies a tool call within the process. Some model providers
 // reuse call IDs such as "call_0", so the invocation scopes them.
-type imageCallKey struct {
-	invocationID string
-	callID       string
+type ToolCallKey struct {
+	InvocationID string
+	CallID       string
 }
 
 var imageStash = struct {
 	sync.Mutex
-	calls map[imageCallKey]stashedImages
-}{calls: map[imageCallKey]stashedImages{}}
+	calls map[ToolCallKey]stashedImages
+}{calls: map[ToolCallKey]stashedImages{}}
 
 // StashToolImages keeps the images an MCP tool call returned until its
 // function response is converted to A2A.
-func StashToolImages(invocationID, callID string, images []ToolImage) {
+func StashToolImages(call ToolCallKey, images []ToolImage) {
 	imageStash.Lock()
 	defer imageStash.Unlock()
 	now := time.Now()
-	var oldest imageCallKey
+	var oldest ToolCallKey
 	for key, stashed := range imageStash.calls {
 		if now.Sub(stashed.at) > stashedImagesTTL {
 			delete(imageStash.calls, key)
-		} else if oldest == (imageCallKey{}) || stashed.at.Before(imageStash.calls[oldest].at) {
+		} else if oldest == (ToolCallKey{}) || stashed.at.Before(imageStash.calls[oldest].at) {
 			oldest = key
 		}
 	}
 	if len(imageStash.calls) >= maxStashedImageCalls {
 		delete(imageStash.calls, oldest)
 	}
-	imageStash.calls[imageCallKey{invocationID, callID}] = stashedImages{images: images, at: now}
+	imageStash.calls[call] = stashedImages{images: images, at: now}
 }
 
 // TakeToolImages returns the images an MCP tool call returned and forgets
 // them. Each function response is converted to A2A once.
-func TakeToolImages(invocationID, callID string) []ToolImage {
+func TakeToolImages(call ToolCallKey) []ToolImage {
 	imageStash.Lock()
 	defer imageStash.Unlock()
-	key := imageCallKey{invocationID, callID}
-	stashed := imageStash.calls[key]
-	delete(imageStash.calls, key)
+	stashed := imageStash.calls[call]
+	delete(imageStash.calls, call)
 	return stashed.images
 }
 
@@ -217,14 +216,14 @@ func (t imageTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) e
 func (t imageTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
 	sink := &imageSink{}
 	result, err := t.functionTool.Run(valuesContext{Context: ctx, values: context.WithValue(ctx, imageSinkKey{}, sink)}, args)
-	invocationID, callID := ctx.InvocationID(), ctx.FunctionCallID()
-	if err != nil || len(sink.images) == 0 || invocationID == "" || callID == "" {
+	call := ToolCallKey{InvocationID: ctx.InvocationID(), CallID: ctx.FunctionCallID()}
+	if err != nil || len(sink.images) == 0 || call.InvocationID == "" || call.CallID == "" {
 		return result, err
 	}
 	if result == nil {
 		result = map[string]any{}
 	}
-	StashToolImages(invocationID, callID, sink.images)
+	StashToolImages(call, sink.images)
 	result[ToolResultImagesKey] = fmt.Sprintf("%d image(s) shown to the user", len(sink.images))
 	return result, nil
 }

@@ -233,7 +233,7 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 
 func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 	note := map[string]any{"output": "chart", mcp.ToolResultImagesKey: "1 image(s) shown to the user"}
-	mcp.StashToolImages("invocation-1", "call-images", []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
+	mcp.StashToolImages(mcp.ToolCallKey{InvocationID: "invocation-1", CallID: "call-images"}, []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
 
 	convert := func(invocationID, callID string) map[string]any {
 		t.Helper()
