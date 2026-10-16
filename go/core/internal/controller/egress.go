@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"sync"
 	"time"
@@ -11,63 +10,19 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/controllers"
-	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/util/cache"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-type runtimeEgressStore interface {
-	GetRuntimeEgress(context.Context, string) (*database.RuntimeEgress, error)
-	SetRuntimeEgressPolicy(context.Context, string, egress.Access) (bool, error)
-	ListRuntimeEgressRevisions(context.Context, string, int) ([]string, error)
-	ListRuntimeEgressSourceRevisions(context.Context, database.RuntimeEgressSource, string, int) ([]string, error)
-	ListRuntimeEgressTargets(context.Context, string, string, int) ([]database.RuntimeEgressTarget, error)
-}
-
-type policyGrants struct {
-	Source database.RuntimeEgressSource
-	UID    string
-	Access egress.Access
-}
-
-func (p policyGrants) ResourceName() string {
-	return string(p.Source.Kind) + "/" + p.Source.Namespace + "/" + p.Source.Name
-}
-
-func newEgressGrants(runtime *Runtime) krt.Collection[policyGrants] {
-	inputs := runtime.Collections
-	collections := translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}
-	agents := krt.NewCollection(inputs.Agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *policyGrants {
-		grants := &policyGrants{Source: database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: agent.Namespace, Name: agent.Name}, UID: string(agent.UID)}
-		if agent.DeletionTimestamp.IsZero() {
-			// CompileEgressPolicies returns empty access on every failure. Runtime
-			// compilation reports resolution errors through the source's status.
-			access, err := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
-			if err == nil {
-				grants.Access = access
-			}
-		}
-		return grants
-	}, runtime.Options.WithName("AgentEgressGrants")...)
-	sandboxes := krt.NewCollection(inputs.SandboxTemplates, func(ctx krt.HandlerContext, template *kagentv1alpha3.SandboxTemplate) *policyGrants {
-		grants := &policyGrants{Source: database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: template.Namespace, Name: template.Name}, UID: string(template.UID)}
-		if template.DeletionTimestamp.IsZero() {
-			access, err := translator.CompileEgressPolicies(ctx, collections, template.Namespace, template.Spec.EgressPolicyRefs)
-			if err == nil {
-				grants.Access = access
-			}
-		}
-		return grants
-	}, runtime.Options.WithName("SandboxEgressGrants")...)
-	return krt.JoinCollection([]krt.Collection[policyGrants]{agents, sandboxes}, runtime.Options.WithName("RuntimeEgressGrants")...)
+type actorEgressStore interface {
+	egress.PolicyStore
+	ListRuntimeEgressTargets(context.Context, string, int) ([]database.RuntimeEgressTarget, error)
+	ListRuntimeEgressSourceTargets(context.Context, database.RuntimeEgressSource, string, int) ([]database.RuntimeEgressTarget, error)
 }
 
 type actorEgressClient interface {
@@ -75,21 +30,16 @@ type actorEgressClient interface {
 	EnsureActorEgressPolicy(context.Context, string, string, string) error
 }
 
-// EgressReconciler publishes KRT's current grants per retained revision. Actors
-// and API replicas apply this persisted output without translating Kubernetes.
-// Startup actor recovery has separate workers from live actor updates.
-type EgressReconciler struct {
-	grants       krt.Collection[policyGrants]
-	store        runtimeEgressStore
-	actors       actorEgressClient
-	namespaces   []string
-	warnings     *cache.LRUExpireCache
-	publications workqueue.TypedRateLimitingInterface[string]
-	sources      controllers.Queue
-	pages        controllers.Queue
-	updates      controllers.Queue
-	recovery     controllers.Queue
-	sweeps       controllers.Queue
+// ActorEgressApplier applies persisted effective policy independently of runtime
+// preparation. It never translates Kubernetes inputs or writes source grants.
+type ActorEgressApplier struct {
+	store      actorEgressStore
+	actors     actorEgressClient
+	namespaces []string
+	warnings   *cache.LRUExpireCache
+	pages      controllers.Queue
+	updates    controllers.Queue
+	recovery   controllers.Queue
 }
 
 type egressSourcePage struct {
@@ -97,221 +47,103 @@ type egressSourcePage struct {
 	After  string
 }
 
-type egressActorPage struct {
-	Revision string
-	After    string
-	Recovery bool
-}
+type egressRecoveryPage struct{ After string }
 
-type egressSweepPage struct {
-	After         string
-	RecoverActors bool
-}
+var _ manager.LeaderElectionRunnable = (*ActorEgressApplier)(nil)
 
-var _ manager.LeaderElectionRunnable = (*EgressReconciler)(nil)
-
-func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgressStore, actors actorEgressClient, namespaces []string) *EgressReconciler {
-	e := &EgressReconciler{grants: newEgressGrants(runtime), store: store, actors: actors,
-		namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024),
-		publications: workqueue.NewTypedRateLimitingQueueWithConfig(
-			workqueue.NewTypedItemExponentialFailureRateLimiter[string](time.Second, 30*time.Second),
-			workqueue.TypedRateLimitingQueueConfig[string]{Name: "live-egress-publications"}),
-	}
+func NewActorEgressApplier(ctx context.Context, store actorEgressStore, actors actorEgressClient, namespaces []string) *ActorEgressApplier {
+	a := &ActorEgressApplier{store: store, actors: actors, namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024)}
 	reconcile := func(item any) error {
-		err := e.reconcileActor(ctx, item.(database.RuntimeEgressTarget))
+		err := a.reconcileActor(ctx, item.(database.RuntimeEgressTarget))
 		if status.Code(err) == codes.NotFound {
 			return nil
 		}
 		return err
 	}
-	e.updates = newReconciliationQueue("live-egress-actors", reconcile)
-	e.recovery = newReconciliationQueue("live-egress-recovery", reconcile)
+	a.updates = newReconciliationQueue("live-egress-actors", reconcile)
+	a.recovery = newReconciliationQueue("live-egress-recovery", reconcile)
 	const pageSize = 100
-	e.pages = newReconciliationQueue("live-egress-revision-actors", func(item any) error {
-		page := item.(egressActorPage)
-		// Startup recovery lists all revisions independently of publication.
-		// Check watch scope before expanding its first actor page.
-		if page.Recovery && page.After == "" && len(e.namespaces) > 0 {
-			pinned, err := e.store.GetRuntimeEgress(ctx, page.Revision)
-			if errors.Is(err, database.ErrNotFound) {
+	a.pages = newReconciliationQueue("live-egress-pages", func(item any) error {
+		switch page := item.(type) {
+		case egressSourcePage:
+			if !a.watches(page.Source.Namespace) {
 				return nil
 			}
+			targets, err := a.store.ListRuntimeEgressSourceTargets(ctx, page.Source, page.After, pageSize)
 			if err != nil {
 				return err
 			}
-			if !slices.Contains(e.namespaces, pinned.Namespace) {
-				return nil
+			for _, target := range targets {
+				a.updates.Add(target)
+			}
+			if len(targets) == pageSize {
+				page.After = targets[len(targets)-1].ID
+				a.pages.Add(page)
+			}
+		case egressRecoveryPage:
+			targets, err := a.store.ListRuntimeEgressTargets(ctx, page.After, pageSize)
+			if err != nil {
+				return err
+			}
+			for _, target := range targets {
+				if a.watches(target.Namespace) {
+					a.recovery.Add(target)
+				}
+			}
+			if len(targets) == pageSize {
+				page.After = targets[len(targets)-1].ID
+				a.pages.Add(page)
 			}
 		}
-		targets, err := e.store.ListRuntimeEgressTargets(ctx, page.Revision, page.After, pageSize)
-		if err != nil {
-			return err
-		}
-		queue := e.updates
-		if page.Recovery {
-			queue = e.recovery
-		}
-		for _, target := range targets {
-			queue.Add(target)
-		}
-		if len(targets) == pageSize {
-			page.After = targets[len(targets)-1].ID
-			e.pages.Add(page)
-		}
 		return nil
 	})
-	e.sources = newReconciliationQueue("live-egress-sources", func(item any) error {
-		page := item.(egressSourcePage)
-		revisions, err := e.store.ListRuntimeEgressSourceRevisions(ctx, page.Source, page.After, pageSize)
-		if err != nil {
-			return err
-		}
-		for _, revision := range revisions {
-			e.EnqueueRevision(revision)
-		}
-		if len(revisions) == pageSize {
-			page.After = revisions[len(revisions)-1]
-			e.sources.Add(page)
-		}
-		return nil
-	})
-	e.sweeps = newReconciliationQueue("live-egress-sweeps", func(item any) error {
-		page := item.(egressSweepPage)
-		revisions, err := e.store.ListRuntimeEgressRevisions(ctx, page.After, pageSize)
-		if err != nil {
-			return err
-		}
-		for _, revision := range revisions {
-			e.EnqueueRevision(revision)
-			if page.RecoverActors {
-				e.pages.Add(egressActorPage{Revision: revision, Recovery: true})
-			}
-		}
-		if len(revisions) == pageSize {
-			page.After = revisions[len(revisions)-1]
-			e.sweeps.Add(page)
-		}
-		return nil
-	})
-	return e
+	return a
 }
 
-// EnqueueRevision schedules publication from the latest cached grants. The
-// revision alone is the key: re-adding it during publication guarantees a rerun.
-func (e *EgressReconciler) EnqueueRevision(revision string) {
-	e.publications.Add(revision)
+func (a *ActorEgressApplier) watches(namespace string) bool {
+	return len(a.namespaces) == 0 || slices.Contains(a.namespaces, namespace)
 }
 
-// publishRevision is called only by publication workers; the queue serializes
-// cache lookup through persistence for each revision.
-func (e *EgressReconciler) publishRevision(ctx context.Context, revision string) error {
-	pinned, err := e.store.GetRuntimeEgress(ctx, revision)
-	if err != nil {
-		return err
-	}
-	if len(e.namespaces) > 0 && !slices.Contains(e.namespaces, pinned.Namespace) {
-		return nil
-	}
-	base := egress.Access{Destinations: pinned.EgressDestinations, Credentials: pinned.Credentials}
-	var grants egress.Access
-	key := policyGrants{Source: database.RuntimeEgressSource{Kind: pinned.Kind, Namespace: pinned.Namespace, Name: pinned.SourceName}}
-	if current := e.grants.GetKey(key.ResourceName()); current != nil && current.UID == pinned.SourceUID {
-		grants = current.Access
-	}
-	access, err := egress.MergeAccess(base, grants, pinned.TokenPassthroughOrigins)
-	if err != nil {
-		// Bound warning state while letting every revision report its own failures.
-		if _, warned := e.warnings.Get(revision); !warned {
-			logging.FromContext(ctx).WarnContext(ctx, "explicit egress grants withheld", "revision", revision, "namespace", pinned.Namespace, "source", pinned.SourceName, "error", err)
-			e.warnings.Add(revision, struct{}{}, 30*time.Second)
-		}
-		access = base
-	} else {
-		e.warnings.Remove(revision)
-	}
-	changed, err := e.store.SetRuntimeEgressPolicy(ctx, revision, access)
-	if changed || err != nil {
-		// A failed response may hide a committed write. Queue actor application
-		// even then: a publication retry could observe an unchanged policy.
-		e.pages.Add(egressActorPage{Revision: revision})
-	}
-	return err
+// EnqueueSource schedules all allocated instances of this source, across UIDs.
+func (a *ActorEgressApplier) EnqueueSource(source database.RuntimeEgressSource) {
+	a.pages.Add(egressSourcePage{Source: source})
 }
 
-func (e *EgressReconciler) runPublications(ctx context.Context) {
+func (a *ActorEgressApplier) NeedLeaderElection() bool { return true }
+
+func (a *ActorEgressApplier) Start(ctx context.Context) error {
 	var workers sync.WaitGroup
-	for range 4 {
-		workers.Go(func() {
-			for e.processPublication(ctx) {
-			}
-		})
-	}
-	<-ctx.Done()
-	e.publications.ShutDown()
+	workers.Go(func() { a.updates.Run(ctx.Done()) })
+	workers.Go(func() { a.recovery.Run(ctx.Done()) })
+	a.pages.Add(egressRecoveryPage{})
+	a.pages.Run(ctx.Done())
 	workers.Wait()
+	return nil
 }
 
-func (e *EgressReconciler) processPublication(ctx context.Context) bool {
-	revision, shutdown := e.publications.Get()
-	if shutdown {
-		return false
+func (a *ActorEgressApplier) reconcileActor(ctx context.Context, target database.RuntimeEgressTarget) error {
+	if !a.watches(target.Namespace) {
+		return nil
 	}
-	defer e.publications.Done(revision)
-	if err := e.publishRevision(ctx, revision); err != nil && !errors.Is(err, database.ErrNotFound) && ctx.Err() == nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "publish runtime egress policy", "revision", revision, "error", err)
-		e.publications.AddRateLimited(revision)
-	} else {
-		e.publications.Forget(revision)
-	}
-	return true
-}
-
-func (e *EgressReconciler) NeedLeaderElection() bool { return true }
-
-func (e *EgressReconciler) Start(ctx context.Context) error {
-	handler := e.grants.RegisterBatch(func(events []krt.Event[policyGrants]) {
-		for _, event := range events {
-			e.sources.Add(egressSourcePage{Source: event.Latest().Source})
-		}
-	}, false)
-	defer handler.UnregisterHandler()
-	queues := []controllers.Queue{e.sources, e.pages, e.updates, e.recovery, e.sweeps}
-	if !handler.WaitUntilSynced(ctx.Done()) {
-		e.publications.ShutDown()
-		for _, queue := range queues {
-			queue.ShutDownEarly()
-		}
-		return ctx.Err()
-	}
-	var workers sync.WaitGroup
-	workers.Go(func() { e.runPublications(ctx) })
-	for _, queue := range queues {
-		workers.Go(func() { queue.Run(ctx.Done()) })
-	}
-	defer workers.Wait()
-	e.sweeps.Add(egressSweepPage{RecoverActors: true})
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			e.sweeps.Add(egressSweepPage{})
-		}
-	}
-}
-
-func (e *EgressReconciler) reconcileActor(ctx context.Context, target database.RuntimeEgressTarget) error {
 	binding := substrate.ActorBinding{Atespace: target.Atespace, Name: substrate.ActorName(target.ID), TemplateAtespace: target.Atespace, TemplateName: target.TemplateName}
-	actor, err := e.actors.GetActor(ctx, binding.Atespace, binding.Name)
+	actor, err := a.actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if err != nil {
 		return err
 	}
 	if !binding.Matches(actor) || (target.ActorUID != "" && target.ActorUID != actor.GetMetadata().GetUid()) {
-		// This queued identity no longer owns the actor. Recovery discovers its
-		// current binding; retrying this stale target cannot repair it.
 		return nil
 	}
-	return e.actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
+	policy, err := a.store.GetRuntimeEgressPolicy(ctx, target.Revision)
+	if err != nil {
+		return err
+	}
+	if policy.WithheldGrants != nil {
+		if _, warned := a.warnings.Get(target.Revision); !warned {
+			logging.FromContext(ctx).WarnContext(ctx, "explicit egress grants withheld", "revision", target.Revision, "namespace", target.Namespace, "error", policy.WithheldGrants)
+			a.warnings.Add(target.Revision, struct{}{}, 30*time.Second)
+		}
+	} else {
+		a.warnings.Remove(target.Revision)
+	}
+	return a.actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
 }

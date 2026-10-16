@@ -14,7 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func addUnknown(message proto.Message) {
@@ -287,11 +286,11 @@ func TestShareAndAgentCardProtobufPersistence(t *testing.T) {
 	require.NoError(t, err)
 	addUnknown(card)
 	revision := RuntimeRevision{Revision: "revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "template", SourceSnapshot: []byte(`{}`), AgentCard: card, EgressDestinations: []string{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "template"}
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, egress.Access{}))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
 	// Reconciliation can update runtime identity, but the pinned card is immutable.
 	revision.AgentCard = &a2apb.AgentCard{Name: "replacement"}
 	revision.ActorTemplateUID = "new-uid"
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, egress.Access{}))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
 	stored, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(card, stored.AgentCard))

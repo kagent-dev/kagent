@@ -43,7 +43,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
@@ -638,11 +637,12 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
+	_, upsertErr := store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
 		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
 		DesiredRevision: revision.Revision,
-	}))
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, egress.Access{}))
+	})
+	require.NoError(t, upsertErr)
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision))
 	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), revision.Revision))
 	session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
 		Id: uuid.NewString(), Creator: "alice",

@@ -86,8 +86,6 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 				return result
 			}
 			result := compile()
-			require.Equal(t, []string{"https://tickets.example.com:443"}, result.Egress.Destinations)
-			require.Len(t, result.Egress.Credentials, 1)
 			require.NotContains(t, result.EgressDestinations, "https://tickets.example.com:443")
 			require.NotEmpty(t, result.EgressDestinations, "preserve inferred integration access")
 			for _, binding := range result.Credentials {
@@ -104,7 +102,6 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			require.Equal(t, original, rotated)
 			policy.Spec.Destinations = append(policy.Spec.Destinations, v1alpha3.EgressDestination{Origin: "https://registry.npmjs.org"})
 			changed := compile()
-			require.Contains(t, changed.Egress.Destinations, "https://registry.npmjs.org:443")
 			updated, err := changed.Digest()
 			require.NoError(t, err)
 			require.Equal(t, original, updated)

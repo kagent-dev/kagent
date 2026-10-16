@@ -22,7 +22,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -135,11 +134,12 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	store := database.NewClient(pool, "public")
-	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
+	_, upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"})
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}, egress.Access{}))
+	}))
 	require.NoError(t, store.PromoteSandboxRevision(ctx, "revision"))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
@@ -296,8 +296,9 @@ func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
 	}
 	store := service.config.Store
-	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision}))
-	require.NoError(t, store.RecordSandboxRevision(ctx, revision, egress.Access{}))
+	_, upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision})
+	require.NoError(t, upsertErr)
+	require.NoError(t, store.RecordSandboxRevision(ctx, revision))
 	require.NoError(t, store.PromoteSandboxRevision(ctx, revision.Revision))
 	instance, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)

@@ -56,7 +56,7 @@ func TestAgentReconciliationEquality(t *testing.T) {
 		}, equal: true},
 		{name: "template source", change: func(r *AgentReconciliation) { r.Agent.Generation++ }},
 		{name: "live grants", change: func(r *AgentReconciliation) {
-			r.Target.Egress.Destinations = []string{"https://tickets.example.com:443"}
+			r.Grants.Destinations = []string{"https://tickets.example.com:443"}
 		}},
 		{name: "revision identity", change: func(r *AgentReconciliation) { r.Target.RevisionID[0]++ }},
 		{name: "revision inputs", change: func(r *AgentReconciliation) { r.Target.Revision.SandboxClass = "microvm" }},

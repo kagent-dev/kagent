@@ -102,7 +102,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	observed.Metadata.Uid = "actor-template-uid"
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	store := &fakeRuntimeRevisionStore{}
-	reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress,
+	reconciler := &Reconciler{enqueueActors: noopEnqueueActors,
 		collections: collections, templates: &fakeActorTemplates{template: observed}, store: store,
 	}
 	require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))
@@ -525,7 +525,7 @@ func waitFor(t *testing.T, condition func() bool) {
 }
 
 func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.Harness) *kagentv1alpha3.Agent {
-	return &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name, UID: template.UID}, Spec: kagentv1alpha3.AgentSpec{
+	return &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name, UID: template.UID, Finalizers: []string{agentPreparationFinalizer}}, Spec: kagentv1alpha3.AgentSpec{
 		Template:   kagentv1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}},
 		HarnessRef: corev1.LocalObjectReference{Name: harness.Name},
 	}}

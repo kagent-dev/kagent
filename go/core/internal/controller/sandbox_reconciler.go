@@ -21,7 +21,6 @@ import (
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -32,9 +31,9 @@ const (
 )
 
 type sandboxRevisionStore interface {
-	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
+	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) (bool, error)
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision, egress.Access) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision) error
 	PromoteSandboxRevision(context.Context, string) error
 }
 
@@ -43,19 +42,19 @@ type sandboxRevisionStore interface {
 type SandboxReconciler struct {
 	collections   sandboxCollections
 	store         sandboxRevisionStore
-	enqueueEgress func(string)
+	enqueueActors func(database.RuntimeEgressSource)
 	actors        actorTemplateClient
 	client        kagentclient.ApiV1alpha3Interface
 }
 
 var _ manager.LeaderElectionRunnable = (*SandboxReconciler)(nil)
 
-func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy, enqueueEgress func(string)) (*SandboxReconciler, error) {
+func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy, enqueueActors func(database.RuntimeEgressSource)) (*SandboxReconciler, error) {
 	client, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create SandboxTemplate client: %w", err)
 	}
-	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, enqueueEgress: enqueueEgress}, nil
+	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, enqueueActors: enqueueActors}, nil
 }
 
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
@@ -115,7 +114,9 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	}
 	if state == nil || !state.Template.DeletionTimestamp.IsZero() {
 		namespace, name, _ := strings.Cut(key, "/")
-		if err := s.store.RetireSandboxTemplateIdentities(ctx, namespace, name); err != nil {
+		err := s.store.RetireSandboxTemplateIdentities(ctx, namespace, name)
+		s.enqueueActors(database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: namespace, Name: name})
+		if err != nil {
 			return fmt.Errorf("retire SandboxTemplate %s: %w", key, err)
 		}
 		if state != nil && slices.Contains(state.Template.Finalizers, sandboxPreparationFinalizer) {
@@ -137,9 +138,13 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		}
 		return nil
 	}
-	if err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
-		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(),
-	}); err != nil {
+	changed, err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
+		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), Grants: state.Grants,
+	})
+	if changed || err != nil {
+		s.enqueueActors(database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: state.Template.Namespace, Name: state.Template.Name})
+	}
+	if err != nil {
 		return s.observeError(*state, fmt.Errorf("store SandboxTemplate %s definition: %w", key, err), true)
 	}
 	if state.DesiredActorTemplate == nil {
@@ -178,14 +183,9 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	policy, err := egress.MergeAccess(egress.Access{}, state.Egress, nil)
-	if err != nil {
-		return s.observeError(*state, fmt.Errorf("merge sandbox egress %s: %w", state.RevisionID, err), true)
-	}
-	if err := s.store.RecordSandboxRevision(ctx, revision, policy); err != nil {
+	if err := s.store.RecordSandboxRevision(ctx, revision); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
-	s.enqueueEgress(revision.Revision)
 	if ready {
 		if err := s.store.PromoteSandboxRevision(ctx, revision.Revision); err != nil {
 			return s.observeError(*state, fmt.Errorf("promote sandbox revision %s: %w", state.RevisionID, err), true)

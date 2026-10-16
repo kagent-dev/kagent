@@ -119,9 +119,10 @@ expiration.
 Sandboxes have no allowed egress destinations by default. Select same-namespace
 [EgressPolicy resources](egress-policies.md) through `SandboxTemplate.spec.egressPolicyRefs`
 to grant additional HTTP(S) origins and static gateway credentials. The controller
-translates current grants and persists an intended policy per prepared revision.
+persists current grants on the source definition; effective policy is merged with
+pinned revision access when read.
 Policy edits update running and suspended sandboxes without replacing their Actor.
-Creation and resume apply that persisted policy before execution, without
+Creation and resume apply that effective policy before execution, without
 translating Kubernetes inputs.
 
 ## Lifecycle and recovery

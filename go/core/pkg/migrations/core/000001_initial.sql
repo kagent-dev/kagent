@@ -46,13 +46,6 @@ CREATE TABLE runtime_revision (
         UNIQUE (actor_template_atespace, actor_template_name)
 );
 
--- Mutable controller output lives outside immutable runtime revision inputs.
-CREATE TABLE runtime_egress_policy (
-    revision TEXT PRIMARY KEY REFERENCES runtime_revision (revision) ON DELETE CASCADE,
-    destinations TEXT[] NOT NULL,
-    credentials JSONB NOT NULL CHECK (jsonb_typeof(credentials) = 'array')
-);
-
 CREATE TABLE agent_revision (
     revision TEXT PRIMARY KEY,
     agent_name TEXT NOT NULL,
@@ -71,6 +64,8 @@ CREATE TABLE sandbox_revision (
 CREATE INDEX sandbox_revision_source_idx ON sandbox_revision (sandbox_template_name, revision);
 
 CREATE TABLE agent_definition (
+    grant_destinations           TEXT[]      NOT NULL DEFAULT '{}',
+    grant_credentials            JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     namespace                    TEXT        NOT NULL,
     agent_name                   TEXT        NOT NULL,
     agent_uid                    TEXT        NOT NULL,
@@ -85,6 +80,8 @@ CREATE UNIQUE INDEX agent_definition_active_name_idx
     ON agent_definition (namespace, agent_name) WHERE retired_at IS NULL;
 
 CREATE TABLE sandbox_template_definition (
+    grant_destinations TEXT[] NOT NULL DEFAULT '{}',
+    grant_credentials JSONB NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     namespace TEXT NOT NULL,
     sandbox_template_name TEXT NOT NULL,
     sandbox_template_uid TEXT NOT NULL,
@@ -402,7 +399,6 @@ DROP TABLE sandbox_template_definition;
 DROP TABLE agent_definition;
 DROP TABLE sandbox_revision;
 DROP TABLE agent_revision;
-DROP TABLE runtime_egress_policy;
 DROP TABLE runtime_revision;
 DROP TABLE toolserver;
 DROP TABLE tool;
