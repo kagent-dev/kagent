@@ -45,19 +45,25 @@ fmt: ## Run go fmt.
 vet: ## Run go vet.
 	go vet ./...
 
+CUSTOM_GOLANGCI_LINT_BIN ?= $(CURDIR)/bin/golangci-lint-custom
+CUSTOM_GOLANGCI_LINT ?= $(CUSTOM_GOLANGCI_LINT_BIN)
+GOLANGCI_LINT ?= go tool golangci-lint
 LINT_ARGS ?=
 
 .PHONY: lint
-lint: ## Run golangci-lint and kube-api-linter.
-	$(GOLANGCI_LINT) run $(LINT_ARGS)
+lint: $(CUSTOM_GOLANGCI_LINT_BIN) ## Run golangci-lint and kube-api-linter.
+	$(CUSTOM_GOLANGCI_LINT) run $(LINT_ARGS)
 
 .PHONY: lint-fix
 lint-fix: LINT_ARGS := --fix
 lint-fix: lint ## Run golangci-lint and kube-api-linter with auto-fix.
 
 .PHONY: lint-config
-lint-config: ## Verify golangci-lint linter configuration.
-	$(GOLANGCI_LINT) config verify
+lint-config: $(CUSTOM_GOLANGCI_LINT_BIN) ## Verify golangci-lint linter configuration.
+	$(CUSTOM_GOLANGCI_LINT) config verify
+
+$(CUSTOM_GOLANGCI_LINT_BIN): go.mod go.sum .custom-gcl.yml
+	$(GOLANGCI_LINT) custom
 
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck.
@@ -143,7 +149,6 @@ $(LOCALBIN):
 KUBECTL ?= kubectl
 CONTROLLER_GEN ?= go tool controller-gen
 ENVTEST ?= go tool setup-envtest
-GOLANGCI_LINT ?= go tool golangci-lint-kube-api-linter
 
 ## Envtest Assets
 # ENVTEST_K8S_VERSION is the Kubernetes version used to set up envtest binaries (for example, 1.31).

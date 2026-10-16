@@ -493,17 +493,16 @@ require (
 	sigs.k8s.io/gateway-api v1.6.1 // indirect
 	sigs.k8s.io/gateway-api-inference-extension v1.6.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
-	sigs.k8s.io/kube-api-linter v0.0.0-20260505141229-de8f85687fd2 // indirect
 	sigs.k8s.io/mcs-api v0.5.2 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
 tool (
+	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	golang.org/x/vuln/cmd/govulncheck
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
-	sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 )
 
 replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.5.0-alpha2
