@@ -163,8 +163,9 @@ The elected controller's Agent and SandboxTemplate reconcilers resolve current
 grants independently of runtime compilation. A missing Harness, AgentTemplate,
 or WorkerPool cannot freeze a revocation. Each preparation queue is the sole
 writer of its source definition's grants in PostgreSQL. Definition updates
-persist canonical grants and retire replaced Kubernetes UIDs atomically, before
-recording or promoting a runtime revision. Failed runtime preparation preserves
+persist canonical grants and retire replaced Kubernetes UIDs atomically. A single
+store transaction records the runtime revision and, when ready, promotes it if
+the active source still desires it. Failed runtime preparation preserves
 the last successful revision while continuing to update source grants.
 
 Effective policy is computed when read: the revision's pinned integration access

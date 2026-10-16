@@ -140,8 +140,7 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}))
-	require.NoError(t, store.PromoteSandboxRevision(ctx, "revision"))
+	}, database.RecordRevisionOptions{Ready: true}))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxTemplate{
@@ -299,8 +298,7 @@ func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
 	store := service.config.Store
 	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
-	require.NoError(t, store.RecordSandboxRevision(ctx, revision))
-	require.NoError(t, store.PromoteSandboxRevision(ctx, revision.Revision))
+	require.NoError(t, store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: true}))
 	instance, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
 	require.Equal(t, revision.Revision, instance.PreparedRevision)

@@ -150,8 +150,7 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 	}
 	upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision))
-	require.NoError(t, client.PromoteRuntimeRevision(t.Context(), revision.Revision))
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true}))
 	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, revision: revision}, session

@@ -98,8 +98,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned))
-			require.NoError(t, store.PromoteRuntimeRevision(ctx, abandoned.Revision))
+			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true}))
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, unreferenced, 1)
@@ -389,16 +388,10 @@ func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, defi
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RecordRuntimeRevision(ctx, revision)
-}
-
-func (p *preparationTestBackend) PromoteRuntimeRevision(ctx context.Context, revision string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.store.PromoteRuntimeRevision(ctx, revision)
+	return p.store.RecordRuntimeRevision(ctx, revision, options)
 }
 
 func (p *preparationTestBackend) RetireAgentIdentities(ctx context.Context, namespace, name string) error {

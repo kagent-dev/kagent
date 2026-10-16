@@ -642,8 +642,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		DesiredRevision: revision.Revision,
 	})
 	require.NoError(t, upsertErr)
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision))
-	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), revision.Revision))
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, database.RecordRevisionOptions{Ready: true}))
 	session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
 		Id: uuid.NewString(), Creator: "alice",
 
