@@ -147,6 +147,7 @@ type testTags struct {
 	deleteErr              error
 	actorErr               error
 	mutateTag              func(*ateapipb.Tag)
+	beforeDelete           func()
 }
 
 func (t *testTags) GetActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
@@ -196,10 +197,16 @@ func (t *testTags) CreateTag(_ context.Context, atespace, name, actorName string
 	return t.created, t.createErr
 }
 
-func (t *testTags) DeleteTag(context.Context, string, string) error {
+func (t *testTags) DeleteTag(_ context.Context, _, _, uid string) error {
+	if t.beforeDelete != nil {
+		t.beforeDelete()
+	}
 	t.deleteCalls++
 	if t.deleteErr != nil {
 		return t.deleteErr
+	}
+	if uid != "" && t.created.GetMetadata().GetUid() != uid {
+		return status.Error(codes.Aborted, "tag UID changed")
 	}
 	t.created = nil
 	return nil
@@ -330,6 +337,7 @@ func TestDeleteHidesCheckpointBeforeDeletingTag(t *testing.T) {
 		t.Fatalf("checkpoint state = %s, tag deletes = %d, row deleted = %v", checkpoint.State, tags.deleteCalls, store.deleted)
 	}
 }
+
 func TestDeleteFailedCheckpointWithMissingTag(t *testing.T) {
 	checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1.CheckpointState_CHECKPOINT_STATE_FAILED}
 	store := &testStore{prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source"}}
@@ -493,4 +501,29 @@ func TestConcurrentCreateRetainsOneTag(t *testing.T) {
 	require.Equal(t, 1, tags.createCalls)
 	require.Equal(t, 0, tags.deleteCalls)
 	require.Equal(t, "s3://tags/checkpoint", store.snapshot.URI)
+}
+
+func TestDeletePreservesTagReplacedAfterLookup(t *testing.T) {
+	checkpoint := &apiv1.Checkpoint{Id: "018f47a2-4efb-7c21-a848-123456789abc", State: apiv1.CheckpointState_CHECKPOINT_STATE_READY}
+	store := &testStore{prepared: checkpoint, snapshot: &database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1"}, tagUID: "tag-uid"}
+	tags := &testTags{created: &ateapipb.Tag{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: tagName(checkpoint.GetId()), Uid: "tag-uid"},
+		Status:   &ateapipb.TagStatus{Snapshot: &ateapipb.ExternalSnapshot{SnapshotUri: store.snapshot.URI}},
+	}}
+	tags.beforeDelete = func() { tags.created.Metadata.Uid = "replacement-uid" }
+	service := NewService(store, testAuthorizer{}, tags, nil)
+	ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
+
+	require.Error(t, service.Delete(ctx, checkpoint.GetId()))
+	require.Equal(t, 1, tags.deleteCalls)
+	require.Equal(t, "replacement-uid", tags.created.GetMetadata().GetUid(), "replacement snapshot must survive")
+	require.False(t, store.deleted, "retain the checkpoint reference after a rejected deletion")
+	require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_DELETING, checkpoint.State)
+
+	tags.beforeDelete = nil
+	require.Equal(t, serviceerrors.CodeFailedPrecondition, serviceerrors.CodeOf(service.Delete(ctx, checkpoint.GetId())))
+	require.Equal(t, 1, tags.deleteCalls, "retry must reject the replacement at lookup")
+	tags.created = nil
+	require.NoError(t, service.Delete(ctx, checkpoint.GetId()))
+	require.True(t, store.deleted, "cleanup can finish once the tag is absent")
 }

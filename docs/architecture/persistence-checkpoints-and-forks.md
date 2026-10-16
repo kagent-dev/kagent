@@ -94,6 +94,10 @@ unexpected tag without a retained UID. Backend errors leave the checkpoint in
 references remain retained until deletion completes. Checkpoints still in
 `CREATING` cannot be deleted through this path.
 
+Checkpoint deletion passes the retained tag UID as a Substrate delete precondition,
+so a tag replaced after lookup cannot have its snapshot deleted. A rejected delete
+keeps the checkpoint record and its references for retry.
+
 ## Forking
 
 Forks are currently unavailable. Substrate 0.5.0-alpha2 applies one snapshot scope to pause and suspend, and templates use Full so paused Actors keep their process memory. A Full checkpoint restored into a new Actor would resume processes that still hold the source session's IDs, so `ForkSession` rejects it with `FAILED_PRECONDITION`. Forking returns when Substrate's lifecycle v2 lets templates take Data snapshots on suspend again. The rest of this section describes forks of Data checkpoints.
