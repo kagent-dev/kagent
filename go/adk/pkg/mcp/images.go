@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -42,10 +43,15 @@ func newToolsetClient() *mcpsdk.Client {
 	return client
 }
 
-// captureImages moves the images of a successful tools/call result into the
-// call's image sink, if it has one. Removing them before ADK formats the result
-// keeps their placeholders out of the tool output, joined exactly as if the
-// server had returned no images. Errors keep their content for the model.
+// captureImages moves the renderable images of a successful tools/call result
+// into the call's image sink, if it has one, so ADK formats the result without
+// their placeholders. Errors keep their content for the model, and other image
+// types keep their placeholder.
+//
+// ADK joins content blocks with a newline wherever either side is a
+// placeholder, unless one already ends or starts there. A removed image between
+// two blocks becomes that newline, so the text around it stays apart; at either
+// end of the output it leaves nothing.
 func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 	return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
 		result, err := next(ctx, method, req)
@@ -55,20 +61,52 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 			return result, err
 		}
 		kept := make([]mcpsdk.Content, 0, len(res.Content))
+		// previous is the last kept block ADK renders as non-empty text.
+		var previous mcpsdk.Content
+		removed := false
 		for _, content := range res.Content {
-			image, ok := content.(*mcpsdk.ImageContent)
-			if !ok || image == nil {
+			if image, ok := content.(*mcpsdk.ImageContent); ok && image != nil && isRenderableImage(image.MIMEType) {
+				sink.images = append(sink.images, ToolImage{
+					MIMEType: image.MIMEType,
+					Data:     base64.StdEncoding.EncodeToString(image.Data),
+				})
+				removed = previous != nil
+				continue
+			}
+			text, isText := content.(*mcpsdk.TextContent)
+			if isText && text != nil && text.Text == "" {
 				kept = append(kept, content)
 				continue
 			}
-			sink.images = append(sink.images, ToolImage{
-				MIMEType: image.MIMEType,
-				Data:     base64.StdEncoding.EncodeToString(image.Data),
-			})
+			if removed && !strings.HasSuffix(contentText(previous), "\n") && !strings.HasPrefix(contentText(content), "\n") {
+				kept = append(kept, &mcpsdk.TextContent{Text: "\n"})
+			}
+			removed = false
+			kept = append(kept, content)
+			previous = content
 		}
 		res.Content = kept
 		return result, nil
 	}
+}
+
+// isRenderableImage reports whether the UI renders images of mimeType. Keep in
+// step with RENDERABLE_IMAGE in ui/src/components/chat/toolImages.ts.
+func isRenderableImage(mimeType string) bool {
+	switch strings.ToLower(mimeType) {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return true
+	}
+	return false
+}
+
+// contentText returns the text of a text block. Other blocks are treated as
+// having no newline at either end, which holds for ADK's placeholders.
+func contentText(content mcpsdk.Content) string {
+	if text, ok := content.(*mcpsdk.TextContent); ok && text != nil {
+		return text.Text
+	}
+	return ""
 }
 
 // withImages adds the images captured during each tool call of ts to the

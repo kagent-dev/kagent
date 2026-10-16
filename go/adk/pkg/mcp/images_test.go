@@ -44,13 +44,10 @@ func TestCaptureImages(t *testing.T) {
 }
 
 func TestImageToolReturnsMCPImages(t *testing.T) {
+	var content []mcpsdk.Content
 	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "image-test", Version: "1.0.0"}, nil)
 	server.AddTool(&mcpsdk.Tool{Name: "render_chart", InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
-		return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{
-			&mcpsdk.TextContent{Text: "chart"},
-			&mcpsdk.ImageContent{MIMEType: "image/png", Data: []byte("png")},
-			&mcpsdk.TextContent{Text: "https://example.test/panel"},
-		}}, nil
+		return &mcpsdk.CallToolResult{Content: content}, nil
 	})
 	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
 	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
@@ -76,12 +73,35 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 	ui := serverSession.InitializeParams().Capabilities.Extensions[mcpUIExtensionName]
 	require.NotNil(t, ui, "the toolset client advertises MCP Apps support")
 
-	result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context()}, map[string]any{})
-	require.NoError(t, err)
-	require.Equal(t, []ToolImage{{MIMEType: "image/png", Data: "cG5n"}}, result[ToolResultImagesKey])
-	// ADK would render "chart\n[MCP image: ...]\nhttps://example.test/panel";
-	// without the image it joins the two text blocks directly.
-	require.Equal(t, "charthttps://example.test/panel", result["output"])
+	text := func(s string) mcpsdk.Content { return &mcpsdk.TextContent{Text: s} }
+	png := &mcpsdk.ImageContent{MIMEType: "image/png", Data: []byte("png")}
+	captured := []ToolImage{{MIMEType: "image/png", Data: "cG5n"}}
+	for _, tc := range []struct {
+		name    string
+		content []mcpsdk.Content
+		output  string
+		images  any
+	}{
+		{name: "image between text", content: []mcpsdk.Content{text("chart"), png, text("https://example.test/panel")}, output: "chart\nhttps://example.test/panel", images: captured},
+		{name: "image first", content: []mcpsdk.Content{png, text("https://example.test/panel")}, output: "https://example.test/panel", images: captured},
+		{name: "image last", content: []mcpsdk.Content{text("chart"), png}, output: "chart", images: captured},
+		{name: "text already ends the line", content: []mcpsdk.Content{text("chart\n"), png, text("url")}, output: "chart\nurl", images: captured},
+		{name: "adjacent images", content: []mcpsdk.Content{text("a"), png, png, text("b")}, output: "a\nb", images: append(captured, captured...)},
+		{name: "mime type case", content: []mcpsdk.Content{&mcpsdk.ImageContent{MIMEType: "IMAGE/PNG", Data: []byte("png")}}, output: "", images: []ToolImage{{MIMEType: "IMAGE/PNG", Data: "cG5n"}}},
+		{
+			name:    "unrenderable image keeps its placeholder",
+			content: []mcpsdk.Content{text("chart"), &mcpsdk.ImageContent{MIMEType: "image/svg+xml", Data: []byte("svg")}},
+			output:  "chart\n[MCP image: mimeType=\"image/svg+xml\", size=3 bytes]",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content = tc.content
+			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context()}, map[string]any{})
+			require.NoError(t, err)
+			require.Equal(t, tc.output, result["output"])
+			require.Equal(t, tc.images, result[ToolResultImagesKey])
+		})
+	}
 }
 
 // runContext is an ADK tool context backed by a Go context, enough for ADK's

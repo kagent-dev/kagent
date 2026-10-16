@@ -1,4 +1,5 @@
 import { Tag, Typography } from "antd";
+import { useMemo } from "react";
 import { useTheme } from "@emotion/react";
 import { ChevronRight, Wrench } from "lucide-react";
 import type { ChatDataPart } from "@/api";
@@ -20,7 +21,16 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
   const isCall = part.dataKind === "tool_call";
   const wasNotRun = part.dataKind === "tool_not_run";
   const name = typeof part.data.name === "string" ? part.data.name : "tool";
-  const { body, failed, images } = describe(part);
+  /*
+   * Memoised because an image's `src` is its whole base64 payload, megabytes for a
+   * dashboard panel, and the card re-renders while the chat streams. `part` keeps
+   * its identity across streamed updates to other messages; only a history re-read
+   * (paused while a turn runs) hands over new objects.
+   */
+  const { body, failed, sources } = useMemo(() => {
+    const { images, ...rest } = describe(part);
+    return { ...rest, sources: images.map((image) => `data:${image.mimeType};base64,${image.data}`) };
+  }, [part]);
 
   return (
     <div
@@ -75,11 +85,11 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
         {body}
       </pre>
       {/* Not through markdown: react-markdown strips `data:` URIs. */}
-      {images.map((image, index) => (
+      {sources.map((src, index) => (
         <img
           key={index}
           data-testid="chat-tool-image"
-          src={`data:${image.mimeType};base64,${image.data}`}
+          src={src}
           alt={`${name} result image ${index + 1}`}
           css={{
             display: "block",
