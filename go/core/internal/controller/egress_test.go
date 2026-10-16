@@ -128,7 +128,7 @@ func TestLiveEgressRejectsConflictsWithPinnedRuntime(t *testing.T) {
 			credential := egress.Credential{Origin: base.Destinations[0], Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token"}
 			pinned := database.RuntimeEgress{Kind: "agent", Namespace: "team", SourceName: "source", SourceUID: "uid", EgressDestinations: base.Destinations}
 			if passthrough {
-				pinned.PassthroughOrigins = base.Destinations
+				pinned.TokenPassthroughOrigins = base.Destinations
 			} else {
 				base.Credentials = []egress.Credential{credential}
 				pinned.Credentials = base.Credentials

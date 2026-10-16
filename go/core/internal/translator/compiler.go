@@ -175,7 +175,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 		return nil, err
 	}
 	// Explicit grants are live authorization, not immutable runtime inputs.
-	if _, err := egress.MergeAccess(egress.Access{Destinations: result.EgressDestinations, Credentials: result.Credentials}, access, result.PassthroughOrigins); err != nil {
+	if _, err := egress.MergeAccess(egress.Access{Destinations: result.EgressDestinations, Credentials: result.Credentials}, access, result.TokenPassthroughOrigins); err != nil {
 		return nil, NewValidationError("%v", err)
 	}
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}

@@ -99,7 +99,7 @@ func (e *EgressResolver) ResolveEgress(ctx context.Context, revision string) (eg
 	if err != nil {
 		return egress.Access{}, err
 	}
-	access, err := egress.MergeAccess(base, grants, pinned.PassthroughOrigins)
+	access, err := egress.MergeAccess(base, grants, pinned.TokenPassthroughOrigins)
 	if err != nil {
 		// A current grant may conflict with an old session's pinned integrations.
 		// Revoke its explicit access instead of preserving a stale policy.

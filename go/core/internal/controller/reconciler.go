@@ -368,10 +368,10 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		Revision: target.RevisionID.String(), Namespace: definition.Namespace,
 		AgentName: definition.AgentName, AgentUID: definition.AgentUID,
 		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
-		EgressDestinations:    target.Revision.EgressDestinations,
-		Credentials:           target.Revision.Credentials,
-		PassthroughOrigins:    target.Revision.PassthroughOrigins,
-		ActorTemplateAtespace: observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
+		EgressDestinations:      target.Revision.EgressDestinations,
+		Credentials:             target.Revision.Credentials,
+		TokenPassthroughOrigins: target.Revision.TokenPassthroughOrigins,
+		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
 	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {

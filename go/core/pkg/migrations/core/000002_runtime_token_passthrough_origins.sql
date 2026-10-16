@@ -1,6 +1,6 @@
 -- +goose Up
 
-ALTER TABLE runtime_revision ADD COLUMN passthrough_origins TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE runtime_revision ADD COLUMN token_passthrough_origins TEXT[] NOT NULL DEFAULT '{}';
 
 -- PostgreSQL expands r.* when the view is created.
 DROP VIEW agent_runtime_revision;
@@ -21,7 +21,7 @@ DROP INDEX sandbox_revision_source_idx;
 DROP INDEX agent_revision_source_idx;
 
 DROP VIEW agent_runtime_revision;
-ALTER TABLE runtime_revision DROP COLUMN passthrough_origins;
+ALTER TABLE runtime_revision DROP COLUMN token_passthrough_origins;
 CREATE VIEW agent_runtime_revision AS
     SELECT r.*, a.agent_name, a.agent_uid, a.agent_card
     FROM runtime_revision r JOIN agent_revision a USING (revision) WHERE r.kind = 'agent';
