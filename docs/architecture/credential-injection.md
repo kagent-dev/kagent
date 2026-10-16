@@ -7,10 +7,12 @@ replaces the outgoing HTTP header when the request carries a placeholder. SDKs
 receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
 
-Bindings are persisted with the prepared revision and installed before a
-session becomes ready, including retries and checkpoint forks. Secret names,
-keys, destinations, and headers affect revision identity. Secret values and
-Secret UIDs do not. Rotation is handled by the gateway; its credential cache can
+Inferred integration bindings are persisted with the prepared revision; their
+Secret names, keys, destinations, and headers affect revision identity. Explicit
+EgressPolicy bindings are resolved from current policies and update live actors
+without changing that revision. Both are installed before execution, including
+creation retries, resume, and checkpoint forks. Secret values and Secret UIDs
+do not affect revision identity. Rotation is handled by the gateway; its credential cache can
 take up to five minutes to refresh, without recompiling or restarting an agent.
 
 ## Installation

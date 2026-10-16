@@ -174,8 +174,10 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	require.False(t, created)
 	require.Equal(t, session.GetId(), retried.GetId())
 	require.Equal(t, "new", retried.GetPreparedRevision())
-	_, _, err = client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "pending")
-	require.ErrorIs(t, err, ErrNotFound)
+	fresh, created, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "pending")
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, "new", fresh.PreparedRevision)
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
@@ -509,7 +511,7 @@ func TestRecordRuntimeRevisionPromotesOnlyCurrentActivePair(t *testing.T) {
 	assertAvailableRevision("")
 	// Reviving the pair must retain the last success, not a report made while retired.
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
-	assertAvailableRevision("")
+	assertAvailableRevision("second")
 	pair.DesiredRevision = "second"
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
 	assertAvailableRevision("second")

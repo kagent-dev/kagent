@@ -8,7 +8,17 @@ CREATE VIEW agent_runtime_revision AS
     SELECT r.*, a.agent_name, a.agent_uid, a.agent_card
     FROM runtime_revision r JOIN agent_revision a USING (revision) WHERE r.kind = 'agent';
 
+-- Target changed sources without scanning all live instances.
+CREATE INDEX agent_revision_source_idx ON agent_revision (agent_name, revision);
+CREATE INDEX sandbox_revision_source_idx ON sandbox_revision (sandbox_template_name, revision);
+CREATE INDEX runtime_instance_revision_idx ON runtime_instance (prepared_revision, id)
+    WHERE state <> 'RUNTIME_STATE_DELETED' AND operation <> 'RUNTIME_OPERATION_DELETE';
+
 -- +goose Down
+
+DROP INDEX runtime_instance_revision_idx;
+DROP INDEX sandbox_revision_source_idx;
+DROP INDEX agent_revision_source_idx;
 
 DROP VIEW agent_runtime_revision;
 ALTER TABLE runtime_revision DROP COLUMN passthrough_origins;

@@ -44,6 +44,15 @@ func (c *Client) GetRuntimeEgress(ctx context.Context, revision string) (*Runtim
 	return &row, nil
 }
 
+// RuntimeEgressSource selects all revisions of an Agent or SandboxTemplate,
+// including former UIDs whose grants must be revoked after source recreation.
+// The zero value selects every source for recovery sweeps.
+type RuntimeEgressSource struct {
+	Kind      string
+	Namespace string
+	Name      string
+}
+
 // RuntimeEgressTarget identifies an allocated runtime, including suspended or
 // partially created actors that still need live policy reconciliation.
 type RuntimeEgressTarget struct {
@@ -54,19 +63,24 @@ type RuntimeEgressTarget struct {
 	ActorUID     string
 }
 
-// ListRuntimeEgressTargets lists a bounded page in ID order. Deleting instances
+// ListRuntimeEgressTargets lists a bounded page for a source in ID order. Deleting instances
 // and unissued creations are excluded; a concurrent creation is picked up by the next reconciliation.
-func (c *Client) ListRuntimeEgressTargets(ctx context.Context, afterID string, limit int) ([]RuntimeEgressTarget, error) {
+func (c *Client) ListRuntimeEgressTargets(ctx context.Context, source RuntimeEgressSource, afterID string, limit int) ([]RuntimeEgressTarget, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT i.id::text AS id, i.prepared_revision AS revision, r.actor_template_atespace AS atespace,
 		    r.actor_template_name AS template_name, COALESCE(s.actor_uid, '') AS actor_uid
 		FROM runtime_instance i JOIN runtime_revision r ON r.revision = i.prepared_revision
 		LEFT JOIN session s ON s.id = i.id
 		WHERE i.id > COALESCE(NULLIF($1, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+		  AND ($3 = '' OR (r.namespace = $4 AND r.revision IN (
+		      SELECT revision FROM agent_revision WHERE $3 = 'agent' AND agent_name = $5
+		      UNION ALL
+		      SELECT revision FROM sandbox_revision WHERE $3 = 'sandbox' AND sandbox_template_name = $5
+		  )))
 		  AND (i.operation <> 'RUNTIME_OPERATION_CREATE' OR i.executor_id IS NOT NULL)
 		  AND i.state <> 'RUNTIME_STATE_DELETED' AND i.operation <> 'RUNTIME_OPERATION_DELETE'
 		ORDER BY i.id LIMIT $2
-	`, pgx.RowToStructByName[RuntimeEgressTarget], afterID, limit)
+	`, pgx.RowToStructByName[RuntimeEgressTarget], afterID, limit, source.Kind, source.Namespace, source.Name)
 	if err != nil {
 		return nil, fmt.Errorf("list runtime egress targets: %w", err)
 	}

@@ -161,24 +161,31 @@ Secret values remain outside compiled inputs; the gateway handles value rotation
 
 The controller resolves current grants from the owning Agent or SandboxTemplate
 and reconciles each existing Actor's Substrate policy. Kubernetes events trigger
-updates, with a periodic sweep to recover creation races and controller restarts.
+updates only for the affected Agent or SandboxTemplate. A five-minute sweep
+recovers creation races, missed events, and controller restarts. Failed actor
+updates retry with exponential backoff independently of successful updates.
 This runs independently of agent invocations and runtime preparation. Running and
 suspended Actors receive updates without replacement. Missing or invalid policies
 and Secrets revoke explicit grants; pinned integration access remains available.
 A grant that conflicts with a pinned credential or caller-token origin is also
-withheld. Deleting and recreating an Agent or SandboxTemplate does not transfer
+withheld, with rate-limited warnings identifying the affected revision. The
+same applies when the merged grants exceed the rule limit. Deleting and recreating an Agent or SandboxTemplate does not transfer
 its grants to instances owned by the old Kubernetes UID.
 
-New Sessions and sandboxes pin the current desired runtime revision only when it
-matches the latest successful revision. The store checks this atomically with
-creation. Unresolved policies and pending or failed preparation block fresh
-creation after reconciliation. Existing instances and checkpoint forks retain
-their runtime configuration, but resolve current authorization on creation,
-creation retries, and resume. A fork cannot restore an old policy from a snapshot.
+New Sessions and sandboxes atomically pin the latest successful runtime revision,
+including while a configuration edit is unresolved, preparing, or failed. Initial
+creation still requires a successful revision. Existing instances and checkpoint
+forks retain their runtime configuration. Creation, creation retries, and resume
+resolve current authorization independently of that revision; a fork cannot
+restore an old policy from a snapshot.
 
 The runtime workflow creates a suspended Actor and installs its current `default`
 egress policy before it can run. Policy updates use Substrate's UID and version
-preconditions; conflicting writes re-read both backend state and current grants.
+preconditions. After reading the backend version, each attempt reads the source,
+policies, and Secrets directly from the Kubernetes API server, bypassing informer
+caches on serving replicas. Conflicts repeat both reads. These reads do not form
+an atomic snapshot across Kubernetes resources; a concurrent edit can require
+another reconciliation. Transient API failures return errors and retry.
 No database transaction is held across the Substrate calls.
 
 Policy convergence is asynchronous: a Kubernetes write is not a synchronous

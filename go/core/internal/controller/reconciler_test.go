@@ -191,7 +191,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, id.String(), session.GetPreparedRevision())
 
-			// Compile failures preserve pinned runtimes but block fresh sessions.
+			// Compile failures preserve the last successful runtime and pinned retries.
 			state.Target = nil
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
@@ -201,8 +201,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			require.False(t, created)
 			require.Equal(t, session.GetId(), retried.GetId())
 			require.Equal(t, id.String(), retried.GetPreparedRevision())
-			_, _, err = store.CreateSession(ctx, request, "unprepared-session")
-			require.ErrorIs(t, err, database.ErrNotFound)
 			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()

@@ -97,9 +97,9 @@ finalizer, including when deletion starts while the controller is offline.
 The controller advances the latest-successful revision only after the golden
 snapshot is ready and reports preparation through the template's `Ready`
 condition and observed generation. Failed preparation preserves the previous
-successful revision. Fresh creation requires the desired revision to match that
-successful revision; unresolved inputs and pending or failed preparation block
-creation after reconciliation records the change. Existing Sandboxes and
+successful revision, which remains available for fresh creation while edits
+are unresolved, pending, or failed. Initial creation requires a successful
+revision. Existing Sandboxes and
 creation retries retain their revision when a template changes.
 Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
@@ -119,7 +119,9 @@ expiration.
 Sandboxes have no allowed egress destinations by default. Select same-namespace
 [EgressPolicy resources](egress-policies.md) through `SandboxTemplate.spec.egressPolicyRefs`
 to grant additional HTTP(S) origins and static gateway credentials. Resolved
-grants are pinned with the prepared revision; policy edits affect new sandboxes.
+grants are resolved from the current template independently of its prepared
+revision. Policy edits update running and suspended sandboxes without replacing
+their Actor. Creation and resume apply current grants before execution.
 
 ## Lifecycle and recovery
 

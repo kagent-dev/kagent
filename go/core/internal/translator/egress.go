@@ -1,13 +1,18 @@
 package translator
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
@@ -15,6 +20,36 @@ import (
 // SandboxTemplate. KRT tracks policy and Secret dependencies; only references
 // enter the result, so Secret value rotation does not change a revision.
 func CompileEgressPolicies(ctx krt.HandlerContext, collections Collections, namespace string, refs []corev1.LocalObjectReference) (egress.Access, error) {
+	return compileEgressPolicies(namespace, refs, func(name string) (*v1alpha3.EgressPolicy, error) {
+		policy := krt.FetchOne(ctx, collections.EgressPolicies, krt.FilterKey(namespace+"/"+name))
+		if policy == nil {
+			return nil, apierrors.NewNotFound(schema.GroupResource{Group: "api.kagent.dev", Resource: "egresspolicies"}, name)
+		}
+		return *policy, nil
+	}, func(name string) (*corev1.Secret, error) {
+		secret := krt.FetchOne(ctx, collections.Secrets, krt.FilterKey(namespace+"/"+name))
+		if secret == nil {
+			return nil, apierrors.NewNotFound(corev1.Resource("secrets"), name)
+		}
+		return *secret, nil
+	})
+}
+
+// ResolveEgressPolicies applies the same validation as preparation to direct
+// Kubernetes reads. Live authorization must supply an uncached reader.
+func ResolveEgressPolicies(ctx context.Context, reader ctrlclient.Reader, namespace string, refs []corev1.LocalObjectReference) (egress.Access, error) {
+	return compileEgressPolicies(namespace, refs, func(name string) (*v1alpha3.EgressPolicy, error) {
+		policy := &v1alpha3.EgressPolicy{}
+		err := reader.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: name}, policy)
+		return policy, err
+	}, func(name string) (*corev1.Secret, error) {
+		secret := &corev1.Secret{}
+		err := reader.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: name}, secret)
+		return secret, err
+	})
+}
+
+func compileEgressPolicies(namespace string, refs []corev1.LocalObjectReference, getPolicy func(string) (*v1alpha3.EgressPolicy, error), getSecret func(string) (*corev1.Secret, error)) (egress.Access, error) {
 	if len(refs) > 16 {
 		return egress.Access{}, NewValidationError("at most 16 egressPolicyRefs are supported")
 	}
@@ -25,14 +60,17 @@ func CompileEgressPolicies(ctx krt.HandlerContext, collections Collections, name
 			return egress.Access{}, NewValidationError("invalid EgressPolicy reference %q", ref.Name)
 		}
 		key := namespace + "/" + ref.Name
-		policy := krt.FetchOne(ctx, collections.EgressPolicies, krt.FilterKey(key))
-		if policy == nil {
-			return egress.Access{}, fmt.Errorf("resolve EgressPolicy %q: not found", key)
+		policy, err := getPolicy(ref.Name)
+		if err != nil {
+			return egress.Access{}, fmt.Errorf("resolve EgressPolicy %q: %w", key, err)
 		}
-		if len((*policy).Spec.Destinations) == 0 || len((*policy).Spec.Destinations) > 64 {
+		if !policy.DeletionTimestamp.IsZero() {
+			return egress.Access{}, NewValidationError("EgressPolicy %q is being deleted", key)
+		}
+		if len(policy.Spec.Destinations) == 0 || len(policy.Spec.Destinations) > 64 {
 			return egress.Access{}, NewValidationError("EgressPolicy %q requires 1 to 64 destinations", key)
 		}
-		for _, destination := range (*policy).Spec.Destinations {
+		for _, destination := range policy.Spec.Destinations {
 			origin, err := egress.ParseOrigin(destination.Origin)
 			if err != nil {
 				return egress.Access{}, NewValidationError("EgressPolicy %q: %v", key, err)
@@ -57,12 +95,12 @@ func CompileEgressPolicies(ctx krt.HandlerContext, collections Collections, name
 			if _, err := egress.CanonicalCredentials([]egress.Credential{binding}); err != nil {
 				return egress.Access{}, NewValidationError("EgressPolicy %q: %v", key, err)
 			}
-			found := krt.FetchOne(ctx, collections.Secrets, krt.FilterKey(namespace+"/"+secret.Name))
-			if found == nil {
-				return egress.Access{}, fmt.Errorf("EgressPolicy %q: Secret %q not found", key, secret.Name)
+			found, err := getSecret(secret.Name)
+			if err != nil {
+				return egress.Access{}, fmt.Errorf("EgressPolicy %q: Secret %q: %w", key, secret.Name, err)
 			}
-			if _, ok := (*found).Data[secret.Key]; !ok {
-				return egress.Access{}, fmt.Errorf("EgressPolicy %q: Secret %q is missing key %q", key, secret.Name, secret.Key)
+			if _, ok := found.Data[secret.Key]; !ok {
+				return egress.Access{}, NewValidationError("EgressPolicy %q: Secret %q is missing key %q", key, secret.Name, secret.Key)
 			}
 			credentials = append(credentials, binding)
 		}

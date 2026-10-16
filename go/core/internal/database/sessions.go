@@ -53,7 +53,7 @@ func sameSessionRequest(session, request *apiv1.Session) bool {
 }
 
 // CreateSession atomically reserves a session, its conversation history, and the
-// current desired revision, or returns ErrNotFound if it is not prepared. A repeated
+// latest successful revision, or returns ErrNotFound if none is available. A repeated
 // creator/requestID returns the existing session when the Agent matches, or
 // ErrIdempotencyConflict otherwise. A deleted session returns ErrFailedPrecondition
 // and keeps its request ID reserved. The boolean reports whether this call created
@@ -101,7 +101,7 @@ func (c *Client) CreateSession(ctx context.Context, request *apiv1.Session, requ
 }
 
 // insertSession reserves a new conversation in CREATING/CREATE and pins the active
-// Agent's current desired revision only when it is prepared. It locks the definition
+// Agent's latest successful revision. It locks the definition
 // before the revision to serialize creation with reconciliation. Callers must supply
 // a transaction so the history and session commit together. A missing prepared target
 // returns ErrNotFound; a duplicate creator/requestID returns pgx.ErrNoRows for the caller
@@ -115,11 +115,11 @@ func insertSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, reque
 		SELECT p.latest_successful_revision AS revision, clock_timestamp() AS db_time
 		FROM agent_definition p
 		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
-		    AND p.desired_revision = p.latest_successful_revision
+		    AND p.latest_successful_revision IS NOT NULL
 		FOR UPDATE OF p
 	`, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
 	if err != nil {
-		return sessionRow{}, fmt.Errorf("get current prepared runtime revision: %w", notFoundOr(err))
+		return sessionRow{}, fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
 	}
 	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revision.Revision); err != nil {
 		return sessionRow{}, err

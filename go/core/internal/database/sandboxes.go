@@ -63,8 +63,8 @@ type SandboxCreateOptions struct {
 	TTL         time.Duration
 }
 
-// CreateSandbox atomically reserves a sandbox and its current desired revision,
-// or returns ErrNotFound if it is not prepared. A duplicate creator/requestID
+// CreateSandbox atomically reserves a sandbox and its latest successful revision,
+// or returns ErrNotFound if none is available. A duplicate creator/requestID
 // returns the original resource when inputs match.
 // The boolean reports whether this call created the sandbox.
 func (c *Client) CreateSandbox(ctx context.Context, request *apiv1.Sandbox, requestID string, options SandboxCreateOptions) (*apiv1.Sandbox, bool, error) {
@@ -114,7 +114,7 @@ func readSandboxRequest(ctx context.Context, db dbExecutor, userID, requestID st
 }
 
 // insertSandbox reserves a new sandbox in CREATING/CREATE and pins the active
-// template's current desired revision only when it is prepared. A missing prepared
+// template's latest successful revision. A missing prepared
 // target returns ErrNotFound. A duplicate creator/requestID returns
 // pgx.ErrNoRows so the caller can roll back and read the winning transaction.
 func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1.Sandbox, requestID string, options SandboxCreateOptions) (sandboxRow, error) {
@@ -126,7 +126,7 @@ func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1.Sandbox, reque
 	err := tx.QueryRow(ctx, `
 		SELECT latest_successful_revision, clock_timestamp() FROM sandbox_template_definition
 		WHERE namespace = $1 AND sandbox_template_name = $2 AND sandbox_template_uid = $3
-		    AND retired_at IS NULL AND desired_revision = latest_successful_revision
+		    AND retired_at IS NULL AND latest_successful_revision IS NOT NULL
 		FOR UPDATE
 	`, request.GetSandboxTemplate().GetNamespace(), request.GetSandboxTemplate().GetName(), options.TemplateUID).Scan(&revision, &createdAt)
 	if err != nil {

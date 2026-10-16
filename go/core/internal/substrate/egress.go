@@ -11,9 +11,10 @@ import (
 )
 
 // EnsureActorEgressPolicy installs current authorization without restarting the
-// actor. Read the backend version BEFORE resolving grants: an older in-flight
-// writer then cannot overwrite a newer policy. A conflict retries resolution,
-// never the stale policy. Substrate deletes the policy with its Actor.
+// actor. Read the backend version before resolving grants through authoritative
+// Kubernetes reads. The version precondition orders competing policy writes; it
+// cannot make cached Kubernetes state current. Conflicts retry both reads.
+// Substrate deletes the policy with its Actor.
 func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, revision string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
