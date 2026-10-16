@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"log/slog"
 	"net"
@@ -59,6 +60,20 @@ type settlementProbeModel struct{ calls atomic.Int32 }
 
 var _ model.LLM = (*settlementProbeModel)(nil)
 var _ taskstore.Store = (*unavailableSettlementStore)(nil)
+
+type cleanupObservedExecutor struct {
+	a2asrv.AgentExecutor
+	a2asrv.AgentExecutionCleaner
+	cleaned chan struct{}
+}
+
+var _ a2asrv.AgentExecutor = (*cleanupObservedExecutor)(nil)
+var _ a2asrv.AgentExecutionCleaner = (*cleanupObservedExecutor)(nil)
+
+func (e *cleanupObservedExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorContext, result a2a.SendMessageResult, err error) {
+	e.AgentExecutionCleaner.Cleanup(ctx, input, result, err)
+	close(e.cleaned)
+}
 
 func (*settlementProbeModel) Name() string { return "settlement-probe" }
 
@@ -119,21 +134,23 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 				AppName:      "probe", Logger: slog.New(slog.DiscardHandler),
 			})
 			require.NoError(t, err)
-			cleaned := make(chan struct{})
-			var flushes atomic.Int32
-			wrapped := runtimeStore.WrapExecutor(native, "", func(context.Context) error {
-				if flushes.Add(1) == 2 {
-					close(cleaned)
-				}
-				return nil
-			})
-			handler := a2asrv.NewHandler(wrapped, a2asrv.WithTaskStore(runtimeStore),
+			wrapped := runtimeStore.WrapExecutor(native, "", nil)
+			observed := &cleanupObservedExecutor{
+				AgentExecutor: wrapped, AgentExecutionCleaner: wrapped, cleaned: make(chan struct{}),
+			}
+			handler := a2asrv.NewHandler(observed, a2asrv.WithTaskStore(runtimeStore),
 				a2asrv.WithCallInterceptors(adka2a.HITLActivationInterceptor(), adka2a.UserIDCallInterceptor(), wrapped))
 			runtimeListener := bufconn.Listen(DefaultMaxMessageSize)
 			runtimeServer := grpc.NewServer()
 			a2agrpc.NewHandler(handler).RegisterWith(runtimeServer)
-			go func() { _ = runtimeServer.Serve(runtimeListener) }()
-			t.Cleanup(runtimeServer.Stop)
+			runtimeDone := make(chan error, 1)
+			go func() { runtimeDone <- runtimeServer.Serve(runtimeListener) }()
+			t.Cleanup(func() {
+				runtimeServer.Stop()
+				if err := <-runtimeDone; !errors.Is(err, grpc.ErrServerStopped) {
+					require.NoError(t, err, "runtime A2A server failed")
+				}
+			})
 			conn, err := grpc.NewClient("passthrough:///runtime", grpc.WithTransportCredentials(insecure.NewCredentials()),
 				grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return runtimeListener.Dial() }))
 			require.NoError(t, err)
@@ -146,7 +163,7 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			})
 			require.NoError(t, err)
 			select {
-			case <-cleaned:
+			case <-observed.cleaned:
 			case <-ctx.Done():
 				t.Fatal("ADK cleanup did not finish", ctx.Err())
 			}
@@ -160,7 +177,7 @@ func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 			require.NoError(t, err)
 			if fail {
 				require.EqualValues(t, 4, store.attempts.Load())
-				require.False(t, public.Status.State.Terminal())
+				require.Equal(t, a2a.TaskStateWorking, public.Status.State)
 				// Restoring availability after Cleanup cannot retry the boundary.
 				store.fail.Store(false)
 				_, err = store.GetSettledSessionTask(t.Context(), session.Id, taskID, nil)

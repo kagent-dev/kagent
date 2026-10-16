@@ -34,7 +34,7 @@ func TestDeleteSessionWithUnpublishedRuntimeBoundary(t *testing.T) {
 				store, session := lifecycleFixture(t)
 				actors := &deletionFaultActors{
 					lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}},
-					deleteBeforeError:   firstEvent,
+					effectBeforeError:   firstEvent,
 					readFailure:         state == a2a.TaskStateFailed,
 					suspendFailure:      state == a2a.TaskStateCanceled,
 				}
@@ -136,10 +136,12 @@ func TestDeleteSessionWithUnpublishedRuntimeBoundary(t *testing.T) {
 type deletionFaultActors struct {
 	*lifecycleTestActors
 	fail              bool
-	deleteBeforeError bool
+	effectBeforeError bool
 	readFailure       bool
 	suspendFailure    bool
 }
+
+var _ substrate.LifecycleClient = (*deletionFaultActors)(nil)
 
 func (a *deletionFaultActors) GetActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	if a.fail && a.readFailure {
@@ -150,24 +152,24 @@ func (a *deletionFaultActors) GetActor(ctx context.Context, atespace, name strin
 
 func (a *deletionFaultActors) SuspendActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	if a.fail && a.suspendFailure {
-		if a.deleteBeforeError {
+		if a.effectBeforeError {
 			if _, err := a.lifecycleTestActors.SuspendActor(ctx, atespace, name); err != nil {
 				return nil, err
 			}
 		}
-		return nil, status.Error(codes.Unavailable, "injected lost suspension response")
+		return nil, status.Error(codes.Unavailable, "injected suspension failure")
 	}
 	return a.lifecycleTestActors.SuspendActor(ctx, atespace, name)
 }
 
 func (a *deletionFaultActors) DeleteActor(ctx context.Context, atespace, name string) error {
 	if a.fail {
-		if a.deleteBeforeError {
+		if a.effectBeforeError {
 			if err := a.lifecycleTestActors.DeleteActor(ctx, atespace, name); err != nil {
 				return err
 			}
 		}
-		return status.Error(codes.Unavailable, "injected lost deletion response")
+		return status.Error(codes.Unavailable, "injected deletion failure")
 	}
 	return a.lifecycleTestActors.DeleteActor(ctx, atespace, name)
 }

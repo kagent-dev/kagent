@@ -43,10 +43,9 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		if row.Published {
 			return nil
 		}
-		// Delete may now supersede unfinished cleanup (#3010 B). Serialize
-		// publication with deletion admission under the session lock, including
-		// after deletion preparation failed and cleared its operation. A late
-		// acknowledgement must not expose the discarded boundary or queue push.
+		// Deletion keeps admission closed even if preparation clears the
+		// operation. Reject unpublished acknowledgements in that state so
+		// discarded results cannot become public or enqueue callbacks.
 		if session.State == "RUNTIME_STATE_DELETING" {
 			return ErrConflict
 		}
