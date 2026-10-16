@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestRuntimeCreationRequiresCurrentPreparedRevision(t *testing.T) {
+func TestRuntimeCreationUsesLatestSuccessfulRevision(t *testing.T) {
 	for _, kind := range []string{"session", "sandbox"} {
 		for _, invalidateFirst := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/invalidate_first=%t", kind, invalidateFirst), func(t *testing.T) {
@@ -103,19 +103,16 @@ func TestRuntimeCreationRequiresCurrentPreparedRevision(t *testing.T) {
 				}, 5*time.Second, 10*time.Millisecond)
 				resume.Do(func() { close(barrier.resume) })
 				require.NoError(t, <-invalidation)
-				if invalidateFirst {
-					require.ErrorIs(t, <-creation, ErrNotFound)
-				} else {
-					require.NoError(t, <-creation)
-				}
+				require.NoError(t, <-creation)
 
-				// Both unresolved inputs and an ordinary pending update reject fresh
-				// requests while retries keep their original revision.
+				// Unresolved and pending edits keep the last successful runtime available.
+				// Retries retain their original revision even after a newer one is ready.
 				for _, desired := range []string{unresolved, "revision-2"} {
 					require.NoError(t, desire(client, desired))
-					_, created, err = create(client, "fresh")
-					require.ErrorIs(t, err, ErrNotFound)
-					require.False(t, created)
+					revision, created, err = create(client, "fresh-"+desired)
+					require.NoError(t, err)
+					require.True(t, created)
+					require.Equal(t, "revision-1", revision)
 					revision, created, err = create(client, "original")
 					require.NoError(t, err)
 					require.False(t, created)
@@ -124,7 +121,7 @@ func TestRuntimeCreationRequiresCurrentPreparedRevision(t *testing.T) {
 				prepare("revision-2")
 				revision, created, err = create(client, "fresh")
 				require.NoError(t, err)
-				require.True(t, created, "rejected requests must not reserve an idempotency key")
+				require.True(t, created)
 				require.Equal(t, "revision-2", revision)
 				revision, created, err = create(client, "original")
 				require.NoError(t, err)

@@ -276,7 +276,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return err
 	}
-	egressResolver := controller.NewEgressResolver(runtime, store, watchNamespaces)
+	egressResolver := controller.NewEgressResolver(runtime, store, manager.GetAPIReader(), watchNamespaces)
 	actors, err := substrate.Dial(ctx, substrate.Config{
 		EgressResolver: egressResolver,
 		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),

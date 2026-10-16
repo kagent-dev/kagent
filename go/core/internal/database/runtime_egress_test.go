@@ -54,19 +54,38 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	require.Equal(t, "sandbox", pinned.Kind)
 	require.Equal(t, "scratch", pinned.SourceName)
 	require.Equal(t, "uid", pinned.SourceUID)
-	first, err := client.ListRuntimeEgressTargets(ctx, "", 1)
+	for _, test := range []struct {
+		source RuntimeEgressSource
+		want   string
+	}{
+		{RuntimeEgressSource{Kind: "agent", Namespace: "team-a", Name: "assistant"}, instance.Id},
+		{RuntimeEgressSource{Kind: "sandbox", Namespace: "team-a", Name: "scratch"}, created.Id},
+		{RuntimeEgressSource{Kind: "agent", Namespace: "other", Name: "assistant"}, ""},
+		{RuntimeEgressSource{Kind: "agent", Namespace: "team-a", Name: "unrelated"}, ""},
+	} {
+		targets, err := client.ListRuntimeEgressTargets(ctx, test.source, "", 10)
+		require.NoError(t, err)
+		if test.want == "" {
+			require.Empty(t, targets)
+		} else {
+			require.Len(t, targets, 1)
+			require.Equal(t, test.want, targets[0].ID)
+		}
+	}
+
+	first, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, "", 1)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
-	second, err := client.ListRuntimeEgressTargets(ctx, first[0].ID, 1)
+	second, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, first[0].ID, 1)
 	require.NoError(t, err)
 	require.Len(t, second, 1)
 	require.ElementsMatch(t, []string{instance.Id, created.Id}, []string{first[0].ID, second[0].ID})
-	last, err := client.ListRuntimeEgressTargets(ctx, second[0].ID, 1)
+	last, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, second[0].ID, 1)
 	require.NoError(t, err)
 	require.Empty(t, last)
 	_, err = client.BeginSessionOperation(ctx, instance.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 	require.NoError(t, err)
-	remaining, err := client.ListRuntimeEgressTargets(ctx, "", 10)
+	remaining, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, "", 10)
 	require.NoError(t, err)
 	require.Len(t, remaining, 1)
 	require.Equal(t, created.Id, remaining[0].ID)

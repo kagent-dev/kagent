@@ -244,8 +244,17 @@ active invocation, it adds a policy reference and revokes the destination,
 checking actual script output and destination requests without replacing the
 actor. It also checks that deleting a policy while suspended revokes access
 after resume and in a checkpoint fork. Runtime configuration stays on the same
-prepared revision. `TestSandboxEgressPolicyUpdatesLiveActor` exercises live
+prepared revision. New sessions continue using that revision with current grants
+even when a policy cannot resolve. `TestSandboxEgressPolicyUpdatesLiveActor` exercises live
 grant, revocation, and resume through the standalone sandbox process API.
+
+`TestEgressPolicyCredentialDelivery` runs the same skill on every harness against
+an HTTPS server that rejects requests unless both Authorization (with a Bearer
+prefix) and X-API-Key (without a prefix) match the Secret. The script has only
+inert placeholders. This test runs sequentially because it temporarily installs
+a test origin CA in the Substrate gateway, rolls it out, and restores the gateway
+configuration afterwards. Actor identity, policy checks, and credential injection
+use the normal Substrate path.
 
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task

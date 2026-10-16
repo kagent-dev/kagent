@@ -119,8 +119,6 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	store.mu.Lock()
 	revision := store.revision.Revision
 	require.True(t, store.ready)
-	require.Empty(t, store.revision.EgressDestinations)
-	require.Empty(t, store.revision.Credentials)
 	require.NotContains(t, string(store.revision.SourceSnapshot), "original-token")
 	store.mu.Unlock()
 	other, err := client.ApiV1alpha3().SandboxTemplates(unwatched.Namespace).Get(t.Context(), unwatched.Name, metav1.GetOptions{})

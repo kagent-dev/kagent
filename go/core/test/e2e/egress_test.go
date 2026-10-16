@@ -24,8 +24,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,7 +49,7 @@ for i in $(seq 1 900); do
     wget -T 5 -qO- "$control/stopped" >/dev/null
     exit
   fi
-  if wget -T 3 -qO- "$target/?phase=$phase"; then
+  if wget -T 3 -qO- --header 'Authorization: Bearer kagent-credential-injected' --header 'X-API-Key: kagent-credential-injected' "$target/?phase=$phase"; then
     result=ALLOWED
   else
     result=DENIED
@@ -141,8 +139,19 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 			return apimeta.IsStatusConditionFalse(agent.Status.Conditions, v1alpha3.AgentConditionReady), nil
 		}))
 		require.Equal(t, revision, agent.Status.LatestSuccessfulRevision, "policy edits must not replace the runtime revision")
-		_, err = fixture.sessions.CreateSession(fixture.ctx, &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}, RequestId: uuid.NewString()})
-		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		created, err := fixture.sessions.CreateSession(fixture.ctx, &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}, RequestId: uuid.NewString()})
+		require.NoError(t, err, "unresolved policy must not block the last successful runtime")
+		require.Equal(t, revision, created.Session.PreparedRevision)
+		fresh := *fixture
+		fresh.sessionID, fresh.contextID = created.Session.Id, created.Session.ContextId
+		t.Cleanup(func() {
+			require.NoError(t, deleteIdleSession(context.WithoutCancel(fresh.ctx), fresh.sessions, fresh.sessionID))
+		})
+		run = runs("fresh")
+		finish = runEgressSkill(t, &fresh, model, run)
+		run.expect(t, "initial", "DENIED")
+		require.Zero(t, requests("fresh_initial"))
+		finish()
 		run = runs("resumed")
 		finish = runEgressSkill(t, fixture, model, run)
 		run.expect(t, "initial", "DENIED")
@@ -439,8 +448,12 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 		}
 		return apimeta.IsStatusConditionFalse(template.Status.Conditions, "Ready"), nil
 	}))
-	_, err = f.client.CreateSandbox(f.ctx, &apiv1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString()})
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	original := instance
+	instance = f.create(t, 5*time.Minute)
+	require.Equal(t, original.PreparedRevision, instance.PreparedRevision)
+	require.Contains(t, probe("fresh"), "DENIED")
+	require.Zero(t, requests("fresh"))
+	instance = original
 	_, err = f.client.SuspendSandbox(f.ctx, &apiv1.SuspendSandboxRequest{SandboxId: instance.Id})
 	require.NoError(t, err)
 	_, err = f.client.ResumeSandbox(f.ctx, &apiv1.ResumeSandboxRequest{SandboxId: instance.Id})

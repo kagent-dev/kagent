@@ -22,7 +22,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -293,8 +292,6 @@ func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
 	revision := database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "policy-revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "policy-runtime", ActorTemplateUID: "policy-runtime-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-		EgressDestinations: []string{"https://tickets.example.com:443"},
-		Credentials:        []egress.Credential{{Origin: "https://tickets.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/ticket-auth/token"}},
 	}
 	store := service.config.Store
 	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision}))
