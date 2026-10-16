@@ -34,6 +34,7 @@ CREATE TABLE runtime_revision (
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
     credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
+    token_passthrough_origins TEXT[]      NOT NULL DEFAULT '{}',
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
@@ -45,6 +46,13 @@ CREATE TABLE runtime_revision (
         UNIQUE (actor_template_atespace, actor_template_name)
 );
 
+-- Mutable controller output lives outside immutable runtime revision inputs.
+CREATE TABLE runtime_egress_policy (
+    revision TEXT PRIMARY KEY REFERENCES runtime_revision (revision) ON DELETE CASCADE,
+    destinations TEXT[] NOT NULL,
+    credentials JSONB NOT NULL CHECK (jsonb_typeof(credentials) = 'array')
+);
+
 CREATE TABLE agent_revision (
     revision TEXT PRIMARY KEY,
     agent_name TEXT NOT NULL,
@@ -52,6 +60,7 @@ CREATE TABLE agent_revision (
     agent_card BYTEA NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
+CREATE INDEX agent_revision_source_idx ON agent_revision (agent_name, revision);
 
 CREATE TABLE sandbox_revision (
     revision TEXT PRIMARY KEY,
@@ -59,6 +68,7 @@ CREATE TABLE sandbox_revision (
     sandbox_template_uid TEXT NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
+CREATE INDEX sandbox_revision_source_idx ON sandbox_revision (sandbox_template_name, revision);
 
 CREATE TABLE agent_definition (
     namespace                    TEXT        NOT NULL,
@@ -135,6 +145,8 @@ CREATE TABLE runtime_instance (
 );
 CREATE INDEX runtime_instance_owner_idx ON runtime_instance (kind, user_id, id)
     WHERE state <> 'RUNTIME_STATE_DELETED';
+CREATE INDEX runtime_instance_revision_idx ON runtime_instance (prepared_revision, id)
+    WHERE state <> 'RUNTIME_STATE_DELETED' AND operation <> 'RUNTIME_OPERATION_DELETE';
 
 CREATE TABLE session (
     id                   UUID        PRIMARY KEY,
@@ -390,6 +402,7 @@ DROP TABLE sandbox_template_definition;
 DROP TABLE agent_definition;
 DROP TABLE sandbox_revision;
 DROP TABLE agent_revision;
+DROP TABLE runtime_egress_policy;
 DROP TABLE runtime_revision;
 DROP TABLE toolserver;
 DROP TABLE tool;
