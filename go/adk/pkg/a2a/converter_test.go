@@ -3,6 +3,8 @@ package a2a
 import (
 	"context"
 	"iter"
+	"maps"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,8 +16,10 @@ import (
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
@@ -224,6 +228,38 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 	}
 	if got := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataIsLongRunningKey)]; got != true {
 		t.Fatalf("long-running metadata = %#v, want true", got)
+	}
+}
+
+func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
+	note := map[string]any{"output": "chart", mcp.ToolResultImagesKey: "1 image(s) shown to the user"}
+	mcp.StashToolImages("call-images", []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
+
+	convert := func(callID string) map[string]any {
+		t.Helper()
+		response := genai.NewPartFromFunctionResponse("render_chart", maps.Clone(note))
+		response.FunctionResponse.ID = callID
+		part, err := genAIPartConverter(context.Background(), &adksession.Event{}, response)
+		if err != nil {
+			t.Fatalf("genAIPartConverter() error = %v", err)
+		}
+		data := asDataPart(part)
+		// The data must survive the protobuf conversion to the task store.
+		if _, err := structpb.NewStruct(data); err != nil {
+			t.Fatalf("converted data is not protobuf-compatible: %v", err)
+		}
+		return data[PartKeyResponse].(map[string]any)
+	}
+
+	want := []any{map[string]any{"mimeType": "image/png", "data": "cG5n"}}
+	if got := convert("call-images")[mcp.ToolResultImagesKey]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("images = %#v, want %#v", got, want)
+	}
+	if got := convert("call-images")[mcp.ToolResultImagesKey]; got != note[mcp.ToolResultImagesKey] {
+		t.Fatalf("images were added twice: %#v", got)
+	}
+	if got := convert("call-other"); !reflect.DeepEqual(got, note) {
+		t.Fatalf("response without stashed images changed: %#v", got)
 	}
 }
 
