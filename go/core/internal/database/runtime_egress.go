@@ -94,12 +94,13 @@ func (c *Client) ListRuntimeEgressSourceRevisions(ctx context.Context, source Ru
 }
 
 // SetRuntimeEgressPolicy publishes controller output for a retained revision.
+// It writes and returns true only when the canonical policy changes.
 // It does not mutate the revision's pinned inputs or readiness. Missing/deleting
 // revisions return ErrNotFound; malformed policy input is rejected before writing.
-func (c *Client) SetRuntimeEgressPolicy(ctx context.Context, revision string, access egress.Access) error {
+func (c *Client) SetRuntimeEgressPolicy(ctx context.Context, revision string, access egress.Access) (bool, error) {
 	canonical, err := egress.CanonicalAccess(access.Destinations, access.Credentials)
 	if err != nil {
-		return fmt.Errorf("validate runtime egress policy %s: %w", revision, err)
+		return false, fmt.Errorf("validate runtime egress policy %s: %w", revision, err)
 	}
 	if canonical.Destinations == nil {
 		canonical.Destinations = []string{}
@@ -107,18 +108,23 @@ func (c *Client) SetRuntimeEgressPolicy(ctx context.Context, revision string, ac
 	if canonical.Credentials == nil {
 		canonical.Credentials = []egress.Credential{}
 	}
-	result, err := c.db.Exec(ctx, `
-        INSERT INTO runtime_egress_policy (revision, destinations, credentials)
-        SELECT revision, $2, $3 FROM runtime_revision WHERE revision = $1 AND deleted_at IS NULL
-        ON CONFLICT (revision) DO UPDATE SET destinations = EXCLUDED.destinations, credentials = EXCLUDED.credentials
-    `, revision, canonical.Destinations, canonical.Credentials)
+	changed, err := queryOne(ctx, c.db, `
+        WITH retained AS (
+            SELECT revision FROM runtime_revision WHERE revision = $1 AND deleted_at IS NULL
+        ), changed AS (
+            INSERT INTO runtime_egress_policy (revision, destinations, credentials)
+            SELECT revision, $2, $3 FROM retained
+            ON CONFLICT (revision) DO UPDATE SET destinations = EXCLUDED.destinations, credentials = EXCLUDED.credentials
+            WHERE (runtime_egress_policy.destinations, runtime_egress_policy.credentials)
+                IS DISTINCT FROM (EXCLUDED.destinations, EXCLUDED.credentials)
+            RETURNING revision
+        )
+        SELECT EXISTS (SELECT 1 FROM changed) FROM retained
+    `, pgx.RowTo[bool], revision, canonical.Destinations, canonical.Credentials)
 	if err != nil {
-		return fmt.Errorf("store runtime egress policy %s: %w", revision, err)
+		return false, fmt.Errorf("store runtime egress policy %s: %w", revision, notFoundOr(err))
 	}
-	if result.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return changed, nil
 }
 
 // GetRuntimeEgressPolicy reads the latest controller output, independent of any

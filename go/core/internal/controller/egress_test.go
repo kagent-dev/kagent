@@ -11,10 +11,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,17 +32,20 @@ import (
 
 type revisionEgressFunc func(context.Context, string) error
 
+var noopRevisionEgress = revisionEgressFunc(func(context.Context, string) error { return nil })
+
 func (f revisionEgressFunc) ReconcileRevision(ctx context.Context, revision string) error {
 	return f(ctx, revision)
 }
 
 type egressTestStore struct {
-	mu         sync.Mutex
-	pinned     map[string]database.RuntimeEgress
-	intended   map[string]egress.Access
-	targets    map[string][]database.RuntimeEgressTarget
-	listed     chan database.RuntimeEgressSource
-	publishErr error
+	mu                  sync.Mutex
+	pinned              map[string]database.RuntimeEgress
+	intended            map[string]egress.Access
+	targets             map[string][]database.RuntimeEgressTarget
+	listed              chan database.RuntimeEgressSource
+	publishErr          error
+	losePublishResponse bool
 }
 
 var _ runtimeEgressStore = (*egressTestStore)(nil)
@@ -54,17 +59,24 @@ func (e *egressTestStore) GetRuntimeEgress(_ context.Context, revision string) (
 	}
 	return &row, nil
 }
-func (e *egressTestStore) SetRuntimeEgressPolicy(_ context.Context, revision string, access egress.Access) error {
+func (e *egressTestStore) SetRuntimeEgressPolicy(_ context.Context, revision string, access egress.Access) (bool, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.publishErr != nil {
-		return e.publishErr
+		return false, e.publishErr
 	}
 	if e.intended == nil {
 		e.intended = map[string]egress.Access{}
 	}
+	if current, exists := e.intended[revision]; exists && reflect.DeepEqual(current, access) {
+		return false, nil
+	}
 	e.intended[revision] = access
-	return nil
+	if e.losePublishResponse {
+		e.losePublishResponse = false
+		return false, errors.New("lost publication response")
+	}
+	return true, nil
 }
 func (e *egressTestStore) GetRuntimeEgressPolicy(_ context.Context, revision string) (egress.Access, error) {
 	e.mu.Lock()
@@ -272,6 +284,47 @@ func TestEgressUpdatesRetainedRevisionsAndRecoversAfterRestart(t *testing.T) {
 		actors.applied = map[string]egress.Access{}
 		actors.mu.Unlock()
 	}
+}
+
+func TestEgressSkipsUnchangedPoliciesAndRecoversLostWriteResponse(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		inputs := newEgressTestInputs(ctx)
+		inputs.source(database.RuntimeEgressAgent, "uid", []corev1.LocalObjectReference{{Name: "access"}})
+		inputs.policies.UpdateObject(egressTestPolicy("https://tickets.example.com", nil))
+		store := &egressTestStore{
+			pinned:              map[string]database.RuntimeEgress{"revision": {Kind: database.RuntimeEgressAgent, Namespace: "team", SourceName: "source", SourceUID: "uid"}},
+			targets:             map[string][]database.RuntimeEgressTarget{"revision": {{ID: "actor", Revision: "revision", Atespace: "team", TemplateName: "runtime"}}},
+			losePublishResponse: true,
+		}
+		actors := &observingEgressActors{store: store}
+		controller := NewEgressReconciler(ctx, inputs.runtime, store, actors, nil)
+		defer controller.sources.ShutDownEarly()
+		var workers sync.WaitGroup
+		for _, queue := range []controllers.Queue{controller.pages, controller.updates, controller.recovery, controller.sweeps} {
+			workers.Go(func() { queue.Run(ctx.Done()) })
+		}
+		defer func() { cancel(); workers.Wait() }()
+		require.ErrorContains(t, controller.ReconcileRevision(ctx, "revision"), "lost publication response")
+		synctest.Wait()
+		require.Len(t, actors.attempts["session-actor"], 1, "an uncertain write must still apply the persisted policy")
+		require.Contains(t, actors.applied["session-actor"].Destinations, "https://tickets.example.com:443")
+		for range 3 {
+			require.NoError(t, controller.ReconcileRevision(ctx, "revision"))
+			controller.sweeps.Add(egressSweepPage{})
+			synctest.Wait()
+		}
+		require.Len(t, actors.attempts["session-actor"], 1, "unchanged preparation and sweeps must not touch actors")
+		inputs.policies.DeleteObject("team/access")
+		synctest.Wait()
+		controller.sweeps.Add(egressSweepPage{})
+		synctest.Wait()
+		require.Len(t, actors.attempts["session-actor"], 2, "a sweep must repair a missed policy event")
+		require.Empty(t, actors.applied["session-actor"].Destinations)
+		controller.sweeps.Add(egressSweepPage{RecoverActors: true})
+		synctest.Wait()
+		require.Len(t, actors.attempts["session-actor"], 3, "startup must also check actors with unchanged policies")
+	})
 }
 
 func TestEgressTargetsSourceChangesAndBacksOffActorFailures(t *testing.T) {

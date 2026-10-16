@@ -163,13 +163,17 @@ The elected controller compiles current grants from cached, dependency-tracked
 Kubernetes inputs and persists the intended policy for each retained revision.
 This mutable output is stored separately from immutable revision inputs. Initial
 preparation publishes the policy before promoting a new revision to ready.
+The grants cache can briefly lag initial compilation, so a new workload may
+become ready with only pinned integration access until its grants event arrives.
 Each revision merges its pinned integration access with the current grants of its
 owning Agent or SandboxTemplate, even when that source's next runtime revision
 cannot be prepared.
 
 Policy and Secret events update only revisions of the affected source and queue
-their existing Actors. A five-minute sweep repairs missed events and controller
-restarts. Actor updates retry with exponential backoff independently of successful
+their existing Actors when the intended policy changes. A five-minute sweep
+repairs missed translations without rewriting unchanged policies or checking
+their Actors. Controller startup checks all Actors to recover interrupted updates.
+Actor updates retry with exponential backoff independently of successful
 updates. Running and suspended Actors receive updates without replacement or a
 new invocation. Missing or invalid policies and Secrets revoke explicit grants;
 pinned integration access remains available. Grants that conflict with pinned

@@ -166,7 +166,8 @@ func newAgentReconciliations(
 // or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
-	RecordRuntimeRevision(context.Context, database.RuntimeRevision, bool) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision) error
+	PromoteRuntimeRevision(context.Context, string) error
 	RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error
 }
 
@@ -377,14 +378,14 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision, false); err != nil {
+	if err := r.store.RecordRuntimeRevision(ctx, revision); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
 	if err := r.egress.ReconcileRevision(ctx, revision.Revision); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("publish runtime egress %s: %w", target.RevisionID, err))
 	}
 	if ready {
-		if err := r.store.RecordRuntimeRevision(ctx, revision, true); err != nil {
+		if err := r.store.PromoteRuntimeRevision(ctx, revision.Revision); err != nil {
 			return r.observePreparationError(*state, fmt.Errorf("promote runtime revision %s: %w", target.RevisionID, err))
 		}
 	}

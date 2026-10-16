@@ -69,15 +69,10 @@ func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace,
 	`, namespace, name)
 }
 
-// RecordSandboxRevision promotes only the active identity still desiring this
-// revision. A late preparation response cannot replace a newer successful input.
-func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, ready bool) error {
+// RecordSandboxRevision stores immutable sandbox inputs and refreshes artifact
+// identity without promoting the revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		if _, err := queryMany(ctx, tx, `
-			SELECT 1 FROM sandbox_template_definition WHERE namespace = $1 AND sandbox_template_uid = $2 FOR UPDATE
-		`, pgx.RowTo[int], revision.Namespace, revision.SandboxTemplateUID); err != nil {
-			return err
-		}
 		revision.Kind = runtimeKindSandbox
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}); err != nil {
 			return err
@@ -88,15 +83,35 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 		`, revision.Revision, revision.SandboxTemplateName, revision.SandboxTemplateUID); err != nil {
 			return err
 		}
-		if !ready {
-			return nil
+		return nil
+	})
+}
+
+// PromoteSandboxRevision makes a recorded, prepared revision available only to
+// the active template identity that still desires it. Callers must publish its
+// intended egress policy first. Missing/deleting revisions return ErrNotFound /
+// ErrObjectDeleting; stale reports leave the definition unchanged.
+func (c *Client) PromoteSandboxRevision(ctx context.Context, revision string) error {
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		// Match GC finalization's lock order: definition before revision.
+		if _, err := queryMany(ctx, tx, `
+			SELECT 1 FROM sandbox_template_definition p
+			JOIN runtime_revision r ON p.namespace = r.namespace
+			JOIN sandbox_revision s ON r.revision = s.revision AND p.sandbox_template_uid = s.sandbox_template_uid
+			WHERE r.revision = $1 FOR UPDATE OF p
+		`, pgx.RowTo[int], revision); err != nil {
+			return err
+		}
+		if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindSandbox); err != nil {
+			return err
 		}
 		return execSQL(ctx, tx, `
 			UPDATE sandbox_template_definition p SET latest_successful_revision = r.revision, updated_at = NOW()
 			FROM runtime_revision r JOIN sandbox_revision s USING (revision)
 			WHERE r.revision = $1 AND p.namespace = r.namespace AND p.sandbox_template_uid = s.sandbox_template_uid
 			    AND p.desired_revision = r.revision AND p.retired_at IS NULL
-		`, revision.Revision)
+			    AND p.latest_successful_revision IS DISTINCT FROM r.revision
+		`, revision)
 	})
 }
 

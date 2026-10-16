@@ -25,7 +25,7 @@ import (
 
 type runtimeEgressStore interface {
 	GetRuntimeEgress(context.Context, string) (*database.RuntimeEgress, error)
-	SetRuntimeEgressPolicy(context.Context, string, egress.Access) error
+	SetRuntimeEgressPolicy(context.Context, string, egress.Access) (bool, error)
 	ListRuntimeEgressRevisions(context.Context, string, int) ([]string, error)
 	ListRuntimeEgressSourceRevisions(context.Context, database.RuntimeEgressSource, string, int) ([]string, error)
 	ListRuntimeEgressTargets(context.Context, string, string, int) ([]database.RuntimeEgressTarget, error)
@@ -110,6 +110,11 @@ type egressActorPage struct {
 	Recovery bool
 }
 
+type egressSweepPage struct {
+	After         string
+	RecoverActors bool
+}
+
 var _ manager.LeaderElectionRunnable = (*EgressReconciler)(nil)
 
 func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgressStore, actors actorEgressClient, namespaces []string) *EgressReconciler {
@@ -162,24 +167,23 @@ func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgr
 		return nil
 	})
 	e.sweeps = newReconciliationQueue("live-egress-sweeps", func(item any) error {
-		revisions, err := e.store.ListRuntimeEgressRevisions(ctx, item.(string), pageSize)
+		page := item.(egressSweepPage)
+		revisions, err := e.store.ListRuntimeEgressRevisions(ctx, page.After, pageSize)
 		if err != nil {
 			return err
 		}
 		for _, revision := range revisions {
-			watched, err := e.publishRevision(ctx, revision)
+			err := e.publishRevision(ctx, revision, page.RecoverActors)
 			if errors.Is(err, database.ErrNotFound) {
 				continue
 			}
 			if err != nil {
 				return err
 			}
-			if watched {
-				e.pages.Add(egressActorPage{Revision: revision, Recovery: true})
-			}
 		}
 		if len(revisions) == pageSize {
-			e.sweeps.Add(revisions[len(revisions)-1])
+			page.After = revisions[len(revisions)-1]
+			e.sweeps.Add(page)
 		}
 		return nil
 	})
@@ -192,25 +196,18 @@ func (e *EgressReconciler) ReconcileRevision(ctx context.Context, revision strin
 	if !e.grants.WaitUntilSynced(ctx.Done()) {
 		return ctx.Err()
 	}
-	watched, err := e.publishRevision(ctx, revision)
-	if err != nil {
-		return err
-	}
-	if watched {
-		e.pages.Add(egressActorPage{Revision: revision})
-	}
-	return nil
+	return e.publishRevision(ctx, revision, false)
 }
 
-func (e *EgressReconciler) publishRevision(ctx context.Context, revision string) (bool, error) {
+func (e *EgressReconciler) publishRevision(ctx context.Context, revision string, recoverActors bool) error {
 	e.publishMu.Lock()
 	defer e.publishMu.Unlock()
 	pinned, err := e.store.GetRuntimeEgress(ctx, revision)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if len(e.namespaces) > 0 && !slices.Contains(e.namespaces, pinned.Namespace) {
-		return false, nil
+		return nil
 	}
 	base := egress.Access{Destinations: pinned.EgressDestinations, Credentials: pinned.Credentials}
 	var grants egress.Access
@@ -229,10 +226,13 @@ func (e *EgressReconciler) publishRevision(ctx context.Context, revision string)
 	} else {
 		e.warnings.Remove(revision)
 	}
-	if err := e.store.SetRuntimeEgressPolicy(ctx, revision, access); err != nil {
-		return false, err
+	changed, err := e.store.SetRuntimeEgressPolicy(ctx, revision, access)
+	if changed || recoverActors || err != nil {
+		// A failed response may hide a committed write. Queue actor application
+		// even then: a publication retry could observe an unchanged policy.
+		e.pages.Add(egressActorPage{Revision: revision, Recovery: recoverActors})
 	}
-	return true, nil
+	return err
 }
 
 func (e *EgressReconciler) NeedLeaderElection() bool { return true }
@@ -256,7 +256,7 @@ func (e *EgressReconciler) Start(ctx context.Context) error {
 		workers.Go(func() { queue.Run(ctx.Done()) })
 	}
 	defer workers.Wait()
-	e.sweeps.Add("")
+	e.sweeps.Add(egressSweepPage{RecoverActors: true})
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -264,7 +264,7 @@ func (e *EgressReconciler) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			e.sweeps.Add("")
+			e.sweeps.Add(egressSweepPage{})
 		}
 	}
 }
