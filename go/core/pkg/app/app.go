@@ -276,9 +276,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return err
 	}
-	egressResolver := controller.NewEgressResolver(runtime, store, manager.GetAPIReader(), watchNamespaces)
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		EgressResolver: egressResolver,
+		EgressPolicies: store,
 		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
 		CAFile:         cfg.GetSubstrate().GetCaFile(),
 		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
@@ -288,10 +287,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer actors.Close()
-	if err := manager.Add(controller.NewEgressReconciler(egressResolver, actors)); err != nil {
+	egressReconciler := controller.NewEgressReconciler(ctx, runtime, store, actors, watchNamespaces)
+	if err := manager.Add(egressReconciler); err != nil {
 		return fmt.Errorf("add egress reconciler: %w", err)
 	}
-	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors)
+	reconciler, err := controller.NewReconciler(kubeConfig, runtime.Collections, store, actors, egressReconciler)
 	if err != nil {
 		return err
 	}
@@ -379,7 +379,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		CPU:        cfg.GetSandboxes().GetCpu(),
 		Memory:     cfg.GetSandboxes().GetMemory(),
 	}
-	preparation, err := controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy)
+	preparation, err := controller.NewSandboxReconciler(kubeConfig, runtime, store, actors, policy, egressReconciler)
 	if err != nil {
 		return err
 	}

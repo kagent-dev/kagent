@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
@@ -39,7 +40,7 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	pinned, err := client.GetRuntimeEgress(ctx, instance.PreparedRevision)
 	require.NoError(t, err)
 	require.Equal(t, "old-uid", pinned.SourceUID)
-	require.Equal(t, "agent", pinned.Kind)
+	require.Equal(t, RuntimeEgressAgent, pinned.Kind)
 	require.Equal(t, revision.TokenPassthroughOrigins, pinned.TokenPassthroughOrigins)
 	sandbox, options := sandboxFixture(t, client, "sandbox")
 	created, _, err := client.CreateSandbox(ctx, sandbox, "sandbox", options)
@@ -51,42 +52,86 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	require.True(t, claimed)
 	pinned, err = client.GetRuntimeEgress(ctx, created.PreparedRevision)
 	require.NoError(t, err)
-	require.Equal(t, "sandbox", pinned.Kind)
+	require.Equal(t, RuntimeEgressSandbox, pinned.Kind)
 	require.Equal(t, "scratch", pinned.SourceName)
 	require.Equal(t, "uid", pinned.SourceUID)
 	for _, test := range []struct {
 		source RuntimeEgressSource
 		want   string
 	}{
-		{RuntimeEgressSource{Kind: "agent", Namespace: "team-a", Name: "assistant"}, instance.Id},
-		{RuntimeEgressSource{Kind: "sandbox", Namespace: "team-a", Name: "scratch"}, created.Id},
-		{RuntimeEgressSource{Kind: "agent", Namespace: "other", Name: "assistant"}, ""},
-		{RuntimeEgressSource{Kind: "agent", Namespace: "team-a", Name: "unrelated"}, ""},
+		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}, instance.PreparedRevision},
+		{RuntimeEgressSource{Kind: RuntimeEgressSandbox, Namespace: "team-a", Name: "scratch"}, created.PreparedRevision},
+		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "other", Name: "assistant"}, ""},
+		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "unrelated"}, ""},
 	} {
-		targets, err := client.ListRuntimeEgressTargets(ctx, test.source, "", 10)
+		revisions, err := client.ListRuntimeEgressSourceRevisions(ctx, test.source, "", 10)
 		require.NoError(t, err)
 		if test.want == "" {
-			require.Empty(t, targets)
+			require.Empty(t, revisions)
 		} else {
-			require.Len(t, targets, 1)
-			require.Equal(t, test.want, targets[0].ID)
+			require.Equal(t, []string{test.want}, revisions)
 		}
 	}
-
-	first, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, "", 1)
+	for _, kind := range []RuntimeEgressSourceKind{"", "typo"} {
+		_, err := client.ListRuntimeEgressSourceRevisions(ctx, RuntimeEgressSource{Kind: kind, Namespace: "team-a", Name: "assistant"}, "", 10)
+		require.Error(t, err)
+	}
+	first, err := client.ListRuntimeEgressRevisions(ctx, "", 1)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
-	second, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, first[0].ID, 1)
+	second, err := client.ListRuntimeEgressRevisions(ctx, first[0], 1)
 	require.NoError(t, err)
 	require.Len(t, second, 1)
-	require.ElementsMatch(t, []string{instance.Id, created.Id}, []string{first[0].ID, second[0].ID})
-	last, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, second[0].ID, 1)
+	require.ElementsMatch(t, []string{instance.PreparedRevision, created.PreparedRevision}, []string{first[0], second[0]})
+	last, err := client.ListRuntimeEgressRevisions(ctx, second[0], 1)
 	require.NoError(t, err)
 	require.Empty(t, last)
+	for _, test := range []struct{ revision, id string }{{instance.PreparedRevision, instance.Id}, {created.PreparedRevision, created.Id}} {
+		targets, err := client.ListRuntimeEgressTargets(ctx, test.revision, "", 1)
+		require.NoError(t, err)
+		require.Len(t, targets, 1)
+		require.Equal(t, test.id, targets[0].ID)
+		targets, err = client.ListRuntimeEgressTargets(ctx, test.revision, test.id, 1)
+		require.NoError(t, err)
+		require.Empty(t, targets)
+	}
 	_, err = client.BeginSessionOperation(ctx, instance.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 	require.NoError(t, err)
-	remaining, err := client.ListRuntimeEgressTargets(ctx, RuntimeEgressSource{}, "", 10)
+	remaining, err := client.ListRuntimeEgressTargets(ctx, instance.PreparedRevision, "", 10)
 	require.NoError(t, err)
-	require.Len(t, remaining, 1)
-	require.Equal(t, created.Id, remaining[0].ID)
+	require.Empty(t, remaining)
+}
+
+func TestRuntimeEgressPolicyIsMutableControllerOutput(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	revision := RuntimeRevision{Revision: "policy-revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", EgressDestinations: []string{"https://model.example.com:443"}}
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
+	_, err := client.GetRuntimeEgressPolicy(ctx, revision.Revision)
+	require.ErrorIs(t, err, ErrNotFound, "absence must not become an empty allowlist")
+	allowed := egress.Access{Destinations: []string{"https://model.example.com:443", "https://tools.example.com:443"}, Credentials: []egress.Credential{{Origin: "https://tools.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}}
+	require.NoError(t, client.SetRuntimeEgressPolicy(ctx, revision.Revision, allowed))
+	// A different API replica reads the same intended policy without any K8s cache.
+	replica := NewClient(client.db, "public")
+	got, err := replica.GetRuntimeEgressPolicy(ctx, revision.Revision)
+	require.NoError(t, err)
+	require.Equal(t, allowed, got)
+	require.NoError(t, client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{Destinations: revision.EgressDestinations}))
+	// Preparation observations must not restore an earlier policy.
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, true))
+	got, err = replica.GetRuntimeEgressPolicy(ctx, revision.Revision)
+	require.NoError(t, err)
+	require.Equal(t, revision.EgressDestinations, got.Destinations)
+	require.Empty(t, got.Credentials)
+	pinned, err := client.GetRuntimeEgress(ctx, revision.Revision)
+	require.NoError(t, err)
+	require.Equal(t, revision.EgressDestinations, pinned.EgressDestinations)
+	require.Empty(t, pinned.Credentials)
+	require.ErrorIs(t, client.SetRuntimeEgressPolicy(ctx, "missing", allowed), ErrNotFound)
+	require.Error(t, client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{Destinations: []string{"invalid"}}))
+	// Durable malformed data must fail rather than granting a partial policy.
+	_, err = client.db.Exec(ctx, `UPDATE runtime_egress_policy SET credentials = '[{"hostname":"legacy","header":"authorization"}]' WHERE revision = $1`, revision.Revision)
+	require.NoError(t, err)
+	_, err = replica.GetRuntimeEgressPolicy(ctx, revision.Revision)
+	require.Error(t, err)
 }

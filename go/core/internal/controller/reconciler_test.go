@@ -55,7 +55,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
-	reconciler := &Reconciler{
+	reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }),
 		collections: Collections{
 			Agents:                   krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
 			AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
@@ -109,7 +109,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
-	reconciler = &Reconciler{collections: reconciler.collections, templates: templates, store: store, status: statusClient}
+	reconciler = &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }), collections: reconciler.collections, templates: templates, store: store, status: statusClient}
 	nextTarget := *state.Target
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
@@ -157,7 +157,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
-			reconciler := &Reconciler{
+			reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }),
 				collections: Collections{
 					AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 					Reconciliations:          states,
@@ -391,6 +391,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
 		statusClient,
+		revisionEgressFunc(func(context.Context, string) error { return nil }),
 	)
 
 	go reconciler.Run(stop)

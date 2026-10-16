@@ -126,6 +126,7 @@ func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconcil
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
 		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
+		egress:      revisionEgressFunc(func(context.Context, string) error { return nil }),
 		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
@@ -294,4 +295,24 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 		current, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})
 		return err == nil && apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestInitialSandboxRevisionWaitsForEgressPublication(t *testing.T) {
+	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
+	store := s.store.(*sandboxTestStore)
+	s.actors.(*sandboxTestActors).autoReady = true
+	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
+	syncSandboxTemplate(t, s, templates)
+	publishErr := errors.New("policy persistence unavailable")
+	s.egress = revisionEgressFunc(func(_ context.Context, revision string) error {
+		require.Equal(t, store.revision.Revision, revision)
+		require.False(t, store.ready, "initial policy must precede readiness")
+		return publishErr
+	})
+	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), publishErr)
+	require.False(t, store.ready)
+	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch").Failure != nil })
+	publishErr = nil
+	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
+	require.True(t, store.ready)
 }
