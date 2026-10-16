@@ -43,7 +43,7 @@ const agentPreparationFinalizer = "kagent.dev/agent-preparation"
 // status instead of disappearing from the graph.
 type AgentReconciliation struct {
 	Agent                 *kagentv1alpha3.Agent
-	Grants                egress.Access
+	EgressGrant           egress.Access
 	Target                *compiledTarget
 	Warnings              []string
 	CompilationFailure    *ReconciliationFailure
@@ -115,7 +115,7 @@ func newAgentReconciliations(
 			state.CompilationFailure = compilationFailure(grantErr)
 			return state
 		}
-		state.Grants = grants
+		state.EgressGrant = grants
 		compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
 			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
 			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
@@ -249,7 +249,7 @@ func newReconciler(
 		// and status writes do not. Grants must reconcile without a new revision.
 		if event.Old != nil && event.New != nil && event.Old.Agent.UID == event.New.Agent.UID &&
 			slices.Equal(event.Old.Agent.Finalizers, event.New.Agent.Finalizers) && event.Old.desiredRevision() == event.New.desiredRevision() &&
-			reflect.DeepEqual(event.Old.Grants, event.New.Grants) && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
+			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
 			return
 		}
 		r.agents.Add(krt.GetKey(event.Latest()))
@@ -359,7 +359,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	}
 	definition := database.AgentDefinition{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), Grants: state.Grants,
+		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: state.EgressGrant,
 	}
 
 	// Store the desired edge before creating compute so a concurrent collector

@@ -54,8 +54,8 @@ func TestAgentEgressErrorsUseCompilationClassification(t *testing.T) {
 			require.Equal(t, test.reason, condition.Reason)
 			state := collections.Reconciliations.GetKey("team-a/assistant")
 			require.Nil(t, state.Target)
-			require.Empty(t, state.Grants.Destinations)
-			require.Empty(t, state.Grants.Credentials)
+			require.Empty(t, state.EgressGrant.Destinations)
+			require.Empty(t, state.EgressGrant.Credentials)
 		})
 	}
 }
@@ -84,7 +84,7 @@ func TestAgentGrantChangesReconcileWithoutRuntimeChange(t *testing.T) {
 		synctest.Wait()
 		backend.inspect(func() {
 			require.Equal(t, initial.Target.RevisionID.String(), store.pair.DesiredRevision)
-			require.Equal(t, []string{"https://tickets.example.com:443"}, store.pair.Grants.Destinations)
+			require.Equal(t, []string{"https://tickets.example.com:443"}, store.pair.EgressGrant.Destinations)
 		})
 		require.Equal(t, []database.RuntimeEgressSource{{Kind: database.RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}}, store.sources)
 		store.sources = nil
@@ -92,13 +92,16 @@ func TestAgentGrantChangesReconcileWithoutRuntimeChange(t *testing.T) {
 		synctest.Wait()
 		backend.inspect(func() {
 			require.Empty(t, store.pair.DesiredRevision)
-			require.NotEmpty(t, store.pair.Grants.Destinations)
+			require.NotEmpty(t, store.pair.EgressGrant.Destinations)
 		})
 		require.Len(t, store.sources, 1, "every preparation reapplies grants, including unchanged grants")
 		store.sources = nil
 		collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy]).DeleteObject("team-a/access")
 		synctest.Wait()
-		backend.inspect(func() { require.Empty(t, store.pair.DesiredRevision); require.Empty(t, store.pair.Grants.Destinations) })
+		backend.inspect(func() {
+			require.Empty(t, store.pair.DesiredRevision)
+			require.Empty(t, store.pair.EgressGrant.Destinations)
+		})
 		require.Len(t, store.sources, 1, "revocation must reconcile even while the runtime remains unresolvable")
 	})
 }
@@ -142,7 +145,7 @@ func TestAgentGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 				require.Contains(t, state.CompilationFailure.Message, missing)
 				backend.inspect(func() {
 					require.Empty(t, store.pair.DesiredRevision)
-					require.Equal(t, []string{"https://tickets.example.com:443"}, store.pair.Grants.Destinations)
+					require.Equal(t, []string{"https://tickets.example.com:443"}, store.pair.EgressGrant.Destinations)
 				})
 				wantSource := database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}
 				require.Equal(t, []database.RuntimeEgressSource{wantSource}, store.sources)
@@ -153,7 +156,7 @@ func TestAgentGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 				synctest.Wait()
 				backend.inspect(func() {
 					require.Empty(t, store.pair.DesiredRevision)
-					require.Equal(t, []string{"https://updated.example.com:443"}, store.pair.Grants.Destinations)
+					require.Equal(t, []string{"https://updated.example.com:443"}, store.pair.EgressGrant.Destinations)
 				})
 				require.Equal(t, []database.RuntimeEgressSource{wantSource, wantSource}, store.sources)
 
@@ -161,7 +164,7 @@ func TestAgentGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 				synctest.Wait()
 				backend.inspect(func() {
 					require.Empty(t, store.pair.DesiredRevision)
-					require.Empty(t, store.pair.Grants.Destinations)
+					require.Empty(t, store.pair.EgressGrant.Destinations)
 					require.Zero(t, store.recordCalls, "grant changes must not require a compiled runtime")
 				})
 				require.Equal(t, []database.RuntimeEgressSource{wantSource, wantSource, wantSource}, store.sources, "revocation must apply actors while compilation remains broken")
@@ -235,12 +238,12 @@ func TestSandboxGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch") != nil })
 	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
 	require.Nil(t, s.collections.states.GetKey("team-a/scratch").DesiredActorTemplate, "missing WorkerPool prevents runtime compilation")
-	require.Equal(t, []string{"https://tickets.example.com:443"}, store.desired.Grants.Destinations)
+	require.Equal(t, []string{"https://tickets.example.com:443"}, store.desired.EgressGrant.Destinations)
 	require.Len(t, store.sources, 1)
 	policies.DeleteObject("team-a/access")
 	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch").CompilationError != "" })
 	require.Error(t, s.reconcile(t.Context(), "team-a/scratch"))
-	require.Empty(t, store.desired.Grants.Destinations)
+	require.Empty(t, store.desired.EgressGrant.Destinations)
 	require.Len(t, store.sources, 2, "revocation must reach existing actors during failed compilation")
 	store.upsertErr = errors.New("response lost")
 	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), store.upsertErr)
@@ -277,23 +280,23 @@ func TestPreparationReplaysAndRetriesUnchangedGrants(t *testing.T) {
 					collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
 					harnesses.DeleteObject("team-a/byo")
 					synctest.Wait()
-					store := &fakeRuntimeRevisionStore{pair: &database.AgentDefinition{Grants: grants}, egressTargetStoreStub: egressTargetStoreStub{targets: []database.RuntimeEgressTarget{target}}}
+					store := &fakeRuntimeRevisionStore{pair: &database.AgentDefinition{EgressGrant: grants}, egressTargetStoreStub: egressTargetStoreStub{targets: []database.RuntimeEgressTarget{target}}}
 					actors := &fakeActorTemplates{}
 					backend := &preparationTestBackend{templates: actors, store: store}
 					r := newReconciler(collections, backend, backend, kagentfake.NewSimpleClientset(agent.DeepCopy()).ApiV1alpha3())
 					start = r.Start
-					persisted = func() egress.Access { backend.mu.Lock(); defer backend.mu.Unlock(); return store.pair.Grants }
+					persisted = func() egress.Access { backend.mu.Lock(); defer backend.mu.Unlock(); return store.pair.EgressGrant }
 					actorStub = &actors.actorEgressStub
 				case "sandbox":
 					opts := krt.NewOptionsBuilder(ctx.Done(), "retry-grants", nil)
 					template := sandboxTestTemplate()
 					template.Finalizers = []string{sandboxPreparationFinalizer}
-					states := krt.NewStaticCollection(nil, []sandboxReconciliation{{Template: template, Grants: grants}}, opts.WithName("states")...)
-					store := &sandboxTestStore{desired: database.SandboxTemplateDefinition{Grants: grants}, egressTargetStoreStub: egressTargetStoreStub{targets: []database.RuntimeEgressTarget{target}}}
+					states := krt.NewStaticCollection(nil, []sandboxReconciliation{{Template: template, EgressGrant: grants}}, opts.WithName("states")...)
+					store := &sandboxTestStore{desired: database.SandboxTemplateDefinition{EgressGrant: grants}, egressTargetStoreStub: egressTargetStoreStub{targets: []database.RuntimeEgressTarget{target}}}
 					actors := &sandboxTestActors{}
 					s := &SandboxReconciler{collections: sandboxCollections{states: states, observations: krt.NewStaticCollection[sandboxRuntimeObservation](nil, nil, opts.WithName("observations")...)}, store: store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()}
 					start = s.Start
-					persisted = func() egress.Access { store.mu.Lock(); defer store.mu.Unlock(); return store.desired.Grants }
+					persisted = func() egress.Access { store.mu.Lock(); defer store.mu.Unlock(); return store.desired.EgressGrant }
 					actorStub = &actors.actorEgressStub
 				}
 				var mu sync.Mutex

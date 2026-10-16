@@ -20,7 +20,7 @@ import (
 // at the same names and rejects revisions whose deletion has started. Grants
 // are canonicalized before writing; errors may include an uncertain commit outcome.
 func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) error {
-	grants, err := canonicalStoredGrants(definition.Grants)
+	grants, err := canonicalStoredGrants(definition.EgressGrant)
 	if err != nil {
 		return fmt.Errorf("validate source grants: %w", err)
 	}

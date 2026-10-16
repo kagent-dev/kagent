@@ -26,7 +26,7 @@ type sandboxReconciliation struct {
 	Template              *kagentv1alpha3.SandboxTemplate
 	RevisionID            string
 	SourceSnapshot        json.RawMessage
-	Grants                egress.Access
+	EgressGrant           egress.Access
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	CompilationError      string
@@ -93,7 +93,7 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 			state.Failure = &ReconciliationFailure{Reason: kagentv1alpha3.SandboxTemplateReasonEgressPolicyResolutionFailed, Message: err.Error()}
 			return state
 		}
-		state.Grants = grants
+		state.EgressGrant = grants
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
