@@ -1,0 +1,9 @@
+{
+  "name": "kagent-dsh-byo-runtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned DSH installation for the BYO reference image",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  }
+}
