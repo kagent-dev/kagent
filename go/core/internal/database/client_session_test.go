@@ -378,11 +378,9 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, egress.Access{}); err != nil {
 		t.Fatal(err)
 	}
-	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 
 	source, _, err := client.CreateSession(ctx, &apiv1.Session{
@@ -540,11 +538,9 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, egress.Access{}); err != nil {
 		t.Fatal(err)
 	}
-	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 
 	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
@@ -645,11 +641,9 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, egress.Access{}); err != nil {
 		t.Fatal(err)
 	}
-	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 }
 

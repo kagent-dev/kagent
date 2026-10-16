@@ -151,7 +151,7 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	revision.Revision = "new"
 	revision.AgentUID = "replacement-uid"
 	revision.ActorTemplateName = "new-actor-template"
-	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, *revision, egress.Access{}))
 	pair := AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: revision.AgentUID,
 		DesiredRevision: "new",
@@ -160,8 +160,6 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "")
 	_, _, err = client.CreateSession(ctx, request, "session")
 	require.ErrorIs(t, err, ErrNotFound, "a replacement must not select the previous template UID")
-	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 	session, _, err := client.CreateSession(ctx, request, "session")
 	require.NoError(t, err)
@@ -343,7 +341,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	pair.AgentUID = "replacement-uid"
 	pair.DesiredRevision = "revision"
 	require.ErrorIs(t, client.UpsertAgentDefinition(ctx, pair), ErrObjectDeleting)
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original), ErrObjectDeleting)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *original, egress.Access{}), ErrObjectDeleting)
 	require.ErrorIs(t, client.PromoteRuntimeRevision(ctx, original.Revision), ErrObjectDeleting)
 	// A new client rediscovers and retries the committed claim after a crash.
 	restarted := NewClient(pool, "public")
@@ -360,7 +358,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	require.ErrorIs(t, err, ErrNotFound)
 	// The same digest can be prepared again once cleanup has completed.
 	original.ActorTemplateUID = "recreated-actor-uid"
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original))
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, egress.Access{}))
 	newClaim, err := restarted.BeginRuntimeRevisionDeletion(ctx, "revision")
 	require.NoError(t, err)
 	require.NotNil(t, newClaim)
@@ -368,7 +366,7 @@ func TestRuntimeRevisionClaimPreservesReferencesUntilFinalization(t *testing.T) 
 	_, err = restarted.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err, "a delayed collector must not finalize the new runtime")
 	require.NoError(t, restarted.DeleteRuntimeRevision(ctx, "revision", "recreated-actor-uid"))
-	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original))
+	require.NoError(t, restarted.RecordRuntimeRevision(ctx, *original, egress.Access{}))
 	require.NoError(t, restarted.UpsertAgentDefinition(ctx, pair))
 }
 
@@ -488,27 +486,20 @@ func TestPromoteRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 		require.Equal(t, want, session.PreparedRevision)
 	}
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision))
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, egress.Access{}))
 	assertAvailableRevision("")
 	stored, err := c.GetRuntimeRevision(ctx, revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, "original", stored.AgentCard.Name)
 
 	require.ErrorIs(t, c.PromoteRuntimeRevision(ctx, "missing"), ErrNotFound)
-	require.ErrorIs(t, c.PromoteRuntimeRevision(ctx, revision.Revision), ErrEgressPolicyNotPublished)
-	assertAvailableRevision("")
-	_, err = c.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, err)
 	require.NoError(t, c.PromoteRuntimeRevision(ctx, revision.Revision))
 	assertAvailableRevision("first")
 	pair.DesiredRevision = "second"
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
 	revision.Revision, revision.ActorTemplateName = "second", "second"
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision))
-	require.ErrorIs(t, c.PromoteRuntimeRevision(ctx, revision.Revision), ErrEgressPolicyNotPublished)
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, egress.Access{}))
 	assertAvailableRevision("first")
-	_, err = c.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, err)
 	require.NoError(t, c.PromoteRuntimeRevision(ctx, revision.Revision))
 	assertAvailableRevision("second")
 	// A delayed report for the old revision must not replace the newer ready revision.
@@ -519,9 +510,7 @@ func TestPromoteRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
 	require.NoError(t, c.RetireAgentIdentities(ctx, pair.Namespace, pair.AgentName, nil))
 	revision.Revision, revision.ActorTemplateName = "third", "third"
-	require.NoError(t, c.RecordRuntimeRevision(ctx, revision))
-	_, err = c.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
-	require.NoError(t, err)
+	require.NoError(t, c.RecordRuntimeRevision(ctx, revision, egress.Access{}))
 	require.NoError(t, c.PromoteRuntimeRevision(ctx, revision.Revision))
 	assertAvailableRevision("")
 	// Reviving the pair must retain the last success, not a report made while retired.
@@ -535,12 +524,12 @@ func TestPromoteRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision))
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, egress.Access{}))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, revision.Credentials, got.Credentials)
 	revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision))
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, egress.Access{}))
 	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, got.Credentials, unchanged.Credentials, "revision credentials are immutable")

@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 type SandboxRevision struct {
@@ -69,12 +71,14 @@ func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace,
 	`, namespace, name)
 }
 
-// RecordSandboxRevision stores immutable sandbox inputs and refreshes artifact
-// identity without promoting the revision. Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision) error {
+// RecordSandboxRevision atomically stores sandbox inputs and the initial policy
+// without promoting the revision. Existing inputs and policy are preserved; only
+// artifact identity is refreshed. Malformed policies are rejected. Deleting
+// revisions return ErrObjectDeleting.
+func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, policy egress.Access) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		revision.Kind = runtimeKindSandbox
-		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}); err != nil {
+		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}, policy); err != nil {
 			return err
 		}
 		if err := execSQL(ctx, tx, `
@@ -88,10 +92,8 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 }
 
 // PromoteSandboxRevision makes a recorded, prepared revision available only to
-// the active template identity that still desires it. Without a published intended
-// policy it returns ErrEgressPolicyNotPublished for retry. Missing/deleting
-// revisions return ErrNotFound / ErrObjectDeleting; stale reports leave the
-// definition unchanged.
+// the active template identity that still desires it. Missing/deleting revisions return
+// ErrNotFound / ErrObjectDeleting; stale reports leave the definition unchanged.
 func (c *Client) PromoteSandboxRevision(ctx context.Context, revision string) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		// Match GC finalization's lock order: definition before revision.
@@ -106,26 +108,13 @@ func (c *Client) PromoteSandboxRevision(ctx context.Context, revision string) er
 		if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindSandbox); err != nil {
 			return err
 		}
-		published, err := queryOne(ctx, tx, `
-			WITH published AS (
-			    SELECT revision FROM runtime_egress_policy WHERE revision = $1
-			), promoted AS (
-			    UPDATE sandbox_template_definition p SET latest_successful_revision = r.revision, updated_at = NOW()
-			    FROM runtime_revision r JOIN sandbox_revision s USING (revision)
-			    WHERE r.revision = $1 AND p.namespace = r.namespace AND p.sandbox_template_uid = s.sandbox_template_uid
-			        AND p.desired_revision = r.revision AND p.retired_at IS NULL
-			        AND p.latest_successful_revision IS DISTINCT FROM r.revision
-			        AND EXISTS (SELECT 1 FROM published)
-			)
-			SELECT EXISTS (SELECT 1 FROM published)
-		`, pgx.RowTo[bool], revision)
-		if err != nil {
-			return err
-		}
-		if !published {
-			return ErrEgressPolicyNotPublished
-		}
-		return nil
+		return execSQL(ctx, tx, `
+			UPDATE sandbox_template_definition p SET latest_successful_revision = r.revision, updated_at = NOW()
+			FROM runtime_revision r JOIN sandbox_revision s USING (revision)
+			WHERE r.revision = $1 AND p.namespace = r.namespace AND p.sandbox_template_uid = s.sandbox_template_uid
+			    AND p.desired_revision = r.revision AND p.retired_at IS NULL
+			    AND p.latest_successful_revision IS DISTINCT FROM r.revision
+		`, revision)
 	})
 }
 

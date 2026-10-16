@@ -149,9 +149,7 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
 	require.NoError(t, client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}))
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision))
-	_, policyErr := client.SetRuntimeEgressPolicy(t.Context(), revision.Revision, egress.Access{})
-	require.NoError(t, policyErr)
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, egress.Access{}))
 	require.NoError(t, client.PromoteRuntimeRevision(t.Context(), revision.Revision))
 	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
 	require.NoError(t, err)

@@ -642,9 +642,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
 		DesiredRevision: revision.Revision,
 	}))
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision))
-	_, policyErr := store.SetRuntimeEgressPolicy(t.Context(), revision.Revision, egress.Access{})
-	require.NoError(t, policyErr)
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, egress.Access{}))
 	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), revision.Revision))
 	session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
 		Id: uuid.NewString(), Creator: "alice",

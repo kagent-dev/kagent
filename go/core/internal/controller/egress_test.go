@@ -448,6 +448,38 @@ func TestEgressPublicationRetriesWithoutAnotherEvent(t *testing.T) {
 	})
 }
 
+func TestEgressPostCommitEnqueueRecoversEventBeforeRevisionExists(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		inputs := newEgressTestInputs(ctx)
+		inputs.source(database.RuntimeEgressAgent, "uid", []corev1.LocalObjectReference{{Name: "access"}})
+		inputs.policies.UpdateObject(egressTestPolicy("https://tickets.example.com", nil))
+		store := &egressTestStore{listed: make(chan database.RuntimeEgressSource, 1)}
+		controller := NewEgressReconciler(ctx, inputs.runtime, store, &observingEgressActors{store: store}, nil)
+		require.True(t, controller.grants.WaitUntilSynced(ctx.Done()))
+		var workers sync.WaitGroup
+		workers.Go(func() { require.NoError(t, controller.Start(ctx)) })
+		defer func() { cancel(); workers.Wait() }()
+		synctest.Wait()
+		// Compilation saw the grant, but its revision has not committed yet.
+		initial := controller.grants.GetKey("agent/team/source").Access
+		require.NotEmpty(t, initial.Destinations)
+		inputs.policies.DeleteObject("team/access")
+		synctest.Wait()
+		require.Len(t, store.listed, 1, "revocation discovery must run before the revision exists")
+		require.Equal(t, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: "team", Name: "source"}, <-store.listed)
+		store.mu.Lock()
+		store.pinned = map[string]database.RuntimeEgress{"revision": {Kind: database.RuntimeEgressAgent, Namespace: "team", SourceName: "source", SourceUID: "uid"}}
+		store.intended = map[string]egress.Access{"revision": initial}
+		store.mu.Unlock()
+		controller.EnqueueRevision("revision")
+		synctest.Wait()
+		policy, err := store.GetRuntimeEgressPolicy(ctx, "revision")
+		require.NoError(t, err)
+		require.Empty(t, policy.Destinations, "post-commit publication must apply the missed revocation")
+	})
+}
+
 func TestEgressTargetsSourceChangesAndBacksOffActorFailures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
