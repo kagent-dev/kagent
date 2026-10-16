@@ -68,6 +68,17 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 	})
 }
 
+// ListAgentDefinitionSources returns distinct Agent names across active and
+// retired identities. Startup recovery includes retired rows because a crash
+// may interrupt actor revocation after retirement commits.
+func (c *Client) ListAgentDefinitionSources(ctx context.Context) ([]RuntimeEgressSource, error) {
+	return queryMany(ctx, c.db, `
+  SELECT DISTINCT 'agent' AS kind, namespace, agent_name AS name
+  FROM agent_definition
+  ORDER BY namespace, name
+ `, pgx.RowToStructByName[RuntimeEgressSource])
+}
+
 // RecordRevisionOptions controls whether a prepared revision becomes available.
 type RecordRevisionOptions struct {
 	// Ready promotes the revision only while its source is active and still desires it.

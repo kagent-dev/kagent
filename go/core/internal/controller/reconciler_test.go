@@ -11,6 +11,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,7 +34,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 	opts := krt.NewOptionsBuilder(stop, "test", nil)
-	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Finalizers: []string{agentPreparationFinalizer}, Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
+	template := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	desiredActor := &ateapipb.ActorTemplate{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "assistant-kagent-revision"}}
 	revision := &translator.Revision{AgentCard: &a2apb.AgentCard{Name: "assistant"}}
 	revision.AgentCard.ProtoReflect().SetUnknown(protowire.AppendString(protowire.AppendTag(nil, 1000, protowire.BytesType), "future"))
@@ -177,7 +178,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
 			state := AgentReconciliation{
-				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Finalizers: []string{agentPreparationFinalizer}, Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
+				Agent:  &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "agent-uid"}},
 				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
 			}
 			states.UpdateObject(state)
@@ -321,14 +322,20 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 
 type fakeRuntimeRevisionStore struct {
 	egressTargetStoreStub
-	pair             *database.AgentDefinition
-	revision         *database.RuntimeRevision
-	markedSuccessful bool
-	retired          string
-	revisionErr      error
-	recordCalls      int
-	pairErr          error
-	pairCalls        int
+	pair              *database.AgentDefinition
+	revision          *database.RuntimeRevision
+	markedSuccessful  bool
+	retired           string
+	revisionErr       error
+	recordCalls       int
+	pairErr           error
+	pairCalls         int
+	definitionSources []database.RuntimeEgressSource
+	sourcesErr        error
+}
+
+func (s *fakeRuntimeRevisionStore) ListAgentDefinitionSources(context.Context) ([]database.RuntimeEgressSource, error) {
+	return s.definitionSources, s.sourcesErr
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
@@ -397,7 +404,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		statusClient,
 	)
 
-	go reconciler.Run(stop)
+	go func() { assert.NoError(t, reconciler.Start(t.Context())) }()
 
 	var initialUpdate *kagentv1alpha3.ModelConfig
 	var err error

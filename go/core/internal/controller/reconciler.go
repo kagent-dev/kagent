@@ -36,8 +36,6 @@ import (
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
 )
 
-const agentPreparationFinalizer = "kagent.dev/agent-preparation"
-
 // AgentReconciliation is the complete desired and observed state for one
 // Agent. Compilation failures are data so invalid Agents still produce
 // status instead of disappearing from the graph.
@@ -186,6 +184,7 @@ type runtimeRevisionStore interface {
 	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
+	ListAgentDefinitionSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
 
@@ -248,7 +247,7 @@ func newReconciler(
 		// Desired inputs and cleanup changes bypass failure backoff; observations
 		// and status writes do not. Grants must reconcile without a new revision.
 		if event.Old != nil && event.New != nil && event.Old.Agent.UID == event.New.Agent.UID &&
-			slices.Equal(event.Old.Agent.Finalizers, event.New.Agent.Finalizers) && event.Old.desiredRevision() == event.New.desiredRevision() &&
+			event.Old.desiredRevision() == event.New.desiredRevision() &&
 			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
 			return
 		}
@@ -281,19 +280,44 @@ func newReconciliationQueue(name string, reconcile func(any) error) controllers.
 	)
 }
 
-// Run waits for the graph boundary to observe initial state, then processes
-// Agent and status writes until stop closes.
-func (r *Reconciler) Run(stop <-chan struct{}) {
+// Start waits for initial Kubernetes state, recovers offline deletions, then
+// processes Agent preparation and status writes until cancellation.
+func (r *Reconciler) Start(ctx context.Context) error {
+	stop := ctx.Done()
 	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
 		r.agents.ShutDownEarly()
 		r.agentStatuses.ShutDownEarly()
 		r.modelConfigStatuses.ShutDownEarly()
-		return
+		return nil
+	}
+	if err := r.enqueueDeletedAgents(ctx); err != nil {
+		r.agents.ShutDownEarly()
+		r.agentStatuses.ShutDownEarly()
+		r.modelConfigStatuses.ShutDownEarly()
+		return err
 	}
 	go r.pollPendingTemplates(stop)
 	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
 	r.agents.Run(stop)
+	return nil
+}
+
+func (r *Reconciler) enqueueDeletedAgents(ctx context.Context) error {
+	sources, err := r.store.ListAgentDefinitionSources(ctx)
+	if err != nil {
+		return fmt.Errorf("recover deleted Agents: %w", err)
+	}
+	for _, source := range sources {
+		if len(r.collections.watchNamespaces) != 0 && !slices.Contains(r.collections.watchNamespaces, source.Namespace) {
+			continue
+		}
+		key := source.Namespace + "/" + source.Name
+		if r.collections.Agents.GetKey(key) == nil {
+			r.agents.Add(key)
+		}
+	}
+	return nil
 }
 
 func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
@@ -312,11 +336,6 @@ func (r *Reconciler) pollPendingTemplates(stop <-chan struct{}) {
 			}
 		}
 	}
-}
-
-func (r *Reconciler) Start(ctx context.Context) error {
-	r.Run(ctx.Done())
-	return nil
 }
 
 func (r *Reconciler) NeedLeaderElection() bool { return true }
@@ -338,22 +357,6 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		}
 		if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: parts[0], Name: parts[1]}); err != nil {
 			return err
-		}
-		if state != nil && slices.Contains(state.Agent.Finalizers, agentPreparationFinalizer) {
-			updated := state.Agent.DeepCopy()
-			updated.Finalizers = slices.DeleteFunc(updated.Finalizers, func(value string) bool { return value == agentPreparationFinalizer })
-			if _, err := r.status.Agents(updated.Namespace).Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
-				return fmt.Errorf("remove Agent %s finalizer: %w", key, err)
-			}
-		}
-		return nil
-	}
-	// Retain deletion events through controller downtime before persisting grants.
-	if !slices.Contains(state.Agent.Finalizers, agentPreparationFinalizer) {
-		updated := state.Agent.DeepCopy()
-		updated.Finalizers = append(updated.Finalizers, agentPreparationFinalizer)
-		if _, err := r.status.Agents(updated.Namespace).Update(ctx, updated, metav1.UpdateOptions{}); err != nil {
-			return fmt.Errorf("add Agent %s finalizer: %w", key, err)
 		}
 		return nil
 	}

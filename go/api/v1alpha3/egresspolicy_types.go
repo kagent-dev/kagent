@@ -21,7 +21,7 @@ type EgressPolicySpec struct {
 }
 
 // EgressDestination grants access to one HTTP(S) origin, including all its paths.
-// +kubebuilder:validation:XValidation:rule="!has(self.authentication) || (self.origin.startsWith('https://') && !self.origin.contains('*'))",message="authentication requires an exact HTTPS origin"
+// +kubebuilder:validation:XValidation:rule="!has(self.authentication) || !self.origin.contains('*')",message="authentication requires an exact HTTP(S) origin"
 type EgressDestination struct {
 	// Origin is a scheme, DNS hostname, and optional port. A wildcard replaces
 	// exactly one leftmost DNS label, for example https://*.example.com.

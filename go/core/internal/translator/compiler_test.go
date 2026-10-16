@@ -406,6 +406,14 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	require.Empty(t, config.Agent.SubAgents[0].SessionDbUrl)
 	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
 	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
+	original, err := revision.Digest()
+	require.NoError(t, err)
+	configMap.Data["answer.json"] = `{"type":"object","properties":{"changed":{"type":"string"}}}`
+	changed, err := compiler(t, modelConfig(), configMap, child, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
+	require.NoError(t, err)
+	updated, err := changed.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, original, updated, "resolved ConfigMap contents must still affect compiled runtime identity")
 }
 
 func TestResolveModelConfigFoundryEndpoint(t *testing.T) {

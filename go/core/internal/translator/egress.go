@@ -64,8 +64,8 @@ func compileEgressPolicies(namespace string, refs []corev1.LocalObjectReference,
 			if auth == nil {
 				continue
 			}
-			if origin.Scheme != "https" || strings.Contains(origin.Host, "*") {
-				return egress.Access{}, NewValidationError("EgressPolicy %q: authentication requires an exact HTTPS origin", key)
+			if strings.Contains(origin.Host, "*") {
+				return egress.Access{}, NewValidationError("EgressPolicy %q: authentication requires an exact HTTP(S) origin", key)
 			}
 			secret := auth.SecretKeyRef
 			binding := egress.Credential{Origin: origin.String(), Header: auth.Header}

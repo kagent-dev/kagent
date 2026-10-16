@@ -12,6 +12,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -282,7 +283,7 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 				r := newReconciler(collections, backend, backend, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
-				go r.Run(ctx.Done())
+				go func() { assert.NoError(t, r.Start(ctx)) }()
 				synctest.Wait()
 				backend.inspect(func() {
 					require.Equal(t, 1, test.store.pairCalls, "publishing a failure must not immediately requeue it")
@@ -382,6 +383,12 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
+func (p *preparationTestBackend) ListAgentDefinitionSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.ListAgentDefinitionSources(ctx)
+}
+
 func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -409,7 +416,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		go r.Run(ctx.Done())
+		go func() { assert.NoError(t, r.Start(ctx)) }()
 		synctest.Wait()
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
@@ -463,7 +470,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				r := newReconciler(collections, templates, store, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
-				go r.Run(ctx.Done())
+				go func() { assert.NoError(t, r.Start(ctx)) }()
 				synctest.Wait()
 				require.Equal(t, 1, store.pairCalls)
 				state := collections.Reconciliations.GetKey(initial.ResourceName())

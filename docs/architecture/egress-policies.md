@@ -81,7 +81,9 @@ access. A standalone sandbox with no references has no allowed egress.
 ## Call an API with a credential
 
 Policies authenticate requests using a header, an optional prefix, and a Secret
-in the same namespace. Authentication requires an exact HTTPS origin:
+in the same namespace. Authentication requires an exact HTTP(S) origin. HTTP
+supports in-cluster services whose transport is secured by a service mesh; the gateway injects the
+credential without exposing it to the guest:
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -158,7 +160,10 @@ including credential references and caller-token passthrough constraints.
 The combined additional access from a source's referenced EgressPolicies is its
 `EgressGrant`: destinations it may contact and credentials the gateway may inject.
 Reconciliation and source definition structs carry it as `EgressGrant egress.Access`.
-Explicit policy grants and policy references do not enter revision identity.
+Revision identity covers compiled runtime inputs and the owning Kubernetes UID.
+The full source specification is preserved as provenance for the first preparation
+of that revision. Explicit policy grants and policy references do not enter
+revision identity.
 Changing a grant or its Secret reference does not prepare a new runtime image.
 Secret values remain outside compiled inputs; the gateway handles value rotation.
 
@@ -185,8 +190,11 @@ source with exponential backoff even when grants have not changed. Slow actor
 updates therefore delay further work on that preparation queue. Startup replays
 every Agent and SandboxTemplate through preparation; no separate actor sweep is
 needed.
-Preparation finalizers preserve deletion through controller downtime and are
-removed only after retiring the source and successfully updating its actors.
+After its input cache syncs, Agent preparation also enqueues stored definitions
+whose Agents are absent from watched namespaces. This includes retired identities
+so a restart retries revocations interrupted after retirement. Agent deletion
+does not need a finalizer. SandboxTemplate preparation retains its existing
+finalizer until retirement and actor updates succeed.
 
 Running and suspended actors receive updates without replacement or a new
 invocation. Missing or invalid policy references and Secrets revoke explicit
