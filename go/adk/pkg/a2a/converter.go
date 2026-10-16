@@ -70,15 +70,15 @@ func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.
 		return nil, nil
 	}
 	if part.FunctionResponse != nil {
-		addToolImages(converted, part.FunctionResponse.ID)
+		addToolImages(converted, event.InvocationID, part.FunctionResponse.ID)
 	}
 	return converted, nil
 }
 
 // addToolImages puts the images an MCP tool call returned into its converted
 // function response, in place of the note the session keeps.
-func addToolImages(converted *a2atype.Part, callID string) {
-	images := mcp.TakeToolImages(callID)
+func addToolImages(converted *a2atype.Part, invocationID, callID string) {
+	images := mcp.TakeToolImages(invocationID, callID)
 	response, ok := asDataPart(converted)[PartKeyResponse].(map[string]any)
 	if len(images) == 0 || !ok {
 		return
