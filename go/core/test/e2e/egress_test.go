@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,13 +37,13 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-// Every harness executes this same skill through its normal shell tool. The
-// child keeps probing while the model waits for the test to change policy; this
-// avoids each shell tool's foreground timeout without requiring another turn.
+// Every harness executes this same foreground skill through its normal shell
+// tool. The test changes policy while the invocation is waiting for the probe.
 const egressProbeScript = `#!/bin/sh
 control=$1
 target=$2
 run=$3
+echo "EGRESS_PROBE_STARTED_$run"
 for i in $(seq 1 900); do
   phase=$(wget -T 5 -qO- "$control/phase") || exit 1
   if [ "$phase" = stop ]; then
@@ -52,7 +51,7 @@ for i in $(seq 1 900); do
     wget -T 5 -qO- "$control/stopped" >/dev/null
     exit
   fi
-  if wget -T 3 -qO- "$target?phase=$phase"; then
+  if wget -T 3 -qO- "$target/?phase=$phase"; then
     result=ALLOWED
   else
     result=DENIED
@@ -179,8 +178,7 @@ type egressProbeRun struct {
 	lastPhase, lastResult string
 	consecutive           int
 	stopped               chan struct{}
-	release               chan struct{}
-	stopOnce, releaseOnce sync.Once
+	stopOnce              sync.Once
 }
 
 func (e *egressProbeRun) setPhase(phase string) {
@@ -202,7 +200,6 @@ func (e *egressProbeRun) finish(ctx context.Context) error {
 	e.mu.Unlock()
 	select {
 	case <-e.stopped:
-		e.releaseOnce.Do(func() { close(e.release) })
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -221,7 +218,17 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 	}
 	done := make(chan response, 1)
 	ctx, cancel := context.WithCancel(fixture.ctx)
-	t.Cleanup(func() { cancel(); run.releaseOnce.Do(func() { close(run.release) }) })
+	t.Cleanup(func() {
+		cancel()
+		if t.Failed() {
+			for _, request := range model.Requests("", "")[start:] {
+				last, err := lastEgressModelInput(request.Body)
+				if err == nil && len(last) != 0 {
+					t.Logf("egress %s model input: %s", run.name, last)
+				}
+			}
+		}
+	})
 	go func() { r, err := sendMessageWithRetry(ctx, fixture.client, request); done <- response{r, err} }()
 	return func() *a2atype.Task {
 		t.Helper()
@@ -343,25 +350,6 @@ func startEgressSkillMock(t *testing.T, root, destination string) (string, *mode
 			}
 			return
 		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		_ = r.Body.Close()
-		last, err := lastEgressModelInput(body)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		if bytes.Contains(last, []byte("EGRESS_PROBE_STARTED_"+run.name)) {
-			select {
-			case <-run.release:
-			case <-r.Context().Done():
-				return
-			}
-		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
 		run.proxy.ServeHTTP(w, r)
 	}))
 	t.Cleanup(server.Close)
@@ -372,32 +360,29 @@ func startEgressSkillMock(t *testing.T, root, destination string) (string, *mode
 	require.NoError(t, err)
 	runs := map[string]*egressProbeRun{}
 	for _, phase := range []string{"live", "checkpoint", "resumed", "fork"} {
-		logPath := "/data/egress-" + phase + ".log"
-		start := fmt.Sprintf("nohup sh %s/egress/probe.sh '%s/egress/%s' '%s' %s >%s 2>&1 </dev/null & printf EGRESS_PROBE_STARTED_%s", root, origin, phase, destination, phase, logPath, phase)
-		collect := "cat " + logPath
+		command := fmt.Sprintf("sh %s/egress/probe.sh '%s/egress/%s' '%s' %s", root, origin, phase, destination, phase)
 		replacements := []string{"PHASE", phase, "ROOT", root}
-		for key, command := range map[string]string{"START_COMMAND": start, "COLLECT_COMMAND": collect} {
-			args, err := json.Marshal(struct {
-				Command string `json:"command"`
-			}{command})
-			require.NoError(t, err)
-			encodedArgs, err := json.Marshal(string(args))
-			require.NoError(t, err)
-			codexArgs, err := json.Marshal(struct {
-				Command string `json:"cmd"`
-			}{command})
-			require.NoError(t, err)
-			encodedCodexArgs, err := json.Marshal(string(codexArgs))
-			require.NoError(t, err)
-			encodedCommand, err := json.Marshal(command)
-			require.NoError(t, err)
-			replacements = append(replacements, `"`+key+`_ARGUMENTS"`, string(encodedArgs), `"CODEX_`+key+`_ARGUMENTS"`, string(encodedCodexArgs), `"`+key+`"`, string(encodedCommand))
-		}
+		args, err := json.Marshal(struct {
+			Command string `json:"command"`
+		}{command})
+		require.NoError(t, err)
+		encodedArgs, err := json.Marshal(string(args))
+		require.NoError(t, err)
+		codexArgs, err := json.Marshal(struct {
+			Command     string `json:"cmd"`
+			YieldTimeMS int    `json:"yield_time_ms"`
+		}{command, 30000})
+		require.NoError(t, err)
+		encodedCodexArgs, err := json.Marshal(string(codexArgs))
+		require.NoError(t, err)
+		encodedCommand, err := json.Marshal(command)
+		require.NoError(t, err)
+		replacements = append(replacements, `"COMMAND_ARGUMENTS"`, string(encodedArgs), `"CODEX_COMMAND_ARGUMENTS"`, string(encodedCodexArgs), `"COMMAND"`, string(encodedCommand))
 		var config mockllm.Config
 		require.NoError(t, json.Unmarshal([]byte(strings.NewReplacer(replacements...).Replace(string(raw))), &config))
 		upstream, err := url.Parse(startMockLLMConfig(t, config))
 		require.NoError(t, err)
-		run := &egressProbeRun{name: phase, proxy: httputil.NewSingleHostReverseProxy(upstream), stopped: make(chan struct{}), release: make(chan struct{})}
+		run := &egressProbeRun{name: phase, proxy: httputil.NewSingleHostReverseProxy(upstream), stopped: make(chan struct{})}
 		run.setPhase("initial")
 		runs[phase] = run
 	}
@@ -416,7 +401,7 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 	actorUID := actor.GetMetadata().GetUid()
 	probe := func(phase string) string {
 		t.Helper()
-		command := fmt.Sprintf("if wget -T 3 -qO- '%s?phase=%s'; then printf ALLOWED; else printf DENIED; fi", destination, phase)
+		command := fmt.Sprintf("if wget -T 3 -qO- '%s/?phase=%s'; then printf ALLOWED; else printf DENIED; fi", destination, phase)
 		process, err := f.processes.StartProcess(f.guestContext(instance.Id), &guestpb.StartProcessRequest{Command: []string{"sh", "-c", command}})
 		require.NoError(t, err)
 		outputs, err := f.processes.StreamProcessOutputs(f.guestContext(instance.Id), &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId, Follow: true})
