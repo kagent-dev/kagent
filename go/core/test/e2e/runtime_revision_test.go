@@ -140,10 +140,21 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name}}
 		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent))
 		require.NoError(t, kube.Delete(ctx, agent))
-		// Deletion blocks fresh creation. Eventual runtime collection below
-		// verifies retirement after the final checkpoint reference is released.
-		_, err = sessions.CreateSession(ctx, request(templateName))
-		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		// Kubernetes deletion reaches the database through the controller. Wait for
+		// retirement, releasing any sessions created before that event is observed
+		// so they cannot keep the runtime alive during the GC assertion below.
+		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+			created, err := sessions.CreateSession(ctx, request(templateName))
+			if status.Code(err) == codes.FailedPrecondition {
+				return true, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			id := created.GetSession().GetId()
+			t.Cleanup(func() { deleteSession(id) })
+			return false, deleteIdleSession(ctx, sessions, id)
+		}), "Agent deletion must eventually block fresh sessions")
 		forked, err := checkpoints.ForkSession(ctx, &apiv1.ForkSessionRequest{CheckpointId: checkpointID, RequestId: uuid.NewString()})
 		require.NoError(t, err, "a checkpoint must retain runnable inputs after its source and template are deleted")
 		forkID := forked.GetSession().GetId()
