@@ -115,7 +115,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	condition(v1alpha3.ScheduledRunConditionAccepted, metav1.ConditionTrue, "Accepted", "The schedule is valid")
 
 	stored, err := r.store.ApplyScheduledRun(ctx, &apiv1.ScheduledRun{
-		Creator: schedules.KubernetesCreator(schedule.Namespace, schedule.Name),
+		Creator: creator,
 		Agent:   &apiv1.ResourceReference{Namespace: schedule.Namespace, Name: schedule.Spec.AgentRef.Name},
 		Config:  config,
 	}, string(schedule.UID))
@@ -123,11 +123,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		condition(v1alpha3.ScheduledRunConditionReady, metav1.ConditionFalse, "PersistenceFailed", err.Error())
 		return reconcile.Result{}, errors.Join(fmt.Errorf("apply ScheduledRun: %w", err), r.updateStatus(ctx, schedule, status))
 	}
-	message := "Scheduled run " + stored.GetId() + " is active"
+	state := "active"
 	if config.GetPaused() {
-		message = "Scheduled run " + stored.GetId() + " is paused"
+		state = "paused"
 	}
-	condition(v1alpha3.ScheduledRunConditionReady, metav1.ConditionTrue, "Scheduled", message)
+	condition(v1alpha3.ScheduledRunConditionReady, metav1.ConditionTrue, "Scheduled", "Scheduled run "+stored.GetId()+" is "+state)
 	return reconcile.Result{}, r.updateStatus(ctx, schedule, status)
 }
 

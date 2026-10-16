@@ -29,6 +29,7 @@ type fakeReconcilerStore struct {
 	applies   int
 	applyErr  error
 	retired   []string
+	retireErr error
 }
 
 func (f *fakeReconcilerStore) ApplyScheduledRun(_ context.Context, request *apiv1.ScheduledRun, requestID string) (*apiv1.ScheduledRun, error) {
@@ -44,7 +45,7 @@ func (f *fakeReconcilerStore) ApplyScheduledRun(_ context.Context, request *apiv
 
 func (f *fakeReconcilerStore) RetireScheduledRuns(_ context.Context, creator string) error {
 	f.retired = append(f.retired, creator)
-	return nil
+	return f.retireErr
 }
 
 func testSchedule() *v1alpha3.ScheduledRun {
@@ -211,18 +212,12 @@ func TestReconcileRetiresObjectDeletedWhileDown(t *testing.T) {
 	require.True(t, apierrors.IsNotFound(kube.Get(t.Context(), client.ObjectKeyFromObject(schedule), &v1alpha3.ScheduledRun{})))
 }
 
-type failingRetireStore struct{ fakeReconcilerStore }
-
-func (*failingRetireStore) RetireScheduledRuns(context.Context, string) error {
-	return errors.New("database unavailable")
-}
-
 func TestReconcileKeepsFinalizerWhenRetirementFails(t *testing.T) {
 	schedule := testSchedule()
 	schedule.Finalizers = []string{retirementFinalizer}
 	schedule.DeletionTimestamp = &metav1.Time{Time: time.Now()}
 	kube := testKube(t, schedule)
-	_, err := NewReconciler(kube, &failingRetireStore{}).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(schedule)})
+	_, err := NewReconciler(kube, &fakeReconcilerStore{retireErr: errors.New("database unavailable")}).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(schedule)})
 	require.ErrorContains(t, err, "database unavailable")
 	current := &v1alpha3.ScheduledRun{}
 	require.NoError(t, kube.Get(t.Context(), client.ObjectKeyFromObject(schedule), current))
