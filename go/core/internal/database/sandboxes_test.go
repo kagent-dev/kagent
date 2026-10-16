@@ -16,7 +16,7 @@ import (
 func sandboxFixture(t *testing.T, client *Client, revision string) (*apiv1.Sandbox, SandboxCreateOptions) {
 	t.Helper()
 	ctx := t.Context()
-	_, upsertErr := client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision})
+	upsertErr := client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision})
 	require.NoError(t, upsertErr)
 	require.NoError(t, client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "actor-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`)}))
@@ -31,7 +31,7 @@ func TestPromoteSandboxRevisionOnlyCurrentActiveTemplate(t *testing.T) {
 	ctx := t.Context()
 	request, options := sandboxFixture(t, client, "first")
 	definition := SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: "second"}
-	_, upsertErr := client.UpsertSandboxTemplateDefinition(ctx, definition)
+	upsertErr := client.UpsertSandboxTemplateDefinition(ctx, definition)
 	require.NoError(t, upsertErr)
 	revision, err := client.GetSandboxRevision(ctx, "first")
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestPromoteSandboxRevisionOnlyCurrentActiveTemplate(t *testing.T) {
 	require.NoError(t, client.RetireSandboxTemplateIdentities(ctx, "team-a", "scratch"))
 	require.NoError(t, client.PromoteSandboxRevision(ctx, "first"))
 	assertAvailable("")
-	_, upsertErr = client.UpsertSandboxTemplateDefinition(ctx, definition)
+	upsertErr = client.UpsertSandboxTemplateDefinition(ctx, definition)
 	require.NoError(t, upsertErr)
 	assertAvailable("second")
 	revision.Revision, revision.ActorTemplateName = "unused", "unused"

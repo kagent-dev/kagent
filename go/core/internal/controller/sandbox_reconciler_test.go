@@ -30,6 +30,7 @@ import (
 
 // These fakes are also used by the informer/queue integration test.
 type sandboxTestStore struct {
+	egressTargetStoreStub
 	upsertErr      error
 	mu             sync.Mutex
 	desired        database.SandboxTemplateDefinition
@@ -43,12 +44,11 @@ type sandboxTestStore struct {
 	recordCalls    int
 }
 
-func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) (bool, error) {
+func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := !reflect.DeepEqual(s.desired.Grants, value.Grants)
 	s.desired = value
-	return changed, s.upsertErr
+	return s.upsertErr
 }
 func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision) error {
 	s.mu.Lock()
@@ -86,6 +86,7 @@ func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, stri
 var _ sandboxRevisionStore = (*sandboxTestStore)(nil)
 
 type sandboxTestActors struct {
+	actorEgressStub
 	mu        sync.Mutex
 	store     *sandboxTestStore
 	templates map[string]*ateapipb.ActorTemplate
@@ -142,9 +143,8 @@ func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconcil
 	store := &sandboxTestStore{}
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
-		collections:   newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
-		enqueueActors: noopEnqueueActors,
-		store:         store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
+		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
+		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
 	return reconciler, templates, pools

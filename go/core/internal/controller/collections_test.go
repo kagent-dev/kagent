@@ -102,7 +102,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	observed.Metadata.Uid = "actor-template-uid"
 	observed.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"}}}
 	store := &fakeRuntimeRevisionStore{}
-	reconciler := &Reconciler{enqueueActors: noopEnqueueActors,
+	reconciler := &Reconciler{
 		collections: collections, templates: &fakeActorTemplates{template: observed}, store: store,
 	}
 	require.NoError(t, reconciler.reconcileAgent(t.Context(), state.ResourceName()))

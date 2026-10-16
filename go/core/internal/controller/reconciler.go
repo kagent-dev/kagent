@@ -183,13 +183,15 @@ func compilationFailure(err error) *ReconciliationFailure {
 // Substrate owns ActorTemplates; the database retains revisions while an Agent
 // or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
-	UpsertAgentDefinition(context.Context, database.AgentDefinition) (bool, error)
+	actorEgressStore
+	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision) error
 	PromoteRuntimeRevision(context.Context, string) error
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
 
 type actorTemplateClient interface {
+	actorEgressClient
 	EnsureAtespace(context.Context, string) error
 	GetActorTemplate(context.Context, string, string) (*ateapipb.ActorTemplate, error)
 	CreateActorTemplate(context.Context, *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error)
@@ -198,11 +200,10 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections   Collections
-	templates     actorTemplateClient
-	store         runtimeRevisionStore
-	enqueueActors func(database.RuntimeEgressSource)
-	status        kagentclient.ApiV1alpha3Interface
+	collections Collections
+	templates   actorTemplateClient
+	store       runtimeRevisionStore
+	status      kagentclient.ApiV1alpha3Interface
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -214,12 +215,12 @@ type Reconciler struct {
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
 // its queues after the registered KRT handlers have received initial state.
-func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient, enqueueActors func(database.RuntimeEgressSource)) (*Reconciler, error) {
+func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient) (*Reconciler, error) {
 	statusClient, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
-	return newReconciler(collections, templates, store, statusClient, enqueueActors), nil
+	return newReconciler(collections, templates, store, statusClient), nil
 }
 
 func newReconciler(
@@ -227,14 +228,12 @@ func newReconciler(
 	templates actorTemplateClient,
 	store runtimeRevisionStore,
 	status kagentclient.ApiV1alpha3Interface,
-	enqueueActors func(database.RuntimeEgressSource),
 ) *Reconciler {
 	r := &Reconciler{
-		collections:   collections,
-		templates:     templates,
-		store:         store,
-		enqueueActors: enqueueActors,
-		status:        status,
+		collections: collections,
+		templates:   templates,
+		store:       store,
+		status:      status,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
@@ -335,9 +334,11 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 			return fmt.Errorf("invalid Agent key %q", key)
 		}
 		err := r.store.RetireAgentIdentities(ctx, parts[0], parts[1])
-		r.enqueueActors(database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: parts[0], Name: parts[1]})
 		if err != nil {
 			return fmt.Errorf("retire Agent %s: %w", key, err)
+		}
+		if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: parts[0], Name: parts[1]}); err != nil {
+			return err
 		}
 		if state != nil && slices.Contains(state.Agent.Finalizers, agentPreparationFinalizer) {
 			updated := state.Agent.DeepCopy()
@@ -366,12 +367,11 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	// cannot mistake the revision for abandoned state. Unresolved inputs clear
 	// the old desired edge without inventing a runtime revision;
 	// the upsert preserves the current UID's last-good runtime in either case.
-	changed, err := r.store.UpsertAgentDefinition(ctx, definition)
-	if changed || err != nil {
-		r.enqueueActors(database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: definition.Namespace, Name: definition.AgentName})
-	}
-	if err != nil {
+	if err := r.store.UpsertAgentDefinition(ctx, definition); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store Agent %s: %w", key, err))
+	}
+	if err := applySourceEgress(ctx, r.store, r.templates, database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: definition.Namespace, Name: definition.AgentName}); err != nil {
+		return r.observePreparationError(*state, err)
 	}
 	if state.Target == nil {
 		return nil

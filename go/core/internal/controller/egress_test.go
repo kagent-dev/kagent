@@ -14,177 +14,130 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-func noopEnqueueActors(database.RuntimeEgressSource) {}
-
-type egressTestStore struct {
-	mu       sync.Mutex
-	policies map[string]egress.Policy
-	targets  map[database.RuntimeEgressSource][]database.RuntimeEgressTarget
+type egressTargetStoreStub struct {
+	sources []database.RuntimeEgressSource
+	targets []database.RuntimeEgressTarget
+	listErr error
 }
 
-var _ actorEgressStore = (*egressTestStore)(nil)
+var _ actorEgressStore = (*egressTargetStoreStub)(nil)
 
-func (e *egressTestStore) GetRuntimeEgressPolicy(_ context.Context, revision string) (egress.Policy, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	policy, ok := e.policies[revision]
-	if !ok {
-		return egress.Policy{}, database.ErrNotFound
+func (s *egressTargetStoreStub) ListRuntimeEgressSourceTargets(_ context.Context, source database.RuntimeEgressSource, after string, limit int) ([]database.RuntimeEgressTarget, error) {
+	s.sources = append(s.sources, source)
+	if s.listErr != nil {
+		return nil, s.listErr
 	}
-	return policy, nil
-}
-func (e *egressTestStore) ListRuntimeEgressSourceTargets(_ context.Context, source database.RuntimeEgressSource, after string, limit int) ([]database.RuntimeEgressTarget, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return egressTestPage(e.targets[source], after, limit), nil
-}
-func (e *egressTestStore) ListRuntimeEgressTargets(_ context.Context, after string, limit int) ([]database.RuntimeEgressTarget, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	var targets []database.RuntimeEgressTarget
-	for _, rows := range e.targets {
-		targets = append(targets, rows...)
-	}
-	return egressTestPage(targets, after, limit), nil
-}
-func egressTestPage(targets []database.RuntimeEgressTarget, after string, limit int) []database.RuntimeEgressTarget {
-	targets = slices.Clone(targets)
-	slices.SortFunc(targets, func(a, b database.RuntimeEgressTarget) int {
-		if a.ID < b.ID {
-			return -1
-		}
-		if a.ID > b.ID {
-			return 1
-		}
-		return 0
-	})
-	targets = slices.DeleteFunc(targets, func(target database.RuntimeEgressTarget) bool { return target.ID <= after })
-	return targets[:min(len(targets), limit)]
+	targets := slices.DeleteFunc(slices.Clone(s.targets), func(target database.RuntimeEgressTarget) bool { return target.ID <= after })
+	return targets[:min(len(targets), limit)], nil
 }
 
-type observingEgressActors struct {
-	store      *egressTestStore
-	mu         sync.Mutex
-	applied    map[string]egress.Access
-	attempts   map[string][]time.Time
-	failures   int
-	mismatched bool
+type actorEgressStub struct {
+	getActor     func(context.Context, string, string) (*ateapipb.Actor, error)
+	ensurePolicy func(context.Context, string, string, string) (egress.Policy, error)
 }
 
-var _ actorEgressClient = (*observingEgressActors)(nil)
+var _ actorEgressClient = (*actorEgressStub)(nil)
 
-func (a *observingEgressActors) GetActor(_ context.Context, space, name string) (*ateapipb.Actor, error) {
-	template := "runtime"
-	if a.mismatched {
-		template = "replacement"
+func (a *actorEgressStub) GetActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	if a.getActor != nil {
+		return a.getActor(ctx, space, name)
 	}
-	return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: "uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: space, Name: template}}, nil
+	return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: "uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: space, Name: "runtime"}}, nil
 }
-func (a *observingEgressActors) EnsureActorEgressPolicy(ctx context.Context, _, name, revision string) (egress.Policy, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.attempts == nil {
-		a.attempts = map[string][]time.Time{}
-	}
-	a.attempts[name] = append(a.attempts[name], time.Now())
-	if a.failures > 0 {
-		a.failures--
-		return egress.Policy{}, errors.New("backend unavailable")
-	}
-	policy, err := a.store.GetRuntimeEgressPolicy(ctx, revision)
-	if err != nil {
-		return egress.Policy{}, err
-	}
-	if a.applied == nil {
-		a.applied = map[string]egress.Access{}
-	}
-	a.applied[name] = policy.Access
-	return policy, nil
+func (a *actorEgressStub) EnsureActorEgressPolicy(ctx context.Context, space, name, revision string) (egress.Policy, error) {
+	return a.ensurePolicy(ctx, space, name, revision)
 }
 
-func TestActorEgressSourcePagingAndStartupRecovery(t *testing.T) {
+func TestSourceEgressAppliesEveryPageWithBoundedConcurrency(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
 		source := database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: "team", Name: "source"}
-		foreign := database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: "other", Name: "source"}
-		store := &egressTestStore{policies: map[string]egress.Policy{"old": {}, "new": {}}, targets: map[database.RuntimeEgressSource][]database.RuntimeEgressTarget{}}
+		store := &egressTargetStoreStub{}
 		for i := range 101 {
-			revision := "old"
-			if i%2 == 0 {
-				revision = "new"
+			store.targets = append(store.targets, database.RuntimeEgressTarget{ID: fmt.Sprintf("%03d", i), Revision: "revision", Namespace: "team", Atespace: "team", TemplateName: "runtime"})
+		}
+		var mu sync.Mutex
+		active, peak := 0, 0
+		applied := map[string]int{}
+		backendErr := errors.New("backend unavailable")
+		actors := &actorEgressStub{ensurePolicy: func(ctx context.Context, _, name, _ string) (egress.Policy, error) {
+			mu.Lock()
+			active++
+			peak = max(peak, active)
+			applied[name]++
+			mu.Unlock()
+			time.Sleep(time.Second)
+			mu.Lock()
+			active--
+			mu.Unlock()
+			if name == "session-000" {
+				return egress.Policy{}, backendErr
 			}
-			store.targets[source] = append(store.targets[source], database.RuntimeEgressTarget{ID: fmt.Sprintf("%03d", i), Revision: revision, Namespace: "team", Atespace: "team", TemplateName: "runtime"})
-		}
-		store.targets[foreign] = []database.RuntimeEgressTarget{{ID: "foreign", Revision: "new", Namespace: "other", Atespace: "other", TemplateName: "runtime"}}
-		actors := &observingEgressActors{store: store}
-		applier := NewActorEgressApplier(ctx, store, actors, []string{"team"})
-		var workers sync.WaitGroup
-		workers.Go(func() { require.NoError(t, applier.Start(ctx)) })
-		defer func() { cancel(); workers.Wait() }()
-		synctest.Wait()
-		require.Len(t, actors.applied, 101, "startup recovery must traverse every page within watch scope")
-		updated := egress.Access{Destinations: []string{"https://tickets.example.com:443"}}
-		store.mu.Lock()
-		store.policies["new"] = egress.Policy{Access: updated}
-		store.mu.Unlock()
-		applier.EnqueueSource(source)
-		applier.EnqueueSource(foreign)
-		synctest.Wait()
-		for name, calls := range actors.attempts {
-			require.Len(t, calls, 2, name)
-		}
-		require.Equal(t, updated, actors.applied["session-000"])
-		require.Empty(t, actors.applied["session-001"].Destinations, "old UID revisions retain their independently resolved policy")
-		require.NotContains(t, actors.applied, "session-foreign")
+			return egress.Policy{}, ctx.Err()
+		}}
+		require.ErrorIs(t, applySourceEgress(t.Context(), store, actors, source), backendErr)
+		require.Len(t, applied, 101, "a failed actor must not block subsequent actors or pages")
+		require.Greater(t, peak, 1)
+		require.LessOrEqual(t, peak, 16)
+		require.Equal(t, []database.RuntimeEgressSource{source, source}, store.sources)
+		store.listErr = errors.New("database unavailable")
+		require.ErrorIs(t, applySourceEgress(t.Context(), store, actors, source), store.listErr)
 	})
 }
 
-func TestActorEgressRetriesAndRejectsStaleIdentity(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(t.Context())
-		source := database.RuntimeEgressSource{Kind: database.RuntimeEgressSandbox, Namespace: "team", Name: "scratch"}
-		target := database.RuntimeEgressTarget{ID: "actor", Revision: "revision", Namespace: "team", Atespace: "team", TemplateName: "runtime"}
-		store := &egressTestStore{policies: map[string]egress.Policy{"revision": {}}, targets: map[database.RuntimeEgressSource][]database.RuntimeEgressTarget{source: {target}}}
-		actors := &observingEgressActors{store: store, failures: 2}
-		applier := NewActorEgressApplier(ctx, store, actors, nil)
-		var workers sync.WaitGroup
-		workers.Go(func() { require.NoError(t, applier.Start(ctx)) })
-		defer func() { cancel(); workers.Wait() }()
-		synctest.Wait()
-		time.Sleep(time.Second)
-		synctest.Wait()
-		time.Sleep(2 * time.Second)
-		synctest.Wait()
-		attempts := actors.attempts["session-actor"]
-		require.Len(t, attempts, 3)
-		require.Equal(t, time.Second, attempts[1].Sub(attempts[0]))
-		require.Equal(t, 2*time.Second, attempts[2].Sub(attempts[1]))
-		actors.mismatched = true
-		require.NoError(t, applier.reconcileActor(ctx, target))
-		require.Len(t, actors.attempts["session-actor"], 3)
-	})
+func TestActorEgressSkipsStaleOrMissingActors(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		uid       string
+		template  string
+		getErr    error
+		applyErr  error
+		wantCalls int
+		wantErr   bool
+	}{
+		{name: "matching", uid: "uid", template: "runtime", wantCalls: 1},
+		{name: "replaced template", uid: "uid", template: "replacement"},
+		{name: "replaced actor", uid: "replacement", template: "runtime"},
+		{name: "missing actor", getErr: status.Error(codes.NotFound, "gone")},
+		{name: "deleted during apply", uid: "uid", template: "runtime", applyErr: status.Error(codes.NotFound, "gone"), wantCalls: 1},
+		{name: "read failure", getErr: errors.New("unavailable"), wantErr: true},
+		{name: "apply failure", uid: "uid", template: "runtime", applyErr: errors.New("unavailable"), wantCalls: 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			actors := &actorEgressStub{
+				getActor: func(_ context.Context, space, name string) (*ateapipb.Actor, error) {
+					return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: test.uid}, ActorTemplate: &ateapipb.ObjectRef{Atespace: space, Name: test.template}}, test.getErr
+				},
+				ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
+					calls++
+					return egress.Policy{}, test.applyErr
+				},
+			}
+			err := applyActorEgress(t.Context(), actors, database.RuntimeEgressTarget{ID: "actor", Revision: "revision", Atespace: "team", TemplateName: "runtime", ActorUID: "uid"})
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.wantCalls, calls)
+		})
+	}
 }
 
-func TestActorEgressWarningsAreLimitedPerRevision(t *testing.T) {
+func TestActorEgressReportsWithheldGrants(t *testing.T) {
 	var logs bytes.Buffer
 	ctx := logging.IntoContext(t.Context(), slog.New(slog.NewTextHandler(&logs, nil)))
-	store := &egressTestStore{policies: map[string]egress.Policy{
-		"first": {WithheldGrants: errors.New("credential conflict")}, "second": {WithheldGrants: errors.New("rule limit")},
+	actors := &actorEgressStub{ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
+		return egress.Policy{WithheldGrants: errors.New("credential conflict")}, nil
 	}}
-	actors := &observingEgressActors{store: store}
-	applier := NewActorEgressApplier(ctx, store, actors, nil)
-	defer applier.pages.ShutDownEarly()
-	defer applier.updates.ShutDownEarly()
-	defer applier.recovery.ShutDownEarly()
-	for _, revision := range []string{"first", "first", "second"} {
-		require.NoError(t, applier.reconcileActor(ctx, database.RuntimeEgressTarget{ID: revision, Revision: revision, Namespace: "team", Atespace: "team", TemplateName: "runtime"}))
-	}
-	require.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("explicit egress grants withheld")))
-	require.Len(t, actors.applied, 2, "warnings must not block fallback application")
+	require.NoError(t, applyActorEgress(ctx, actors, database.RuntimeEgressTarget{ID: "actor", Revision: "revision", Atespace: "team", TemplateName: "runtime"}))
+	require.Contains(t, logs.String(), "explicit egress grants withheld")
 }

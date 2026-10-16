@@ -27,6 +27,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -54,7 +55,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			reconciler := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: templates, store: store}
+			reconciler := &Reconciler{collections: collections, templates: templates, store: store}
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
@@ -156,7 +157,7 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "microvm")
 			initial := collections.Reconciliations.List()[0]
 			statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-			reconciler := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: &test.templates, store: &test.store, status: statusClient}
+			reconciler := &Reconciler{collections: collections, templates: &test.templates, store: &test.store, status: statusClient}
 			err := reconciler.reconcileAgent(t.Context(), initial.ResourceName())
 			require.Error(t, err)
 			require.Equal(t, test.code, status.Code(err))
@@ -237,7 +238,7 @@ func TestPreparationRevisionIsolation(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}
-	reconciler := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
+	reconciler := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
 	require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure != nil
@@ -279,7 +280,7 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 				initial := collections.Reconciliations.List()[0]
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
 				backend := &preparationTestBackend{templates: &test.templates, store: &test.store}
-				r := newReconciler(collections, backend, backend, statusClient, noopEnqueueActors)
+				r := newReconciler(collections, backend, backend, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -382,7 +383,7 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
-func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) (bool, error) {
+func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.UpsertAgentDefinition(ctx, definition)
@@ -412,7 +413,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 		initial := collections.Reconciliations.List()[0]
 		templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "missing config")}
 		store := &fakeRuntimeRevisionStore{}
-		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), noopEnqueueActors)
+		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go r.Run(ctx.Done())
@@ -466,7 +467,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-				r := newReconciler(collections, templates, store, statusClient, noopEnqueueActors)
+				r := newReconciler(collections, templates, store, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -525,7 +526,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	require.Nil(t, state.PreparationFailure)
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{getErr: errors.New("Substrate must not be called for an invalid target")}
-	r := &Reconciler{enqueueActors: noopEnqueueActors, collections: collections, templates: templates, store: store}
+	r := &Reconciler{collections: collections, templates: templates, store: store}
 	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
 	require.Empty(t, store.pair.DesiredRevision)
 	require.Nil(t, templates.template)
@@ -579,4 +580,16 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	return collections, harnesses
+}
+
+func (p *preparationTestBackend) ListRuntimeEgressSourceTargets(ctx context.Context, source database.RuntimeEgressSource, after string, limit int) ([]database.RuntimeEgressTarget, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.ListRuntimeEgressSourceTargets(ctx, source, after, limit)
+}
+func (p *preparationTestBackend) GetActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	return p.templates.GetActor(ctx, atespace, name)
+}
+func (p *preparationTestBackend) EnsureActorEgressPolicy(ctx context.Context, atespace, name, revision string) (egress.Policy, error) {
+	return p.templates.EnsureActorEgressPolicy(ctx, atespace, name, revision)
 }

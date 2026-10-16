@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
@@ -19,28 +18,15 @@ import (
 // Kubernetes Agent identity. Updating an existing definition revives it if retired and
 // preserves its latest successful revision. It atomically retires older identities
 // at the same names and rejects revisions whose deletion has started. Grants
-// are canonicalized before writing. The bool reports changed active grants or
-// retirement of another UID; errors may include an uncertain commit outcome.
-func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) (bool, error) {
+// are canonicalized before writing; errors may include an uncertain commit outcome.
+func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefinition) error {
 	grants, err := canonicalStoredGrants(definition.Grants)
 	if err != nil {
-		return false, fmt.Errorf("validate source grants: %w", err)
+		return fmt.Errorf("validate source grants: %w", err)
 	}
-	changed := false
-	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		retired, err := retireAgentIdentities(ctx, tx, definition.Namespace, definition.AgentName, definition.AgentUID)
-		if err != nil {
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		if err := retireAgentIdentities(ctx, tx, definition.Namespace, definition.AgentName, definition.AgentUID); err != nil {
 			return err
-		}
-		previous, err := queryOne(ctx, tx, `
-			SELECT grant_destinations, grant_credentials, retired_at FROM agent_definition
-			WHERE namespace = $1 AND agent_uid = $2 FOR UPDATE
-		`, pgx.RowToStructByName[definitionGrantRow], definition.Namespace, definition.AgentUID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if previous.RetiredAt != nil {
-			previous = definitionGrantRow{}
 		}
 		if err := execSQL(ctx, tx, `
 			INSERT INTO agent_definition (namespace, agent_name, agent_uid, desired_revision, grant_destinations, grant_credentials)
@@ -52,7 +38,6 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 		`, definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
 			return err
 		}
-		changed = retired > 0 || !slices.Equal(previous.GrantDestinations, grants.Destinations) || !slices.Equal(previous.GrantCredentials, grants.Credentials)
 
 		// Lock Agents before revisions. Validate the resulting definition, including
 		// its retained last-good pointer when reactivating a retired identity.
@@ -81,7 +66,6 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 		}
 		return nil
 	})
-	return changed, err
 }
 
 // RecordRuntimeRevision stores immutable inputs without making them available for
@@ -185,21 +169,19 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 // Existing sessions retain their pinned revisions. Missing and already-retired
 // identities are a no-op.
 func (c *Client) RetireAgentIdentities(ctx context.Context, namespace, name string) error {
-	_, err := retireAgentIdentities(ctx, c.db, namespace, name, "")
-	return err
+	return retireAgentIdentities(ctx, c.db, namespace, name, "")
 }
 
 // retireAgentIdentities uses the caller's executor so retirement can commit
-// atomically with definition preparation and returns the number retired. An empty
+// atomically with definition preparation. An empty
 // retainedUID retires every active identity at this source name.
-func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, retainedUID string) (int64, error) {
-	result, err := db.Exec(ctx, `
+func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, retainedUID string) error {
+	return execSQL(ctx, db, `
 		UPDATE agent_definition
 		SET retired_at = NOW(), updated_at = NOW()
 		WHERE namespace = $1 AND agent_name = $2
 		  AND retired_at IS NULL AND agent_uid IS DISTINCT FROM NULLIF($3, '')
 	`, namespace, name, retainedUID)
-	return result.RowsAffected(), err
 }
 
 // ListUnreferencedRuntimeRevisions lists revisions unused by active Agents,

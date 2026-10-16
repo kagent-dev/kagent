@@ -148,7 +148,7 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	_, upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
+	upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
 	require.NoError(t, upsertErr)
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision))
 	require.NoError(t, client.PromoteRuntimeRevision(t.Context(), revision.Revision))
