@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -15,12 +16,12 @@ import (
 func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
-	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
-	_, upsertErr := client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", DesiredRevision: "agent"})
+	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "scratch", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
+	_, upsertErr := client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "scratch", AgentUID: "old-uid", DesiredRevision: "agent"})
 	require.NoError(t, upsertErr)
 	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
-	instance, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "request")
+	instance, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "scratch", "kagent", ""), "request")
 	require.NoError(t, err)
 	op, err := client.BeginSessionOperation(ctx, instance.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
 	require.NoError(t, err)
@@ -39,7 +40,7 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	_, err = client.FinishSessionOperation(ctx, instance.Id, op.ID, executor, "", "", "")
 	require.NoError(t, err)
 	// A recreated Agent must not transfer authorization to an old pinned session.
-	_, upsertErr = client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "new-uid", DesiredRevision: "pending"})
+	_, upsertErr = client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "scratch", AgentUID: "new-uid", DesiredRevision: "pending"})
 	require.NoError(t, upsertErr)
 	sandbox, options := sandboxFixture(t, client, "sandbox")
 	created, _, err := client.CreateSandbox(ctx, sandbox, "sandbox", options)
@@ -49,13 +50,15 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	claimed, err = client.ClaimSandboxOperation(ctx, created.Id, sandboxOp.ID, uuid.New())
 	require.NoError(t, err)
 	require.True(t, claimed)
+	var sourceTargets []RuntimeEgressTarget
+	// Both kinds deliberately share a name; source filtering must preserve kind.
 	for _, test := range []struct {
 		source RuntimeEgressSource
 		want   string
 	}{
-		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}, instance.Id},
+		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "scratch"}, instance.Id},
 		{RuntimeEgressSource{Kind: RuntimeEgressSandbox, Namespace: "team-a", Name: "scratch"}, created.Id},
-		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "other", Name: "assistant"}, ""},
+		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "other", Name: "scratch"}, ""},
 		{RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "unrelated"}, ""},
 	} {
 		targets, err := client.ListRuntimeEgressSourceTargets(ctx, test.source, "", 10)
@@ -65,10 +68,16 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 		} else {
 			require.Len(t, targets, 1)
 			require.Equal(t, test.want, targets[0].ID)
+			if test.source.Kind == RuntimeEgressAgent {
+				require.Equal(t, "actor-uid", targets[0].ActorUID)
+			} else {
+				require.Empty(t, targets[0].ActorUID)
+			}
+			sourceTargets = append(sourceTargets, targets...)
 		}
 	}
 	for _, kind := range []RuntimeEgressSourceKind{"", "typo"} {
-		_, err := client.ListRuntimeEgressSourceTargets(ctx, RuntimeEgressSource{Kind: kind, Namespace: "team-a", Name: "assistant"}, "", 10)
+		_, err := client.ListRuntimeEgressSourceTargets(ctx, RuntimeEgressSource{Kind: kind, Namespace: "team-a", Name: "scratch"}, "", 10)
 		require.Error(t, err)
 	}
 	first, err := client.ListRuntimeEgressTargets(ctx, "", 1)
@@ -78,14 +87,63 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, second, 1)
 	require.ElementsMatch(t, []string{instance.Id, created.Id}, []string{first[0].ID, second[0].ID})
+	require.ElementsMatch(t, sourceTargets, append(first, second...), "source and recovery queries must return the same actor bindings")
 	last, err := client.ListRuntimeEgressTargets(ctx, second[0].ID, 1)
 	require.NoError(t, err)
 	require.Empty(t, last)
 	_, err = client.BeginSessionOperation(ctx, instance.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 	require.NoError(t, err)
-	remaining, err := client.ListRuntimeEgressSourceTargets(ctx, RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}, "", 10)
+	remaining, err := client.ListRuntimeEgressSourceTargets(ctx, RuntimeEgressSource{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "scratch"}, "", 10)
 	require.NoError(t, err)
 	require.Empty(t, remaining)
+}
+
+func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
+	many := make([]string, 257)
+	for i := range many {
+		many[i] = fmt.Sprintf("https://model-%d.example.com", i)
+	}
+	for _, test := range []struct {
+		name    string
+		origins []string
+	}{
+		{"more origins than policy rules", many},
+		{"different protocols on the same port", []string{"http://model.example.com:443", "https://model.example.com:443"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			ctx := t.Context()
+			require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{
+				Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid",
+				SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
+				TokenPassthroughOrigins: test.origins,
+			}))
+			policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
+			require.NoError(t, err)
+			require.Empty(t, policy.Destinations, "token origins constrain credentials without granting network access")
+			require.NoError(t, policy.WithheldGrants)
+		})
+	}
+}
+
+func TestRuntimeEgressCanonicalTokenOriginWithholdsCredentials(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	_, err := client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", Grants: egress.Access{
+		Destinations: []string{"https://model.example.com"},
+		Credentials:  []egress.Credential{{Origin: "https://model.example.com", Header: "authorization", URI: "ate-secret://k8s.io/default/team/model/token"}},
+	}})
+	require.NoError(t, err)
+	require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{
+		Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid",
+		SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
+		TokenPassthroughOrigins: []string{"https://MODEL.example.com."},
+	}))
+	policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
+	require.NoError(t, err)
+	require.ErrorContains(t, policy.WithheldGrants, "caller-token passthrough")
+	require.Empty(t, policy.Destinations)
+	require.Empty(t, policy.Credentials)
 }
 
 func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
@@ -145,7 +203,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 				require.Equal(t, base, policy.Access)
 			}
 			if kind == RuntimeEgressAgent {
-				require.NoError(t, client.RetireAgentIdentities(ctx, "team", "source", nil))
+				require.NoError(t, client.RetireAgentIdentities(ctx, "team", "source"))
 			} else {
 				require.NoError(t, client.RetireSandboxTemplateIdentities(ctx, "team", "source"))
 			}

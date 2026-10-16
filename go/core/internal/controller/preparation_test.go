@@ -400,10 +400,10 @@ func (p *preparationTestBackend) PromoteRuntimeRevision(ctx context.Context, rev
 	return p.store.PromoteRuntimeRevision(ctx, revision)
 }
 
-func (p *preparationTestBackend) RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error {
+func (p *preparationTestBackend) RetireAgentIdentities(ctx context.Context, namespace, name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RetireAgentIdentities(ctx, namespace, name, except)
+	return p.store.RetireAgentIdentities(ctx, namespace, name)
 }
 
 func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
@@ -19,6 +20,42 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
+
+func TestAgentEgressErrorsUseCompilationClassification(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		destinations []v1alpha3.EgressDestination
+		condition    string
+		reason       string
+	}{
+		{name: "missing policy", condition: v1alpha3.AgentConditionResolvedRefs, reason: "ReferenceResolutionFailed"},
+		{name: "invalid origin", destinations: []v1alpha3.EgressDestination{{Origin: "invalid"}}, condition: v1alpha3.AgentConditionCompatible, reason: "UnsupportedConfiguration"},
+		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"}}}}, condition: v1alpha3.AgentConditionResolvedRefs, reason: "ReferenceResolutionFailed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			collections, _ := newPreparationTestCollections(t, "gvisor")
+			if test.destinations != nil {
+				collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy]).UpdateObject(&v1alpha3.EgressPolicy{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"},
+					Spec:       v1alpha3.EgressPolicySpec{Destinations: test.destinations},
+				})
+			}
+			agent := collections.Agents.List()[0].DeepCopy()
+			agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "access"}}
+			collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+			waitFor(t, func() bool {
+				observed := collections.AgentStatuses.GetKey("team-a/assistant")
+				return observed != nil && meta.IsStatusConditionFalse(observed.Status.Conditions, test.condition)
+			})
+			condition := meta.FindStatusCondition(collections.AgentStatuses.GetKey("team-a/assistant").Status.Conditions, test.condition)
+			require.Equal(t, test.reason, condition.Reason)
+			state := collections.Reconciliations.GetKey("team-a/assistant")
+			require.Nil(t, state.Target)
+			require.Empty(t, state.Grants.Destinations)
+			require.Empty(t, state.Grants.Credentials)
+		})
+	}
+}
 
 func TestAgentGrantChangesReconcileWithoutRuntimeChange(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
