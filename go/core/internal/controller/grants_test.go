@@ -63,6 +63,74 @@ func TestAgentGrantChangesReconcileWithoutRuntimeChange(t *testing.T) {
 	})
 }
 
+func TestAgentGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
+	for _, missing := range []string{"Harness", "AgentTemplate", "WorkerPool"} {
+		t.Run(missing, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				collections, harnesses := newPreparationTestCollections(t, "gvisor")
+				agent := collections.Agents.List()[0].DeepCopy()
+				agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "access"}}
+				switch missing {
+				case "Harness":
+					agent.Spec.HarnessRef.Name = "missing"
+				case "AgentTemplate":
+					agent.Spec.Template = v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "missing"}}
+				case "WorkerPool":
+					harness := harnesses.List()[0].DeepCopy()
+					harness.Spec.Substrate.WorkerPoolRef.Name = "missing"
+					harnesses.UpdateObject(harness)
+				}
+				collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+				synctest.Wait()
+				store := &fakeRuntimeRevisionStore{}
+				backend := &preparationTestBackend{templates: &fakeActorTemplates{}, store: store}
+				var sources []database.RuntimeEgressSource
+				r := newReconciler(collections, backend, backend, kagentfake.NewSimpleClientset(agent.DeepCopy()).ApiV1alpha3(), func(source database.RuntimeEgressSource) { sources = append(sources, source) })
+				ctx, cancel := context.WithCancel(t.Context())
+				var workers sync.WaitGroup
+				workers.Go(func() { r.Run(ctx.Done()) })
+				defer func() { cancel(); workers.Wait() }()
+				synctest.Wait()
+				sources = nil
+
+				policies := collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy])
+				policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com"}}}}
+				policies.UpdateObject(policy)
+				synctest.Wait()
+				state := collections.Reconciliations.GetKey("team-a/assistant")
+				require.Nil(t, state.Target)
+				require.NotNil(t, state.CompilationFailure)
+				require.Contains(t, state.CompilationFailure.Message, missing)
+				backend.inspect(func() {
+					require.Empty(t, store.pair.DesiredRevision)
+					require.Equal(t, []string{"https://tickets.example.com:443"}, store.pair.Grants.Destinations)
+				})
+				wantSource := database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}
+				require.Equal(t, []database.RuntimeEgressSource{wantSource}, sources)
+
+				policy = policy.DeepCopy()
+				policy.Spec.Destinations[0].Origin = "https://updated.example.com"
+				policies.UpdateObject(policy)
+				synctest.Wait()
+				backend.inspect(func() {
+					require.Empty(t, store.pair.DesiredRevision)
+					require.Equal(t, []string{"https://updated.example.com:443"}, store.pair.Grants.Destinations)
+				})
+				require.Equal(t, []database.RuntimeEgressSource{wantSource, wantSource}, sources)
+
+				policies.DeleteObject("team-a/access")
+				synctest.Wait()
+				backend.inspect(func() {
+					require.Empty(t, store.pair.DesiredRevision)
+					require.Empty(t, store.pair.Grants.Destinations)
+					require.Zero(t, store.recordCalls, "grant changes must not require a compiled runtime")
+				})
+				require.Equal(t, []database.RuntimeEgressSource{wantSource, wantSource, wantSource}, sources, "revocation must enqueue actors while compilation remains broken")
+			})
+		})
+	}
+}
+
 func TestAgentGrantWriteFailureAndRetirementEnqueueActors(t *testing.T) {
 	collections, _ := newPreparationTestCollections(t, "gvisor")
 	state := collections.Reconciliations.List()[0]
