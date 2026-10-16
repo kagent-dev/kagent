@@ -445,10 +445,7 @@ jobs:
           # and its single session-scoped reaper is contended by the parallel package
           # processes of `go test ./...`, intermittently timing out the Postgres tests.
           TESTCONTAINERS_RYUK_DISABLED: "true"
-        run: |
-          make setup-envtest
-          export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
-          go test -race -skip 'TestE2E.*' -v ./...
+        run: make test
 
   helm-unit-tests:
     env:

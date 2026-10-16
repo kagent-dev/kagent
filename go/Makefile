@@ -116,9 +116,14 @@ build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 cor
 run: fmt vet ## Run a controller from your host.
 	go run ./core/cmd/controller/main.go
 
+GO_TEST_FLAGS ?= -race
+GO_TEST_PACKAGES ?= $(shell go list ./... | grep -vE "/test/")
+
 .PHONY: test
-test: ## Run all unit tests.
-	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
+test: setup-envtest ## Run all unit tests.
+	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) \
+		KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+		go test $(GO_TEST_FLAGS) $(GO_TEST_PACKAGES)
 
 # Pin e2e tests to the kind cluster so a stray current-context (or an
 # ambient KUBECONFIG) can't leak resources onto a remote cluster. Override
@@ -167,7 +172,7 @@ setup-envtest: envtest $(LOCALBIN) ## Download the binaries required for ENVTEST
 	}
 
 .PHONY: envtest-path
-envtest-path: envtest $(LOCALBIN) ## Print the path to the envtest binaries (downloads them if absent).
+envtest-path: $(LOCALBIN) ## Print the path to the envtest binaries (downloads them if absent).
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
 .PHONY: envtest
