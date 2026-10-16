@@ -193,6 +193,10 @@ config:
     secure: true
   telemetry: {}
   runtimeDefaults:
+    skillTools:
+      fileSearchTools: false
+      bashVenvPath: ""
+      disableBash: false
     logging:
       level: info
     telemetry: {}

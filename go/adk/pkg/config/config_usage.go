@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 // AgentConfigUsage documents how Agent.yaml spec fields map to AgentConfig and are used
@@ -36,7 +36,7 @@ import (
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used
 // This is a helper function to ensure we're using all fields correctly
-func ValidateAgentConfigUsage(config *adk.AgentConfig) error {
+func ValidateAgentConfigUsage(config *configv1.ADKAgentConfig) error {
 	if config == nil {
 		return fmt.Errorf("agent config is nil")
 	}
@@ -69,14 +69,14 @@ func ValidateAgentConfigUsage(config *adk.AgentConfig) error {
 }
 
 // GetAgentConfigSummary returns a summary of the agent configuration
-func GetAgentConfigSummary(config *adk.AgentConfig) string {
+func GetAgentConfigSummary(config *configv1.ADKAgentConfig) string {
 	if config == nil {
 		return "AgentConfig: nil"
 	}
 
 	summary := "AgentConfig:\n"
 	if config.Model != nil {
-		summary += fmt.Sprintf("  Model: %s (%s)\n", adk.ModelType(config.Model), config.Model.GetModel())
+		summary += fmt.Sprintf("  Model: %s (%s)\n", ModelType(config.Model), config.Model.GetModel())
 	} else {
 		summary += "  Model: (nil)\n"
 	}

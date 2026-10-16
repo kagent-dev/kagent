@@ -20,7 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -101,9 +101,9 @@ type mcpServerParams struct {
 // derived from invocation context (e.g., STS exchanged access tokens).
 func CreateToolsets(
 	ctx context.Context,
-	httpTools []*adk.HttpMcpServerConfig,
-	sseTools []*adk.SseMcpServerConfig,
-	stdioTools []*adk.StdioMcpServerConfig,
+	httpTools []*configv1.ADKHTTPMCPServerConfig,
+	sseTools []*configv1.ADKSSEMCPServerConfig,
+	stdioTools []*configv1.ADKStdioMCPServerConfig,
 	propagateToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {

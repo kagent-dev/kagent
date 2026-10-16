@@ -346,8 +346,14 @@ message RuntimeDefaultsConfig {
   }];
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
-  bool file_search_tools = 7;
-  string bash_venv_path = 8;
+  SkillToolsConfig skill_tools = 7;
+}
+
+// SkillToolsConfig configures the built-in tools available with local skills.
+message SkillToolsConfig {
+  bool file_search_tools = 1;
+  string bash_venv_path = 2;
+  bool disable_bash = 3;
 }
 
 message TokenPropagationConfig {

@@ -29,7 +29,6 @@ type InvokeCfg struct {
 	File         string
 	Session      string
 	Stream       bool
-	Token        string
 	PushURL      string
 	PushID       string
 }
@@ -52,9 +51,6 @@ func runInvoke(
 	sessionID, err := uuid.Parse(cfg.Session)
 	if err != nil {
 		return fmt.Errorf("invalid Session ID %q: %w", cfg.Session, err)
-	}
-	if strings.ContainsAny(cfg.Token, " \t\r\n") {
-		return errors.New("model API key must not contain whitespace")
 	}
 	if cfg.PushID != "" && cfg.PushURL == "" {
 		return errors.New("--push-id requires --push-url")
@@ -84,7 +80,6 @@ func runInvoke(
 	if cfg.PushURL != "" {
 		return invokeWithPush(ctx, a2aClient, request, cfg, format, out)
 	}
-	ctx = withModelToken(ctx, cfg.Token)
 
 	if cfg.Stream {
 		return invokeStreaming(ctx, a2aClient, request, format, out)
@@ -106,7 +101,7 @@ func invokeWithPush(ctx context.Context, client pushInvokeClient, request *a2aty
 		ID: callbackID, URL: cfg.PushURL,
 	}}
 	result, err := retryUnacceptedSend(ctx, func() (a2atype.SendMessageResult, error) {
-		return client.SendMessage(withModelToken(ctx, cfg.Token), request)
+		return client.SendMessage(ctx, request)
 	})
 	if err != nil {
 		return fmt.Errorf("invoke Session: %w", err)
@@ -129,13 +124,6 @@ func invokeWithPush(ctx context.Context, client pushInvokeClient, request *a2aty
 func newInvokeRequest(task string) *a2atype.SendMessageRequest {
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(task))
 	return &a2atype.SendMessageRequest{Message: message}
-}
-
-func withModelToken(ctx context.Context, token string) context.Context {
-	if token == "" {
-		return ctx
-	}
-	return a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{"authorization": {"Bearer " + token}})
 }
 
 func readInvokeTask(cfg *InvokeCfg, in io.Reader) (string, error) {
@@ -456,7 +444,6 @@ func NewInvokeCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.Task, "task", "t", "", "Task text")
 	cmd.Flags().StringVarP(&cfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	cmd.Flags().BoolVarP(&cfg.Stream, "stream", "S", false, "Stream the response")
-	cmd.Flags().StringVar(&cfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
 	cmd.Flags().StringVar(&cfg.PushURL, "push-url", "", "Register a callback before task dispatch; return the task immediately")
 	cmd.Flags().StringVar(&cfg.PushID, "push-id", "", "Callback ID (generated when omitted; requires --push-url)")
 	_ = cmd.MarkFlagRequired("session")

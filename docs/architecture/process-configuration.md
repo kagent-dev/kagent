@@ -159,6 +159,9 @@ process settings have one schema. Process settings live in the root `runtime`
 object. Agent behavior lives under `agent`, whose recursive `sub_agents`
 contain only `ADKAgentConfig` messages. Runtime fields cannot be set on any
 agent node; the entire tree shares the top-level process settings.
+Go callers use the generated types from `go/api/gen/kagent/config/v1` directly.
+`go/adk/pkg/config` owns validated ProtoJSON encoding and decoding, runtime
+defaults, and model and plugin conversions shared by the compiler and runtime.
 Native Claude and Codex retain their harness-specific Go structs. The controller
 compiles `runtimeDefaults` into these payloads independently of its own settings.
 
@@ -172,8 +175,8 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "log_level": "info",
     "port": 80,
     "max_content_length": "0",
-    "file_search_tools": false,
-    "token_propagation": {"enabled": false}
+    "skill_tools": { "file_search_tools": false },
+    "token_propagation": { "enabled": false }
   }
 }
 ```
@@ -181,7 +184,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
 Models select exactly one provider, for example:
 
 ```json
-{"agent": {"model": {"model": "gpt-4o", "openai": {"temperature": 0}}}}
+{ "agent": { "model": { "model": "gpt-4o", "openai": { "temperature": 0 } } } }
 ```
 
 Provider-specific fields live inside the selected provider; shared transport
@@ -207,6 +210,19 @@ fields and multiple model providers fail configuration loading. Telemetry uses
 the same `TelemetryConfig` as controller settings (including protobuf durations).
 
 An absent request size limit uses the runtime default; zero means unlimited.
+
+Skill tool settings live together under `runtime.skill_tools`:
+`file_search_tools`, `bash_venv_path`, and `disable_bash`. Move existing flat
+settings into this block when updating configuration files.
+Go ADK automatically registers the built-in `bash` tool when skills are loaded.
+Set `runtime.skill_tools.disable_bash` to `true` to omit it for the root agent and all
+subagents. Skill discovery and loading, `read_file`, `write_file`, and `edit_file`
+remain available; `list_files` and `grep_file` still depend on
+`runtime.skill_tools.file_search_tools`. For controller-managed runtimes, set
+`config.runtimeDefaults.skillTools.disableBash: true` in Helm values. The default is `false`;
+this setting affects only the built-in Go ADK bash tool, not Python or tools
+provided through MCP or other integrations.
+
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
 `parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private

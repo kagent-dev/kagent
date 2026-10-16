@@ -3,6 +3,15 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
 tests:
+  - it: forwards the Go ADK bash setting to runtime defaults
+    template: controller-configmap.yaml
+    set:
+      config.runtimeDefaults.skillTools.disableBash: true
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'disableBash: true'
+
   - it: mounts one config document and secret files
     template: controller-deployment.yaml
     asserts:

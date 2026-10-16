@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -42,6 +43,11 @@ type Options struct {
 	Verbose    bool
 	Timeout    time.Duration
 	UserID     string
+
+	// DialOptions are added to every client built from these options, after
+	// the ones the CLI sets, so a binary that embeds the CLI can add
+	// interceptors.
+	DialOptions []grpc.DialOption
 }
 
 func DefaultOptions() Options {
@@ -64,6 +70,9 @@ func (o *Options) clientOptions() []client.ClientOption {
 			CAFile:     o.CAFile,
 			ServerName: o.ServerName,
 		}))
+	}
+	if len(o.DialOptions) > 0 {
+		clientOptions = append(clientOptions, client.WithGRPCDialOptions(o.DialOptions...))
 	}
 	return clientOptions
 }

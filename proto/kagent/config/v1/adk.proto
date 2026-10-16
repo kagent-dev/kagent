@@ -417,11 +417,10 @@ message ADKRuntimeConfig {
   // Absent selects the runtime default; zero means unlimited.
   optional int64 max_content_length = 8 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 9;
-  string bash_venv_path = 10;
-  bool file_search_tools = 11;
-  TelemetryConfig telemetry = 12 [(buf.validate.field).cel = {
+  TelemetryConfig telemetry = 10 [(buf.validate.field).cel = {
     id: "runtime.telemetry.service_identity"
     message: "runtime telemetry resource_attributes must not override compiled service.name or service.namespace"
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
+  SkillToolsConfig skill_tools = 11;
 }

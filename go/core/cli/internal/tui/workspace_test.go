@@ -332,9 +332,9 @@ func TestWorkspaceCatalog(t *testing.T) {
 			wantNames: map[string]int{allNames: 1, "smoke": 1, "reporter": 0},
 		},
 		{
-			// Without a kubeconfig the cascade still works, from session data.
+			// When the catalog cannot be read the cascade still works, from session data.
 			name:       "falls back to session names",
-			catalog:    &fakeCatalog{err: errors.New("no kubeconfig")},
+			catalog:    &fakeCatalog{err: errors.New("permission denied")},
 			wantNames:  map[string]int{allNames: 1, "smoke": 1},
 			wantStatus: "only Agents that have sessions",
 		},
@@ -342,7 +342,7 @@ func TestWorkspaceCatalog(t *testing.T) {
 			name:       "a nil catalog is not fatal",
 			catalog:    nil,
 			wantNames:  map[string]int{allNames: 1, "smoke": 1},
-			wantStatus: "no Kubernetes client",
+			wantStatus: "no Agent catalog",
 		},
 	}
 

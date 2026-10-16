@@ -17,7 +17,9 @@
         "tools"
       ]
     },
-    "bash_venv_path": "/opt/venv",
+    "skill_tools": {
+      "bash_venv_path": "/opt/venv"
+    },
     "telemetry": {
       "traces": {
         "endpoint": "http://collector:4318/v1/traces",
