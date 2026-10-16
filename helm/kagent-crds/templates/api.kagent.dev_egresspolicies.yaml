@@ -122,9 +122,8 @@ spec:
                   - origin
                   type: object
                   x-kubernetes-validations:
-                  - message: authentication requires an exact HTTPS origin
-                    rule: '!has(self.authentication) || (self.origin.startsWith(''https://'')
-                      && !self.origin.contains(''*''))'
+                  - message: authentication requires an exact HTTP(S) origin
+                    rule: '!has(self.authentication) || !self.origin.contains(''*'')'
                 maxItems: 64
                 minItems: 1
                 type: array

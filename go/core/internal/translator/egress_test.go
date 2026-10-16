@@ -50,6 +50,15 @@ func TestEgressPolicyCredentialPrefixes(t *testing.T) {
 	}
 }
 
+func TestEgressPolicyHTTPCredentials(t *testing.T) {
+	policy, secret := egressPolicy()
+	policy.Spec.Destinations[0].Origin = "http://tickets.example.com:8080"
+	access, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"http://tickets.example.com:8080"}, access.Destinations)
+	require.Equal(t, []egress.Credential{{Origin: "http://tickets.example.com:8080", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/test/ticket-auth/token"}}, access.Credentials)
+}
+
 func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 	for _, kind := range []string{"kagent", "codex", "claude", "byo"} {
 		t.Run(kind, func(t *testing.T) {
@@ -86,6 +95,9 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 				return result
 			}
 			result := compile()
+			var recorded struct{ Spec v1alpha3.AgentSpec }
+			require.NoError(t, json.Unmarshal(result.Provenance, &recorded))
+			require.Equal(t, agent.Spec, recorded.Spec, "record the full source spec, including live policy references")
 			require.NotContains(t, result.EgressDestinations, "https://tickets.example.com:443")
 			require.NotEmpty(t, result.EgressDestinations, "preserve inferred integration access")
 			for _, binding := range result.Credentials {
@@ -136,7 +148,7 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 }
 
 func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
-	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "HTTP auth", "wildcard auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix"} {
+	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "wildcard auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix"} {
 		t.Run(name, func(t *testing.T) {
 			policy, secret := egressPolicy()
 			objects := []any{policy, secret}
@@ -152,8 +164,6 @@ func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 				secret.Data = nil
 			case "optional secret":
 				policy.Spec.Destinations[0].Authentication.SecretKeyRef.Optional = new(true)
-			case "HTTP auth":
-				policy.Spec.Destinations[0].Origin = "http://tickets.example.com"
 			case "wildcard auth":
 				policy.Spec.Destinations[0].Origin = "https://*.example.com"
 			case "empty auth":

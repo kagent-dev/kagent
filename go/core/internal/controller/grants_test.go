@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -67,14 +68,15 @@ func TestAgentGrantChangesReconcileWithoutRuntimeChange(t *testing.T) {
 		template := proto.CloneOf(initial.Target.ActorTemplate)
 		template.Metadata.Uid = "prepared"
 		template.Status = sandboxGoldenStatus()
-		store := &fakeRuntimeRevisionStore{}
+		store := &fakeRuntimeRevisionStore{definitionSources: []database.RuntimeEgressSource{{Kind: database.RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}}}
 		backend := &preparationTestBackend{templates: &fakeActorTemplates{template: template}, store: store}
 		r := newReconciler(collections, backend, backend, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
 		ctx, cancel := context.WithCancel(t.Context())
 		var workers sync.WaitGroup
-		workers.Go(func() { r.Run(ctx.Done()) })
+		workers.Go(func() { assert.NoError(t, r.Start(ctx)) })
 		defer func() { cancel(); workers.Wait() }()
 		synctest.Wait()
+		require.Empty(t, store.retired, "startup must preserve a matching live Agent")
 		store.sources = nil
 		policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com"}}}}
 		collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy]).UpdateObject(policy)
@@ -130,7 +132,7 @@ func TestAgentGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 				r := newReconciler(collections, backend, backend, kagentfake.NewSimpleClientset(agent.DeepCopy()).ApiV1alpha3())
 				ctx, cancel := context.WithCancel(t.Context())
 				var workers sync.WaitGroup
-				workers.Go(func() { r.Run(ctx.Done()) })
+				workers.Go(func() { assert.NoError(t, r.Start(ctx)) })
 				defer func() { cancel(); workers.Wait() }()
 				synctest.Wait()
 				store.sources = nil
@@ -186,42 +188,58 @@ func TestAgentGrantWriteFailureAndRetirementApplyActors(t *testing.T) {
 	require.Equal(t, []database.RuntimeEgressSource{{Kind: database.RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"}}, store.sources)
 }
 
-func TestAgentFinalizerRetiresGrantsAfterOfflineDeletion(t *testing.T) {
+func TestAgentStartupRecoversOfflineDeletions(t *testing.T) {
+	for _, namespaces := range [][]string{nil, {"team-a"}} {
+		t.Run(fmt.Sprint(namespaces), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				collections, _ := newPreparationTestCollections(t, "gvisor")
+				collections.watchNamespaces = namespaces
+				// Delete before registering handlers: no KRT event can recover it.
+				collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).DeleteObject("team-a/assistant")
+				synctest.Wait()
+				sources := []database.RuntimeEgressSource{
+					{Kind: database.RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"},
+					{Kind: database.RuntimeEgressAgent, Namespace: "team-b", Name: "assistant"},
+				}
+				store := &fakeRuntimeRevisionStore{definitionSources: sources, egressTargetStoreStub: egressTargetStoreStub{
+					targets: []database.RuntimeEgressTarget{{ID: "actor", Revision: "old", Atespace: "team-a", TemplateName: "runtime"}},
+				}}
+				attempts := 0
+				actors := &fakeActorTemplates{actorEgressStub: actorEgressStub{ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
+					assert.NotEmpty(t, store.retired, "retire before applying revocation")
+					attempts++
+					if attempts == 1 {
+						return egress.Policy{}, errors.New("backend unavailable")
+					}
+					return egress.Policy{}, nil
+				}}}
+				r := newReconciler(collections, actors, store, kagentfake.NewSimpleClientset().ApiV1alpha3())
+				var workers sync.WaitGroup
+				workers.Go(func() { assert.NoError(t, r.Start(ctx)) })
+				defer func() { cancel(); workers.Wait() }()
+				synctest.Wait()
+				time.Sleep(time.Second)
+				synctest.Wait()
+				want := []database.RuntimeEgressSource{sources[0], sources[0]}
+				if len(namespaces) == 0 {
+					want = append(want, sources[1])
+				}
+				require.ElementsMatch(t, want, store.sources, "recovery must honor namespace scope and retry revocation")
+				require.Equal(t, len(want), attempts)
+				require.Zero(t, store.pairCalls, "missing Agents must not be recreated")
+			})
+		})
+	}
+}
+
+func TestAgentStartupRecoveryReadFailure(t *testing.T) {
 	collections, _ := newPreparationTestCollections(t, "gvisor")
-	agent := collections.Agents.List()[0].DeepCopy()
-	agent.Finalizers = nil
-	agents := collections.Agents.(krt.StaticCollection[*v1alpha3.Agent])
-	agents.UpdateObject(agent)
-	waitFor(t, func() bool { return len(collections.Reconciliations.GetKey("team-a/assistant").Agent.Finalizers) == 0 })
-	client := kagentfake.NewSimpleClientset(agent.DeepCopy()).ApiV1alpha3()
-	store := &fakeRuntimeRevisionStore{egressTargetStoreStub: egressTargetStoreStub{targets: []database.RuntimeEgressTarget{{ID: "actor", Revision: "old", Atespace: "team-a", TemplateName: "runtime"}}}}
-	pushErr := errors.New("backend unavailable")
-	actors := &fakeActorTemplates{actorEgressStub: actorEgressStub{ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
-		assert.NotEmpty(t, store.retired, "retire before applying revocation")
-		return egress.Policy{}, pushErr
-	}}}
-	r := &Reconciler{collections: collections, store: store, templates: actors, status: client}
-	require.NoError(t, r.reconcileAgent(t.Context(), "team-a/assistant"))
-	require.Zero(t, store.pairCalls, "deletion ownership must be durable before grants")
-	updated, err := client.Agents("team-a").Get(t.Context(), "assistant", metav1.GetOptions{})
-	require.NoError(t, err)
-	require.Contains(t, updated.Finalizers, agentPreparationFinalizer)
-	updated.DeletionTimestamp = &metav1.Time{Time: metav1.Now().Time}
-	agents.UpdateObject(updated)
-	waitFor(t, func() bool {
-		return !collections.Reconciliations.GetKey("team-a/assistant").Agent.DeletionTimestamp.IsZero()
-	})
-	require.ErrorIs(t, r.reconcileAgent(t.Context(), "team-a/assistant"), pushErr)
-	persisted, err := client.Agents("team-a").Get(t.Context(), "assistant", metav1.GetOptions{})
-	require.NoError(t, err)
-	require.Contains(t, persisted.Finalizers, agentPreparationFinalizer, "failed revocation must retain deletion ownership")
-	pushErr = nil
-	require.NoError(t, r.reconcileAgent(t.Context(), "team-a/assistant"))
-	require.NotEmpty(t, store.retired)
-	require.Len(t, store.sources, 2)
-	persisted, err = client.Agents("team-a").Get(t.Context(), "assistant", metav1.GetOptions{})
-	require.NoError(t, err)
-	require.NotContains(t, persisted.Finalizers, agentPreparationFinalizer)
+	store := &fakeRuntimeRevisionStore{sourcesErr: errors.New("database unavailable")}
+	r := newReconciler(collections, &fakeActorTemplates{}, store, kagentfake.NewSimpleClientset().ApiV1alpha3())
+	require.ErrorIs(t, r.Start(t.Context()), store.sourcesErr)
+	require.Zero(t, store.pairCalls, "failed recovery must fail startup")
 }
 
 func TestSandboxGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {

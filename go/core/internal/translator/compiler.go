@@ -131,14 +131,12 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, err
 	}
 	result.AgentUID = string(agent.UID)
-	spec := agent.Spec.DeepCopy()
-	spec.EgressPolicyRefs = nil
 	result.Provenance, err = json.Marshal(struct {
 		AgentName string             `json:"agentName"`
 		AgentUID  string             `json:"agentUID"`
 		Spec      v1alpha3.AgentSpec `json:"spec"`
 		Inputs    json.RawMessage    `json:"inputs"`
-	}{agent.Name, string(agent.UID), *spec, result.Provenance})
+	}{agent.Name, string(agent.UID), agent.Spec, result.Provenance})
 	if err != nil {
 		return nil, fmt.Errorf("encode Agent provenance: %w", err)
 	}

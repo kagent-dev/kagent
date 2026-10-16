@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -36,9 +37,12 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, digest, same)
 	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
-	_, unchanged, _, err := SandboxActorTemplate(template, "", policy)
+	_, unchanged, source, err := SandboxActorTemplate(template, "", policy)
 	require.NoError(t, err)
 	require.Equal(t, digest, unchanged, "policy references are live authorization")
+	var recorded sandboxInputs
+	require.NoError(t, json.Unmarshal(source, &recorded))
+	require.Equal(t, template.Spec, recorded.Spec, "provenance retains the complete source spec")
 	for _, change := range []struct {
 		name   string
 		mutate func(*v1alpha3.SandboxTemplate, *SandboxPolicy)

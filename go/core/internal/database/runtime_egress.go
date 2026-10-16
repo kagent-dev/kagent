@@ -105,15 +105,36 @@ func (c *Client) ListRuntimeEgressSourceTargets(ctx context.Context, source Runt
 		return nil, fmt.Errorf("runtime egress source requires namespace and name")
 	}
 	switch source.Kind {
-	case RuntimeEgressAgent, RuntimeEgressSandbox:
+	case RuntimeEgressAgent:
+		return queryMany(ctx, c.db, `
+  SELECT i.id::text AS id, i.prepared_revision AS revision, r.namespace,
+    r.actor_template_atespace AS atespace, r.actor_template_name AS template_name,
+    COALESCE(s.actor_uid, '') AS actor_uid
+  FROM runtime_instance i
+  JOIN runtime_revision r ON r.revision = i.prepared_revision
+  JOIN agent_revision a ON a.revision = r.revision
+  JOIN session s ON s.id = i.id
+  WHERE i.kind = 'agent' AND r.kind = 'agent' AND r.namespace = $1 AND a.agent_name = $2
+    AND (i.operation <> 'RUNTIME_OPERATION_CREATE' OR i.executor_id IS NOT NULL)
+    AND i.state <> 'RUNTIME_STATE_DELETED' AND i.operation <> 'RUNTIME_OPERATION_DELETE'
+    AND i.id > COALESCE(NULLIF($3, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  ORDER BY i.id LIMIT $4
+ `, pgx.RowToStructByName[RuntimeEgressTarget], source.Namespace, source.Name, afterID, limit)
+	case RuntimeEgressSandbox:
+		return queryMany(ctx, c.db, `
+  SELECT i.id::text AS id, i.prepared_revision AS revision, r.namespace,
+    r.actor_template_atespace AS atespace, r.actor_template_name AS template_name,
+    '' AS actor_uid
+  FROM runtime_instance i
+  JOIN runtime_revision r ON r.revision = i.prepared_revision
+  JOIN sandbox_revision s ON s.revision = r.revision
+  WHERE i.kind = 'sandbox' AND r.kind = 'sandbox' AND r.namespace = $1 AND s.sandbox_template_name = $2
+    AND (i.operation <> 'RUNTIME_OPERATION_CREATE' OR i.executor_id IS NOT NULL)
+    AND i.state <> 'RUNTIME_STATE_DELETED' AND i.operation <> 'RUNTIME_OPERATION_DELETE'
+    AND i.id > COALESCE(NULLIF($3, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  ORDER BY i.id LIMIT $4
+ `, pgx.RowToStructByName[RuntimeEgressTarget], source.Namespace, source.Name, afterID, limit)
 	default:
 		return nil, fmt.Errorf("unknown runtime egress source kind %q", source.Kind)
 	}
-	return queryMany(ctx, c.db, `
-  SELECT target.id::text AS id, revision, namespace, atespace, template_name, actor_uid
-  FROM runtime_egress_target target
-  WHERE source_kind = $1 AND namespace = $2 AND source_name = $3
-    AND target.id > COALESCE(NULLIF($4, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-  ORDER BY target.id LIMIT $5
- `, pgx.RowToStructByName[RuntimeEgressTarget], source.Kind, source.Namespace, source.Name, afterID, limit)
 }

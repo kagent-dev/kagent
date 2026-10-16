@@ -60,8 +60,8 @@ type Revision struct {
 	SandboxClass     atev1alpha1.SandboxClass
 	SnapshotLocation string
 
-	// Provenance identifies non-secret Kubernetes inputs. Gateway-fetched
-	// credential values are deliberately excluded from revision identity.
+	// Provenance records non-secret source configuration for diagnostics. Revision
+	// identity comes from compiled runtime inputs, not this source snapshot.
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
@@ -104,7 +104,6 @@ func (r *Revision) Digest() (RevisionID, error) {
 		SkillImages             []SkillImage             `json:"skillImages,omitempty"`
 		WorkerPoolName          string                   `json:"workerPoolName"`
 		SnapshotLocation        string                   `json:"snapshotLocation"`
-		Provenance              json.RawMessage          `json:"provenance"`
 		Credentials             []egress.Credential      `json:"credentials,omitempty"`
 		TokenPassthroughOrigins []string                 `json:"tokenPassthroughOrigins,omitempty"`
 		EgressDestinations      []string                 `json:"egressDestinations"`
@@ -117,7 +116,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
-		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
+		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
 		TokenPassthroughOrigins: r.TokenPassthroughOrigins, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})

@@ -35,6 +35,25 @@ func TestRetireAgentIdentities(t *testing.T) {
 	require.Equal(t, "revision", revisions[0].Revision)
 }
 
+func TestListAgentDefinitionSourcesIncludesRetiredIdentities(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	for _, definition := range []AgentDefinition{
+		{Namespace: "team-a", AgentName: "assistant", AgentUID: "old"},
+		{Namespace: "team-a", AgentName: "assistant", AgentUID: "replacement"},
+		{Namespace: "team-b", AgentName: "assistant", AgentUID: "other"},
+	} {
+		require.NoError(t, client.UpsertAgentDefinition(ctx, definition))
+	}
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant"))
+	sources, err := client.ListAgentDefinitionSources(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []RuntimeEgressSource{
+		{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"},
+		{Kind: RuntimeEgressAgent, Namespace: "team-b", Name: "assistant"},
+	}, sources, "retirement may commit before actor revocation; recovery must retain that source and deduplicate old UIDs")
+}
+
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
