@@ -69,7 +69,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		t.Parallel()
 		kube := interactionKubeClient(t)
 		destination, requests := startEgressDestination(t)
-		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination)
+		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination, "live", "checkpoint", "fresh", "resumed", "fork")
 		config := harness.createModel(t, kube, modelURL, nil)
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "live-egress-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
@@ -95,7 +95,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		}
 
 		run := runs("live")
-		finish := runEgressSkill(t, fixture, model, run)
+		finish := runEgressSkill(t, fixture, model, run, "initial_DENIED", "allowed_ALLOWED", "revoked_DENIED")
 		run.expect(t, "initial", "DENIED")
 		require.Zero(t, requests("live_initial"), "ungranted requests reached the destination")
 		require.NoError(t, kube.Get(t.Context(), key, agent))
@@ -120,7 +120,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		// suspended. Neither resume nor a DATA fork may resurrect that old grant.
 		setGrant(destination)
 		run = runs("checkpoint")
-		finish = runEgressSkill(t, fixture, model, run)
+		finish = runEgressSkill(t, fixture, model, run, "initial_ALLOWED")
 		run.expect(t, "initial", "ALLOWED")
 		task := finish()
 		assertActorSuspended(t, fixture)
@@ -148,12 +148,12 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 			require.NoError(t, deleteIdleSession(context.WithoutCancel(fresh.ctx), fresh.sessions, fresh.sessionID))
 		})
 		run = runs("fresh")
-		finish = runEgressSkill(t, &fresh, model, run)
+		finish = runEgressSkill(t, &fresh, model, run, "initial_DENIED")
 		run.expect(t, "initial", "DENIED")
 		require.Zero(t, requests("fresh_initial"))
 		finish()
 		run = runs("resumed")
-		finish = runEgressSkill(t, fixture, model, run)
+		finish = runEgressSkill(t, fixture, model, run, "initial_DENIED")
 		run.expect(t, "initial", "DENIED")
 		require.Zero(t, requests("resumed_initial"))
 		finish()
@@ -172,7 +172,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 			require.NoError(t, deleteIdleSession(ctx, fork.sessions, fork.sessionID))
 		})
 		run = runs("fork")
-		finish = runEgressSkill(t, &fork, model, run)
+		finish = runEgressSkill(t, &fork, model, run, "initial_DENIED")
 		run.expect(t, "initial", "DENIED")
 		require.Zero(t, requests("fork_initial"))
 		finish()
@@ -215,7 +215,7 @@ func (e *egressProbeRun) finish(ctx context.Context) error {
 	}
 }
 
-func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecorder, run *egressProbeRun) func() *a2atype.Task {
+func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecorder, run *egressProbeRun, expectedResults ...string) func() *a2atype.Task {
 	t.Helper()
 	start := len(model.Requests("", ""))
 	_, request := newMessageRequest(t, "Run egress skill "+run.name+".")
@@ -268,10 +268,8 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 		for _, marker := range []string{"SKILL_BODY_EGRESS", "EGRESS_PROBE_STARTED_" + run.name, "EGRESS_PROBE_FINISHED_" + run.name} {
 			require.Contains(t, string(outputs), marker)
 		}
-		if run.name == "live" {
-			for _, marker := range []string{"EGRESS_RESULT_live_initial_DENIED", "EGRESS_RESULT_live_allowed_ALLOWED", "EGRESS_RESULT_live_revoked_DENIED"} {
-				require.Contains(t, string(outputs), marker)
-			}
+		for _, result := range expectedResults {
+			require.Contains(t, string(outputs), "EGRESS_RESULT_"+run.name+"_"+result)
 		}
 		return task
 	}
@@ -323,8 +321,9 @@ func startEgressDestination(t *testing.T) (string, func(string) int) {
 	return destination.String(), func(phase string) int { mu.Lock(); defer mu.Unlock(); return requests[phase] }
 }
 
-func startEgressSkillMock(t *testing.T, root, destination string) (string, *modelRecorder, func(string) *egressProbeRun) {
+func startEgressSkillMock(t *testing.T, root, destination string, runNames ...string) (string, *modelRecorder, func(string) *egressProbeRun) {
 	t.Helper()
+	require.NotEmpty(t, runNames)
 	var active atomic.Pointer[egressProbeRun]
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		run := active.Load()
@@ -368,7 +367,7 @@ func startEgressSkillMock(t *testing.T, root, destination string) (string, *mode
 	raw, err := interactionMocks.ReadFile("mocks/invoke_egress_skill.json")
 	require.NoError(t, err)
 	runs := map[string]*egressProbeRun{}
-	for _, phase := range []string{"live", "checkpoint", "resumed", "fork"} {
+	for _, phase := range runNames {
 		command := fmt.Sprintf("sh %s/egress/probe.sh '%s/egress/%s' '%s' %s", root, origin, phase, destination, phase)
 		replacements := []string{"PHASE", phase, "ROOT", root}
 		args, err := json.Marshal(struct {
@@ -395,8 +394,14 @@ func startEgressSkillMock(t *testing.T, root, destination string) (string, *mode
 		run.setPhase("initial")
 		runs[phase] = run
 	}
-	active.Store(runs["live"])
-	return modelURL, recorder, func(phase string) *egressProbeRun { run := runs[phase]; active.Store(run); return run }
+	active.Store(runs[runNames[0]])
+	return modelURL, recorder, func(name string) *egressProbeRun {
+		t.Helper()
+		run := runs[name]
+		require.NotNil(t, run, "unregistered egress probe %q", name)
+		active.Store(run)
+		return run
+	}
 }
 
 func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {

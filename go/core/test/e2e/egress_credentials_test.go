@@ -44,7 +44,7 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 	image := publishSkillImage(t)
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination)
+		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination, "credentials")
 		config := harness.createModel(t, kube, modelURL, nil)
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-credentials-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
@@ -66,8 +66,8 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 			t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), policy))) })
 			refs = append(refs, corev1.LocalObjectReference{Name: policy.Name})
 		}
-		run := runs("live")
-		finish := runEgressSkill(t, fixture, model, run)
+		run := runs("credentials")
+		finish := runEgressSkill(t, fixture, model, run, "initial_DENIED", "authenticated_ALLOWED")
 		run.expect(t, "initial", "DENIED")
 		agent := &v1alpha3.Agent{}
 		require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: template.Name}, agent))
