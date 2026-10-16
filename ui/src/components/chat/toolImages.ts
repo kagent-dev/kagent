@@ -23,8 +23,11 @@ export function splitToolImages(response: Record<string, unknown>): {
   const images: ToolImage[] = [];
   const rest = { ...response };
 
-  if (Array.isArray(rest.images)) {
-    images.push(...rest.images.filter(isImage));
+  // Only a list made wholly of images is ours to take: a tool's own `images` field
+  // (URLs, say) or the Go runtime's note that the bytes were withheld stays in the
+  // text where it can be read.
+  if (Array.isArray(rest.images) && rest.images.length > 0 && rest.images.every(isImage)) {
+    images.push(...rest.images);
     delete rest.images;
   }
   if (Array.isArray(rest.content)) {

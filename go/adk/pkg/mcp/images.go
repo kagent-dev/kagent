@@ -34,16 +34,28 @@ const (
 	stashedImagesTTL = 5 * time.Minute
 	// maxStashedImageCalls bounds the stash; the oldest call is dropped first.
 	maxStashedImageCalls = 64
-	// maxToolImageBytes and maxToolCallImageBytes cap the base64 an image, and
-	// all images of one call, add to the A2A task. The task store resends the
-	// whole task on each update under a 16 MiB gRPC limit.
-	maxToolImageBytes     = 2 << 20
-	maxToolCallImageBytes = 4 << 20
+	// maxToolImageBytes, maxToolCallImageBytes and maxInvocationImageBytes cap
+	// the base64 an image, all images of one call, and all images of one
+	// invocation add to the A2A task. The task store resends the whole task on
+	// each update under a 16 MiB gRPC limit. Each image also counts
+	// toolImageOverheadBytes toward the call and invocation caps.
+	maxToolImageBytes       = 2 << 20
+	maxToolCallImageBytes   = 4 << 20
+	maxInvocationImageBytes = 6 << 20
+	toolImageOverheadBytes  = 64
+	// maxToolCallImages caps the number of images captured from one call.
+	maxToolCallImages = 16
 )
 
 type stashedImages struct {
 	images []ToolImage
 	at     time.Time
+}
+
+// invocationImages counts the image bytes an invocation has captured.
+type invocationImages struct {
+	bytes int
+	at    time.Time
 }
 
 // ToolCallKey identifies a tool call within the process. Some model providers
@@ -55,27 +67,60 @@ type ToolCallKey struct {
 
 var imageStash = struct {
 	sync.Mutex
-	calls map[ToolCallKey]stashedImages
-}{calls: map[ToolCallKey]stashedImages{}}
+	calls       map[ToolCallKey]stashedImages
+	invocations map[string]invocationImages
+}{calls: map[ToolCallKey]stashedImages{}, invocations: map[string]invocationImages{}}
 
 // StashToolImages keeps the images an MCP tool call returned until its
-// function response is converted to A2A.
+// function response is converted to A2A. Images of a call already stashed are
+// added to.
 func StashToolImages(call ToolCallKey, images []ToolImage) {
 	imageStash.Lock()
 	defer imageStash.Unlock()
 	now := time.Now()
-	var oldest ToolCallKey
-	for key, stashed := range imageStash.calls {
-		if now.Sub(stashed.at) > stashedImagesTTL {
-			delete(imageStash.calls, key)
-		} else if oldest == (ToolCallKey{}) || stashed.at.Before(imageStash.calls[oldest].at) {
-			oldest = key
+	evictExpiredImages(now)
+	if stashed, ok := imageStash.calls[call]; ok {
+		images = append(stashed.images, images...)
+	} else if len(imageStash.calls) >= maxStashedImageCalls {
+		var oldest ToolCallKey
+		for key, stashed := range imageStash.calls {
+			if oldest == (ToolCallKey{}) || stashed.at.Before(imageStash.calls[oldest].at) {
+				oldest = key
+			}
 		}
-	}
-	if len(imageStash.calls) >= maxStashedImageCalls {
 		delete(imageStash.calls, oldest)
 	}
 	imageStash.calls[call] = stashedImages{images: images, at: now}
+}
+
+// reserveInvocationImageBytes counts n image bytes against invocationID's
+// budget, or reports false and counts nothing if they do not fit.
+func reserveInvocationImageBytes(invocationID string, n int) bool {
+	imageStash.Lock()
+	defer imageStash.Unlock()
+	now := time.Now()
+	evictExpiredImages(now)
+	spent := imageStash.invocations[invocationID].bytes
+	if spent+n > maxInvocationImageBytes {
+		return false
+	}
+	imageStash.invocations[invocationID] = invocationImages{bytes: spent + n, at: now}
+	return true
+}
+
+// evictExpiredImages drops stashed calls and invocation budgets unused for
+// stashedImagesTTL. The caller holds imageStash.
+func evictExpiredImages(now time.Time) {
+	for key, stashed := range imageStash.calls {
+		if now.Sub(stashed.at) > stashedImagesTTL {
+			delete(imageStash.calls, key)
+		}
+	}
+	for id, spent := range imageStash.invocations {
+		if now.Sub(spent.at) > stashedImagesTTL {
+			delete(imageStash.invocations, id)
+		}
+	}
 }
 
 // TakeToolImages returns the images an MCP tool call returned and forgets
@@ -97,9 +142,10 @@ type ToolImage struct {
 
 type imageSinkKey struct{}
 
-// imageSink collects the images of one tool call.
+// imageSink collects the images of one tool call of an invocation.
 type imageSink struct {
-	images []ToolImage
+	invocationID string
+	images       []ToolImage
 }
 
 // newToolsetClient returns the toolset's MCP client. It advertises MCP Apps
@@ -113,7 +159,9 @@ func newToolsetClient() *mcpsdk.Client {
 // captureImages moves the renderable images of a successful tools/call result
 // into the call's image sink, if it has one, so ADK formats the result without
 // their placeholders. Errors keep their content for the model. Other image
-// types, and images over the size caps, keep their placeholder.
+// types, empty images, and images over the count or size caps keep their
+// placeholder. The invocation cap is checked here, before an image is removed,
+// so an image the stash will not hold is never dropped from the output.
 //
 // ADK joins content blocks with a newline wherever either side is a
 // placeholder, unless one already ends or starts there. A removed image between
@@ -133,8 +181,8 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		removed := false
 		captured := 0
 		for _, content := range res.Content {
-			if image, size := capturableImage(content, captured); image != nil {
-				captured += size
+			if image, cost := capturableImage(content, captured, len(sink.images)); image != nil && reserveInvocationImageBytes(sink.invocationID, cost) {
+				captured += cost
 				sink.images = append(sink.images, ToolImage{
 					MIMEType: image.MIMEType,
 					Data:     base64.StdEncoding.EncodeToString(image.Data),
@@ -159,18 +207,20 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 	}
 }
 
-// capturableImage returns content as an image to capture, with its base64
-// size, if the UI renders its type and it fits the caps after captured bytes.
-func capturableImage(content mcpsdk.Content, captured int) (*mcpsdk.ImageContent, int) {
+// capturableImage returns content as an image to capture, with the bytes it
+// counts toward the caps, if the UI renders its type and it fits the call's
+// caps after count images of captured bytes.
+func capturableImage(content mcpsdk.Content, captured, count int) (*mcpsdk.ImageContent, int) {
 	image, ok := content.(*mcpsdk.ImageContent)
-	if !ok || image == nil || !isRenderableImage(image.MIMEType) {
+	if !ok || image == nil || len(image.Data) == 0 || count >= maxToolCallImages || !isRenderableImage(image.MIMEType) {
 		return nil, 0
 	}
 	size := base64.StdEncoding.EncodedLen(len(image.Data))
-	if size > maxToolImageBytes || captured+size > maxToolCallImageBytes {
+	cost := size + toolImageOverheadBytes
+	if size > maxToolImageBytes || captured+cost > maxToolCallImageBytes {
 		return nil, 0
 	}
-	return image, size
+	return image, cost
 }
 
 // isRenderableImage reports whether the UI renders images of mimeType. Keep in
@@ -235,16 +285,20 @@ func (t imageTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) e
 }
 
 func (t imageTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
-	sink := &imageSink{}
-	result, err := t.functionTool.Run(valuesContext{Context: ctx, values: context.WithValue(ctx, imageSinkKey{}, sink)}, args)
 	call := ToolCallKey{InvocationID: ctx.InvocationID(), CallID: ctx.FunctionCallID()}
-	if err != nil || len(sink.images) == 0 || call.InvocationID == "" || call.CallID == "" {
+	if call.InvocationID == "" || call.CallID == "" {
+		// The images could not be stashed, so leave ADK's placeholders.
+		return t.functionTool.Run(ctx, args)
+	}
+	sink := &imageSink{invocationID: call.InvocationID}
+	result, err := t.functionTool.Run(valuesContext{Context: ctx, values: context.WithValue(ctx, imageSinkKey{}, sink)}, args)
+	if err != nil || len(sink.images) == 0 {
 		return result, err
 	}
 	if result == nil {
 		result = map[string]any{}
 	}
 	StashToolImages(call, sink.images)
-	result[ToolResultImagesKey] = fmt.Sprintf("%d image(s) shown to the user", len(sink.images))
+	result[ToolResultImagesKey] = fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(sink.images))
 	return result, nil
 }
