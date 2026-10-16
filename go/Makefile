@@ -47,21 +47,20 @@ vet: ## Run go vet.
 
 KUBE_API_LINTER_TOOL ?= golangci-lint-kube-api-linter
 KUBE_API_LINTER_PACKAGES ?= ./api/v1alpha3
+LINT_ARGS ?=
 
 .PHONY: lint
 lint: kube-api-lint ## Run golangci-lint and kube-api-linter.
-	$(GOLANGCI_LINT) run
+	$(GOLANGCI_LINT) run $(LINT_ARGS)
 
 .PHONY: kube-api-lint
 kube-api-lint: ## Run kube-api-linter against the Kubernetes API packages.
 	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
-		GOOS=linux "$$KUBE_API_LINTER_BIN" run --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
+		GOOS=linux "$$KUBE_API_LINTER_BIN" run $(LINT_ARGS) --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
 
 .PHONY: lint-fix
-lint-fix: ## Run golangci-lint and kube-api-linter with auto-fix.
-	$(GOLANGCI_LINT) run --fix
-	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
-		GOOS=linux "$$KUBE_API_LINTER_BIN" run --fix --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
+lint-fix: LINT_ARGS := --fix
+lint-fix: lint ## Run golangci-lint and kube-api-linter with auto-fix.
 
 .PHONY: lint-config
 lint-config: ## Verify golangci-lint linter configuration.
