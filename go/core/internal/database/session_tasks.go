@@ -61,7 +61,7 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 		if blocked {
 			return ErrConflict
 		}
-		if err := requireSettledRuntime(ctx, tx, session.HistoryID, ""); err != nil {
+		if err := requireRuntimeAdmission(ctx, tx, session.HistoryID, "", false); err != nil {
 			if errors.Is(err, ErrFailedPrecondition) {
 				return ErrDispatchBusy
 			}
@@ -201,7 +201,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 				return fmt.Errorf("dispatch expired or was revoked before acceptance: %w", ErrFailedPrecondition)
 			}
 		}
-		if err := requireSettledRuntime(ctx, tx, session.HistoryID, dispatchID); err != nil {
+		if err := requireRuntimeAdmission(ctx, tx, session.HistoryID, dispatchID, false); err != nil {
 			return err
 		}
 		// New execution supersedes idle work that no worker has claimed yet.
@@ -809,16 +809,17 @@ func readTaskMessages(ctx context.Context, db dbExecutor, historyID uuid.UUID, t
 	`, pgx.RowToStructByName[taskHistoryRow], historyID, taskIDs, historyLength, includeUnpublished)
 }
 
-// requireSettledRuntime rejects unfinished native cleanup, claimed idle work, or
-// another unexpired dispatch. A writer may pass its own dispatch ID.
+// requireRuntimeAdmission rejects claimed idle work and another unexpired
+// dispatch. A writer may pass its own dispatch ID. Unpublished events also block
+// admission unless allowUnpublished is set for explicit deletion.
 // Callers hold the session lock so new execution and lifecycle claims cannot race.
-func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UUID, dispatchID string) error {
+func requireRuntimeAdmission(ctx context.Context, db dbExecutor, historyID uuid.UUID, dispatchID string, allowUnpublished bool) error {
 	pending, err := queryOne(ctx, db, `
 		SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
-		    AND (NOT published OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
+		    AND ((NOT published AND NOT $3::boolean) OR (quiescence_pending AND quiescence_executor_id IS NOT NULL)))
 		    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
 		        AND ($2::text = '' OR dispatch_id::text <> $2))
-	`, pgx.RowTo[bool], historyID, dispatchID)
+	`, pgx.RowTo[bool], historyID, dispatchID, allowUnpublished)
 	if err != nil {
 		return err
 	}

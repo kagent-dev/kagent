@@ -71,8 +71,7 @@ func (m *settlementProbeModel) GenerateContent(context.Context, *model.LLMReques
 
 // Exercise the production Go ADK executor, TaskStore client, gRPC service and
 // PostgreSQL together, with an in-memory ADK session and a fixed model response.
-// https://github.com/kagent-dev/kagent/issues/3010 case B tracks this shared
-// failure. #3011 handles unknown-task cancellation, not failed publication.
+// https://github.com/kagent-dev/kagent/issues/3010 case B tracks this failure.
 // This verifies DELETE admission, not Actor deletion or same-session recovery.
 func TestGoADKDeletionAfterSettlementOutage(t *testing.T) {
 	for _, fail := range []bool{false, true} {

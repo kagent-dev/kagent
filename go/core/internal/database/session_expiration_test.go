@@ -102,6 +102,8 @@ func TestSessionExpirationFencesDispatchAndRetries(t *testing.T) {
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, dispatch, "message"))
 	_, err := client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
+	_, err = client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	require.ErrorIs(t, err, ErrFailedPrecondition, "explicit deletion must not supersede a live dispatch")
 	_, err = client.RevokeSessionDispatch(ctx, session.Id, dispatch, "message")
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Time{})

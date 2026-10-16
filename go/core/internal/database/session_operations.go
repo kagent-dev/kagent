@@ -87,35 +87,12 @@ func beginSessionOperation(ctx context.Context, tx pgx.Tx, row sessionRow, kind 
 // admitAgentLifecycle runs under the same row lock as task and checkpoint
 // admission. Common transitions have no knowledge of these agent-only records.
 func admitAgentLifecycle(ctx context.Context, tx pgx.Tx, row sessionRow, kind apiv1.RuntimeOperation) error {
-	if kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
-		if err := requireSettledRuntime(ctx, tx, row.HistoryID, ""); err != nil {
-			return err
-		}
-	} else {
-		// https://github.com/kagent-dev/kagent/issues/3010 (case B): exhausted
-		// SettleTask retries can strand an unpublished boundary in Go ADK too;
-		// see TestGoADKDeletionAfterSettlementOutage in grpcserver.
-		// Delete closes admission before stopping compute and retains its
-		// durable intent until Substrate confirms deletion. This does not
-		// publish the boundary or authorize reuse of the old conversation.
-		// Claimed controller work still has to finish before deletion starts;
-		// giantswarm/kagent-upstream#175 (#177, #216) tracks safe takeover.
-		// A merged fork PR alone does not make upstream takeover available.
-		// Revisit this exception when shared recovery can fence the old runtime
-		// and reconcile its boundary. Closing #3010 or merging #3011 alone is
-		// not evidence of that contract; unknown-task cancellation is separate.
-		pending, err := queryOne(ctx, tx, `
-			SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
-			    AND quiescence_pending AND quiescence_executor_id IS NOT NULL)
-			    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1
-			        AND dispatch_expires_at > clock_timestamp())
-		`, pgx.RowTo[bool], row.HistoryID)
-		if err != nil {
-			return err
-		}
-		if pending {
-			return fmt.Errorf("runtime lifecycle work is not yet settled: %w", ErrFailedPrecondition)
-		}
+	// Explicit deletion can supersede an unpublished boundary (#3010, case B).
+	// It closes admission and retains its intent until compute deletion succeeds;
+	// it does not publish the boundary or permit reuse of the conversation.
+	// Claimed lifecycle work remains protected until recovery can fence its owner.
+	if err := requireRuntimeAdmission(ctx, tx, row.HistoryID, "", kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE); err != nil {
+		return err
 	}
 	busy, err := queryOne(ctx, tx, `
   SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
