@@ -4564,9 +4564,12 @@ __metadata:
     react-router-dom: "npm:^7.18.4"
     remark-breaks: "npm:^4.0.0"
     remark-gfm: "npm:^4.0.1"
+    remark-parse: "npm:^11.0.0"
     swr: "npm:^2.5.1"
     typescript: "npm:^6.0.3"
     typescript-eslint: "npm:^8.71.1"
+    unified: "npm:^11.0.0"
+    unist-util-visit: "npm:^5.0.0"
     vite: "npm:^8.3.4"
     vitest: "npm:^4.1.11"
   languageName: unknown

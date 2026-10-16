@@ -37,7 +37,10 @@
     "react-router-dom": "^7.18.4",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
-    "swr": "^2.5.1"
+    "remark-parse": "^11.0.0",
+    "swr": "^2.5.1",
+    "unified": "^11.0.0",
+    "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

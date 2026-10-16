@@ -27,7 +27,7 @@ import type {
   ChatPart,
   SendMessageInput,
 } from "./types";
-import { mediaTypeOf } from "./attachments";
+import { LinkFile, mediaTypeOf } from "./attachments";
 
 const TIMING = {
   ok: { step: 300, word: 45 },
@@ -134,7 +134,8 @@ export class MockChatClient implements ChatClient {
   async *send(input: SendMessageInput): AsyncIterable<ChatEvent> {
     activity.started += 1;
     try {
-      yield* this.stream(input);
+      // A link's URL is already in the text; like the real client, it gets no chip.
+      yield* this.stream({ ...input, files: input.files?.filter((file) => !(file instanceof LinkFile)) });
     } finally {
       activity.finished += 1;
     }
