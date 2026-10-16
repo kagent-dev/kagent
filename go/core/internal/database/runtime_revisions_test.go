@@ -35,23 +35,33 @@ func TestRetireAgentIdentities(t *testing.T) {
 	require.Equal(t, "revision", revisions[0].Revision)
 }
 
-func TestListAgentDefinitionSourcesIncludesRetiredIdentities(t *testing.T) {
+func TestListAgentDefinitionSourcesBoundsRetiredIdentities(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "request")
+	require.NoError(t, err)
+	_, err = finishSessionOperation(ctx, client, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, "actor.example.com")
+	require.NoError(t, err)
 	for _, definition := range []AgentDefinition{
-		{Namespace: "team-a", AgentName: "assistant", AgentUID: "old"},
 		{Namespace: "team-a", AgentName: "assistant", AgentUID: "replacement"},
+		{Namespace: "team-a", AgentName: "unused", AgentUID: "unused"},
 		{Namespace: "team-b", AgentName: "assistant", AgentUID: "other"},
 	} {
 		require.NoError(t, client.UpsertAgentDefinition(ctx, definition))
 	}
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant"))
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "unused"))
 	sources, err := client.ListAgentDefinitionSources(ctx)
 	require.NoError(t, err)
 	require.Equal(t, []RuntimeEgressSource{
 		{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"},
 		{Kind: RuntimeEgressAgent, Namespace: "team-b", Name: "assistant"},
-	}, sources, "retirement may commit before actor revocation; recovery must retain that source and deduplicate old UIDs")
+	}, sources, "include only active sources and retired identities that still have actors")
+	require.NoError(t, deleteSession(ctx, client, session.Id))
+	sources, err = client.ListAgentDefinitionSources(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []RuntimeEgressSource{{Kind: RuntimeEgressAgent, Namespace: "team-b", Name: "assistant"}}, sources)
 }
 
 func TestRuntimeRevisionCollectionAfterPairRetirement(t *testing.T) {

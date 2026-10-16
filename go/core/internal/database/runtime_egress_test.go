@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -134,7 +135,6 @@ func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
 			policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 			require.NoError(t, err)
 			require.Empty(t, policy.Destinations, "token origins constrain credentials without granting network access")
-			require.NoError(t, policy.WithheldGrants)
 		})
 	}
 }
@@ -154,8 +154,7 @@ func TestRuntimeEgressCanonicalTokenOriginWithholdsCredentials(t *testing.T) {
 	}, RecordRevisionOptions{}))
 	policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 	require.NoError(t, err)
-	require.ErrorContains(t, policy.WithheldGrants, "caller-token passthrough")
-	require.Empty(t, policy.Destinations)
+	require.Equal(t, []string{"https://model.example.com:443"}, policy.Destinations)
 	require.Empty(t, policy.Credentials)
 }
 
@@ -196,20 +195,20 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, slices.Equal(expected.Destinations, policy.Destinations))
 				require.True(t, slices.Equal(expected.Credentials, policy.Credentials))
-				require.NoError(t, policy.WithheldGrants)
 			}
 			assertPolicy(canonical)
 			err = upsert("uid", egress.Access{Destinations: []string{"invalid"}})
 			require.Error(t, err)
 			assertPolicy(canonical)
 			if kind == RuntimeEgressAgent {
-				conflict := egress.Access{Destinations: base.Destinations, Credentials: []egress.Credential{{Origin: base.Destinations[0], Header: "authorization", URI: "ate-secret://k8s.io/default/team/other/token"}}}
+				conflict := egress.Access{Destinations: append(slices.Clone(base.Destinations), canonical.Destinations...), Credentials: append(slices.Clone(canonical.Credentials), egress.Credential{Origin: base.Destinations[0], Header: "authorization", URI: "ate-secret://k8s.io/default/team/other/token"})}
 				err = upsert("uid", conflict)
 				require.NoError(t, err)
 				policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 				require.NoError(t, err)
-				require.Error(t, policy.WithheldGrants)
-				require.Equal(t, base, policy.Access)
+				expected, err := egress.MergeAccess(base, canonical, nil)
+				require.NoError(t, err)
+				require.Equal(t, expected, policy.Access, "older revisions retain nonconflicting grants")
 			}
 			if kind == RuntimeEgressAgent {
 				require.NoError(t, client.RetireAgentIdentities(ctx, "team", "source"))
@@ -270,6 +269,46 @@ func TestRuntimeEgressMalformedInputsFailClosed(t *testing.T) {
 			require.NoError(t, err)
 			_, err = client.GetRuntimeEgressPolicy(ctx, "revision")
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestReadAdmittedGrantsScopesIdentity(t *testing.T) {
+	for _, kind := range []RuntimeEgressSourceKind{RuntimeEgressAgent, RuntimeEgressSandbox} {
+		t.Run(string(kind), func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			ctx := t.Context()
+			var read func(context.Context, string, string) (egress.Access, error)
+			var retire func(context.Context, string, string) error
+			upsert := func(uid string, grants egress.Access) error {
+				if kind == RuntimeEgressAgent {
+					return client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: uid, EgressGrant: grants})
+				}
+				return client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team", SandboxTemplateName: "source", SandboxTemplateUID: uid, EgressGrant: grants})
+			}
+			if kind == RuntimeEgressAgent {
+				read, retire = client.GetAgentEgressGrant, client.RetireAgentIdentities
+			} else {
+				read, retire = client.GetSandboxEgressGrant, client.RetireSandboxTemplateIdentities
+			}
+			grants := egress.Access{Destinations: []string{"https://tickets.example.com:443"}}
+			require.NoError(t, upsert("uid", grants))
+			got, err := read(ctx, "team", "uid")
+			require.NoError(t, err)
+			require.Equal(t, grants.Destinations, got.Destinations)
+			for _, scope := range [][2]string{{"team", "new"}, {"other", "uid"}} {
+				got, err = read(ctx, scope[0], scope[1])
+				require.NoError(t, err)
+				require.Empty(t, got.Destinations)
+			}
+			require.NoError(t, retire(ctx, "team", "source"))
+			got, err = read(ctx, "team", "uid")
+			require.NoError(t, err)
+			require.Empty(t, got.Destinations, "retired grants must not be resurrected")
+			require.NoError(t, upsert("replacement", grants))
+			got, err = read(ctx, "team", "uid")
+			require.NoError(t, err)
+			require.Empty(t, got.Destinations, "grants belong to the exact source UID")
 		})
 	}
 }

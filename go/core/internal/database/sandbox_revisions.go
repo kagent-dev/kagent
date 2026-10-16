@@ -70,6 +70,16 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 	})
 }
 
+// GetSandboxEgressGrant returns the active identity's last admitted grants.
+// Missing or retired identities return empty access; malformed stored grants fail.
+func (c *Client) GetSandboxEgressGrant(ctx context.Context, namespace, uid string) (egress.Access, error) {
+	grants, err := queryOne(ctx, c.db, `
+		SELECT grant_destinations AS destinations, grant_credentials AS credentials
+		FROM sandbox_template_definition WHERE namespace = $1 AND sandbox_template_uid = $2 AND retired_at IS NULL
+	`, pgx.RowToStructByName[egress.Access], namespace, uid)
+	return decodeEgressGrant(grants, err)
+}
+
 // RetireSandboxTemplateIdentities retires active identities at this source name.
 // Missing/already-retired identities are a no-op; retained actors lose live grants.
 func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace, name string) error {

@@ -39,8 +39,9 @@ func TestEgressPolicyCredentialPrefixes(t *testing.T) {
 			policy, secret := egressPolicy()
 			auth := policy.Spec.Destinations[0].Authentication
 			auth.Header, auth.Prefix = tc.header, tc.prefix
-			access, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
-			require.NoError(t, err)
+			resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
+			require.Empty(t, resolution.Issues)
+			access := resolution.Access
 			wantHeader := "authorization"
 			if tc.header == "X-API-Key" {
 				wantHeader = "x-api-key"
@@ -53,8 +54,9 @@ func TestEgressPolicyCredentialPrefixes(t *testing.T) {
 func TestEgressPolicyHTTPCredentials(t *testing.T) {
 	policy, secret := egressPolicy()
 	policy.Spec.Destinations[0].Origin = "http://tickets.example.com:8080"
-	access, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
-	require.NoError(t, err)
+	resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
+	require.Empty(t, resolution.Issues)
+	access := resolution.Access
 	require.Equal(t, []string{"http://tickets.example.com:8080"}, access.Destinations)
 	require.Equal(t, []egress.Credential{{Origin: "http://tickets.example.com:8080", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/test/ticket-auth/token"}}, access.Credentials)
 }
@@ -123,7 +125,7 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			require.Equal(t, original, unreferenced)
 			agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
 			require.NotContains(t, result.EgressDestinations, "https://registry.npmjs.org:443", "previous revision remains pinned")
-			// Explicit policy credentials cannot silently replace inferred model credentials.
+			// Conflicting and missing policies are independent of runtime compilation.
 			policy.Spec.Destinations[0].Origin = "https://api.openai.com"
 			auth := policy.Spec.Destinations[0].Authentication
 			if kind == "claude" {
@@ -134,7 +136,13 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			secret.Data["alternate"] = []byte("different-token")
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = secret.Name, "token"
 			_, err = compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
-			require.ErrorContains(t, err, "conflicting credentials")
+			require.NoError(t, err)
+			withConflict, err := compile().Digest()
+			require.NoError(t, err)
+			agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "missing"}}
+			missing, err := compile().Digest()
+			require.NoError(t, err)
+			require.Equal(t, withConflict, missing)
 			// Codex and Claude reject caller-token passthrough independently.
 			if kind == "claude" || kind == "codex" {
 				return
@@ -142,7 +150,7 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "", ""
 			model.Spec.APIKeyPassthrough = true
 			_, err = compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
-			require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+			require.NoError(t, err)
 		})
 	}
 }
@@ -186,8 +194,15 @@ func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 				objects = append(objects, other)
 				refs = append(refs, corev1.LocalObjectReference{Name: other.Name})
 			}
-			_, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, objects...), "test", refs)
-			require.Error(t, err)
+			resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, objects...), "test", refs)
+			if name == "conflicting auth" || name == "conflicting prefix" {
+				require.Empty(t, resolution.Issues, "individually valid policies reach admission")
+				_, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials)
+				require.Error(t, err)
+			} else {
+				require.Len(t, resolution.Issues, 1)
+				require.Empty(t, resolution.Access.Destinations)
+			}
 		})
 	}
 }
@@ -201,13 +216,52 @@ func TestEgressPoliciesMergeCredentialsAndOrigins(t *testing.T) {
 	})
 	collections := mockCollections(t, policy, other, secret)
 	refs := []corev1.LocalObjectReference{{Name: policy.Name}, {Name: other.Name}}
-	access, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, collections, "test", refs)
+	resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, collections, "test", refs)
+	require.Empty(t, resolution.Issues)
+	access, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials)
 	require.NoError(t, err)
 	require.Len(t, access.Destinations, 3)
 	require.Len(t, access.Credentials, 2)
 	require.Equal(t, "x-api-key", access.Credentials[1].Header)
 	refs[0], refs[1] = refs[1], refs[0]
-	reversed, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, collections, "test", refs)
+	reversed := translator.CompileEgressPolicies(krt.TestingDummyContext{}, collections, "test", refs)
+	require.Empty(t, reversed.Issues)
+	canonical, err := egress.CanonicalAccess(reversed.Access.Destinations, reversed.Access.Credentials)
 	require.NoError(t, err)
-	require.Equal(t, access, reversed)
+	require.Equal(t, access, canonical)
+}
+
+func TestEgressPoliciesResolveIndependently(t *testing.T) {
+	policy, secret := egressPolicy()
+	resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test",
+		[]corev1.LocalObjectReference{{Name: "z-missing"}, {Name: policy.Name}, {Name: "a-missing"}})
+	require.Equal(t, []string{"https://tickets.example.com:443"}, resolution.Access.Destinations)
+	require.Len(t, resolution.Access.Credentials, 1)
+	require.Len(t, resolution.Issues, 2)
+	require.Equal(t, "test/a-missing", resolution.Issues[0].Policy)
+	require.Equal(t, v1alpha3.EgressPoliciesReasonNotFound, resolution.Issues[0].Reason)
+	require.Equal(t, "test/z-missing", resolution.Issues[1].Policy)
+}
+
+func TestInvalidEgressReferencesRevokeAll(t *testing.T) {
+	for _, name := range []string{"too many", "invalid name"} {
+		t.Run(name, func(t *testing.T) {
+			policy, secret := egressPolicy()
+			refs := []corev1.LocalObjectReference{{Name: policy.Name}}
+			if name == "invalid name" {
+				refs = append(refs, corev1.LocalObjectReference{Name: "Invalid!"})
+			} else {
+				for range 16 {
+					refs = append(refs, corev1.LocalObjectReference{Name: policy.Name})
+				}
+			}
+			resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", refs)
+			require.Empty(t, resolution.Access.Destinations)
+			require.Empty(t, resolution.Access.Credentials)
+			require.Len(t, resolution.Issues, len(refs))
+			for _, issue := range resolution.Issues {
+				require.Equal(t, v1alpha3.EgressPoliciesReasonInvalidEgressPolicy, issue.Reason)
+			}
+		})
+	}
 }

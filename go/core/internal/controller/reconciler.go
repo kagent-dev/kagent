@@ -42,6 +42,8 @@ import (
 type AgentReconciliation struct {
 	Agent                 *kagentv1alpha3.Agent
 	EgressGrant           egress.Access
+	EgressIssues          []translator.EgressGrantIssue
+	EgressConflict        bool
 	Target                *compiledTarget
 	Warnings              []string
 	CompilationFailure    *ReconciliationFailure
@@ -108,12 +110,12 @@ func newAgentReconciliations(
 		if !agent.DeletionTimestamp.IsZero() {
 			return state
 		}
-		grants, grantErr := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
-		if grantErr != nil {
-			state.CompilationFailure = compilationFailure(grantErr)
-			return state
-		}
-		state.EgressGrant = grants
+		resolution := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
+		// Admission still runs when an unrelated runtime input fails to compile.
+		defer func() {
+			base, tokenOrigins := state.Target.egressBase()
+			state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, base, tokenOrigins)
+		}()
 		compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
 			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
 			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
@@ -183,6 +185,7 @@ func compilationFailure(err error) *ReconciliationFailure {
 type runtimeRevisionStore interface {
 	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
+	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
 	ListAgentDefinitionSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
@@ -248,7 +251,9 @@ func newReconciler(
 		// and status writes do not. Grants must reconcile without a new revision.
 		if event.Old != nil && event.New != nil && event.Old.Agent.UID == event.New.Agent.UID &&
 			event.Old.desiredRevision() == event.New.desiredRevision() &&
-			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
+			reflect.DeepEqual(event.Old.EgressGrant, event.New.EgressGrant) &&
+			reflect.DeepEqual(event.Old.EgressIssues, event.New.EgressIssues) &&
+			event.Old.EgressConflict == event.New.EgressConflict && event.Old.Agent.DeletionTimestamp.Equal(event.New.Agent.DeletionTimestamp) {
 			return
 		}
 		r.agents.Add(krt.GetKey(event.Latest()))
@@ -360,9 +365,18 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		}
 		return nil
 	}
+	grants := state.EgressGrant
+	if state.EgressConflict {
+		previous, err := r.store.GetAgentEgressGrant(ctx, state.Agent.Namespace, string(state.Agent.UID))
+		if err != nil {
+			return r.observePreparationError(*state, fmt.Errorf("read Agent %s grants: %w", key, err))
+		}
+		base, tokenOrigins := state.Target.egressBase()
+		grants = retainedEgressGrant(previous, grants, base, tokenOrigins)
+	}
 	definition := database.AgentDefinition{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,
-		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: state.EgressGrant,
+		AgentUID: string(state.Agent.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,
 	}
 
 	// Store the desired edge before creating compute so a concurrent collector

@@ -110,7 +110,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	for _, binding := range bindings {
 		destinations = append(destinations, binding.Origin)
 	}
-	if _, err := egress.MergeAccess(egress.Access{Destinations: destinations, Credentials: bindings}, input.Egress, tokenPassthroughOrigins); err != nil {
+	if _, err := egress.MergeAccess(egress.Access{Destinations: destinations, Credentials: bindings}, egress.Access{}, tokenPassthroughOrigins); err != nil {
 		return nil, nil, nil, NewValidationError("%v", err)
 	}
 

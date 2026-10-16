@@ -1,8 +1,9 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.5.0-alpha2**. The compiler turns ModelConfig API
-keys, Secret-backed RemoteMCPServer headers, and explicit EgressPolicy
-authentication into destination-scoped egress bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
+Kagent requires Substrate **v0.5.0-alpha2**. The runtime compiler turns
+ModelConfig API keys and Secret-backed RemoteMCPServer headers into pinned
+destination-scoped bindings. Independently, EgressPolicy admission supplies
+additional live bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 replaces the outgoing HTTP header when the request carries a placeholder. SDKs
 receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
@@ -10,7 +11,9 @@ runtime configuration, or revision provenance.
 Inferred integration bindings are persisted with the prepared revision; their
 Secret names, keys, destinations, and headers affect revision identity. Explicit
 EgressPolicy bindings are resolved from current policies and update live actors
-without changing that revision. Both are installed before execution, including
+without changing that revision. Conflicts hold new grants and report the
+independent [EgressPoliciesApplied condition](egress-policies.md#preparation-and-lifecycle);
+they do not block runtime compilation. Both are installed before execution, including
 creation retries, resume, and checkpoint forks. Secret values and Secret UIDs
 do not affect revision identity. Rotation is handled by the gateway; its credential cache can
 take up to five minutes to refresh, without recompiling or restarting an agent.

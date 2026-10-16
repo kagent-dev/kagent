@@ -92,24 +92,25 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 		}
 		return apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}
-	waitUnresolved := func(message string) {
+	waitUnresolved := func(reason, message string) {
 		t.Helper()
 		require.Eventually(t, func() bool {
 			current, err := client.ApiV1alpha3().SandboxTemplates(template.Namespace).Get(t.Context(), template.Name, metav1.GetOptions{})
 			if err != nil {
 				return false
 			}
-			condition := apimeta.FindStatusCondition(current.Status.Conditions, "Ready")
-			return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == kagentv1alpha3.SandboxTemplateReasonEgressPolicyResolutionFailed && strings.Contains(condition.Message, message)
+			condition := apimeta.FindStatusCondition(current.Status.Conditions, kagentv1alpha3.SandboxTemplateConditionEgressPoliciesApplied)
+			return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reason && strings.Contains(condition.Message, message)
 		}, 10*time.Second, 10*time.Millisecond)
 	}
-	waitUnresolved("EgressPolicy")
+	waitUnresolved(kagentv1alpha3.EgressPoliciesReasonNotFound, "tickets")
+	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
 	grant := &kagentv1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "tickets"}, Spec: kagentv1alpha3.EgressPolicySpec{
 		Destinations: []kagentv1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &kagentv1alpha3.EgressAuthentication{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "ticket-auth"}, Key: "token"}}}},
 	}}
 	grant, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Create(t.Context(), grant, metav1.CreateOptions{})
 	require.NoError(t, err)
-	waitUnresolved("Secret")
+	waitUnresolved(kagentv1alpha3.EgressPoliciesReasonInvalidEgressPolicy, "Secret")
 	secret, err := kube.Kube().CoreV1().Secrets(template.Namespace).Create(t.Context(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "ticket-auth"}, Data: map[string][]byte{"token": []byte("original-token")}}, metav1.CreateOptions{})
 	require.NoError(t, err)
 	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
@@ -126,12 +127,13 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	require.Empty(t, other.Finalizers, "namespace filters must apply to the new informer")
 	require.Empty(t, other.Status.Conditions)
 
-	// A missing key invalidates preparation; restoring it with a new value
-	// resolves the same pinned revision without serializing either value.
+	// A missing key revokes its policy without changing runtime readiness.
+	// Restoring it admits grants without serializing either value.
 	secret.Data = nil
 	secret, err = kube.Kube().CoreV1().Secrets(template.Namespace).Update(t.Context(), secret, metav1.UpdateOptions{})
 	require.NoError(t, err)
-	waitUnresolved("missing key")
+	waitUnresolved(kagentv1alpha3.EgressPoliciesReasonInvalidEgressPolicy, "missing key")
+	require.True(t, ready())
 	secret.Data = map[string][]byte{"token": []byte("rotated-token")}
 	_, err = kube.Kube().CoreV1().Secrets(template.Namespace).Update(t.Context(), secret, metav1.UpdateOptions{})
 	require.NoError(t, err)
@@ -143,7 +145,8 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 	grant, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Update(t.Context(), grant, metav1.UpdateOptions{})
 	require.NoError(t, err)
 	require.NoError(t, client.ApiV1alpha3().EgressPolicies(template.Namespace).Delete(t.Context(), grant.Name, metav1.DeleteOptions{}))
-	waitUnresolved("EgressPolicy")
+	waitUnresolved(kagentv1alpha3.EgressPoliciesReasonNotFound, "tickets")
+	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
 	grant.ResourceVersion, grant.UID = "", ""
 	_, err = client.ApiV1alpha3().EgressPolicies(template.Namespace).Create(t.Context(), grant, metav1.CreateOptions{})
 	require.NoError(t, err)

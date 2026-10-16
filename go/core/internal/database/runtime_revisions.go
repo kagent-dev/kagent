@@ -68,13 +68,30 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 	})
 }
 
-// ListAgentDefinitionSources returns distinct Agent names across active and
-// retired identities. Startup recovery includes retired rows because a crash
-// may interrupt actor revocation after retirement commits.
+// GetAgentEgressGrant returns the active identity's last admitted grants.
+// Missing or retired identities return empty access; malformed stored grants fail.
+func (c *Client) GetAgentEgressGrant(ctx context.Context, namespace, uid string) (egress.Access, error) {
+	grants, err := queryOne(ctx, c.db, `
+		SELECT grant_destinations AS destinations, grant_credentials AS credentials
+		FROM agent_definition WHERE namespace = $1 AND agent_uid = $2 AND retired_at IS NULL
+	`, pgx.RowToStructByName[egress.Access], namespace, uid)
+	return decodeEgressGrant(grants, err)
+}
+
+// ListAgentDefinitionSources returns active Agent names and retired identities
+// that still have non-deleted instances. Startup recovery includes these retired
+// rows because a crash may interrupt actor revocation after retirement commits.
 func (c *Client) ListAgentDefinitionSources(ctx context.Context) ([]RuntimeEgressSource, error) {
 	return queryMany(ctx, c.db, `
-  SELECT DISTINCT 'agent' AS kind, namespace, agent_name AS name
-  FROM agent_definition
+  SELECT DISTINCT 'agent' AS kind, d.namespace, d.agent_name AS name
+  FROM agent_definition d
+  WHERE d.retired_at IS NULL OR EXISTS (
+    SELECT 1 FROM agent_revision a
+    JOIN runtime_revision r ON r.revision = a.revision
+    JOIN runtime_instance i ON i.prepared_revision = r.revision
+    WHERE r.namespace = d.namespace AND a.agent_uid = d.agent_uid
+      AND i.state <> 'RUNTIME_STATE_DELETED'
+  )
   ORDER BY namespace, name
  `, pgx.RowToStructByName[RuntimeEgressSource])
 }

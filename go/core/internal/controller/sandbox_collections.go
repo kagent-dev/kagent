@@ -27,6 +27,8 @@ type sandboxReconciliation struct {
 	RevisionID            string
 	SourceSnapshot        json.RawMessage
 	EgressGrant           egress.Access
+	EgressIssues          []translator.EgressGrantIssue
+	EgressConflict        bool
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	CompilationError      string
@@ -87,17 +89,14 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		if !template.DeletionTimestamp.IsZero() {
 			return state
 		}
-		grants, err := translator.CompileEgressPolicies(ctx, translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}, template.Namespace, template.Spec.EgressPolicyRefs)
-		if err != nil {
-			state.CompilationError = err.Error()
-			state.Failure = &ReconciliationFailure{Reason: kagentv1alpha3.SandboxTemplateReasonEgressPolicyResolutionFailed, Message: err.Error()}
-			return state
-		}
-		state.EgressGrant = grants
+		resolution := translator.CompileEgressPolicies(ctx, translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}, template.Namespace, template.Spec.EgressPolicyRefs)
+		// Sandboxes have no pinned model or tool access.
+		state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, egress.Access{}, nil)
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
 		} else {
+			var err error
 			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.SandboxClass, policy)
 			if err != nil {
 				state.CompilationError = err.Error()

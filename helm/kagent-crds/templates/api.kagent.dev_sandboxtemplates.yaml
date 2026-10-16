@@ -160,7 +160,11 @@ spec:
               template inputs.
             properties:
               conditions:
-                description: Conditions describe whether a prepared revision is available.
+                description: |-
+                  Conditions report runtime readiness and independent egress grant admission.
+                  EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+                  or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+                  do not affect Ready.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
