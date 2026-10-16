@@ -41,10 +41,10 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 		Volume:         grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs.example.test#exports#workspace-1##"},
 		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
 		Changed:        []string{"acme/api"},
-		Providers:      []grant.Provider{{Hostname: "github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "workspaces"}},
+		Providers:      []grant.Provider{{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}},
 	}, time.Minute)
 	require.NoError(t, err)
-	wantProvider := &apiv1alpha1.SessionProvider{Hostname: "github.com", Audience: "https://github.com", Scheme: "Bearer", Broker: "workspaces"}
+	wantProvider := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
 
 	created, err := server.CreateSession(ctx, &apiv1alpha1.CreateSessionRequest{Agent: agent, RequestId: "with-grant", VolumeSource: source, AdmissionToken: token})
 	require.NoError(t, err)

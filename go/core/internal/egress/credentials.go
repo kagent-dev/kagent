@@ -40,15 +40,39 @@ const ActorJWTLifetime = 15 * time.Minute
 // Secret reference (URI), or the Actor's own JWT bound to Audience, which the
 // gateway mints for the Actor that sent the request. Values are fetched or
 // minted by the gateway and never enter a runtime revision or the actor.
-// Scope names the actors the binding is for: empty for every actor,
-// ScopeGolden for the golden boot only.
+// PathPrefix narrows the binding to the request paths under it; of one host's
+// bindings for a header, the gateway applies the longest matching prefix and
+// the one without a prefix otherwise. Scope names the actors the binding is
+// for: empty for every actor, ScopeGolden for the golden boot only.
 type Credential struct {
-	Hostname string `json:"hostname"`
-	Header   string `json:"header"`
-	Prefix   string `json:"prefix,omitempty"`
-	URI      string `json:"uri,omitempty"`
-	Audience string `json:"audience,omitempty"`
-	Scope    string `json:"scope,omitempty"`
+	Hostname   string `json:"hostname"`
+	Header     string `json:"header"`
+	Prefix     string `json:"prefix,omitempty"`
+	URI        string `json:"uri,omitempty"`
+	Audience   string `json:"audience,omitempty"`
+	PathPrefix string `json:"pathPrefix,omitempty"`
+	Scope      string `json:"scope,omitempty"`
+}
+
+// ValidPathPrefix reports whether prefix names a subtree of request paths the
+// gateway matches unambiguously: a path below the root starting and ending
+// with "/", printable ASCII without a query, fragment, backslash or
+// percent-encoding, and without an empty or dot segment.
+func ValidPathPrefix(prefix string) bool {
+	if len(prefix) < 3 || len(prefix) > 1024 || prefix[0] != '/' || prefix[len(prefix)-1] != '/' {
+		return false
+	}
+	for _, r := range prefix {
+		if r <= ' ' || r > '~' || strings.ContainsRune(`?#\%`, r) {
+			return false
+		}
+	}
+	for segment := range strings.SplitSeq(prefix[1:len(prefix)-1], "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // ForActors returns the bindings of a session's actors: every binding without
@@ -57,8 +81,9 @@ func ForActors(bindings []Credential) []Credential {
 	return slices.DeleteFunc(slices.Clone(bindings), func(c Credential) bool { return c.Scope != "" })
 }
 
-// CanonicalCredentials validates and orders bindings. Substrate matches only
-// hostnames, so two credentials for the same host and header cannot coexist.
+// CanonicalCredentials validates and orders bindings. Substrate matches a
+// hostname and a path prefix, so two credentials for the same host, header and
+// path prefix cannot coexist.
 func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 	result := slices.Clone(bindings)
 	for i := range result {
@@ -71,6 +96,9 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 		}
 		if !httpguts.ValidHeaderFieldName(c.Header) || !httpguts.ValidHeaderFieldValue(c.Prefix) {
 			return nil, fmt.Errorf("invalid credential injection header %q", c.Header)
+		}
+		if c.PathPrefix != "" && !ValidPathPrefix(c.PathPrefix) {
+			return nil, fmt.Errorf("invalid credential path prefix %q for %s", c.PathPrefix, c.Hostname)
 		}
 		if c.Scope != "" && c.Scope != ScopeGolden {
 			return nil, fmt.Errorf("unknown credential scope %q", c.Scope)
@@ -91,12 +119,12 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 		}
 	}
 	slices.SortFunc(result, func(a, b Credential) int {
-		return strings.Compare(a.Hostname+"\x00"+a.Header, b.Hostname+"\x00"+b.Header)
+		return strings.Compare(a.Hostname+"\x00"+a.Header+"\x00"+a.PathPrefix, b.Hostname+"\x00"+b.Header+"\x00"+b.PathPrefix)
 	})
 	for i := 1; i < len(result); i++ {
 		a, b := result[i-1], result[i]
-		if a.Hostname == b.Hostname && a.Header == b.Header && a != b {
-			return nil, fmt.Errorf("conflicting credentials for %s header %s", a.Hostname, a.Header)
+		if a.Hostname == b.Hostname && a.Header == b.Header && a.PathPrefix == b.PathPrefix && a != b {
+			return nil, fmt.Errorf("conflicting credentials for %s%s header %s", a.Hostname, a.PathPrefix, a.Header)
 		}
 	}
 	result = slices.Compact(result)

@@ -863,6 +863,40 @@ func TestSessionEgressPolicyRefusesAProviderOnACredentialedHeader(t *testing.T) 
 	}
 	_, err := sessionEgressPolicy("team-a", revision, []*apiv1alpha1.SessionProvider{{Hostname: "api.github.com", Audience: "github", Scheme: "Bearer", Broker: "workspaces"}})
 	require.ErrorContains(t, err, "conflicting credentials for api.github.com header authorization")
+	_, err = sessionEgressPolicy("team-a", revision, []*apiv1alpha1.SessionProvider{{Hostname: "api.github.com", PathPrefix: "/repos/", Audience: "github", Scheme: "Bearer", Broker: "workspaces"}})
+	require.ErrorContains(t, err, "conflicting credentials for api.github.com header authorization", "a path prefix does not let a provider share the Agent's header")
+}
+
+// GitLab takes Basic for git and Bearer for its API under /api/ on one host:
+// the session's Actor gets its JWT on the API's paths alone, and the git
+// paths stay without a credential until the gateway exchanges it for Basic.
+// Two Bearer providers on one host and prefix stay refused.
+func TestSessionEgressPolicyScopesAProviderToItsPathPrefix(t *testing.T) {
+	git := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Basic", Username: "oauth2", Broker: "workspaces"}
+	api := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
+	policy, err := sessionEgressPolicy("team-a", &database.RuntimeRevision{}, []*apiv1alpha1.SessionProvider{git, api})
+	require.NoError(t, err)
+	require.Len(t, policy.GetRules(), 1, "one rule for the host")
+	rule := policy.GetRules()[0].GetHttps()
+	require.Equal(t, []string{"gitlab.example.com"}, rule.GetHostnames())
+	headers := rule.GetEffects().GetReplaceHeaders()
+	require.Len(t, headers, 1)
+	require.Equal(t, "authorization", headers[0].GetHeader())
+	require.Equal(t, "Bearer ", headers[0].GetPrefix())
+	require.Equal(t, "/api/", headers[0].GetPathPrefix())
+	require.Equal(t, []string{"gitlab"}, headers[0].GetActorJwt().GetAudiences())
+
+	wide := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
+	policy, err = sessionEgressPolicy("team-a", &database.RuntimeRevision{}, []*apiv1alpha1.SessionProvider{wide, api})
+	require.NoError(t, err)
+	headers = policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders()
+	require.Len(t, headers, 2, "a host-wide and a path-scoped Bearer provider bind side by side")
+	require.Empty(t, headers[0].GetPathPrefix())
+	require.Equal(t, "/api/", headers[1].GetPathPrefix())
+
+	other := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Audience: "elsewhere", Scheme: "Bearer", Broker: "workspaces"}
+	_, err = sessionEgressPolicy("team-a", &database.RuntimeRevision{}, []*apiv1alpha1.SessionProvider{wide, other})
+	require.ErrorContains(t, err, "conflicting credentials for gitlab.example.com header authorization")
 }
 
 func TestActorEgressPolicy(t *testing.T) {

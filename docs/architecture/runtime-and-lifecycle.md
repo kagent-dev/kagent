@@ -121,7 +121,9 @@ ES384, RS256 or PS256, with a `kid`), whose payload is:
   "changed": ["<owner>/<repository>"],
   "providers": [
     {"hostname": "github.com", "audience": "<token audience>", "scheme": "Basic",
-     "username": "x-access-token", "broker": "<token broker>"}
+     "username": "x-access-token", "broker": "<token broker>"},
+    {"hostname": "gitlab.example.com", "pathPrefix": "/api/", "audience": "<token audience>",
+     "scheme": "Bearer", "broker": "<token broker>"}
   ]
 }
 ```
@@ -137,7 +139,12 @@ says so. `changed` lists repositories, relative to the session's working
 directory, whose origin moved since the volume's last sync; each provider is a
 host whose credential the session gets, with the `Bearer` or `Basic` scheme (a
 user name for Basic only) and the broker that exchanges the person's token for
-its audience. Both are stored on the session as `providers` and `changed` and
+its audience. A provider may narrow its host to the request paths under a
+`pathPrefix`, a path starting and ending with `/` without empty or dot
+segments, a query or percent-encoding: GitLab takes Basic for git and Bearer
+for its REST API under `/api/` on one host, so its grant lists the host once
+without a prefix and once with `/api/`. A host and path prefix is granted once;
+a grant listing one twice, or a malformed prefix, is refused. Both are stored on the session as `providers` and `changed` and
 shown on get and list; the token itself is stored and shown nowhere. Each
 provider's host is allowed over HTTPS on the session's own Actor, beside its
 revision's origins, on create and on every repoint: the session's directory
@@ -148,7 +155,10 @@ A `Bearer` provider's host also carries the session's caller credential: the
 egress gateway replaces the `Authorization` header a request from the session's
 Actor carries (any placeholder value) with `Bearer <JWT>`, the JWT Substrate
 mints for that Actor bound to the provider's audience (`CredentialHeader.actor_jwt`,
-fifteen minutes each). The token is minted at the gateway per request: it is
+fifteen minutes each), on the provider's path prefix alone when it has one:
+of a host's bindings, the gateway applies the one with the longest prefix the
+request path lies under, the one without a prefix otherwise
+(`CredentialHeader.path_prefix`). The token is minted at the gateway per request: it is
 never in the sandbox's environment, `/data` or `/workspace`, nor in the
 controller or its database, which hold only the provider's host, audience and
 broker. The provider, or the broker in front of it, verifies the JWT with
@@ -158,7 +168,7 @@ the session's own, and the session records its creator as the person the grant
 admitted. A session of the same Agent without providers, the ActorTemplate's
 default policy and the Agent's own credential bindings get no such rule, and a
 provider on a host and header the Agent already binds a credential to is
-refused when the session's policy is compiled. A `Basic` provider's host is
+refused when the session's policy is compiled, whatever its path prefix. A `Basic` provider's host is
 allowed without a credential until the gateway exchanges the actor JWT at the
 named broker (RFC 8693) and injects the broker's token, since a Basic header
 encodes the user name with the token. A grant names a broker, never its

@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,32 @@ func TestCanonicalCredentials(t *testing.T) {
 	golden.Scope = ScopeGolden
 	_, err = CanonicalCredentials([]Credential{base, golden})
 	require.ErrorContains(t, err, "conflicting credentials", "a scope does not let two bindings share a host and header")
+
+	// GitLab: Bearer on its API under /api/, Basic on the rest of the host.
+	api := Credential{Hostname: "gitlab.example.com", Header: "authorization", Prefix: "Bearer ", Audience: "gitlab", PathPrefix: "/api/"}
+	git := Credential{Hostname: "gitlab.example.com", Header: "authorization", Prefix: "Basic ", URI: "ate-secret://k8s.io/default/team/git/token"}
+	got, err = CanonicalCredentials([]Credential{api, git})
+	require.NoError(t, err, "one header takes a binding per path prefix")
+	require.Equal(t, []Credential{git, api}, got)
+	otherAPI := api
+	otherAPI.Audience = "elsewhere"
+	_, err = CanonicalCredentials([]Credential{api, otherAPI})
+	require.ErrorContains(t, err, "conflicting credentials for gitlab.example.com/api/ header authorization")
+	for _, prefix := range []string{"api/", "/api", "/", "//", "/api//v4/", "/./", "/api/../", "/api?x/", "/api#x/", `/api\v4/`, "/api%2f/", "/a pi/", "/äpi/"} {
+		t.Run(prefix, func(t *testing.T) {
+			binding := api
+			binding.PathPrefix = prefix
+			_, err := CanonicalCredentials([]Credential{binding})
+			require.ErrorContains(t, err, "invalid credential path prefix")
+		})
+	}
+}
+
+func TestValidPathPrefix(t *testing.T) {
+	for _, prefix := range []string{"/api/", "/gitlab/api/", "/a/", "/api/v4/"} {
+		require.True(t, ValidPathPrefix(prefix), prefix)
+	}
+	require.False(t, ValidPathPrefix("/"+strings.Repeat("a", 1023)+"/"), "longer than Substrate's 1024 bytes")
 }
 
 func TestForActors(t *testing.T) {

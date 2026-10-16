@@ -55,7 +55,7 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		if effects[binding.Hostname] == nil {
 			effects[binding.Hostname] = &ateapipb.HttpRuleEffects{}
 		}
-		header := &ateapipb.CredentialHeader{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI}
+		header := &ateapipb.CredentialHeader{Header: binding.Header, Prefix: binding.Prefix, CredentialUri: binding.URI, PathPrefix: binding.PathPrefix}
 		if binding.Audience != "" {
 			header.CredentialUri = ""
 			header.ActorJwt = &ateapipb.ActorJWTSource{Audiences: []string{binding.Audience}, ExpirationSeconds: int64(egress.ActorJWTLifetime / time.Second)}

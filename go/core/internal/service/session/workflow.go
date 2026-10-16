@@ -852,13 +852,25 @@ func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.Ru
 // session's directory setup and its git and API calls reach them without the
 // Agent listing them, and each gets its caller credential there
 // (providerCredentials); the revision and the Agent's other sessions are
-// unchanged.
+// unchanged. A provider never takes a header the Agent binds on its host, on
+// no path of it: the person's token and the Agent's own credential never meet
+// on one host.
 func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision, providers []*apiv1alpha1.SessionProvider) (*ateapipb.EgressPolicy, error) {
 	destinations := slices.Clone(revision.EgressDestinations)
 	for _, provider := range providers {
 		destinations = append(destinations, "https://"+provider.GetHostname())
 	}
-	credentials, err := egress.CanonicalCredentials(append(egress.ForActors(revision.Credentials), providerCredentials(providers)...))
+	agent := egress.ForActors(revision.Credentials)
+	callers, err := egress.CanonicalCredentials(providerCredentials(providers))
+	if err != nil {
+		return nil, fmt.Errorf("the session's provider credentials: %w", err)
+	}
+	for _, caller := range callers {
+		if slices.ContainsFunc(agent, func(c egress.Credential) bool { return c.Hostname == caller.Hostname && c.Header == caller.Header }) {
+			return nil, fmt.Errorf("the session's provider credentials: conflicting credentials for %s header %s", caller.Hostname, caller.Header)
+		}
+	}
+	credentials, err := egress.CanonicalCredentials(append(agent, callers...))
 	if err != nil {
 		return nil, fmt.Errorf("the session's provider credentials: %w", err)
 	}
@@ -876,7 +888,9 @@ func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision, pr
 // the session records its creator. A Basic provider gets none yet: the
 // gateway prepends the credential verbatim, and a Basic header needs the
 // broker's token encoded with the user name, which waits for the gateway's
-// token exchange at a named broker.
+// token exchange at a named broker. A provider with a path prefix binds the
+// request paths under it alone (GitLab's Bearer API under "/api/" beside its
+// Basic git on the rest of the host).
 func providerCredentials(providers []*apiv1alpha1.SessionProvider) []egress.Credential {
 	var bindings []egress.Credential
 	for _, provider := range providers {
@@ -884,7 +898,7 @@ func providerCredentials(providers []*apiv1alpha1.SessionProvider) []egress.Cred
 			continue
 		}
 		bindings = append(bindings, egress.Credential{
-			Hostname: provider.GetHostname(), Header: "authorization", Prefix: "Bearer ", Audience: provider.GetAudience(),
+			Hostname: provider.GetHostname(), Header: "authorization", Prefix: "Bearer ", Audience: provider.GetAudience(), PathPrefix: provider.GetPathPrefix(),
 		})
 	}
 	return bindings

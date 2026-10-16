@@ -40,13 +40,15 @@ type Mount struct {
 
 // Provider is a host whose credential a Session gets: the egress gateway sets
 // it on requests to Hostname with Scheme, from a token the named broker
-// exchanges for Audience. Username is set for the Basic scheme.
+// exchanges for Audience. Username is set for the Basic scheme. PathPrefix
+// narrows the provider to the request paths under it.
 type Provider struct {
-	Hostname string `json:"hostname"`
-	Audience string `json:"audience"`
-	Scheme   string `json:"scheme"`
-	Username string `json:"username,omitempty"`
-	Broker   string `json:"broker"`
+	Hostname   string `json:"hostname"`
+	PathPrefix string `json:"pathPrefix,omitempty"`
+	Audience   string `json:"audience"`
+	Scheme     string `json:"scheme"`
+	Username   string `json:"username,omitempty"`
+	Broker     string `json:"broker"`
 }
 
 // Grant is what a grant admits beside its subject: the namespace of the Agents

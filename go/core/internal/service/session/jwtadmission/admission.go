@@ -18,6 +18,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/session"
 )
@@ -111,13 +112,15 @@ type mount struct {
 	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
-// provider is a host whose credential the Session gets.
+// provider is a host, or the request paths under PathPrefix on it, whose
+// credential the Session gets.
 type provider struct {
-	Hostname string `json:"hostname"`
-	Audience string `json:"audience"`
-	Scheme   string `json:"scheme"`
-	Username string `json:"username,omitempty"`
-	Broker   string `json:"broker"`
+	Hostname   string `json:"hostname"`
+	PathPrefix string `json:"pathPrefix,omitempty"`
+	Audience   string `json:"audience"`
+	Scheme     string `json:"scheme"`
+	Username   string `json:"username,omitempty"`
+	Broker     string `json:"broker"`
 }
 
 // claims is a grant's payload.
@@ -226,7 +229,8 @@ func mountAllowed(allowed []mount, requested *apiv1alpha1.SessionVolumeMount) bo
 
 // admitted is what the grant admits the Session with, refused as malformed
 // when a provider or a changed path is not one a Session can carry, and when
-// brokers is set, refused for a provider naming a broker not in it.
+// brokers is set, refused for a provider naming a broker not in it. A host
+// takes one provider per path prefix, so a request has one credential.
 func admitted(grant *claims, brokers []string) (session.Admitted, error) {
 	result := session.Admitted{Changed: grant.Changed}
 	for _, changed := range grant.Changed {
@@ -234,18 +238,27 @@ func admitted(grant *claims, brokers []string) (session.Admitted, error) {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is malformed: a changed repository is not a clean relative path", nil)
 		}
 	}
+	scopes := map[string]bool{}
 	for _, granted := range grant.Providers {
 		if granted.Hostname == "" || granted.Audience == "" || granted.Broker == "" ||
 			(granted.Scheme != "Bearer" && granted.Scheme != "Basic") ||
 			(granted.Scheme == "Basic") != (granted.Username != "") {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is malformed: a provider needs a hostname, an audience, a broker and the Bearer or Basic scheme, a user name with Basic only", nil)
 		}
+		if granted.PathPrefix != "" && !egress.ValidPathPrefix(granted.PathPrefix) {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: provider path prefix %q is not a path below the root starting and ending with /", granted.PathPrefix), nil)
+		}
+		scope := strings.ToLower(granted.Hostname) + granted.PathPrefix
+		if scopes[scope] {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: %s is granted more than once", scope), nil)
+		}
+		scopes[scope] = true
 		if len(brokers) != 0 && !slices.Contains(brokers, granted.Broker) {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant names an unknown broker %q", granted.Broker), nil)
 		}
 		result.Providers = append(result.Providers, &apiv1alpha1.SessionProvider{
 			Hostname: granted.Hostname, Audience: granted.Audience, Scheme: granted.Scheme,
-			Username: granted.Username, Broker: granted.Broker,
+			Username: granted.Username, Broker: granted.Broker, PathPrefix: granted.PathPrefix,
 		})
 	}
 	return result, nil

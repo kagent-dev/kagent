@@ -416,3 +416,45 @@ func TestRefusesAGrantNamingAnUnknownBroker(t *testing.T) {
 	_, err = New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, Brokers: []string{""}}, server.Client())
 	require.Error(t, err, "an empty broker name is a configuration error")
 }
+
+// A GitLab grant lists its host twice: Basic for git on the whole host, Bearer
+// for its API under /api/. Each host and path prefix is granted once.
+func TestAdmitsAProviderPerPathPrefixOfAHost(t *testing.T) {
+	signer := newSigner(t, issuer, audience)
+	keys := &issuerKeys{}
+	keys.publish(signer)
+	server := httptest.NewTLSServer(keys)
+	t.Cleanup(server.Close)
+	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience}, server.Client())
+	require.NoError(t, err)
+	git := grant.Provider{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Basic", Username: "oauth2", Broker: "workspaces"}
+	api := grant.Provider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
+	withProviders := func(providers ...grant.Provider) string {
+		g := workspaceGrant()
+		g.Providers = providers
+		return sign(t, signer, person, g, time.Minute)
+	}
+
+	admitted, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), withProviders(git, api))
+	require.NoError(t, err)
+	require.Len(t, admitted.Providers, 2)
+	require.Empty(t, admitted.Providers[0].GetPathPrefix())
+	require.Equal(t, "/api/", admitted.Providers[1].GetPathPrefix())
+
+	for name, test := range map[string]struct {
+		providers []grant.Provider
+		refusal   string
+	}{
+		"two host-wide entries": {[]grant.Provider{git, {Hostname: "GitLab.example.com", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}}, "gitlab.example.com is granted more than once"},
+		"one prefix twice":      {[]grant.Provider{api, api}, "gitlab.example.com/api/ is granted more than once"},
+		"a prefix without /":    {[]grant.Provider{{Hostname: "gitlab.example.com", PathPrefix: "api", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}}, `provider path prefix "api"`},
+		"a dot segment":         {[]grant.Provider{{Hostname: "gitlab.example.com", PathPrefix: "/api/../", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}}, `provider path prefix "/api/../"`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			admitted, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), withProviders(test.providers...))
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Admit() error = %v", err)
+			require.ErrorContains(t, err, test.refusal)
+			require.Equal(t, session.Admitted{}, admitted)
+		})
+	}
+}

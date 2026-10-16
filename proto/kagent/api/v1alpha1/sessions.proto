@@ -83,7 +83,9 @@ message Session {
 
 // SessionProvider is a host whose credential a session gets: the egress
 // gateway sets it on requests to hostname with scheme, from a token the named
-// broker exchanges for audience. No credential is part of it.
+// broker exchanges for audience. No credential is part of it. One host may
+// carry a provider per path prefix: a request takes the provider with the
+// longest prefix its path lies under, the one without a prefix otherwise.
 message SessionProvider {
   string hostname = 1;
   string audience = 2;
@@ -93,6 +95,9 @@ message SessionProvider {
   string username = 4;
   // The token broker that exchanges the person's token for audience.
   string broker = 5;
+  // The request paths under this prefix, a path starting and ending with
+  // "/" (GitLab's "/api/"); empty for every path of hostname.
+  string path_prefix = 6;
 }
 
 // SessionVolumeSource names an existing read-write-many volume and how the
