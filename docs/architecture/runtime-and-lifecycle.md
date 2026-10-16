@@ -94,10 +94,16 @@ are rejected. There is no per-agent override or maximum TTL.
 Idle time is measured from the later of session creation and the latest stored
 A2A event's database timestamp. Forks retain original event timestamps, so their
 own creation time gives them a full idle lifetime. Reads, renames, lifecycle calls,
-and retried writes or settlement do not extend it. Running tasks and
-INPUT_REQUIRED/AUTH_REQUIRED turns never expire, even after that duration. Pending
-lifecycle operations, dispatch reservations, native cleanup, claimed pause/suspend
-work, and checkpoint creation also block expiration.
+and retried writes or settlement do not extend it. INPUT_REQUIRED/AUTH_REQUIRED
+turns use the same idle TTL, so an unanswered input or sign-in request does not
+keep a Session alive indefinitely. Submitted and running tasks never expire, even
+after that duration. Pending lifecycle operations, dispatch reservations, native
+cleanup, claimed pause/suspend work, and checkpoint creation also block expiration.
+
+The TTL applies to Sessions already waiting when the controller is upgraded. The
+next sweep may expire a wait older than the configured duration. Expiration ends
+the Session through ordinary deletion; it does not resume the agent or publish a
+synthetic task timeout.
 
 A leader-only worker scans once per minute in bounded pages. Under the same
 PostgreSQL row lock used by task admission, it rechecks the idle clock and active
