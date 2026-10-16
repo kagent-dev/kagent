@@ -68,7 +68,6 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
-	hasMCPToolsets := len(toolsets) > 0
 	skillsDirectory := agentConfig.SkillsDirectory
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
@@ -143,10 +142,6 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 
-	if hasMCPToolsets {
-		// MCP tool results carry their images for the UI; the model gets a note instead.
-		beforeModelCallbacks = append(beforeModelCallbacks, MakeMCPImageModelResultCallback())
-	}
 	if len(mcpAppToolNames) > 0 {
 		// For MCP App-capable tools, keep rich tool payloads in chat history for UI rendering,
 		// but compact what is sent back to the model to avoid redundant polling/tool churn.

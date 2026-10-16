@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -80,7 +81,7 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 		name    string
 		content []mcpsdk.Content
 		output  string
-		images  any
+		images  []ToolImage
 	}{
 		{name: "image between text", content: []mcpsdk.Content{text("chart"), png, text("https://example.test/panel")}, output: "chart\nhttps://example.test/panel", images: captured},
 		{name: "image first", content: []mcpsdk.Content{png, text("https://example.test/panel")}, output: "https://example.test/panel", images: captured},
@@ -96,11 +97,39 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			content = tc.content
-			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context()}, map[string]any{})
+			callID := "call-" + tc.name
+			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context(), callID: callID}, map[string]any{})
 			require.NoError(t, err)
 			require.Equal(t, tc.output, result["output"])
-			require.Equal(t, tc.images, result[ToolResultImagesKey])
+			// The result keeps only a note; the images wait for the A2A conversion.
+			if tc.images == nil {
+				require.NotContains(t, result, ToolResultImagesKey)
+			} else {
+				require.Equal(t, fmt.Sprintf("%d image(s) shown to the user", len(tc.images)), result[ToolResultImagesKey])
+			}
+			require.Equal(t, tc.images, TakeToolImages(callID))
+			require.Nil(t, TakeToolImages(callID), "images are taken once")
 		})
+	}
+}
+
+func TestStashToolImagesEvicts(t *testing.T) {
+	images := []ToolImage{{MIMEType: "image/png", Data: "cG5n"}}
+	backdate := func(callID string, age time.Duration) {
+		imageStash.Lock()
+		defer imageStash.Unlock()
+		imageStash.calls[callID] = stashedImages{images: images, at: time.Now().Add(-age)}
+	}
+	backdate("expired", stashedImagesTTL+time.Second)
+	for i := range maxStashedImageCalls {
+		StashToolImages(fmt.Sprintf("call-%d", i), images)
+	}
+	backdate("call-0", time.Second)
+	StashToolImages(fmt.Sprintf("call-%d", maxStashedImageCalls), images)
+	require.Nil(t, TakeToolImages("expired"), "expired images are dropped")
+	require.Nil(t, TakeToolImages("call-0"), "the oldest call is dropped when the stash is full")
+	for i := 1; i <= maxStashedImageCalls; i++ {
+		require.Equal(t, images, TakeToolImages(fmt.Sprintf("call-%d", i)))
 	}
 }
 
@@ -109,7 +138,10 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 type runContext struct {
 	*adkagent.ContextMock
 	context.Context
+	callID string
 }
+
+func (c runContext) FunctionCallID() string { return c.callID }
 
 func (c runContext) Deadline() (time.Time, bool) { return c.Context.Deadline() }
 func (c runContext) Done() <-chan struct{}       { return c.Context.Done() }

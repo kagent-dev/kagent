@@ -10,6 +10,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
@@ -68,7 +69,25 @@ func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.
 	if isEmptyDataPart(converted) {
 		return nil, nil
 	}
+	if part.FunctionResponse != nil {
+		addToolImages(converted, part.FunctionResponse.ID)
+	}
 	return converted, nil
+}
+
+// addToolImages puts the images an MCP tool call returned into its converted
+// function response, in place of the note the session keeps.
+func addToolImages(converted *a2atype.Part, callID string) {
+	images := mcp.TakeToolImages(callID)
+	response, ok := asDataPart(converted)[PartKeyResponse].(map[string]any)
+	if len(images) == 0 || !ok {
+		return
+	}
+	list := make([]any, len(images))
+	for i, image := range images {
+		list[i] = map[string]any{"mimeType": image.MIMEType, "data": image.Data}
+	}
+	response[mcp.ToolResultImagesKey] = list
 }
 
 // convertDataPartToGenAI converts a typed DataPart back to GenAI.

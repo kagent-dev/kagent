@@ -3,7 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -13,13 +16,65 @@ import (
 
 // ADK's MCP tool renders image content as a text placeholder, so the image
 // bytes never reach the tool result. The toolset's MCP client moves them from
-// the raw tools/call response into a sink carried by the call's context, and
-// imageTool adds them to the result the UI receives. The agent replaces them
-// with a short note before the result reaches the model.
+// the raw tools/call response into a sink carried by the call's context.
+// imageTool notes them in the tool result and stashes them by function call ID,
+// and the A2A converter puts them back into the result it sends to the UI. The
+// bytes stay out of the ADK session, so neither the model nor the session
+// history (including another agent's view of it) carries them.
 
-// ToolResultImagesKey is the tool result key holding the images an MCP tool
-// returned, as a list of ToolImage.
+// ToolResultImagesKey is the tool result key holding a note of the images an
+// MCP tool returned. In the A2A result it holds the images, as a list of
+// ToolImage.
 const ToolResultImagesKey = "images"
+
+const (
+	// stashedImagesTTL bounds how long images wait for a conversion that never
+	// comes, such as for a cancelled run. Conversion follows the tool call
+	// directly, in the same process.
+	stashedImagesTTL = 5 * time.Minute
+	// maxStashedImageCalls bounds the stash; the oldest call is dropped first.
+	maxStashedImageCalls = 64
+)
+
+type stashedImages struct {
+	images []ToolImage
+	at     time.Time
+}
+
+var imageStash = struct {
+	sync.Mutex
+	calls map[string]stashedImages
+}{calls: map[string]stashedImages{}}
+
+// StashToolImages keeps the images an MCP tool call returned until its
+// function response is converted to A2A.
+func StashToolImages(callID string, images []ToolImage) {
+	imageStash.Lock()
+	defer imageStash.Unlock()
+	now := time.Now()
+	oldest := ""
+	for id, stashed := range imageStash.calls {
+		if now.Sub(stashed.at) > stashedImagesTTL {
+			delete(imageStash.calls, id)
+		} else if oldest == "" || stashed.at.Before(imageStash.calls[oldest].at) {
+			oldest = id
+		}
+	}
+	if len(imageStash.calls) >= maxStashedImageCalls {
+		delete(imageStash.calls, oldest)
+	}
+	imageStash.calls[callID] = stashedImages{images: images, at: now}
+}
+
+// TakeToolImages returns the images an MCP tool call returned and forgets
+// them. Each function response is converted to A2A once.
+func TakeToolImages(callID string) []ToolImage {
+	imageStash.Lock()
+	defer imageStash.Unlock()
+	stashed := imageStash.calls[callID]
+	delete(imageStash.calls, callID)
+	return stashed.images
+}
 
 // ToolImage is an image returned by an MCP tool.
 type ToolImage struct {
@@ -109,8 +164,8 @@ func contentText(content mcpsdk.Content) string {
 	return ""
 }
 
-// withImages adds the images captured during each tool call of ts to the
-// call's result.
+// withImages notes and stashes the images captured during each tool call of
+// ts.
 func withImages(ts tool.Toolset) tool.Toolset {
 	return imageToolset{ts}
 }
@@ -154,12 +209,14 @@ func (t imageTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) e
 func (t imageTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
 	sink := &imageSink{}
 	result, err := t.functionTool.Run(valuesContext{Context: ctx, values: context.WithValue(ctx, imageSinkKey{}, sink)}, args)
-	if err != nil || len(sink.images) == 0 {
+	callID := ctx.FunctionCallID()
+	if err != nil || len(sink.images) == 0 || callID == "" {
 		return result, err
 	}
 	if result == nil {
 		result = map[string]any{}
 	}
-	result[ToolResultImagesKey] = sink.images
+	StashToolImages(callID, sink.images)
+	result[ToolResultImagesKey] = fmt.Sprintf("%d image(s) shown to the user", len(sink.images))
 	return result, nil
 }
