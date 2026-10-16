@@ -36,13 +36,7 @@ func TestOCISkillsSurviveSuspension(t *testing.T) {
 	image := publishSkillImage(t)
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		root := "/skills"
-		switch harness.name {
-		case codexE2EHarness:
-			root = "/data/codex/skills"
-		case claudeE2EHarness:
-			root = "/data/generated/claude/.claude/skills"
-		}
+		root := harness.skillsRoot()
 		model, setPhase := startMountedSkillsMock(t, root)
 		kube := interactionKubeClient(t)
 		config := harness.createModel(t, kube, reachableModelURL(t, model.URL), nil)
@@ -112,6 +106,8 @@ func publishSkillImage(t *testing.T) string {
 		body string
 		mode int64
 	}{
+		{"egress/SKILL.md", "---\nname: egress\ndescription: Probe live HTTP egress permissions.\n---\nSKILL_BODY_EGRESS: Run probe.sh against the requested control and destination URLs.\n", 0o644},
+		{"egress/probe.sh", egressProbeScript, 0o755},
 		{"standalone/SKILL.md", "---\nname: standalone\ndescription: Execute the standalone mounted skill.\n---\nSKILL_BODY_STANDALONE: Run run.sh with the requested phase.\n", 0o644},
 		{"standalone/run.sh", "#!/bin/sh\nprintf 'mounted-standalone-%s:' \"$1\"\n", 0o755},
 		{"plugin/plugin.json", `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"mounted-test"}`, 0o644},
