@@ -56,3 +56,14 @@ func (h testHarness) createModel(t *testing.T, kube ctrlclient.Client, modelURL 
 		return nil
 	}
 }
+
+func (h testHarness) skillsRoot() string {
+	switch h.name {
+	case codexE2EHarness:
+		return "/data/codex/skills"
+	case claudeE2EHarness:
+		return "/data/generated/claude/.claude/skills"
+	default:
+		return "/skills"
+	}
+}

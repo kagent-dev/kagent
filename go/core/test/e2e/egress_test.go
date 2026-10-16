@@ -4,17 +4,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
@@ -28,110 +35,259 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-func TestSessionEgressPolicyPinsAdditionalDestinations(t *testing.T) {
+// Every harness executes this same skill through its normal shell tool. The
+// child keeps probing while the model waits for the test to change policy; this
+// avoids each shell tool's foreground timeout without requiring another turn.
+const egressProbeScript = `#!/bin/sh
+control=$1
+target=$2
+run=$3
+for i in $(seq 1 900); do
+  phase=$(wget -T 5 -qO- "$control/phase") || exit 1
+  if [ "$phase" = stop ]; then
+    echo "EGRESS_PROBE_FINISHED_$run"
+    wget -T 5 -qO- "$control/stopped" >/dev/null
+    exit
+  fi
+  if wget -T 3 -qO- "$target?phase=$phase"; then
+    result=ALLOWED
+  else
+    result=DENIED
+  fi
+  echo "EGRESS_RESULT_${phase}_$result"
+  wget -T 5 -qO- "$control/result?phase=$phase&result=$result" >/dev/null || exit 1
+  sleep 0.2
+done
+exit 1
+`
+
+func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 	t.Parallel()
+	target := interactionTarget(t)
+	image := publishSkillImage(t)
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		if harness.name == codexE2EHarness {
-			testCodexSessionEgressPolicy(t, harness)
-			return
-		}
-		target := interactionTarget(t)
-		mcpURL, mcpServer := startMCPMock(t)
-		denied, err := url.Parse(mcpURL)
-		require.NoError(t, err)
-		// Give the destination a distinct hostname even when host mocks use
-		// host.docker.internal. It must not share the model or configured MCP origin.
 		kube := interactionKubeClient(t)
-		alias := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{GenerateName: "denied-origin-", Namespace: "kagent"},
-			Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: denied.Hostname()},
+		destination, requests := startEgressDestination(t)
+		modelURL, model, runs := startEgressSkillMock(t, harness.skillsRoot(), destination)
+		config := harness.createModel(t, kube, modelURL, nil)
+		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "live-egress-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &corev1.LocalObjectReference{Name: config.Name}, SystemPrompt: "Load the egress skill and run its probe.",
+			Skills: []v1alpha3.AgentTemplateSkill{{Name: "egress", Source: v1alpha3.ArtifactSource{OCI: image, Path: "egress"}}},
+		}}
+		createAndWaitInteractionTemplate(t, harness, kube, template)
+		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
+		actor, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", substrate.ActorName(fixture.sessionID))
+		require.NoError(t, err)
+		actorUID := actor.GetMetadata().GetUid()
+		agent := &v1alpha3.Agent{}
+		key := ctrlclient.ObjectKey{Namespace: "kagent", Name: template.Name}
+		require.NoError(t, kube.Get(t.Context(), key, agent))
+		revision := agent.Status.LatestSuccessfulRevision
+		grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "live-access-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination}}}}
+		require.NoError(t, kube.Create(t.Context(), grant))
+		t.Cleanup(func() { require.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), grant))) })
+		setGrant := func(origin string) {
+			t.Helper()
+			require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(grant), grant))
+			grant.Spec.Destinations[0].Origin = origin
+			require.NoError(t, kube.Update(t.Context(), grant))
 		}
-		require.NoError(t, kube.Create(t.Context(), alias))
-		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
-		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", denied.Port())
 
-		toolCalls := func() int {
-			calls := 0
-			for _, request := range mcpServer.Requests() {
-				var message struct {
-					Method string `json:"method"`
-				}
-				if json.Unmarshal(request.Body, &message) == nil && message.Method == "tools/call" {
-					calls++
-				}
-			}
-			return calls
-		}
-		const prompt = "Add 3 and 5 using the configured MCP server."
-		// Prove the destination is reachable when explicitly configured.
-		controlName, _ := createMCPInteractionTemplate(t, harness, denied.String(), false)
-		control := newInteractionFixtureForTemplate(t, harness, target, controlName)
-		_, _, task := control.send(t, prompt)
-		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
-		require.Contains(t, taskText(task), "result is 8")
-		controlCalls := toolCalls()
-		require.Positive(t, controlCalls)
+		run := runs("live")
+		finish := runEgressSkill(t, fixture, model, run)
+		run.expect(t, "initial", "DENIED")
+		require.Zero(t, requests("live_initial"), "ungranted requests reached the destination")
+		require.NoError(t, kube.Get(t.Context(), key, agent))
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: grant.Name}}
+		require.NoError(t, kube.Update(t.Context(), agent))
+		run.setPhase("allowed")
+		run.expect(t, "allowed", "ALLOWED")
+		require.Positive(t, requests("live_allowed"))
+		setGrant("https://unused.example.com")
+		run.setPhase("revoked")
+		run.expect(t, "revoked", "DENIED")
+		revokedCount := requests("live_revoked")
+		require.Never(t, func() bool { return requests("live_revoked") != revokedCount }, time.Second, 100*time.Millisecond)
+		actor, err = findSubstrateActor(fixture.ctx, fixture.system, "kagent", substrate.ActorName(fixture.sessionID))
+		require.NoError(t, err)
+		require.Equal(t, actorUID, actor.GetMetadata().GetUid(), "live updates must not replace the actor")
+		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, actor.GetStatus().GetState())
+		finish()
+		assertActorSuspended(t, fixture)
 
-		upstream := *denied
-		upstream.Host, upstream.Path = net.JoinHostPort("127.0.0.1", denied.Port()), ""
-		proxy := httputil.NewSingleHostReverseProxy(&upstream)
-		var redirects atomic.Int64
-		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			_ = r.Body.Close()
-			var message struct {
-				Method string `json:"method"`
-			}
-			if json.Unmarshal(body, &message) == nil && message.Method == "tools/call" {
-				redirects.Add(1)
-				http.Redirect(w, r, denied.String(), http.StatusTemporaryRedirect)
-				return
-			}
-			// Keep initialization and discovery on the configured endpoint so
-			// only the runtime's tool call exercises the additional destination.
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			proxy.ServeHTTP(w, r)
-		}))
-		_ = server.Listener.Close()
-		listener, err := net.Listen("tcp", "0.0.0.0:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		server.Listener = listener
-		server.Start()
-		t.Cleanup(server.Close)
-		name, _ := createMCPInteractionTemplate(t, harness, reachableServerURL(t, server.URL, denied.Path), false)
-		testSessionEgressPolicyPinsDestination(t, harness, name, denied.Scheme+"://"+denied.Host, func(fixture *interactionFixture, allowed bool) {
-			beforeRedirects, beforeCalls := redirects.Load(), toolCalls()
-			_, _, task := fixture.send(t, prompt)
-			require.Greater(t, redirects.Load(), beforeRedirects, "the runtime must attempt the MCP tool call")
-			if allowed {
-				require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "policy-granted redirect text = %q", taskText(task))
-				require.Contains(t, taskText(task), "result is 8")
-				require.Greater(t, toolCalls(), beforeCalls, "the session must reach the policy-granted destination")
-			} else {
-				require.Equal(t, beforeCalls, toolCalls(), "redirect reached an unconfigured destination")
-			}
+		// Save a checkpoint while the source is granted access, then revoke it while
+		// suspended. Neither resume nor a DATA fork may resurrect that old grant.
+		setGrant(destination)
+		run = runs("checkpoint")
+		finish = runEgressSkill(t, fixture, model, run)
+		run.expect(t, "initial", "ALLOWED")
+		task := finish()
+		assertActorSuspended(t, fixture)
+		checkpoint := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1.CreateCheckpointRequest{SessionId: fixture.sessionID, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID)}).GetCheckpoint()
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
+			defer cancel()
+			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1.DeleteCheckpointRequest{CheckpointId: checkpoint.Id})
+			require.NoError(t, err)
 		})
+		require.NoError(t, kube.Delete(t.Context(), grant))
+		require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+			if err := kube.Get(ctx, key, agent); err != nil {
+				return false, err
+			}
+			return apimeta.IsStatusConditionFalse(agent.Status.Conditions, v1alpha3.AgentConditionReady), nil
+		}))
+		require.Equal(t, revision, agent.Status.LatestSuccessfulRevision, "policy edits must not replace the runtime revision")
+		_, err = fixture.sessions.CreateSession(fixture.ctx, &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}, RequestId: uuid.NewString()})
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		run = runs("resumed")
+		finish = runEgressSkill(t, fixture, model, run)
+		run.expect(t, "initial", "DENIED")
+		require.Zero(t, requests("resumed_initial"))
+		finish()
+		assertActorSuspended(t, fixture)
+		actor, err = findSubstrateActor(fixture.ctx, fixture.system, "kagent", substrate.ActorName(fixture.sessionID))
+		require.NoError(t, err)
+		require.Equal(t, actorUID, actor.GetMetadata().GetUid())
+		forked, err := fixture.checkpoints.ForkSession(fixture.ctx, &apiv1.ForkSessionRequest{CheckpointId: checkpoint.Id, RequestId: uuid.NewString()})
+		require.NoError(t, err)
+		fork := *fixture
+		fork.sessionID = forked.Session.Id
+		fork.contextID = forked.Session.ContextId
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(fork.ctx), time.Minute)
+			defer cancel()
+			require.NoError(t, deleteIdleSession(ctx, fork.sessions, fork.sessionID))
+		})
+		run = runs("fork")
+		finish = runEgressSkill(t, &fork, model, run)
+		run.expect(t, "initial", "DENIED")
+		require.Zero(t, requests("fork_initial"))
+		finish()
 	})
 }
 
-func testCodexSessionEgressPolicy(t *testing.T, harness testHarness) {
+type egressProbeRun struct {
+	name                  string
+	proxy                 *httputil.ReverseProxy
+	mu                    sync.Mutex
+	phase                 string
+	lastPhase, lastResult string
+	consecutive           int
+	stopped               chan struct{}
+	release               chan struct{}
+	stopOnce, releaseOnce sync.Once
+}
+
+func (e *egressProbeRun) setPhase(phase string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.phase = e.name + "_" + phase
+}
+func (e *egressProbeRun) expect(t *testing.T, phase, result string) {
 	t.Helper()
-	interactionTarget(t)
-	// Codex's MCP client rejects cross-origin redirects before the gateway can
-	// authorize them. Exercise additional destinations through its shell tool.
-	var requests atomic.Int64
+	require.Eventually(t, func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.lastPhase == e.name+"_"+phase && e.lastResult == result && e.consecutive >= 3
+	}, 90*time.Second, 100*time.Millisecond, "%s %s did not become %s", e.name, phase, result)
+}
+func (e *egressProbeRun) finish(ctx context.Context) error {
+	e.mu.Lock()
+	e.phase = "stop"
+	e.mu.Unlock()
+	select {
+	case <-e.stopped:
+		e.releaseOnce.Do(func() { close(e.release) })
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecorder, run *egressProbeRun) func() *a2atype.Task {
+	t.Helper()
+	start := len(model.Requests("", ""))
+	_, request := newMessageRequest(t, "Run egress skill "+run.name+".")
+	request.Message.ContextId = fixture.sessionID
+	request.Tenant = fixture.tenant
+	type response struct {
+		message *a2apb.SendMessageResponse
+		err     error
+	}
+	done := make(chan response, 1)
+	ctx, cancel := context.WithCancel(fixture.ctx)
+	t.Cleanup(func() { cancel(); run.releaseOnce.Do(func() { close(run.release) }) })
+	go func() { r, err := sendMessageWithRetry(ctx, fixture.client, request); done <- response{r, err} }()
+	return func() *a2atype.Task {
+		t.Helper()
+		stopCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+		defer stop()
+		require.NoError(t, run.finish(stopCtx))
+		var result response
+		select {
+		case result = <-done:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		require.NoError(t, result.err)
+		parsed, err := pbconv.FromProtoSendMessageResponse(result.message)
+		require.NoError(t, err)
+		task, ok := parsed.(*a2atype.Task)
+		require.True(t, ok)
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, taskText(task))
+		require.Contains(t, taskText(task), "EGRESS_"+run.name+"_DONE")
+		// Check actual tool output in fresh model inputs, not the model's fixed text
+		// or conversation history copied into a resumed session or checkpoint fork.
+		var outputs []byte
+		for _, request := range model.Requests("", "")[start:] {
+			last, err := lastEgressModelInput(request.Body)
+			require.NoError(t, err)
+			outputs = append(outputs, last...)
+		}
+		for _, marker := range []string{"SKILL_BODY_EGRESS", "EGRESS_PROBE_STARTED_" + run.name, "EGRESS_PROBE_FINISHED_" + run.name} {
+			require.Contains(t, string(outputs), marker)
+		}
+		if run.name == "live" {
+			for _, marker := range []string{"EGRESS_RESULT_live_initial_DENIED", "EGRESS_RESULT_live_allowed_ALLOWED", "EGRESS_RESULT_live_revoked_DENIED"} {
+				require.Contains(t, string(outputs), marker)
+			}
+		}
+		return task
+	}
+}
+
+func lastEgressModelInput(raw []byte) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var body struct {
+		Messages []json.RawMessage `json:"messages"`
+		Input    []json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	messages := append(body.Messages, body.Input...)
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	return messages[len(messages)-1], nil
+}
+
+func startEgressDestination(t *testing.T) (string, func(string) int) {
+	t.Helper()
+	var mu sync.Mutex
+	requests := map[string]int{}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		_, _ = io.WriteString(w, "egress destination reached")
+		mu.Lock()
+		requests[r.URL.Query().Get("phase")]++
+		mu.Unlock()
+		_, _ = io.WriteString(w, "EGRESS_DESTINATION_REACHED\n")
 	}))
 	_ = server.Listener.Close()
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
@@ -139,91 +295,148 @@ func testCodexSessionEgressPolicy(t *testing.T, harness testHarness) {
 	server.Listener = listener
 	server.Start()
 	t.Cleanup(server.Close)
-	destination, err := url.Parse(reachableServerURL(t, server.URL, "/"))
+	destination, err := url.Parse(reachableServerURL(t, server.URL, ""))
 	require.NoError(t, err)
-	// Keep the destination distinct from the model origin on Docker Desktop too.
+	// Keep a distinct origin even on Docker Desktop, where host mocks otherwise
+	// share host.docker.internal with the implicitly allowed model endpoint.
 	kube := interactionKubeClient(t)
-	alias := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{GenerateName: "shell-origin-", Namespace: "kagent"},
-		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: destination.Hostname()},
-	}
+	alias := &corev1.Service{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-origin-", Namespace: "kagent"}, Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: destination.Hostname()}}
 	require.NoError(t, kube.Create(t.Context(), alias))
 	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
 	destination.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", destination.Port())
-
-	raw, err := codexInteractionMocks.ReadFile("mocks/invoke_codex_builtin_tools.json")
-	require.NoError(t, err)
-	// Always emit the fixture marker so the mock model finishes after denied
-	// requests too. The destination's request count proves whether egress worked.
-	command := "wget -T 10 -qO- " + destination.String() + "; printf CODEX_TOOL_FILE"
-	raw = bytes.ReplaceAll(raw, []byte("printf CODEX_TOOL_FILE"), []byte(command))
-	var cfg mockllm.Config
-	require.NoError(t, json.Unmarshal(raw, &cfg))
-	modelURL := reachableModelURL(t, startMockLLMConfig(t, cfg))
-	name := createInteractionTemplate(t, harness, modelURL)
-	testSessionEgressPolicyPinsDestination(t, harness, name, destination.Scheme+"://"+destination.Host, func(fixture *interactionFixture, allowed bool) {
-		before := requests.Load()
-		streamed := sendStreaming(t, fixture, "Run the requested shell command.")
-		require.Equal(t, a2atype.TaskStateCompleted, streamed.state, "egress probe text = %q, failure = %q", streamed.text, streamed.failureText)
-		assertToolEvents(t, streamed.toolEvents, "command_execution")
-		if allowed {
-			require.Greater(t, requests.Load(), before, "the session must reach the policy-granted destination")
-		} else {
-			require.Equal(t, before, requests.Load(), "shell reached an unconfigured destination")
-		}
-	})
+	return destination.String(), func(phase string) int { mu.Lock(); defer mu.Unlock(); return requests[phase] }
 }
 
-func testSessionEgressPolicyPinsDestination(t *testing.T, harness testHarness, name, origin string, probe func(*interactionFixture, bool)) {
+func startEgressSkillMock(t *testing.T, root, destination string) (string, *modelRecorder, func(string) *egressProbeRun) {
 	t.Helper()
-	target := interactionTarget(t)
-	kube := interactionKubeClient(t)
-	fixture := newInteractionFixtureForTemplate(t, harness, target, name)
-	probe(fixture, false)
-	grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "additional-access-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{
-		Destinations: []v1alpha3.EgressDestination{{Origin: origin}},
-	}}
-	require.NoError(t, kube.Create(t.Context(), grant))
-	t.Cleanup(func() { require.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), grant))) })
-	agent := &v1alpha3.Agent{}
-	key := ctrlclient.ObjectKey{Namespace: "kagent", Name: name}
-	require.NoError(t, kube.Get(t.Context(), key, agent))
-	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: grant.Name}}
-	require.NoError(t, kube.Update(t.Context(), agent))
-	require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
-		if err := kube.Get(ctx, key, agent); err != nil {
-			return false, err
+	var active atomic.Pointer[egressProbeRun]
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		run := active.Load()
+		if run == nil {
+			http.Error(w, "no active probe", http.StatusServiceUnavailable)
+			return
 		}
-		condition := apimeta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionReady)
-		return condition != nil && condition.ObservedGeneration == agent.Generation && condition.Status == metav1.ConditionTrue, nil
-	}))
-	allowed := newInteractionFixtureForTemplate(t, harness, target, name)
-	probe(allowed, true)
-	probe(fixture, false) // Existing sessions retain their earlier grants.
-
-	require.NoError(t, kube.Delete(t.Context(), grant))
-	require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
-		if err := kube.Get(ctx, key, agent); err != nil {
-			return false, err
+		if strings.HasPrefix(r.URL.Path, "/egress/") {
+			if !strings.HasPrefix(r.URL.Path, "/egress/"+run.name+"/") {
+				http.Error(w, "old probe", http.StatusGone)
+				return
+			}
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/phase"):
+				run.mu.Lock()
+				phase := run.phase
+				run.mu.Unlock()
+				_, _ = io.WriteString(w, phase)
+			case strings.HasSuffix(r.URL.Path, "/result"):
+				phase, result := r.URL.Query().Get("phase"), r.URL.Query().Get("result")
+				run.mu.Lock()
+				if phase == run.lastPhase && result == run.lastResult {
+					run.consecutive++
+				} else {
+					run.lastPhase, run.lastResult, run.consecutive = phase, result, 1
+				}
+				run.mu.Unlock()
+			case strings.HasSuffix(r.URL.Path, "/stopped"):
+				run.stopOnce.Do(func() { close(run.stopped) })
+			default:
+				http.NotFound(w, r)
+			}
+			return
 		}
-		condition := apimeta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionReady)
-		return condition != nil && condition.ObservedGeneration == agent.Generation && condition.Status == metav1.ConditionFalse, nil
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		_ = r.Body.Close()
+		last, err := lastEgressModelInput(body)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if bytes.Contains(last, []byte("EGRESS_PROBE_STARTED_"+run.name)) {
+			select {
+			case <-run.release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		run.proxy.ServeHTTP(w, r)
 	}))
-	// Check creation directly, without the fixture's preparation retry loop.
-	_, err := allowed.sessions.CreateSession(allowed.ctx, &apiv1.CreateSessionRequest{
-		Agent: &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}, RequestId: uuid.NewString(),
-	})
-	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	probe(allowed, true) // Deletion preserves the existing session's pinned grant.
+	t.Cleanup(server.Close)
+	recorder := startModelRecorder(t, server.URL, nil)
+	modelURL := reachableModelURL(t, recorder.URL)
+	origin := strings.TrimSuffix(modelURL, "/v1")
+	raw, err := interactionMocks.ReadFile("mocks/invoke_egress_skill.json")
+	require.NoError(t, err)
+	runs := map[string]*egressProbeRun{}
+	for _, phase := range []string{"live", "checkpoint", "resumed", "fork"} {
+		logPath := "/data/egress-" + phase + ".log"
+		start := fmt.Sprintf("nohup sh %s/egress/probe.sh '%s/egress/%s' '%s' %s >%s 2>&1 </dev/null & printf EGRESS_PROBE_STARTED_%s", root, origin, phase, destination, phase, logPath, phase)
+		collect := "cat " + logPath
+		replacements := []string{"PHASE", phase, "ROOT", root}
+		for key, command := range map[string]string{"START_COMMAND": start, "COLLECT_COMMAND": collect} {
+			args, err := json.Marshal(struct {
+				Command string `json:"command"`
+			}{command})
+			require.NoError(t, err)
+			encodedArgs, err := json.Marshal(string(args))
+			require.NoError(t, err)
+			codexArgs, err := json.Marshal(struct {
+				Command string `json:"cmd"`
+			}{command})
+			require.NoError(t, err)
+			encodedCodexArgs, err := json.Marshal(string(codexArgs))
+			require.NoError(t, err)
+			encodedCommand, err := json.Marshal(command)
+			require.NoError(t, err)
+			replacements = append(replacements, `"`+key+`_ARGUMENTS"`, string(encodedArgs), `"CODEX_`+key+`_ARGUMENTS"`, string(encodedCodexArgs), `"`+key+`"`, string(encodedCommand))
+		}
+		var config mockllm.Config
+		require.NoError(t, json.Unmarshal([]byte(strings.NewReplacer(replacements...).Replace(string(raw))), &config))
+		upstream, err := url.Parse(startMockLLMConfig(t, config))
+		require.NoError(t, err)
+		run := &egressProbeRun{name: phase, proxy: httputil.NewSingleHostReverseProxy(upstream), stopped: make(chan struct{}), release: make(chan struct{})}
+		run.setPhase("initial")
+		runs[phase] = run
+	}
+	active.Store(runs["live"])
+	return modelURL, recorder, func(phase string) *egressProbeRun { run := runs[phase]; active.Store(run); return run }
 }
 
-func TestSandboxEgressPolicyDeletionBlocksCreation(t *testing.T) {
+func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 	t.Parallel()
 	f := newSandboxFixture(t)
 	kube := interactionKubeClient(t)
-	grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "sandbox-access-", Namespace: f.template.Namespace}, Spec: v1alpha3.EgressPolicySpec{
-		Destinations: []v1alpha3.EgressDestination{{Origin: "https://example.com"}},
-	}}
+	destination, requests := startEgressDestination(t)
+	instance := f.create(t, 5*time.Minute)
+	actor, err := findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
+	require.NoError(t, err)
+	actorUID := actor.GetMetadata().GetUid()
+	probe := func(phase string) string {
+		t.Helper()
+		command := fmt.Sprintf("if wget -T 3 -qO- '%s?phase=%s'; then printf ALLOWED; else printf DENIED; fi", destination, phase)
+		process, err := f.processes.StartProcess(f.guestContext(instance.Id), &guestpb.StartProcessRequest{Command: []string{"sh", "-c", command}})
+		require.NoError(t, err)
+		outputs, err := f.processes.StreamProcessOutputs(f.guestContext(instance.Id), &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId, Follow: true})
+		require.NoError(t, err)
+		var result strings.Builder
+		for {
+			chunk, err := outputs.Recv()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			if chunk.Source == guestpb.OutputSource_OUTPUT_SOURCE_STDOUT {
+				result.Write(chunk.Data)
+			}
+		}
+		return result.String()
+	}
+	require.Contains(t, probe("initial"), "DENIED")
+	require.Zero(t, requests("initial"))
+	grant := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "sandbox-access-", Namespace: f.template.Namespace}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination}}}}
 	require.NoError(t, kube.Create(f.ctx, grant))
 	t.Cleanup(func() { require.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), grant))) })
 	template := &v1alpha3.SandboxTemplate{}
@@ -231,26 +444,29 @@ func TestSandboxEgressPolicyDeletionBlocksCreation(t *testing.T) {
 	require.NoError(t, kube.Get(f.ctx, key, template))
 	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: grant.Name}}
 	require.NoError(t, kube.Update(f.ctx, template))
-	// Observe the grant's generation before creating the instance to avoid
-	// selecting the template's earlier revision during reconciliation.
-	waitReady := func(want metav1.ConditionStatus) {
-		t.Helper()
-		require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-			if err := kube.Get(ctx, key, template); err != nil {
-				return false, err
-			}
-			condition := apimeta.FindStatusCondition(template.Status.Conditions, "Ready")
-			return condition != nil && condition.ObservedGeneration == template.Generation && condition.Status == want, nil
-		}))
-	}
-	waitReady(metav1.ConditionTrue)
-	first := f.create(t, 5*time.Minute)
+	require.Eventually(t, func() bool { return strings.Contains(probe("allowed"), "ALLOWED") }, time.Minute, time.Second)
+	require.Positive(t, requests("allowed"))
 	require.NoError(t, kube.Delete(f.ctx, grant))
-	waitReady(metav1.ConditionFalse)
-	_, err := f.client.CreateSandbox(f.ctx, &apiv1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString()})
+	require.Eventually(t, func() bool { return strings.Contains(probe("revoked"), "DENIED") }, time.Minute, time.Second)
+	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Get(ctx, key, template); err != nil {
+			return false, err
+		}
+		return apimeta.IsStatusConditionFalse(template.Status.Conditions, "Ready"), nil
+	}))
+	_, err = f.client.CreateSandbox(f.ctx, &apiv1.CreateSandboxRequest{SandboxTemplate: f.template, RequestId: uuid.NewString()})
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	current, err := f.client.GetSandbox(f.ctx, &apiv1.GetSandboxRequest{SandboxId: first.Id})
+	_, err = f.client.SuspendSandbox(f.ctx, &apiv1.SuspendSandboxRequest{SandboxId: instance.Id})
 	require.NoError(t, err)
-	require.Equal(t, first.PreparedRevision, current.Sandbox.PreparedRevision)
+	_, err = f.client.ResumeSandbox(f.ctx, &apiv1.ResumeSandboxRequest{SandboxId: instance.Id})
+	require.NoError(t, err)
+	require.Contains(t, probe("resumed"), "DENIED")
+	require.Zero(t, requests("resumed"))
+	current, err := f.client.GetSandbox(f.ctx, &apiv1.GetSandboxRequest{SandboxId: instance.Id})
+	require.NoError(t, err)
+	require.Equal(t, instance.PreparedRevision, current.Sandbox.PreparedRevision)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.Sandbox.State)
+	actor, err = findSubstrateActor(f.ctx, f.system, f.template.Namespace, substrate.ActorName(instance.Id))
+	require.NoError(t, err)
+	require.Equal(t, actorUID, actor.GetMetadata().GetUid())
 }
