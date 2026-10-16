@@ -15,11 +15,12 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/time/rate"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/cache"
+	clocktesting "k8s.io/utils/clock/testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -344,9 +345,10 @@ func TestEgressWithholdsConflictingGrantsAndWarns(t *testing.T) {
 			pinned.EgressDestinations, pinned.Credentials = base.Destinations, base.Credentials
 			inputs.policies.UpdateObject(egressTestPolicy("https://model.example.com", authentication))
 			inputs.secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "other"}, Data: map[string][]byte{"token": []byte("private-value")}})
-			store := &egressTestStore{pinned: map[string]database.RuntimeEgress{"revision": pinned}}
+			store := &egressTestStore{pinned: map[string]database.RuntimeEgress{"revision": pinned, "other": pinned}}
 			controller := NewEgressReconciler(ctx, inputs.runtime, store, &observingEgressActors{store: store}, nil)
-			controller.warnings = rate.NewLimiter(rate.Every(time.Hour), 1)
+			clock := clocktesting.NewFakeClock(time.Now())
+			controller.warnings = cache.NewLRUExpireCacheWithClock(1024, clock)
 			for range 3 {
 				require.NoError(t, controller.ReconcileRevision(ctx, "revision"))
 				got, err := store.GetRuntimeEgressPolicy(ctx, "revision")
@@ -354,6 +356,12 @@ func TestEgressWithholdsConflictingGrantsAndWarns(t *testing.T) {
 				require.Equal(t, base, got)
 			}
 			require.Equal(t, 1, strings.Count(logs.String(), "explicit egress grants withheld"))
+			require.NoError(t, controller.ReconcileRevision(ctx, "other"))
+			require.Contains(t, logs.String(), `"revision":"other"`, "a noisy revision must not suppress another revision's warning")
+			require.Equal(t, 2, strings.Count(logs.String(), "explicit egress grants withheld"))
+			clock.Step(31 * time.Second)
+			require.NoError(t, controller.ReconcileRevision(ctx, "revision"))
+			require.Equal(t, 3, strings.Count(logs.String(), "explicit egress grants withheld"))
 			require.Contains(t, logs.String(), `"level":"WARN"`)
 			require.Contains(t, logs.String(), `"revision":"revision"`)
 			require.NotContains(t, logs.String(), "private-value")

@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"golang.org/x/time/rate"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
+	"k8s.io/apimachinery/pkg/util/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -88,7 +88,7 @@ type EgressReconciler struct {
 	store      runtimeEgressStore
 	actors     actorEgressClient
 	namespaces []string
-	warnings   *rate.Limiter
+	warnings   *cache.LRUExpireCache
 	// Initial preparation and source/recovery queues share a publisher. Serialize
 	// cache lookup through commit so an older translation cannot commit last.
 	publishMu sync.Mutex
@@ -114,7 +114,7 @@ var _ manager.LeaderElectionRunnable = (*EgressReconciler)(nil)
 
 func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgressStore, actors actorEgressClient, namespaces []string) *EgressReconciler {
 	e := &EgressReconciler{grants: newEgressGrants(runtime), store: store, actors: actors,
-		namespaces: slices.Clone(namespaces), warnings: rate.NewLimiter(rate.Every(30*time.Second), 5)}
+		namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024)}
 	reconcile := func(item any) error {
 		err := e.reconcileActor(ctx, item.(database.RuntimeEgressTarget))
 		if status.Code(err) == codes.NotFound {
@@ -220,10 +220,14 @@ func (e *EgressReconciler) publishRevision(ctx context.Context, revision string)
 	}
 	access, err := egress.MergeAccess(base, grants, pinned.TokenPassthroughOrigins)
 	if err != nil {
-		if e.warnings.Allow() {
+		// Bound warning state while letting every revision report its own failures.
+		if _, warned := e.warnings.Get(revision); !warned {
 			logging.FromContext(ctx).WarnContext(ctx, "explicit egress grants withheld", "revision", revision, "namespace", pinned.Namespace, "source", pinned.SourceName, "error", err)
+			e.warnings.Add(revision, struct{}{}, 30*time.Second)
 		}
 		access = base
+	} else {
+		e.warnings.Remove(revision)
 	}
 	if err := e.store.SetRuntimeEgressPolicy(ctx, revision, access); err != nil {
 		return false, err

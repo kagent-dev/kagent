@@ -37,7 +37,6 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -1243,17 +1242,7 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 	if err != nil {
 		t.Fatalf("load Kubernetes config: %v", err)
 	}
-	clientScheme := k8sruntime.NewScheme()
-	if err := corev1.AddToScheme(clientScheme); err != nil {
-		t.Fatalf("register Kubernetes core API: %v", err)
-	}
-	if err := discoveryv1.AddToScheme(clientScheme); err != nil {
-		t.Fatalf("register discovery API: %v", err)
-	}
-	if err := v1alpha3.AddToScheme(clientScheme); err != nil {
-		t.Fatalf("register kagent API: %v", err)
-	}
-	kube, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: clientScheme})
+	kube, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: suiteKubeScheme})
 	if err != nil {
 		t.Fatalf("create Kubernetes client: %v", err)
 	}

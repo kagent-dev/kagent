@@ -9,23 +9,27 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io"
+	"maps"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
@@ -50,7 +54,7 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, StringData: map[string]string{"token": token}}
 		require.NoError(t, kube.Create(t.Context(), secret))
-		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), secret)) })
+		t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), secret))) })
 		ref := corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}
 		var refs []corev1.LocalObjectReference
 		for _, authentication := range []*v1alpha3.EgressAuthentication{
@@ -59,10 +63,10 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 		} {
 			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination, Authentication: authentication}}}}
 			require.NoError(t, kube.Create(t.Context(), policy))
-			t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), policy)) })
+			t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), policy))) })
 			refs = append(refs, corev1.LocalObjectReference{Name: policy.Name})
 		}
-		run := runs("credentials")
+		run := runs("live")
 		finish := runEgressSkill(t, fixture, model, run)
 		run.expect(t, "initial", "DENIED")
 		agent := &v1alpha3.Agent{}
@@ -134,7 +138,6 @@ func startAuthenticatedEgressDestination(t *testing.T, kube ctrlclient.Client, t
 // lookup, credential provider, and guest MITM trust use the normal installation.
 func trustEgressTestOrigin(t *testing.T, kube ctrlclient.Client, certificate string) {
 	t.Helper()
-	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
 	deployments := &appsv1.DeploymentList{}
 	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("ate-system"), ctrlclient.MatchingLabels{"app": "atenet-egress"}))
 	require.Len(t, deployments.Items, 1)
@@ -149,41 +152,174 @@ func trustEgressTestOrigin(t *testing.T, kube ctrlclient.Client, certificate str
 	config := &corev1.ConfigMap{}
 	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: deployment.Namespace, Name: configName}, config))
 	original := config.DeepCopy()
-	const rootFile = "egress-test-root.pem"
-	require.NotContains(t, config.Data, rootFile)
-	require.Equal(t, 1, strings.Count(config.Data["config.yaml"], "backendTLS: {}"))
-	config.Data["config.yaml"] = strings.Replace(config.Data["config.yaml"], "backendTLS: {}", "backendTLS:\n                root: /etc/agentgateway/"+rootFile, 1)
-	config.Data[rootFile] = certificate
-	rollout := func(ctx context.Context) {
-		t.Helper()
+	patched, restored, err := egressGatewayTrustConfig(config.Data, certificate)
+	require.NoError(t, err)
+	config.Data = patched
+	rollout := func(ctx context.Context) error {
 		current := &appsv1.Deployment{}
 		deploymentKey := ctrlclient.ObjectKeyFromObject(deployment)
-		require.NoError(t, kube.Get(ctx, deploymentKey, current))
+		if err := kube.Get(ctx, deploymentKey, current); err != nil {
+			return err
+		}
 		before := current.DeepCopy()
 		if current.Spec.Template.Annotations == nil {
 			current.Spec.Template.Annotations = map[string]string{}
 		}
 		current.Spec.Template.Annotations["kagent.dev/egress-test-rollout"] = uuid.NewString()
-		require.NoError(t, kube.Patch(ctx, current, ctrlclient.MergeFrom(before)))
-		require.NoError(t, wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Patch(ctx, current, ctrlclient.MergeFrom(before)); err != nil {
+			return err
+		}
+		return wait.PollUntilContextTimeout(ctx, time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 			observed := &appsv1.Deployment{}
 			if err := kube.Get(ctx, deploymentKey, observed); err != nil {
 				return false, err
 			}
 			return observed.Status.ObservedGeneration >= current.Generation && observed.Status.UpdatedReplicas == *observed.Spec.Replicas && observed.Status.AvailableReplicas == *observed.Spec.Replicas && observed.Status.Replicas == *observed.Spec.Replicas, nil
-		}))
+		})
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		current := &corev1.ConfigMap{}
-		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(original), current))
+		if !assert.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(original), current), "get gateway config for cleanup") {
+			return
+		}
 		before := current.DeepCopy()
-		current.Data["config.yaml"] = original.Data["config.yaml"]
-		delete(current.Data, rootFile)
-		require.NoError(t, kube.Patch(ctx, current, ctrlclient.MergeFrom(before)))
-		rollout(ctx)
+		current.Data["config.yaml"] = restored["config.yaml"]
+		delete(current.Data, egressTestRootFile)
+		if !assert.NoError(t, kube.Patch(ctx, current, ctrlclient.MergeFrom(before)), "restore gateway config") {
+			return
+		}
+		assert.NoError(t, rollout(ctx), "roll out restored gateway config")
 	})
 	require.NoError(t, kube.Patch(t.Context(), config, ctrlclient.MergeFrom(original)))
-	rollout(t.Context())
+	require.NoError(t, rollout(t.Context()))
+}
+
+const egressTestRootFile = "egress-test-root.pem"
+
+// Patch only dynamic HTTPS destinations, preserving the gateway's other policies.
+// The restore configuration also removes test trust left by an interrupted run.
+func egressGatewayTrustConfig(data map[string]string, certificate string) (patched, restored map[string]string, err error) {
+	var config map[string]any
+	if err := yaml.Unmarshal([]byte(data["config.yaml"]), &config); err != nil {
+		return nil, nil, fmt.Errorf("decode gateway config: %w", err)
+	}
+	var backends []map[string]any
+	binds, _ := config["binds"].([]any)
+	for _, value := range binds {
+		bind, _ := value.(map[string]any)
+		if bind["mode"] != "internal" {
+			continue
+		}
+		listeners, _ := bind["listeners"].([]any)
+		for _, value := range listeners {
+			listener, _ := value.(map[string]any)
+			if listener["protocol"] != "HTTPS" {
+				continue
+			}
+			routes, _ := listener["routes"].([]any)
+			for _, value := range routes {
+				route, _ := value.(map[string]any)
+				items, _ := route["backends"].([]any)
+				for _, value := range items {
+					backend, _ := value.(map[string]any)
+					if _, dynamic := backend["dynamic"]; dynamic {
+						backends = append(backends, backend)
+					}
+				}
+			}
+		}
+	}
+	if len(backends) != 1 {
+		return nil, nil, fmt.Errorf("expected one dynamic HTTPS backend, found %d", len(backends))
+	}
+	backend := backends[0]
+	path := []string{"policies", "backendTLS", "root"}
+	root, _, err := unstructured.NestedString(backend, path...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read gateway TLS root: %w", err)
+	}
+	restored = maps.Clone(data)
+	delete(restored, egressTestRootFile)
+	const testRoot = "/etc/agentgateway/" + egressTestRootFile
+	if root == testRoot {
+		unstructured.RemoveNestedField(backend, path...)
+		cleaned, err := yaml.Marshal(config)
+		if err != nil {
+			return nil, nil, fmt.Errorf("encode restored gateway config: %w", err)
+		}
+		restored["config.yaml"] = string(cleaned)
+	}
+	if err := unstructured.SetNestedField(backend, testRoot, path...); err != nil {
+		return nil, nil, fmt.Errorf("set gateway TLS root: %w", err)
+	}
+	updated, err := yaml.Marshal(config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode gateway config: %w", err)
+	}
+	patched = maps.Clone(restored)
+	patched["config.yaml"] = string(updated)
+	patched[egressTestRootFile] = certificate
+	return patched, restored, nil
+}
+
+func TestEgressGatewayTrustConfig(t *testing.T) {
+	const gateway = `frontendPolicies:
+  substrateEgressActorResolution:
+    policies:
+      backendTLS: {root: /identity-ca.pem}
+binds:
+- mode: internal
+  listeners:
+  - protocol: HTTP
+    routes:
+    - backends:
+      - dynamic: {}
+  - protocol: HTTPS
+    tls: {mode: dynamicCa, cert: /mitm.pem}
+    routes:
+    - policies:
+        substrateEgress:
+          policies:
+            backendTLS: {root: /control-plane-ca.pem}
+      backends:
+      - dynamic: {}
+        policies:
+          backendTLS: %s
+`
+	for _, tc := range []struct {
+		name, tls, restoredTLS string
+	}{
+		{"clean", "{}", "{}"},
+		{"interrupted", "{root: /etc/agentgateway/egress-test-root.pem}", "{}"},
+		{"existing trust", "{root: /custom-ca.pem, hostname: example.com}", "{root: /custom-ca.pem, hostname: example.com}"},
+		{"block format", "\n            root: /etc/agentgateway/egress-test-root.pem", "{}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := map[string]string{"config.yaml": fmt.Sprintf(gateway, tc.tls), egressTestRootFile: "leftover CA", "other.pem": "keep"}
+			before := maps.Clone(input)
+			patched, restored, err := egressGatewayTrustConfig(input, "new CA")
+			require.NoError(t, err)
+			require.Equal(t, before, input, "patch must not mutate the saved config")
+			require.Equal(t, "new CA", patched[egressTestRootFile])
+			require.Equal(t, "keep", patched["other.pem"])
+			require.NotContains(t, restored, egressTestRootFile)
+			var want, got map[string]any
+			require.NoError(t, yaml.Unmarshal([]byte(fmt.Sprintf(gateway, tc.restoredTLS)), &want))
+			require.NoError(t, yaml.Unmarshal([]byte(restored["config.yaml"]), &got))
+			require.Equal(t, want, got, "cleanup must preserve unrelated TLS policy")
+			repeated, _, err := egressGatewayTrustConfig(patched, "replacement CA")
+			require.NoError(t, err)
+			require.Equal(t, patched["config.yaml"], repeated["config.yaml"], "reapplying trust must be idempotent")
+			require.Equal(t, "replacement CA", repeated[egressTestRootFile])
+			require.Contains(t, patched["config.yaml"], "root: /etc/agentgateway/egress-test-root.pem")
+			require.Contains(t, patched["config.yaml"], "root: /identity-ca.pem")
+			require.Contains(t, patched["config.yaml"], "root: /control-plane-ca.pem")
+		})
+	}
+	for _, input := range []string{"[invalid", "binds: []"} {
+		_, _, err := egressGatewayTrustConfig(map[string]string{"config.yaml": input}, "CA")
+		require.Error(t, err)
+	}
 }
