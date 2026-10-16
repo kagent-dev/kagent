@@ -233,13 +233,13 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 
 func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 	note := map[string]any{"output": "chart", mcp.ToolResultImagesKey: "1 image(s) shown to the user"}
-	mcp.StashToolImages("call-images", []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
+	mcp.StashToolImages("invocation-1", "call-images", []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
 
-	convert := func(callID string) map[string]any {
+	convert := func(invocationID, callID string) map[string]any {
 		t.Helper()
 		response := genai.NewPartFromFunctionResponse("render_chart", maps.Clone(note))
 		response.FunctionResponse.ID = callID
-		part, err := genAIPartConverter(context.Background(), &adksession.Event{}, response)
+		part, err := genAIPartConverter(context.Background(), &adksession.Event{InvocationID: invocationID}, response)
 		if err != nil {
 			t.Fatalf("genAIPartConverter() error = %v", err)
 		}
@@ -251,14 +251,17 @@ func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 		return data[PartKeyResponse].(map[string]any)
 	}
 
+	if got := convert("invocation-2", "call-images"); !reflect.DeepEqual(got, note) {
+		t.Fatalf("another invocation's call took the images: %#v", got)
+	}
 	want := []any{map[string]any{"mimeType": "image/png", "data": "cG5n"}}
-	if got := convert("call-images")[mcp.ToolResultImagesKey]; !reflect.DeepEqual(got, want) {
+	if got := convert("invocation-1", "call-images")[mcp.ToolResultImagesKey]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("images = %#v, want %#v", got, want)
 	}
-	if got := convert("call-images")[mcp.ToolResultImagesKey]; got != note[mcp.ToolResultImagesKey] {
+	if got := convert("invocation-1", "call-images")[mcp.ToolResultImagesKey]; got != note[mcp.ToolResultImagesKey] {
 		t.Fatalf("images were added twice: %#v", got)
 	}
-	if got := convert("call-other"); !reflect.DeepEqual(got, note) {
+	if got := convert("invocation-1", "call-other"); !reflect.DeepEqual(got, note) {
 		t.Fatalf("response without stashed images changed: %#v", got)
 	}
 }
