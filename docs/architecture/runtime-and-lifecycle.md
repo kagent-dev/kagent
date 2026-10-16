@@ -181,6 +181,31 @@ claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
 adopted implicitly.
 
+The same worker scans accepted SUBMITTED/WORKING turns for crashed runtimes on
+the recovery interval. Only one worker per replica scans, in ID-ordered pages of
+at most 100 candidates; idle and publicly waiting sessions do not cause Actor
+reads. The task predicate uses the existing active-task index. Each page has a
+two-minute bound and advances past unavailable Actors before continuing on the
+next interval. Admitted recoveries remain candidates across API restarts.
+
+Only Substrate's CRASHED state for the recorded Actor UID and pinned template
+admits recovery. A quiet turn, transport failure, or unavailable control plane
+does not. Admission records FAILED/RESUME with a RuntimeCrashed failure and uses
+the ordinary operation UUID and bounded executor claim to fence new work. The
+same transaction publishes a durable terminal result saved before the crash, or
+records a failed turn with its original history. The worker then reverts that
+Actor to its last external snapshot, preserving its identity.
+An unpublished INPUT_REQUIRED/AUTH_REQUIRED update also becomes a failed turn:
+the reverted snapshot cannot retain that turn's uncheckpointed private wait state.
+An interrupted revert continues from REVERTING; a lost response can be reconciled
+from SUSPENDED. Errors retain the failure and are retried automatically.
+
+After the revert completes, recovery returns the Session to logical READY;
+the next authorized interaction resumes
+the Actor through Substrate ingress. The discarded turn receives no checkpoint
+at the older snapshot. State since that snapshot, including runtime-private
+changes from the interrupted turn, is lost; recovery does not replay its input.
+
 ```mermaid
 sequenceDiagram
     participant Client
