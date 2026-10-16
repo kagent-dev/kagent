@@ -22,7 +22,7 @@ type SandboxTemplateDefinition struct {
 	Namespace           string
 	SandboxTemplateName string
 	SandboxTemplateUID  string
-	Grants              egress.Access
+	EgressGrant         egress.Access
 	DesiredRevision     string
 }
 
@@ -30,7 +30,7 @@ type SandboxTemplateDefinition struct {
 // Kubernetes UID retires the former identity without inheriting its last success.
 // Grants are canonicalized before writing; errors may include an uncertain commit outcome.
 func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition SandboxTemplateDefinition) error {
-	grants, err := canonicalStoredGrants(definition.Grants)
+	grants, err := canonicalStoredGrants(definition.EgressGrant)
 	if err != nil {
 		return fmt.Errorf("validate source grants: %w", err)
 	}

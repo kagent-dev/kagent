@@ -135,7 +135,7 @@ func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
 func TestRuntimeEgressCanonicalTokenOriginWithholdsCredentials(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
-	err := client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", Grants: egress.Access{
+	err := client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", EgressGrant: egress.Access{
 		Destinations: []string{"https://model.example.com"},
 		Credentials:  []egress.Credential{{Origin: "https://model.example.com", Header: "authorization", URI: "ate-secret://k8s.io/default/team/model/token"}},
 	}})
@@ -159,9 +159,9 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 			ctx := t.Context()
 			upsert := func(uid string, grants egress.Access) error {
 				if kind == RuntimeEgressAgent {
-					return client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: uid, Grants: grants})
+					return client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: uid, EgressGrant: grants})
 				}
-				return client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team", SandboxTemplateName: "source", SandboxTemplateUID: uid, Grants: grants})
+				return client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team", SandboxTemplateName: "source", SandboxTemplateUID: uid, EgressGrant: grants})
 			}
 			base := egress.Access{}
 			if kind == RuntimeEgressAgent {
@@ -228,13 +228,13 @@ func TestSourceGrantsRollbackWithInvalidRevision(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	grants := egress.Access{Destinations: []string{"https://tickets.example.com:443"}}
-	definition := AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", Grants: grants}
+	definition := AgentDefinition{Namespace: "team", AgentName: "source", AgentUID: "uid", EgressGrant: grants}
 	err := client.UpsertAgentDefinition(ctx, definition)
 	require.NoError(t, err)
 	require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{Revision: "agent", Namespace: "team", AgentName: "source", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "agent"}, RecordRevisionOptions{}))
 	require.NoError(t, client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: "sandbox", Namespace: "team", ActorTemplateAtespace: "team", ActorTemplateName: "sandbox"}, SandboxTemplateName: "scratch", SandboxTemplateUID: "sandbox", SourceSnapshot: []byte(`{}`)}, RecordRevisionOptions{}))
 	for _, uid := range []string{"uid", "replacement"} {
-		definition.AgentUID, definition.DesiredRevision, definition.Grants = uid, "sandbox", egress.Access{}
+		definition.AgentUID, definition.DesiredRevision, definition.EgressGrant = uid, "sandbox", egress.Access{}
 		err = client.UpsertAgentDefinition(ctx, definition)
 		require.ErrorIs(t, err, ErrConflict)
 		policy, err := client.GetRuntimeEgressPolicy(ctx, "agent")

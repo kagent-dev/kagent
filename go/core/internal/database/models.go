@@ -51,10 +51,10 @@ type AgentMemorySearchResult struct {
 
 // AgentDefinition tracks the desired and last successful runtime for an Agent UID.
 type AgentDefinition struct {
-	Namespace string
-	AgentName string
-	AgentUID  string
-	Grants    egress.Access
+	Namespace   string
+	AgentName   string
+	AgentUID    string
+	EgressGrant egress.Access
 	// DesiredRevision is a compiled runtime digest, or empty while inputs are unresolved.
 	DesiredRevision string
 }

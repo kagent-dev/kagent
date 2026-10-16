@@ -140,7 +140,7 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		return nil
 	}
 	err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
-		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), Grants: state.Grants,
+		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), EgressGrant: state.EgressGrant,
 	})
 	if err != nil {
 		return s.observeError(*state, fmt.Errorf("store SandboxTemplate %s definition: %w", key, err), true)

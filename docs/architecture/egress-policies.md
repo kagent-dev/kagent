@@ -155,6 +155,9 @@ when dependencies change.
 
 Runtime revisions retain the integration access inferred from models and tools,
 including credential references and caller-token passthrough constraints.
+The combined additional access from a source's referenced EgressPolicies is its
+`EgressGrant`: destinations it may contact and credentials the gateway may inject.
+Reconciliation and source definition structs carry it as `EgressGrant egress.Access`.
 Explicit policy grants and policy references do not enter revision identity.
 Changing a grant or its Secret reference does not prepare a new runtime image.
 Secret values remain outside compiled inputs; the gateway handles value rotation.
