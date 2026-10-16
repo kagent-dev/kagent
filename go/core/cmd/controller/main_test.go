@@ -21,8 +21,8 @@ func TestCheckConfigAllowsUnsignedPush(t *testing.T) {
 	const database = "database: {owner: {urlFile: database-url, role: kagent_owner}, readWrite: {urlFile: database-url, role: kagent_readwrite}}\n"
 	require.NoError(t, os.WriteFile(path, []byte(database), 0o600))
 	require.NoError(t, run(path, true, ""))
-	require.NoError(t, os.WriteFile(path, []byte(database+"gateway: {push: {signingPrivateKeyFile: missing.pem}}\n"), 0o600))
-	require.ErrorContains(t, run(path, true, ""), "missing.pem")
+	require.NoError(t, os.WriteFile(path, []byte(database+"push: {signingPrivateKeyFile: missing.pem}\n"), 0o600))
+	require.ErrorContains(t, run(path, true, ""), filepath.Join(dir, "missing.pem"))
 }
 
 func TestCheckConfigSkipsOwnerFileWhenSkippingMigrations(t *testing.T) {

@@ -41,6 +41,12 @@ func TestControllerConfig(t *testing.T) {
 		{"invalid vector schema", "database: {vectorSchema: 'extension;DROP'}", true},
 		{"ttl bounds", "sandboxes: {defaultTtl: 7200s, maxTtl: 3600s}", true},
 		{"interval", "sessions: {expirationInterval: 0s}", true},
+		{"old gateway push configuration", "gateway: {push: {allowHttp: true}}", true},
+		{"push configuration", "push: {issuer: https://issuer.example, allowHttp: true, allowPrivateNetworks: true}", false},
+		{"invalid push issuer", "push: {issuer: invalid}", true},
+		{"push recovery interval", "push: {recoveryInterval: 15s}", false},
+		{"zero push recovery interval", "push: {recoveryInterval: 0s}", true},
+		{"negative push recovery interval", "push: {recoveryInterval: -60s}", true},
 		{"log level", "logging: {level: verbose}", true},
 		{"runtime service name", "runtimeDefaults: {telemetry: {resourceAttributes: {service.name: shared}}}", true},
 		{"runtime service namespace", "runtimeDefaults: {telemetry: {resourceAttributes: {service.namespace: shared}}}", true},
@@ -96,7 +102,8 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 	require.Equal(t, time.Minute, cfg.Sessions.ExpirationInterval.AsDuration())
 	require.Equal(t, "kagent", cfg.Database.GetSchema())
 	require.Equal(t, "extensions", cfg.Database.GetVectorSchema())
-	require.Empty(t, cfg.Gateway.Push.SigningPrivateKeyFile)
+	require.Empty(t, cfg.Push.SigningPrivateKeyFile)
+	require.Equal(t, time.Minute, cfg.Push.RecoveryInterval.AsDuration())
 }
 
 func TestExplicitEmptyStringFailsSchemaValidation(t *testing.T) {

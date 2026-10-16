@@ -10,7 +10,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"istio.io/istio/pkg/kube/krt"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
@@ -38,7 +38,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	configJSON, err := adk.Marshal(&adk.Config{
+	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
 		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
 		Agent:   compiled.Config,
 	})

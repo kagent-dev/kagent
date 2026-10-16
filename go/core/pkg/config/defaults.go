@@ -38,7 +38,8 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Database:         defaultDatabase(),
 		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("http://atenet-router.ate-system.svc:80")},
 		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
-		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083"), Push: &configv1.PushConfig{}},
+		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083")},
+		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute)},
 		Sandboxes:        &configv1.SandboxConfig{Cpu: new("1"), Memory: new("1Gi"), DefaultTtl: durationpb.New(time.Hour), MaxTtl: durationpb.New(24 * time.Hour), ExpirationInterval: durationpb.New(time.Second)},
 		ScheduledRuns:    &configv1.ScheduledRunsConfig{PollInterval: durationpb.New(time.Second), ExecutionInterval: durationpb.New(time.Second)},
 		RuntimeRevisions: &configv1.RuntimeRevisionsConfig{GcInterval: durationpb.New(time.Minute)},
@@ -47,8 +48,8 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Telemetry:        &configv1.TelemetryConfig{},
 		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
 	})
-	if cfg.Gateway.Push.Issuer == nil {
-		cfg.Gateway.Push.Issuer = new(cfg.Gateway.GetPublicUrl())
+	if cfg.Push.Issuer == nil {
+		cfg.Push.Issuer = new(cfg.Gateway.GetPublicUrl())
 	}
 	defaultTelemetry(cfg.Telemetry)
 	defaultTelemetry(cfg.RuntimeDefaults.Telemetry)
@@ -74,7 +75,7 @@ func defaultTelemetry(cfg *configv1.TelemetryConfig) {
 func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	resolveLoginPath(cfg.Database.ReadWrite, path)
-	cfg.Gateway.Push.SigningPrivateKeyFile = FilePath(path, cfg.Gateway.Push.SigningPrivateKeyFile)
+	cfg.Push.SigningPrivateKeyFile = FilePath(path, cfg.Push.SigningPrivateKeyFile)
 	cfg.Substrate.CaFile = FilePath(path, cfg.Substrate.CaFile)
 	cfg.Substrate.ClientCertFile = FilePath(path, cfg.Substrate.ClientCertFile)
 }

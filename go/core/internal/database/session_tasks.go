@@ -185,10 +185,11 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 				return fmt.Errorf("a terminal task cannot be updated: %w", ErrFailedPrecondition)
 			}
 		}
+		wasWaiting := stored != nil && (stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired)
 		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return fmt.Errorf("session cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
 		}
-		if (stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) && dispatchID != "" {
+		if (stored == nil || wasWaiting) && dispatchID != "" {
 			tag, err := tx.Exec(ctx, `
 				UPDATE session SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
 				    dispatch_expires_at = CASE WHEN $3 THEN dispatch_expires_at END
@@ -206,7 +207,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		}
 		// New execution supersedes idle work that no worker has claimed yet.
 		// Keep the marker for idempotent acknowledgements of the older boundary.
-		if stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired {
+		if stored == nil || wasWaiting {
 			if err := execSQL(ctx, tx, `
 				UPDATE session_task_event SET quiescence_pending = FALSE
 				WHERE history_id = $1 AND quiescence_pending
@@ -226,6 +227,13 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		}
 		if err := storeSessionTaskEvent(ctx, tx, session, task, event, boundary); err != nil {
 			return err
+		}
+		// Clear the old waiting notice when execution resumes. Input-only saves
+		// while waiting and ordinary active progress do not need this cleanup.
+		if wasWaiting && (task.Status.State == a2a.TaskStateSubmitted || task.Status.State == a2a.TaskStateWorking) {
+			if err := clearTaskPushDelivery(ctx, tx, session.HistoryID, string(task.ID)); err != nil {
+				return err
+			}
 		}
 		if err := bindInitialPushForTask(ctx, tx, session.HistoryID, string(task.ID)); err != nil {
 			return err

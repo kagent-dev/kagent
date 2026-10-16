@@ -13,7 +13,7 @@ permissions:
 jobs:
   prepare:
     if: github.repository == 'kagent-dev/kagent' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       release: ${{ steps.prepare.outputs.release }}
       version: ${{ steps.prepare.outputs.version }}
@@ -70,7 +70,6 @@ jobs:
         image:
           - controller
           - ui
-          - kagent-adk
           - golang-adk
           - claude-harness
           - codex-harness
@@ -85,7 +84,7 @@ jobs:
 
   push-helm-chart:
     needs: [prepare, push-images]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/publish-helm
@@ -96,7 +95,7 @@ jobs:
   artifacts:
     needs: prepare
     if: needs.prepare.outputs.release == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v6
     - uses: ./.github/actions/build-release-artifacts

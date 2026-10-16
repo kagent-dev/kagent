@@ -30,6 +30,10 @@ func (s *agentServer) ListAgents(ctx context.Context, request *apiv1.ListAgentsR
 	if err != nil {
 		return nil, err
 	}
+	items, next, err := kubecrud.Page(items, int(request.GetPage().GetLimit()), request.GetPage().GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	agents := make([]*apiv1.Agent, 0, len(items))
 	for _, item := range items {
 		agent, err := s.agent(item)
@@ -38,7 +42,7 @@ func (s *agentServer) ListAgents(ctx context.Context, request *apiv1.ListAgentsR
 		}
 		agents = append(agents, agent)
 	}
-	return &apiv1.ListAgentsResponse{Agents: agents}, nil
+	return &apiv1.ListAgentsResponse{Agents: agents, Page: &apiv1.PageResponse{NextPageToken: next}}, nil
 }
 
 func (s *agentServer) GetAgent(ctx context.Context, request *apiv1.GetAgentRequest) (*apiv1.GetAgentResponse, error) {

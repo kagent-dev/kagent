@@ -16,7 +16,7 @@ import (
 // An embedded callback starts as a receipt for one input message. It gains a
 // task ID only when that task accepts the message. Explicit Create already has
 // a task ID and stores a bound row through SaveTaskPushConfig instead.
-// Binding never queues delivery: SettleSessionTask inserts outbox rows when it
+// Binding never queues delivery: SettleSessionTask replaces pending work when it
 // publishes a later eligible task state.
 //
 // RegisterSessionPushNotification saves the callback supplied with SendMessage before
@@ -191,8 +191,8 @@ func bindPushRegistration(ctx context.Context, tx pgx.Tx, id uuid.UUID, taskID s
     `, id, taskID)
 }
 
-// SaveTaskPushConfig creates or replaces a task configuration. Its revision
-// fences queued notifications for an older destination.
+// SaveTaskPushConfig creates or replaces a task configuration. Changing its URL
+// invalidates pending work and claims; the next publication uses the new URL.
 func (c *Client) SaveTaskPushConfig(ctx context.Context, sessionID, taskID string, config *a2a.PushConfig) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, sessionID)
@@ -213,12 +213,11 @@ func (c *Client) SaveTaskPushConfig(ctx context.Context, sessionID, taskID strin
 			return fmt.Errorf("cannot register a callback on a terminal task: %w", ErrFailedPrecondition)
 		}
 		type existing struct {
-			ID       uuid.UUID
-			URL      string
-			Revision int64
+			ID  uuid.UUID
+			URL string
 		}
 		row, err := queryOne(ctx, tx, `
-            SELECT id, url, revision FROM session_push_registration
+            SELECT id, url FROM session_push_registration
             WHERE history_id = $1 AND task_id = $2 AND config_id = $3 AND closed_at IS NULL
             FOR UPDATE
         `, pgx.RowToStructByName[existing], session.HistoryID, taskID, config.ID)
@@ -233,14 +232,10 @@ func (c *Client) SaveTaskPushConfig(ctx context.Context, sessionID, taskID strin
 		case row.URL == config.URL:
 			return nil
 		default:
-			// Pending snapshots still target the old destination. Cancel them
-			// before advancing the revision; the next publication uses the new one.
-			if err := cancelPushDeliveries(ctx, tx, row.ID); err != nil {
-				return err
-			}
 			err = execSQL(ctx, tx, `
                 UPDATE session_push_registration SET url = $2,
-                    revision = revision + 1 WHERE id = $1
+                    pending_event_sequence = NULL, attempt_count = 0, next_attempt_at = NULL,
+                    claim_token = NULL, lease_until = NULL WHERE id = $1
             `, row.ID, config.URL)
 		}
 		return err
@@ -303,19 +298,11 @@ func (c *Client) DeleteTaskPushConfig(ctx context.Context, sessionID, taskID, co
 		if session.State == "RUNTIME_STATE_DELETED" {
 			return ErrNotFound
 		}
-		ids, err := queryMany(ctx, tx, `
-            UPDATE session_push_registration p SET closed_at = clock_timestamp()
-            WHERE p.history_id = $1 AND p.config_id = $3 AND p.closed_at IS NULL AND p.task_id = $2
-            RETURNING p.id
-        `, pgx.RowTo[uuid.UUID], session.HistoryID, taskID, configID)
-		if err != nil {
-			return err
-		}
-		for _, id := range ids {
-			if err := cancelPushDeliveries(ctx, tx, id); err != nil {
-				return err
-			}
-		}
-		return nil
+		return execSQL(ctx, tx, `
+            UPDATE session_push_registration SET closed_at = clock_timestamp(),
+                pending_event_sequence = NULL, attempt_count = 0, next_attempt_at = NULL,
+                claim_token = NULL, lease_until = NULL
+            WHERE history_id = $1 AND config_id = $3 AND closed_at IS NULL AND task_id = $2
+        `, session.HistoryID, taskID, configID)
 	})
 }

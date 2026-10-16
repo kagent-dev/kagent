@@ -42,8 +42,8 @@ def maybe_add_skills_with_config(root_agent: BaseAgent, config: Optional[Config]
         add_skills_tool_to_agent(
             config.agent.skills_directory,
             root_agent,
-            file_search_tools=runtime.file_search_tools,
-            bash_venv_path=runtime.bash_venv_path,
+            file_search_tools=runtime.skill_tools.file_search_tools,
+            bash_venv_path=runtime.skill_tools.bash_venv_path,
         )
 
 

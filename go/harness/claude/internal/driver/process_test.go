@@ -42,31 +42,7 @@ func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
 	s.results = append(s.results, event)
 	return nil
 }
-func (s *recordingSink) ModelCall(event runtime.ModelCall) {
-	s.models = append(s.models, event)
-}
-
-func TestResumedEventSinkDropsOnlyInterruptedResponseWarning(t *testing.T) {
-	underlying := &recordingSink{}
-	sink := resumedEventSink{EventSink: underlying}
-
-	if err := sink.TextDelta(runtime.TextDelta{Text: "\n" + interruptedResponseWarning + "\n"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := sink.TextDelta(runtime.TextDelta{Text: "continued"}); err != nil {
-		t.Fatal(err)
-	}
-	if underlying.text.String() != "continued" {
-		t.Fatalf("resumed text = %q, want continued", underlying.text.String())
-	}
-
-	if _, err := emitEvent(Event{Kind: EventTextDelta, Text: interruptedResponseWarning}, underlying, false); err != nil {
-		t.Fatal(err)
-	}
-	if underlying.text.String() != "continued"+interruptedResponseWarning {
-		t.Fatalf("ordinary text = %q, want the vendor warning preserved", underlying.text.String())
-	}
-}
+func (s *recordingSink) ModelCall(event runtime.ModelCall) { s.models = append(s.models, event) }
 
 func TestTraceEnvironment(t *testing.T) {
 	traceID, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")

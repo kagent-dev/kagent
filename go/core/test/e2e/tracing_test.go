@@ -623,9 +623,13 @@ func assertActorSuspended(t *testing.T, fixture *interactionFixture) {
 		if err != nil {
 			return false, err
 		}
-		return actor != nil && actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_SUSPENDED, nil
+		if actor == nil || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+			return false, nil
+		}
+		snapshot := actor.GetStatus().GetExternalSnapshot()
+		return snapshot.GetSnapshotUri() != "" && snapshot.GetContentScope() == ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, nil
 	})
 	if err != nil {
-		t.Fatalf("Actor %s did not reach Suspended: %v", actorID, err)
+		t.Fatalf("Actor %s did not reach Suspended with an external DATA snapshot: %v", actorID, err)
 	}
 }

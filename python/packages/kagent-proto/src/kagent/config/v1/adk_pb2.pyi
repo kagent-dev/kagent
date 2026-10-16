@@ -524,7 +524,7 @@ class ADKPluginS3Source(_message.Message):
     def __init__(self, endpoint: _Optional[str] = ..., bucket: _Optional[str] = ..., key: _Optional[str] = ..., version_id: _Optional[str] = ..., region: _Optional[str] = ...) -> None: ...
 
 class ADKRuntimeConfig(_message.Message):
-    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "bash_venv_path", "file_search_tools", "telemetry")
+    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "telemetry", "skill_tools")
     CONTROL_PLANE_URL_FIELD_NUMBER: _ClassVar[int]
     GATEWAY_URL_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -534,9 +534,8 @@ class ADKRuntimeConfig(_message.Message):
     PORT_FIELD_NUMBER: _ClassVar[int]
     MAX_CONTENT_LENGTH_FIELD_NUMBER: _ClassVar[int]
     TOKEN_PROPAGATION_FIELD_NUMBER: _ClassVar[int]
-    BASH_VENV_PATH_FIELD_NUMBER: _ClassVar[int]
-    FILE_SEARCH_TOOLS_FIELD_NUMBER: _ClassVar[int]
     TELEMETRY_FIELD_NUMBER: _ClassVar[int]
+    SKILL_TOOLS_FIELD_NUMBER: _ClassVar[int]
     control_plane_url: str
     gateway_url: str
     name: str
@@ -546,7 +545,6 @@ class ADKRuntimeConfig(_message.Message):
     port: int
     max_content_length: int
     token_propagation: _config_pb2.TokenPropagationConfig
-    bash_venv_path: str
-    file_search_tools: bool
     telemetry: _config_pb2.TelemetryConfig
-    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ...) -> None: ...
+    skill_tools: _config_pb2.SkillToolsConfig
+    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ..., skill_tools: _Optional[_Union[_config_pb2.SkillToolsConfig, _Mapping]] = ...) -> None: ...

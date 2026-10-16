@@ -15,7 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -40,7 +40,7 @@ type Config struct {
 	// TTLDays is the TTL for memory entries in days (0 uses server default of 15)
 	TTLDays int64
 	// EmbeddingConfig for generating embeddings (optional but recommended)
-	EmbeddingConfig *adk.EmbeddingConfig
+	EmbeddingConfig *configv1.ADKEmbeddingConfig
 	// Model for session summarization (optional)
 	Model adkmodel.LLM
 }

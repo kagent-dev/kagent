@@ -443,6 +443,7 @@ type ControllerConfig struct {
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,12,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
 	RuntimeDefaults  *RuntimeDefaultsConfig  `protobuf:"bytes,13,opt,name=runtime_defaults,json=runtimeDefaults,proto3" json:"runtime_defaults,omitempty"`
 	HarnessImages    *HarnessImagesConfig    `protobuf:"bytes,14,opt,name=harness_images,json=harnessImages,proto3" json:"harness_images,omitempty"`
+	Push             *PushConfig             `protobuf:"bytes,15,opt,name=push,proto3" json:"push,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -571,6 +572,13 @@ func (x *ControllerConfig) GetRuntimeDefaults() *RuntimeDefaultsConfig {
 func (x *ControllerConfig) GetHarnessImages() *HarnessImagesConfig {
 	if x != nil {
 		return x.HarnessImages
+	}
+	return nil
+}
+
+func (x *ControllerConfig) GetPush() *PushConfig {
+	if x != nil {
+		return x.Push
 	}
 	return nil
 }
@@ -1179,7 +1187,6 @@ func (x *SessionsConfig) GetQuiescenceRecoveryInterval() *durationpb.Duration {
 type GatewayConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PublicUrl     *string                `protobuf:"bytes,1,opt,name=public_url,json=publicUrl,proto3,oneof" json:"public_url,omitempty"`
-	Push          *PushConfig            `protobuf:"bytes,2,opt,name=push,proto3" json:"push,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1221,13 +1228,7 @@ func (x *GatewayConfig) GetPublicUrl() string {
 	return ""
 }
 
-func (x *GatewayConfig) GetPush() *PushConfig {
-	if x != nil {
-		return x.Push
-	}
-	return nil
-}
-
+// PushConfig controls callback delivery and authentication in the controller.
 type PushConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
@@ -1235,8 +1236,10 @@ type PushConfig struct {
 	Issuer                *string `protobuf:"bytes,2,opt,name=issuer,proto3,oneof" json:"issuer,omitempty"`
 	AllowHttp             bool    `protobuf:"varint,3,opt,name=allow_http,json=allowHttp,proto3" json:"allow_http,omitempty"`
 	AllowPrivateNetworks  bool    `protobuf:"varint,4,opt,name=allow_private_networks,json=allowPrivateNetworks,proto3" json:"allow_private_networks,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Recovery interval for missed wake-ups and unbound registration cleanup.
+	RecoveryInterval *durationpb.Duration `protobuf:"bytes,5,opt,name=recovery_interval,json=recoveryInterval,proto3" json:"recovery_interval,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PushConfig) Reset() {
@@ -1295,6 +1298,13 @@ func (x *PushConfig) GetAllowPrivateNetworks() bool {
 		return x.AllowPrivateNetworks
 	}
 	return false
+}
+
+func (x *PushConfig) GetRecoveryInterval() *durationpb.Duration {
+	if x != nil {
+		return x.RecoveryInterval
+	}
+	return nil
 }
 
 type SandboxConfig struct {
@@ -1701,8 +1711,7 @@ type RuntimeDefaultsConfig struct {
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,4,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
 	MaxContentLength *int64                  `protobuf:"varint,5,opt,name=max_content_length,json=maxContentLength,proto3,oneof" json:"max_content_length,omitempty"`
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
-	FileSearchTools  bool                    `protobuf:"varint,7,opt,name=file_search_tools,json=fileSearchTools,proto3" json:"file_search_tools,omitempty"`
-	BashVenvPath     string                  `protobuf:"bytes,8,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
+	SkillTools       *SkillToolsConfig       `protobuf:"bytes,7,opt,name=skill_tools,json=skillTools,proto3" json:"skill_tools,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1779,18 +1788,72 @@ func (x *RuntimeDefaultsConfig) GetTokenPropagation() *TokenPropagationConfig {
 	return nil
 }
 
-func (x *RuntimeDefaultsConfig) GetFileSearchTools() bool {
+func (x *RuntimeDefaultsConfig) GetSkillTools() *SkillToolsConfig {
+	if x != nil {
+		return x.SkillTools
+	}
+	return nil
+}
+
+// SkillToolsConfig configures the built-in tools available with local skills.
+type SkillToolsConfig struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FileSearchTools bool                   `protobuf:"varint,1,opt,name=file_search_tools,json=fileSearchTools,proto3" json:"file_search_tools,omitempty"`
+	BashVenvPath    string                 `protobuf:"bytes,2,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
+	DisableBash     bool                   `protobuf:"varint,3,opt,name=disable_bash,json=disableBash,proto3" json:"disable_bash,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SkillToolsConfig) Reset() {
+	*x = SkillToolsConfig{}
+	mi := &file_kagent_config_v1_config_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SkillToolsConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SkillToolsConfig) ProtoMessage() {}
+
+func (x *SkillToolsConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_config_v1_config_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SkillToolsConfig.ProtoReflect.Descriptor instead.
+func (*SkillToolsConfig) Descriptor() ([]byte, []int) {
+	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *SkillToolsConfig) GetFileSearchTools() bool {
 	if x != nil {
 		return x.FileSearchTools
 	}
 	return false
 }
 
-func (x *RuntimeDefaultsConfig) GetBashVenvPath() string {
+func (x *SkillToolsConfig) GetBashVenvPath() string {
 	if x != nil {
 		return x.BashVenvPath
 	}
 	return ""
+}
+
+func (x *SkillToolsConfig) GetDisableBash() bool {
+	if x != nil {
+		return x.DisableBash
+	}
+	return false
 }
 
 type TokenPropagationConfig struct {
@@ -1805,7 +1868,7 @@ type TokenPropagationConfig struct {
 
 func (x *TokenPropagationConfig) Reset() {
 	*x = TokenPropagationConfig{}
-	mi := &file_kagent_config_v1_config_proto_msgTypes[25]
+	mi := &file_kagent_config_v1_config_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1817,7 +1880,7 @@ func (x *TokenPropagationConfig) String() string {
 func (*TokenPropagationConfig) ProtoMessage() {}
 
 func (x *TokenPropagationConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_config_proto_msgTypes[25]
+	mi := &file_kagent_config_v1_config_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1830,7 +1893,7 @@ func (x *TokenPropagationConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TokenPropagationConfig.ProtoReflect.Descriptor instead.
 func (*TokenPropagationConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{25}
+	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TokenPropagationConfig) GetEnabled() bool {
@@ -1915,7 +1978,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\fvalues_files\x18\x03 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\vvaluesFilesB\r\n" +
 	"\v_repositoryB\n" +
 	"\n" +
-	"\b_version\"\xb1\v\n" +
+	"\b_version\"\xe3\v\n" +
 	"\x10ControllerConfig\x12B\n" +
 	"\n" +
 	"kubernetes\x18\x01 \x01(\v2\".kagent.config.v1.KubernetesConfigR\n" +
@@ -1933,7 +1996,8 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\alogging\x18\v \x01(\v2\x1f.kagent.config.v1.LoggingConfigR\alogging\x12?\n" +
 	"\ttelemetry\x18\f \x01(\v2!.kagent.config.v1.TelemetryConfigR\ttelemetry\x12R\n" +
 	"\x10runtime_defaults\x18\r \x01(\v2'.kagent.config.v1.RuntimeDefaultsConfigR\x0fruntimeDefaults\x12L\n" +
-	"\x0eharness_images\x18\x0e \x01(\v2%.kagent.config.v1.HarnessImagesConfigR\rharnessImages:\xd9\x03\xbaH\xd5\x03\x1a\xce\x01\n" +
+	"\x0eharness_images\x18\x0e \x01(\v2%.kagent.config.v1.HarnessImagesConfigR\rharnessImages\x120\n" +
+	"\x04push\x18\x0f \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04push:\xd9\x03\xbaH\xd5\x03\x1a\xce\x01\n" +
 	"\x1econtroller.database_read_write\x12Fdatabase.read_write.url_file and database.read_write.role are required\x1adhas(this.database) && this.database.read_write.url_file != '' && this.database.read_write.role != ''\x1a\x81\x02\n" +
 	"\x19controller.database_owner\x12ddatabase.owner.url_file and database.owner.role are required unless database.skip_migrations is true\x1a~!has(this.database) || this.database.skip_migrations || (this.database.owner.url_file != '' && this.database.owner.role != '')\"\xf0\x01\n" +
 	"\x13HarnessImagesConfig\x12\x18\n" +
@@ -1997,19 +2061,20 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x13expiration_interval\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x12expirationInterval\x12m\n" +
 	"\x1cquiescence_recovery_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x1aquiescenceRecoveryInterval\"\x91\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x1aquiescenceRecoveryInterval\"_\n" +
 	"\rGatewayConfig\x12?\n" +
 	"\n" +
-	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01\x120\n" +
-	"\x04push\x18\x02 \x01(\v2\x1c.kagent.config.v1.PushConfigR\x04pushB\r\n" +
-	"\v_public_url\"\xdf\x01\n" +
+	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01B\r\n" +
+	"\v_public_url\"\xb9\x02\n" +
 	"\n" +
 	"PushConfig\x127\n" +
 	"\x18signing_private_key_file\x18\x01 \x01(\tR\x15signingPrivateKeyFile\x128\n" +
 	"\x06issuer\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x06issuer\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"allow_http\x18\x03 \x01(\bR\tallowHttp\x124\n" +
-	"\x16allow_private_networks\x18\x04 \x01(\bR\x14allowPrivateNetworksB\t\n" +
+	"\x16allow_private_networks\x18\x04 \x01(\bR\x14allowPrivateNetworks\x12X\n" +
+	"\x11recovery_interval\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x10recoveryIntervalB\t\n" +
 	"\a_issuer\"\x8e\x04\n" +
 	"\rSandboxConfig\x12\x1f\n" +
 	"\vguest_image\x18\x01 \x01(\tR\n" +
@@ -2056,7 +2121,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\xc8\x06\n" +
+	"\t_protocol\"\xbb\x06\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2065,12 +2130,16 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\ttelemetry\x18\x04 \x01(\v2!.kagent.config.v1.TelemetryConfigB\xfe\x01\xbaH\xfa\x01\xba\x01\xf6\x01\n" +
 	"+runtime_defaults.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12:\n" +
 	"\x12max_content_length\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x02R\x10maxContentLength\x88\x01\x01\x12U\n" +
-	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12*\n" +
-	"\x11file_search_tools\x18\a \x01(\bR\x0ffileSearchTools\x12$\n" +
-	"\x0ebash_venv_path\x18\b \x01(\tR\fbashVenvPathB\x14\n" +
+	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12C\n" +
+	"\vskill_tools\x18\a \x01(\v2\".kagent.config.v1.SkillToolsConfigR\n" +
+	"skillToolsB\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
-	"\x13_max_content_length\"\x8e\x02\n" +
+	"\x13_max_content_length\"\x87\x01\n" +
+	"\x10SkillToolsConfig\x12*\n" +
+	"\x11file_search_tools\x18\x01 \x01(\bR\x0ffileSearchTools\x12$\n" +
+	"\x0ebash_venv_path\x18\x02 \x01(\tR\fbashVenvPath\x12!\n" +
+	"\fdisable_bash\x18\x03 \x01(\bR\vdisableBash\"\x8e\x02\n" +
 	"\x16TokenPropagationConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12M\n" +
 	"\x12sts_well_known_uri\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fstsWellKnownUri\x88\x01\x01\x129\n" +
@@ -2090,7 +2159,7 @@ func file_kagent_config_v1_config_proto_rawDescGZIP() []byte {
 	return file_kagent_config_v1_config_proto_rawDescData
 }
 
-var file_kagent_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_kagent_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*CLIConfig)(nil),              // 0: kagent.config.v1.CLIConfig
 	(*ConnectionConfig)(nil),       // 1: kagent.config.v1.ConnectionConfig
@@ -2117,9 +2186,10 @@ var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*TelemetryConfig)(nil),        // 22: kagent.config.v1.TelemetryConfig
 	(*OTLPConfig)(nil),             // 23: kagent.config.v1.OTLPConfig
 	(*RuntimeDefaultsConfig)(nil),  // 24: kagent.config.v1.RuntimeDefaultsConfig
-	(*TokenPropagationConfig)(nil), // 25: kagent.config.v1.TokenPropagationConfig
-	nil,                            // 26: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	(*durationpb.Duration)(nil),    // 27: google.protobuf.Duration
+	(*SkillToolsConfig)(nil),       // 25: kagent.config.v1.SkillToolsConfig
+	(*TokenPropagationConfig)(nil), // 26: kagent.config.v1.TokenPropagationConfig
+	nil,                            // 27: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	(*durationpb.Duration)(nil),    // 28: google.protobuf.Duration
 }
 var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	1,  // 0: kagent.config.v1.CLIConfig.connection:type_name -> kagent.config.v1.ConnectionConfig
@@ -2127,7 +2197,7 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	3,  // 2: kagent.config.v1.CLIConfig.logging:type_name -> kagent.config.v1.LoggingConfig
 	4,  // 3: kagent.config.v1.CLIConfig.install:type_name -> kagent.config.v1.InstallConfig
 	11, // 4: kagent.config.v1.CLIConfig.database:type_name -> kagent.config.v1.DatabaseConfig
-	27, // 5: kagent.config.v1.ConnectionConfig.timeout:type_name -> google.protobuf.Duration
+	28, // 5: kagent.config.v1.ConnectionConfig.timeout:type_name -> google.protobuf.Duration
 	5,  // 6: kagent.config.v1.InstallConfig.kagent:type_name -> kagent.config.v1.ChartConfig
 	5,  // 7: kagent.config.v1.InstallConfig.substrate:type_name -> kagent.config.v1.ChartConfig
 	5,  // 8: kagent.config.v1.InstallConfig.pod_certificate:type_name -> kagent.config.v1.ChartConfig
@@ -2145,36 +2215,38 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	22, // 20: kagent.config.v1.ControllerConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
 	24, // 21: kagent.config.v1.ControllerConfig.runtime_defaults:type_name -> kagent.config.v1.RuntimeDefaultsConfig
 	7,  // 22: kagent.config.v1.ControllerConfig.harness_images:type_name -> kagent.config.v1.HarnessImagesConfig
-	10, // 23: kagent.config.v1.ControllerServerConfig.auth:type_name -> kagent.config.v1.AuthenticationConfig
-	12, // 24: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
-	12, // 25: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
-	13, // 26: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
-	27, // 27: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
-	27, // 28: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	27, // 29: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	27, // 30: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	27, // 31: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	27, // 32: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	17, // 33: kagent.config.v1.GatewayConfig.push:type_name -> kagent.config.v1.PushConfig
-	27, // 34: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	27, // 35: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	27, // 36: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	27, // 37: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	27, // 38: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	27, // 39: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	23, // 40: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	23, // 41: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	23, // 42: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	26, // 43: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	27, // 44: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	3,  // 45: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	22, // 46: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	25, // 47: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	17, // 23: kagent.config.v1.ControllerConfig.push:type_name -> kagent.config.v1.PushConfig
+	10, // 24: kagent.config.v1.ControllerServerConfig.auth:type_name -> kagent.config.v1.AuthenticationConfig
+	12, // 25: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
+	12, // 26: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
+	13, // 27: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
+	28, // 28: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
+	28, // 29: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
+	28, // 30: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	28, // 31: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	28, // 32: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	28, // 33: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
+	28, // 34: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	28, // 35: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	28, // 36: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	28, // 37: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	28, // 38: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	28, // 39: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	28, // 40: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	23, // 41: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	23, // 42: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	23, // 43: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	27, // 44: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	28, // 45: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	3,  // 46: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	22, // 47: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	26, // 48: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	25, // 49: kagent.config.v1.RuntimeDefaultsConfig.skill_tools:type_name -> kagent.config.v1.SkillToolsConfig
+	50, // [50:50] is the sub-list for method output_type
+	50, // [50:50] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }
@@ -2200,14 +2272,14 @@ func file_kagent_config_v1_config_proto_init() {
 	file_kagent_config_v1_config_proto_msgTypes[22].OneofWrappers = []any{}
 	file_kagent_config_v1_config_proto_msgTypes[23].OneofWrappers = []any{}
 	file_kagent_config_v1_config_proto_msgTypes[24].OneofWrappers = []any{}
-	file_kagent_config_v1_config_proto_msgTypes[25].OneofWrappers = []any{}
+	file_kagent_config_v1_config_proto_msgTypes[26].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_config_v1_config_proto_rawDesc), len(file_kagent_config_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   27,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

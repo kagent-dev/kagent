@@ -132,7 +132,7 @@ tests:
           path: metadata.namespace
           value: custom-namespace
 
-  - it: should grant agent access in the new group and retain KMCP access
+  - it: should grant agent access in the new group
     templates:
       - rbac/getter-role.yaml
       - rbac/writer-role.yaml
@@ -143,14 +143,8 @@ tests:
       - equal:
           path: rules[0].resources
           value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
-      - equal:
-          path: rules[1].apiGroups
-          value: [kagent.dev]
-      - equal:
-          path: rules[1].resources
-          value: [mcpservers]
 
-  - it: should grant namespaced agent access in the new group and retain KMCP access
+  - it: should grant namespaced agent access in the new group
     set:
       rbac.namespaces: [NAMESPACE]
     templates:
@@ -163,12 +157,6 @@ tests:
       - equal:
           path: rules[0].resources
           value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
-      - equal:
-          path: rules[1].apiGroups
-          value: [kagent.dev]
-      - equal:
-          path: rules[1].resources
-          value: [mcpservers]
 
   - it: should have correct labels on all resources
     templates:

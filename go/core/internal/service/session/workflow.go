@@ -31,7 +31,6 @@ type workflowStore interface {
 
 type actorClient interface {
 	substrate.LifecycleClient
-	PauseActor(context.Context, string, string) (*ateapipb.Actor, error)
 }
 
 // ActorWorkflow runs the imperative Substrate operations behind Session
@@ -48,31 +47,6 @@ type ActorWorkflow struct {
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
-}
-
-// Pause checkpoints the runtime on its current worker without changing the
-// Session logical state or persisting A2A task state.
-func (w *ActorWorkflow) Pause(ctx context.Context, session *apiv1.Session) error {
-	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
-	if err != nil {
-		return fmt.Errorf("load prepared revision: %w", err)
-	}
-	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
-	current, err := w.actors.GetActor(ctx, atespace, name)
-	if err != nil {
-		return err
-	}
-	if err := w.verifyActor(ctx, session, revision, current); err != nil {
-		return err
-	}
-	actor, err := w.actors.PauseActor(ctx, atespace, name)
-	if err != nil {
-		return fmt.Errorf("pause Actor %s/%s: %w", atespace, name, err)
-	}
-	if !validActorIdentity(actor, revision, name) || actor.GetMetadata().GetUid() != current.GetMetadata().GetUid() || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
-		return fmt.Errorf("pause Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
-	}
-	return nil
 }
 
 // Quiesce durably suspends the runtime without changing the Session's
@@ -107,7 +81,7 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
 	}
 	scope := snapshot.GetContentScope()
-	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL && scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
+	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
 		return nil, fmt.Errorf("actor %s/%s returned invalid snapshot content scope %s", atespace, name, scope)
 	}
 	return &database.SessionTaskSnapshot{

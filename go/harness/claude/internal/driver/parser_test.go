@@ -21,11 +21,11 @@ func TestParseJSONLStreamingAndDeduplication(t *testing.T) {
 	}
 	for _, reader := range []io.Reader{bytes.NewReader(b), &fragmentReader{data: b, size: 3}} {
 		var events []Event
-		if err := ParseJSONL(t.Context(), reader, 4096, func(event Event) error {
+		if err := parseJSONL(t.Context(), reader, 4096, map[string]modelUsage{}, nil, func(event Event) error {
 			events = append(events, event)
 			return nil
 		}); err != nil {
-			t.Fatalf("ParseJSONL() error = %v", err)
+			t.Fatalf("parseJSONL() error = %v", err)
 		}
 		var text strings.Builder
 		for _, event := range events {
@@ -59,7 +59,7 @@ func TestParseJSONLBedrockTextAfterThinkingIsNotDuplicated(t *testing.T) {
 	}, "\n") + "\n"
 
 	var text strings.Builder
-	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		if event.Kind == EventTextDelta {
 			text.WriteString(event.Text)
 		}
@@ -78,10 +78,10 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var last Event
-	if err := ParseJSONL(t.Context(), bytes.NewReader(b), 4096, func(event Event) error { last = event; return nil }); err != nil {
+	if err := parseJSONL(t.Context(), bytes.NewReader(b), 4096, map[string]modelUsage{}, nil, func(event Event) error { last = event; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if last.Kind != EventFailed || last.Category != "error_max_budget_usd" {
+	if last.Kind != EventFailed || last.SafeMessage != "budget limit reached" {
 		t.Fatalf("last event = %#v", last)
 	}
 }
@@ -99,7 +99,7 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
 	}, "\n") + "\n"
 	var events []Event
-	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		events = append(events, event)
 		return nil
 	}); err != nil {
@@ -131,11 +131,11 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 func TestParseJSONLIgnoresSubagentTaskNotificationResult(t *testing.T) {
 	input := strings.Join([]string{
 		`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}`,
-		`{"type":"result","subtype":"success","is_error":false,"result":"parent done"}`,
-		`{"type":"result","subtype":"success","is_error":false,"result":"child done","origin":{"kind":"task-notification"}}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"parent done","session_id":"parent"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"child done","session_id":"child","origin":{"kind":"task-notification"}}`,
 	}, "\n") + "\n"
 	var terminal []Event
-	if err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		if event.Kind == EventCompleted || event.Kind == EventFailed {
 			terminal = append(terminal, event)
 		}
@@ -143,7 +143,7 @@ func TestParseJSONLIgnoresSubagentTaskNotificationResult(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(terminal) != 1 || terminal[0].Result != "parent done" {
+	if len(terminal) != 1 || terminal[0].Kind != EventCompleted || terminal[0].SessionID != "parent" {
 		t.Fatalf("terminal events = %#v, want only the parent result", terminal)
 	}
 }
@@ -174,9 +174,9 @@ func TestParseJSONLRejectsInvalidToolLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := strings.Join(tt.lines, "\n") + "\n"
-			err := ParseJSONL(t.Context(), strings.NewReader(input), 4096, func(Event) error { return nil })
+			err := parseJSONL(t.Context(), strings.NewReader(input), 4096, map[string]modelUsage{}, nil, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("ParseJSONL() error = %v, want containing %q", err, tt.want)
+				t.Fatalf("parseJSONL() error = %v, want containing %q", err, tt.want)
 			}
 		})
 	}
@@ -195,9 +195,9 @@ func TestParseJSONLErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ParseJSONL(t.Context(), strings.NewReader(tt.input), tt.max, func(Event) error { return nil })
+			err := parseJSONL(t.Context(), strings.NewReader(tt.input), tt.max, nil, nil, func(Event) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("ParseJSONL() error = %v, want containing %q", err, tt.want)
+				t.Fatalf("parseJSONL() error = %v, want containing %q", err, tt.want)
 			}
 		})
 	}
@@ -206,7 +206,7 @@ func TestParseJSONLErrors(t *testing.T) {
 func TestParseJSONLPropagatesEmitterError(t *testing.T) {
 	want := errors.New("stop")
 	input := `{"type":"result","subtype":"success"}` + "\n"
-	if err := ParseJSONL(t.Context(), strings.NewReader(input), 1024, func(Event) error { return want }); !errors.Is(err, want) {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 1024, nil, nil, func(Event) error { return want }); !errors.Is(err, want) {
 		t.Fatalf("ParseJSONL() error = %v, want %v", err, want)
 	}
 }
@@ -230,7 +230,7 @@ func TestParseJSONLReportsReadAndFlushErrors(t *testing.T) {
 	readErr, emitErr := errors.New("pipe broke"), errors.New("sink failed")
 	line := `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","model":"m"}}}` + "\n"
 	reader := io.MultiReader(strings.NewReader(line), iotest.ErrReader(readErr))
-	err := ParseJSONL(t.Context(), reader, 4096, func(event Event) error {
+	err := parseJSONL(t.Context(), reader, 4096, map[string]modelUsage{}, nil, func(event Event) error {
 		if event.Kind == EventModelCall {
 			return emitErr
 		}
@@ -267,7 +267,7 @@ func TestParseJSONLToolResultWithImage(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"done"}`,
 	}, "\n") + "\n"
 	var completed bool
-	if err := ParseJSONL(t.Context(), strings.NewReader(input), config.Production("", "").MaxEventBytes, func(event Event) error {
+	if err := parseJSONL(t.Context(), strings.NewReader(input), config.Production("", "").MaxEventBytes, nil, nil, func(event Event) error {
 		completed = completed || (event.Kind == EventToolActivity && event.ToolPhase == "completed")
 		return nil
 	}); err != nil {
@@ -275,5 +275,36 @@ func TestParseJSONLToolResultWithImage(t *testing.T) {
 	}
 	if !completed {
 		t.Fatal("the tool result carrying an image was not emitted")
+	}
+}
+
+func TestParseDeferredResultAndResumedToolResult(t *testing.T) {
+	deferred := `{"type":"result","subtype":"success","session_id":"session","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"mcp__protected__write","input":{"value":7}}}`
+	var events []Event
+	if err := parseJSONL(t.Context(), strings.NewReader(deferred), 4096, map[string]modelUsage{}, nil, func(event Event) error { events = append(events, event); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Kind != EventDeferred || events[0].Deferred.ID != "call" {
+		t.Fatalf("invalid deferred events: %#v", events)
+	}
+	resumed := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call","content":"ok"}]}}` + "\n" + `{"type":"result","subtype":"success","session_id":"session","result":"done"}`
+	var results []Event
+	if err := parseJSONL(t.Context(), strings.NewReader(resumed), 4096, nil, events[0].Deferred, func(event Event) error { results = append(results, event); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].ToolName != "mcp__protected__write" || results[0].ToolID != "call" || results[1].Kind != EventCompleted {
+		t.Fatalf("invalid resumed events: %#v", results)
+	}
+}
+
+func TestParseRejectsMalformedDeferredResult(t *testing.T) {
+	for _, line := range []string{
+		`{"type":"result","subtype":"success","session_id":"session","stop_reason":"tool_deferred"}`,
+		`{"type":"result","subtype":"success","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"write"}}`,
+		`{"type":"result","subtype":"success","is_error":true,"session_id":"session","stop_reason":"tool_deferred","deferred_tool_use":{"id":"call","name":"write"}}`,
+	} {
+		if err := parseJSONL(t.Context(), strings.NewReader(line), 4096, map[string]modelUsage{}, nil, func(Event) error { return nil }); err == nil {
+			t.Fatalf("malformed deferred result accepted: %s", line)
+		}
 	}
 }

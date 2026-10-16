@@ -162,6 +162,12 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 		if err == nil {
 			err = transition.checkResult(actor, ateapipb.ActorState_ACTOR_STATE_SUSPENDED)
 		}
+		if err == nil {
+			snapshot := actor.GetStatus().GetExternalSnapshot()
+			if snapshot.GetSnapshotUri() == "" || snapshot.GetContentScope() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
+				err = fmt.Errorf("suspended Actor requires an external DATA snapshot")
+			}
+		}
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE:
 		if actor != nil {
 			switch actor.GetStatus().GetState() {

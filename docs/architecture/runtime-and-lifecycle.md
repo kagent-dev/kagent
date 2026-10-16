@@ -132,9 +132,9 @@ level with `session_id` and `idle_time`.
 
 The runtime stages a final task update and acknowledges it after native cleanup.
 That acknowledgement publishes task state and history atomically, without waiting
-for pause/suspend. A Session lifecycle worker independently claims the idle
-boundary in PostgreSQL. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
-terminal work suspends it and records the exact external snapshot. Waiting tasks
+for suspension. A Session lifecycle worker independently claims the idle
+boundary in PostgreSQL. Both INPUT_REQUIRED/AUTH_REQUIRED and terminal work
+suspend the Actor and record the exact external DATA snapshot. Waiting tasks
 are not forkable. The Session stays logically READY, and Substrate ingress
 resumes it when another authorized interaction arrives.
 
@@ -193,8 +193,8 @@ sequenceDiagram
     Gateway-->>Client: current public task
     Note over Worker,DB: Idle lifecycle runs independently of the client response
     Worker->>DB: claim idle boundary unless new execution superseded it
-    Worker->>Actor: pause or suspend
-    Actor-->>Worker: settled native boundary
+    Worker->>Actor: suspend with DATA snapshot
+    Actor-->>Worker: suspended Actor and external DATA snapshot
     Worker->>DB: record snapshot and finish idle claim
 ```
 
@@ -215,11 +215,18 @@ remains in PostgreSQL.
 
 Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
 both the node-local snapshot taken on pause and the one uploaded on suspend.
-Templates use Full, so paused and suspended Actors keep their process memory, and
-their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
-scopes again. A Data snapshot resumes by starting fresh containers from the OCI
-image with the saved durable directories; Substrate still restores one as Data when
-the Actor's template changed after the snapshot was taken.
+Agent and standalone sandbox templates use DATA. Resume starts fresh containers
+from the OCI image with the saved durable directories. Harnesses recover pending
+approvals and user input from their durable state; sandbox guests start with a
+fresh process registry. Agent checkpoints can be forked without carrying the
+source session's process memory or runtime identity into the new session.
+
+Codex and Claude record failed deferred continuations as `abandoned` in their
+existing input journals. Admission rejects abandoned or restored unfinished
+execution phases with an error requiring a new session, instead of restoring a
+pending interaction for a failed task. Failures known to precede execution keep
+the existing retry behavior. This rule is limited to durable deferred input;
+general crash recovery and remote tool outcome reconciliation are follow-up work.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
 retains no idle database connections. Full and golden restores preserve guest

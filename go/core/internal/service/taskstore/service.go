@@ -37,10 +37,11 @@ var _ Store = (*database.Client)(nil)
 type Service struct {
 	store          Store
 	quiescenceWake chan<- struct{}
+	pushWake       chan<- struct{}
 }
 
-func NewService(store Store, quiescenceWake chan<- struct{}) *Service {
-	return &Service{store: store, quiescenceWake: quiescenceWake}
+func NewService(store Store, quiescenceWake, pushWake chan<- struct{}) *Service {
+	return &Service{store: store, quiescenceWake: quiescenceWake, pushWake: pushWake}
 }
 
 func (s *Service) session(ctx context.Context, sessionID string) (*apiv1.Session, error) {
@@ -174,6 +175,10 @@ func (s *Service) SettleTask(ctx context.Context, input *runtimev1.TaskStoreServ
 	// remains discoverable if this process exits before delivering the hint.
 	select {
 	case s.quiescenceWake <- struct{}{}:
+	default:
+	}
+	select {
+	case s.pushWake <- struct{}{}:
 	default:
 	}
 	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil

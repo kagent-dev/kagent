@@ -8,8 +8,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -29,7 +30,7 @@ type modelDeploymentData struct {
 // modelRuntime is the provider-neutral result consumed by the rest of the
 // compiler.
 type modelRuntime struct {
-	Model                 *adk.Model
+	Model                 *configv1.ADKModelConfig
 	Environment           []corev1.EnvVar
 	HasUnsupportedVolumes bool
 }
@@ -57,14 +58,14 @@ func tlsInsecureSkipVerify(tlsConfig *v1alpha3.TLSConfig) *bool {
 	return &tlsConfig.DisableVerify
 }
 
-func populateTLSFields(baseModel *adk.Model, tlsConfig *v1alpha3.TLSConfig) {
+func populateTLSFields(baseModel *configv1.ADKModelConfig, tlsConfig *v1alpha3.TLSConfig) {
 	baseModel.TlsInsecureSkipVerify = tlsInsecureSkipVerify(tlsConfig)
 }
 
 // translateModel owns the ModelConfig-to-ADK mapping. The provider branches
 // are intentionally local so runtime-specific requirements stay explicit.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *modelDeploymentData, error) {
+func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKModelConfig, *modelDeploymentData, error) {
 	if resolved == nil || resolved.Config == nil {
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}
@@ -86,10 +87,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				},
 			})
 		}
-		openai := &adk.Model{
+		openai := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Openai{Openai: &adk.OpenAI{}},
+			Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}},
 		}
 		// Populate shared transport settings.
 		populateTLSFields(openai, model.Spec.TLS)
@@ -147,10 +148,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				},
 			})
 		}
-		anthropic := &adk.Model{
+		anthropic := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Anthropic{Anthropic: &adk.Anthropic{}},
+			Provider: &configv1.ADKModelConfig_Anthropic{Anthropic: &configv1.ADKAnthropic{}},
 		}
 		// Populate shared transport settings.
 		populateTLSFields(anthropic, model.Spec.TLS)
@@ -206,10 +207,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				Value: model.Spec.AzureOpenAI.Endpoint,
 			})
 		}
-		azureOpenAI := &adk.Model{
+		azureOpenAI := &configv1.ADKModelConfig{
 			Model:   model.Spec.AzureOpenAI.DeploymentName,
 			Headers: model.Spec.DefaultHeaders,
-			Provider: &adk.Model_AzureOpenai{AzureOpenai: &adk.AzureOpenAI{
+			Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{
 				Endpoint:    model.Spec.AzureOpenAI.Endpoint,
 				Deployment:  model.Spec.AzureOpenAI.DeploymentName,
 				ApiVersion:  model.Spec.AzureOpenAI.APIVersion,
@@ -260,10 +261,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				MountPath: "/creds",
 			})
 		}
-		gemini := &adk.Model{
+		gemini := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
-			Provider: &adk.Model_GeminiVertexAi{GeminiVertexAi: &adk.GeminiVertexAI{}},
+			Provider: &configv1.ADKModelConfig_GeminiVertexAi{GeminiVertexAi: &configv1.ADKGeminiVertexAI{}},
 		}
 		// Populate shared transport settings.
 		populateTLSFields(gemini, model.Spec.TLS)
@@ -304,10 +305,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				MountPath: "/creds",
 			})
 		}
-		anthropic := &adk.Model{
+		anthropic := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
-			Provider: &adk.Model_GeminiAnthropic{GeminiAnthropic: &adk.GeminiAnthropic{}},
+			Provider: &configv1.ADKModelConfig_GeminiAnthropic{GeminiAnthropic: &configv1.ADKGeminiAnthropic{}},
 		}
 		// Populate shared transport settings.
 		populateTLSFields(anthropic, model.Spec.TLS)
@@ -347,10 +348,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				},
 			})
 		}
-		ollama := &adk.Model{
+		ollama := &configv1.ADKModelConfig{
 			Model:   model.Spec.Model,
 			Headers: model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Ollama{Ollama: &adk.Ollama{
+			Provider: &configv1.ADKModelConfig_Ollama{Ollama: &configv1.ADKOllama{
 				Options: model.Spec.Ollama.Options,
 			}},
 		}
@@ -371,10 +372,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				},
 			},
 		})
-		gemini := &adk.Model{
+		gemini := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Gemini{Gemini: &adk.Gemini{}},
+			Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{}},
 		}
 		// Populate shared transport settings.
 		populateTLSFields(gemini, model.Spec.TLS)
@@ -457,10 +458,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
 			additionalFields = slices.Clone(model.Spec.Bedrock.AdditionalModelRequestFields.Raw)
 		}
-		bedrock := &adk.Model{
+		bedrock := &configv1.ADKModelConfig{
 			Model:   model.Spec.Model,
 			Headers: model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Bedrock{Bedrock: &adk.Bedrock{
+			Provider: &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{
 				Region:                       model.Spec.Bedrock.Region,
 				AdditionalModelRequestFields: additionalFields,
 				PromptCaching:                model.Spec.Bedrock.PromptCaching,
@@ -470,7 +471,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 			}},
 		}
 		if model.Spec.Bedrock.Guardrail != nil {
-			bedrock.GetBedrock().Guardrail = &adk.BedrockGuardrail{
+			bedrock.GetBedrock().Guardrail = &configv1.ADKBedrockGuardrail{
 				Identifier: model.Spec.Bedrock.Guardrail.Identifier,
 				Version:    model.Spec.Bedrock.Guardrail.Version,
 				Trace:      model.Spec.Bedrock.Guardrail.Trace,
@@ -512,10 +513,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 			})
 		}
 
-		sapAICore := &adk.Model{
+		sapAICore := &configv1.ADKModelConfig{
 			Model:   model.Spec.Model,
 			Headers: model.Spec.DefaultHeaders,
-			Provider: &adk.Model_SapAiCore{SapAiCore: &adk.SAPAICore{
+			Provider: &configv1.ADKModelConfig_SapAiCore{SapAiCore: &configv1.ADKSAPAICore{
 				BaseUrl:       model.Spec.SAPAICore.BaseURL,
 				ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
 				AuthUrl:       model.Spec.SAPAICore.AuthURL,
@@ -571,15 +572,15 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 		// Map the CRD API format (OpenAI default | Anthropic) to the ADK wire
 		// surface. Anthropic-format Foundry models are served over the Claude
 		// Messages API instead of the OpenAI-compatible surface.
-		apiFormat := adk.FoundryAPIFormatOpenAI
+		apiFormat := runtimeconfig.FoundryAPIFormatOpenAI
 		if cfg.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
-			apiFormat = adk.FoundryAPIFormatAnthropic
+			apiFormat = runtimeconfig.FoundryAPIFormatAnthropic
 		}
 
-		foundry := &adk.Model{
+		foundry := &configv1.ADKModelConfig{
 			Model:   model.Spec.Model,
 			Headers: model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Foundry{Foundry: &adk.Foundry{
+			Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{
 				Endpoint:   endpoint,
 				Deployment: cfg.Deployment,
 				ApiVersion: cfg.APIVersion,
@@ -604,10 +605,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*adk.Model, *mode
 				},
 			})
 		}
-		mistral := &adk.Model{
+		mistral := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
-			Provider: &adk.Model_Mistral{Mistral: &adk.Mistral{}},
+			Provider: &configv1.ADKModelConfig_Mistral{Mistral: &configv1.ADKMistral{}},
 		}
 		populateTLSFields(mistral, model.Spec.TLS)
 		mistral.ApiKeyPassthrough = model.Spec.APIKeyPassthrough

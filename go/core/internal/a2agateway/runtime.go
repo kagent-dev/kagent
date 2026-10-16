@@ -90,7 +90,7 @@ type upstreamAuthInterceptor struct {
 }
 
 func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+req.BaseURL, nil)
+	httpRequest, err := http.NewRequestWithContext(auth.UpstreamMethodTo(ctx, req.Method), http.MethodPost, "http://"+req.BaseURL, nil)
 	if err != nil {
 		return ctx, nil, err
 	}

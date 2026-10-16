@@ -42,6 +42,9 @@ func saveRuntimeTask(t *testing.T, client *Client, sessionID string, task *a2a.T
 	}
 	require.Equal(t, sessionID, work.Session.Id)
 	require.Equal(t, string(task.ID), work.TaskID)
+	if snapshot == nil && !work.State.Terminal() {
+		snapshot = &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/waiting-" + work.TaskID, ContentScope: "DATA"}
+	}
 	return client.FinishSessionQuiescence(ctx, work, snapshot)
 }
 

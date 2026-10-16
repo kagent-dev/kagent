@@ -73,12 +73,25 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	for path, want := range map[string]string{
 		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
-		filepath.Join(ephemeralDir, "mcp.json"):                             `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
 	} {
 		contents, err := os.ReadFile(path)
 		if err != nil || string(contents) != want {
 			t.Fatalf("%s = %q, %v; want %q", path, contents, err, want)
 		}
+	}
+	defer runner.Close()
+	rawMCP, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcpConfig struct {
+		Servers map[string]config.MCPServer `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(rawMCP, &mcpConfig); err != nil {
+		t.Fatal(err)
+	}
+	if len(mcpConfig.Servers) != 2 || mcpConfig.Servers["tools"].URL != "https://mcp.example.com/mcp" || mcpConfig.Servers[approvalMCPServerName].URL == "" {
+		t.Fatalf("invalid MCP configuration")
 	}
 	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
 		t.Fatalf("arguments do not expose materialized skills: %s", args)
@@ -110,9 +123,23 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(settings), `{"permissions":{"ask":["mcp__protected__*"]}}`; got != want {
-		t.Fatalf("approval settings = %s, want %s", got, want)
+	var approvalSettings struct {
+		Permissions struct {
+			Ask []string `json:"ask"`
+		} `json:"permissions"`
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string `json:"matcher"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
 	}
+	if err := json.Unmarshal(settings, &approvalSettings); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(approvalSettings.Permissions.Ask, []string{"AskUserQuestion", "mcp__protected__*"}) || len(approvalSettings.Hooks.PreToolUse) != 1 || approvalSettings.Hooks.PreToolUse[0].Matcher != "*" {
+		t.Fatalf("invalid durable approval settings: %s", settings)
+	}
+
 	mcpConfig, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
 	if err != nil {
 		t.Fatal(err)

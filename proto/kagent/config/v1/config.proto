@@ -111,6 +111,7 @@ message ControllerConfig {
   TelemetryConfig telemetry = 12;
   RuntimeDefaultsConfig runtime_defaults = 13;
   HarnessImagesConfig harness_images = 14;
+  PushConfig push = 15;
 }
 
 // HarnessImagesConfig supplies release defaults for built-in Harnesses. Empty
@@ -228,9 +229,9 @@ message GatewayConfig {
     uri: true
     pattern: "^https?://[^/?#]+"
   }];
-  PushConfig push = 2;
 }
 
+// PushConfig controls callback delivery and authentication in the controller.
 message PushConfig {
   // Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
   string signing_private_key_file = 1;
@@ -240,6 +241,11 @@ message PushConfig {
   }];
   bool allow_http = 3;
   bool allow_private_networks = 4;
+  // Recovery interval for missed wake-ups and unbound registration cleanup.
+  google.protobuf.Duration recovery_interval = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message SandboxConfig {
@@ -340,8 +346,14 @@ message RuntimeDefaultsConfig {
   }];
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
-  bool file_search_tools = 7;
-  string bash_venv_path = 8;
+  SkillToolsConfig skill_tools = 7;
+}
+
+// SkillToolsConfig configures the built-in tools available with local skills.
+message SkillToolsConfig {
+  bool file_search_tools = 1;
+  string bash_venv_path = 2;
+  bool disable_bash = 3;
 }
 
 message TokenPropagationConfig {

@@ -356,8 +356,7 @@ const toolServers: Pick<
   "mcpServers.create": async (input, options) => {
     const name = "ToolService/CreateToolServer";
     const { payload } = input;
-    const server =
-      payload.type === "RemoteMCPServer" ? payload.remoteMCPServer : payload.mcpServer;
+    const server = payload.remoteMCPServer;
 
     if (!server) {
       throw new ApiError(
@@ -376,11 +375,7 @@ const toolServers: Pick<
           },
           // The envelope's kind is the server type, which is what the handler
           // checks it against (`decodeCreateToolServerResource`).
-          resource: wrap(
-            payload.type,
-            server,
-            payload.type === "MCPServer" ? "kagent.dev/v1alpha1" : KAGENT_API_VERSION,
-          ),
+          resource: wrap(payload.type, server, KAGENT_API_VERSION),
           secrets: payload.secrets ?? [],
         },
         call("mcpServers.create", options),

@@ -69,5 +69,5 @@ def add_skills_tool_to_agent(
             logger.debug(f"Added grep file tool to agent: {agent.name}")
     else:
         logger.debug(
-            f"Omitting list_files/grep_file tools for agent: {agent.name} (runtime.file_search_tools not enabled)"
+            f"Omitting list_files/grep_file tools for agent: {agent.name} (runtime.skill_tools.file_search_tools not enabled)"
         )

@@ -8,7 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -25,10 +26,10 @@ func TestBedrockProviderJSONRoundTrip(t *testing.T) {
 				Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", Bedrock: bedrock},
 			}})
 			require.NoError(t, err)
-			encoded, err := adk.Marshal(&adk.Config{Agent: &adk.AgentConfig{Model: model}})
+			encoded, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{Model: model}})
 			require.NoError(t, err)
-			var decoded adk.Config
-			require.NoError(t, adk.Unmarshal(encoded, &decoded))
+			var decoded configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(encoded, &decoded))
 			require.Equal(t, raw, string(decoded.GetAgent().GetModel().GetBedrock().GetAdditionalModelRequestFields()))
 			if raw == "" {
 				require.NotContains(t, string(encoded), "additional_model_request_fields")
@@ -264,7 +265,7 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 			require.NoError(t, err)
 			anthropic := got.GetAnthropic()
 			ok := anthropic != nil
-			require.True(t, ok, "model is %T, want *adk.Anthropic", got)
+			require.True(t, ok, "model is %T, want *configv1.ADKAnthropic", got)
 			require.Equal(t, tt.wantCaching, anthropic.PromptCaching)
 			require.Equal(t, tt.wantTTL, anthropic.CacheTtl)
 		})

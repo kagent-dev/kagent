@@ -10,7 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -42,8 +42,8 @@ func TestCompileOpaqueImage(t *testing.T) {
 		{Name: "MODE", Value: "production"},
 	}, revision.Environment)
 
-	var config adk.Config
-	require.NoError(t, adk.Unmarshal(revision.ConfigJSON, &config))
+	var config configv1.ADKConfig
+	require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
 	require.Nil(t, config.Agent.Model)
 	require.Equal(t, "be helpful", config.Agent.Instruction)
 	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.Agent.SessionDbUrl)
