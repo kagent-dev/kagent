@@ -34,6 +34,34 @@ describe("textLinks", () => {
     // GFM links www. as http://www., which is not in the text as written.
     ["www.example.com/a.pdf", []],
     ["", []],
+    // Private hosts: the provider cannot fetch them.
+    ...[
+      "http://localhost:8080/a.pdf",
+      "http://LOCALHOST./a.pdf",
+      "http://fileserver/a.pdf",
+      "http://127.0.0.1/a.pdf",
+      "http://2130706433/a.pdf",
+      "http://10.0.0.1/a.pdf",
+      "<http://[::1]/a.pdf>",
+      "http://0.0.0.0:8000/a.pdf",
+      "http://printer.local/a.pdf",
+      "http://files.corp.internal/a.pdf",
+      "http://files.default.svc/a.pdf",
+      "http://files.default.svc.cluster.local/a.pdf",
+      "http://fileserver.lan/a.pdf",
+      "http://nas.home.arpa/a.pdf",
+      "http://box.localdomain/a.pdf",
+    ].map((url): [string, string[]] => [url, []]),
+    // Public hosts that look close to private ones.
+    ...[
+      "https://lan.example.com/a.pdf",
+      "https://local.example.com/a.pdf",
+      "https://example.svc.com/a.pdf",
+    ].map((url): [string, string[]] => [url, [url]]),
+    // Any IP address stays text, public ones too. An IPv6 host has no dot.
+    ...["http://11.0.0.1/a.pdf", "http://172.32.0.1/a.pdf", "<http://[2001:db8::1]/a.pdf>"].map(
+      (url): [string, string[]] => [url, []],
+    ),
   ])("%j is %j", (text, expected) => {
     expect(textLinks(text)).toEqual(expected);
   });

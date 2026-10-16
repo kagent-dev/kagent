@@ -78,13 +78,14 @@ const markdown = unified().use(remarkParse).use(remarkGfm);
 /**
  * The links in `text` to send as url parts: http(s) URLs to a file of a known type,
  * as written in the text, so the runtime finds them there. A web page stays text only:
- * no provider is known to read one as a file.
+ * no provider is known to read one as a file. A link to a private host stays text too:
+ * the provider fetches the link itself and cannot reach it.
  */
 export function textLinks(text: string): string[] {
   const links = new Set<string>();
   visit(markdown.parse(text), "link", ({ url }) => {
     const type = TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))];
-    if (text.includes(url) && isHttpUrl(url) && type && type !== "text/html") {
+    if (text.includes(url) && isHttpUrl(url) && !isPrivateHost(url) && type && type !== "text/html") {
       links.add(url);
     }
   });
@@ -98,6 +99,12 @@ export function isHttpUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// An IP, dotless or LAN host the provider likely cannot fetch.
+function isPrivateHost(url: string): boolean {
+  const host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+  return /^[\d.]+$/.test(host) || !host.includes(".") || /\.(local|localdomain|internal|svc|lan|home\.arpa)$/.test(host);
 }
 
 // Last path segment, so a query string or fragment never becomes the name.
