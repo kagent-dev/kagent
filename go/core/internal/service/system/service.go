@@ -32,7 +32,9 @@ type ATEClient interface {
 }
 
 type Service struct {
-	kubeClient         client.Client
+	kubeClient client.Client
+	// Sorted and unique: the order Substrate pages are read in. A repeat must not read
+	// an atespace twice. Empty means every namespace.
 	observedNamespaces []string
 	authorizer         auth.Authorizer
 	ateClient          ATEClient
@@ -51,7 +53,7 @@ func NewService(
 ) *Service {
 	return &Service{
 		kubeClient:         kubeClient,
-		observedNamespaces: slices.Clone(observedNamespaces),
+		observedNamespaces: slices.Compact(slices.Sorted(slices.Values(observedNamespaces))),
 		authorizer:         authorizer,
 		ateClient:          ateClient,
 	}
@@ -172,24 +174,27 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 	return workerPoolList.Items, nil
 }
 
-// substrateActorTemplates drains upstream pagination for the configuration-sized list.
+// substrateActorTemplates lists the templates of the requested atespace, or of each
+// watched one. The list is configuration-sized.
 func (s *Service) substrateActorTemplates(ctx context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
-	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
-	if err != nil {
-		return nil, err
-	}
-	templates := make([]*ateapipb.ActorTemplate, 0, len(templatesFromAPI))
-	for _, template := range templatesFromAPI {
-		if template == nil {
-			continue
+	templates := []*ateapipb.ActorTemplate{}
+	for _, atespace := range s.substrateNamespaces(atespace) {
+		page, err := s.ateClient.ListActorTemplates(ctx, atespace)
+		if err != nil {
+			return nil, err
 		}
-		// Only expose inventory fields: containers can contain resolved credentials.
-		templates = append(templates, &ateapipb.ActorTemplate{
-			Metadata:       template.GetMetadata(),
-			Status:         template.GetStatus(),
-			SandboxConfig:  template.GetSandboxConfig(),
-			WorkerSelector: template.GetWorkerSelector(),
-		})
+		for _, template := range page {
+			// ate-api scoped the list already. This is a second guard.
+			if template != nil && (atespace == "" || template.GetMetadata().GetAtespace() == atespace) {
+				// Only expose inventory fields: containers can contain resolved credentials.
+				templates = append(templates, &ateapipb.ActorTemplate{
+					Metadata:       template.GetMetadata(),
+					Status:         template.GetStatus(),
+					SandboxConfig:  template.GetSandboxConfig(),
+					WorkerSelector: template.GetWorkerSelector(),
+				})
+			}
+		}
 	}
 
 	slices.SortStableFunc(templates, func(left, right *ateapipb.ActorTemplate) int {
