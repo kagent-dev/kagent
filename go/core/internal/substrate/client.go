@@ -196,6 +196,17 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
+// RevertActor discards a crashed execution while retaining its external snapshot.
+func (c *Client) RevertActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.RevertActor(ctx, &ateapipb.RevertActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, fmt.Errorf("failed to revert Actor %s/%s: %w", atespace, actorID, err)
+	}
+	return resp.GetActor(), nil
+}
+
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
