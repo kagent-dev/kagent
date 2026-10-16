@@ -6,7 +6,10 @@ import (
 
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	adkconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
 )
 
 type testHarness struct {
@@ -60,10 +63,10 @@ func (h testHarness) createModel(t *testing.T, kube ctrlclient.Client, modelURL 
 func (h testHarness) skillsRoot() string {
 	switch h.name {
 	case codexE2EHarness:
-		return "/data/codex/skills"
+		return codexconfig.SkillsRoot("/data")
 	case claudeE2EHarness:
-		return "/data/generated/claude/.claude/skills"
+		return claudeconfig.SkillsRoot("/data")
 	default:
-		return "/skills"
+		return adkconfig.DefaultSkillsRoot
 	}
 }
