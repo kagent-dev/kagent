@@ -25,17 +25,30 @@ func TestCanonicalCredentials(t *testing.T) {
 		{"empty key", func(c *Credential) { c.URI = "ate-secret://k8s.io/default/team/auth/" }},
 		{"mixed case Kubernetes provider", func(c *Credential) { c.URI = "ate-secret://K8s.io/default/team/auth/token" }},
 		{"Kubernetes provider port", func(c *Credential) { c.URI = "ate-secret://k8s.io:443/default/team/auth/token" }},
-		{"mixed case external provider", func(c *Credential) { c.URI = "ate-secret://Provider.example/token" }},
-		{"external provider port", func(c *Credential) { c.URI = "ate-secret://provider.example:443/token" }},
-		{"empty provider port", func(c *Credential) { c.URI = "ate-secret://provider.example:/token" }},
-		{"IPv6 provider", func(c *Credential) { c.URI = "ate-secret://[2001:db8::1]/token" }},
+		{"mixed case external provider", func(c *Credential) { c.URI = "ate-secret://Provider.example/default/token" }},
+		{"external provider port", func(c *Credential) { c.URI = "ate-secret://provider.example:443/default/token" }},
+		{"empty provider port", func(c *Credential) { c.URI = "ate-secret://provider.example:/default/token" }},
+		{"IPv6 provider", func(c *Credential) { c.URI = "ate-secret://[2001:db8::1]/default/token" }},
 		{"missing provider", func(c *Credential) { c.URI = "ate-secret:///team/auth/token" }},
-		{"userinfo", func(c *Credential) { c.URI = "ate-secret://user@provider.example/token" }},
+		{"userinfo", func(c *Credential) { c.URI = "ate-secret://user@provider.example/default/token" }},
 		{"opaque", func(c *Credential) { c.URI = "ate-secret:provider.example/token" }},
 		{"empty query", func(c *Credential) { c.URI += "?" }},
 		{"fragment", func(c *Credential) { c.URI += "#token" }},
 		{"empty fragment", func(c *Credential) { c.URI += "#" }},
 		{"invalid escape", func(c *Credential) { c.URI = "ate-secret://provider.example/%xx" }},
+		{"invalid provider DNS name", func(c *Credential) { c.URI = "ate-secret://provider_name/default/token" }},
+		{"provider trailing dot", func(c *Credential) { c.URI = "ate-secret://provider.example./default/token" }},
+		{"missing path", func(c *Credential) { c.URI = "ate-secret://provider.example" }},
+		{"single path segment", func(c *Credential) { c.URI = "ate-secret://provider.example/token" }},
+		{"empty path segment", func(c *Credential) { c.URI = "ate-secret://provider.example/default//token" }},
+		{"empty first path segment", func(c *Credential) { c.URI = "ate-secret://provider.example//default/token" }},
+		{"trailing slash", func(c *Credential) { c.URI = "ate-secret://provider.example/default/token/" }},
+		{"encoded path", func(c *Credential) {
+			c.URI = "ate-secret://provider.example/default/https%3A%2F%2Fapi.example.com%3A8443"
+		}},
+		{"encoded unreserved character", func(c *Credential) { c.URI = "ate-secret://provider.example/default/%74oken" }},
+		{"unescaped space", func(c *Credential) { c.URI = "ate-secret://provider.example/default/session token" }},
+		{"encoded Kubernetes key", func(c *Credential) { c.URI = "ate-secret://k8s.io/default/team/auth/%74oken" }},
 		{"missing locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/team/auth/token" }},
 		{"unsupported locator", func(c *Credential) { c.URI = "ate-secret://k8s.io/remote/team/auth/token" }},
 		{"query", func(c *Credential) { c.URI += "?key=other" }},
@@ -55,9 +68,9 @@ func TestCanonicalCredentials(t *testing.T) {
 
 func TestCanonicalCredentialsExternalProvider(t *testing.T) {
 	for _, uri := range []string{
-		"ate-secret://provider.example/session-token",
-		"ate-secret://caller-token.kagent.dev/token",
-		"ate-secret://provider.example/default/https%3A%2F%2Fapi.example.com%3A8443",
+		"ate-secret://provider.example/default/session-token",
+		"ate-secret://caller-token.kagent.dev/default/token",
+		"ate-secret://provider.example/default/api.example.com:8443",
 	} {
 		t.Run(uri, func(t *testing.T) {
 			binding := Credential{Origin: "https://api.example.com:8443", Header: "authorization", Prefix: "Bearer ", URI: uri}

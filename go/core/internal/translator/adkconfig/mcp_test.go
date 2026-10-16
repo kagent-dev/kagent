@@ -63,7 +63,7 @@ type mcpPolicyTranslator struct{}
 var _ egressext.PolicyTranslator = mcpPolicyTranslator{}
 
 func (mcpPolicyTranslator) Translate(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
-	draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://tools.example.com:443", Header: "authorization", URI: "ate-secret://provider.example/token"})
+	draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://tools.example.com:443", Header: "authorization", URI: "ate-secret://provider.example/default/token"})
 	return draft, nil
 }
 

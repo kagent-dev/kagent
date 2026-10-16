@@ -58,7 +58,7 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 }
 
 // validCredentialURI accepts ate-secret://<provider>/<path>. Provider names are
-// lowercase registration keys without ports. k8s.io paths name one Secret key.
+// lowercase DNS names without ports. k8s.io paths name one Secret key.
 func validCredentialURI(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "ate-secret" || u.Opaque != "" {
@@ -67,13 +67,17 @@ func validCredentialURI(raw string) error {
 	if u.User != nil || u.ForceQuery || u.RawQuery != "" || strings.Contains(raw, "#") {
 		return fmt.Errorf("credential URI cannot carry user information, a query or a fragment")
 	}
-	if u.Host == "" || u.Host != strings.ToLower(u.Hostname()) {
-		return fmt.Errorf("credential provider must be a lowercase name without a port")
+	if u.Host != u.Hostname() || len(validation.IsDNS1123Subdomain(u.Host)) != 0 {
+		return fmt.Errorf("credential provider must be a lowercase DNS name without a port")
+	}
+	// Substrate requires at least two nonempty, unescaped path segments.
+	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	if u.EscapedPath() != u.Path || !strings.HasPrefix(u.Path, "/") || len(parts) < 2 || slices.Contains(parts, "") {
+		return fmt.Errorf("credential URI must have at least two nonempty path segments without percent encoding")
 	}
 	if u.Host != "k8s.io" {
 		return nil
 	}
-	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
 	if len(parts) != 4 || parts[0] != "default" {
 		return fmt.Errorf("credential URI must identify the default locator, namespace, Secret and key")
 	}

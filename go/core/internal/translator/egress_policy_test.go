@@ -37,7 +37,7 @@ func TestPolicyDraftTargets(t *testing.T) {
 		require.Contains(t, draft.Requirements, egressext.AuthenticationRequirement{Origin: "https://api.anthropic.com:443", Header: "x-api-key"})
 		require.Contains(t, draft.Requirements, egressext.AuthenticationRequirement{Origin: "https://mcp.example.com:443"})
 		require.Contains(t, draft.Destinations, "http://local.example.com:80")
-		draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://api.anthropic.com", Header: "x-api-key", URI: "ate-secret://provider.example/token"})
+		draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://api.anthropic.com", Header: "x-api-key", URI: "ate-secret://provider.example/default/token"})
 		return draft, nil
 	})
 	policy, err := ResolvePolicy(input, nil, extension)
@@ -84,7 +84,7 @@ func TestPolicyPreservesExplicitAuthentication(t *testing.T) {
 			}))
 			require.NoError(t, err)
 			_, err = ResolvePolicy(input, nil, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
-				draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: target.Endpoint, Header: target.Header, Prefix: target.Prefix, URI: "ate-secret://provider.example/token"})
+				draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: target.Endpoint, Header: target.Header, Prefix: target.Prefix, URI: "ate-secret://provider.example/default/token"})
 				return draft, nil
 			}))
 			require.ErrorContains(t, err, "preserves explicit authentication")
@@ -93,7 +93,7 @@ func TestPolicyPreservesExplicitAuthentication(t *testing.T) {
 }
 
 func TestPolicyRejectsInvalidBindings(t *testing.T) {
-	base := egressext.Credential{Origin: "https://api.openai.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/token"}
+	base := egressext.Credential{Origin: "https://api.openai.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token"}
 	for _, test := range []struct {
 		name   string
 		change func(*egressext.Credential)
@@ -139,10 +139,10 @@ func TestPolicyCannotWeakenDraft(t *testing.T) {
 		{"preserve", func(d *egressext.PolicyDraft) { d.Requirements[0].Preserve = true }, "cannot change destinations"},
 		{"required", func(d *egressext.PolicyDraft) { d.Requirements[0].Required = true }, "cannot change destinations"},
 		{"remove binding", func(d *egressext.PolicyDraft) { d.Credentials = nil }, "cannot remove or replace"},
-		{"replace binding", func(d *egressext.PolicyDraft) { d.Credentials[0].URI = "ate-secret://provider.example/changed" }, "cannot remove or replace"},
+		{"replace binding", func(d *egressext.PolicyDraft) { d.Credentials[0].URI = "ate-secret://provider.example/default/changed" }, "cannot remove or replace"},
 		{"conflict", func(d *egressext.PolicyDraft) {
 			binding := d.Credentials[0]
-			binding.URI = "ate-secret://provider.example/changed"
+			binding.URI = "ate-secret://provider.example/default/changed"
 			d.Credentials = append(d.Credentials, binding)
 		}, "conflicting credentials"},
 	} {
@@ -160,6 +160,30 @@ func TestPolicyCannotWeakenDraft(t *testing.T) {
 			require.Equal(t, before, after, "extension mutation must not affect subsequent compilation")
 		})
 	}
+}
+
+func TestPolicyRejectsMCPSecretCredentialConflict(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI})
+	input.Root.MCPTools = []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team"},
+		Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com/mcp", HeadersFrom: []v1alpha3.ValueRef{
+			{Name: "X-API-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "service-auth", Key: "key"}},
+		}},
+	}}}
+	before, err := ResolvePolicy(input, nil, nil)
+	require.NoError(t, err)
+	_, err = ResolvePolicy(input, nil, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
+		draft.Credentials = append(draft.Credentials, egressext.Credential{
+			Origin: "https://TOOLS.example.com", Header: "x-api-key", URI: "ate-secret://provider.example/default/token",
+		})
+		return draft, nil
+	}))
+	require.ErrorContains(t, err, "conflicting credentials")
+	after, err := ResolvePolicy(input, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.Len(t, after.access.Credentials, 1)
+	require.Equal(t, "ate-secret://k8s.io/default/team/service-auth/key", after.access.Credentials[0].URI)
 }
 
 func TestPolicyAuxiliaryModels(t *testing.T) {
@@ -269,7 +293,7 @@ func TestPolicyBindingSourcesRenderSameClients(t *testing.T) {
 	require.Equal(t, map[string]string{"X-Api-Key": CredentialPlaceholder}, secretHeaders, "do not duplicate a Secret header with different casing")
 	input.Root.MCPTools = []ResolvedMCPTool{other}
 	contributedEnvironment, contributedHeaders := render(input, policyTranslatorFunc(func(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
-		draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://api.anthropic.com:443", Header: "x-api-key", URI: "ate-secret://provider.example/token"})
+		draft.Credentials = append(draft.Credentials, egressext.Credential{Origin: "https://api.anthropic.com:443", Header: "x-api-key", URI: "ate-secret://provider.example/default/token"})
 		return draft, nil
 	}))
 	require.Equal(t, environment, contributedEnvironment, "Secret and extension bindings render the same clients")

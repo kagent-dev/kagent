@@ -3,6 +3,7 @@ package translator_test
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -58,6 +59,15 @@ var _ egressext.PolicyTranslator = agentPolicyTranslator(nil)
 
 func (a agentPolicyTranslator) Translate(agent types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
 	return defaultPolicyTranslator{uri: a[agent]}.Translate(agent, draft)
+}
+
+type credentialPolicyTranslator egressext.Credential
+
+var _ egressext.PolicyTranslator = credentialPolicyTranslator{}
+
+func (c credentialPolicyTranslator) Translate(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
+	draft.Credentials = append(draft.Credentials, egressext.Credential(c))
+	return draft, nil
 }
 
 type recordingPolicyTranslator struct{ draft egressext.PolicyDraft }
@@ -244,35 +254,22 @@ func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {
 				}
 				return translator.NewCompiler(ctx, collections, compilers, nil, policyTranslator).CompileAgent(t.Context(), agent)
 			}
-			result, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/token"})
+			result, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/default/token"})
 			require.NoError(t, err)
 			require.Len(t, result.Credentials, 2, "live EgressPolicy grants are not credential targets")
 			require.Contains(t, result.Environment, corev1.EnvVar{Name: key, Value: translator.CredentialPlaceholder})
 			for _, variable := range result.Environment {
 				require.Nil(t, variable.ValueFrom)
 			}
-			switch kind {
-			case translator.HarnessTypeKagent, translator.HarnessTypeBYO:
-				var config configv1.ADKConfig
-				require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &config))
-				require.Equal(t, translator.CredentialPlaceholder, config.Agent.HttpTools[0].Params.Headers["authorization"])
-			case translator.HarnessTypeClaude:
-				var config claudeconfig.Config
-				require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
-				require.Equal(t, translator.CredentialPlaceholder, config.MCPServers["tools"].Headers["authorization"])
-			case translator.HarnessTypeCodex:
-				var config codexconfig.Config
-				require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
-				require.Equal(t, translator.CredentialPlaceholder, config.MCPServers["tools"].Headers["authorization"])
-			}
+			require.Equal(t, translator.CredentialPlaceholder, compiledMCPHeaders(t, kind, result)["authorization"])
 			first, err := result.Digest()
 			require.NoError(t, err)
-			again, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/token"})
+			again, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/default/token"})
 			require.NoError(t, err)
 			same, err := again.Digest()
 			require.NoError(t, err)
 			require.Equal(t, first, same)
-			changed, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/next"})
+			changed, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/default/next"})
 			require.NoError(t, err)
 			second, err := changed.Digest()
 			require.NoError(t, err)
@@ -321,11 +318,93 @@ func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {
 			noopDigest, err := noop.Digest()
 			require.NoError(t, err)
 			require.Equal(t, defaultDigest, noopDigest)
-			withDefault, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/token"})
+			withDefault, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/default/token"})
 			require.NoError(t, err)
 			require.Contains(t, withDefault.Credentials, baseline.Credentials[0], "default credentials preserve explicit model authentication")
+
+			t.Run("MCP Secret and extension", func(t *testing.T) {
+				server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-API-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "service-auth", Key: "key"}}}
+				serviceSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "service-auth", Namespace: "test"}, Data: map[string][]byte{"key": []byte("service-secret")}}
+				collections = mockCollections(t, harness, model, server, policy, defaultWorkerPool(), secret, serviceSecret)
+				combined, err := compile(credentialPolicyTranslator{
+					Origin: "https://tools.example.com:443", Header: "Authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token",
+				})
+				require.NoError(t, err)
+				require.Len(t, combined.Credentials, 3)
+				require.Contains(t, combined.Credentials, egress.Credential{
+					Origin: "https://tools.example.com:443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/test/service-auth/key",
+				})
+				require.Contains(t, combined.Credentials, egress.Credential{
+					Origin: "https://tools.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token",
+				})
+				prefix := "KAGENT_CREDENTIAL_"
+				if kind == translator.HarnessTypeClaude || kind == translator.HarnessTypeCodex {
+					prefix = "KAGENT_" + strings.ToUpper(string(kind)) + "_MCP_CREDENTIAL_"
+				}
+				var secretHeader string
+				for _, variable := range combined.Environment {
+					require.Nil(t, variable.ValueFrom)
+					if strings.HasPrefix(variable.Name, prefix) {
+						require.Equal(t, translator.CredentialPlaceholder, variable.Value)
+						secretHeader = "${" + variable.Name + "}"
+						if kind == translator.HarnessTypeKagent || kind == translator.HarnessTypeBYO {
+							secretHeader = "__KAGENT_ENV[" + variable.Name + "]__"
+						}
+					}
+				}
+				require.NotEmpty(t, secretHeader)
+				require.Equal(t, map[string]string{
+					"X-API-Key": secretHeader, "authorization": translator.CredentialPlaceholder,
+				}, compiledMCPHeaders(t, kind, combined))
+			})
 		})
 	}
+}
+
+func compiledMCPHeaders(t *testing.T, kind translator.HarnessType, result *translator.CompileResult) map[string]string {
+	t.Helper()
+	switch kind {
+	case translator.HarnessTypeKagent, translator.HarnessTypeBYO:
+		var config configv1.ADKConfig
+		require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &config))
+		return config.Agent.HttpTools[0].Params.Headers
+	case translator.HarnessTypeClaude:
+		var config claudeconfig.Config
+		require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
+		return config.MCPServers["tools"].Headers
+	case translator.HarnessTypeCodex:
+		var config codexconfig.Config
+		require.NoError(t, json.Unmarshal(result.ConfigJSON, &config))
+		return config.MCPServers["tools"].Headers
+	default:
+		t.Fatalf("unsupported harness %q", kind)
+		return nil
+	}
+}
+
+func TestCompileRejectsEgressPolicyCredentialConflict(t *testing.T) {
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		Kagent: &v1alpha3.KagentHarness{}, Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+	}}
+	model := modelConfig()
+	server := remoteMCPServer("tools", "https://tools.example.com/mcp")
+	policy, secret := egressPolicy()
+	policy.Spec.Destinations[0].Origin = "https://tools.example.com"
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
+		ModelConfig: &corev1.LocalObjectReference{Name: model.Name},
+		Tools:       []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}}},
+	}}
+	agent := inlineAgent(harness, template)
+	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+	collections := mockCollections(t, harness, model, server, policy, secret, defaultWorkerPool())
+	extension := credentialPolicyTranslator{
+		Origin: "https://tools.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token",
+	}
+	compiler := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeKagent: &testHarnessCompiler{},
+	}, testHarnessImages, extension)
+	_, err := compiler.CompileAgent(t.Context(), agent)
+	require.ErrorContains(t, err, "conflicting credentials for https://tools.example.com:443 header authorization")
 }
 
 func TestPolicyResolvesAuxiliaryModelsBeforeHarnessRendering(t *testing.T) {
@@ -343,7 +422,7 @@ func TestPolicyResolvesAuxiliaryModelsBeforeHarnessRendering(t *testing.T) {
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: root.Name}}}
 	collections := mockCollections(t, harness, root, embedding, summary, defaultWorkerPool())
 	adapter := &testHarnessCompiler{}
-	compiler := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{translator.HarnessTypeKagent: adapter}, testHarnessImages, defaultPolicyTranslator{uri: "ate-secret://provider.example/token"})
+	compiler := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{translator.HarnessTypeKagent: adapter}, testHarnessImages, defaultPolicyTranslator{uri: "ate-secret://provider.example/default/token"})
 	result, err := compiler.CompileAgent(t.Context(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.NotNil(t, adapter.input.SummarizerModel)
@@ -433,7 +512,7 @@ func TestHarnessBedrockSigningCredentialsPreserved(t *testing.T) {
 					translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
 					translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
 				}
-				result, err := translator.NewCompiler(ctx, collections, compilers, nil, defaultPolicyTranslator{uri: "ate-secret://provider.example/token"}).CompileAgent(t.Context(), inlineAgent(harness, template))
+				result, err := translator.NewCompiler(ctx, collections, compilers, nil, defaultPolicyTranslator{uri: "ate-secret://provider.example/default/token"}).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
 				for _, variable := range test.env {
 					require.Contains(t, result.Environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})

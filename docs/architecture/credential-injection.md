@@ -86,19 +86,21 @@ the caller's authentication.
 
 ## Controller credential extension
 
-Embedded controllers can set `app.Options.EgressPolicyTranslator` to add gateway
-credential references before a Harness renders client configuration. See
-[PolicyTranslator](../../go/core/pkg/egressext/policy.go) for the contract.
-The shared compiler builds a draft from model and MCP inputs. EgressPolicy
-grants are live authorization and stay out of the draft. The extension can only
-add bindings for eligible destinations in that draft. Core validates the result,
-preserves explicit authentication, and pins it in the revision. Nil adds no
-bindings. Secret-backed and extension bindings render the same SDK key and MCP
-header placeholders.
+Embedded controllers can set `app.Options.EgressPolicyTranslator` to add credential
+references for eligible model and MCP destinations before client rendering. See
+[PolicyTranslator](../../go/core/pkg/egressext/policy.go) for the contract. Core
+validates and pins the bindings, then renders client placeholders.
 
-References use `ate-secret://<provider>/<path>` with a lowercase, port-free
-provider name registered in Substrate. Arbitrary clients must send the bound
-header to trigger injection. Keyless Gemini support remains a follow-up.
+MCP Secret bindings can coexist with extension bindings on different headers.
+Literal or ConfigMap MCP headers prevent additions at their origin. Model
+requirements restrict the header and prefix. Conflicting credentials fail
+compilation. A later EgressPolicy conflict withholds all explicit grants and
+retains the pinned bindings. EgressPolicy-only destinations are outside the draft.
+
+References require a registered Substrate provider and use
+`ate-secret://<provider>/<path>`, with a lowercase DNS provider, no port, and at
+least two nonempty, unescaped path segments. Clients must send the bound header
+to trigger injection. Keyless Gemini support remains a follow-up.
 
 ## Deferred API fields
 
