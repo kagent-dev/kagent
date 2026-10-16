@@ -68,10 +68,17 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 	})
 }
 
-// RecordRuntimeRevision stores immutable inputs without making them available for
-// new Sessions. Existing inputs are preserved; actor UID and update time refresh.
-// Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
+// RecordRevisionOptions controls whether a prepared revision becomes available.
+type RecordRevisionOptions struct {
+	// Ready promotes the revision only while its source is active and still desires it.
+	Ready bool
+}
+
+// RecordRuntimeRevision atomically stores immutable inputs and, when Ready,
+// promotes the revision for its active source if still desired. Existing inputs
+// are preserved; actor UID and update time refresh. Stale reports cannot replace
+// the last successful revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, options RecordRevisionOptions) error {
 	if revision.AgentCard == nil {
 		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
 	}
@@ -80,6 +87,15 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
+		if options.Ready {
+			// Match definition preparation and GC: source before revision.
+			if _, err := queryMany(ctx, tx, `
+				SELECT 1 FROM agent_definition p
+				WHERE p.namespace = $1 AND p.agent_uid = $2 FOR UPDATE OF p
+			`, pgx.RowTo[int], revision.Namespace, revision.AgentUID); err != nil {
+				return err
+			}
+		}
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
 				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
@@ -93,38 +109,20 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
 			return err
 		}
-		return nil
-	})
-}
-
-// PromoteRuntimeRevision makes a recorded, prepared revision available only to
-// the active Agent identity that still desires it. Missing/deleting revisions return
-// ErrNotFound / ErrObjectDeleting; stale reports leave the definition unchanged.
-func (c *Client) PromoteRuntimeRevision(ctx context.Context, revision string) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		// Match GC finalization's lock order: definition before revision.
-		_, err := queryOne(ctx, tx, `
-			SELECT 1 FROM agent_definition p
-			JOIN agent_runtime_revision r ON p.namespace = r.namespace AND p.agent_uid = r.agent_uid
-			WHERE r.revision = $1 FOR UPDATE OF p
-		`, pgx.RowTo[int], revision)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindAgent); err != nil {
-			return err
+		if !options.Ready {
+			return nil
 		}
 		return execSQL(ctx, tx, `
 			UPDATE agent_definition p
 			SET latest_successful_revision = r.revision, updated_at = NOW()
 			FROM agent_runtime_revision r
-			WHERE r.revision = $1
+			WHERE r.revision = $1 AND p.namespace = $2 AND p.agent_uid = $3
 			  AND p.namespace = r.namespace
 			  AND p.agent_uid = r.agent_uid
 			  AND p.desired_revision = r.revision
 			  AND p.retired_at IS NULL
 			  AND p.latest_successful_revision IS DISTINCT FROM r.revision
-		`, revision)
+		`, revision.Revision, revision.Namespace, revision.AgentUID)
 	})
 }
 

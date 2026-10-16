@@ -34,8 +34,7 @@ type sandboxRevisionStore interface {
 	actorEgressStore
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision) error
-	PromoteSandboxRevision(context.Context, string) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) error
 }
 
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
@@ -185,14 +184,10 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	if err := s.store.RecordSandboxRevision(ctx, revision); err != nil {
+	if err := s.store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
-	if ready {
-		if err := s.store.PromoteSandboxRevision(ctx, revision.Revision); err != nil {
-			return s.observeError(*state, fmt.Errorf("promote sandbox revision %s: %w", state.RevisionID, err), true)
-		}
-	}
+
 	// Kubernetes readiness can only follow a revision that callers can select
 	// from the store. Failed persistence must never publish a ready observation.
 	s.collections.observations.ConditionalUpdateObject(sandboxRuntimeObservation{Key: key, RevisionID: state.RevisionID, Template: observed})

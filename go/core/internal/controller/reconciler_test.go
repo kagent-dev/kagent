@@ -326,7 +326,6 @@ type fakeRuntimeRevisionStore struct {
 	markedSuccessful bool
 	retired          string
 	revisionErr      error
-	promoteErr       error
 	recordCalls      int
 	pairErr          error
 	pairCalls        int
@@ -338,23 +337,15 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
 	s.recordCalls++
 	if s.revisionErr != nil {
 		return s.revisionErr
 	}
 	s.revision = &revision
-	return nil
-}
-
-func (s *fakeRuntimeRevisionStore) PromoteRuntimeRevision(_ context.Context, revision string) error {
-	if s.promoteErr != nil {
-		return s.promoteErr
+	if options.Ready {
+		s.markedSuccessful = true
 	}
-	if s.revision == nil || s.revision.Revision != revision {
-		return database.ErrNotFound
-	}
-	s.markedSuccessful = true
 	return nil
 }
 

@@ -86,10 +86,21 @@ func retireSandboxTemplateIdentities(ctx context.Context, db dbExecutor, namespa
 	`, namespace, name, retainedUID)
 }
 
-// RecordSandboxRevision stores immutable sandbox inputs and refreshes artifact
-// identity without promoting the revision. Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision) error {
+// RecordSandboxRevision atomically stores immutable inputs and, when Ready,
+// promotes the revision for its active source if still desired. Existing inputs
+// are preserved; actor UID and update time refresh. Stale reports cannot replace
+// the last successful revision. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevision, options RecordRevisionOptions) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
+		if options.Ready {
+			// Match definition preparation and GC: source before revision.
+			if _, err := queryMany(ctx, tx, `
+				SELECT 1 FROM sandbox_template_definition p
+				WHERE p.namespace = $1 AND p.sandbox_template_uid = $2 FOR UPDATE OF p
+			`, pgx.RowTo[int], revision.Namespace, revision.SandboxTemplateUID); err != nil {
+				return err
+			}
+		}
 		revision.Kind = runtimeKindSandbox
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{RuntimeArtifact: revision.RuntimeArtifact, SourceSnapshot: revision.SourceSnapshot}); err != nil {
 			return err
@@ -100,34 +111,17 @@ func (c *Client) RecordSandboxRevision(ctx context.Context, revision SandboxRevi
 		`, revision.Revision, revision.SandboxTemplateName, revision.SandboxTemplateUID); err != nil {
 			return err
 		}
-		return nil
-	})
-}
-
-// PromoteSandboxRevision makes a recorded, prepared revision available only to
-// the active template identity that still desires it. Missing/deleting revisions return
-// ErrNotFound / ErrObjectDeleting; stale reports leave the definition unchanged.
-func (c *Client) PromoteSandboxRevision(ctx context.Context, revision string) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
-		// Match GC finalization's lock order: definition before revision.
-		if _, err := queryMany(ctx, tx, `
-			SELECT 1 FROM sandbox_template_definition p
-			JOIN runtime_revision r ON p.namespace = r.namespace
-			JOIN sandbox_revision s ON r.revision = s.revision AND p.sandbox_template_uid = s.sandbox_template_uid
-			WHERE r.revision = $1 FOR UPDATE OF p
-		`, pgx.RowTo[int], revision); err != nil {
-			return err
-		}
-		if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindSandbox); err != nil {
-			return err
+		if !options.Ready {
+			return nil
 		}
 		return execSQL(ctx, tx, `
 			UPDATE sandbox_template_definition p SET latest_successful_revision = r.revision, updated_at = NOW()
 			FROM runtime_revision r JOIN sandbox_revision s USING (revision)
-			WHERE r.revision = $1 AND p.namespace = r.namespace AND p.sandbox_template_uid = s.sandbox_template_uid
+			WHERE r.revision = $1 AND p.namespace = $2 AND p.sandbox_template_uid = $3
+			    AND p.namespace = r.namespace AND p.sandbox_template_uid = s.sandbox_template_uid
 			    AND p.desired_revision = r.revision AND p.retired_at IS NULL
 			    AND p.latest_successful_revision IS DISTINCT FROM r.revision
-		`, revision)
+		`, revision.Revision, revision.Namespace, revision.SandboxTemplateUID)
 	})
 }
 

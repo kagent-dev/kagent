@@ -40,7 +40,6 @@ type sandboxTestStore struct {
 	retireAttempts int
 	retireErr      error
 	recordErr      error
-	promoteErr     error
 	recordCalls    int
 }
 
@@ -50,7 +49,7 @@ func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, va
 	s.desired = value
 	return s.upsertErr
 }
-func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision) error {
+func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, options database.RecordRevisionOptions) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recordCalls++
@@ -58,18 +57,9 @@ func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value databa
 		return s.recordErr
 	}
 	s.revision = value
-	return nil
-}
-func (s *sandboxTestStore) PromoteSandboxRevision(_ context.Context, revision string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.promoteErr != nil {
-		return s.promoteErr
+	if options.Ready {
+		s.ready = true
 	}
-	if s.revision.Revision != revision {
-		return database.ErrNotFound
-	}
-	s.ready = true
 	return nil
 }
 func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, string, string) error {

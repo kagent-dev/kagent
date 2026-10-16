@@ -185,8 +185,7 @@ func compilationFailure(err error) *ReconciliationFailure {
 type runtimeRevisionStore interface {
 	actorEgressStore
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
-	RecordRuntimeRevision(context.Context, database.RuntimeRevision) error
-	PromoteRuntimeRevision(context.Context, string) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
 
@@ -419,14 +418,10 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision); err != nil {
+	if err := r.store.RecordRuntimeRevision(ctx, revision, database.RecordRevisionOptions{Ready: ready}); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
-	if ready {
-		if err := r.store.PromoteRuntimeRevision(ctx, revision.Revision); err != nil {
-			return r.observePreparationError(*state, fmt.Errorf("promote runtime revision %s: %w", target.RevisionID, err))
-		}
-	}
+
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.
 	r.observePreparation(*state, observed, nil)
