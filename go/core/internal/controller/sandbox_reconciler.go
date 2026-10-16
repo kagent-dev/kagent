@@ -41,18 +41,19 @@ type sandboxRevisionStore interface {
 type SandboxReconciler struct {
 	collections sandboxCollections
 	store       sandboxRevisionStore
+	egress      revisionEgressReconciler
 	actors      actorTemplateClient
 	client      kagentclient.ApiV1alpha3Interface
 }
 
 var _ manager.LeaderElectionRunnable = (*SandboxReconciler)(nil)
 
-func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy) (*SandboxReconciler, error) {
+func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy, egress revisionEgressReconciler) (*SandboxReconciler, error) {
 	client, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create SandboxTemplate client: %w", err)
 	}
-	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client}, nil
+	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, egress: egress}, nil
 }
 
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
@@ -175,8 +176,16 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	if err := s.store.RecordSandboxRevision(ctx, revision, ready); err != nil {
+	if err := s.store.RecordSandboxRevision(ctx, revision, false); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
+	}
+	if err := s.egress.ReconcileRevision(ctx, revision.Revision); err != nil {
+		return s.observeError(*state, fmt.Errorf("publish sandbox egress %s: %w", state.RevisionID, err), true)
+	}
+	if ready {
+		if err := s.store.RecordSandboxRevision(ctx, revision, true); err != nil {
+			return s.observeError(*state, fmt.Errorf("promote sandbox revision %s: %w", state.RevisionID, err), true)
+		}
 	}
 	// Kubernetes readiness can only follow a revision that callers can select
 	// from the store. Failed persistence must never publish a ready observation.

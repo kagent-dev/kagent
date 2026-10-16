@@ -6,10 +6,10 @@ import (
 	"slices"
 )
 
-// Resolver combines a pinned revision's integration access with current policy
-// grants. Missing or invalid grants must fail closed without retaining old access.
-type Resolver interface {
-	ResolveEgress(context.Context, string) (Access, error)
+// PolicyStore reads the controller's persisted intended policy for a revision.
+// A missing or malformed policy is an error, never permission to retain old access.
+type PolicyStore interface {
+	GetRuntimeEgressPolicy(context.Context, string) (Access, error)
 }
 
 // MergeAccess validates live grants against the pinned runtime's credentials and

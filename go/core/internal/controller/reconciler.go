@@ -182,6 +182,7 @@ type Reconciler struct {
 	collections Collections
 	templates   actorTemplateClient
 	store       runtimeRevisionStore
+	egress      revisionEgressReconciler
 	status      kagentclient.ApiV1alpha3Interface
 
 	agents                   controllers.Queue
@@ -194,12 +195,12 @@ type Reconciler struct {
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
 // its queues after the registered KRT handlers have received initial state.
-func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient) (*Reconciler, error) {
+func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient, egress revisionEgressReconciler) (*Reconciler, error) {
 	statusClient, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
-	return newReconciler(collections, templates, store, statusClient), nil
+	return newReconciler(collections, templates, store, statusClient, egress), nil
 }
 
 func newReconciler(
@@ -207,11 +208,13 @@ func newReconciler(
 	templates actorTemplateClient,
 	store runtimeRevisionStore,
 	status kagentclient.ApiV1alpha3Interface,
+	egress revisionEgressReconciler,
 ) *Reconciler {
 	r := &Reconciler{
 		collections: collections,
 		templates:   templates,
 		store:       store,
+		egress:      egress,
 		status:      status,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
@@ -374,8 +377,16 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision, ready); err != nil {
+	if err := r.store.RecordRuntimeRevision(ctx, revision, false); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
+	}
+	if err := r.egress.ReconcileRevision(ctx, revision.Revision); err != nil {
+		return r.observePreparationError(*state, fmt.Errorf("publish runtime egress %s: %w", target.RevisionID, err))
+	}
+	if ready {
+		if err := r.store.RecordRuntimeRevision(ctx, revision, true); err != nil {
+			return r.observePreparationError(*state, fmt.Errorf("promote runtime revision %s: %w", target.RevisionID, err))
+		}
 	}
 	// This observation drives Kubernetes Ready status on a separate queue.
 	// Publish it only after session creation can select the persisted revision.

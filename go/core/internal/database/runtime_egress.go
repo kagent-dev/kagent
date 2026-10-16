@@ -12,7 +12,7 @@ import (
 // RuntimeEgress retains integration access and the source identity of a pinned
 // revision. Explicit policy grants are resolved from the current Kubernetes source.
 type RuntimeEgress struct {
-	Kind                    string
+	Kind                    RuntimeEgressSourceKind
 	Namespace               string
 	SourceName              string
 	SourceUID               string
@@ -31,7 +31,7 @@ func (c *Client) GetRuntimeEgress(ctx context.Context, revision string) (*Runtim
 		FROM runtime_revision r
 		LEFT JOIN agent_revision a USING (revision)
 		LEFT JOIN sandbox_revision s USING (revision)
-		WHERE r.revision = $1
+		WHERE r.revision = $1 AND r.deleted_at IS NULL
 	`, pgx.RowToStructByName[RuntimeEgress], revision)
 	if err != nil {
 		return nil, fmt.Errorf("get runtime egress %s: %w", revision, notFoundOr(err))
@@ -44,14 +44,100 @@ func (c *Client) GetRuntimeEgress(ctx context.Context, revision string) (*Runtim
 	return &row, nil
 }
 
+// RuntimeEgressSourceKind identifies the Kubernetes owner of a runtime revision.
+type RuntimeEgressSourceKind string
+
+const (
+	RuntimeEgressAgent   RuntimeEgressSourceKind = runtimeKindAgent
+	RuntimeEgressSandbox RuntimeEgressSourceKind = runtimeKindSandbox
+)
+
 // RuntimeEgressSource selects all revisions of an Agent or SandboxTemplate,
 // including former UIDs whose grants must be revoked after source recreation.
-// The zero value selects every source for recovery sweeps.
 type RuntimeEgressSource struct {
-	Kind      string
+	Kind      RuntimeEgressSourceKind
 	Namespace string
 	Name      string
 }
+
+// ListRuntimeEgressRevisions lists retained revisions in key order for recovery,
+// including revisions without actors. Deleting revisions are excluded.
+func (c *Client) ListRuntimeEgressRevisions(ctx context.Context, after string, limit int) ([]string, error) {
+	return queryMany(ctx, c.db, `
+        SELECT revision FROM runtime_revision
+        WHERE revision > $1 AND deleted_at IS NULL ORDER BY revision LIMIT $2
+    `, pgx.RowTo[string], after, limit)
+}
+
+// ListRuntimeEgressSourceRevisions lists a source's retained revisions across
+// Kubernetes UIDs. Empty and unsupported kinds are errors, never sweep selectors.
+func (c *Client) ListRuntimeEgressSourceRevisions(ctx context.Context, source RuntimeEgressSource, after string, limit int) ([]string, error) {
+	if source.Namespace == "" || source.Name == "" {
+		return nil, fmt.Errorf("runtime egress source requires namespace and name")
+	}
+	switch source.Kind {
+	case RuntimeEgressAgent:
+		return queryMany(ctx, c.db, `
+            SELECT r.revision FROM runtime_revision r JOIN agent_revision a USING (revision)
+            WHERE r.namespace = $1 AND a.agent_name = $2 AND r.revision > $3
+              AND r.deleted_at IS NULL ORDER BY r.revision LIMIT $4
+        `, pgx.RowTo[string], source.Namespace, source.Name, after, limit)
+	case RuntimeEgressSandbox:
+		return queryMany(ctx, c.db, `
+            SELECT r.revision FROM runtime_revision r JOIN sandbox_revision s USING (revision)
+            WHERE r.namespace = $1 AND s.sandbox_template_name = $2 AND r.revision > $3
+              AND r.deleted_at IS NULL ORDER BY r.revision LIMIT $4
+        `, pgx.RowTo[string], source.Namespace, source.Name, after, limit)
+	default:
+		return nil, fmt.Errorf("unknown runtime egress source kind %q", source.Kind)
+	}
+}
+
+// SetRuntimeEgressPolicy publishes controller output for a retained revision.
+// It does not mutate the revision's pinned inputs or readiness. Missing/deleting
+// revisions return ErrNotFound; malformed policy input is rejected before writing.
+func (c *Client) SetRuntimeEgressPolicy(ctx context.Context, revision string, access egress.Access) error {
+	canonical, err := egress.CanonicalAccess(access.Destinations, access.Credentials)
+	if err != nil {
+		return fmt.Errorf("validate runtime egress policy %s: %w", revision, err)
+	}
+	if canonical.Destinations == nil {
+		canonical.Destinations = []string{}
+	}
+	if canonical.Credentials == nil {
+		canonical.Credentials = []egress.Credential{}
+	}
+	result, err := c.db.Exec(ctx, `
+        INSERT INTO runtime_egress_policy (revision, destinations, credentials)
+        SELECT revision, $2, $3 FROM runtime_revision WHERE revision = $1 AND deleted_at IS NULL
+        ON CONFLICT (revision) DO UPDATE SET destinations = EXCLUDED.destinations, credentials = EXCLUDED.credentials
+    `, revision, canonical.Destinations, canonical.Credentials)
+	if err != nil {
+		return fmt.Errorf("store runtime egress policy %s: %w", revision, err)
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetRuntimeEgressPolicy reads the latest controller output, independent of any
+// replica's Kubernetes cache. Missing and malformed policies fail closed.
+func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
+	access, err := queryOne(ctx, c.db, `
+        SELECT destinations, credentials FROM runtime_egress_policy WHERE revision = $1
+    `, pgx.RowToStructByName[egress.Access], revision)
+	if err != nil {
+		return egress.Access{}, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
+	}
+	canonical, err := egress.CanonicalAccess(access.Destinations, access.Credentials)
+	if err != nil {
+		return egress.Access{}, fmt.Errorf("decode runtime egress policy %s: %w", revision, err)
+	}
+	return canonical, nil
+}
+
+var _ egress.PolicyStore = (*Client)(nil)
 
 // RuntimeEgressTarget identifies an allocated runtime, including suspended or
 // partially created actors that still need live policy reconciliation.
@@ -63,24 +149,21 @@ type RuntimeEgressTarget struct {
 	ActorUID     string
 }
 
-// ListRuntimeEgressTargets lists a bounded page for a source in ID order. Deleting instances
-// and unissued creations are excluded; a concurrent creation is picked up by the next reconciliation.
-func (c *Client) ListRuntimeEgressTargets(ctx context.Context, source RuntimeEgressSource, afterID string, limit int) ([]RuntimeEgressTarget, error) {
+// ListRuntimeEgressTargets lists a revision's allocated instances in ID order.
+// Deleting instances and unissued creations are excluded. Concurrent creation
+// reads the persisted policy itself and rechecks it after applying.
+func (c *Client) ListRuntimeEgressTargets(ctx context.Context, revision, afterID string, limit int) ([]RuntimeEgressTarget, error) {
 	rows, err := queryMany(ctx, c.db, `
-		SELECT i.id::text AS id, i.prepared_revision AS revision, r.actor_template_atespace AS atespace,
-		    r.actor_template_name AS template_name, COALESCE(s.actor_uid, '') AS actor_uid
-		FROM runtime_instance i JOIN runtime_revision r ON r.revision = i.prepared_revision
-		LEFT JOIN session s ON s.id = i.id
-		WHERE i.id > COALESCE(NULLIF($1, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-		  AND ($3 = '' OR (r.namespace = $4 AND r.revision IN (
-		      SELECT revision FROM agent_revision WHERE $3 = 'agent' AND agent_name = $5
-		      UNION ALL
-		      SELECT revision FROM sandbox_revision WHERE $3 = 'sandbox' AND sandbox_template_name = $5
-		  )))
-		  AND (i.operation <> 'RUNTIME_OPERATION_CREATE' OR i.executor_id IS NOT NULL)
-		  AND i.state <> 'RUNTIME_STATE_DELETED' AND i.operation <> 'RUNTIME_OPERATION_DELETE'
-		ORDER BY i.id LIMIT $2
-	`, pgx.RowToStructByName[RuntimeEgressTarget], afterID, limit, source.Kind, source.Namespace, source.Name)
+        SELECT i.id::text AS id, i.prepared_revision AS revision, r.actor_template_atespace AS atespace,
+            r.actor_template_name AS template_name, COALESCE(s.actor_uid, '') AS actor_uid
+        FROM runtime_instance i JOIN runtime_revision r ON r.revision = i.prepared_revision
+        LEFT JOIN session s ON s.id = i.id
+        WHERE i.prepared_revision = $1
+          AND i.id > COALESCE(NULLIF($2, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+          AND (i.operation <> 'RUNTIME_OPERATION_CREATE' OR i.executor_id IS NOT NULL)
+          AND i.state <> 'RUNTIME_STATE_DELETED' AND i.operation <> 'RUNTIME_OPERATION_DELETE'
+        ORDER BY i.id LIMIT $3
+    `, pgx.RowToStructByName[RuntimeEgressTarget], revision, afterID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list runtime egress targets: %w", err)
 	}

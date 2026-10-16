@@ -59,7 +59,7 @@ func ParseOrigin(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// Access is the resolved, revision-pinned network grant. It contains references,
+// Access is a compiled network grant. It contains references,
 // never Secret values.
 type Access struct {
 	Destinations []string     `json:"destinations,omitempty"`

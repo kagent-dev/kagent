@@ -1,7 +1,6 @@
 package translator
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -10,7 +9,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation"
-	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -32,20 +30,6 @@ func CompileEgressPolicies(ctx krt.HandlerContext, collections Collections, name
 			return nil, apierrors.NewNotFound(corev1.Resource("secrets"), name)
 		}
 		return *secret, nil
-	})
-}
-
-// ResolveEgressPolicies applies the same validation as preparation to direct
-// Kubernetes reads. Live authorization must supply an uncached reader.
-func ResolveEgressPolicies(ctx context.Context, reader ctrlclient.Reader, namespace string, refs []corev1.LocalObjectReference) (egress.Access, error) {
-	return compileEgressPolicies(namespace, refs, func(name string) (*v1alpha3.EgressPolicy, error) {
-		policy := &v1alpha3.EgressPolicy{}
-		err := reader.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: name}, policy)
-		return policy, err
-	}, func(name string) (*corev1.Secret, error) {
-		secret := &corev1.Secret{}
-		err := reader.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: name}, secret)
-		return secret, err
 	})
 }
 

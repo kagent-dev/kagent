@@ -9,8 +9,9 @@ Kubernetes resource.
 Fresh creation pins the Agent's latest successful runtime revision. Pending or
 failed edits leave that revision available; an Agent with no successful revision
 cannot create sessions. Creation retries retain the existing session's pinned
-revision. Explicit egress grants are resolved from current Kubernetes policies
-independently of the runtime revision before execution.
+revision. Explicit egress grants are applied from the controller's persisted
+intended policy before execution. Lifecycle
+operations do not read or translate Kubernetes policy.
 
 The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
