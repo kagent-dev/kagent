@@ -3,7 +3,9 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -19,10 +21,10 @@ type SandboxRevision struct {
 
 // SandboxTemplateDefinition tracks the desired and last successful runtime for a SandboxTemplate UID.
 type SandboxTemplateDefinition struct {
-	Grants              egress.Access
 	Namespace           string
 	SandboxTemplateName string
 	SandboxTemplateUID  string
+	Grants              egress.Access
 	DesiredRevision     string
 }
 
@@ -37,36 +39,32 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 	}
 	changed := false
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		retired, err := tx.Exec(ctx, `
-			UPDATE sandbox_template_definition SET retired_at = NOW(), updated_at = NOW()
-			WHERE namespace = $1 AND sandbox_template_name = $2 AND sandbox_template_uid <> $3 AND retired_at IS NULL
-		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID)
+		retired, err := retireSandboxTemplateIdentities(ctx, tx, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID)
 		if err != nil {
 			return err
 		}
-		changed = retired.RowsAffected() > 0
-		grantsChanged, err := queryOne(ctx, tx, `
-			WITH previous AS MATERIALIZED (
-			  SELECT grant_destinations, grant_credentials, retired_at FROM sandbox_template_definition
-			  WHERE namespace = $1 AND sandbox_template_uid = $3 FOR UPDATE
-			), updated AS (
-			  INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision, grant_destinations, grant_credentials)
-			  SELECT $1, $2, $3, $4, $5, $6 FROM (SELECT COUNT(*) FROM previous) locked
-			  ON CONFLICT (namespace, sandbox_template_uid) DO UPDATE SET
+		previous, err := queryOne(ctx, tx, `
+			SELECT grant_destinations, grant_credentials, retired_at FROM sandbox_template_definition
+			WHERE namespace = $1 AND sandbox_template_uid = $2 FOR UPDATE
+		`, pgx.RowToStructByName[definitionGrantRow], definition.Namespace, definition.SandboxTemplateUID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if previous.RetiredAt != nil {
+			previous = definitionGrantRow{}
+		}
+		if err := execSQL(ctx, tx, `
+			INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision, grant_destinations, grant_credentials)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (namespace, sandbox_template_uid) DO UPDATE SET
 			    sandbox_template_name = EXCLUDED.sandbox_template_name, desired_revision = EXCLUDED.desired_revision,
 			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
 			    retired_at = NULL, updated_at = NOW()
-			  RETURNING namespace
-			)
-			SELECT COALESCE((SELECT grant_destinations FROM previous WHERE retired_at IS NULL), '{}'::text[]) IS DISTINCT FROM $5
-			    OR COALESCE((SELECT grant_credentials FROM previous WHERE retired_at IS NULL), '[]'::jsonb) IS DISTINCT FROM $6
-			FROM updated
-		`, pgx.RowTo[bool], definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision, grants.Destinations, grants.Credentials)
-		if err != nil {
+		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
 			return err
 		}
+		changed = retired > 0 || !slices.Equal(previous.GrantDestinations, grants.Destinations) || !slices.Equal(previous.GrantCredentials, grants.Credentials)
 
-		changed = changed || grantsChanged
 		revisions, err := queryMany(ctx, tx, `
 			SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.deleted_at
 			FROM runtime_revision r JOIN sandbox_template_definition p
@@ -92,10 +90,19 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 // RetireSandboxTemplateIdentities retires active identities at this source name.
 // Missing/already-retired identities are a no-op; retained actors lose live grants.
 func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace, name string) error {
-	return execSQL(ctx, c.db, `
+	_, err := retireSandboxTemplateIdentities(ctx, c.db, namespace, name, "")
+	return err
+}
+
+// retireSandboxTemplateIdentities shares retirement with definition preparation
+// and returns the number retired. An empty retainedUID retires all active identities.
+func retireSandboxTemplateIdentities(ctx context.Context, db dbExecutor, namespace, name, retainedUID string) (int64, error) {
+	result, err := db.Exec(ctx, `
 		UPDATE sandbox_template_definition SET retired_at = NOW(), updated_at = NOW()
 		WHERE namespace = $1 AND sandbox_template_name = $2 AND retired_at IS NULL
-	`, namespace, name)
+		  AND sandbox_template_uid IS DISTINCT FROM NULLIF($3, '')
+	`, namespace, name, retainedUID)
+	return result.RowsAffected(), err
 }
 
 // RecordSandboxRevision stores immutable sandbox inputs and refreshes artifact

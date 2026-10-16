@@ -112,7 +112,7 @@ func newAgentReconciliations(
 		}
 		grants, grantErr := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
 		if grantErr != nil {
-			state.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionResolvedRefs, Reason: "ReferenceResolutionFailed", Message: grantErr.Error()}
+			state.CompilationFailure = compilationFailure(grantErr)
 			return state
 		}
 		state.Grants = grants
@@ -123,19 +123,7 @@ func newAgentReconciliations(
 			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
 		}, images).CompileAgent(context.Background(), agent)
 		if err != nil {
-			condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
-			var validation *translator.ValidationError
-			var missingPool *translator.WorkerPoolNotFoundError
-			switch {
-			case errors.As(err, &validation):
-				// TODO(tim): Separate structural Agent validation from resolved
-				// compatibility failures so invalid sources do not report Accepted=True
-				// and ResolvedRefs=True.
-				condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
-			case errors.As(err, &missingPool):
-				reason = "WorkerPoolNotFound"
-			}
-			state.CompilationFailure = &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
+			state.CompilationFailure = compilationFailure(err)
 			return state
 		}
 		revision := &compilation.Revision
@@ -175,6 +163,22 @@ func newAgentReconciliations(
 	}, opts.WithName("AgentReconciliations")...)
 }
 
+func compilationFailure(err error) *ReconciliationFailure {
+	condition, reason := kagentv1alpha3.AgentConditionResolvedRefs, "ReferenceResolutionFailed"
+	var validation *translator.ValidationError
+	var missingPool *translator.WorkerPoolNotFoundError
+	switch {
+	case errors.As(err, &validation):
+		// TODO(tim): Separate structural Agent validation from resolved
+		// compatibility failures so invalid sources do not report Accepted=True
+		// and ResolvedRefs=True.
+		condition, reason = kagentv1alpha3.AgentConditionCompatible, "UnsupportedConfiguration"
+	case errors.As(err, &missingPool):
+		reason = "WorkerPoolNotFound"
+	}
+	return &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
+}
+
 // runtimeRevisionStore is the controller's narrow view of the shared database.
 // Substrate owns ActorTemplates; the database retains revisions while an Agent
 // or a Session or checkpoint references them.
@@ -182,7 +186,7 @@ type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) (bool, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision) error
 	PromoteRuntimeRevision(context.Context, string) error
-	RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error
+	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
 
 type actorTemplateClient interface {
@@ -330,7 +334,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid Agent key %q", key)
 		}
-		err := r.store.RetireAgentIdentities(ctx, parts[0], parts[1], nil)
+		err := r.store.RetireAgentIdentities(ctx, parts[0], parts[1])
 		r.enqueueActors(database.RuntimeEgressSource{Kind: database.RuntimeEgressAgent, Namespace: parts[0], Name: parts[1]})
 		if err != nil {
 			return fmt.Errorf("retire Agent %s: %w", key, err)

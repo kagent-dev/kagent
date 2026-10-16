@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // Unexpected calls use the embedded nil interface and fail the test.
@@ -41,9 +42,9 @@ func (a *transitionActors) CreateActor(_ context.Context, space, name, templateS
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
+func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, string) (egress.Policy, error) {
 	a.calls = append(a.calls, "policy")
-	return a.policyErr
+	return egress.Policy{}, a.policyErr
 }
 
 func (a *transitionActors) ResumeActor(context.Context, string, string) (*ateapipb.Actor, error) {

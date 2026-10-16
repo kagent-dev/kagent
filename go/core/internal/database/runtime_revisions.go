@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
@@ -27,36 +28,32 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 	}
 	changed := false
 	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		retired, err := tx.Exec(ctx, `
-			UPDATE agent_definition SET retired_at = NOW(), updated_at = NOW()
-			WHERE namespace = $1 AND agent_name = $2 AND agent_uid <> $3 AND retired_at IS NULL
-		`, definition.Namespace, definition.AgentName, definition.AgentUID)
+		retired, err := retireAgentIdentities(ctx, tx, definition.Namespace, definition.AgentName, definition.AgentUID)
 		if err != nil {
 			return err
 		}
-		changed = retired.RowsAffected() > 0
-		grantsChanged, err := queryOne(ctx, tx, `
-			WITH previous AS MATERIALIZED (
-			  SELECT grant_destinations, grant_credentials, retired_at FROM agent_definition
-			  WHERE namespace = $1 AND agent_uid = $3 FOR UPDATE
-			), updated AS (
-			  INSERT INTO agent_definition (namespace, agent_name, agent_uid, desired_revision, grant_destinations, grant_credentials)
-			  SELECT $1, $2, $3, $4, $5, $6 FROM (SELECT COUNT(*) FROM previous) locked
-			  ON CONFLICT (namespace, agent_uid) DO UPDATE SET
+		previous, err := queryOne(ctx, tx, `
+			SELECT grant_destinations, grant_credentials, retired_at FROM agent_definition
+			WHERE namespace = $1 AND agent_uid = $2 FOR UPDATE
+		`, pgx.RowToStructByName[definitionGrantRow], definition.Namespace, definition.AgentUID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if previous.RetiredAt != nil {
+			previous = definitionGrantRow{}
+		}
+		if err := execSQL(ctx, tx, `
+			INSERT INTO agent_definition (namespace, agent_name, agent_uid, desired_revision, grant_destinations, grant_credentials)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (namespace, agent_uid) DO UPDATE SET
 			    agent_name = EXCLUDED.agent_name, desired_revision = EXCLUDED.desired_revision,
 			    grant_destinations = EXCLUDED.grant_destinations, grant_credentials = EXCLUDED.grant_credentials,
 			    retired_at = NULL, updated_at = NOW()
-			  RETURNING namespace
-			)
-			SELECT COALESCE((SELECT grant_destinations FROM previous WHERE retired_at IS NULL), '{}'::text[]) IS DISTINCT FROM $5
-			    OR COALESCE((SELECT grant_credentials FROM previous WHERE retired_at IS NULL), '[]'::jsonb) IS DISTINCT FROM $6
-			FROM updated
-		`, pgx.RowTo[bool], definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials)
-		if err != nil {
+		`, definition.Namespace, definition.AgentName, definition.AgentUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
 			return err
 		}
+		changed = retired > 0 || !slices.Equal(previous.GrantDestinations, grants.Destinations) || !slices.Equal(previous.GrantCredentials, grants.Credentials)
 
-		changed = changed || grantsChanged
 		// Lock Agents before revisions. Validate the resulting definition, including
 		// its retained last-good pointer when reactivating a retired identity.
 		type revisionStatus struct {
@@ -184,26 +181,25 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	}, nil
 }
 
-// RetireAgentIdentities retires identities at the given namespace/Agent
-// names, except the supplied UID when non-nil. Existing sessions retain
-// their pinned revisions. Missing and already-retired identities are a no-op.
-func (c *Client) RetireAgentIdentities(ctx context.Context, namespace, name string, except *AgentDefinition) error {
-	return retireAgentIdentities(ctx, c.db, namespace, name, except)
+// RetireAgentIdentities retires identities at the given namespace/Agent name.
+// Existing sessions retain their pinned revisions. Missing and already-retired
+// identities are a no-op.
+func (c *Client) RetireAgentIdentities(ctx context.Context, namespace, name string) error {
+	_, err := retireAgentIdentities(ctx, c.db, namespace, name, "")
+	return err
 }
 
 // retireAgentIdentities uses the caller's executor so retirement can commit
-// atomically with definition preparation. A nil exception retires every matching identity.
-func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name string, except *AgentDefinition) error {
-	var uid *string
-	if except != nil {
-		uid = &except.AgentUID
-	}
-	return execSQL(ctx, db, `
+// atomically with definition preparation and returns the number retired. An empty
+// retainedUID retires every active identity at this source name.
+func retireAgentIdentities(ctx context.Context, db dbExecutor, namespace, name, retainedUID string) (int64, error) {
+	result, err := db.Exec(ctx, `
 		UPDATE agent_definition
 		SET retired_at = NOW(), updated_at = NOW()
 		WHERE namespace = $1 AND agent_name = $2
-		  AND retired_at IS NULL AND agent_uid IS DISTINCT FROM $3::text
-	`, namespace, name, uid)
+		  AND retired_at IS NULL AND agent_uid IS DISTINCT FROM NULLIF($3, '')
+	`, namespace, name, retainedUID)
+	return result.RowsAffected(), err
 }
 
 // ListUnreferencedRuntimeRevisions lists revisions unused by active Agents,

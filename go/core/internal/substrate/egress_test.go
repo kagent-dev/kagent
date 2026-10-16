@@ -30,7 +30,10 @@ func TestEnsureActorEgressPolicyUpdatesCurrentGrants(t *testing.T) {
 		require.Equal(t, "pinned-revision", revision)
 		return egress.Policy{Access: access}, nil
 	})}}
-	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "pinned-revision") }
+	reconcile := func() error {
+		_, err := client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "pinned-revision")
+		return err
+	}
 	require.ErrorIs(t, reconcile(), context.DeadlineExceeded)
 	require.NotNil(t, fake.policy, "the server committed before the response was lost")
 	fake.createErr = nil
@@ -58,7 +61,10 @@ func TestEnsureActorEgressPolicyReloadsAfterConflict(t *testing.T) {
 	fake := &egressPolicyFake{}
 	access := egress.Access{}
 	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) { return egress.Policy{Access: access}, nil })}}
-	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision") }
+	reconcile := func() error {
+		_, err := client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision")
+		return err
+	}
 	require.NoError(t, reconcile())
 	access.Destinations = []string{"https://revoked.example.com:443"}
 	fake.beforeUpdate = func() {
@@ -131,7 +137,9 @@ func TestEnsureActorEgressPolicyCatchesUpdateDuringCreation(t *testing.T) {
 		// creation. There is no concurrent Substrate write to cause a CAS conflict.
 		access = egress.Access{}
 	}
-	require.NoError(t, client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision"))
+	applied, err := client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision")
+	require.NoError(t, err)
+	require.Equal(t, access, applied.Access, "the returned policy must reflect the post-creation revocation")
 	require.Empty(t, fake.policy.Rules)
 	require.Equal(t, 1, fake.created)
 	require.Equal(t, 1, fake.updated)
@@ -141,7 +149,8 @@ func TestEnsureActorEgressPolicyRequiresPersistedPolicy(t *testing.T) {
 	fake := &egressPolicyFake{}
 	unavailable := errors.New("intended policy unavailable")
 	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) { return egress.Policy{}, unavailable })}}
-	require.ErrorIs(t, client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision"), unavailable)
+	_, err := client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision")
+	require.ErrorIs(t, err, unavailable)
 	require.Zero(t, fake.created)
 	require.Zero(t, fake.updated)
 }
@@ -149,10 +158,17 @@ func TestEnsureActorEgressPolicyRequiresPersistedPolicy(t *testing.T) {
 func TestEnsureActorEgressPolicyAppliesFallbackDespiteWithheldGrants(t *testing.T) {
 	base := egress.Access{Destinations: []string{"https://model.example.com:443"}}
 	fake := &egressPolicyFake{}
+	conflict := errors.New("credential conflict")
+	reads := 0
 	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) {
-		return egress.Policy{Access: base, WithheldGrants: errors.New("credential conflict")}, nil
+		reads++
+		return egress.Policy{Access: base, WithheldGrants: conflict}, nil
 	})}}
-	require.NoError(t, client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision"))
+	applied, err := client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision")
+	require.NoError(t, err)
+	require.Equal(t, base, applied.Access)
+	require.ErrorIs(t, applied.WithheldGrants, conflict)
+	require.Equal(t, 2, reads, "diagnostics must come from the existing apply and recheck reads")
 	require.Len(t, fake.policy.Rules, 1)
 	require.Equal(t, []string{"model.example.com"}, fake.policy.Rules[0].GetHttps().GetHostnames())
 }

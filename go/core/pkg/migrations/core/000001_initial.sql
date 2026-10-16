@@ -64,11 +64,11 @@ CREATE TABLE sandbox_revision (
 CREATE INDEX sandbox_revision_source_idx ON sandbox_revision (sandbox_template_name, revision);
 
 CREATE TABLE agent_definition (
-    grant_destinations           TEXT[]      NOT NULL DEFAULT '{}',
-    grant_credentials            JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     namespace                    TEXT        NOT NULL,
     agent_name                   TEXT        NOT NULL,
     agent_uid                    TEXT        NOT NULL,
+    grant_destinations           TEXT[]      NOT NULL DEFAULT '{}',
+    grant_credentials            JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     desired_revision             TEXT        NOT NULL,
     latest_successful_revision   TEXT        REFERENCES agent_revision(revision) ON DELETE RESTRICT,
     retired_at                   TIMESTAMPTZ,
@@ -80,11 +80,11 @@ CREATE UNIQUE INDEX agent_definition_active_name_idx
     ON agent_definition (namespace, agent_name) WHERE retired_at IS NULL;
 
 CREATE TABLE sandbox_template_definition (
-    grant_destinations TEXT[] NOT NULL DEFAULT '{}',
-    grant_credentials JSONB NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     namespace TEXT NOT NULL,
     sandbox_template_name TEXT NOT NULL,
     sandbox_template_uid TEXT NOT NULL,
+    grant_destinations TEXT[] NOT NULL DEFAULT '{}',
+    grant_credentials JSONB NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     desired_revision TEXT NOT NULL,
     latest_successful_revision TEXT REFERENCES sandbox_revision(revision) ON DELETE RESTRICT,
     retired_at TIMESTAMPTZ,
@@ -328,6 +328,21 @@ CREATE VIEW sandbox_record AS
         s.data, s.namespace, s.sandbox_template_name, s.revision_receipt, s.request_hash, s.expires_at
     FROM runtime_instance r JOIN sandbox s USING (id) WHERE r.kind = 'sandbox';
 
+CREATE VIEW runtime_egress_target AS
+    SELECT i.id, i.prepared_revision AS revision, r.namespace,
+        source.kind AS source_kind, source.name AS source_name,
+        r.actor_template_atespace AS atespace, r.actor_template_name AS template_name,
+        COALESCE(s.actor_uid, '') AS actor_uid
+    FROM runtime_instance i JOIN runtime_revision r ON r.revision = i.prepared_revision
+    JOIN (
+        SELECT revision, 'agent'::text AS kind, agent_name AS name FROM agent_revision
+        UNION ALL
+        SELECT revision, 'sandbox'::text AS kind, sandbox_template_name AS name FROM sandbox_revision
+    ) source ON source.revision = r.revision AND source.kind = r.kind
+    LEFT JOIN session s ON i.kind = 'agent' AND s.id = i.id
+    WHERE (i.operation <> 'RUNTIME_OPERATION_CREATE' OR i.executor_id IS NOT NULL)
+        AND i.state <> 'RUNTIME_STATE_DELETED' AND i.operation <> 'RUNTIME_OPERATION_DELETE';
+
 CREATE VIEW unreferenced_runtime_revision AS
 SELECT r.revision FROM runtime_revision r
 WHERE NOT EXISTS (SELECT 1 FROM agent_definition p WHERE p.retired_at IS NULL
@@ -381,6 +396,7 @@ CREATE INDEX session_push_registration_lease ON session_push_registration (lease
 DROP TABLE session_push_registration;
 
 DROP VIEW unreferenced_runtime_revision;
+DROP VIEW runtime_egress_target;
 DROP VIEW sandbox_record;
 DROP VIEW session_record;
 DROP VIEW agent_runtime_revision;

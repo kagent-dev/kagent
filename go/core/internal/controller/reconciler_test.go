@@ -358,10 +358,8 @@ func (s *fakeRuntimeRevisionStore) PromoteRuntimeRevision(_ context.Context, rev
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string, except *database.AgentDefinition) error {
-	if except == nil {
-		s.retired = namespace + "/" + template
-	}
+func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string) error {
+	s.retired = namespace + "/" + template
 	return nil
 }
 

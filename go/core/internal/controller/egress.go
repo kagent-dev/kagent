@@ -20,14 +20,13 @@ import (
 )
 
 type actorEgressStore interface {
-	egress.PolicyStore
 	ListRuntimeEgressTargets(context.Context, string, int) ([]database.RuntimeEgressTarget, error)
 	ListRuntimeEgressSourceTargets(context.Context, database.RuntimeEgressSource, string, int) ([]database.RuntimeEgressTarget, error)
 }
 
 type actorEgressClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
-	EnsureActorEgressPolicy(context.Context, string, string, string) error
+	EnsureActorEgressPolicy(context.Context, string, string, string) (egress.Policy, error)
 }
 
 // ActorEgressApplier applies persisted effective policy independently of runtime
@@ -133,7 +132,7 @@ func (a *ActorEgressApplier) reconcileActor(ctx context.Context, target database
 	if !binding.Matches(actor) || (target.ActorUID != "" && target.ActorUID != actor.GetMetadata().GetUid()) {
 		return nil
 	}
-	policy, err := a.store.GetRuntimeEgressPolicy(ctx, target.Revision)
+	policy, err := a.actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
 	if err != nil {
 		return err
 	}
@@ -145,5 +144,5 @@ func (a *ActorEgressApplier) reconcileActor(ctx context.Context, target database
 	} else {
 		a.warnings.Remove(target.Revision)
 	}
-	return a.actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
+	return nil
 }

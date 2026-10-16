@@ -955,7 +955,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	_, _, err = client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	// Tombstones release the revision FK and no longer block runtime cleanup.
-	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant"))
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)

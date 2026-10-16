@@ -86,7 +86,7 @@ func (a *observingEgressActors) GetActor(_ context.Context, space, name string) 
 	}
 	return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: "uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: space, Name: template}}, nil
 }
-func (a *observingEgressActors) EnsureActorEgressPolicy(ctx context.Context, _, name, revision string) error {
+func (a *observingEgressActors) EnsureActorEgressPolicy(ctx context.Context, _, name, revision string) (egress.Policy, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.attempts == nil {
@@ -95,17 +95,17 @@ func (a *observingEgressActors) EnsureActorEgressPolicy(ctx context.Context, _, 
 	a.attempts[name] = append(a.attempts[name], time.Now())
 	if a.failures > 0 {
 		a.failures--
-		return errors.New("backend unavailable")
+		return egress.Policy{}, errors.New("backend unavailable")
 	}
 	policy, err := a.store.GetRuntimeEgressPolicy(ctx, revision)
 	if err != nil {
-		return err
+		return egress.Policy{}, err
 	}
 	if a.applied == nil {
 		a.applied = map[string]egress.Access{}
 	}
 	a.applied[name] = policy.Access
-	return nil
+	return policy, nil
 }
 
 func TestActorEgressSourcePagingAndStartupRecovery(t *testing.T) {

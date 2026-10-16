@@ -10,13 +10,14 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 type LifecycleClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
-	EnsureActorEgressPolicy(context.Context, string, string, string) error
+	EnsureActorEgressPolicy(context.Context, string, string, string) (egress.Policy, error)
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
 	DeleteActor(context.Context, string, string) error
@@ -144,7 +145,7 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 			}
 		}
 		if err == nil {
-			err = actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, binding.Revision)
+			_, err = actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, binding.Revision)
 		}
 		if err == nil && creation.Resume && actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
 			actor, err = actors.ResumeActor(ctx, binding.Atespace, binding.Name)
@@ -153,7 +154,7 @@ func ApplyActorTransition(ctx context.Context, actors LifecycleClient, transitio
 			}
 		}
 	case apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
-		if err := actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, binding.Revision); err != nil {
+		if _, err := actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, binding.Revision); err != nil {
 			return err
 		}
 		actor, err = actors.ResumeActor(ctx, binding.Atespace, binding.Name)
