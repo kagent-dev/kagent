@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"mime"
-	"slices"
+	"net/http"
 	"strings"
 
 	"github.com/openai/openai-go/v3/packages/param"
@@ -105,9 +105,11 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 		}
 	}
 
-	newestUser := newestUserTurn(contents)
+	// The size of this file and every newer one: while it is over the cap, the file
+	// becomes a note, so the newest files are the ones sent.
+	fileBytes := requestFileBytes(contents)
 	var input responses.ResponseInputParam
-	for i, content := range contents {
+	for _, content := range contents {
 		if content == nil || strings.TrimSpace(content.Role) == openAIRoleSystem {
 			continue
 		}
@@ -130,7 +132,12 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
 				hasFile = true
 				contentParts = append(contentParts, responsesInputImage(dataURL(part.InlineData.MIMEType, part.InlineData.Data)))
-			} else if fileType := responsesFileType(part); fileType != "" && role == genai.RoleUser {
+			} else if fileType := responsesFileType(part); fileType != "" && role == genai.RoleUser && fileBytes > maxRequestFileBytes {
+				fileBytes -= len(part.InlineData.Data)
+				note := overFileCapNote(part.InlineData.DisplayName)
+				textParts = append(textParts, note)
+				contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(note))
+			} else if fileType != "" && role == genai.RoleUser {
 				hasFile = true
 				contentParts = append(contentParts, fileNameParts(part.InlineData.DisplayName)...)
 				file := responses.ResponseInputFileParam{
@@ -139,14 +146,10 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				}
 				contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 			} else if part.FileData != nil && role == genai.RoleUser {
-				// The provider fetches the link itself, on this turn and on every replayed one.
+				// The provider fetches the link itself. fileextract makes links in older turns text.
 				switch {
-				case !isHTTPLink(part.FileData.FileURI) && i == newestUser:
-					return nil, "", unsupportedLinkError(part.FileData)
 				case !isHTTPLink(part.FileData.FileURI):
-					note := unsupportedLinkNote(part.FileData)
-					textParts = append(textParts, note)
-					contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(note))
+					return nil, "", unsupportedLinkError(part.FileData)
 				case strings.HasPrefix(part.FileData.MIMEType, "image/"):
 					hasFile = true
 					contentParts = append(contentParts, fileNameParts(part.FileData.DisplayName)...)
@@ -225,15 +228,28 @@ func isHTTPLink(uri string) bool {
 	return strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://")
 }
 
-// newestUserTurn is the index of the last user content, or -1. Only a bad link
-// there fails the request; in replayed history it becomes a note.
-func newestUserTurn(contents []*genai.Content) int {
-	for i, c := range slices.Backward(contents) {
+// maxRequestFileBytes caps the bytes of the files in one request: OpenAI takes at
+// most 50 MB of files in total per request.
+// https://developers.openai.com/api/docs/guides/file-inputs#usage-considerations
+const maxRequestFileBytes = 50_000_000 // decimal MB: under the limit if OpenAI means MiB too
+
+// requestFileBytes is the size of the user files that input_file gets as bytes.
+func requestFileBytes(contents []*genai.Content) (n int) {
+	for _, c := range contents {
 		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
-			return i
+			for _, p := range c.Parts {
+				if p != nil && responsesFileType(p) != "" {
+					n += len(p.InlineData.Data)
+				}
+			}
 		}
 	}
-	return -1
+	return n
+}
+
+func overFileCapNote(name string) string {
+	return fmt.Sprintf("[File %q was not sent: the files in this chat are over the %d MB limit for one request.]",
+		cmp.Or(name, "file"), maxRequestFileBytes/1_000_000)
 }
 
 func unsupportedLinkError(f *genai.FileData) error {
@@ -241,15 +257,6 @@ func unsupportedLinkError(f *genai.FileData) error {
 		return fmt.Errorf("cannot send link %q without a media type: %s", f.FileURI, linkRule)
 	}
 	return fmt.Errorf("cannot send link %q with media type %q: %s", f.FileURI, f.MIMEType, linkRule)
-}
-
-// unsupportedLinkNote keeps the URL, so a model with a fetch tool can still use it.
-func unsupportedLinkNote(f *genai.FileData) string {
-	link := f.FileURI
-	if f.DisplayName != "" {
-		link = fmt.Sprintf("%s (%s)", f.DisplayName, f.FileURI)
-	}
-	return fmt.Sprintf("[Link %q was not sent: %s.]", link, linkRule)
 }
 
 func genaiToolsToResponsesTools(tools []*genai.Tool) []responses.ToolUnionParam {
@@ -446,22 +453,24 @@ func responsesStatusToFinishReason(status responses.ResponseStatus) genai.Finish
 }
 
 // responsesFileTypes are the document types that input_file reads from bytes
-// (pdf and Office; text types stay with fileextract as plain text).
-var responsesFileTypes = map[string]bool{
-	"application/pdf": true,
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         true,
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
+// (pdf and Office; text types stay with fileextract as plain text), each with the
+// type http.DetectContentType gives its bytes: an Office file is a zip archive.
+var responsesFileTypes = map[string]string{
+	"application/pdf": "application/pdf",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "application/zip",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "application/zip",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "application/zip",
 }
 
 // responsesFileType is the media type of p's bytes, without parameters, when
-// input_file reads them, else "".
+// input_file reads them, else "". The bytes must match the type, as the provider
+// rejects a file that does not; fileextract gives that file the could-not-be-read note.
 func responsesFileType(p *genai.Part) string {
 	if p.InlineData == nil {
 		return ""
 	}
 	mediaType, _, _ := mime.ParseMediaType(p.InlineData.MIMEType)
-	if responsesFileTypes[mediaType] {
+	if sniffed, ok := responsesFileTypes[mediaType]; ok && http.DetectContentType(p.InlineData.Data) == sniffed {
 		return mediaType
 	}
 	return ""

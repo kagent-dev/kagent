@@ -48,6 +48,19 @@ func providerAccepts(llm model.LLM, p *genai.Part) bool {
 	return google && p.FileData != nil
 }
 
+// newestUserTurn is the index of the last user content, or -1. Only a file there
+// may fail the request: one in replayed history would fail every later turn.
+// ADK sends tool results as user content, so those are not a user turn.
+func newestUserTurn(contents []*genai.Content) int {
+	for i, c := range slices.Backward(contents) {
+		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser &&
+			!slices.ContainsFunc(c.Parts, func(p *genai.Part) bool { return p != nil && p.FunctionResponse != nil }) {
+			return i
+		}
+	}
+	return -1
+}
+
 // FilenameMetadataKey is the PartMetadata key the A2A converter stores a file's name under.
 const FilenameMetadataKey = "kagent_filename"
 
@@ -77,11 +90,12 @@ func filesToText(req *model.LLMRequest, llm model.LLM) *model.LLMRequest {
 	}
 	out := *req
 	out.Contents = slices.Clone(req.Contents)
+	newest := newestUserTurn(req.Contents)
 	for i, c := range req.Contents {
 		if c == nil || c.Role != genai.RoleUser {
 			continue
 		}
-		if parts := turnFilesToText(c.Parts, llm); !slices.Equal(parts, c.Parts) {
+		if parts := turnFilesToText(c.Parts, llm, i == newest); !slices.Equal(parts, c.Parts) {
 			turn := *c
 			turn.Parts = parts
 			out.Contents[i] = &turn
@@ -94,12 +108,14 @@ func filesToText(req *model.LLMRequest, llm model.LLM) *model.LLMRequest {
 }
 
 // turnFilesToText returns a new list of the parts of one user turn, with each file
-// that the provider cannot read changed to text.
-func turnFilesToText(parts []*genai.Part, llm model.LLM) []*genai.Part {
+// that the provider cannot read changed to text. A link stays a link only in the
+// newest user turn: the provider fetches it on each request, so a link that breaks
+// in an older turn would fail every later turn.
+func turnFilesToText(parts []*genai.Part, llm model.LLM, newest bool) []*genai.Part {
 	var out []*genai.Part
 	for _, p := range parts {
 		switch {
-		case p == nil || providerAccepts(llm, p):
+		case p == nil || providerAccepts(llm, p) && (newest || p.FileData == nil):
 			// The model's adapter sends it as it is.
 			out = append(out, p)
 		case p.FileData != nil:

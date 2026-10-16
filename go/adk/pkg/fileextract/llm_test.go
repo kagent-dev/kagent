@@ -116,14 +116,6 @@ func TestWithFileText_LeavesFilesTheModelSends(t *testing.T) {
 		t.Errorf("request with files the model sends was changed: %+v", sender.got.Contents[0].Parts)
 	}
 
-	google := &googleRecordingLLM{}
-	linkOnly := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{link}}}}
-	for range WithFileText(google).GenerateContent(t.Context(), linkOnly, false) {
-	}
-	if google.got != linkOnly {
-		t.Error("Gemini link was changed")
-	}
-
 	other := &recordingLLM{}
 	pdfOnly := &model.LLMRequest{Contents: []*genai.Content{{Role: genai.RoleUser, Parts: []*genai.Part{pdf}}}}
 	for range WithFileText(other).GenerateContent(t.Context(), pdfOnly, false) {
@@ -133,52 +125,78 @@ func TestWithFileText_LeavesFilesTheModelSends(t *testing.T) {
 	}
 }
 
-func TestWithFileText_LinkTheModelCannotSend(t *testing.T) {
+func TestWithFileText_LinkStaysAfterToolCall(t *testing.T) {
 	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
-	user := func(parts ...*genai.Part) *genai.Content { return &genai.Content{Role: genai.RoleUser, Parts: parts} }
+	req := &model.LLMRequest{Contents: []*genai.Content{
+		{Role: genai.RoleUser, Parts: []*genai.Part{genai.NewPartFromText("read this"), link}},
+		{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromFunctionCall("fetch", nil)}},
+		{Role: genai.RoleUser, Parts: []*genai.Part{genai.NewPartFromFunctionResponse("fetch", nil)}},
+	}}
+	sender := &pdfSendingLLM{}
+	for range WithFileText(sender).GenerateContent(t.Context(), req, false) {
+	}
+	if sender.got != req {
+		t.Errorf("a tool result made the link turn an older turn: %+v", sender.got.Contents[0].Parts)
+	}
+}
 
-	texts := func(c *genai.Content) []string {
-		var out []string
+func TestWithFileText_Links(t *testing.T) {
+	const url = "https://files.example.com/report.pdf"
+	link := &genai.Part{FileData: &genai.FileData{FileURI: url}}
+	user := func(parts ...*genai.Part) *genai.Content { return &genai.Content{Role: genai.RoleUser, Parts: parts} }
+	texts := func(c *genai.Content) (out []string) {
 		for _, p := range c.Parts {
 			if p.FileData != nil {
-				out = append(out, "<link part>")
-			} else {
-				out = append(out, p.Text)
+				p = genai.NewPartFromText("<link part>")
 			}
+			out = append(out, p.Text)
 		}
 		return out
 	}
 
-	for name, tc := range map[string]struct {
-		in   *genai.Content
-		want []string
+	sender, google, other := &pdfSendingLLM{}, &googleRecordingLLM{}, &recordingLLM{}
+	for _, m := range []struct {
+		name      string
+		llm       model.LLM
+		rec       *recordingLLM
+		sendsLink bool
 	}{
-		"link alone becomes its URL": {user(genai.NewPartFromText("read this"), link), []string{"read this", link.FileData.FileURI}},
-		"link already in the text is dropped": {
-			user(genai.NewPartFromText("read "+link.FileData.FileURI), link),
-			[]string{"read " + link.FileData.FileURI},
-		},
+		{"model that sends links (OpenAI Responses)", sender, &sender.recordingLLM, true},
+		{"Gemini", google, &google.recordingLLM, true},
+		{"model that cannot send links", other, other, false},
 	} {
-		t.Run(name, func(t *testing.T) {
-			inner := &recordingLLM{}
-			// The link sits in an older turn too: replayed history gets the same text.
-			req := &model.LLMRequest{Contents: []*genai.Content{
-				tc.in,
-				{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromText("ok")}},
-				tc.in,
-			}}
-			for _, err := range WithFileText(inner).GenerateContent(t.Context(), req, false) {
-				t.Fatalf("err = %v", err)
-			}
-			for _, i := range []int{0, 2} {
-				if got := texts(inner.got.Contents[i]); !slices.Equal(got, tc.want) {
-					t.Errorf("turn %d = %q, want %q", i, got, tc.want)
+		for name, tc := range map[string]struct {
+			turn *genai.Content
+			want []string
+		}{
+			"link becomes its URL":                {user(genai.NewPartFromText("read this"), link), []string{"read this", url}},
+			"link already in the text is dropped": {user(genai.NewPartFromText("read "+url), link), []string{"read " + url}},
+		} {
+			t.Run(m.name+"/"+name, func(t *testing.T) {
+				// The same turn as replayed history and as the newest turn.
+				req := &model.LLMRequest{Contents: []*genai.Content{
+					tc.turn,
+					{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromText("ok")}},
+					tc.turn,
+				}}
+				for range WithFileText(m.llm).GenerateContent(t.Context(), req, false) {
 				}
-			}
-			if len(tc.in.Parts) != 2 || tc.in.Parts[1] != link {
-				t.Error("the session's own content was changed")
-			}
-		})
+				wantNewest := tc.want
+				if m.sendsLink {
+					wantNewest = texts(tc.turn) // the newest turn keeps its link
+				}
+				got := m.rec.got.Contents
+				if older := texts(got[0]); !slices.Equal(older, tc.want) {
+					t.Errorf("older turn = %q, want %q", older, tc.want)
+				}
+				if newest := texts(got[2]); !slices.Equal(newest, wantNewest) {
+					t.Errorf("newest turn = %q, want %q", newest, wantNewest)
+				}
+				if len(tc.turn.Parts) != 2 || tc.turn.Parts[1] != link {
+					t.Error("the session's own content was changed")
+				}
+			})
+		}
 	}
 }
 
