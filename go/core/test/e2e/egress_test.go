@@ -95,7 +95,7 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		}
 
 		run := runs("live")
-		finish := runEgressSkill(t, fixture, model, run, "initial_DENIED", "allowed_ALLOWED", "revoked_DENIED")
+		finish := runEgressSkill(t, fixture, model, run, "initial_DENIED", "allowed_ALLOWED", "conflict_ALLOWED", "fixed_ALLOWED", "revoked_DENIED")
 		run.expect(t, "initial", "DENIED")
 		require.Zero(t, requests("live_initial"), "ungranted requests reached the destination")
 		require.NoError(t, kube.Get(t.Context(), key, agent))
@@ -104,6 +104,41 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 		run.setPhase("allowed")
 		run.expect(t, "allowed", "ALLOWED")
 		require.Positive(t, requests("live_allowed"))
+		waitEgressCondition := func(reason string) {
+			t.Helper()
+			require.NoError(t, wait.PollUntilContextTimeout(t.Context(), time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+				if err := kube.Get(ctx, key, agent); err != nil {
+					return false, err
+				}
+				condition := apimeta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionEgressPoliciesApplied)
+				return condition != nil && condition.Reason == reason &&
+					condition.ObservedGeneration == agent.Generation &&
+					apimeta.IsStatusConditionTrue(agent.Status.Conditions, v1alpha3.AgentConditionReady), nil
+			}))
+			require.Equal(t, revision, agent.Status.LatestSuccessfulRevision)
+		}
+		waitEgressCondition(v1alpha3.EgressPoliciesReasonApplied)
+		// The opposite protocol on the model's exact host/port conflicts with
+		// pinned access. Existing grants must keep working in this invocation.
+		modelOrigin, err := url.Parse(modelURL)
+		require.NoError(t, err)
+		require.Equal(t, "http", modelOrigin.Scheme)
+		require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(grant), grant))
+		grant.Spec.Destinations = append(grant.Spec.Destinations, v1alpha3.EgressDestination{Origin: "https://" + modelOrigin.Host})
+		require.NoError(t, kube.Update(t.Context(), grant))
+		waitEgressCondition(v1alpha3.EgressPoliciesReasonConflict)
+		require.True(t, apimeta.IsStatusConditionFalse(agent.Status.Conditions, v1alpha3.AgentConditionEgressPoliciesApplied))
+		run.setPhase("conflict")
+		run.expect(t, "conflict", "ALLOWED")
+		require.Positive(t, requests("live_conflict"))
+		require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(grant), grant))
+		grant.Spec.Destinations = grant.Spec.Destinations[:1]
+		require.NoError(t, kube.Update(t.Context(), grant))
+		waitEgressCondition(v1alpha3.EgressPoliciesReasonApplied)
+		require.True(t, apimeta.IsStatusConditionTrue(agent.Status.Conditions, v1alpha3.AgentConditionEgressPoliciesApplied))
+		run.setPhase("fixed")
+		run.expect(t, "fixed", "ALLOWED")
+
 		setGrant("https://unused.example.com")
 		run.setPhase("revoked")
 		run.expect(t, "revoked", "DENIED")
@@ -136,7 +171,8 @@ func TestSessionEgressPolicyUpdatesLiveActors(t *testing.T) {
 			if err := kube.Get(ctx, key, agent); err != nil {
 				return false, err
 			}
-			return apimeta.IsStatusConditionFalse(agent.Status.Conditions, v1alpha3.AgentConditionReady), nil
+			condition := apimeta.FindStatusCondition(agent.Status.Conditions, v1alpha3.AgentConditionEgressPoliciesApplied)
+			return condition != nil && condition.Reason == v1alpha3.EgressPoliciesReasonNotFound && apimeta.IsStatusConditionTrue(agent.Status.Conditions, v1alpha3.AgentConditionReady), nil
 		}))
 		require.Equal(t, revision, agent.Status.LatestSuccessfulRevision, "policy edits must not replace the runtime revision")
 		created, err := fixture.sessions.CreateSession(fixture.ctx, &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}, RequestId: uuid.NewString()})
@@ -451,7 +487,8 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 		if err := kube.Get(ctx, key, template); err != nil {
 			return false, err
 		}
-		return apimeta.IsStatusConditionFalse(template.Status.Conditions, "Ready"), nil
+		condition := apimeta.FindStatusCondition(template.Status.Conditions, v1alpha3.SandboxTemplateConditionEgressPoliciesApplied)
+		return condition != nil && condition.Reason == v1alpha3.EgressPoliciesReasonNotFound && apimeta.IsStatusConditionTrue(template.Status.Conditions, "Ready"), nil
 	}))
 	original := instance
 	instance = f.create(t, 5*time.Minute)

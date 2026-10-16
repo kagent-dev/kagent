@@ -1,11 +1,9 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -19,7 +17,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type egressTargetStoreStub struct {
@@ -130,14 +127,4 @@ func TestActorEgressSkipsStaleOrMissingActors(t *testing.T) {
 			require.Equal(t, test.wantCalls, calls)
 		})
 	}
-}
-
-func TestActorEgressReportsWithheldGrants(t *testing.T) {
-	var logs bytes.Buffer
-	ctx := logging.IntoContext(t.Context(), slog.New(slog.NewTextHandler(&logs, nil)))
-	actors := &actorEgressStub{ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
-		return egress.Policy{WithheldGrants: errors.New("credential conflict")}, nil
-	}}
-	require.NoError(t, applyActorEgress(ctx, actors, database.RuntimeEgressTarget{ID: "actor", Revision: "revision", Atespace: "team", TemplateName: "runtime"}))
-	require.Contains(t, logs.String(), "explicit egress grants withheld")
 }

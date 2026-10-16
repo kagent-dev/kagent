@@ -25,16 +25,16 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-func TestAgentEgressErrorsUseCompilationClassification(t *testing.T) {
+func TestAgentEgressErrorsDoNotBlockCompilation(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		destinations []v1alpha3.EgressDestination
 		condition    string
 		reason       string
 	}{
-		{name: "missing policy", condition: v1alpha3.AgentConditionResolvedRefs, reason: "ReferenceResolutionFailed"},
-		{name: "invalid origin", destinations: []v1alpha3.EgressDestination{{Origin: "invalid"}}, condition: v1alpha3.AgentConditionCompatible, reason: "UnsupportedConfiguration"},
-		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"}}}}, condition: v1alpha3.AgentConditionResolvedRefs, reason: "ReferenceResolutionFailed"},
+		{name: "missing policy", condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonNotFound},
+		{name: "invalid origin", destinations: []v1alpha3.EgressDestination{{Origin: "invalid"}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
+		{name: "missing secret", destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com", Authentication: &v1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "missing"}, Key: "token"}}}}, condition: v1alpha3.AgentConditionEgressPoliciesApplied, reason: v1alpha3.EgressPoliciesReasonInvalidEgressPolicy},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "gvisor")
@@ -54,7 +54,8 @@ func TestAgentEgressErrorsUseCompilationClassification(t *testing.T) {
 			condition := meta.FindStatusCondition(collections.AgentStatuses.GetKey("team-a/assistant").Status.Conditions, test.condition)
 			require.Equal(t, test.reason, condition.Reason)
 			state := collections.Reconciliations.GetKey("team-a/assistant")
-			require.Nil(t, state.Target)
+			require.NotNil(t, state.Target)
+			require.Nil(t, state.CompilationFailure)
 			require.Empty(t, state.EgressGrant.Destinations)
 			require.Empty(t, state.EgressGrant.Credentials)
 		})
@@ -259,8 +260,8 @@ func TestSandboxGrantsSurviveUnrelatedCompilationFailure(t *testing.T) {
 	require.Equal(t, []string{"https://tickets.example.com:443"}, store.desired.EgressGrant.Destinations)
 	require.Len(t, store.sources, 1)
 	policies.DeleteObject("team-a/access")
-	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch").CompilationError != "" })
-	require.Error(t, s.reconcile(t.Context(), "team-a/scratch"))
+	waitFor(t, func() bool { return len(s.collections.states.GetKey("team-a/scratch").EgressIssues) != 0 })
+	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
 	require.Empty(t, store.desired.EgressGrant.Destinations)
 	require.Len(t, store.sources, 2, "revocation must reach existing actors during failed compilation")
 	store.upsertErr = errors.New("response lost")

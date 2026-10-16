@@ -14,8 +14,8 @@ import (
 )
 
 // EnsureActorEgressPolicy installs current authorization without restarting the
-// actor and returns the effective policy it applied, including withheld-grant
-// diagnostics. Read the backend version before the controller's persisted intended
+// actor and returns the effective policy it applied. Read the backend version
+// before the controller's persisted intended
 // policy so concurrent applications cannot overwrite a newer policy with an old
 // one. Conflicts reload both; lifecycle paths never translate Kubernetes.
 // Substrate deletes the policy with its Actor.

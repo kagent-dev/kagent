@@ -12,7 +12,6 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 // Compiler resolves public API objects into a complete, immutable runtime
@@ -62,7 +61,6 @@ type resolvedTemplateBinding struct {
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
-	Egress egress.Access
 	// AgentName is the runnable identity, independent of inline or referenced inputs.
 	AgentName    string
 	Harness      *HarnessConfiguration
@@ -146,10 +144,6 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 // compileConfiguration resolves inputs and compiles configuration for the Agent.
 // The Agent name owns runtime identity; template and Harness names are provenance.
 func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Agent, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
-	access, err := CompileEgressPolicies(c.ctx, c.collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
-	if err != nil {
-		return nil, err
-	}
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -163,7 +157,6 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 		return nil, err
 	}
 	input.AgentName = agent.Name
-	input.Egress = access
 	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
@@ -171,10 +164,6 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
-	}
-	// Explicit grants are live authorization, not immutable runtime inputs.
-	if _, err := egress.MergeAccess(egress.Access{Destinations: result.EgressDestinations, Credentials: result.Credentials}, access, result.TokenPassthroughOrigins); err != nil {
-		return nil, NewValidationError("%v", err)
 	}
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))

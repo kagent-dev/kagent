@@ -593,3 +593,9 @@ func (p *preparationTestBackend) GetActor(ctx context.Context, atespace, name st
 func (p *preparationTestBackend) EnsureActorEgressPolicy(ctx context.Context, atespace, name, revision string) (egress.Policy, error) {
 	return p.templates.EnsureActorEgressPolicy(ctx, atespace, name, revision)
 }
+
+func (p *preparationTestBackend) GetAgentEgressGrant(ctx context.Context, namespace, uid string) (egress.Access, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.GetAgentEgressGrant(ctx, namespace, uid)
+}

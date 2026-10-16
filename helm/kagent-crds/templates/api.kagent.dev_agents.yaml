@@ -517,6 +517,11 @@ spec:
             description: AgentStatus reports compilation and preparation of an Agent.
             properties:
               conditions:
+                description: |-
+                  Conditions report runtime readiness and independent egress grant admission.
+                  EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+                  or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+                  do not affect Ready.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -571,7 +576,7 @@ spec:
                   - status
                   - type
                   type: object
-                maxItems: 4
+                maxItems: 5
                 type: array
                 x-kubernetes-list-map-keys:
                 - type

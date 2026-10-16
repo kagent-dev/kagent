@@ -72,7 +72,7 @@ spec:
 ```
 
 Each workload can select up to 16 policies, each containing 1–64 destinations.
-The compiler combines them with inferred integration access, removes equivalent
+Grant admission combines them with inferred integration access, removes equivalent
 origins, and orders the result deterministically. The final Actor policy is
 limited to 256 rules. References are additive; they cannot restrict inferred
 model, MCP, artifact, or control-plane access. No references means no additional
@@ -112,7 +112,7 @@ The gateway sets the header value to `prefix + secretValue`. Prefixes are litera
 include the trailing space in `"Bearer "`. Omitting the prefix or setting it to
 an empty string uses the Secret value directly, as with an API-key header.
 
-Create these Secrets separately. The compiler validates that each Secret and key
+Create these Secrets separately. Policy resolution validates that each Secret and key
 exists, but persists only the reference. Substrate's credential provider fetches
 the value and the gateway replaces the request header. Scripts and SDKs must
 send that header, using an inert placeholder:
@@ -132,8 +132,8 @@ CA setup, inferred SDK placeholders, and rotation behavior.
 
 Bindings use the complete origin and a case-insensitive header name. Different
 ports can use different credentials. Identical bindings merge; conflicting
-Secret references or prefixes for the same origin/header fail preparation.
-Explicit and inferred bindings follow the same rule. Caller-token passthrough
+Secret references or prefixes for the same origin/header hold new grants.
+Pinned integration bindings take precedence over additional grants. Caller-token passthrough
 cannot share its origin with static gateway credentials. Routing, framing,
 hop-by-hop, proxy-authentication, and Cookie headers cannot carry credentials.
 At most 16 credential headers are supported per origin.
@@ -150,13 +150,32 @@ because Substrate cannot distinguish that rule selection.
 
 ## Preparation and lifecycle
 
-KRT watches selected policies and their Secrets. Missing policies, missing
-Secret keys, invalid destinations, and conflicting bindings prevent preparation.
-The controller publishes the error on the workload's status and re-evaluates it
-when dependencies change.
+KRT watches selected policies and their Secrets independently of runtime
+compilation. Each policy resolves separately. A missing or deleting policy,
+missing Secret key, or invalid policy contributes no access; grants from the
+remaining policies are still considered. Invalid reference names or more than
+16 references revoke all additional access. Grant errors never block runtime
+compilation or change revision identity.
+
+Both Agent and SandboxTemplate expose an independent `EgressPoliciesApplied`
+condition:
+
+| Status | Reason | Meaning |
+| --- | --- | --- |
+| True | `Applied` | All requested grants are admitted. |
+| False | `EgressPolicyNotFound` | A referenced policy is missing or deleting. |
+| False | `InvalidEgressPolicy` | A policy, Secret reference, or reference list is invalid. |
+| False | `EgressGrantConflict` | New grants are held; still-requested, compatible previous grants remain. |
+
+Messages identify affected policies and conflicts. A conflict takes precedence
+when there are also resolution errors. This condition never affects `Ready` or
+`ResolvedRefs`; missing policies no longer fail runtime reference resolution.
+It reports admission from the controller's current inputs, not acknowledgement
+that every actor has received the update.
 
 Runtime revisions retain the integration access inferred from models and tools,
-including credential references and caller-token passthrough constraints.
+including credential references and caller-token passthrough constraints. This
+pinned access is the revision's base.
 The combined additional access from a source's referenced EgressPolicies is its
 `EgressGrant`: destinations it may contact and credentials the gateway may inject.
 Reconciliation and source definition structs carry it as `EgressGrant egress.Access`.
@@ -171,8 +190,18 @@ The elected controller's Agent and SandboxTemplate reconcilers resolve current
 grants independently of runtime compilation. A missing Harness, AgentTemplate,
 or WorkerPool cannot freeze a revocation. Each preparation queue is the sole
 writer of its source definition's grants in PostgreSQL. Definition updates
-persist canonical grants and retire replaced Kubernetes UIDs atomically. A single
-store transaction records the runtime revision and, when ready, promotes it if
+persist admitted grants and retire replaced Kubernetes UIDs atomically.
+
+The stored grant set is the last good set: valid on its own and compatible with
+the desired revision's base when compilation succeeds. If the complete candidate
+conflicts, preparation retains only previously admitted destinations and identical
+credential bindings that are still requested, filtering any that conflict with
+the desired base. Removals apply immediately; all additions wait until the
+conflict is fixed. A new Kubernetes UID inherits no grants. When unrelated
+compilation fails, admission checks grants on their own and still applies
+revocations.
+
+A single store transaction records the runtime revision and, when ready, promotes it if
 the active source still desires it. Failed runtime preparation preserves
 the last successful revision while continuing to update source grants.
 
@@ -191,17 +220,19 @@ updates therefore delay further work on that preparation queue. Startup replays
 every Agent and SandboxTemplate through preparation; no separate actor sweep is
 needed.
 After its input cache syncs, Agent preparation also enqueues stored definitions
-whose Agents are absent from watched namespaces. This includes retired identities
-so a restart retries revocations interrupted after retirement. Agent deletion
-does not need a finalizer. SandboxTemplate preparation retains its existing
+whose Agents are absent from watched namespaces. Retired identities are included
+only while they have non-deleted instances, so a restart retries interrupted
+revocations without re-enqueueing every historic source. Agent deletion does not
+need a finalizer. SandboxTemplate preparation retains its existing
 finalizer until retirement and actor updates succeed.
 
 Running and suspended actors receive updates without replacement or a new
-invocation. Missing or invalid policy references and Secrets revoke explicit
-grants. Grants that conflict with pinned credentials or caller-token origins, or
-exceed the merged rule limit, are withheld while pinned integration access remains.
-Preparation reports these conflicts with warnings; create and resume apply the
-same fallback. Missing revisions or malformed persisted inputs return errors and
+invocation. Missing or invalid policies and Secrets revoke only the affected
+policies' grants. Actors on older revisions can have different pinned access:
+their effective policy drops only the destinations or credentials that conflict
+with that base, caller-token origins, or combined limits. Nonconflicting grants
+remain. The pinned base always wins; dropping a credential retains its network
+destination if the destination itself is compatible. Missing revisions or malformed persisted inputs return errors and
 block execution.
 
 New Sessions and sandboxes pin the latest successful runtime revision, including

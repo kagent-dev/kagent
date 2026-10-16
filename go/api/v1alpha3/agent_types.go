@@ -80,10 +80,11 @@ type AgentTemplateSource struct {
 }
 
 const (
-	AgentConditionAccepted     = "Accepted"
-	AgentConditionResolvedRefs = "ResolvedRefs"
-	AgentConditionCompatible   = "Compatible"
-	AgentConditionReady        = "Ready"
+	AgentConditionEgressPoliciesApplied = "EgressPoliciesApplied"
+	AgentConditionAccepted              = "Accepted"
+	AgentConditionResolvedRefs          = "ResolvedRefs"
+	AgentConditionCompatible            = "Compatible"
+	AgentConditionReady                 = "Ready"
 )
 
 // AgentStatus reports compilation and preparation of an Agent.
@@ -107,7 +108,11 @@ type AgentStatus struct {
 	// +listType=set
 	// +optional
 	Warnings []string `json:"warnings,omitempty"`
-	// +kubebuilder:validation:MaxItems=4
+	// Conditions report runtime readiness and independent egress grant admission.
+	// EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+	// or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+	// do not affect Ready.
+	// +kubebuilder:validation:MaxItems=5
 	// +listType=map
 	// +listMapKey=type
 	// +optional

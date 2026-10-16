@@ -154,21 +154,3 @@ func TestEnsureActorEgressPolicyRequiresPersistedPolicy(t *testing.T) {
 	require.Zero(t, fake.created)
 	require.Zero(t, fake.updated)
 }
-
-func TestEnsureActorEgressPolicyAppliesFallbackDespiteWithheldGrants(t *testing.T) {
-	base := egress.Access{Destinations: []string{"https://model.example.com:443"}}
-	fake := &egressPolicyFake{}
-	conflict := errors.New("credential conflict")
-	reads := 0
-	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: egressPolicyStoreFunc(func(context.Context, string) (egress.Policy, error) {
-		reads++
-		return egress.Policy{Access: base, WithheldGrants: conflict}, nil
-	})}}
-	applied, err := client.EnsureActorEgressPolicy(t.Context(), "team", "actor", "revision")
-	require.NoError(t, err)
-	require.Equal(t, base, applied.Access)
-	require.ErrorIs(t, applied.WithheldGrants, conflict)
-	require.Equal(t, 2, reads, "diagnostics must come from the existing apply and recheck reads")
-	require.Len(t, fake.policy.Rules, 1)
-	require.Equal(t, []string{"model.example.com"}, fake.policy.Rules[0].GetHttps().GetHostnames())
-}

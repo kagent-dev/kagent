@@ -86,3 +86,12 @@ func init() {
 		return nil
 	})
 }
+
+// Reasons for the independent EgressPoliciesApplied condition on Agents and
+// SandboxTemplates. Grant resolution and admission never block runtime readiness.
+const (
+	EgressPoliciesReasonApplied             = "Applied"
+	EgressPoliciesReasonNotFound            = "EgressPolicyNotFound"
+	EgressPoliciesReasonInvalidEgressPolicy = "InvalidEgressPolicy"
+	EgressPoliciesReasonConflict            = "EgressGrantConflict"
+)

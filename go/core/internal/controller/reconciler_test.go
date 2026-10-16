@@ -27,6 +27,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -466,4 +467,11 @@ func TestReconciliationQueueRetriesWithBackoff(t *testing.T) {
 		cancel()
 		require.NoError(t, queue.WaitForClose(time.Second))
 	})
+}
+
+func (s *fakeRuntimeRevisionStore) GetAgentEgressGrant(_ context.Context, namespace, uid string) (egress.Access, error) {
+	if s.pair != nil && s.pair.Namespace == namespace && s.pair.AgentUID == uid && s.retired == "" {
+		return s.pair.EgressGrant, nil
+	}
+	return egress.Access{}, nil
 }

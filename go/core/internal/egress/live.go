@@ -6,10 +6,9 @@ import (
 	"slices"
 )
 
-// Policy is effective access plus a diagnostic when conflicting grants were withheld.
+// Policy is the effective access for one runtime revision.
 type Policy struct {
 	Access
-	WithheldGrants error
 }
 
 // PolicyStore reads effective policy from persisted revision inputs and source grants.
@@ -18,14 +17,11 @@ type PolicyStore interface {
 	GetRuntimeEgressPolicy(context.Context, string) (Policy, error)
 }
 
-// EffectiveAccess merges validated pinned access and source grants. A conflict
-// withholds all explicit grants while retaining the pinned base and its diagnostic.
+// EffectiveAccess retains the base and all grants compatible with this revision.
+// Stored grants can conflict with an older actor's pinned base.
 func EffectiveAccess(base, grants Access, tokenPassthroughOrigins []string) (Access, error) {
-	access, err := MergeAccess(base, grants, tokenPassthroughOrigins)
-	if err != nil {
-		return base, err
-	}
-	return access, nil
+	filtered, _ := FilterConflicts(base, grants, tokenPassthroughOrigins)
+	return MergeAccess(base, filtered, tokenPassthroughOrigins)
 }
 
 // MergeAccess validates live grants against the pinned runtime's credentials and
@@ -41,4 +37,59 @@ func MergeAccess(base, grants Access, tokenPassthroughOrigins []string) (Access,
 		}
 	}
 	return access, nil
+}
+
+// IntersectAccess retains only destinations and complete credential bindings
+// present in both inputs. Inputs contain canonical rules; b may be an invalid
+// union of otherwise valid policies. Taking a subset of valid a remains valid.
+func IntersectAccess(a, b Access) Access {
+	var result Access
+	for _, origin := range a.Destinations {
+		if slices.Contains(b.Destinations, origin) {
+			result.Destinations = append(result.Destinations, origin)
+		}
+	}
+	for _, credential := range a.Credentials {
+		if slices.Contains(result.Destinations, credential.Origin) && slices.Contains(b.Credentials, credential) {
+			result.Credentials = append(result.Credentials, credential)
+		}
+	}
+	return result
+}
+
+// FilterConflicts retains grants compatible with a valid base and caller-token
+// origins. Inputs must be individually canonical and valid. The base wins;
+// sorted grant order determines which rules fit when the combined limits are
+// exceeded. A conflicting credential does not remove its network destination.
+// Neither input is modified; dropped origins are sorted and deduplicated.
+func FilterConflicts(base, grants Access, tokenOrigins []string) (Access, []string) {
+	if _, err := MergeAccess(base, grants, tokenOrigins); err == nil {
+		return grants, nil
+	}
+	var result Access
+	var dropped []string
+	for _, origin := range grants.Destinations {
+		candidate := Access{Destinations: append(slices.Clone(result.Destinations), origin)}
+		if _, err := MergeAccess(base, candidate, tokenOrigins); err != nil {
+			dropped = append(dropped, origin)
+		} else {
+			result = candidate
+		}
+	}
+	for _, credential := range grants.Credentials {
+		if !slices.Contains(result.Destinations, credential.Origin) {
+			continue
+		}
+		candidate := Access{
+			Destinations: result.Destinations,
+			Credentials:  append(slices.Clone(result.Credentials), credential),
+		}
+		if _, err := MergeAccess(base, candidate, tokenOrigins); err != nil {
+			dropped = append(dropped, credential.Origin)
+		} else {
+			result = candidate
+		}
+	}
+	slices.Sort(dropped)
+	return result, slices.Compact(dropped)
 }

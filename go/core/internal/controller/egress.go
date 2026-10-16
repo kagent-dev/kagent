@@ -13,7 +13,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type actorEgressStore interface {
@@ -70,15 +69,13 @@ func applyActorEgress(ctx context.Context, actors actorEgressClient, target data
 	if !binding.Matches(actor) || (target.ActorUID != "" && target.ActorUID != actor.GetMetadata().GetUid()) {
 		return nil
 	}
-	policy, err := actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
+	_, err = actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
 	if status.Code(err) == codes.NotFound {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if policy.WithheldGrants != nil {
-		logging.FromContext(ctx).WarnContext(ctx, "explicit egress grants withheld", "revision", target.Revision, "namespace", target.Namespace, "error", policy.WithheldGrants)
-	}
+
 	return nil
 }

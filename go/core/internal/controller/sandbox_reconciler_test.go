@@ -25,6 +25,7 @@ import (
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -302,4 +303,13 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 		current, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})
 		return err == nil && apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func (s *sandboxTestStore) GetSandboxEgressGrant(_ context.Context, namespace, uid string) (egress.Access, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.desired.Namespace == namespace && s.desired.SandboxTemplateUID == uid && !s.retired {
+		return s.desired.EgressGrant, nil
+	}
+	return egress.Access{}, nil
 }

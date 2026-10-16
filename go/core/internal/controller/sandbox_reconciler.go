@@ -21,6 +21,7 @@ import (
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -33,6 +34,7 @@ const (
 type sandboxRevisionStore interface {
 	actorEgressStore
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
+	GetSandboxEgressGrant(context.Context, string, string) (egress.Access, error)
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
 	RecordSandboxRevision(context.Context, database.SandboxRevision, database.RecordRevisionOptions) error
 }
@@ -139,8 +141,16 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		}
 		return nil
 	}
+	grants := state.EgressGrant
+	if state.EgressConflict {
+		previous, err := s.store.GetSandboxEgressGrant(ctx, state.Template.Namespace, string(state.Template.UID))
+		if err != nil {
+			return s.observeError(*state, fmt.Errorf("read SandboxTemplate %s grants: %w", key, err), true)
+		}
+		grants = retainedEgressGrant(previous, grants, egress.Access{}, nil)
+	}
 	err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
-		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), EgressGrant: state.EgressGrant,
+		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,
 	})
 	if err != nil {
 		return s.observeError(*state, fmt.Errorf("store SandboxTemplate %s definition: %w", key, err), true)
@@ -231,5 +241,6 @@ func sandboxStatusWithTransitionTimes(state sandboxReconciliation) kagentv1alpha
 	}
 	desired.ObservedGeneration = state.Template.Generation
 	apimeta.SetStatusCondition(&desired.Conditions, condition)
+	apimeta.SetStatusCondition(&desired.Conditions, egressPoliciesCondition(kagentv1alpha3.SandboxTemplateConditionEgressPoliciesApplied, state.Template.Generation, state.EgressIssues, state.EgressConflict))
 	return desired
 }

@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -26,8 +27,8 @@ func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
 
 // GetRuntimeEgressPolicy merges pinned inputs with the active source UID's grants
 // in one database snapshot. Missing/deleting revisions and malformed inputs fail
-// closed. Retired or replaced identities contribute no grants. Merge conflicts
-// retain pinned access and return a diagnostic, not a failed read.
+// closed. Retired or replaced identities contribute no grants. Older revisions
+// retain their pinned base and only the grants compatible with it.
 func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Policy, error) {
 	type policyInputs struct {
 		EgressDestinations      []string
@@ -66,8 +67,8 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
 	if err != nil {
 		return egress.Policy{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
 	}
-	access, withheld := egress.EffectiveAccess(base, grants, row.TokenPassthroughOrigins)
-	return egress.Policy{Access: access, WithheldGrants: withheld}, nil
+	access, err := egress.EffectiveAccess(base, grants, row.TokenPassthroughOrigins)
+	return egress.Policy{Access: access}, err
 }
 
 var _ egress.PolicyStore = (*Client)(nil)
@@ -137,4 +138,20 @@ func (c *Client) ListRuntimeEgressSourceTargets(ctx context.Context, source Runt
 	default:
 		return nil, fmt.Errorf("unknown runtime egress source kind %q", source.Kind)
 	}
+}
+
+// decodeEgressGrant treats absent definitions as empty grants and rejects invalid
+// durable rules. Callers scope the read to an active Kubernetes source identity.
+func decodeEgressGrant(grants egress.Access, err error) (egress.Access, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return egress.Access{}, nil
+	}
+	if err != nil {
+		return egress.Access{}, err
+	}
+	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials)
+	if err != nil {
+		return egress.Access{}, fmt.Errorf("decode source egress grants: %w", err)
+	}
+	return canonical, nil
 }

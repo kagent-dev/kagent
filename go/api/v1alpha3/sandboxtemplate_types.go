@@ -49,15 +49,18 @@ type SandboxTemplateSpec struct {
 	EgressPolicyRefs []corev1.LocalObjectReference `json:"egressPolicyRefs,omitempty"`
 }
 
-// SandboxTemplateReasonEgressPolicyResolutionFailed identifies an unresolved or invalid egress grant.
-const SandboxTemplateReasonEgressPolicyResolutionFailed = "EgressPolicyResolutionFailed"
+// SandboxTemplateConditionEgressPoliciesApplied reports grant admission independently of Ready.
+const SandboxTemplateConditionEgressPoliciesApplied = "EgressPoliciesApplied"
 
 // SandboxTemplateStatus reports preparation of the current template inputs.
 type SandboxTemplateStatus struct {
 	// ObservedGeneration is the generation considered by preparation.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Conditions describe whether a prepared revision is available.
+	// Conditions report runtime readiness and independent egress grant admission.
+	// EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+	// or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+	// do not affect Ready.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
