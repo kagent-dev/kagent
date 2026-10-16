@@ -56,7 +56,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				names = append(names, resource.Name)
 			}
 		}
-		require.ElementsMatch(t, []string{"agents", "agenttemplates", "harnesses", "modelconfigs", "modelproviderconfigs", "remotemcpservers", "sandboxtemplates"}, names)
+		require.ElementsMatch(t, []string{"agents", "agenttemplates", "harnesses", "modelconfigs", "modelproviderconfigs", "remotemcpservers", "sandboxtemplates", "scheduledruns"}, names)
 		_, err = discoveryClient.ServerResourcesForGroupVersion("kagent.dev/v1alpha3")
 		require.True(t, apierrors.IsNotFound(err), "the new CRDs must not publish the legacy group: %v", err)
 	})
@@ -506,6 +506,56 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				})
 			}
 		}
+	})
+
+	t.Run("ScheduledRun admission", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			mutate     func(*ScheduledRunSpec)
+			wantReject string
+		}{
+			{name: "valid"},
+			{name: "whitespace", mutate: func(spec *ScheduledRunSpec) { spec.Schedule = " 0   3 * *  * " }},
+			{name: "missing agent", mutate: func(spec *ScheduledRunSpec) { spec.AgentRef.Name = "" }, wantReject: "agentRef.name must not be empty"},
+			{name: "four fields", mutate: func(spec *ScheduledRunSpec) { spec.Schedule = "0 3 * *" }, wantReject: "schedule must contain five cron fields"},
+			{name: "macro", mutate: func(spec *ScheduledRunSpec) { spec.Schedule = "@hourly" }, wantReject: "schedule must contain five cron fields"},
+			{name: "blank prompt", mutate: func(spec *ScheduledRunSpec) { spec.Prompt = "   " }, wantReject: "spec.prompt"},
+			{name: "empty time zone", mutate: func(spec *ScheduledRunSpec) { spec.TimeZone = new("") }, wantReject: "spec.timeZone"},
+			{name: "zero timeout", mutate: func(spec *ScheduledRunSpec) { spec.ExecutionTimeout = &metav1.Duration{} }, wantReject: "executionTimeout must be positive"},
+			{name: "negative timeout", mutate: func(spec *ScheduledRunSpec) { spec.ExecutionTimeout = &metav1.Duration{Duration: -time.Second} }, wantReject: "executionTimeout must be positive"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				schedule := &ScheduledRun{
+					ObjectMeta: metav1.ObjectMeta{GenerateName: "schedule-", Namespace: namespace},
+					Spec:       ScheduledRunSpec{AgentRef: corev1.LocalObjectReference{Name: "report"}, Schedule: "0 3 * * *", Prompt: "Summarize"},
+				}
+				if tc.mutate != nil {
+					tc.mutate(&schedule.Spec)
+				}
+				err := cl.Create(ctx, schedule)
+				if tc.wantReject != "" {
+					require.ErrorContains(t, err, tc.wantReject)
+					return
+				}
+				require.NoError(t, err)
+				require.NotNil(t, schedule.Spec.Paused)
+				require.False(t, *schedule.Spec.Paused)
+				require.NotNil(t, schedule.Spec.ExecutionTimeout)
+				require.Equal(t, 15*time.Minute, schedule.Spec.ExecutionTimeout.Duration)
+				require.Nil(t, schedule.Spec.TimeZone)
+			})
+		}
+		t.Run("agentRef is immutable", func(t *testing.T) {
+			schedule := &ScheduledRun{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "schedule-", Namespace: namespace},
+				Spec:       ScheduledRunSpec{AgentRef: corev1.LocalObjectReference{Name: "report"}, Schedule: "0 3 * * *", Prompt: "Summarize"},
+			}
+			require.NoError(t, cl.Create(ctx, schedule))
+			schedule.Spec.Prompt = "Edited"
+			require.NoError(t, cl.Update(ctx, schedule))
+			schedule.Spec.AgentRef.Name = "other"
+			require.ErrorContains(t, cl.Update(ctx, schedule), "agentRef is immutable")
+		})
 	})
 }
 

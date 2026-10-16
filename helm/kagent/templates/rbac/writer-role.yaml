@@ -9,6 +9,7 @@
   - modelconfigs
   - modelproviderconfigs
   - remotemcpservers
+  - scheduledruns
   verbs:
   - create
   - update
@@ -39,6 +40,7 @@
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
+  - scheduledruns/finalizers
   verbs:
   - update
 - apiGroups:

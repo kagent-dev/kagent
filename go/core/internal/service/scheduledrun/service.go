@@ -2,7 +2,6 @@ package scheduledrun
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"time"
@@ -59,14 +58,11 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1.Sch
 		return nil, err
 	}
 	// Hash original normalized inputs, not the mutable persisted configuration.
-	data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(&apiv1.CreateScheduledRunRequest{
-		Agent: request.Agent, Config: config,
-	})
+	hash, err := schedules.RequestHash(request.Agent, config)
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Invalid schedule inputs", err)
 	}
-	hash := sha256.Sum256(data)
-	existing, err := s.store.FindScheduledRunRequest(ctx, creator, request.RequestID, hash[:])
+	existing, err := s.store.FindScheduledRunRequest(ctx, creator, request.RequestID, hash)
 	if err == nil {
 		return existing, nil
 	}
@@ -83,7 +79,7 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1.Sch
 	if err := s.validateTarget(ctx, schedule); err != nil {
 		return nil, err
 	}
-	result, err := s.store.CreateScheduledRun(ctx, schedule, request.RequestID, hash[:])
+	result, err := s.store.CreateScheduledRun(ctx, schedule, request.RequestID, hash)
 	return result, storeError(err)
 }
 

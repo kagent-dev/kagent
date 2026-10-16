@@ -168,6 +168,97 @@ func TestScheduledRunRequestsSurviveEditAndDeletion(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestApplyScheduledRunConvergesDeclaredSchedule(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, c, t.Context(), "team-a", "scheduled-revision", "report", "runtime")
+	const creator = "scheduledrun.api.kagent.dev/team-a/nightly"
+	desired := &apiv1.ScheduledRun{
+		Creator: creator,
+		Agent:   &apiv1.ResourceReference{Namespace: "team-a", Name: "report"},
+		Config:  scheduledrun.Normalize(&apiv1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "declared prompt"}),
+	}
+	created, err := c.ApplyScheduledRun(t.Context(), desired, "uid-1")
+	require.NoError(t, err)
+	require.NotNil(t, created.NextExecutionTime)
+	require.Equal(t, creator, created.Creator)
+
+	// An unchanged apply is a no-op: same etag, same update time.
+	same, err := c.ApplyScheduledRun(t.Context(), desired, "uid-1")
+	require.NoError(t, err)
+	require.True(t, proto.Equal(created, same))
+
+	// A prompt edit changes the etag but keeps the pending occurrence.
+	desired.Config.Prompt = "edited prompt"
+	edited, err := c.ApplyScheduledRun(t.Context(), desired, "uid-1")
+	require.NoError(t, err)
+	require.Equal(t, created.Id, edited.Id)
+	require.NotEqual(t, created.Etag, edited.Etag)
+	require.Equal(t, "edited prompt", edited.Config.Prompt)
+	require.True(t, created.NextExecutionTime.AsTime().Equal(edited.NextExecutionTime.AsTime()))
+
+	// Pausing clears the due time.
+	desired.Config.Paused = true
+	paused, err := c.ApplyScheduledRun(t.Context(), desired, "uid-1")
+	require.NoError(t, err)
+	require.Nil(t, paused.NextExecutionTime)
+
+	// A reserved firing keeps its target: the agent cannot change in place, and
+	// the rejected apply leaves the stored schedule untouched.
+	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(created.Id), creator, "manual")
+	require.NoError(t, err)
+	desired.Agent.Name = "other"
+	_, err = c.ApplyScheduledRun(t.Context(), desired, "uid-1")
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+	unchanged, err := c.GetScheduledRun(t.Context(), uuid.MustParse(created.Id), creator)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(paused, unchanged))
+	reserved, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), creator)
+	require.NoError(t, err)
+	session, err := c.GetSession(t.Context(), reserved.SessionId, creator)
+	require.NoError(t, err)
+	require.Equal(t, "report", session.GetAgent().GetName())
+
+	// The owning object is recreated with a new UID and another agent: the old
+	// row is retired and a new identity starts, retaining the old history.
+	desired.Config.Paused = false
+	replaced, err := c.ApplyScheduledRun(t.Context(), desired, "uid-2")
+	require.NoError(t, err)
+	require.NotEqual(t, created.Id, replaced.Id)
+	require.NotNil(t, replaced.NextExecutionTime)
+	old, err := c.GetScheduledRun(t.Context(), uuid.MustParse(created.Id), creator)
+	require.NoError(t, err)
+	require.NotNil(t, old.DeletedAt)
+	live, err := c.ListScheduledRuns(t.Context(), ScheduledRunQuery{Creator: creator, Limit: 50})
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	require.Equal(t, replaced.Id, live[0].Id)
+	retained, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), creator)
+	require.NoError(t, err)
+	require.Equal(t, created.Id, retained.ScheduledRunId)
+
+	// Deletion is final per request identity.
+	_, err = c.ApplyScheduledRun(t.Context(), desired, "uid-1")
+	require.ErrorIs(t, err, ErrFailedPrecondition)
+
+	// Retiring the owner tombstones every live row and is idempotent.
+	require.NoError(t, c.RetireScheduledRuns(t.Context(), creator))
+	require.NoError(t, c.RetireScheduledRuns(t.Context(), creator))
+	live, err = c.ListScheduledRuns(t.Context(), ScheduledRunQuery{Creator: creator, Limit: 50})
+	require.NoError(t, err)
+	require.Empty(t, live)
+	gone, err := c.GetScheduledRun(t.Context(), uuid.MustParse(replaced.Id), creator)
+	require.NoError(t, err)
+	require.NotNil(t, gone.DeletedAt)
+	require.Nil(t, gone.NextExecutionTime)
+
+	// Other creators are untouched.
+	other, _ := createTestSchedule(t, c)
+	require.NoError(t, c.RetireScheduledRuns(t.Context(), creator))
+	kept, err := c.GetScheduledRun(t.Context(), uuid.MustParse(other.Id), other.Creator)
+	require.NoError(t, err)
+	require.Nil(t, kept.DeletedAt)
+}
+
 func TestScheduledRunSQLTimestamps(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db, "public")

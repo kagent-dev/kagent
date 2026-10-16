@@ -353,3 +353,61 @@ Agent's last successful revision.
 This replaces implicit label selection and the old template/Harness inputs as a
 breaking API change. SandboxTemplate hosting configuration is not part of this
 change.
+
+## Declared schedules
+
+`ScheduledRun` is an `api.kagent.dev/v1alpha3` resource that declares a cron
+schedule for one Agent in the same namespace. It is the YAML counterpart of the
+gRPC `ScheduledRunService`: both produce rows in the same `scheduled_run` table,
+and the same Scheduler and execution Controller fire them.
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: ScheduledRun
+metadata:
+  name: nightly-report
+  namespace: kagent
+spec:
+  agentRef:
+    name: assistant
+  schedule: "0 3 * * *"
+  timeZone: Europe/Paris
+  prompt: Summarize yesterday's incidents.
+  paused: false
+  executionTimeout: 15m
+```
+
+`schedule` is a five-field cron expression; macros and seconds are rejected at
+admission. `timeZone` defaults to UTC and `executionTimeout` to 15 minutes, the
+same defaults the gRPC API applies. The reconciler validates the cron expression
+and time zone with the shared `go/api/scheduledrun` semantics and reports the
+result in the `Accepted` condition. `ResolvedRefs` reports whether the Agent
+exists; a missing Agent does not block persistence, matching gRPC updates, and
+occurrences fail at run time until it exists. `Ready` is true once the row is
+persisted for the current generation.
+
+Ownership is the main difference from API-created schedules. A resource has no
+human creator, so its row is owned by the synthetic creator
+`scheduledrun.api.kagent.dev/<namespace>/<name>` and keyed by the object UID as
+its request ID. Sessions created for its occurrences carry that owner. The
+creator-scoped gRPC API therefore never shows a declared schedule to a human
+principal, and no `kubectl` user can assign a schedule to another user's
+identity. `kubectl get scheduledruns` is the observation surface.
+
+The reconciler converges rather than edits: it applies the desired configuration
+in one store transaction, bumps the etag only when something changed, and
+tombstones any live row of the same owner with a different UID. A deleted and
+recreated object therefore starts a new schedule identity while the previous
+execution history is retained.
+
+`agentRef` is immutable, at admission and in the store. A reserved execution
+resolves its schedule's Agent only when its session is reserved, so changing the
+target in place could send an earlier prompt to a different Agent. To target
+another Agent, recreate the ScheduledRun. The gRPC API likewise fixes the Agent
+at creation.
+
+The `kagent.dev/scheduledrun-retirement` finalizer is added before the row is
+first persisted. It holds a deleted object until its row is tombstoned, so a
+deletion while no controller is running is retired on restart. An invalid edit
+leaves the last accepted schedule running, because deletion is final per
+request identity and must not be triggered by a typo.

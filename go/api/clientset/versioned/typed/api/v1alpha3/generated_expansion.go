@@ -13,3 +13,5 @@ type ModelConfigExpansion interface{}
 type RemoteMCPServerExpansion interface{}
 
 type SandboxTemplateExpansion interface{}
+
+type ScheduledRunExpansion interface{}

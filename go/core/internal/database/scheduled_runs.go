@@ -42,34 +42,13 @@ func (c *Client) FindScheduledRunRequest(ctx context.Context, creator, requestID
 // matches, or ErrIdempotencyConflict otherwise. Paused schedules have no due time;
 // execution is left to the scheduler.
 func (c *Client) CreateScheduledRun(ctx context.Context, request *apiv1.ScheduledRun, requestID string, hash []byte) (*apiv1.ScheduledRun, error) {
-	schedule := proto.CloneOf(request)
-	id := uuid.New()
-	schedule.Id, schedule.Etag = id.String(), uuid.NewString()
-	schedule.CreatedAt, schedule.UpdatedAt = nil, nil
-	schedule.NextExecutionTime, schedule.DeletedAt = nil, nil
-	data, err := proto.Marshal(schedule)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode schedule: %w", err)
-	}
 	var row scheduledRunRow
-	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err = queryOne(ctx, tx, `
-			INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
-		`, pgx.RowToStructByName[scheduledRunRow], id, schedule.Creator, requestID, hash, data)
-		if err != nil {
-			return err
-		}
-		row.NextExecutionTime, err = nextExecutionTime(schedule.Config, row.CreatedAt)
-		if err != nil || row.NextExecutionTime == nil {
-			return err
-		}
-		// Keep the first cron time atomic with creation, using the insert's clock.
-		return advanceScheduledRun(ctx, tx, row.ID, row.NextExecutionTime)
+	err := c.withTx(ctx, func(tx pgx.Tx) (err error) {
+		row, err = insertScheduledRun(ctx, tx, request, requestID, hash)
+		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return c.FindScheduledRunRequest(ctx, schedule.Creator, requestID, hash)
+	if errors.Is(err, ErrConflict) {
+		return c.FindScheduledRunRequest(ctx, request.GetCreator(), requestID, hash)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create schedule: %w", err)
@@ -168,22 +147,7 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator s
 		if err != nil {
 			return err
 		}
-		if row.DeletedAt != nil {
-			result = row
-			return nil
-		}
-		schedule, err := toScheduledRun(row)
-		if err != nil {
-			// Identity and ownership come from columns, not the damaged payload.
-			result, err = saveScheduledRun(ctx, tx, row.ID, row.Data, nil, true)
-			return err
-		}
-		schedule.Etag, schedule.NextExecutionTime = uuid.NewString(), nil
-		data, err := proto.Marshal(schedule)
-		if err != nil {
-			return err
-		}
-		result, err = saveScheduledRun(ctx, tx, row.ID, data, nil, true)
+		result, err = tombstoneScheduledRun(ctx, tx, row)
 		return err
 	})
 	if err != nil {
@@ -200,6 +164,180 @@ func (c *Client) DeleteScheduledRun(ctx context.Context, id uuid.UUID, creator s
 		}, nil
 	}
 	return schedule, nil
+}
+
+// ApplyScheduledRun converges the creator's schedules on one declared schedule
+// identified by requestID: it creates the schedule when absent and replaces the
+// configuration when it differs, bumping the etag only on change. The agent is
+// fixed at creation; a different agent returns ErrFailedPrecondition.
+// Other live schedules of the same creator are tombstoned in the same
+// transaction, so a declarative owner whose identity changed (for example a
+// recreated Kubernetes object) cannot leave the previous schedule firing. A
+// tombstoned requestID returns ErrFailedPrecondition because deletion is final
+// per request; a concurrent insert of the same requestID returns ErrConflict.
+// Like UpdateScheduledRun, the next occurrence only moves when the schedule,
+// time zone, or pause setting changes.
+func (c *Client) ApplyScheduledRun(ctx context.Context, request *apiv1.ScheduledRun, requestID string) (*apiv1.ScheduledRun, error) {
+	desired := proto.CloneOf(request)
+	if desired.GetCreator() == "" || requestID == "" {
+		return nil, fmt.Errorf("schedule creator and request ID are required: %w", ErrFailedPrecondition)
+	}
+	hash, err := scheduledrun.RequestHash(desired.Agent, desired.Config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash schedule request: %w", err)
+	}
+	var result scheduledRunRow
+	err = c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := queryOne(ctx, tx, `
+			SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+			    FROM scheduled_run WHERE creator = $1 AND request_id = $2 FOR UPDATE
+		`, pgx.RowToStructByName[scheduledRunRow], desired.Creator, requestID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			result, err = insertScheduledRun(ctx, tx, desired, requestID, hash)
+		case err != nil:
+			return err
+		case row.DeletedAt != nil:
+			return fmt.Errorf("ScheduledRun request %s was deleted: %w", requestID, ErrFailedPrecondition)
+		default:
+			result, err = replaceScheduledRun(ctx, tx, row, desired)
+		}
+		if err != nil {
+			return err
+		}
+		return retireScheduledRuns(ctx, tx, desired.Creator, &requestID)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply schedule: %w", err)
+	}
+	return toScheduledRun(result)
+}
+
+// RetireScheduledRuns tombstones every live schedule of a creator, retaining
+// execution history like DeleteScheduledRun. It succeeds when nothing is live.
+func (c *Client) RetireScheduledRuns(ctx context.Context, creator string) error {
+	if creator == "" {
+		return fmt.Errorf("schedule creator is required: %w", ErrFailedPrecondition)
+	}
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		return retireScheduledRuns(ctx, tx, creator, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to retire schedules: %w", err)
+	}
+	return nil
+}
+
+// insertScheduledRun stores a new schedule and its first due time using the
+// insert's clock. Callers hold the transaction; a concurrent insert of the same
+// creator/requestID returns ErrConflict.
+func insertScheduledRun(ctx context.Context, tx pgx.Tx, request *apiv1.ScheduledRun, requestID string, hash []byte) (scheduledRunRow, error) {
+	schedule := proto.CloneOf(request)
+	id := uuid.New()
+	schedule.Id, schedule.Etag = id.String(), uuid.NewString()
+	schedule.CreatedAt, schedule.UpdatedAt = nil, nil
+	schedule.NextExecutionTime, schedule.DeletedAt = nil, nil
+	data, err := proto.Marshal(schedule)
+	if err != nil {
+		return scheduledRunRow{}, fmt.Errorf("failed to encode schedule: %w", err)
+	}
+	row, err := queryOne(ctx, tx, `
+		INSERT INTO scheduled_run (id, creator, request_id, request_hash, data)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (creator, request_id) DO NOTHING RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+	`, pgx.RowToStructByName[scheduledRunRow], id, schedule.Creator, requestID, hash, data)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return scheduledRunRow{}, fmt.Errorf("ScheduledRun request %s was created concurrently: %w", requestID, ErrConflict)
+	}
+	if err != nil {
+		return scheduledRunRow{}, err
+	}
+	row.NextExecutionTime, err = nextExecutionTime(schedule.Config, row.CreatedAt)
+	if err != nil || row.NextExecutionTime == nil {
+		return row, err
+	}
+	// Keep the first cron time atomic with creation, using the insert's clock.
+	return row, advanceScheduledRun(ctx, tx, row.ID, row.NextExecutionTime)
+}
+
+// replaceScheduledRun makes a locked live schedule match the desired
+// configuration. An unchanged schedule is returned without a write. The agent
+// is immutable because reserved executions resolve it when their session is
+// reserved; changing it returns ErrFailedPrecondition. The request hash keeps
+// fingerprinting the original creation inputs.
+func replaceScheduledRun(ctx context.Context, tx pgx.Tx, row scheduledRunRow, desired *apiv1.ScheduledRun) (scheduledRunRow, error) {
+	schedule, err := toScheduledRun(row)
+	if err != nil {
+		return scheduledRunRow{}, err
+	}
+	if !proto.Equal(schedule.Agent, desired.Agent) {
+		return scheduledRunRow{}, fmt.Errorf("ScheduledRun %s agent cannot change: %w", row.ID, ErrFailedPrecondition)
+	}
+	if proto.Equal(schedule.Config, desired.Config) {
+		return row, nil
+	}
+	previous := schedule.Config
+	schedule.Config, schedule.Etag = proto.CloneOf(desired.Config), uuid.NewString()
+	data, err := proto.Marshal(schedule)
+	if err != nil {
+		return scheduledRunRow{}, err
+	}
+	result, err := queryOne(ctx, tx, `
+		UPDATE scheduled_run SET data = $2, updated_at = statement_timestamp()
+		WHERE id = $1 RETURNING id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+	`, pgx.RowToStructByName[scheduledRunRow], row.ID, data)
+	if err != nil {
+		return scheduledRunRow{}, err
+	}
+	// Prompt and agent edits must not skip an occurrence already due for reservation.
+	if desired.Config.Schedule == previous.Schedule && desired.Config.TimeZone == previous.TimeZone && desired.Config.Paused == previous.Paused {
+		return result, nil
+	}
+	result.NextExecutionTime, err = nextExecutionTime(desired.Config, result.UpdatedAt)
+	if err != nil {
+		return scheduledRunRow{}, err
+	}
+	return result, advanceScheduledRun(ctx, tx, result.ID, result.NextExecutionTime)
+}
+
+// retireScheduledRuns tombstones the creator's live schedules, keeping the one
+// identified by keepRequestID when given. Rows are locked in ID order.
+func retireScheduledRuns(ctx context.Context, tx pgx.Tx, creator string, keepRequestID *string) error {
+	rows, err := queryMany(ctx, tx, `
+		SELECT id, creator, request_hash, data, created_at, updated_at, next_execution_time, deleted_at
+		    FROM scheduled_run WHERE creator = $1 AND deleted_at IS NULL
+		  AND ($2::text IS NULL OR request_id <> $2::text)
+		ORDER BY id FOR UPDATE
+	`, pgx.RowToStructByName[scheduledRunRow], creator, keepRequestID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if _, err := tombstoneScheduledRun(ctx, tx, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tombstoneScheduledRun stops future scheduling for a locked schedule and
+// returns the tombstone row. Repeated deletion returns the existing tombstone;
+// a malformed payload is retained for repair while the columns record deletion.
+func tombstoneScheduledRun(ctx context.Context, tx pgx.Tx, row scheduledRunRow) (scheduledRunRow, error) {
+	if row.DeletedAt != nil {
+		return row, nil
+	}
+	schedule, err := toScheduledRun(row)
+	if err != nil {
+		// Identity and ownership come from columns, not the damaged payload.
+		return saveScheduledRun(ctx, tx, row.ID, row.Data, nil, true)
+	}
+	schedule.Etag, schedule.NextExecutionTime = uuid.NewString(), nil
+	data, err := proto.Marshal(schedule)
+	if err != nil {
+		return scheduledRunRow{}, err
+	}
+	return saveScheduledRun(ctx, tx, row.ID, data, nil, true)
 }
 
 // TriggerScheduledRun reserves a manual execution for an owned schedule, including when

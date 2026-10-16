@@ -9,6 +9,7 @@
   - modelconfigs
   - modelproviderconfigs
   - remotemcpservers
+  - scheduledruns
   verbs:
   - get
   - list
@@ -29,6 +30,7 @@
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
+  - scheduledruns/finalizers
   verbs:
   - update
 - apiGroups:
@@ -45,6 +47,7 @@
   - modelconfigs/status
   - modelproviderconfigs/status
   - remotemcpservers/status
+  - scheduledruns/status
   verbs:
   - get
   - patch

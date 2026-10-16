@@ -210,6 +210,12 @@ reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
+`TestScheduledRunResource` declares a paused `ScheduledRun` resource, waits for
+it to become Ready, and reads the persisted schedule through gRPC as the
+resource's synthetic creator. It triggers one execution, applies a prompt edit
+to the same schedule identity, and checks that deletion retires the schedule
+while retaining its execution history.
+
 `TestSessionContextCompaction` clones the `kagent` Harness into one whose
 `spec.kagent.compaction` fires a sliding window after two turns, with a
 dedicated summarizer `ModelConfig` pointing at the same mock LLM behind a

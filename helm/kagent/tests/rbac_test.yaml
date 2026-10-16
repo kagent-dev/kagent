@@ -142,7 +142,7 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers, scheduledruns]
       - equal:
           path: rules[1].apiGroups
           value: [kagent.dev]
@@ -162,7 +162,7 @@ tests:
           value: [api.kagent.dev]
       - equal:
           path: rules[0].resources
-          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers]
+          value: [harnesses, agents, sandboxtemplates, agenttemplates, modelconfigs, modelproviderconfigs, remotemcpservers, scheduledruns]
       - equal:
           path: rules[1].apiGroups
           value: [kagent.dev]
