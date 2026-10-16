@@ -13,7 +13,7 @@ import (
 func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
-	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", PassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
+	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
 	require.NoError(t, client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", DesiredRevision: "agent"}))
 	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, true))
 	instance, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "request")
@@ -40,7 +40,7 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "old-uid", pinned.SourceUID)
 	require.Equal(t, "agent", pinned.Kind)
-	require.Equal(t, revision.PassthroughOrigins, pinned.PassthroughOrigins)
+	require.Equal(t, revision.TokenPassthroughOrigins, pinned.TokenPassthroughOrigins)
 	sandbox, options := sandboxFixture(t, client, "sandbox")
 	created, _, err := client.CreateSandbox(ctx, sandbox, "sandbox", options)
 	require.NoError(t, err)

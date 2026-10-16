@@ -59,18 +59,18 @@ type AgentDefinition struct {
 }
 
 type RuntimeRevision struct {
-	Revision              string
-	Namespace             string
-	AgentName             string
-	AgentUID              string
-	SourceSnapshot        json.RawMessage
-	AgentCard             *a2apb.AgentCard
-	Credentials           []egress.Credential
-	EgressDestinations    []string
-	PassthroughOrigins    []string
-	ActorTemplateAtespace string
-	ActorTemplateName     string
-	ActorTemplateUID      string
+	Revision                string
+	Namespace               string
+	AgentName               string
+	AgentUID                string
+	SourceSnapshot          json.RawMessage
+	AgentCard               *a2apb.AgentCard
+	Credentials             []egress.Credential
+	EgressDestinations      []string
+	TokenPassthroughOrigins []string
+	ActorTemplateAtespace   string
+	ActorTemplateName       string
+	ActorTemplateUID        string
 }
 
 // SessionQuery narrows a page of sessions to an optional Agent.

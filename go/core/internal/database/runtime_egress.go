@@ -12,20 +12,20 @@ import (
 // RuntimeEgress retains integration access and the source identity of a pinned
 // revision. Explicit policy grants are resolved from the current Kubernetes source.
 type RuntimeEgress struct {
-	Kind               string
-	Namespace          string
-	SourceName         string
-	SourceUID          string
-	EgressDestinations []string
-	Credentials        []egress.Credential
-	PassthroughOrigins []string
+	Kind                    string
+	Namespace               string
+	SourceName              string
+	SourceUID               string
+	EgressDestinations      []string
+	Credentials             []egress.Credential
+	TokenPassthroughOrigins []string
 }
 
 // GetRuntimeEgress reads immutable access and source identity for either runtime
 // kind. Missing revisions return ErrNotFound; malformed grants return an error.
 func (c *Client) GetRuntimeEgress(ctx context.Context, revision string) (*RuntimeEgress, error) {
 	row, err := queryOne(ctx, c.db, `
-		SELECT r.kind, r.namespace, r.egress_destinations, r.credentials, r.passthrough_origins,
+		SELECT r.kind, r.namespace, r.egress_destinations, r.credentials, r.token_passthrough_origins,
 		    COALESCE(a.agent_name, s.sandbox_template_name) AS source_name,
 		    COALESCE(a.agent_uid, s.sandbox_template_uid) AS source_uid
 		FROM runtime_revision r
@@ -36,7 +36,7 @@ func (c *Client) GetRuntimeEgress(ctx context.Context, revision string) (*Runtim
 	if err != nil {
 		return nil, fmt.Errorf("get runtime egress %s: %w", revision, notFoundOr(err))
 	}
-	access, err := egress.MergeAccess(egress.Access{Destinations: row.EgressDestinations, Credentials: row.Credentials}, egress.Access{}, row.PassthroughOrigins)
+	access, err := egress.MergeAccess(egress.Access{Destinations: row.EgressDestinations, Credentials: row.Credentials}, egress.Access{}, row.TokenPassthroughOrigins)
 	if err != nil {
 		return nil, fmt.Errorf("decode runtime egress %s: %w", revision, err)
 	}

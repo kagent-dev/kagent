@@ -22,7 +22,7 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // outside the agent tree (such as memory embeddings) are supplied separately.
 func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, []string, error) {
 	var bindings []egress.Credential
-	var passthroughOrigins []string
+	var tokenPassthroughOrigins []string
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
 	bind := func(rawURL, header, prefix, namespace, name, key string) error {
@@ -104,13 +104,13 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		if err != nil {
 			return nil, nil, nil, NewValidationError("invalid passthrough credential destination: %v", err)
 		}
-		passthroughOrigins = append(passthroughOrigins, origin.String())
+		tokenPassthroughOrigins = append(tokenPassthroughOrigins, origin.String())
 	}
 	var destinations []string
 	for _, binding := range bindings {
 		destinations = append(destinations, binding.Origin)
 	}
-	if _, err := egress.MergeAccess(egress.Access{Destinations: destinations, Credentials: bindings}, input.Egress, passthroughOrigins); err != nil {
+	if _, err := egress.MergeAccess(egress.Access{Destinations: destinations, Credentials: bindings}, input.Egress, tokenPassthroughOrigins); err != nil {
 		return nil, nil, nil, NewValidationError("%v", err)
 	}
 
@@ -126,7 +126,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
-	return result, bindings, passthroughOrigins, nil
+	return result, bindings, tokenPassthroughOrigins, nil
 }
 
 func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {
