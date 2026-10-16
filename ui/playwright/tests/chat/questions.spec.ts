@@ -14,10 +14,8 @@ import { LIFECYCLE_TIMEOUT, pressOnce } from "../../helpers/resource";
  * of that, because the question renders as ordinary agent prose and the conversation
  * looks finished.
  *
- * One journey rather than three tests, because there is exactly one way in and the
- * ways out are alternatives to each other: a turn parks, and from there it is
- * answered, discarded, or it blocks the conversation. Each step returns the
- * conversation to a state the next can start from, which is what makes them steps.
+ * Three tests, one per way out of a parked turn: answered, discarded, or answered
+ * from the keyboard. Each parks its own question, so each fits its own budget.
  *
  * The fixture is the controller's behaviour, copied — the parked turn survives a
  * reload, a send while it stands is refused in the controller's own words, and
@@ -26,15 +24,10 @@ import { LIFECYCLE_TIMEOUT, pressOnce } from "../../helpers/resource";
 
 const AGENT_CHAT = agentChat(instances.ready);
 
-/*
- * A journey in one test, so it gets the lifecycle budget rather than the default.
- * Sized for the number of steps, not for the folder it sits in — see `LIFECYCLE_TIMEOUT`.
- */
+/* Each test drives several mock turns and full page loads — see `LIFECYCLE_TIMEOUT`. */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("chat: a question is asked, answered, given up, and answered with the keyboard", async ({
-  page,
-}) => {
+test("chat: a question is asked, survives a reload, and is answered", async ({ page }) => {
   await test.step("1. a turn ends by asking rather than by finishing", async () => {
     await page.goto(`${AGENT_CHAT}?chat=asks`);
     await page.getByTestId("chat-input").fill("What should I order?");
@@ -121,10 +114,11 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
     await sendAndAwaitTurn(page, "How many pods are running?");
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
   });
+});
 
+test("chat: a question can be given up rather than answered", async ({ page }) => {
   await test.step("7. a second question can be given up rather than answered", async () => {
-    // Parked again, because the previous steps answered the first one: discarding is
-    // the alternative to answering, so it needs its own question to discard.
+    // Discarding is the alternative to answering, so it parks a question of its own.
     await page.goto(`${AGENT_CHAT}?chat=asks`);
     await page.getByTestId("chat-input").fill("What should I order?");
     await page.getByTestId("chat-send").click();
@@ -145,7 +139,9 @@ test("chat: a question is asked, answered, given up, and answered with the keybo
     await sendAndAwaitTurn(page, "How many pods are running?");
     await expect(page.getByTestId("chat-turn-error")).toHaveCount(0);
   });
+});
 
+test("chat: a one-field question is answered with the keyboard", async ({ page }) => {
   await test.step("9. a question that is one prose field takes the caret", async () => {
     await page.goto(`${AGENT_CHAT}?chat=asks-text`);
     await page.getByTestId("chat-input").fill("Order me a pizza");
