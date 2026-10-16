@@ -359,10 +359,10 @@ export const ListSubstrateActorsResponseSchema: GenMessage<ListSubstrateActorsRe
   messageDesc(file_kagent_api_v1_system, 12);
 
 /**
- * One page of workers, in worker pod UID order. A controller that watches all
- * namespaces filters one Substrate page, which may be empty and still have a next
- * token. A controller that watches some reads only the workers of its own worker pods;
- * only its last page can be empty.
+ * One page of workers, in worker name order. A controller that watches all namespaces
+ * filters one Substrate page, which may be empty and still have a next token. A
+ * controller that watches some reads every Substrate worker and returns only those of
+ * its watched namespaces; only its last page can be empty.
  *
  * @generated from message kagent.api.v1.ListSubstrateWorkersRequest
  */

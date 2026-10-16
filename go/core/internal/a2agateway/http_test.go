@@ -449,7 +449,7 @@ func startCoreTestServer(t *testing.T, gateway a2asrv.RequestHandler, shares ses
 	require.NoError(t, err)
 	server, err := grpcserver.New(grpcserver.Config{
 		Listener: listener, Authenticator: httpTestAuthenticator{}, ShareStore: shares,
-		SystemService: systemservice.NewService(nil, nil, nil, nil, nil),
+		SystemService: systemservice.NewService(nil, nil, nil, nil),
 		A2AHandler:    gateway, HTTPHandler: NewHTTPHandler(gateway, httpTestAuthenticator{}, shares),
 	})
 	require.NoError(t, err)

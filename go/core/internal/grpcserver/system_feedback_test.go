@@ -53,7 +53,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 	server, err := New(Config{
 		Listener:      listener,
 		Authenticator: &authimpl.InsecureAuthenticator{},
-		SystemService: systemservice.NewService(kubeClient, kubeClient, nil, &pkgauth.NoopAuthorizer{}, emptySystemATEClient{}),
+		SystemService: systemservice.NewService(kubeClient, nil, &pkgauth.NoopAuthorizer{}, emptySystemATEClient{}),
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -199,8 +199,4 @@ func (emptySystemATEClient) ListActorsPage(context.Context, string, int32, strin
 
 func (emptySystemATEClient) ListWorkersPage(context.Context, int32, string) ([]*ateapipb.Worker, string, error) {
 	return nil, "", nil
-}
-
-func (emptySystemATEClient) GetWorker(_ context.Context, name string) (*ateapipb.Worker, error) {
-	return nil, status.Errorf(codes.NotFound, "Worker %s not found", name)
 }

@@ -18,7 +18,7 @@ import (
 )
 
 func testSystemService() *systemservice.Service {
-	return systemservice.NewService(nil, nil, nil, nil, nil)
+	return systemservice.NewService(nil, nil, nil, nil)
 }
 
 func TestServerServesGRPCAndHTTP(t *testing.T) {

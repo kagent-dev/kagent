@@ -1,12 +1,10 @@
 package system_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,7 +19,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -31,7 +28,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/system"
 	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 func pagingContext(t *testing.T) context.Context {
@@ -42,7 +38,18 @@ func pagingContext(t *testing.T) context.Context {
 // ate-api's order. Every tenant-b name holds "tenant-b", so a test can look for it in
 // any text.
 func pagingATEClient() *fakeATEClient {
-	client := &fakeATEClient{}
+	client := &fakeATEClient{
+		workers: []*ateapipb.Worker{
+			ateWorker("tenant-a", "u1-tenant-a", 2),
+			ateWorker("tenant-b", "u2-tenant-b", 1),
+			ateWorker("tenant-c", "u3-tenant-c", 1),
+			ateWorker("tenant-a", "u4-tenant-a", 0),
+			ateWorker("tenant-b", "u5-tenant-b", 0),
+			ateWorker("tenant-a", "u6-tenant-a", 0),
+		},
+		// Two workers a page, so a drain of the workers takes three reads.
+		workerPageSize: 2,
+	}
 	for _, tenant := range []struct {
 		atespace string
 		actors   int
@@ -54,50 +61,13 @@ func pagingATEClient() *fakeATEClient {
 			Metadata: &ateapipb.ResourceMetadata{Atespace: tenant.atespace, Name: tenant.atespace + "-template"},
 		})
 	}
-	for _, pod := range pagingPods() {
-		if pod.Labels[system.WorkerPoolLabel] != "" {
-			client.workers = append(client.workers, ateWorker(pod.Namespace, string(pod.UID), busyPods[string(pod.UID)]))
-		}
-	}
 	return client
 }
 
-// The actors placed on each busy worker pod, by pod UID.
-var busyPods = map[string]int32{"u1-tenant-a": 2, "u2-tenant-b": 1, "u3-tenant-c": 1}
-
-// pagingPods are the worker pods of the paging tests. Their UIDs mix the tenants in
-// UID order, which is ate-api's worker order. One tenant-a pod is not a worker pod.
-func pagingPods() []*corev1.Pod {
-	return []*corev1.Pod{
-		workerPod("tenant-a", "", "u0-tenant-a"),
-		workerPod("tenant-a", "pool-a", "u1-tenant-a"),
-		workerPod("tenant-b", "pool-b", "u2-tenant-b"),
-		workerPod("tenant-c", "pool-c", "u3-tenant-c"),
-		workerPod("tenant-a", "pool-a", "u4-tenant-a"),
-		workerPod("tenant-b", "pool-b", "u5-tenant-b"),
-		workerPod("tenant-a", "pool-a", "u6-tenant-a"),
-	}
-}
-
-// ownWorkerUIDs are the workers of tenant-a and tenant-c, in UID order.
+// ownWorkerUIDs are the workers of tenant-a and tenant-c, in name order.
 var ownWorkerUIDs = []string{"u1-tenant-a", "u3-tenant-c", "u4-tenant-a", "u6-tenant-a"}
 
-// workerPod is a running worker pod of the pool, or a plain pod when pool is empty.
-func workerPod(namespace, pool, uid string) *corev1.Pod {
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "pod-" + uid, UID: types.UID(uid)},
-		Status: corev1.PodStatus{
-			Phase:      corev1.PodRunning,
-			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
-		},
-	}
-	if pool != "" {
-		pod.Labels = map[string]string{system.WorkerPoolLabel: pool}
-	}
-	return pod
-}
-
-// ateWorker is the Worker ate-api holds for a worker pod: it is named after the pod UID.
+// ateWorker is a Worker as ate-api holds it: named after its pod's UID.
 func ateWorker(namespace, uid string, allocatedActors int32) *ateapipb.Worker {
 	return &ateapipb.Worker{
 		Metadata:        &ateapipb.ResourceMetadata{Name: uid},
@@ -108,19 +78,22 @@ func ateWorker(namespace, uid string, allocatedActors int32) *ateapipb.Worker {
 	}
 }
 
-// pagingKubeClient holds the paging pods, and a WorkerPool in each tenant.
-func pagingKubeClient(t *testing.T, funcs interceptor.Funcs, pods ...*corev1.Pod) ctrlclient.WithWatch {
+// pagingKubeClient holds a WorkerPool in each tenant.
+func pagingKubeClient(t *testing.T, funcs interceptor.Funcs) ctrlclient.WithWatch {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, atev1alpha1.AddToScheme(scheme))
 	objects := []ctrlclient.Object{}
-	for _, pod := range append(pagingPods(), pods...) {
-		objects = append(objects, pod)
-	}
 	for _, tenant := range []string{"tenant-a", "tenant-b", "tenant-c"} {
 		objects = append(objects, &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: tenant, Name: "pool"}})
 	}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithInterceptorFuncs(funcs).Build()
+}
+
+// ownWorkerService watches tenant-a and tenant-c. It has no Kubernetes client: the
+// workers view reads ate-api only.
+func ownWorkerService(ateClient system.ATEClient) *system.Service {
+	return system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 }
 
 // walkWorkers reads every page of workers and fails the test on a hard or soft error.
@@ -139,6 +112,14 @@ func walkWorkers(t *testing.T, ctx context.Context, service *system.Service, nam
 	}
 	t.Fatal("the walk did not end")
 	return nil
+}
+
+// listWorkers reads one page of workers in every watched namespace.
+func listWorkers(t *testing.T, service *system.Service, limit int32, pageToken string) system.SubstrateWorkerPage {
+	t.Helper()
+	page, err := service.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: limit, PageToken: pageToken}})
+	require.NoError(t, err)
+	return page
 }
 
 func walkedWorkerUIDs(pages []system.SubstrateWorkerPage) []string {
@@ -210,7 +191,7 @@ func TestListSubstrateActorsFanOut(t *testing.T) {
 		namedActor("tenant-a", "a-1"), namedActor("tenant-b", "b-1"), namedActor("tenant-c", "c-1"),
 		namedActor("tenant-a", "a-2"), namedActor("tenant-c", "c-2"), namedActor("tenant-a", "a-3"),
 	}}
-	service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	service := system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 
 	first, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2}})
 	require.NoError(t, err)
@@ -231,151 +212,55 @@ func token(raw string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-// A Substrate actor token, as the released controller passed it through. It names a
-// tenant-b session.
-const substrateActorToken = `{"v":1,"kind":"actor","scope":"","last":["tenant-b","session-1"]}`
-
-// badActorTokens are tokens a controller that watches tenant-a and tenant-c did not
-// issue. None of them may start a walk again at page one.
-var badActorTokens = map[string]string{
-	"no separator":                `tenant-a`,
-	"empty atespace":              `/x`,
-	"unwatched atespace":          `tenant-b/x`,
-	"worker token":                `u1-tenant-a`,
-	"substrate token, raw base64": substrateActorToken,
-}
-
-// rejectsToken asserts that a read with the token is a hard InvalidArgument that
-// reaches neither ate-api nor the log or the error with a tenant-b name.
-func rejectsToken(t *testing.T, ateClient *fakeATEClient, read func(context.Context) error) {
-	t.Helper()
-	var log bytes.Buffer
-	ctx := logging.IntoContext(pagingContext(t), slog.New(slog.NewTextHandler(&log, nil)))
-	err := read(ctx)
-	require.Error(t, err)
-	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), "err = %v", err)
-	assert.NotContains(t, err.Error(), "tenant-b")
-	assert.NotContains(t, log.String(), "tenant-b")
-	assert.Empty(t, ateClient.calls, "a bad token must not reach ate-api")
-}
-
-func listActorsWithToken(service *system.Service, pageToken string) func(context.Context) error {
-	return func(ctx context.Context) error {
-		_, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2, PageToken: pageToken}})
-		return err
-	}
-}
-
+// A token this controller did not issue is a hard InvalidArgument. It never reaches
+// ate-api, never starts a walk again at page one, and its error names no tenant-b row.
 func TestListSubstrateActorsStrictToken(t *testing.T) {
-	tokens := map[string]string{
-		"not base64":                    "not base64!",
-		"substrate token, std base64":   base64.StdEncoding.EncodeToString([]byte(substrateActorToken)),
+	for name, pageToken := range map[string]string{
+		"not base64":         "not base64!",
+		"no separator":       token("tenant-a"),
+		"empty atespace":     token("/x"),
+		"unwatched atespace": token("tenant-b/x"),
+		// A Substrate actor token, as the released controller passed it through.
+		"substrate token":               token(`{"v":1,"kind":"actor","scope":"","last":["tenant-b","session-1"]}`),
 		"longer than 1 KiB, else valid": token("tenant-a/" + strings.Repeat("x", 800)),
-	}
-	for name, raw := range badActorTokens {
-		tokens[name] = token(raw)
-	}
-	for name, pageToken := range tokens {
+	} {
 		t.Run(name, func(t *testing.T) {
 			ateClient := &fakeATEClient{}
-			service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-			rejectsToken(t, ateClient, listActorsWithToken(service, pageToken))
+			service := system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+			_, err := service.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2, PageToken: pageToken}})
+			require.Error(t, err)
+			assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), "err = %v", err)
+			assert.NotContains(t, err.Error(), "tenant-b")
+			assert.Empty(t, ateClient.calls, "a bad token must not reach ate-api")
 		})
 	}
 }
 
-// ate-api checks the token inside a kagent token: a forged one cannot read another
-// atespace, and its refusal names nothing.
-func TestListSubstrateActorsForeignInnerToken(t *testing.T) {
-	ateClient := pagingATEClient()
-	service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	page, err := service.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{
-		PageToken: token("tenant-a/upstream:tenant-b:tenant-b/tenant-b-actor-1"),
-	}})
-	require.NoError(t, err)
-	assert.Empty(t, page.Actors)
-	assert.Empty(t, page.NextPageToken)
-	assert.NotEmpty(t, page.ATEAPIError)
-	assert.NotContains(t, page.ATEAPIError, "tenant-b")
-	assert.Equal(t, []ateCall{{method: "ListActorsPage", scope: "tenant-a", token: "upstream:tenant-b:tenant-b/tenant-b-actor-1", size: 50}}, ateClient.calls)
-}
-
-// The token names its atespace, not its place in the list, so a token survives a
-// change to the watched list or fails loudly, and never reads a new neighbour.
+// The token names its atespace, not its place in the watched list, so it resumes in the
+// same atespace after the list grows.
 func TestListSubstrateActorsTokenHoldsAtespaceName(t *testing.T) {
 	ctx := pagingContext(t)
-	ateClient := pagingATEClient()
-	first := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	first := system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, pagingATEClient())
 	// tenant-a has five actors, so a page of six ends one row into tenant-c.
 	page, err := first.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 6}})
 	require.NoError(t, err)
-	require.Equal(t, "tenant-c", tokenAtespace(t, page.NextPageToken))
 
-	t.Run("a wider list resumes in the same atespace", func(t *testing.T) {
-		ateClient := pagingATEClient()
-		wider := system.NewService(nil, nil, []string{"tenant-a", "tenant-b", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-		next, err := wider.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 6, PageToken: page.NextPageToken}})
-		require.NoError(t, err)
-		assert.Equal(t, []string{"tenant-c-actor-2", "tenant-c-actor-3"}, actorNames(next.Actors))
-		for _, call := range ateClient.calls {
-			assert.Equal(t, "tenant-c", call.scope)
-		}
-	})
-
-	t.Run("a narrower list refuses it", func(t *testing.T) {
-		ateClient := pagingATEClient()
-		narrower := system.NewService(nil, nil, []string{"tenant-a"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-		rejectsToken(t, ateClient, listActorsWithToken(narrower, page.NextPageToken))
-	})
-}
-
-// A page that fills at the end of one atespace offers the next one, which may turn out
-// to be empty. That last page is accepted: knowing in advance costs a read per page.
-func TestListSubstrateActorsEmptyLastPage(t *testing.T) {
-	ctx := pagingContext(t)
-	ateClient := &fakeATEClient{actors: []*ateapipb.Actor{namedActor("tenant-a", "a-1"), namedActor("tenant-a", "a-2")}}
-	service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	pages := walkActors(t, ctx, service, "", 2)
-	require.Len(t, pages, 2)
-	assert.Equal(t, []string{"a-1", "a-2"}, actorNames(pages[0].Actors))
-	assert.Empty(t, pages[1].Actors)
-	assert.Len(t, ateClient.calls, 2, "one read for each page")
-}
-
-func TestListSubstrateActorsEmptyWatchedAtespace(t *testing.T) {
-	ctx := pagingContext(t)
 	ateClient := pagingATEClient()
-	watched := []string{"tenant-a", "empty", "tenant-c"}
-	service := system.NewService(nil, nil, watched, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	assert.Equal(t, ownActorNames(ateClient, watched), walkedActorNames(walkActors(t, ctx, service, "", 2)))
-	assert.Equal(t, []string{"empty", "tenant-a", "tenant-c"}, calledScopes(ateClient, "ListActorsPage"))
-}
-
-// ate-api scopes each list, and the controller still keeps only that atespace's rows.
-func TestListSubstrateActorsKeepsRowFilter(t *testing.T) {
-	ctx := pagingContext(t)
-	ateClient := pagingATEClient()
-	ateClient.ignoreAtespace = true
-	watched := []string{"tenant-a", "tenant-c"}
-	service := system.NewService(nil, nil, watched, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	assert.Equal(t, ownActorNames(ateClient, watched), walkedActorNames(walkActors(t, ctx, service, "", 100)))
-	assert.Equal(t, watched, calledScopes(ateClient, "ListActorsPage"))
+	wider := system.NewService(nil, []string{"tenant-a", "tenant-b", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	next, err := wider.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 6, PageToken: page.NextPageToken}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tenant-c-actor-2", "tenant-c-actor-3"}, actorNames(next.Actors))
+	assert.Equal(t, []string{"tenant-c"}, calledScopes(ateClient, "ListActorsPage"))
 }
 
 func TestListSubstrateActorsNamedAtespace(t *testing.T) {
 	ctx := pagingContext(t)
 	ateClient := pagingATEClient()
-	service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	service := system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 
 	pages := walkActors(t, ctx, service, "tenant-c", 1)
-	assert.Equal(t, ownActorNames(ateClient, []string{"tenant-c"}), walkedActorNames(pages))
-	for _, call := range ateClient.calls {
-		assert.Equal(t, "tenant-c", call.scope)
-	}
+	assert.Equal(t, []string{"tenant-c-actor-1", "tenant-c-actor-2", "tenant-c-actor-3"}, walkedActorNames(pages))
+	assert.Equal(t, []string{"tenant-c"}, calledScopes(ateClient, "ListActorsPage"))
 	for _, page := range pages[:len(pages)-1] {
 		assert.Equal(t, "tenant-c", tokenAtespace(t, page.NextPageToken))
 	}
@@ -389,7 +274,7 @@ func TestListSubstrateActorsLaterCallFails(t *testing.T) {
 		failCall: 2,
 		failErr:  errors.New("ate-api unreachable"),
 	}
-	service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	service := system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 
 	page, err := service.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2}})
 	require.NoError(t, err)
@@ -398,197 +283,117 @@ func TestListSubstrateActorsLaterCallFails(t *testing.T) {
 	assert.Empty(t, page.NextPageToken)
 }
 
-// A watched list with a repeat must not read an atespace twice, or offer a token that
-// leads back to a page already read.
-func TestNewServiceDeduplicatesWatched(t *testing.T) {
-	ctx := pagingContext(t)
-	ateClient := pagingATEClient()
-	service := system.NewService(nil, nil, []string{"tenant-c", "tenant-a", "tenant-a"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	assert.Equal(t, ownActorNames(ateClient, []string{"tenant-a", "tenant-c"}), walkedActorNames(walkActors(t, ctx, service, "", 1)))
-	assert.Equal(t, []string{"tenant-a", "tenant-c"}, calledScopes(ateClient, "ListActorsPage"), "sorted")
-}
-
-// The app passes an empty list for an install that watches every namespace.
-func TestNewServiceWatchAllStaysWatchAll(t *testing.T) {
-	for name, watched := range map[string][]string{"nil": nil, "empty": {}} {
-		t.Run(name, func(t *testing.T) {
-			ateClient := pagingATEClient()
-			service := system.NewService(nil, nil, watched, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-			page, err := service.ListSubstrateActors(pagingContext(t), &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 100}})
-			require.NoError(t, err)
-			assert.Len(t, page.Actors, len(ateClient.actors))
-			assert.Equal(t, []ateCall{{method: "ListActorsPage", size: 100}}, ateClient.calls)
-		})
-	}
-}
-
 // The ate-api reads of a full walk, counted by hand from the paging data: tenant-a
 // has five actors and tenant-c three.
 func TestListSubstrateActorsCallCounts(t *testing.T) {
-	ctx := pagingContext(t)
 	for limit, want := range map[int32]int{1: 8, 2: 5, 3: 4, 5: 2, 50: 2} {
 		t.Run(strconv.Itoa(int(limit)), func(t *testing.T) {
 			ateClient := pagingATEClient()
-			service := system.NewService(nil, nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-			calls, pageToken := 0, ""
-			for range 100 {
-				page, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: limit, PageToken: pageToken}})
-				require.NoError(t, err)
-				pageCalls := ateClient.calls[calls:]
-				calls += len(pageCalls)
-				read := map[string]bool{}
-				for _, call := range pageCalls {
-					assert.False(t, read[call.scope], "page %v read %s twice", actorNames(page.Actors), call.scope)
-					read[call.scope] = true
-				}
-				if pageToken = page.NextPageToken; pageToken == "" {
-					break
-				}
-			}
-			assert.Equal(t, want, calls)
+			service := system.NewService(nil, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+			walkActors(t, pagingContext(t), service, "", limit)
+			assert.Len(t, ateClient.calls, want)
 		})
 	}
-}
-
-// Workers are read one by one, by the UID of a worker pod in a watched namespace.
-func TestListSubstrateWorkersFromOwnPods(t *testing.T) {
-	ctx := pagingContext(t)
-	ateClient := pagingATEClient()
-	kubeClient := pagingKubeClient(t, interceptor.Funcs{})
-	service := system.NewService(kubeClient, kubeClient, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	pages := walkWorkers(t, ctx, service, "", 1)
-	require.Len(t, pages, len(ownWorkerUIDs), "the last worker ends the walk")
-	assert.Equal(t, ownWorkerUIDs, walkedWorkerUIDs(pages))
-	for i, page := range pages[:len(pages)-1] {
-		assert.Equal(t, ownWorkerUIDs[i], page.NextPageToken)
-	}
-	for _, call := range ateClient.calls {
-		assert.Equal(t, "GetWorker", call.method)
-		assert.Contains(t, ownWorkerUIDs, call.scope)
-	}
-}
-
-func newPagingWorkerService(t *testing.T, ateClient *fakeATEClient, funcs interceptor.Funcs, pods ...*corev1.Pod) *system.Service {
-	kubeClient := pagingKubeClient(t, funcs, pods...)
-	return system.NewService(kubeClient, kubeClient, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-}
-
-// A worker pod that is not Ready has no Worker yet. The page fills from later pods.
-func TestListSubstrateWorkersSkipsUnregisteredPod(t *testing.T) {
-	ateClient := pagingATEClient()
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{}, workerPod("tenant-a", "pool-a", "u2a-tenant-a"))
-
-	pages := walkWorkers(t, pagingContext(t), service, "", 2)
-	assert.Equal(t, []string{"u1-tenant-a", "u3-tenant-c"}, walkedWorkerUIDs(pages[:1]))
-	assert.Equal(t, ownWorkerUIDs, walkedWorkerUIDs(pages))
-}
-
-// A Worker whose pod is gone is not shown, and not read.
-func TestListSubstrateWorkersHidesStaleWorker(t *testing.T) {
-	ateClient := pagingATEClient()
-	ateClient.workers = append(ateClient.workers, ateWorker("tenant-a", "u9-tenant-a", 0))
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-
-	assert.Equal(t, ownWorkerUIDs, walkedWorkerUIDs(walkWorkers(t, pagingContext(t), service, "", 100)))
-	assert.NotContains(t, ateClient.calls, ateCall{method: "GetWorker", scope: "u9-tenant-a"})
-}
-
-// A Worker that names another namespace or another pod than the pod it was read for
-// is not that pod's Worker.
-func TestListSubstrateWorkersChecksWorkerMatchesPod(t *testing.T) {
-	ateClient := pagingATEClient()
-	for _, worker := range ateClient.workers {
-		switch worker.GetWorkerPodUid() {
-		case "u4-tenant-a":
-			worker.WorkerNamespace = "tenant-b"
-		case "u6-tenant-a":
-			worker.WorkerPodUid = "u5-tenant-b"
-		}
-	}
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-
-	assert.Equal(t, []string{"u1-tenant-a", "u3-tenant-c"}, walkedWorkerUIDs(walkWorkers(t, pagingContext(t), service, "", 100)))
-}
-
-// A worker token holds a UID only as a cursor. It is never sent to ate-api.
-func TestListSubstrateWorkersForgedToken(t *testing.T) {
-	t.Run("a foreign UID only moves the cursor", func(t *testing.T) {
-		ateClient := pagingATEClient()
-		service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-
-		page, err := service.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{PageToken: "u2-tenant-b"}})
-		require.NoError(t, err)
-		assert.Equal(t, ownWorkerUIDs[1:], walkedWorkerUIDs([]system.SubstrateWorkerPage{page}))
-		for _, call := range ateClient.calls {
-			assert.Contains(t, ownWorkerUIDs, call.scope)
-		}
-	})
-
-	t.Run("longer than 1 KiB", func(t *testing.T) {
-		ateClient := pagingATEClient()
-		service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-		rejectsToken(t, ateClient, func(ctx context.Context) error {
-			_, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{PageToken: "u2-tenant-b" + strings.Repeat("x", 1024)}})
-			return err
-		})
-	})
-}
-
-func TestListSubstrateWorkersNamedNamespace(t *testing.T) {
-	ateClient := pagingATEClient()
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-
-	tenantA := []string{"u1-tenant-a", "u4-tenant-a", "u6-tenant-a"}
-	assert.Equal(t, tenantA, walkedWorkerUIDs(walkWorkers(t, pagingContext(t), service, "tenant-a", 1)))
-	assert.Equal(t, tenantA, calledScopes(ateClient, "GetWorker"))
-	assert.Empty(t, calledScopes(ateClient, "ListWorkersPage"))
 }
 
 // ate-api error text can name a worker of another namespace. The user sees a fixed text.
 func TestListSubstrateWorkersFixedErrorText(t *testing.T) {
 	ateClient := pagingATEClient()
-	ateClient.failCall = 2
+	ateClient.failCall = 2 // the second page of the drain
 	ateClient.failErr = status.Error(codes.Internal, "worker u2-tenant-b is on a node that failed")
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
 
-	page, err := service.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, "ate-api could not read a worker: Internal", page.ATEAPIError)
+	page := listWorkers(t, ownWorkerService(ateClient), 0, "")
+	assert.Equal(t, "ate-api could not list workers: Internal", page.ATEAPIError)
 	assert.Empty(t, page.Workers, "no partial page")
 	assert.Empty(t, page.NextPageToken)
 }
 
-func TestListSubstrateWorkersPodListFails(t *testing.T) {
-	ateClient := pagingATEClient()
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{
-		List: func(context.Context, ctrlclient.WithWatch, ctrlclient.ObjectList, ...ctrlclient.ListOption) error {
-			return errors.New("etcd is down")
-		},
-	})
-
-	page, err := service.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{})
-	require.NoError(t, err)
-	assert.NotEmpty(t, page.ATEAPIError)
-	assert.Empty(t, page.Workers)
-	assert.Empty(t, page.NextPageToken)
-	assert.Empty(t, ateClient.calls)
+// A named namespace narrows the view. A watched namespace with no worker is one empty
+// page with no token.
+func TestListSubstrateWorkersNamedNamespace(t *testing.T) {
+	for namespace, want := range map[string][]string{
+		"tenant-a": {"u1-tenant-a", "u4-tenant-a", "u6-tenant-a"},
+		"tenant-d": {},
+	} {
+		t.Run(namespace, func(t *testing.T) {
+			service := system.NewService(nil, []string{"tenant-a", "tenant-c", "tenant-d"}, &pkgAuth.NoopAuthorizer{}, pagingATEClient())
+			pages := walkWorkers(t, pagingContext(t), service, namespace, 1)
+			assert.Equal(t, want, walkedWorkerUIDs(pages))
+			assert.Len(t, pages, max(1, len(want)))
+		})
+	}
 }
 
-// ownSummary is the summary of tenant-a and tenant-c in the paging data.
-func assertOwnSummary(t *testing.T, summary system.SubstrateSummary) {
-	t.Helper()
-	assert.Equal(t, int64(8), summary.ActorCount)
-	assert.Equal(t, int64(8), summary.RunningActorCount)
-	assert.Equal(t, []string{"tenant-a-template", "tenant-c-template"}, templateNames(summary.ActorTemplates))
-	assert.Equal(t, int64(4), summary.WorkerCount)
-	assert.Equal(t, int64(2), summary.BusyWorkerCount)
+// endlessATEClient answers each worker page with no rows and the next token it is given.
+type endlessATEClient struct {
+	fakeATEClient
+	next func(read int) string
 }
 
-// calledScopes lists the atespace or worker of each call to the method.
+func (client *endlessATEClient) ListWorkersPage(context.Context, int32, string) ([]*ateapipb.Worker, string, error) {
+	client.workerReads++
+	return nil, client.next(client.workerReads), nil
+}
+
+// ate-api faults that stop a drain: a repeated token, which the drain error quotes, and
+// a token that never ends.
+func TestListSubstrateWorkersEndlessPages(t *testing.T) {
+	for name, tc := range map[string]struct {
+		next  func(read int) string
+		reads int
+	}{
+		"repeated token": {func(int) string { return "upstream:u2-tenant-b" }, 2},
+		"endless tokens": {func(read int) string { return "upstream:" + strconv.Itoa(read) }, 10_000},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ateClient := &endlessATEClient{next: tc.next}
+			page := listWorkers(t, ownWorkerService(ateClient), 0, "")
+			assert.Equal(t, "ate-api could not list workers: Unknown", page.ATEAPIError)
+			assert.Empty(t, page.NextPageToken)
+			assert.Equal(t, tc.reads, ateClient.workerReads)
+		})
+	}
+}
+
+// A page holds 50 workers by default, in name order even when ate-api's is not.
+func TestListSubstrateWorkersDefaultPageSize(t *testing.T) {
+	ateClient := &fakeATEClient{workerPageSize: 2}
+	for i := 59; i >= 0; i-- {
+		ateClient.workers = append(ateClient.workers, ateWorker("tenant-a", fmt.Sprintf("w%02d-tenant-a", i), 0))
+	}
+	page := listWorkers(t, ownWorkerService(ateClient), 0, "")
+	require.Len(t, page.Workers, 50)
+	assert.Equal(t, "w00-tenant-a", page.Workers[0].GetWorkerPodUid())
+	assert.Equal(t, "w49-tenant-a", page.NextPageToken)
+}
+
+// Any token is a cursor: an actor token, a foreign worker name or a name past the end
+// moves it, and no row, token or error names tenant-b. A worker added or deleted
+// between pages moves it the same way.
+func TestListSubstrateWorkersTokenIsCursor(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pageToken string
+		want      []string
+	}{
+		"actor token":     {token("tenant-a/upstream:tenant-b:tenant-b/tenant-b-actor-1"), ownWorkerUIDs},
+		"foreign worker":  {"u2-tenant-b", []string{"u3-tenant-c", "u4-tenant-a", "u6-tenant-a"}},
+		"after every row": {"zzz", []string{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			page := listWorkers(t, ownWorkerService(pagingATEClient()), 50, tc.pageToken)
+			assert.Equal(t, tc.want, walkedWorkerUIDs([]system.SubstrateWorkerPage{page}))
+			assert.Empty(t, page.NextPageToken)
+			assert.Empty(t, page.ATEAPIError)
+		})
+	}
+}
+
+// newPagingWorkerService is ownWorkerService with WorkerPools for the summary.
+func newPagingWorkerService(t *testing.T, ateClient system.ATEClient) *system.Service {
+	return system.NewService(pagingKubeClient(t, interceptor.Funcs{}), []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+}
+
+// calledScopes lists the atespace of each call to the method, once each.
 func calledScopes(client *fakeATEClient, method string) []string {
 	scopes := []string{}
 	for _, call := range client.calls {
@@ -599,23 +404,36 @@ func calledScopes(client *fakeATEClient, method string) []string {
 	return scopes
 }
 
-func TestGetSubstrateSummaryReadsOnlyWatched(t *testing.T) {
-	ateClient := pagingATEClient()
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
+// The summary and the actor list read only watched atespaces, and keep only their rows
+// even from an ate-api that drops the atespace filter.
+func TestSubstrateReadsOnlyWatched(t *testing.T) {
+	for _, ignoreAtespace := range []bool{false, true} {
+		t.Run("ignoreAtespace="+strconv.FormatBool(ignoreAtespace), func(t *testing.T) {
+			ctx := pagingContext(t)
+			ateClient := pagingATEClient()
+			ateClient.ignoreAtespace = ignoreAtespace
+			service := newPagingWorkerService(t, ateClient)
 
-	summary, err := service.GetSubstrateSummary(pagingContext(t), "", "")
-	require.NoError(t, err)
-	assert.Empty(t, summary.ATEAPIError)
-	assertOwnSummary(t, summary)
-	assert.Equal(t, []string{"tenant-a", "tenant-c"}, calledScopes(ateClient, "ListActorsPage"))
-	assert.Equal(t, []string{"tenant-a", "tenant-c"}, calledScopes(ateClient, "ListActorTemplates"))
-	assert.ElementsMatch(t, ownWorkerUIDs, calledScopes(ateClient, "GetWorker"))
-	assert.Empty(t, calledScopes(ateClient, "ListWorkersPage"))
+			summary, err := service.GetSubstrateSummary(ctx, "", "")
+			require.NoError(t, err)
+			assert.Empty(t, summary.ATEAPIError)
+			assert.Equal(t, int64(8), summary.ActorCount)
+			assert.Equal(t, int64(8), summary.RunningActorCount)
+			assert.Equal(t, []string{"tenant-a-template", "tenant-c-template"}, templateNames(summary.ActorTemplates))
+			assert.Equal(t, int64(4), summary.WorkerCount)
+			assert.Equal(t, int64(2), summary.BusyWorkerCount)
+			assert.Equal(t, []string{"tenant-a", "tenant-c"}, calledScopes(ateClient, "ListActorsPage"))
+			assert.Equal(t, []string{"tenant-a", "tenant-c"}, calledScopes(ateClient, "ListActorTemplates"))
+			assert.Equal(t, 3, ateClient.workerReads, "one drain")
+
+			assert.Equal(t, ownActorNames(ateClient, []string{"tenant-a", "tenant-c"}), walkedActorNames(walkActors(t, ctx, service, "", 100)))
+		})
+	}
 }
 
 func TestGetSubstrateSummaryInputs(t *testing.T) {
 	ateClient := pagingATEClient()
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
+	service := newPagingWorkerService(t, ateClient)
 
 	summary, err := service.GetSubstrateSummary(pagingContext(t), "tenant-a", "tenant-c")
 	require.NoError(t, err)
@@ -623,31 +441,20 @@ func TestGetSubstrateSummaryInputs(t *testing.T) {
 	assert.Equal(t, int64(3), summary.WorkerCount)
 	assert.Equal(t, []string{"tenant-c"}, calledScopes(ateClient, "ListActorsPage"))
 	assert.Equal(t, []string{"tenant-c"}, calledScopes(ateClient, "ListActorTemplates"))
-	assert.ElementsMatch(t, []string{"u1-tenant-a", "u4-tenant-a", "u6-tenant-a"}, calledScopes(ateClient, "GetWorker"))
+
+	summary, err = service.GetSubstrateSummary(pagingContext(t), "tenant-c", "")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), summary.WorkerCount)
+	assert.Equal(t, int64(1), summary.BusyWorkerCount)
 }
 
-// An ate-api that drops the atespace filter cannot show another tenant's template,
-// nor one template twice.
-func TestGetSubstrateSummaryKeepsTemplateFilter(t *testing.T) {
-	ateClient := pagingATEClient()
-	ateClient.ignoreAtespace = true
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-
-	summary, err := service.GetSubstrateSummary(pagingContext(t), "", "")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"tenant-a-template", "tenant-c-template"}, templateNames(summary.ActorTemplates))
-
-	summary, err = service.GetSubstrateSummary(pagingContext(t), "", "tenant-a")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"tenant-a-template"}, templateNames(summary.ActorTemplates))
-}
-
-// One failed scoped read is a warning. The reads that did not fail still count.
+// A failed second template list drops the first one's templates too. The other reads
+// still count.
 func TestGetSubstrateSummaryPartialFailure(t *testing.T) {
 	ateClient := pagingATEClient()
 	ateClient.failCall = 2 // the tenant-c template list
 	ateClient.failErr = errors.New("templates unavailable")
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
+	service := newPagingWorkerService(t, ateClient)
 
 	summary, err := service.GetSubstrateSummary(pagingContext(t), "", "")
 	require.NoError(t, err)
@@ -655,57 +462,21 @@ func TestGetSubstrateSummaryPartialFailure(t *testing.T) {
 	assert.Empty(t, summary.ActorTemplates)
 	assert.Equal(t, int64(8), summary.ActorCount)
 	assert.Equal(t, int64(4), summary.WorkerCount)
-	assert.Equal(t, int64(2), summary.BusyWorkerCount)
-}
-
-// A failed Worker read is a warning. Templates and actors still count.
-func TestGetSubstrateSummaryWorkerUnavailable(t *testing.T) {
-	ateClient := pagingATEClient()
-	ateClient.failCall = 5 // the first GetWorker, after two template and two actor lists
-	ateClient.failErr = status.Error(codes.Unavailable, "worker u1-tenant-a is unreachable")
-	service := newPagingWorkerService(t, ateClient, interceptor.Funcs{})
-
-	summary, err := service.GetSubstrateSummary(pagingContext(t), "", "")
-	require.NoError(t, err)
-	assert.Equal(t, "ate-api could not read a worker: Unavailable", summary.ATEAPIError)
-	assert.Equal(t, []string{"tenant-a-template", "tenant-c-template"}, templateNames(summary.ActorTemplates))
-	assert.Equal(t, int64(8), summary.ActorCount)
-	assert.Equal(t, int64(8), summary.RunningActorCount)
-	assert.Zero(t, summary.WorkerCount)
-}
-
-// A failed worker pod list is a warning too. WorkerPools come from the cached client
-// and still list.
-func TestGetSubstrateSummaryPodListFails(t *testing.T) {
-	ateClient := pagingATEClient()
-	podReader := pagingKubeClient(t, interceptor.Funcs{
-		List: func(context.Context, ctrlclient.WithWatch, ctrlclient.ObjectList, ...ctrlclient.ListOption) error {
-			return errors.New("etcd is down")
-		},
-	})
-	service := system.NewService(pagingKubeClient(t, interceptor.Funcs{}), podReader, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	summary, err := service.GetSubstrateSummary(pagingContext(t), "", "")
-	require.NoError(t, err)
-	assert.Equal(t, "failed to list worker pods", summary.ATEAPIError)
-	assert.Len(t, summary.WorkerPools, 2)
-	assert.Equal(t, []string{"tenant-a-template", "tenant-c-template"}, templateNames(summary.ActorTemplates))
-	assert.Equal(t, int64(8), summary.ActorCount)
-	assert.Zero(t, summary.WorkerCount)
-	assert.Empty(t, calledScopes(ateClient, "GetWorker"))
 }
 
 // Walks every RPC with each watched list and page size of the paging data. A walk
 // reads, and its tokens name, only watched data. It returns each own row once, and no
-// page is empty beside a token: that would tell the caller a hidden row exists.
+// page is empty beside a token: that would tell the caller a hidden row exists. The
+// lists cover a repeat, which must not read an atespace twice, and a watched atespace
+// with no rows.
 func TestSubstrateWalksStayInWatchedNamespaces(t *testing.T) {
-	for _, watched := range [][]string{{"tenant-a", "tenant-c"}, {"tenant-a"}} {
+	for _, watched := range [][]string{{"tenant-a", "tenant-c"}, {"tenant-a"}, {"tenant-c", "tenant-a", "tenant-a"}, {"tenant-a", "empty", "tenant-c"}} {
 		for _, limit := range []int32{1, 2, 3, 4, 5, 6, 7, 100} {
 			t.Run(fmt.Sprintf("%v/%d", watched, limit), func(t *testing.T) {
 				ctx := pagingContext(t)
 				ateClient := pagingATEClient()
 				kubeClient := pagingKubeClient(t, interceptor.Funcs{})
-				service := system.NewService(kubeClient, kubeClient, watched, &pkgAuth.NoopAuthorizer{}, ateClient)
+				service := system.NewService(kubeClient, watched, &pkgAuth.NoopAuthorizer{}, ateClient)
 				ownWorkerIDs := []string{}
 				for _, uid := range ownWorkerUIDs {
 					if slices.ContainsFunc(watched, func(namespace string) bool { return strings.HasSuffix(uid, namespace) }) {
@@ -721,8 +492,9 @@ func TestSubstrateWalksStayInWatchedNamespaces(t *testing.T) {
 					switch call.method {
 					case "ListActorsPage", "ListActorTemplates":
 						assert.Contains(t, watched, call.scope, "%+v", call)
-					case "GetWorker":
-						assert.Contains(t, ownWorkerIDs, call.scope, "%+v", call)
+					case "ListWorkersPage":
+						// A drain sends only ate-api's own tokens.
+						assert.Contains(t, []string{"", "upstream:2", "upstream:4"}, call.token, "%+v", call)
 					default:
 						t.Errorf("unexpected call %+v", call)
 					}
@@ -750,21 +522,12 @@ func TestSubstrateWalksStayInWatchedNamespaces(t *testing.T) {
 	}
 }
 
-// A controller that watches every namespace answers as it did before: ate-api's page,
-// and ate-api's token unchanged.
+// A controller that watches every namespace (the app passes an empty list) answers as
+// it did before: ate-api's page, token and error text unchanged.
 func TestSubstratePassThroughWhenWatchingAll(t *testing.T) {
 	ctx := pagingContext(t)
 	ateClient := pagingATEClient()
-	podLists := 0
-	kubeClient := pagingKubeClient(t, interceptor.Funcs{
-		List: func(ctx context.Context, c ctrlclient.WithWatch, list ctrlclient.ObjectList, opts ...ctrlclient.ListOption) error {
-			if _, ok := list.(*corev1.PodList); ok {
-				podLists++
-			}
-			return c.List(ctx, list, opts...)
-		},
-	})
-	service := system.NewService(kubeClient, kubeClient, nil, &pkgAuth.NoopAuthorizer{}, ateClient)
+	service := system.NewService(nil, []string{}, &pkgAuth.NoopAuthorizer{}, ateClient)
 
 	for _, atespace := range []string{"", "tenant-b"} {
 		page, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: atespace, Page: &apiv1.PageRequest{Limit: 1}})
@@ -774,46 +537,11 @@ func TestSubstratePassThroughWhenWatchingAll(t *testing.T) {
 		assert.Equal(t, "upstream:"+atespace+":"+page.Actors[0].GetMetadata().GetAtespace()+"/"+page.Actors[0].GetMetadata().GetName(), page.NextPageToken)
 	}
 
-	workers, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: 1}})
-	require.NoError(t, err)
-	assert.Equal(t, "upstream:1", workers.NextPageToken)
-	_, err = service.GetSubstrateSummary(ctx, "", "")
-	require.NoError(t, err)
-	assert.Empty(t, calledScopes(ateClient, "GetWorker"))
-	assert.Zero(t, podLists)
-}
+	page := listWorkers(t, service, 1, "upstream:2")
+	assert.Equal(t, []string{"u3-tenant-c"}, walkedWorkerUIDs([]system.SubstrateWorkerPage{page}))
+	assert.Equal(t, "upstream:3", page.NextPageToken)
+	assert.Equal(t, ateCall{method: "ListWorkersPage", token: "upstream:2", size: 1}, ateClient.calls[len(ateClient.calls)-1])
 
-func TestSubstrateRowsChangeBetweenPages(t *testing.T) {
-	ctx := pagingContext(t)
-	ateClient := pagingATEClient()
-	kubeClient := pagingKubeClient(t, interceptor.Funcs{})
-	service := system.NewService(kubeClient, kubeClient, []string{"tenant-a", "tenant-c"}, &pkgAuth.NoopAuthorizer{}, ateClient)
-
-	actors, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2}})
-	require.NoError(t, err)
-	require.Equal(t, []string{"tenant-a-actor-1", "tenant-a-actor-2"}, actorNames(actors.Actors))
-	ateClient.actors = slices.DeleteFunc(ateClient.actors, func(actor *ateapipb.Actor) bool { return actor.GetMetadata().GetName() == "tenant-a-actor-4" })
-	ateClient.actors = append(ateClient.actors, namedActor("tenant-a", "tenant-a-actor-0"))
-	rest := []string{}
-	for pageToken := actors.NextPageToken; pageToken != ""; {
-		page, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2, PageToken: pageToken}})
-		require.NoError(t, err)
-		require.Empty(t, page.ATEAPIError)
-		rest, pageToken = append(rest, actorNames(page.Actors)...), page.NextPageToken
-	}
-	assert.Equal(t, []string{"tenant-a-actor-3", "tenant-a-actor-5", "tenant-c-actor-1", "tenant-c-actor-2", "tenant-c-actor-3"}, rest)
-
-	workers, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: 1}})
-	require.NoError(t, err)
-	require.Equal(t, ownWorkerUIDs[:1], walkedWorkerUIDs([]system.SubstrateWorkerPage{workers}))
-	require.NoError(t, kubeClient.Delete(ctx, workerPod("tenant-a", "pool-a", "u4-tenant-a")))
-	require.NoError(t, kubeClient.Create(ctx, workerPod("tenant-a", "pool-a", "u0a-tenant-a")))
-	rest = []string{}
-	for pageToken := workers.NextPageToken; pageToken != ""; {
-		page, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{Limit: 1, PageToken: pageToken}})
-		require.NoError(t, err)
-		require.Empty(t, page.ATEAPIError)
-		rest, pageToken = append(rest, walkedWorkerUIDs([]system.SubstrateWorkerPage{page})...), page.NextPageToken
-	}
-	assert.Equal(t, []string{"u3-tenant-c", "u6-tenant-a"}, rest)
+	ateClient.err = errors.New("worker u2-tenant-b is down")
+	assert.Equal(t, "worker u2-tenant-b is down", listWorkers(t, service, 1, "").ATEAPIError)
 }

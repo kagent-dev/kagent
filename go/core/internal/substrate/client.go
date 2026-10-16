@@ -145,13 +145,6 @@ func (c *Client) GetActorTemplate(ctx context.Context, atespace, name string) (*
 	return c.ControlClient.GetActorTemplate(ctx, &ateapipb.GetActorTemplateRequest{ActorTemplate: actorRef(atespace, name)})
 }
 
-// GetWorker reads a Worker by name. ate-api names each Worker after its pod's UID.
-func (c *Client) GetWorker(ctx context.Context, name string) (*ateapipb.Worker, error) {
-	ctx, cancel := c.callCtx(ctx)
-	defer cancel()
-	return c.ControlClient.GetWorker(ctx, &ateapipb.GetWorkerRequest{Worker: &ateapipb.ObjectRef{Name: name}})
-}
-
 func (c *Client) CreateActorTemplate(ctx context.Context, template *ateapipb.ActorTemplate) (*ateapipb.ActorTemplate, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()

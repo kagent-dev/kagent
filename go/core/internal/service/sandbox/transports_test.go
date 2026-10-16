@@ -38,7 +38,7 @@ func TestSandboxTransports(t *testing.T) {
 	listener := bufconn.Listen(1 << 20)
 	server, err := grpcserver.New(grpcserver.Config{
 		Listener: listener, Authenticator: testAuth{},
-		SystemService:  system.NewService(nil, nil, nil, nil, nil),
+		SystemService:  system.NewService(nil, nil, nil, nil),
 		SandboxService: service,
 	})
 	require.NoError(t, err)

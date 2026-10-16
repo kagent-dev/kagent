@@ -29,14 +29,10 @@ type ATEClient interface {
 	ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error)
 	ListActorsPage(ctx context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error)
 	ListWorkersPage(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error)
-	GetWorker(ctx context.Context, name string) (*ateapipb.Worker, error)
 }
 
 type Service struct {
 	kubeClient client.Client
-	// Reads worker pods. The manager passes its uncached API reader, so the manager's
-	// cache holds no Pods.
-	podReader client.Reader
 	// Sorted and unique: the order Substrate pages are read in. A repeat must not read
 	// an atespace twice. Empty means every namespace.
 	observedNamespaces []string
@@ -51,14 +47,12 @@ type Namespace struct {
 
 func NewService(
 	kubeClient client.Client,
-	podReader client.Reader,
 	observedNamespaces []string,
 	authorizer auth.Authorizer,
 	ateClient ATEClient,
 ) *Service {
 	return &Service{
 		kubeClient:         kubeClient,
-		podReader:          podReader,
 		observedNamespaces: slices.Compact(slices.Sorted(slices.Values(observedNamespaces))),
 		authorizer:         authorizer,
 		ateClient:          ateClient,

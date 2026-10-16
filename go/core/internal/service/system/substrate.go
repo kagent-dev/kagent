@@ -3,7 +3,6 @@ package system
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,10 +11,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -163,10 +159,13 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 		start, inner := 0, ""
 		if token != "" {
 			// A token without a watched atespace is refused rather than read as page one.
+			if len(token) > maxPageTokenBytes {
+				return SubstrateActorPage{}, errInvalidPageToken
+			}
 			decoded, decodeErr := base64.RawURLEncoding.DecodeString(token)
 			atespace, rest, ok := strings.Cut(string(decoded), "/")
 			start = slices.Index(atespaces, atespace)
-			if len(token) > maxPageTokenBytes || decodeErr != nil || !ok || atespace == "" || start < 0 {
+			if decodeErr != nil || !ok || atespace == "" || start < 0 {
 				return SubstrateActorPage{}, errInvalidPageToken
 			}
 			inner = rest
@@ -224,8 +223,8 @@ func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inne
 
 // ListSubstrateWorkers returns one page of workers. A controller that watches every
 // namespace filters ate-api's page and passes its token through. A controller that
-// watches some reads the Worker of each of its own worker pods, so ate-api reads, and
-// no page token names, a worker of a namespace it does not watch.
+// watches some reads every ate-api worker and returns only the workers of watched
+// namespaces, so no page token names a worker of a namespace it does not watch.
 func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
 	namespaces, err := s.substrateScope(ctx, input.GetNamespace(), "")
 	if err != nil {
@@ -233,7 +232,7 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	}
 	limit, token := substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken()
 	if len(s.observedNamespaces) > 0 {
-		return s.listPodWorkers(ctx, namespaces, limit, token)
+		return s.listOwnWorkers(ctx, namespaces, limit, token)
 	}
 	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
 	workers, next, err := s.ateClient.ListWorkersPage(ctx, limit, token)
@@ -243,7 +242,7 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 		return result, nil
 	}
 	for _, worker := range workers {
-		if inNamespace(worker, namespaces[0]) {
+		if inNamespace(worker, namespaces) {
 			result.Workers = append(result.Workers, worker)
 		}
 	}
@@ -251,79 +250,30 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	return result, nil
 }
 
-// listPodWorkers fills one page with the Workers of the worker pods in the namespaces,
-// in pod UID order, which is ate-api's worker order. The token is the UID of the last
-// worker pod on the previous page: a cursor only, never sent to ate-api.
-func (s *Service) listPodWorkers(ctx context.Context, namespaces []string, limit int32, token string) (SubstrateWorkerPage, error) {
-	if len(token) > maxPageTokenBytes {
-		return SubstrateWorkerPage{}, errInvalidPageToken
-	}
+// listOwnWorkers fills one page with the workers of the namespaces, in worker name
+// order. The token is the name of the last worker on the previous page: a cursor only,
+// never sent to ate-api.
+func (s *Service) listOwnWorkers(ctx context.Context, namespaces []string, limit int32, token string) (SubstrateWorkerPage, error) {
 	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
-	pods, err := s.workerPods(ctx, namespaces)
-	if err != nil {
+	var workers []*ateapipb.Worker
+	if err := s.walkWorkers(ctx, namespaces, func(worker *ateapipb.Worker) {
+		if worker.GetMetadata().GetName() > token {
+			workers = append(workers, worker)
+		}
+	}); err != nil {
 		result.ATEAPIError = err.Error()
 		return result, nil
 	}
-	for i := range pods {
-		if string(pods[i].UID) <= token {
-			continue
-		}
-		worker, err := s.podWorker(ctx, &pods[i])
-		if err != nil {
-			return SubstrateWorkerPage{ATEAPIError: err.Error(), ComputedAt: result.ComputedAt}, nil
-		}
-		if worker == nil {
-			continue
-		}
-		result.Workers = append(result.Workers, worker)
-		if int32(len(result.Workers)) >= limit {
-			if i+1 < len(pods) {
-				result.NextPageToken = string(pods[i].UID)
-			}
-			break
-		}
+	// ate-api sends workers in name order already. The cursor must not rely on it.
+	slices.SortFunc(workers, func(left, right *ateapipb.Worker) int {
+		return strings.Compare(left.GetMetadata().GetName(), right.GetMetadata().GetName())
+	})
+	if int32(len(workers)) > limit {
+		workers = workers[:limit]
+		result.NextPageToken = workers[limit-1].GetMetadata().GetName()
 	}
+	result.Workers = workers
 	return result, nil
-}
-
-// WorkerPoolLabel names the WorkerPool of a Substrate worker pod. ate-api names each
-// Worker after its pod's UID.
-const WorkerPoolLabel = "ate.dev/worker-pool"
-
-// workerPods lists the worker pods of the namespaces in UID order.
-func (s *Service) workerPods(ctx context.Context, namespaces []string) ([]corev1.Pod, error) {
-	var pods []corev1.Pod
-	for _, namespace := range namespaces {
-		podList := &corev1.PodList{}
-		// ponytail: one uncached apiserver list per watched namespace per read. Add a
-		// label-limited cache if UI polling load matters.
-		if err := s.podReader.List(ctx, podList, client.InNamespace(namespace), client.HasLabels{WorkerPoolLabel}); err != nil {
-			logging.FromContext(ctx).ErrorContext(ctx, "failed to list worker pods", "error", err, "namespace", namespace)
-			return nil, errors.New("failed to list worker pods")
-		}
-		pods = append(pods, podList.Items...)
-	}
-	slices.SortFunc(pods, func(left, right corev1.Pod) int { return strings.Compare(string(left.UID), string(right.UID)) })
-	return pods, nil
-}
-
-// podWorker reads the Worker of a worker pod. It is nil when ate-api has none yet,
-// or when the Worker is not that pod's.
-func (s *Service) podWorker(ctx context.Context, pod *corev1.Pod) (*ateapipb.Worker, error) {
-	worker, err := s.ateClient.GetWorker(ctx, string(pod.UID))
-	if status.Code(err) == codes.NotFound {
-		// ate-api registers a worker pod only when it is Ready.
-		return nil, nil
-	}
-	if err != nil {
-		// ate-api error text can name a worker of any namespace. The user gets the code.
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to get ate-api worker", "error", err, "pod", pod.Name)
-		return nil, fmt.Errorf("ate-api could not read a worker: %s", status.Code(err))
-	}
-	if worker.GetWorkerNamespace() != pod.Namespace || worker.GetWorkerPodUid() != string(pod.UID) {
-		return nil, nil
-	}
-	return worker, nil
 }
 
 // walkActors visits every actor in the requested atespace, or in each watched one.
@@ -333,7 +283,8 @@ func (s *Service) walkActors(ctx context.Context, atespace string, visit func(*a
 			return s.ateClient.ListActorsPage(ctx, atespace, pageSize, pageToken)
 		}
 		if err := walkSubstrate(ctx, read, func(actor *ateapipb.Actor) {
-			if actor != nil && s.watches(actor.GetMetadata().GetAtespace()) {
+			// ate-api scoped the list already. This is a second guard.
+			if actor != nil && (atespace == "" || actor.GetMetadata().GetAtespace() == atespace) {
 				visit(actor)
 			}
 		}); err != nil {
@@ -343,32 +294,22 @@ func (s *Service) walkActors(ctx context.Context, atespace string, visit func(*a
 	return nil
 }
 
-// walkWorkers visits every worker in the namespaces: from ate-api's pages for a
-// controller that watches every namespace, else the Worker of each worker pod.
+// walkWorkers visits every worker in the namespaces. A controller that watches some
+// reads every ate-api worker and visits only the workers of watched namespaces.
 func (s *Service) walkWorkers(ctx context.Context, namespaces []string, visit func(*ateapipb.Worker)) error {
-	if len(s.observedNamespaces) == 0 {
-		return walkSubstrate(ctx, s.ateClient.ListWorkersPage, func(worker *ateapipb.Worker) {
-			if inNamespace(worker, namespaces[0]) {
-				visit(worker)
-			}
-		})
-	}
-	pods, err := s.workerPods(ctx, namespaces)
-	if err != nil {
-		return err
-	}
-	// ponytail: one sequential GetWorker per own worker pod (about 1 ms each). Add
-	// bounded concurrency when a controller runs more than about 100 own workers.
-	for i := range pods {
-		worker, err := s.podWorker(ctx, &pods[i])
-		if err != nil {
-			return err
-		}
-		if worker != nil {
+	// NOTE: this drains every ate-api worker page per request. Replace it with an
+	// ate-api worker namespace filter when one lands.
+	err := walkSubstrate(ctx, s.ateClient.ListWorkersPage, func(worker *ateapipb.Worker) {
+		if inNamespace(worker, namespaces) {
 			visit(worker)
 		}
+	})
+	if err != nil && len(s.observedNamespaces) > 0 {
+		// ate-api error text can name a worker of any namespace. The user gets the code.
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
+		return fmt.Errorf("ate-api could not list workers: %s", status.Code(err))
 	}
-	return nil
+	return err
 }
 
 // walkSubstrate calls visit for every row ate-api holds, holding one page at a time
@@ -418,10 +359,10 @@ func (s *Service) watches(namespace string) bool {
 	return len(s.observedNamespaces) == 0 || slices.Contains(s.observedNamespaces, namespace)
 }
 
-// inNamespace reports whether a worker is in the namespace, or in any when it is empty.
-// A controller that watches every namespace reads exactly one, maybe empty.
-func inNamespace(worker *ateapipb.Worker, namespace string) bool {
-	return worker != nil && (namespace == "" || worker.GetWorkerNamespace() == namespace)
+// inNamespace reports whether a worker is in one of the namespaces, or in any when the
+// first is empty. A controller that watches every namespace reads exactly one, maybe empty.
+func inNamespace(worker *ateapipb.Worker, namespaces []string) bool {
+	return worker != nil && (namespaces[0] == "" || slices.Contains(namespaces, worker.GetWorkerNamespace()))
 }
 
 func substratePageSize(requested int32) int32 {
