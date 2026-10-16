@@ -73,6 +73,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
+	hasMCPToolsets := len(toolsets) > 0
 	skillsDirectory := agentConfig.SkillsDirectory
 	builtinTools := runtime.GetBuiltinTools()
 	executionTools, err := tools.NewBuiltinTools(tools.BuiltinToolsConfig{
@@ -149,6 +150,10 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 
+	if hasMCPToolsets {
+		// MCP tool results carry their images for the UI; the model gets a note instead.
+		beforeModelCallbacks = append(beforeModelCallbacks, MakeMCPImageModelResultCallback())
+	}
 	// Tools are classified before each model request is prepared. Resolve app
 	// names here rather than capturing an empty snapshot during construction.
 	beforeModelCallbacks = append(beforeModelCallbacks, makeMCPAppModelResultCallback(func(ctx agent.Context) map[string]bool {
