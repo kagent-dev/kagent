@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/respjson"
+	"github.com/openai/openai-go/v3/shared"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
@@ -533,5 +537,212 @@ func TestApplyOpenAIConfigPreservesInt64(t *testing.T) {
 		applyOpenAIConfig(&params, cfg)
 		require.Equal(t, seed, params.Seed.Value)
 		require.Equal(t, int64(math.MaxInt64), params.MaxCompletionTokens.Value)
+	}
+}
+
+// TestChatCompletionToLLMResponse_ParsesReasoningChunkContent verifies that a
+// reasoning model's typed chunk list (Mistral) is split into a thought part and
+// a text part instead of leaking the raw JSON array into the answer.
+func TestChatCompletionToLLMResponse_ParsesReasoningChunkContent(t *testing.T) {
+	raw := []byte(`{
+		"id":"chatcmpl-1",
+		"object":"chat.completion",
+		"created":123,
+		"model":"mistral-large-4-0",
+		"choices":[{
+			"index":0,
+			"finish_reason":"stop",
+			"message":{
+				"role":"assistant",
+				"content":[
+					{"type":"thinking","thinking":[{"type":"text","text":"weighing options"}],"closed":true},
+					{"type":"text","text":"The answer is 42"}
+				]
+			}
+		}]
+	}`)
+
+	var completion openai.ChatCompletion
+	if err := json.Unmarshal(raw, &completion); err != nil {
+		t.Fatalf("json.Unmarshal(ChatCompletion) error = %v", err)
+	}
+
+	resp := chatCompletionToLLMResponse(&completion)
+	if resp.Content == nil || len(resp.Content.Parts) != 2 {
+		t.Fatalf("response parts = %#v, want thought part and text part", resp.Content)
+	}
+
+	thought, text := resp.Content.Parts[0], resp.Content.Parts[1]
+	if !thought.Thought || thought.Text != "weighing options" {
+		t.Fatalf("thought part = %#v, want thought %q", thought, "weighing options")
+	}
+	if text.Thought || text.Text != "The answer is 42" {
+		t.Fatalf("text part = %#v, want text %q", text, "The answer is 42")
+	}
+}
+
+// TestOpenAIMessageParts_KeepsPlainStringContentAsText verifies that an ordinary
+// string answer — including one that starts with a bracket — is never mistaken
+// for a chunk list.
+func TestOpenAIMessageParts_KeepsPlainStringContentAsText(t *testing.T) {
+	field := respjson.NewField(`"[1, 2, 3]"`)
+
+	parts := openAIMessageParts("[1, 2, 3]", field)
+	if len(parts) != 1 || parts[0].Text != "[1, 2, 3]" || parts[0].Thought {
+		t.Fatalf("parts = %#v, want single text part", parts)
+	}
+
+	empty := openAIMessageParts("", respjson.NewField(`""`))
+	if len(empty) != 0 {
+		t.Fatalf("parts = %#v, want none for empty content", empty)
+	}
+}
+
+// TestRunStreaming_ParsesReasoningChunkDeltas verifies the streaming path:
+// reasoning chunks arrive as partial thought parts, text chunks as partial text
+// parts, and the final response carries both in order.
+func TestRunStreaming_ParsesReasoningChunkDeltas(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunks := []string{
+			`{"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"mistral-large-4-0","choices":[{"index":0,"delta":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"weighing options"}]}]},"finish_reason":null}]}`,
+			`{"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"mistral-large-4-0","choices":[{"index":0,"delta":{"content":[{"type":"text","text":"The answer"}]},"finish_reason":null}]}`,
+			`{"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"mistral-large-4-0","choices":[{"index":0,"delta":{"content":[{"type":"text","text":" is 42"}]},"finish_reason":null}]}`,
+			`{"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"mistral-large-4-0","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		}
+		for _, chunk := range chunks {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
+		}
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(server.Close)
+
+	m, err := NewOpenAIModel(context.Background(), &OpenAIConfig{Model: "mistral-large-4-0", BaseUrl: server.URL, APIKey: "test-key"})
+	if err != nil {
+		t.Fatalf("NewOpenAIModel() error = %v", err)
+	}
+
+	var responses []*model.LLMResponse
+	runStreaming(context.Background(), m, openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel("mistral-large-4-0"),
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
+	}, func(resp *model.LLMResponse, yieldErr error) bool {
+		if yieldErr != nil {
+			t.Fatalf("yield error = %v", yieldErr)
+		}
+		responses = append(responses, resp)
+		return true
+	})
+
+	if len(responses) != 4 {
+		t.Fatalf("got %d responses, want 3 partials and a final: %#v", len(responses), responses)
+	}
+
+	partials := responses[:3]
+	if !partials[0].Content.Parts[0].Thought || partials[0].Content.Parts[0].Text != "weighing options" {
+		t.Fatalf("first partial = %#v, want thought part", partials[0].Content.Parts)
+	}
+	if partials[1].Content.Parts[0].Thought || partials[1].Content.Parts[0].Text != "The answer" {
+		t.Fatalf("second partial = %#v, want text part", partials[1].Content.Parts)
+	}
+	if partials[2].Content.Parts[0].Thought || partials[2].Content.Parts[0].Text != " is 42" {
+		t.Fatalf("third partial = %#v, want text part", partials[2].Content.Parts)
+	}
+
+	final := responses[3]
+	if final.Partial || !final.TurnComplete {
+		t.Fatalf("final response = %#v, want non-partial turn-complete", final)
+	}
+	if len(final.Content.Parts) != 2 {
+		t.Fatalf("final parts = %#v, want thought part and text part", final.Content.Parts)
+	}
+	if !final.Content.Parts[0].Thought || final.Content.Parts[0].Text != "weighing options" {
+		t.Fatalf("final thought part = %#v", final.Content.Parts[0])
+	}
+	if final.Content.Parts[1].Thought || final.Content.Parts[1].Text != "The answer is 42" {
+		t.Fatalf("final text part = %#v, want accumulated text", final.Content.Parts[1])
+	}
+}
+
+// TestGenaiContentsToOpenAIMessages_SkipsThoughtParts verifies that reasoning
+// parts from a previous turn are not replayed as ordinary text: the chat
+// completions API has no field to send reasoning back, and the model's own
+// reasoning must not surface as user-visible content on the next turn.
+func TestGenaiContentsToOpenAIMessages_SkipsThoughtParts(t *testing.T) {
+	contents := []*genai.Content{
+		{
+			Role: string(genai.RoleUser),
+			Parts: []*genai.Part{
+				{Text: "What is 6 times 7?"},
+			},
+		},
+		{
+			Role: string(genai.RoleModel),
+			Parts: []*genai.Part{
+				{Text: "6 times 7 is 42", Thought: false},
+				{Text: "let me multiply step by step", Thought: true},
+			},
+		},
+		{
+			Role: string(genai.RoleUser),
+			Parts: []*genai.Part{
+				{Text: "And times 8?"},
+			},
+		},
+	}
+
+	msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+	if len(msgs) != 3 {
+		t.Fatalf("len(messages) = %d, want 3 (thought text must not create a message)", len(msgs))
+	}
+
+	for i, msg := range msgs {
+		if msg.OfUser == nil && msg.OfAssistant == nil {
+			continue
+		}
+		var content string
+		if msg.OfUser != nil && msg.OfUser.Content.OfString.Valid() {
+			content = msg.OfUser.Content.OfString.Value
+		}
+		if msg.OfAssistant != nil && msg.OfAssistant.Content.OfString.Valid() {
+			content = msg.OfAssistant.Content.OfString.Value
+		}
+		if strings.Contains(content, "multiply step by step") {
+			t.Errorf("message %d replays thought text as content: %q", i, content)
+		}
+	}
+
+	// The visible answer survives, in whatever message shape this adapter
+	// gives a plain model turn.
+	if !msgs[1].OfUser.Content.OfString.Valid() {
+		t.Fatalf("second message content is not set: %#v", msgs[1])
+	}
+	if got := msgs[1].OfUser.Content.OfString.Value; got != "6 times 7 is 42" {
+		t.Errorf("second message content = %q, want %q", got, "6 times 7 is 42")
+	}
+}
+
+// TestGenaiContentsToOpenAIMessages_ThoughtOnlyContentCreatesNoMessage verifies
+// a model turn that consisted only of reasoning produces no message at all,
+// rather than an empty one.
+func TestGenaiContentsToOpenAIMessages_ThoughtOnlyContentCreatesNoMessage(t *testing.T) {
+	contents := []*genai.Content{
+		{
+			Role: string(genai.RoleUser),
+			Parts: []*genai.Part{
+				{Text: "hello"},
+			},
+		},
+		{
+			Role: string(genai.RoleModel),
+			Parts: []*genai.Part{
+				{Text: "just thinking", Thought: true},
+			},
+		},
+	}
+
+	msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+	if len(msgs) != 1 {
+		t.Fatalf("len(messages) = %d, want 1 (the thought-only turn is dropped)", len(msgs))
 	}
 }
