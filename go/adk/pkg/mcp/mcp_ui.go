@@ -33,6 +33,9 @@ const (
 	mcpUIExtensionName = "io.modelcontextprotocol/ui"
 	// mcpAppHTMLMimeType is the only UI content type defined by the MCP Apps MVP.
 	mcpAppHTMLMimeType = "text/html;profile=mcp-app"
+	// mcpClientVersion is the implementation version kagent's MCP clients
+	// report. The kagent build version is internal to go/core.
+	mcpClientVersion = "1.0.0"
 )
 
 // mcpUIClientCapabilities advertises MCP Apps support so capability-gated
@@ -205,7 +208,7 @@ func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configu
 		return nil, nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, &mcpsdk.ClientOptions{Capabilities: mcpUIClientCapabilities()})
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk", Version: mcpClientVersion}, &mcpsdk.ClientOptions{Capabilities: mcpUIClientCapabilities()})
 	session, err := client.Connect(ctx, mcpTransport, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect MCP client for %s: %w", params.URL, err)
