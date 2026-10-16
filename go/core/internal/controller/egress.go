@@ -89,14 +89,15 @@ type EgressReconciler struct {
 	actors     actorEgressClient
 	namespaces []string
 	warnings   *cache.LRUExpireCache
-	// Initial preparation and source/recovery queues share a publisher. Serialize
-	// cache lookup through commit so an older translation cannot commit last.
-	publishMu sync.Mutex
-	sources   controllers.Queue
-	pages     controllers.Queue
-	updates   controllers.Queue
-	recovery  controllers.Queue
-	sweeps    controllers.Queue
+	// Only active publications retain a lock. The mutex protects this map;
+	// cache lookup and database writes are serialized per revision.
+	publishMu  sync.Mutex
+	publishing map[string]chan struct{}
+	sources    controllers.Queue
+	pages      controllers.Queue
+	updates    controllers.Queue
+	recovery   controllers.Queue
+	sweeps     controllers.Queue
 }
 
 type egressSourcePage struct {
@@ -119,7 +120,7 @@ var _ manager.LeaderElectionRunnable = (*EgressReconciler)(nil)
 
 func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgressStore, actors actorEgressClient, namespaces []string) *EgressReconciler {
 	e := &EgressReconciler{grants: newEgressGrants(runtime), store: store, actors: actors,
-		namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024)}
+		namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024), publishing: make(map[string]chan struct{})}
 	reconcile := func(item any) error {
 		err := e.reconcileActor(ctx, item.(database.RuntimeEgressTarget))
 		if status.Code(err) == codes.NotFound {
@@ -200,8 +201,11 @@ func (e *EgressReconciler) ReconcileRevision(ctx context.Context, revision strin
 }
 
 func (e *EgressReconciler) publishRevision(ctx context.Context, revision string, recoverActors bool) error {
-	e.publishMu.Lock()
-	defer e.publishMu.Unlock()
+	unlock, err := e.lockPublication(ctx, revision)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	pinned, err := e.store.GetRuntimeEgress(ctx, revision)
 	if err != nil {
 		return err
@@ -233,6 +237,36 @@ func (e *EgressReconciler) publishRevision(ctx context.Context, revision string,
 		e.pages.Add(egressActorPage{Revision: revision, Recovery: recoverActors})
 	}
 	return err
+}
+
+// Initial preparation and source/recovery queues share a publisher. Hold the
+// revision lock from cache lookup through commit so an older translation cannot
+// commit last. Waiters retry after release; unrelated revisions never wait on I/O.
+func (e *EgressReconciler) lockPublication(ctx context.Context, revision string) (func(), error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		e.publishMu.Lock()
+		done, busy := e.publishing[revision]
+		if !busy {
+			done = make(chan struct{})
+			e.publishing[revision] = done
+			e.publishMu.Unlock()
+			return func() {
+				e.publishMu.Lock()
+				defer e.publishMu.Unlock()
+				delete(e.publishing, revision)
+				close(done)
+			}, nil
+		}
+		e.publishMu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 func (e *EgressReconciler) NeedLeaderElection() bool { return true }
