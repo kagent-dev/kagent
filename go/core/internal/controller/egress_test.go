@@ -30,13 +30,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-type revisionEgressFunc func(context.Context, string) error
-
-var noopRevisionEgress = revisionEgressFunc(func(context.Context, string) error { return nil })
-
-func (f revisionEgressFunc) ReconcileRevision(ctx context.Context, revision string) error {
-	return f(ctx, revision)
-}
+func noopEnqueueEgress(string) {}
 
 type egressTestStore struct {
 	mu                  sync.Mutex
@@ -174,12 +168,12 @@ func TestEgressTranslationUsesCachedDependencies(t *testing.T) {
 			base := egress.Access{Destinations: []string{"https://model.example.com:443"}}
 			store := &egressTestStore{pinned: map[string]database.RuntimeEgress{"pinned": {Kind: kind, Namespace: "team", SourceName: "source", SourceUID: "original", EgressDestinations: base.Destinations}}}
 			controller := NewEgressReconciler(ctx, inputs.runtime, store, &observingEgressActors{store: store}, nil)
+			done := make(chan error, 1)
+			go func() { done <- controller.Start(ctx) }()
+			defer func() { cancel(); require.NoError(t, <-done) }()
 			expect := func(want egress.Access) {
 				t.Helper()
 				require.Eventually(t, func() bool {
-					if err := controller.ReconcileRevision(ctx, "pinned"); err != nil {
-						return false
-					}
 					got, err := store.GetRuntimeEgressPolicy(ctx, "pinned")
 					return err == nil && reflect.DeepEqual(want, got)
 				}, time.Second, 10*time.Millisecond)
@@ -310,13 +304,15 @@ func TestEgressSkipsUnchangedPoliciesAndRecoversLostWriteResponse(t *testing.T) 
 		for _, queue := range []controllers.Queue{controller.pages, controller.updates, controller.recovery, controller.sweeps} {
 			workers.Go(func() { queue.Run(ctx.Done()) })
 		}
+		workers.Go(func() { controller.runPublications(ctx) })
 		defer func() { cancel(); workers.Wait() }()
-		require.ErrorContains(t, controller.ReconcileRevision(ctx, "revision"), "lost publication response")
+		require.True(t, controller.grants.WaitUntilSynced(ctx.Done()))
+		controller.EnqueueRevision("revision")
 		synctest.Wait()
 		require.Len(t, actors.attempts["session-actor"], 1, "an uncertain write must still apply the persisted policy")
 		require.Contains(t, actors.applied["session-actor"].Destinations, "https://tickets.example.com:443")
 		for range 3 {
-			require.NoError(t, controller.ReconcileRevision(ctx, "revision"))
+			controller.EnqueueRevision("revision")
 			controller.sweeps.Add(egressSweepPage{})
 			synctest.Wait()
 		}
@@ -333,18 +329,48 @@ func TestEgressSkipsUnchangedPoliciesAndRecoversLostWriteResponse(t *testing.T) 
 	})
 }
 
-func TestEgressPublicationSerializesOnlyTheSameRevision(t *testing.T) {
+func TestEgressStartupRecoveryRespectsWatchNamespaces(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		inputs := newEgressTestInputs(ctx)
+		store := &egressTestStore{
+			pinned: map[string]database.RuntimeEgress{
+				"watched":   {Kind: database.RuntimeEgressAgent, Namespace: "team"},
+				"unwatched": {Kind: database.RuntimeEgressAgent, Namespace: "other"},
+			},
+			intended: map[string]egress.Access{
+				"watched":   {},
+				"unwatched": {Destinations: []string{"https://tickets.example.com:443"}},
+			},
+			targets: map[string][]database.RuntimeEgressTarget{
+				"watched":   {{ID: "watched", Revision: "watched", Atespace: "team", TemplateName: "runtime"}},
+				"unwatched": {{ID: "unwatched", Revision: "unwatched", Atespace: "other", TemplateName: "runtime"}},
+			},
+		}
+		actors := &observingEgressActors{store: store}
+		controller := NewEgressReconciler(ctx, inputs.runtime, store, actors, []string{"team"})
+		var workers sync.WaitGroup
+		workers.Go(func() { require.NoError(t, controller.Start(ctx)) })
+		defer func() { cancel(); workers.Wait() }()
+		synctest.Wait()
+		require.Contains(t, actors.applied, "session-watched")
+		require.NotContains(t, actors.attempts, "session-unwatched")
+		unwatched, err := store.GetRuntimeEgressPolicy(ctx, "unwatched")
+		require.NoError(t, err)
+		require.Equal(t, []string{"https://tickets.example.com:443"}, unwatched.Destinations)
+	})
+}
+
+func TestEgressPublicationRequeuesRevocationDuringWrite(t *testing.T) {
 	for _, failFirst := range []bool{false, true} {
 		t.Run(fmt.Sprintf("fail_first=%t", failFirst), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
 				inputs := newEgressTestInputs(ctx)
 				inputs.source(database.RuntimeEgressAgent, "uid", []corev1.LocalObjectReference{{Name: "access"}})
 				inputs.policies.UpdateObject(egressTestPolicy("https://tickets.example.com", nil))
 				pinned := database.RuntimeEgress{Kind: database.RuntimeEgressAgent, Namespace: "team", SourceName: "source", SourceUID: "uid"}
 				entered, release := make(chan struct{}), make(chan struct{})
-				firstErr := errors.New("publication failed")
 				store := &egressTestStore{
 					pinned: map[string]database.RuntimeEgress{"revision": pinned, "other": pinned},
 					beforePublish: func(ctx context.Context, revision string, access egress.Access) error {
@@ -358,53 +384,68 @@ func TestEgressPublicationSerializesOnlyTheSameRevision(t *testing.T) {
 							return ctx.Err()
 						}
 						if failFirst {
-							return firstErr
+							return errors.New("publication failed")
 						}
 						return nil
 					},
 				}
 				controller := NewEgressReconciler(ctx, inputs.runtime, store, &observingEgressActors{store: store}, nil)
+				var workers sync.WaitGroup
+				workers.Go(func() { controller.runPublications(ctx) })
 				defer func() {
+					cancel()
+					workers.Wait()
 					for _, queue := range []controllers.Queue{controller.sources, controller.pages, controller.updates, controller.recovery, controller.sweeps} {
 						queue.ShutDownEarly()
 					}
 				}()
-				first, second, other := make(chan error, 1), make(chan error, 1), make(chan error, 1)
-				go func() { first <- controller.ReconcileRevision(ctx, "revision") }()
+				require.True(t, controller.grants.WaitUntilSynced(ctx.Done()))
+				controller.EnqueueRevision("revision")
 				<-entered
 				inputs.policies.DeleteObject("team/access")
 				synctest.Wait()
-				go func() { second <- controller.ReconcileRevision(ctx, "revision") }()
-				go func() { other <- controller.ReconcileRevision(ctx, "other") }()
+				controller.EnqueueRevision("revision")
+				controller.EnqueueRevision("other")
 				synctest.Wait()
-				require.Len(t, other, 1, "another revision must publish while the first database write is blocked")
-				require.NoError(t, <-other)
-				require.Empty(t, second, "the same revision must wait through commit")
-
-				waitingCtx, stopWaiting := context.WithCancel(ctx)
-				canceled := make(chan error, 1)
-				go func() { canceled <- controller.ReconcileRevision(waitingCtx, "revision") }()
-				synctest.Wait()
-				stopWaiting()
-				synctest.Wait()
-				require.Len(t, canceled, 1, "a canceled waiter must leave without waiting for the writer")
-				require.ErrorIs(t, <-canceled, context.Canceled)
+				_, err := store.GetRuntimeEgressPolicy(ctx, "other")
+				require.NoError(t, err, "another revision must publish while the first database write is blocked")
+				_, err = store.GetRuntimeEgressPolicy(ctx, "revision")
+				require.ErrorIs(t, err, database.ErrNotFound, "the same revision must wait through commit")
 				close(release)
-				if failFirst {
-					require.ErrorIs(t, <-first, firstErr)
-				} else {
-					require.NoError(t, <-first)
-				}
-				require.NoError(t, <-second)
+				synctest.Wait()
 				for _, revision := range []string{"revision", "other"} {
 					access, err := store.GetRuntimeEgressPolicy(ctx, revision)
 					require.NoError(t, err)
-					require.Empty(t, access.Destinations, "publication must use grants read after acquiring the revision lock")
+					require.Empty(t, access.Destinations, "a dirty revision must rerun with the revoked grants")
 				}
-				require.Empty(t, controller.publishing, "completed publications must release lock state")
 			})
 		})
 	}
+}
+
+func TestEgressPublicationRetriesWithoutAnotherEvent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		inputs := newEgressTestInputs(ctx)
+		store := &egressTestStore{
+			pinned:     map[string]database.RuntimeEgress{"revision": {Kind: database.RuntimeEgressAgent, Namespace: "team"}},
+			publishErr: errors.New("database unavailable"),
+		}
+		controller := NewEgressReconciler(ctx, inputs.runtime, store, &observingEgressActors{store: store}, nil)
+		var workers sync.WaitGroup
+		workers.Go(func() { require.NoError(t, controller.Start(ctx)) })
+		defer func() { cancel(); workers.Wait() }()
+		synctest.Wait()
+		_, err := store.GetRuntimeEgressPolicy(ctx, "revision")
+		require.ErrorIs(t, err, database.ErrNotFound)
+		store.mu.Lock()
+		store.publishErr = nil
+		store.mu.Unlock()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		_, err = store.GetRuntimeEgressPolicy(ctx, "revision")
+		require.NoError(t, err)
+	})
 }
 
 func TestEgressTargetsSourceChangesAndBacksOffActorFailures(t *testing.T) {
@@ -413,7 +454,8 @@ func TestEgressTargetsSourceChangesAndBacksOffActorFailures(t *testing.T) {
 	inputs := newEgressTestInputs(ctx)
 	inputs.source(database.RuntimeEgressAgent, "uid", nil)
 	store := &egressTestStore{pinned: map[string]database.RuntimeEgress{"revision": {Kind: database.RuntimeEgressAgent, Namespace: "team", SourceName: "source", SourceUID: "uid"}},
-		listed: make(chan database.RuntimeEgressSource, 20), targets: map[string][]database.RuntimeEgressTarget{"revision": {
+		intended: map[string]egress.Access{"revision": {}},
+		listed:   make(chan database.RuntimeEgressSource, 20), targets: map[string][]database.RuntimeEgressTarget{"revision": {
 			{ID: "failing", Revision: "revision", Atespace: "team", TemplateName: "runtime"},
 			{ID: "healthy", Revision: "revision", Atespace: "team", TemplateName: "runtime"},
 		}}}
@@ -480,20 +522,31 @@ func TestEgressWithholdsConflictingGrantsAndWarns(t *testing.T) {
 			inputs.secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "other"}, Data: map[string][]byte{"token": []byte("private-value")}})
 			store := &egressTestStore{pinned: map[string]database.RuntimeEgress{"revision": pinned, "other": pinned}}
 			controller := NewEgressReconciler(ctx, inputs.runtime, store, &observingEgressActors{store: store}, nil)
+			defer controller.publications.ShutDown()
+			defer func() {
+				for _, queue := range []controllers.Queue{controller.sources, controller.pages, controller.updates, controller.recovery, controller.sweeps} {
+					queue.ShutDownEarly()
+				}
+			}()
+			require.True(t, controller.grants.WaitUntilSynced(ctx.Done()))
+			publish := func(revision string) {
+				controller.EnqueueRevision(revision)
+				require.True(t, controller.processPublication(ctx))
+			}
 			clock := clocktesting.NewFakeClock(time.Now())
 			controller.warnings = cache.NewLRUExpireCacheWithClock(1024, clock)
 			for range 3 {
-				require.NoError(t, controller.ReconcileRevision(ctx, "revision"))
+				publish("revision")
 				got, err := store.GetRuntimeEgressPolicy(ctx, "revision")
 				require.NoError(t, err)
 				require.Equal(t, base, got)
 			}
 			require.Equal(t, 1, strings.Count(logs.String(), "explicit egress grants withheld"))
-			require.NoError(t, controller.ReconcileRevision(ctx, "other"))
+			publish("other")
 			require.Contains(t, logs.String(), `"revision":"other"`, "a noisy revision must not suppress another revision's warning")
 			require.Equal(t, 2, strings.Count(logs.String(), "explicit egress grants withheld"))
 			clock.Step(31 * time.Second)
-			require.NoError(t, controller.ReconcileRevision(ctx, "revision"))
+			publish("revision")
 			require.Equal(t, 3, strings.Count(logs.String(), "explicit egress grants withheld"))
 			require.Contains(t, logs.String(), `"level":"WARN"`)
 			require.Contains(t, logs.String(), `"revision":"revision"`)

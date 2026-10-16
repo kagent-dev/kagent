@@ -140,9 +140,9 @@ func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconcil
 	store := &sandboxTestStore{}
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
-		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
-		egress:      noopRevisionEgress,
-		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
+		collections:   newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
+		enqueueEgress: noopEnqueueEgress,
+		store:         store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
 	return reconciler, templates, pools
@@ -318,16 +318,14 @@ func TestInitialSandboxRevisionWaitsForEgressPublication(t *testing.T) {
 	s.actors.(*sandboxTestActors).autoReady = true
 	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
 	syncSandboxTemplate(t, s, templates)
-	publishErr := errors.New("policy persistence unavailable")
-	s.egress = revisionEgressFunc(func(_ context.Context, revision string) error {
+	store.promoteErr = database.ErrEgressPolicyNotPublished
+	s.enqueueEgress = func(revision string) {
 		require.Equal(t, store.revision.Revision, revision)
 		require.False(t, store.ready, "initial policy must precede readiness")
-		return publishErr
-	})
-	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), publishErr)
+	}
+	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), database.ErrEgressPolicyNotPublished)
 	require.False(t, store.ready)
 	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch").Failure != nil })
-	publishErr = nil
 	store.promoteErr = errors.New("promotion unavailable")
 	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), store.promoteErr)
 	require.False(t, store.ready)

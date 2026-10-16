@@ -43,6 +43,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
@@ -642,6 +643,8 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		DesiredRevision: revision.Revision,
 	}))
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision))
+	_, policyErr := store.SetRuntimeEgressPolicy(t.Context(), revision.Revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), revision.Revision))
 	session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
 		Id: uuid.NewString(), Creator: "alice",

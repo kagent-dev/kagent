@@ -97,9 +97,10 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 }
 
 // PromoteRuntimeRevision makes a recorded, prepared revision available only to
-// the active Agent identity that still desires it. Callers must publish its
-// intended egress policy first. Missing/deleting revisions return ErrNotFound /
-// ErrObjectDeleting; stale reports leave the definition unchanged.
+// the active Agent identity that still desires it. Without a published intended
+// policy it returns ErrEgressPolicyNotPublished for retry. Missing/deleting
+// revisions return ErrNotFound / ErrObjectDeleting; stale reports leave the
+// definition unchanged.
 func (c *Client) PromoteRuntimeRevision(ctx context.Context, revision string) error {
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		// Match GC finalization's lock order: definition before revision.
@@ -114,17 +115,30 @@ func (c *Client) PromoteRuntimeRevision(ctx context.Context, revision string) er
 		if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindAgent); err != nil {
 			return err
 		}
-		return execSQL(ctx, tx, `
-			UPDATE agent_definition p
-			SET latest_successful_revision = r.revision, updated_at = NOW()
-			FROM agent_runtime_revision r
-			WHERE r.revision = $1
-			  AND p.namespace = r.namespace
-			  AND p.agent_uid = r.agent_uid
-			  AND p.desired_revision = r.revision
-			  AND p.retired_at IS NULL
-			  AND p.latest_successful_revision IS DISTINCT FROM r.revision
-		`, revision)
+		published, err := queryOne(ctx, tx, `
+			WITH published AS (
+			    SELECT revision FROM runtime_egress_policy WHERE revision = $1
+			), promoted AS (
+			    UPDATE agent_definition p
+			    SET latest_successful_revision = r.revision, updated_at = NOW()
+			    FROM agent_runtime_revision r
+			    WHERE r.revision = $1
+			      AND p.namespace = r.namespace
+			      AND p.agent_uid = r.agent_uid
+			      AND p.desired_revision = r.revision
+			      AND p.retired_at IS NULL
+			      AND p.latest_successful_revision IS DISTINCT FROM r.revision
+			      AND EXISTS (SELECT 1 FROM published)
+			)
+			SELECT EXISTS (SELECT 1 FROM published)
+		`, pgx.RowTo[bool], revision)
+		if err != nil {
+			return err
+		}
+		if !published {
+			return ErrEgressPolicyNotPublished
+		}
+		return nil
 	})
 }
 

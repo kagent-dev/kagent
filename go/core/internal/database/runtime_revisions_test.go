@@ -179,6 +179,8 @@ func TestRuntimeRevisionPairReplacement(t *testing.T) {
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "")
 	_, _, err = client.CreateSession(ctx, request, "session")
 	require.ErrorIs(t, err, ErrNotFound, "a replacement must not select the previous template UID")
+	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 	session, _, err := client.CreateSession(ctx, request, "session")
 	require.NoError(t, err)
@@ -512,12 +514,20 @@ func TestPromoteRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 	require.Equal(t, "original", stored.AgentCard.Name)
 
 	require.ErrorIs(t, c.PromoteRuntimeRevision(ctx, "missing"), ErrNotFound)
+	require.ErrorIs(t, c.PromoteRuntimeRevision(ctx, revision.Revision), ErrEgressPolicyNotPublished)
+	assertAvailableRevision("")
+	_, err = c.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, err)
 	require.NoError(t, c.PromoteRuntimeRevision(ctx, revision.Revision))
 	assertAvailableRevision("first")
 	pair.DesiredRevision = "second"
 	require.NoError(t, c.UpsertAgentDefinition(ctx, pair))
 	revision.Revision, revision.ActorTemplateName = "second", "second"
 	require.NoError(t, c.RecordRuntimeRevision(ctx, revision))
+	require.ErrorIs(t, c.PromoteRuntimeRevision(ctx, revision.Revision), ErrEgressPolicyNotPublished)
+	assertAvailableRevision("first")
+	_, err = c.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, err)
 	require.NoError(t, c.PromoteRuntimeRevision(ctx, revision.Revision))
 	assertAvailableRevision("second")
 	// A delayed report for the old revision must not replace the newer ready revision.
@@ -529,6 +539,8 @@ func TestPromoteRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 	require.NoError(t, c.RetireAgentIdentities(ctx, pair.Namespace, pair.AgentName, nil))
 	revision.Revision, revision.ActorTemplateName = "third", "third"
 	require.NoError(t, c.RecordRuntimeRevision(ctx, revision))
+	_, err = c.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, err)
 	require.NoError(t, c.PromoteRuntimeRevision(ctx, revision.Revision))
 	assertAvailableRevision("")
 	// Reviving the pair must retain the last success, not a report made while retired.

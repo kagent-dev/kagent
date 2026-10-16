@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
@@ -380,6 +381,8 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
+	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 
 	source, _, err := client.CreateSession(ctx, &apiv1.Session{
@@ -540,6 +543,8 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
+	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 
 	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
@@ -643,6 +648,8 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
+	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 }
 
