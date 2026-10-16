@@ -38,6 +38,8 @@ type sandboxTestStore struct {
 	retireAttempts int
 	retireErr      error
 	recordErr      error
+	promoteErr     error
+	recordCalls    int
 }
 
 func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) error {
@@ -46,13 +48,26 @@ func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, va
 	s.desired = value
 	return nil
 }
-func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, ready bool) error {
+func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.recordCalls++
 	if s.recordErr != nil {
 		return s.recordErr
 	}
-	s.revision, s.ready = value, ready
+	s.revision = value
+	return nil
+}
+func (s *sandboxTestStore) PromoteSandboxRevision(_ context.Context, revision string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.promoteErr != nil {
+		return s.promoteErr
+	}
+	if s.revision.Revision != revision {
+		return database.ErrNotFound
+	}
+	s.ready = true
 	return nil
 }
 func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, string, string) error {
@@ -126,7 +141,7 @@ func newSandboxTestReconciler(t *testing.T, guestImage string) (*SandboxReconcil
 	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}}
 	reconciler := &SandboxReconciler{
 		collections: newSandboxCollections(Collections{SandboxTemplates: templates, WorkerPools: pools}, substrate.SandboxPolicy{GuestImage: guestImage, CPU: "1", Memory: "1Gi"}, opts),
-		egress:      revisionEgressFunc(func(context.Context, string) error { return nil }),
+		egress:      noopRevisionEgress,
 		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
 	}
 	waitFor(t, func() bool { return reconciler.collections.states.GetKey("team-a/scratch") != nil })
@@ -313,6 +328,11 @@ func TestInitialSandboxRevisionWaitsForEgressPublication(t *testing.T) {
 	require.False(t, store.ready)
 	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch").Failure != nil })
 	publishErr = nil
+	store.promoteErr = errors.New("promotion unavailable")
+	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), store.promoteErr)
+	require.False(t, store.ready)
+	store.promoteErr = nil
 	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
 	require.True(t, store.ready)
+	require.Equal(t, 3, store.recordCalls, "each attempt must record inputs only once")
 }

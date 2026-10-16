@@ -67,11 +67,10 @@ func (c *Client) UpsertAgentDefinition(ctx context.Context, definition AgentDefi
 	})
 }
 
-// RecordRuntimeRevision stores a prepared revision and, when ready, atomically
-// promotes it for an active definition that still desires it. Stale reports leave the
-// definition unchanged. Existing revisions retain immutable inputs; only their actor
-// UID and update time are refreshed. Deleting revisions return ErrObjectDeleting.
-func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision, ready bool) error {
+// RecordRuntimeRevision stores revision inputs without making them available for
+// new Sessions. Existing revisions retain immutable inputs; only their actor UID
+// and update time are refreshed. Deleting revisions return ErrObjectDeleting.
+func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevision) error {
 	if revision.AgentCard == nil {
 		return fmt.Errorf("runtime revision %s has no Agent Card", revision.Revision)
 	}
@@ -80,20 +79,6 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		return fmt.Errorf("encode runtime revision Agent Card: %w", err)
 	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
-		if ready {
-			// Match GC finalization's lock order: definition before revision. Use the
-			// stored identity when present, since revision inputs are immutable.
-			_, err := queryOne(ctx, tx, `
-				SELECT 1 FROM agent_definition p
-				LEFT JOIN agent_runtime_revision r ON r.revision = $1
-				WHERE p.namespace = COALESCE(r.namespace, $2)
-				  AND p.agent_uid = COALESCE(r.agent_uid, $3)
-				FOR UPDATE OF p
-			`, pgx.RowTo[int], revision.Revision, revision.Namespace, revision.AgentUID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
-		}
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
 				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
@@ -107,8 +92,27 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		`, revision.Revision, revision.AgentName, revision.AgentUID, card); err != nil {
 			return err
 		}
-		if !ready {
-			return nil
+		return nil
+	})
+}
+
+// PromoteRuntimeRevision makes a recorded, prepared revision available only to
+// the active Agent identity that still desires it. Callers must publish its
+// intended egress policy first. Missing/deleting revisions return ErrNotFound /
+// ErrObjectDeleting; stale reports leave the definition unchanged.
+func (c *Client) PromoteRuntimeRevision(ctx context.Context, revision string) error {
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		// Match GC finalization's lock order: definition before revision.
+		_, err := queryOne(ctx, tx, `
+			SELECT 1 FROM agent_definition p
+			JOIN agent_runtime_revision r ON p.namespace = r.namespace AND p.agent_uid = r.agent_uid
+			WHERE r.revision = $1 FOR UPDATE OF p
+		`, pgx.RowTo[int], revision)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err := lockRuntimeRevisionForReference(ctx, tx, revision, runtimeKindAgent); err != nil {
+			return err
 		}
 		return execSQL(ctx, tx, `
 			UPDATE agent_definition p
@@ -119,7 +123,8 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 			  AND p.agent_uid = r.agent_uid
 			  AND p.desired_revision = r.revision
 			  AND p.retired_at IS NULL
-		`, revision.Revision)
+			  AND p.latest_successful_revision IS DISTINCT FROM r.revision
+		`, revision)
 	})
 }
 
@@ -235,8 +240,8 @@ type runtimeRevisionRecord struct {
 }
 
 // recordRuntimeRevision writes immutable common inputs with mutable artifact
-// status. The caller writes its typed extension and promotion pointer in this
-// transaction, holding preparation locks before taking the revision lock.
+// status. The caller writes its typed extension in the same transaction.
+// Promotion is a separate transition after intended egress policy is published.
 func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevisionRecord) error {
 	if revision.Credentials == nil {
 		revision.Credentials = []egress.Credential{}

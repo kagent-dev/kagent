@@ -377,9 +377,10 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
+	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 
 	source, _, err := client.CreateSession(ctx, &apiv1.Session{
 		Id: sourceID, Creator: "alice", Name: "Namespace explanation",
@@ -536,9 +537,10 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
+	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 
 	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
 	if err != nil {
@@ -638,9 +640,10 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
 	}
+	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 }
 
 func newSessionRequest(id, template, harness, name string) *apiv1.Session {

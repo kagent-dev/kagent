@@ -33,7 +33,8 @@ const (
 type sandboxRevisionStore interface {
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision, bool) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision) error
+	PromoteSandboxRevision(context.Context, string) error
 }
 
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
@@ -176,14 +177,14 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	if err := s.store.RecordSandboxRevision(ctx, revision, false); err != nil {
+	if err := s.store.RecordSandboxRevision(ctx, revision); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
 	if err := s.egress.ReconcileRevision(ctx, revision.Revision); err != nil {
 		return s.observeError(*state, fmt.Errorf("publish sandbox egress %s: %w", state.RevisionID, err), true)
 	}
 	if ready {
-		if err := s.store.RecordSandboxRevision(ctx, revision, true); err != nil {
+		if err := s.store.PromoteSandboxRevision(ctx, revision.Revision); err != nil {
 			return s.observeError(*state, fmt.Errorf("promote sandbox revision %s: %w", state.RevisionID, err), true)
 		}
 	}

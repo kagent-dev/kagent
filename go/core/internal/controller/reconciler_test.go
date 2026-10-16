@@ -55,7 +55,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
-	reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }),
+	reconciler := &Reconciler{egress: noopRevisionEgress,
 		collections: Collections{
 			Agents:                   krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
 			AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
@@ -109,7 +109,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
-	reconciler = &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }), collections: reconciler.collections, templates: templates, store: store, status: statusClient}
+	reconciler = &Reconciler{egress: noopRevisionEgress, collections: reconciler.collections, templates: templates, store: store, status: statusClient}
 	nextTarget := *state.Target
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
@@ -157,7 +157,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
-			reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }),
+			reconciler := &Reconciler{egress: noopRevisionEgress,
 				collections: Collections{
 					AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 					Reconciliations:          states,
@@ -324,6 +324,8 @@ type fakeRuntimeRevisionStore struct {
 	markedSuccessful bool
 	retired          string
 	revisionErr      error
+	promoteErr       error
+	recordCalls      int
 	pairErr          error
 	pairCalls        int
 }
@@ -334,12 +336,23 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, ready bool) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
+	s.recordCalls++
 	if s.revisionErr != nil {
 		return s.revisionErr
 	}
 	s.revision = &revision
-	s.markedSuccessful = ready
+	return nil
+}
+
+func (s *fakeRuntimeRevisionStore) PromoteRuntimeRevision(_ context.Context, revision string) error {
+	if s.promoteErr != nil {
+		return s.promoteErr
+	}
+	if s.revision == nil || s.revision.Revision != revision {
+		return database.ErrNotFound
+	}
+	s.markedSuccessful = true
 	return nil
 }
 
@@ -391,7 +404,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
 		statusClient,
-		revisionEgressFunc(func(context.Context, string) error { return nil }),
+		noopRevisionEgress,
 	)
 
 	go reconciler.Run(stop)

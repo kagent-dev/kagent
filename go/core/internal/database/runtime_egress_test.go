@@ -16,7 +16,8 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	ctx := t.Context()
 	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
 	require.NoError(t, client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", DesiredRevision: "agent"}))
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, true))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
+	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 	instance, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "request")
 	require.NoError(t, err)
 	op, err := client.BeginSessionOperation(ctx, instance.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE)
@@ -106,19 +107,38 @@ func TestRuntimeEgressPolicyIsMutableControllerOutput(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	revision := RuntimeRevision{Revision: "policy-revision", Namespace: "team-a", AgentName: "assistant", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", EgressDestinations: []string{"https://model.example.com:443"}}
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, false))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
 	_, err := client.GetRuntimeEgressPolicy(ctx, revision.Revision)
 	require.ErrorIs(t, err, ErrNotFound, "absence must not become an empty allowlist")
 	allowed := egress.Access{Destinations: []string{"https://model.example.com:443", "https://tools.example.com:443"}, Credentials: []egress.Credential{{Origin: "https://tools.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}}
-	require.NoError(t, client.SetRuntimeEgressPolicy(ctx, revision.Revision, allowed))
+	changed, err := client.SetRuntimeEgressPolicy(ctx, revision.Revision, allowed)
+	require.NoError(t, err)
+	require.True(t, changed)
+	var before string
+	require.NoError(t, client.db.QueryRow(ctx, `SELECT xmin::text FROM runtime_egress_policy WHERE revision = $1`, revision.Revision).Scan(&before))
+	equivalent := egress.Access{Destinations: []string{"https://tools.example.com", "https://model.example.com", "https://tools.example.com:443"}, Credentials: allowed.Credentials}
+	changed, err = client.SetRuntimeEgressPolicy(ctx, revision.Revision, equivalent)
+	require.NoError(t, err)
+	require.False(t, changed, "equivalent canonical policies must not trigger actor updates")
+	var after string
+	require.NoError(t, client.db.QueryRow(ctx, `SELECT xmin::text FROM runtime_egress_policy WHERE revision = $1`, revision.Revision).Scan(&after))
+	require.Equal(t, before, after, "unchanged policies must not rewrite the row")
 	// A different API replica reads the same intended policy without any K8s cache.
 	replica := NewClient(client.db, "public")
 	got, err := replica.GetRuntimeEgressPolicy(ctx, revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, allowed, got)
-	require.NoError(t, client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{Destinations: revision.EgressDestinations}))
+	rotated := egress.Access{Destinations: allowed.Destinations, Credentials: []egress.Credential{allowed.Credentials[0]}}
+	rotated.Credentials[0].URI = "ate-secret://k8s.io/default/team-a/rotated/token"
+	changed, err = client.SetRuntimeEgressPolicy(ctx, revision.Revision, rotated)
+	require.NoError(t, err)
+	require.True(t, changed, "a credential-only change must update actors")
+	changed, err = client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{Destinations: revision.EgressDestinations})
+	require.NoError(t, err)
+	require.True(t, changed)
 	// Preparation observations must not restore an earlier policy.
-	require.NoError(t, client.RecordRuntimeRevision(ctx, revision, true))
+	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
+	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 	got, err = replica.GetRuntimeEgressPolicy(ctx, revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, revision.EgressDestinations, got.Destinations)
@@ -127,11 +147,18 @@ func TestRuntimeEgressPolicyIsMutableControllerOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, revision.EgressDestinations, pinned.EgressDestinations)
 	require.Empty(t, pinned.Credentials)
-	require.ErrorIs(t, client.SetRuntimeEgressPolicy(ctx, "missing", allowed), ErrNotFound)
-	require.Error(t, client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{Destinations: []string{"invalid"}}))
+	changed, err = client.SetRuntimeEgressPolicy(ctx, "missing", allowed)
+	require.ErrorIs(t, err, ErrNotFound)
+	require.False(t, changed)
+	_, err = client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{Destinations: []string{"invalid"}})
+	require.Error(t, err)
 	// Durable malformed data must fail rather than granting a partial policy.
 	_, err = client.db.Exec(ctx, `UPDATE runtime_egress_policy SET credentials = '[{"hostname":"legacy","header":"authorization"}]' WHERE revision = $1`, revision.Revision)
 	require.NoError(t, err)
 	_, err = replica.GetRuntimeEgressPolicy(ctx, revision.Revision)
 	require.Error(t, err)
+	_, err = client.BeginRuntimeRevisionDeletion(ctx, revision.Revision)
+	require.NoError(t, err)
+	_, err = client.SetRuntimeEgressPolicy(ctx, revision.Revision, allowed)
+	require.ErrorIs(t, err, ErrNotFound, "deleting revisions must remain distinguishable from unchanged policies")
 }

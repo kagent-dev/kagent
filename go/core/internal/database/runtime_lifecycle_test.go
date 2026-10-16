@@ -69,7 +69,9 @@ func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	revision, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	revision.Revision, revision.ActorTemplateUID = "sandbox-revision", "replacement-uid"
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, true), ErrConflict)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision), ErrConflict)
+	require.ErrorIs(t, client.PromoteRuntimeRevision(ctx, "sandbox-revision"), ErrConflict)
+	require.ErrorIs(t, client.PromoteSandboxRevision(ctx, "revision"), ErrConflict)
 	var uid string
 	require.NoError(t, pool.QueryRow(ctx, "SELECT actor_template_uid FROM runtime_revision WHERE revision = 'sandbox-revision'").Scan(&uid))
 	require.Equal(t, "original-uid", uid)

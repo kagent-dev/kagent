@@ -54,7 +54,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }), collections: collections, templates: templates, store: store}
+			reconciler := &Reconciler{egress: noopRevisionEgress, collections: collections, templates: templates, store: store}
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
@@ -97,7 +97,8 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, true))
+			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned))
+			require.NoError(t, store.PromoteRuntimeRevision(ctx, abandoned.Revision))
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, unreferenced, 1)
@@ -155,7 +156,7 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			collections, _ := newPreparationTestCollections(t, "microvm")
 			initial := collections.Reconciliations.List()[0]
 			statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-			reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }), collections: collections, templates: &test.templates, store: &test.store, status: statusClient}
+			reconciler := &Reconciler{egress: noopRevisionEgress, collections: collections, templates: &test.templates, store: &test.store, status: statusClient}
 			err := reconciler.reconcileAgent(t.Context(), initial.ResourceName())
 			require.Error(t, err)
 			require.Equal(t, test.code, status.Code(err))
@@ -236,7 +237,7 @@ func TestPreparationRevisionIsolation(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
 	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}
-	reconciler := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }), collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
+	reconciler := &Reconciler{egress: noopRevisionEgress, collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
 	require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 	waitFor(t, func() bool {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure != nil
@@ -278,7 +279,7 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 				initial := collections.Reconciliations.List()[0]
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
 				backend := &preparationTestBackend{templates: &test.templates, store: &test.store}
-				r := newReconciler(collections, backend, backend, statusClient, revisionEgressFunc(func(context.Context, string) error { return nil }))
+				r := newReconciler(collections, backend, backend, statusClient, noopRevisionEgress)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -387,10 +388,16 @@ func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, defi
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, ready bool) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RecordRuntimeRevision(ctx, revision, ready)
+	return p.store.RecordRuntimeRevision(ctx, revision)
+}
+
+func (p *preparationTestBackend) PromoteRuntimeRevision(ctx context.Context, revision string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.PromoteRuntimeRevision(ctx, revision)
 }
 
 func (p *preparationTestBackend) RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error {
@@ -405,7 +412,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 		initial := collections.Reconciliations.List()[0]
 		templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "missing config")}
 		store := &fakeRuntimeRevisionStore{}
-		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), revisionEgressFunc(func(context.Context, string) error { return nil }))
+		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), noopRevisionEgress)
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		go r.Run(ctx.Done())
@@ -459,7 +466,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				}
 				store := &fakeRuntimeRevisionStore{}
 				statusClient := kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3()
-				r := newReconciler(collections, templates, store, statusClient, revisionEgressFunc(func(context.Context, string) error { return nil }))
+				r := newReconciler(collections, templates, store, statusClient, noopRevisionEgress)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 				go r.Run(ctx.Done())
@@ -518,7 +525,7 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 	require.Nil(t, state.PreparationFailure)
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{getErr: errors.New("Substrate must not be called for an invalid target")}
-	r := &Reconciler{egress: revisionEgressFunc(func(context.Context, string) error { return nil }), collections: collections, templates: templates, store: store}
+	r := &Reconciler{egress: noopRevisionEgress, collections: collections, templates: templates, store: store}
 	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
 	require.Empty(t, store.pair.DesiredRevision)
 	require.Nil(t, templates.template)
@@ -595,6 +602,11 @@ func TestInitialRevisionWaitsForEgressPublication(t *testing.T) {
 		return collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure != nil
 	})
 	publishErr = nil
+	store.promoteErr = errors.New("promotion unavailable")
+	require.ErrorIs(t, r.reconcileAgent(t.Context(), initial.ResourceName()), store.promoteErr)
+	require.False(t, store.markedSuccessful)
+	store.promoteErr = nil
 	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
 	require.True(t, store.markedSuccessful)
+	require.Equal(t, 3, store.recordCalls, "each attempt must record inputs only once")
 }
