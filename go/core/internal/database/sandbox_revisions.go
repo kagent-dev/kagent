@@ -3,9 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -30,28 +28,15 @@ type SandboxTemplateDefinition struct {
 
 // UpsertSandboxTemplateDefinition pins desired inputs before any backend mutation. A new
 // Kubernetes UID retires the former identity without inheriting its last success.
-// Grants are canonicalized before writing. The bool reports changed active grants
-// or retirement of another UID; errors may include an uncertain commit outcome.
-func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition SandboxTemplateDefinition) (bool, error) {
+// Grants are canonicalized before writing; errors may include an uncertain commit outcome.
+func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition SandboxTemplateDefinition) error {
 	grants, err := canonicalStoredGrants(definition.Grants)
 	if err != nil {
-		return false, fmt.Errorf("validate source grants: %w", err)
+		return fmt.Errorf("validate source grants: %w", err)
 	}
-	changed := false
-	err = c.withTx(ctx, func(tx pgx.Tx) error {
-		retired, err := retireSandboxTemplateIdentities(ctx, tx, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID)
-		if err != nil {
+	return c.withTx(ctx, func(tx pgx.Tx) error {
+		if err := retireSandboxTemplateIdentities(ctx, tx, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID); err != nil {
 			return err
-		}
-		previous, err := queryOne(ctx, tx, `
-			SELECT grant_destinations, grant_credentials, retired_at FROM sandbox_template_definition
-			WHERE namespace = $1 AND sandbox_template_uid = $2 FOR UPDATE
-		`, pgx.RowToStructByName[definitionGrantRow], definition.Namespace, definition.SandboxTemplateUID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if previous.RetiredAt != nil {
-			previous = definitionGrantRow{}
 		}
 		if err := execSQL(ctx, tx, `
 			INSERT INTO sandbox_template_definition (namespace, sandbox_template_name, sandbox_template_uid, desired_revision, grant_destinations, grant_credentials)
@@ -63,7 +48,6 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 		`, definition.Namespace, definition.SandboxTemplateName, definition.SandboxTemplateUID, definition.DesiredRevision, grants.Destinations, grants.Credentials); err != nil {
 			return err
 		}
-		changed = retired > 0 || !slices.Equal(previous.GrantDestinations, grants.Destinations) || !slices.Equal(previous.GrantCredentials, grants.Credentials)
 
 		revisions, err := queryMany(ctx, tx, `
 			SELECT r.revision, r.kind, r.namespace, r.actor_template_atespace, r.actor_template_name, r.actor_template_uid, r.deleted_at
@@ -84,25 +68,22 @@ func (c *Client) UpsertSandboxTemplateDefinition(ctx context.Context, definition
 		}
 		return nil
 	})
-	return changed, err
 }
 
 // RetireSandboxTemplateIdentities retires active identities at this source name.
 // Missing/already-retired identities are a no-op; retained actors lose live grants.
 func (c *Client) RetireSandboxTemplateIdentities(ctx context.Context, namespace, name string) error {
-	_, err := retireSandboxTemplateIdentities(ctx, c.db, namespace, name, "")
-	return err
+	return retireSandboxTemplateIdentities(ctx, c.db, namespace, name, "")
 }
 
 // retireSandboxTemplateIdentities shares retirement with definition preparation
-// and returns the number retired. An empty retainedUID retires all active identities.
-func retireSandboxTemplateIdentities(ctx context.Context, db dbExecutor, namespace, name, retainedUID string) (int64, error) {
-	result, err := db.Exec(ctx, `
+// in the caller's transaction. An empty retainedUID retires all active identities.
+func retireSandboxTemplateIdentities(ctx context.Context, db dbExecutor, namespace, name, retainedUID string) error {
+	return execSQL(ctx, db, `
 		UPDATE sandbox_template_definition SET retired_at = NOW(), updated_at = NOW()
 		WHERE namespace = $1 AND sandbox_template_name = $2 AND retired_at IS NULL
 		  AND sandbox_template_uid IS DISTINCT FROM NULLIF($3, '')
 	`, namespace, name, retainedUID)
-	return result.RowsAffected(), err
 }
 
 // RecordSandboxRevision stores immutable sandbox inputs and refreshes artifact

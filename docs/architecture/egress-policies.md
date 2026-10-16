@@ -173,22 +173,24 @@ contribute no grants. There is no separately published per-revision policy and
 no notification needed when a revision is recorded: every read joins against
 the current persisted grants, including for newly recorded revisions.
 
-Changes to grants enqueue the source's actors across all retained revisions and
-Kubernetes UIDs. Retirement and uncertain database write outcomes also enqueue
-that source. Actor application runs in separate queues so slow Substrate calls
-do not block preparation. The applier only reads effective policy; it does not
-translate Kubernetes inputs or write grants. Startup recovery pages all allocated
-actors within the controller's namespace watch scope. Failed applications retry
-with exponential backoff. Preparation finalizers on both source kinds preserve
-deletion events through controller downtime.
+Every preparation persists the source definition, then pages its allocated actors
+across all retained revisions and Kubernetes UIDs and applies effective policy
+with at most 16 actor updates in parallel. Unchanged policies skip the Substrate
+write. Failures return to the existing preparation queue, which retries the whole
+source with exponential backoff even when grants have not changed. Slow actor
+updates therefore delay further work on that preparation queue. Startup replays
+every Agent and SandboxTemplate through preparation; no separate actor sweep is
+needed.
+Preparation finalizers preserve deletion through controller downtime and are
+removed only after retiring the source and successfully updating its actors.
 
 Running and suspended actors receive updates without replacement or a new
 invocation. Missing or invalid policy references and Secrets revoke explicit
 grants. Grants that conflict with pinned credentials or caller-token origins, or
 exceed the merged rule limit, are withheld while pinned integration access remains.
-The applier reports these conflicts with warnings limited per revision; create
-and resume apply the same fallback. Missing revisions or malformed persisted
-inputs return errors and block execution.
+Preparation reports these conflicts with warnings; create and resume apply the
+same fallback. Missing revisions or malformed persisted inputs return errors and
+block execution.
 
 New Sessions and sandboxes pin the latest successful runtime revision, including
 while a configuration edit is unresolved, preparing, or failed. Initial creation

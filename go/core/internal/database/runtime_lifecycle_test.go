@@ -57,7 +57,7 @@ func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	`)
 	require.NoError(t, err)
 	// Failed validation must roll back preparation changes and preserve the ready revision.
-	_, err = client.UpsertAgentDefinition(ctx, AgentDefinition{
+	err = client.UpsertAgentDefinition(ctx, AgentDefinition{
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid",
 		DesiredRevision: "sandbox-revision",
 	})

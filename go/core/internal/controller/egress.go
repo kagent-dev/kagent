@@ -2,16 +2,13 @@ package controller
 
 import (
 	"context"
-	"slices"
-	"sync"
-	"time"
+	"fmt"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"github.com/hashicorp/go-multierror"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"istio.io/istio/pkg/kube/controllers"
-	"k8s.io/apimachinery/pkg/util/cache"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
@@ -20,7 +17,6 @@ import (
 )
 
 type actorEgressStore interface {
-	ListRuntimeEgressTargets(context.Context, string, int) ([]database.RuntimeEgressTarget, error)
 	ListRuntimeEgressSourceTargets(context.Context, database.RuntimeEgressSource, string, int) ([]database.RuntimeEgressTarget, error)
 }
 
@@ -29,120 +25,60 @@ type actorEgressClient interface {
 	EnsureActorEgressPolicy(context.Context, string, string, string) (egress.Policy, error)
 }
 
-// ActorEgressApplier applies persisted effective policy independently of runtime
-// preparation. It never translates Kubernetes inputs or writes source grants.
-type ActorEgressApplier struct {
-	store      actorEgressStore
-	actors     actorEgressClient
-	namespaces []string
-	warnings   *cache.LRUExpireCache
-	pages      controllers.Queue
-	updates    controllers.Queue
-	recovery   controllers.Queue
-}
-
-type egressSourcePage struct {
-	Source database.RuntimeEgressSource
-	After  string
-}
-
-type egressRecoveryPage struct{ After string }
-
-var _ manager.LeaderElectionRunnable = (*ActorEgressApplier)(nil)
-
-func NewActorEgressApplier(ctx context.Context, store actorEgressStore, actors actorEgressClient, namespaces []string) *ActorEgressApplier {
-	a := &ActorEgressApplier{store: store, actors: actors, namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024)}
-	reconcile := func(item any) error {
-		err := a.reconcileActor(ctx, item.(database.RuntimeEgressTarget))
-		if status.Code(err) == codes.NotFound {
-			return nil
-		}
-		return err
-	}
-	a.updates = newReconciliationQueue("live-egress-actors", reconcile)
-	a.recovery = newReconciliationQueue("live-egress-recovery", reconcile)
+// applySourceEgress updates every allocated actor, including suspended actors and
+// former source UIDs. Preparation retries the source on failure, even when its
+// grants are unchanged. Continue past individual failures so one unavailable
+// actor cannot prevent revocation on the others.
+func applySourceEgress(ctx context.Context, store actorEgressStore, actors actorEgressClient, source database.RuntimeEgressSource) error {
 	const pageSize = 100
-	a.pages = newReconciliationQueue("live-egress-pages", func(item any) error {
-		switch page := item.(type) {
-		case egressSourcePage:
-			if !a.watches(page.Source.Namespace) {
-				return nil
-			}
-			targets, err := a.store.ListRuntimeEgressSourceTargets(ctx, page.Source, page.After, pageSize)
-			if err != nil {
-				return err
-			}
-			for _, target := range targets {
-				a.updates.Add(target)
-			}
-			if len(targets) == pageSize {
-				page.After = targets[len(targets)-1].ID
-				a.pages.Add(page)
-			}
-		case egressRecoveryPage:
-			targets, err := a.store.ListRuntimeEgressTargets(ctx, page.After, pageSize)
-			if err != nil {
-				return err
-			}
-			for _, target := range targets {
-				if a.watches(target.Namespace) {
-					a.recovery.Add(target)
-				}
-			}
-			if len(targets) == pageSize {
-				page.After = targets[len(targets)-1].ID
-				a.pages.Add(page)
-			}
+	var failures *multierror.Error
+	after := ""
+	for {
+		targets, err := store.ListRuntimeEgressSourceTargets(ctx, source, after, pageSize)
+		if err != nil {
+			return multierror.Append(failures, fmt.Errorf("failed to list %s %s/%s actors: %w", source.Kind, source.Namespace, source.Name, err)).ErrorOrNil()
 		}
-		return nil
-	})
-	return a
+		var group errgroup.Group
+		group.SetLimit(16)
+		for _, target := range targets {
+			group.Go(func() error {
+				if err := applyActorEgress(ctx, actors, target); err != nil {
+					return fmt.Errorf("failed to apply actor %s egress: %w", target.ID, err)
+				}
+				return nil
+			})
+		}
+		if err := group.Wait(); err != nil {
+			failures = multierror.Append(failures, err)
+		}
+		if len(targets) < pageSize {
+			return failures.ErrorOrNil()
+		}
+		after = targets[len(targets)-1].ID
+	}
 }
 
-func (a *ActorEgressApplier) watches(namespace string) bool {
-	return len(a.namespaces) == 0 || slices.Contains(a.namespaces, namespace)
-}
-
-// EnqueueSource schedules all allocated instances of this source, across UIDs.
-func (a *ActorEgressApplier) EnqueueSource(source database.RuntimeEgressSource) {
-	a.pages.Add(egressSourcePage{Source: source})
-}
-
-func (a *ActorEgressApplier) NeedLeaderElection() bool { return true }
-
-func (a *ActorEgressApplier) Start(ctx context.Context) error {
-	var workers sync.WaitGroup
-	workers.Go(func() { a.updates.Run(ctx.Done()) })
-	workers.Go(func() { a.recovery.Run(ctx.Done()) })
-	a.pages.Add(egressRecoveryPage{})
-	a.pages.Run(ctx.Done())
-	workers.Wait()
-	return nil
-}
-
-func (a *ActorEgressApplier) reconcileActor(ctx context.Context, target database.RuntimeEgressTarget) error {
-	if !a.watches(target.Namespace) {
+func applyActorEgress(ctx context.Context, actors actorEgressClient, target database.RuntimeEgressTarget) error {
+	binding := substrate.ActorBinding{Atespace: target.Atespace, Name: substrate.ActorName(target.ID), TemplateAtespace: target.Atespace, TemplateName: target.TemplateName}
+	actor, err := actors.GetActor(ctx, binding.Atespace, binding.Name)
+	if status.Code(err) == codes.NotFound {
 		return nil
 	}
-	binding := substrate.ActorBinding{Atespace: target.Atespace, Name: substrate.ActorName(target.ID), TemplateAtespace: target.Atespace, TemplateName: target.TemplateName}
-	actor, err := a.actors.GetActor(ctx, binding.Atespace, binding.Name)
 	if err != nil {
 		return err
 	}
 	if !binding.Matches(actor) || (target.ActorUID != "" && target.ActorUID != actor.GetMetadata().GetUid()) {
 		return nil
 	}
-	policy, err := a.actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
+	policy, err := actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
+	if status.Code(err) == codes.NotFound {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	if policy.WithheldGrants != nil {
-		if _, warned := a.warnings.Get(target.Revision); !warned {
-			logging.FromContext(ctx).WarnContext(ctx, "explicit egress grants withheld", "revision", target.Revision, "namespace", target.Namespace, "error", policy.WithheldGrants)
-			a.warnings.Add(target.Revision, struct{}{}, 30*time.Second)
-		}
-	} else {
-		a.warnings.Remove(target.Revision)
+		logging.FromContext(ctx).WarnContext(ctx, "explicit egress grants withheld", "revision", target.Revision, "namespace", target.Namespace, "error", policy.WithheldGrants)
 	}
 	return nil
 }

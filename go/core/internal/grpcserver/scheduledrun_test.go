@@ -180,7 +180,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1.ScheduledRunS
 	t.Cleanup(db.Close)
 	store := database.NewClient(db, "public")
 	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
-	_, upsertErr := store.UpsertAgentDefinition(t.Context(), pair)
+	upsertErr := store.UpsertAgentDefinition(t.Context(), pair)
 	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
 		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentName: pair.AgentName, AgentUID: pair.AgentUID,

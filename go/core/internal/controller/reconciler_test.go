@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"reflect"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -56,7 +55,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
-	reconciler := &Reconciler{enqueueActors: noopEnqueueActors,
+	reconciler := &Reconciler{
 		collections: Collections{
 			Agents:                   krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
 			AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
@@ -110,7 +109,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
-	reconciler = &Reconciler{enqueueActors: noopEnqueueActors, collections: reconciler.collections, templates: templates, store: store, status: statusClient}
+	reconciler = &Reconciler{collections: reconciler.collections, templates: templates, store: store, status: statusClient}
 	nextTarget := *state.Target
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
@@ -158,7 +157,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
-			reconciler := &Reconciler{enqueueActors: noopEnqueueActors,
+			reconciler := &Reconciler{
 				collections: Collections{
 					AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 					Reconciliations:          states,
@@ -279,6 +278,7 @@ func (s *failingFinalizationStore) DeleteRuntimeRevision(ctx context.Context, re
 }
 
 type fakeActorTemplates struct {
+	actorEgressStub
 	template           *ateapipb.ActorTemplate
 	ensureErr          error
 	getErr             error
@@ -320,6 +320,7 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 }
 
 type fakeRuntimeRevisionStore struct {
+	egressTargetStoreStub
 	pair             *database.AgentDefinition
 	revision         *database.RuntimeRevision
 	markedSuccessful bool
@@ -331,11 +332,10 @@ type fakeRuntimeRevisionStore struct {
 	pairCalls        int
 }
 
-func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) (bool, error) {
+func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
 	s.pairCalls++
-	changed := s.pair == nil || !reflect.DeepEqual(s.pair.Grants, pair.Grants)
 	s.pair = &pair
-	return changed, s.pairErr
+	return s.pairErr
 }
 
 func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
@@ -404,7 +404,6 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
 		statusClient,
-		noopEnqueueActors,
 	)
 
 	go reconciler.Run(stop)

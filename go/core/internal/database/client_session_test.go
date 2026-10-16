@@ -374,7 +374,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
 		DesiredRevision: revision.Revision,
 	}
-	if _, err := client.UpsertAgentDefinition(ctx, pair); err != nil {
+	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
@@ -534,7 +534,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 		Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid",
 		DesiredRevision: revision.Revision,
 	}
-	if _, err := client.UpsertAgentDefinition(ctx, pair); err != nil {
+	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {
@@ -637,7 +637,7 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 		Namespace: namespace, AgentName: template, AgentUID: template + "-uid",
 		DesiredRevision: revisionID,
 	}
-	if _, err := client.UpsertAgentDefinition(ctx, pair); err != nil {
+	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.RecordRuntimeRevision(ctx, revision); err != nil {

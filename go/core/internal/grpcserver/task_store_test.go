@@ -637,7 +637,7 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	_, upsertErr := store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
+	upsertErr := store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
 		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
 		DesiredRevision: revision.Revision,
 	})

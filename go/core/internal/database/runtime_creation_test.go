@@ -30,7 +30,7 @@ func TestRuntimeCreationUsesLatestSuccessfulRevision(t *testing.T) {
 					return session.GetPreparedRevision(), created, err
 				}
 				desire = func(c *Client, revision string) error {
-					_, err := c.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid", DesiredRevision: revision})
+					err := c.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "assistant-uid", DesiredRevision: revision})
 					return err
 				}
 			} else {
@@ -45,7 +45,7 @@ func TestRuntimeCreationUsesLatestSuccessfulRevision(t *testing.T) {
 					return instance.GetPreparedRevision(), created, err
 				}
 				desire = func(c *Client, revision string) error {
-					_, err := c.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision})
+					err := c.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision})
 					return err
 				}
 				unresolved = "pending:uid:2"

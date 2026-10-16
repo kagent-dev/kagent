@@ -3,18 +3,11 @@ package database
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
-
-type definitionGrantRow struct {
-	GrantDestinations []string
-	GrantCredentials  []egress.Credential
-	RetiredAt         *time.Time
-}
 
 // canonicalStoredGrants validates and normalizes source grants for NOT NULL storage.
 func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
@@ -102,18 +95,6 @@ type RuntimeEgressTarget struct {
 	Atespace     string
 	TemplateName string
 	ActorUID     string
-}
-
-// ListRuntimeEgressTargets pages all allocated instances in ID order for startup
-// recovery. Deleting instances and unissued creations are excluded; concurrent
-// creation reads effective policy itself and rechecks it after applying.
-func (c *Client) ListRuntimeEgressTargets(ctx context.Context, afterID string, limit int) ([]RuntimeEgressTarget, error) {
-	return queryMany(ctx, c.db, `
-  SELECT target.id::text AS id, revision, namespace, atespace, template_name, actor_uid
-  FROM runtime_egress_target target
-  WHERE target.id > COALESCE(NULLIF($1, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
-  ORDER BY target.id LIMIT $2
- `, pgx.RowToStructByName[RuntimeEgressTarget], afterID, limit)
 }
 
 // ListRuntimeEgressSourceTargets pages allocated instances across a source's UIDs
