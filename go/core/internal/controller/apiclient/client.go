@@ -4,6 +4,7 @@ import (
 	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/kube"
+	_ "istio.io/istio/pkg/kube/kclient" // Register Istio's CRD watcher factory.
 	"k8s.io/client-go/rest"
 
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned"
@@ -28,6 +29,7 @@ func New(config *rest.Config) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	kubeClient = kube.EnableCrdWatcher(kubeClient)
 	kagent, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, err

@@ -1,0 +1,42 @@
+suite: test delayed informer CRD watcher rbac
+templates:
+  - rbac/crd-watcher-clusterrole.yaml
+  - rbac/crd-watcher-clusterrolebinding.yaml
+tests:
+  - it: grants cluster-scoped CRD discovery
+    template: rbac/crd-watcher-clusterrole.yaml
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apiextensions.k8s.io]
+            resources: [customresourcedefinitions]
+            verbs: [get, list, watch]
+
+  - it: binds CRD discovery to the controller service account
+    template: rbac/crd-watcher-clusterrolebinding.yaml
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-crd-watcher
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-controller
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+
+  - it: stays cluster scoped when ordinary watches are namespace scoped
+    set:
+      rbac.namespaces: [team-a]
+    asserts:
+      - isKind:
+          of: ClusterRole
+        template: rbac/crd-watcher-clusterrole.yaml
+      - isKind:
+          of: ClusterRoleBinding
+        template: rbac/crd-watcher-clusterrolebinding.yaml

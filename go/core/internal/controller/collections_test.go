@@ -9,6 +9,10 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	istioclient "istio.io/client-go/pkg/apis/extensions/v1alpha1"
+	"istio.io/istio/pkg/config/schema/gvr"
+	"istio.io/istio/pkg/kube"
+	"istio.io/istio/pkg/kube/kclient/clienttest"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +23,27 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
+
+func TestDelayedTypedCollectionActivatesAfterCRDCreation(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	client := kube.NewFakeClient()
+	opts := krt.NewOptionsBuilder(stop, "test-delayed", nil)
+	plugins := typedCollection[*istioclient.WasmPlugin](client, nil, "WasmPlugins", opts)
+
+	require.True(t, client.RunAndWait(stop))
+	require.True(t, plugins.WaitUntilSynced(stop))
+	clienttest.NewWriter[*istioclient.WasmPlugin](t, client).Create(&istioclient.WasmPlugin{
+		ObjectMeta: metav1.ObjectMeta{Name: "example", Namespace: "default"},
+	})
+	require.Empty(t, plugins.List())
+
+	clienttest.MakeCRD(t, client, gvr.WasmPlugin)
+	require.Eventually(t, func() bool {
+		items := plugins.List()
+		return len(items) == 1 && items[0].Name == "example"
+	}, 5*time.Second, 10*time.Millisecond)
+}
 
 func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	stop := make(chan struct{})

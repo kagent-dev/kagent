@@ -34,8 +34,8 @@ func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struc
 }
 
 // Start starts every informer registered by the KRT collections and keeps
-// them alive until the application shuts down. The API uses installed CRDs
-// directly, so it does not start Istio's cluster-wide delayed-CRD watcher.
+// them alive until the application shuts down.
+// RunAndWait also starts the CRD watcher used by delayed KRT informers.
 func (r *Runtime) Start(ctx context.Context) error {
 	defer r.Client.Shutdown()
 	if !r.Client.RunAndWait(ctx.Done()) {
