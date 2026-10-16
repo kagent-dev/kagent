@@ -41,7 +41,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace and durable directories must be absolute paths")
 	}
 	codexHome := filepath.Join(input.DurableDir, "codex")
-	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), filepath.Join(codexHome, "skills")} {
+	skillsRoot := config.SkillsRoot(input.DurableDir)
+	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), skillsRoot} {
 		if err := utils.EnsurePrivateDir(directory); err != nil {
 			return nil, fmt.Errorf("prepare Codex directory %q: %w", directory, err)
 		}
@@ -49,13 +50,13 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := reconcileGeneratedDir(filepath.Join(codexHome, "agents"), agentFileNames(cfg.Agents)); err != nil {
 		return nil, fmt.Errorf("reconcile Codex agents: %w", err)
 	}
-	if err := reconcileGeneratedDir(filepath.Join(codexHome, "skills"), nil); err != nil {
+	if err := reconcileGeneratedDir(skillsRoot, nil); err != nil {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
 	if cfg.SkillResources != nil {
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
-			Skills:   filepath.Join(codexHome, "skills"),
+			Skills:   skillsRoot,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
