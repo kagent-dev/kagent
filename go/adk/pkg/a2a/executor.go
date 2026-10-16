@@ -91,6 +91,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
+			outputLimitWatchFrom(ctx).observe(event)
 			// Preserve the artifact's protocol type and assign kagent's ordering key.
 			if processed.Artifact != nil {
 				position := event.Timestamp
@@ -100,6 +101,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 				apia2a.SetTimelinePosition(processed.Artifact, position)
 			}
 			return transformStructuredOutput(output, rootName, event, processed)
+		},
+		AfterExecuteCallback: func(ctx adka2a.ExecutorContext, finalEvent *a2atype.TaskStatusUpdateEvent, _ error) error {
+			outputLimitWatchFrom(ctx).failTruncatedAnswer(finalEvent)
+			// Never return the execution error: ADK drops the terminal status
+			// event and reports the error instead, which would lose the failure
+			// it is already carrying.
+			return nil
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
 	})
@@ -252,6 +260,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		// The synthetic ADK user ID is only a native session lookup key. Memory
 		// and outgoing credentials must receive only the passed-through caller.
 		ctx = auth.WithUserID(ctx, trustedUserID)
+		ctx = withOutputLimitWatch(ctx)
 		// The invocation span started before this executor ran, so the request
 		// identity has to be recorded on it directly. ADK's own spans get it
 		// through the request attribute span processor.
