@@ -42,6 +42,18 @@ describe("splitToolImages", () => {
     expect(JSON.stringify(rest)).not.toContain("PGh0bWw+");
   });
 
+  it.each([
+    ["a tool's own list of URLs", { images: ["https://example.com/a.png"], total: 3 }],
+    [
+      "a list mixing images with anything else",
+      { images: [{ mimeType: "image/png", data: "iVBORw0KGgo=" }, "https://example.com/a.png"] },
+    ],
+    ["the Go runtime's note that the bytes were withheld", { output: "x", images: "1 image(s) returned for display; not shown" }],
+    ["an empty list", { images: [] }],
+  ])("keeps %s in the text, untouched", (_, response) => {
+    expect(splitToolImages(response)).toEqual({ images: [], rest: response });
+  });
+
   it("leaves a response without images as it was", () => {
     const response = { output: "3 pods running", content: [{ type: "text", text: "x" }] };
 

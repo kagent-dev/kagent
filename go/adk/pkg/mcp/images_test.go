@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -85,12 +87,24 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 	encoded := func(n int) ToolImage {
 		return ToolImage{MIMEType: "image/png", Data: base64.StdEncoding.EncodeToString(make([]byte, n))}
 	}
-	atCap := maxToolImageBytes * 3 / 4
+	placeholder := func(n int) string { return fmt.Sprintf("[MCP image: mimeType=\"image/png\", size=%d bytes]", n) }
+	// half is a raw image size that, with its overhead, counts exactly half the
+	// call cap.
+	half := (maxToolCallImageBytes/2 - toolImageOverheadBytes) * 3 / 4
+	pngs := func(n int) []mcpsdk.Content {
+		out := make([]mcpsdk.Content, n)
+		for i := range out {
+			out[i] = png
+		}
+		return out
+	}
 	for _, tc := range []struct {
-		name    string
-		content []mcpsdk.Content
-		output  string
-		images  []ToolImage
+		name string
+		// invocation defaults to the case name.
+		invocation string
+		content    []mcpsdk.Content
+		output     string
+		images     []ToolImage
 	}{
 		{name: "image between text", content: []mcpsdk.Content{text("chart"), png, text("https://example.test/panel")}, output: "chart\nhttps://example.test/panel", images: captured},
 		{name: "image first", content: []mcpsdk.Content{png, text("https://example.test/panel")}, output: "https://example.test/panel", images: captured},
@@ -106,30 +120,68 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 		{
 			name:    "image over the size cap keeps its placeholder",
 			content: []mcpsdk.Content{image(maxToolImageBytes), png},
-			output:  fmt.Sprintf("[MCP image: mimeType=\"image/png\", size=%d bytes]", maxToolImageBytes),
+			output:  placeholder(maxToolImageBytes),
 			images:  captured,
 		},
 		{
 			name:    "images over the call cap keep their placeholder",
-			content: []mcpsdk.Content{image(atCap), image(atCap), image(atCap)},
-			output:  fmt.Sprintf("[MCP image: mimeType=\"image/png\", size=%d bytes]", atCap),
-			images:  []ToolImage{encoded(atCap), encoded(atCap)},
+			content: []mcpsdk.Content{image(half), image(half), image(half)},
+			output:  placeholder(half),
+			images:  []ToolImage{encoded(half), encoded(half)},
+		},
+		{
+			name:    "image overhead counts toward the call cap",
+			content: []mcpsdk.Content{image(half + 24), image(half + 24)},
+			output:  placeholder(half + 24),
+			images:  []ToolImage{encoded(half + 24)},
+		},
+		{
+			name:    "images over the count cap keep their placeholder",
+			content: pngs(maxToolCallImages + 1),
+			output:  placeholder(3),
+			images:  slices.Repeat(captured, maxToolCallImages),
+		},
+		{
+			name:    "empty image keeps its placeholder",
+			content: []mcpsdk.Content{text("chart"), &mcpsdk.ImageContent{MIMEType: "image/png"}},
+			output:  "chart\n" + placeholder(0),
+		},
+		{
+			name:       "first call of an invocation",
+			invocation: "invocation-budget",
+			content:    []mcpsdk.Content{image(half), image(half)},
+			output:     "",
+			images:     []ToolImage{encoded(half), encoded(half)},
+		},
+		{
+			name:       "images over the invocation cap keep their placeholder",
+			invocation: "invocation-budget",
+			content:    []mcpsdk.Content{image(half), image(half)},
+			output:     placeholder(half),
+			images:     []ToolImage{encoded(half)},
+		},
+		{
+			name:    "another invocation has its own cap",
+			content: []mcpsdk.Content{image(half), image(half)},
+			output:  "",
+			images:  []ToolImage{encoded(half), encoded(half)},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			content = tc.content
 			callID := "call-" + tc.name
-			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context(), invocationID: "invocation-1", callID: callID}, map[string]any{})
+			invocation := cmp.Or(tc.invocation, tc.name)
+			result, err := wrapped.Run(runContext{ContextMock: &adkagent.ContextMock{}, Context: t.Context(), invocationID: invocation, callID: callID}, map[string]any{})
 			require.NoError(t, err)
 			require.Equal(t, tc.output, result["output"])
 			// The result keeps only a note; the images wait for the A2A conversion.
 			if tc.images == nil {
 				require.NotContains(t, result, ToolResultImagesKey)
 			} else {
-				require.Equal(t, fmt.Sprintf("%d image(s) shown to the user", len(tc.images)), result[ToolResultImagesKey])
+				require.Equal(t, fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(tc.images)), result[ToolResultImagesKey])
 			}
-			require.Equal(t, tc.images, TakeToolImages(ToolCallKey{InvocationID: "invocation-1", CallID: callID}))
-			require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation-1", CallID: callID}), "images are taken once")
+			require.Equal(t, tc.images, TakeToolImages(ToolCallKey{InvocationID: invocation, CallID: callID}))
+			require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: invocation, CallID: callID}), "images are taken once")
 		})
 	}
 }
@@ -142,12 +194,16 @@ func TestStashToolImagesEvicts(t *testing.T) {
 		imageStash.calls[ToolCallKey{InvocationID: "invocation", CallID: callID}] = stashedImages{images: images, at: time.Now().Add(-age)}
 	}
 	backdate("expired", stashedImagesTTL+time.Second)
+	imageStash.Lock()
+	imageStash.invocations["spent"] = invocationImages{bytes: maxInvocationImageBytes, at: time.Now().Add(-stashedImagesTTL - time.Second)}
+	imageStash.Unlock()
 	for i := range maxStashedImageCalls {
 		StashToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", i)}, images)
 	}
 	backdate("call-0", time.Second)
 	StashToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", maxStashedImageCalls)}, images)
 	require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: "expired"}), "expired images are dropped")
+	require.True(t, reserveInvocationImageBytes("spent", 1), "an expired invocation budget is dropped")
 	require.Nil(t, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: "call-0"}), "the oldest call is dropped when the stash is full")
 	for i := 1; i <= maxStashedImageCalls; i++ {
 		require.Equal(t, images, TakeToolImages(ToolCallKey{InvocationID: "invocation", CallID: fmt.Sprintf("call-%d", i)}))
@@ -161,6 +217,15 @@ func TestStashToolImagesScopesCallIDsByInvocation(t *testing.T) {
 	StashToolImages(ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}, second)
 	require.Equal(t, second, TakeToolImages(ToolCallKey{InvocationID: "invocation-b", CallID: "call_0"}))
 	require.Equal(t, first, TakeToolImages(ToolCallKey{InvocationID: "invocation-a", CallID: "call_0"}))
+}
+
+func TestStashToolImagesAddsToStashedCall(t *testing.T) {
+	call := ToolCallKey{InvocationID: "invocation", CallID: "call_0"}
+	first := []ToolImage{{MIMEType: "image/png", Data: "Zmlyc3Q="}}
+	second := []ToolImage{{MIMEType: "image/png", Data: "c2Vjb25k"}}
+	StashToolImages(call, first)
+	StashToolImages(call, second)
+	require.Equal(t, append(first, second...), TakeToolImages(call))
 }
 
 // runContext is an ADK tool context backed by a Go context, enough for ADK's
