@@ -34,6 +34,11 @@ const (
 	stashedImagesTTL = 5 * time.Minute
 	// maxStashedImageCalls bounds the stash; the oldest call is dropped first.
 	maxStashedImageCalls = 64
+	// maxToolImageBytes and maxToolCallImageBytes cap the base64 an image, and
+	// all images of one call, add to the A2A task. The task store resends the
+	// whole task on each update under a 16 MiB gRPC limit.
+	maxToolImageBytes     = 2 << 20
+	maxToolCallImageBytes = 4 << 20
 )
 
 type stashedImages struct {
@@ -107,8 +112,8 @@ func newToolsetClient() *mcpsdk.Client {
 
 // captureImages moves the renderable images of a successful tools/call result
 // into the call's image sink, if it has one, so ADK formats the result without
-// their placeholders. Errors keep their content for the model, and other image
-// types keep their placeholder.
+// their placeholders. Errors keep their content for the model. Other image
+// types, and images over the size caps, keep their placeholder.
 //
 // ADK joins content blocks with a newline wherever either side is a
 // placeholder, unless one already ends or starts there. A removed image between
@@ -126,8 +131,10 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		// previous is the last kept block ADK renders as non-empty text.
 		var previous mcpsdk.Content
 		removed := false
+		captured := 0
 		for _, content := range res.Content {
-			if image, ok := content.(*mcpsdk.ImageContent); ok && image != nil && isRenderableImage(image.MIMEType) {
+			if image, size := capturableImage(content, captured); image != nil {
+				captured += size
 				sink.images = append(sink.images, ToolImage{
 					MIMEType: image.MIMEType,
 					Data:     base64.StdEncoding.EncodeToString(image.Data),
@@ -150,6 +157,20 @@ func captureImages(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		res.Content = kept
 		return result, nil
 	}
+}
+
+// capturableImage returns content as an image to capture, with its base64
+// size, if the UI renders its type and it fits the caps after captured bytes.
+func capturableImage(content mcpsdk.Content, captured int) (*mcpsdk.ImageContent, int) {
+	image, ok := content.(*mcpsdk.ImageContent)
+	if !ok || image == nil || !isRenderableImage(image.MIMEType) {
+		return nil, 0
+	}
+	size := base64.StdEncoding.EncodedLen(len(image.Data))
+	if size > maxToolImageBytes || captured+size > maxToolCallImageBytes {
+		return nil, 0
+	}
+	return image, size
 }
 
 // isRenderableImage reports whether the UI renders images of mimeType. Keep in

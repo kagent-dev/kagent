@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"testing"
 	"time"
@@ -77,6 +78,14 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 	text := func(s string) mcpsdk.Content { return &mcpsdk.TextContent{Text: s} }
 	png := &mcpsdk.ImageContent{MIMEType: "image/png", Data: []byte("png")}
 	captured := []ToolImage{{MIMEType: "image/png", Data: "cG5n"}}
+	// A raw image of n bytes; 3/4 of maxToolImageBytes encodes to exactly the cap.
+	image := func(n int) mcpsdk.Content {
+		return &mcpsdk.ImageContent{MIMEType: "image/png", Data: make([]byte, n)}
+	}
+	encoded := func(n int) ToolImage {
+		return ToolImage{MIMEType: "image/png", Data: base64.StdEncoding.EncodeToString(make([]byte, n))}
+	}
+	atCap := maxToolImageBytes * 3 / 4
 	for _, tc := range []struct {
 		name    string
 		content []mcpsdk.Content
@@ -93,6 +102,18 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 			name:    "unrenderable image keeps its placeholder",
 			content: []mcpsdk.Content{text("chart"), &mcpsdk.ImageContent{MIMEType: "image/svg+xml", Data: []byte("svg")}},
 			output:  "chart\n[MCP image: mimeType=\"image/svg+xml\", size=3 bytes]",
+		},
+		{
+			name:    "image over the size cap keeps its placeholder",
+			content: []mcpsdk.Content{image(maxToolImageBytes), png},
+			output:  fmt.Sprintf("[MCP image: mimeType=\"image/png\", size=%d bytes]", maxToolImageBytes),
+			images:  captured,
+		},
+		{
+			name:    "images over the call cap keep their placeholder",
+			content: []mcpsdk.Content{image(atCap), image(atCap), image(atCap)},
+			output:  fmt.Sprintf("[MCP image: mimeType=\"image/png\", size=%d bytes]", atCap),
+			images:  []ToolImage{encoded(atCap), encoded(atCap)},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
