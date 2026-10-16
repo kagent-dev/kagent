@@ -111,8 +111,14 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 			}
 			return false, nil
 		}))
-		_, err = sessions.CreateSession(ctx, request(templateName))
-		require.Equal(t, codes.FailedPrecondition, status.Code(err), "an invalid edit must block fresh sessions")
+		fallback, err := sessions.CreateSession(ctx, request(templateName))
+		require.NoError(t, err, "an invalid edit must preserve the last successful runtime for fresh sessions")
+		fallbackID := fallback.GetSession().GetId()
+		t.Cleanup(func() { deleteSession(fallbackID) })
+		require.NotEqual(t, source.GetId(), fallbackID)
+		require.Equal(t, source.GetPreparedRevision(), fallback.GetSession().GetPreparedRevision())
+		send(fallbackID)
+		deleteSession(fallbackID)
 		retried, err := sessions.CreateSession(ctx, createRequest)
 		require.NoError(t, err, "creation retries must retain the existing session's pinned runtime")
 		require.Equal(t, source.GetId(), retried.GetSession().GetId())
@@ -134,7 +140,7 @@ func TestRuntimeRevisionLifecycle(t *testing.T) {
 		agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: template.Name}}
 		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(agent), agent))
 		require.NoError(t, kube.Delete(ctx, agent))
-		// Deletion keeps fresh creation blocked. Eventual runtime collection below
+		// Deletion blocks fresh creation. Eventual runtime collection below
 		// verifies retirement after the final checkpoint reference is released.
 		_, err = sessions.CreateSession(ctx, request(templateName))
 		require.Equal(t, codes.FailedPrecondition, status.Code(err))
