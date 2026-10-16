@@ -319,9 +319,15 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	for _, source := range sources {
 		expected := []int64{0, 1}
+		if source.TrackingTable == "schema_migrations" {
+			expected = append(expected, 2)
+		}
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
 		}
+	}
+	if !testColumnExists(t, dsn, "runtime_revision", "passthrough_origins") || !testColumnExists(t, dsn, "agent_runtime_revision", "passthrough_origins") {
+		t.Fatal("runtime and agent revisions must expose passthrough origins")
 	}
 	if !testColumnExists(t, dsn, "session", "deletion_reason") {
 		t.Fatal("session deletion reason is missing")
