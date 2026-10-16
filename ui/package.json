@@ -28,7 +28,7 @@
     "chart.js": "^4.5.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.54.0",
-    "mermaid": "11.17.2",
+    "mermaid": "12.2.0",
     "react": "^19.3.0",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.3.0",
