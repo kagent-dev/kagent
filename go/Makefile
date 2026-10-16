@@ -45,18 +45,11 @@ fmt: ## Run go fmt.
 vet: ## Run go vet.
 	go vet ./...
 
-KUBE_API_LINTER_TOOL ?= golangci-lint-kube-api-linter
-KUBE_API_LINTER_PACKAGES ?= ./api/v1alpha3
 LINT_ARGS ?=
 
 .PHONY: lint
-lint: kube-api-lint ## Run golangci-lint and kube-api-linter.
+lint: ## Run golangci-lint and kube-api-linter.
 	$(GOLANGCI_LINT) run $(LINT_ARGS)
-
-.PHONY: kube-api-lint
-kube-api-lint: ## Run kube-api-linter against the Kubernetes API packages.
-	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
-		GOOS=linux "$$KUBE_API_LINTER_BIN" run $(LINT_ARGS) --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
 
 .PHONY: lint-fix
 lint-fix: LINT_ARGS := --fix
@@ -150,7 +143,7 @@ $(LOCALBIN):
 KUBECTL ?= kubectl
 CONTROLLER_GEN ?= go tool controller-gen
 ENVTEST ?= go tool setup-envtest
-GOLANGCI_LINT ?= go tool golangci-lint
+GOLANGCI_LINT ?= go tool golangci-lint-kube-api-linter
 
 ## Envtest Assets
 # ENVTEST_K8S_VERSION is the Kubernetes version used to set up envtest binaries (for example, 1.31).
