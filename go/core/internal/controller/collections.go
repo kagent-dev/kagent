@@ -6,6 +6,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
+	"istio.io/istio/pkg/config/schema/kubetypes"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
@@ -100,6 +101,10 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 }
 
 func typedCollection[T controllers.ComparableObject](client kube.Client, namespaces []string, name string, opts krt.OptionsBuilder) krt.Collection[T] {
+	if kubetypes.MustGVRFromType[T]().Group != "" {
+		return delayedTypedCollection[T](client, namespaces, name, opts)
+	}
+
 	if len(namespaces) == 0 {
 		return krt.NewInformer[T](client, opts.WithName(name)...)
 	}
@@ -107,6 +112,20 @@ func typedCollection[T controllers.ComparableObject](client kube.Client, namespa
 	collections := make([]krt.Collection[T], 0, len(namespaces))
 	for _, namespace := range namespaces {
 		collections = append(collections, krt.NewFilteredInformer[T](client, kclient.Filter{Namespace: namespace}, opts.WithName(name+"/"+namespace)...))
+	}
+	return krt.JoinCollection(collections, append(opts.WithName(name), krt.WithJoinUnchecked())...)
+}
+
+func delayedTypedCollection[T controllers.ComparableObject](client kube.Client, namespaces []string, name string, opts krt.OptionsBuilder) krt.Collection[T] {
+	gvr := kubetypes.MustGVRFromType[T]()
+	if len(namespaces) == 0 {
+		return krt.WrapClient(kclient.NewFilteredDelayed[T](client, gvr, kclient.Filter{}), opts.WithName(name)...)
+	}
+
+	collections := make([]krt.Collection[T], 0, len(namespaces))
+	for _, namespace := range namespaces {
+		informer := kclient.NewFilteredDelayed[T](client, gvr, kclient.Filter{Namespace: namespace})
+		collections = append(collections, krt.WrapClient(informer, opts.WithName(name+"/"+namespace)...))
 	}
 	return krt.JoinCollection(collections, append(opts.WithName(name), krt.WithJoinUnchecked())...)
 }
