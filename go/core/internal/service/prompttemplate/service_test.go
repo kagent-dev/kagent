@@ -26,6 +26,29 @@ func (denyAuthorizer) Check(context.Context, pkgauth.Principal, pkgauth.Verb, pk
 	return errors.New("denied")
 }
 
+// recordingAuthorizer keeps every check it was asked.
+type recordingAuthorizer struct{ checks []pkgauth.Resource }
+
+func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, resource pkgauth.Resource) error {
+	a.checks = append(a.checks, resource)
+	return nil
+}
+
+// A list and a create name the namespace they work in, so an authorizer that
+// asks Kubernetes RBAC reviews them there and not cluster-wide.
+func TestServiceAuthorizesListAndCreateInTheirNamespace(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	authorizer := &recordingAuthorizer{}
+	service := prompttemplate.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), authorizer)
+	ctx := pkgauth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "prompt-user"}}})
+	_, err := service.List(ctx, "team")
+	require.NoError(t, err)
+	_, err = service.Create(ctx, prompttemplate.CreateRequest{Namespace: "team", Name: "greeting", Data: map[string]string{"intro": "hello"}})
+	require.NoError(t, err)
+	require.Equal(t, []pkgauth.Resource{{Type: "PromptTemplate", Namespace: "team"}, {Type: "PromptTemplate", Namespace: "team"}}, authorizer.checks)
+}
+
 func TestServiceCRUDAndValidation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))

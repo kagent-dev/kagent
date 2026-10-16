@@ -98,12 +98,14 @@ class AsyncControllerClient:
                 metadata.append(("authorization", f"Bearer {token}"))
         if self.agent_name:
             metadata.append(("x-agent-name", self.agent_name))
-        if not user_id:
-            from .a2a._context import get_request_user_id
+        from .a2a._context import get_request_user_groups, get_request_user_id
 
+        if not user_id:
             user_id = get_request_user_id()
         if user_id:
             metadata.append(("x-user-id", user_id))
+            if groups := get_request_user_groups(user_id):
+                metadata.append(("x-user-groups", groups))
         return {"metadata": metadata, "timeout": self.timeout}
 
     async def close(self) -> None:

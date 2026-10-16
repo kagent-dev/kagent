@@ -182,7 +182,7 @@ func (s *Service[T, L]) authorize(ctx context.Context, verb auth.Verb, ref types
 	}
 	resource := auth.Resource{Type: s.resource, Namespace: ref.Namespace, Name: ref.Name}
 	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized", err)
+		return serviceerrors.NewNotAuthorized("Not authorized", err)
 	}
 	return nil
 }

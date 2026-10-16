@@ -8,6 +8,12 @@ metadata:
 data:
   KAGENT_AUTH_MODE: {{ .Values.controller.auth.mode | quote }}
   KAGENT_AUTH_USER_ID_CLAIM: {{ .Values.controller.auth.userIdClaim | quote }}
+  KAGENT_AUTHORIZATION_MODE: {{ .Values.controller.authorization.mode | quote }}
+  KAGENT_AUTHORIZATION_USERNAME_PREFIX: {{ .Values.controller.authorization.usernamePrefix | quote }}
+  KAGENT_AUTHORIZATION_GROUPS_CLAIM: {{ .Values.controller.authorization.groupsClaim | quote }}
+  KAGENT_AUTHORIZATION_GROUPS_PREFIX: {{ .Values.controller.authorization.groupsPrefix | quote }}
+  KAGENT_AUTHORIZATION_NAMESPACE_SELECTOR: {{ .Values.controller.authorization.namespaceSelector | quote }}
+  KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES: {{ join "," (.Values.controller.authorization.includeNamespaces | default list) | quote }}
   KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
   KAGENT_A2A_PUSH_ISSUER: {{ coalesce .Values.controller.push.signing.issuer .Values.ui.externalUrl (include "kagent.a2aGatewayUrl" .) | trimSuffix "/" | quote }}
   KAGENT_A2A_PUSH_ALLOW_HTTP: {{ .Values.controller.push.allowHTTP | quote }}

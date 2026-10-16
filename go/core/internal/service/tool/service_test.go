@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/api/authorization"
+
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -77,12 +79,26 @@ type recordingAuthorizer struct {
 	err      error
 	verb     pkgauth.Verb
 	resource pkgauth.Resource
+	// scope answers Scope; the zero value is every namespace.
+	scope *authorization.AuthorizationScope
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resource pkgauth.Resource) error {
 	a.verb = verb
 	a.resource = resource
 	return a.err
+}
+
+func (a *recordingAuthorizer) Scope(_ context.Context, _ pkgauth.Principal, verb pkgauth.Verb, resourceType string) (authorization.AuthorizationScope, error) {
+	a.verb = verb
+	a.resource = pkgauth.Resource{Type: resourceType}
+	if a.err != nil {
+		return authorization.AuthorizationScope{}, a.err
+	}
+	if a.scope != nil {
+		return *a.scope, nil
+	}
+	return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
 }
 
 func TestServiceDiscoveryAndAuthorization(t *testing.T) {
@@ -108,7 +124,7 @@ func TestServiceDiscoveryAndAuthorization(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, servers, 1)
 	assert.Equal(t, "server-tool", servers[0].DiscoveredTools[0].Name)
-	assert.Equal(t, pkgauth.VerbGet, authorizer.verb)
+	assert.Equal(t, pkgauth.VerbList, authorizer.verb)
 	assert.Equal(t, pkgauth.Resource{Type: "ToolServer"}, authorizer.resource)
 
 	types, err := service.ListToolServerTypes(ctx)
@@ -314,4 +330,40 @@ func TestListToolServersSkipsToolReadWithoutServers(t *testing.T) {
 	store.servers = []database.ToolServer{{Name: "server", GroupKind: "kind"}}
 	_, err = service.ListToolServers(toolTestContext())
 	require.ErrorIs(t, err, store.toolsErr)
+}
+
+func TestListToolServersAndToolsFollowTheScope(t *testing.T) {
+	store := &fakeDiscoveryStore{
+		servers: []database.ToolServer{
+			{Name: "team-a/search", GroupKind: "RemoteMCPServer.api.kagent.dev"},
+			{Name: "team-b/billing", GroupKind: "RemoteMCPServer.api.kagent.dev"},
+		},
+		tools: []database.Tool{
+			{ID: "search", ServerName: "team-a/search", GroupKind: "RemoteMCPServer.api.kagent.dev"},
+			{ID: "refund", ServerName: "team-b/billing", GroupKind: "RemoteMCPServer.api.kagent.dev"},
+		},
+	}
+	teamA := authorization.AuthorizationScope{Kind: authorization.ScopeAnyOf, AnyOf: []authorization.ScopeClause{{All: []authorization.ScopePredicate{
+		{Attribute: authorization.AttributeNamespace, Operator: authorization.ScopeIn, Values: []string{"team-a"}},
+	}}}}
+	authorizer := &recordingAuthorizer{scope: &teamA}
+	service := NewService(toolTestKube(t, true), store, authorizer, "default", &fakeMCPClient{})
+
+	servers, err := service.ListToolServers(toolTestContext())
+	require.NoError(t, err)
+	require.Equal(t, []ToolServer{{Ref: "team-a/search", GroupKind: "RemoteMCPServer.api.kagent.dev", DiscoveredTools: []*v1alpha3.MCPTool{{Name: "search"}}}}, servers)
+	tools, err := service.ListTools(toolTestContext())
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.Equal(t, "search", tools[0].ID)
+	assert.Equal(t, pkgauth.Resource{Type: "ToolServer"}, authorizer.resource)
+
+	// A caller allowed nowhere gets empty lists, not a refusal.
+	authorizer.scope = &authorization.AuthorizationScope{Kind: authorization.ScopeNone}
+	servers, err = service.ListToolServers(toolTestContext())
+	require.NoError(t, err)
+	require.Empty(t, servers)
+	tools, err = service.ListTools(toolTestContext())
+	require.NoError(t, err)
+	require.Empty(t, tools)
 }

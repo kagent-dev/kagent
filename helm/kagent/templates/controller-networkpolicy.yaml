@@ -1,0 +1,33 @@
+{{- $policy := .Values.controller.networkPolicy | default dict }}
+{{- if $policy.enabled }}
+{{- if not $policy.from }}
+{{- fail "controller.networkPolicy.enabled admits only the chart's UI unless controller.networkPolicy.from names the other callers (the proxy or gateway in front of the controller, the agent runtime pods)" }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kagent.controller.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "kagent.ui.selectorLabels" . | nindent 14 }}
+        {{- toYaml $policy.from | nindent 8 }}
+    {{- if include "kagent.controller.metricsEnabled" . }}
+    - ports:
+        - port: metrics
+          protocol: TCP
+    {{- end }}
+{{- end }}

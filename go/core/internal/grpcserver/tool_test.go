@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/api/authorization"
+
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -95,6 +97,16 @@ func (a *toolGRPCAuthorizer) Check(_ context.Context, _ pkgAuth.Principal, verb 
 	return nil
 }
 
+func (a *toolGRPCAuthorizer) Scope(_ context.Context, _ pkgAuth.Principal, verb pkgAuth.Verb, _ string) (authorization.AuthorizationScope, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.verb = verb
+	if a.deny {
+		return authorization.AuthorizationScope{Kind: authorization.ScopeNone}, nil
+	}
+	return authorization.AuthorizationScope{Kind: authorization.ScopeAll}, nil
+}
+
 func (a *toolGRPCAuthorizer) lastVerb() pkgAuth.Verb {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -142,8 +154,8 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if len(listedServers.GetToolServers()) != 1 || listedServers.GetToolServers()[0].GetDiscoveredTools()[0].GetName() != "move_task" {
 		t.Fatalf("ListToolServers() = %+v", listedServers.GetToolServers())
 	}
-	if authorizer.lastVerb() != pkgAuth.VerbGet {
-		t.Fatalf("ListToolServers() authorization verb = %q, want get", authorizer.lastVerb())
+	if authorizer.lastVerb() != pkgAuth.VerbList {
+		t.Fatalf("ListToolServers() authorization verb = %q, want list", authorizer.lastVerb())
 	}
 
 	serverTypes, err := toolClient.ListToolServerTypes(ctx, &apiv1alpha1.ListToolServerTypesRequest{})
@@ -266,8 +278,10 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	assertGRPCCode(t, err, codes.InvalidArgument)
 
 	authorizer.setDenied(true)
-	_, err = toolClient.ListToolServers(ctx, &apiv1alpha1.ListToolServersRequest{})
-	assertGRPCCode(t, err, codes.PermissionDenied)
+	deniedServers, err := toolClient.ListToolServers(ctx, &apiv1alpha1.ListToolServersRequest{})
+	if err != nil || len(deniedServers.GetToolServers()) != 0 {
+		t.Fatalf("ListToolServers() for a caller allowed nowhere = %+v, %v; want none", deniedServers.GetToolServers(), err)
+	}
 	authorizer.setDenied(false)
 
 	if _, err := toolClient.DeleteToolServer(ctx, &apiv1alpha1.DeleteToolServerRequest{Ref: ref}); err != nil {

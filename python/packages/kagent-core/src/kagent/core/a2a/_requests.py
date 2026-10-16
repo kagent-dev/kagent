@@ -8,7 +8,7 @@ from a2a.server.request_handlers.grpc_handler import DefaultGrpcServerCallContex
 from a2a.server.tasks import TaskStore
 from a2a.types import SendMessageRequest, Task
 
-from ._context import set_request_user_id
+from ._context import set_request_user_groups, set_request_user_id
 
 # --- Configure Logging ---
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ def _apply_kagent_headers(context: ServerCallContext) -> None:
     if user_id:
         context.user = KAgentUser(user_id=user_id)
         set_request_user_id(user_id)
+        set_request_user_groups(user_id, headers.get("x-user-groups"))
     source = headers.get("x-kagent-source")
     if source:
         context.state["kagent_source"] = source

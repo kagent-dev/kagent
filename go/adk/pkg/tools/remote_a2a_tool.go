@@ -61,6 +61,9 @@ type userIDForwardingInterceptor struct {
 func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
 	if uid, ok := ctx.Value(userIDContextKey{}).(string); ok && uid != "" {
 		req.ServiceParams.Append("x-user-id", uid)
+		if groups := auth.UserGroupsFor(ctx, uid); groups != "" {
+			req.ServiceParams.Append("x-user-groups", groups)
+		}
 	}
 	return ctx, nil, nil
 }

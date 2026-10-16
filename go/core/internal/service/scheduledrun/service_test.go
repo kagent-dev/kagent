@@ -75,9 +75,14 @@ func TestTargetPermissionAndExistence(t *testing.T) {
 		require.Equal(t, serviceerrors.CodePermissionDenied, serviceerrors.CodeOf(err))
 	}
 	svc := scheduledrun.NewService(missingRequestStore{}, kube, authorizer{check: func(resource auth.Resource) {
-		if resource.Type == "Agent" {
+		switch resource.Type {
+		case "Agent":
 			require.Equal(t, "team", resource.Namespace)
 			require.Equal(t, "template", resource.Name)
+		case "Session":
+			// The run's Session is created where its Agent lives.
+			require.Equal(t, "team", resource.Namespace)
+			require.Empty(t, resource.Name)
 		}
 	}})
 	_, err := svc.Create(owner, request)

@@ -92,6 +92,8 @@ type gatewayTestStore struct {
 	interruptedTask     string
 	interruptionMessage string
 	interruptErr        error
+	// ownerGroups are the groups the owner's turns recorded.
+	ownerGroups []string
 }
 
 func (s *gatewayTestStore) InterruptSessionTask(_ context.Context, _, taskID string, _ time.Time, message string) (*database.SessionTaskInterruption, error) {
@@ -126,6 +128,15 @@ func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _
 	s.reserveCalls++
 	s.initialID = initialID
 	return s.reserveErr
+}
+
+func (s *gatewayTestStore) SetSessionOwnerGroups(_ context.Context, _ string, groups []string) error {
+	s.ownerGroups = groups
+	return nil
+}
+
+func (s *gatewayTestStore) GetSessionOwnerGroups(context.Context, string) ([]string, error) {
+	return s.ownerGroups, nil
 }
 
 func (s *gatewayTestStore) RevokeSessionDispatch(ctx context.Context, _ string, _ uuid.UUID, _ string) (bool, error) {
@@ -221,10 +232,13 @@ type gatewayTestDialer struct {
 	client  *a2aclient.Client
 	session *apiv1alpha1.Session
 	err     error
+	// ownerGroups are the owner's groups the turn's context carried.
+	ownerGroups []string
 }
 
-func (d *gatewayTestDialer) Dial(_ context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
+func (d *gatewayTestDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
 	d.session = session
+	d.ownerGroups, _ = auth.OwnerGroupsFrom(ctx)
 	return d.client, d.err
 }
 
@@ -631,9 +645,15 @@ func TestGatewayBuildsAgentCardFromAgentRevision(t *testing.T) {
 	}
 }
 
+// gatewayDenyAuthorizer denies every Session operation: only a share admits
+// the caller to a conversation. The caller may run the Agent, which every turn
+// asks.
 type gatewayDenyAuthorizer struct{ called bool }
 
-func (a *gatewayDenyAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
+func (a *gatewayDenyAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if verb == auth.VerbGet && resource.Type == "Agent" {
+		return nil
+	}
 	a.called = true
 	return errors.New("denied")
 }
@@ -972,7 +992,11 @@ func TestQuiescentTaskStates(t *testing.T) {
 // closes. That recovery must not silently add Get or Update permission to a send.
 type gatewayOperationAuthorizer struct{ verb auth.Verb }
 
-func (a gatewayOperationAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, _ auth.Resource) error {
+func (a gatewayOperationAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	// Every turn asks to run the Agent; the Session grants only the one verb.
+	if verb == auth.VerbGet && resource.Type == "Agent" {
+		return nil
+	}
 	if verb != a.verb {
 		return errors.New("operation not permitted")
 	}
@@ -1015,6 +1039,30 @@ func TestGatewayRecoveryUsesOriginalOperationPermission(t *testing.T) {
 				require.Equal(t, a2atype.TaskStateCanceled, result.Status.State)
 			}
 			require.True(t, runtime.destroyed)
+		})
+	}
+}
+
+// A turn a share admits reaches the runtime with the groups the owner's last
+// turn recorded, on the unary and the streaming send alike.
+func TestGatewaySharedTurnCarriesTheOwnersGroups(t *testing.T) {
+	for name, streaming := range map[string]bool{"unary": false, "streaming": true} {
+		t.Run(name, func(t *testing.T) {
+			store := &gatewayTestStore{session: gatewayTestSession(), ownerGroups: []string{"team-a"}}
+			dialer := &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, dialer, "")
+			ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{Token: "share", UserID: "the-owner", SessionID: gatewayTestID})
+			if streaming {
+				for _, err := range gateway.SendStreamingMessage(ctx, gatewayTestRequest()) {
+					if err != nil {
+						break
+					}
+				}
+			} else {
+				_, _ = gateway.SendMessage(ctx, gatewayTestRequest())
+			}
+			require.Equal(t, []string{"team-a"}, dialer.ownerGroups)
+			require.Equal(t, []string{"team-a"}, store.ownerGroups, "a share's turn records nothing")
 		})
 	}
 }

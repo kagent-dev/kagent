@@ -275,13 +275,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 	if err := validateCreate(request); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, "")
+	creator, err := s.authorizeCreate(ctx, request.Agent)
 	if err != nil {
 		return nil, err
-	}
-	// A share grants access to an existing conversation, never creation.
-	if _, shared := auth.ShareContextFrom(ctx); shared {
-		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
 	}
 	if err := s.refuseUnresolvedHarness(ctx, request.Agent); err != nil {
 		return nil, err
@@ -641,6 +637,28 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 	return s.authorizeType(ctx, verb, "Session", name)
 }
 
+// authorizeCreate admits a new conversation on an Agent. The Session is created
+// in the Agent's namespace, so the caller needs to get the Agent and to create
+// Sessions there; an authorizer that asks Kubernetes RBAC reviews both.
+func (s *Service) authorizeCreate(ctx context.Context, agent *apiv1alpha1.ResourceReference) (string, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+	}
+	// A share grants access to an existing conversation, never creation.
+	if _, shared := auth.ShareContextFrom(ctx); shared {
+		return "", serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
+	}
+	principal := session.Principal()
+	if err := s.authorizer.Check(ctx, principal, auth.VerbGet, auth.Resource{Type: "Agent", Namespace: agent.GetNamespace(), Name: agent.GetName()}); err != nil {
+		return "", serviceerrors.NewNotAuthorized("Not authorized to run Agent", err)
+	}
+	if err := s.authorizer.Check(ctx, principal, auth.VerbCreate, auth.Resource{Type: "Session", Namespace: agent.GetNamespace()}); err != nil {
+		return "", serviceerrors.NewNotAuthorized("Not authorized", err)
+	}
+	return principal.User.ID, nil
+}
+
 func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
@@ -648,7 +666,7 @@ func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceTyp
 	}
 	principal := session.Principal()
 	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
-		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
+		return "", serviceerrors.NewNotAuthorized("Not authorized", err)
 	}
 	return principal.User.ID, nil
 }

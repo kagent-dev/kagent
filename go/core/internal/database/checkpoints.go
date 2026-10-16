@@ -391,6 +391,21 @@ func (c *Client) GetSessionCheckpoint(ctx context.Context, id, userID string) (*
 	return toSessionCheckpoint(row)
 }
 
+// GetSessionCheckpointAgent returns the Agent an owned checkpoint's fork runs:
+// the Agent of the runtime revision it was taken on. Missing checkpoints, other
+// owners and a checkpoint without that revision return ErrNotFound.
+func (c *Client) GetSessionCheckpointAgent(ctx context.Context, id, userID string) (*apiv1alpha1.ResourceReference, error) {
+	agent, err := queryOne(ctx, c.db, `
+		SELECT r.namespace, r.agent_name AS name FROM session_checkpoint c
+		JOIN agent_runtime_revision r ON r.revision = c.prepared_revision
+		WHERE c.id = $1 AND c.user_id = $2
+	`, pgx.RowToStructByName[struct{ Namespace, Name string }], id, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get checkpoint Agent: %w", notFoundOr(err))
+	}
+	return &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, nil
+}
+
 // GetSessionCheckpointSnapshot returns an owned checkpoint's snapshot reference and
 // tag UID in any lifecycle state. Before finalization the URI refers to the source
 // snapshot; afterward it refers to the retained copy. Missing checkpoints and other owners

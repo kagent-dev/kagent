@@ -35,6 +35,21 @@ func TestUserIDCallInterceptorPropagatesUserID(t *testing.T) {
 	}
 }
 
+// The user's groups come with the user ID and go back only with it.
+func TestUserIDCallInterceptorKeepsTheUsersGroups(t *testing.T) {
+	_, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"x-user-id": {"alice"}, "x-user-groups": {"team-a,cn=admins%2Cou=groups"}}))
+	ctx, _, err := UserIDCallInterceptor().Before(t.Context(), callCtx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := auth.UserGroupsFor(ctx, "alice"); got != "team-a,cn=admins%2Cou=groups" {
+		t.Fatalf("alice's groups = %q", got)
+	}
+	if got := auth.UserGroupsFor(ctx, "bob"); got != "" {
+		t.Fatalf("another user's groups = %q, want none", got)
+	}
+}
+
 type recordingExecutor struct {
 	message       *a2atype.Message
 	userID        string

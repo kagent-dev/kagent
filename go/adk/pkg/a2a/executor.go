@@ -240,6 +240,11 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	}
 	// Set the authenticated user so downstream code picks up the real identity.
 	callCtx.User = a2asrv.NewAuthenticatedUser(vals[0], nil)
+	// The user's groups go back with the user ID on the calls the turn makes
+	// to the controller, which reviews those calls with them.
+	if groups, ok := meta.Get(auth.UserGroupsHeader); ok && len(groups) > 0 && groups[0] != "" {
+		ctx = auth.WithUserGroups(ctx, vals[0], groups[0])
+	}
 	return auth.WithUserID(ctx, vals[0]), nil, nil
 }
 

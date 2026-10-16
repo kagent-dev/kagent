@@ -302,7 +302,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if err := VerifyMigrated(context.Background(), dsn, sources); err != nil {
 		t.Fatalf("initial VerifyMigrated: %v", err)
 	}
-	latest := map[string][]int64{"core": {0, 1, 2, 3, 4, 5}, "vector": {0, 1}}
+	latest := map[string][]int64{"core": {0, 1, 2, 3, 4, 5, 6}, "vector": {0, 1}}
 	for _, source := range sources {
 		expected := latest[source.Name]
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
@@ -311,6 +311,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	if !testColumnExists(t, dsn, "session", "deletion_reason") {
 		t.Fatal("session deletion reason is missing")
+	}
+	if !testColumnExists(t, dsn, "session", "owner_groups") {
+		t.Fatal("session owner groups are missing")
 	}
 	if !testColumnExists(t, dsn, "session_task_event", "quiescence_claimed_until") {
 		t.Fatal("the quiescence claim lease is missing")

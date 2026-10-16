@@ -28,6 +28,7 @@ var forwardedMetadataKeys = map[string]string{
 	apia2a.InsecureRuntimeIdentityHeader: apia2a.InsecureRuntimeIdentityHeader,
 	"authorization":                      "Authorization",
 	"x-user-id":                          "X-User-Id",
+	"x-user-groups":                      auth.UserGroupsHeader,
 	"x-agent-name":                       "X-Agent-Name",
 	"x-share-token":                      "X-Share-Token",
 }

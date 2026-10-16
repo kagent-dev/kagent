@@ -133,10 +133,10 @@ func TestMetricsSecureDefaultsOff(t *testing.T) {
 	}
 }
 
-func TestNamespaces(t *testing.T) {
+func TestWatchNamespaces(t *testing.T) {
 	want := []string{"one", "two"}
-	if got := namespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("namespaces() = %q, want %q", got, want)
+	if got := WatchNamespaces(" one, ,two,"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("WatchNamespaces() = %q, want %q", got, want)
 	}
 }
 

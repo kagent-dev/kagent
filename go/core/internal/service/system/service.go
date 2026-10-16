@@ -120,7 +120,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.R
 		return serviceerrors.NewInternal("Authorization is not configured", nil)
 	}
 	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized", err)
+		return serviceerrors.NewNotAuthorized("Not authorized", err)
 	}
 	return nil
 }

@@ -129,7 +129,7 @@ func (client *Client) CallContext(ctx context.Context, userID string) (context.C
 	if userID == "" {
 		userID = auth.UserIDFromContext(ctx)
 	}
-	metadataValues := make([]string, 0, 6)
+	metadataValues := make([]string, 0, 8)
 	if client.tokenProvider != nil {
 		if token := client.tokenProvider.GetToken(); token != "" {
 			metadataValues = append(metadataValues, "authorization", "Bearer "+token)
@@ -140,6 +140,9 @@ func (client *Client) CallContext(ctx context.Context, userID string) (context.C
 	}
 	if userID != "" {
 		metadataValues = append(metadataValues, "x-user-id", userID)
+		if groups := auth.UserGroupsFor(ctx, userID); groups != "" {
+			metadataValues = append(metadataValues, "x-user-groups", groups)
+		}
 	}
 	if len(metadataValues) > 0 {
 		ctx = metadata.AppendToOutgoingContext(ctx, metadataValues...)

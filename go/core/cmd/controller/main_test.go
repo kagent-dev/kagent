@@ -5,9 +5,12 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +34,7 @@ func TestControllerAuthenticator(t *testing.T) {
 		{name: "empty mode", mode: "", wantConfigError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			authenticator, err := controllerAuthenticator(tt.mode, tt.claim)
+			authenticator, err := controllerAuthenticator(tt.mode, tt.claim, "", false)
 			if tt.wantConfigError {
 				require.ErrorContains(t, err, env.AuthMode.Name())
 				require.Nil(t, authenticator)
@@ -49,6 +52,41 @@ func TestControllerAuthenticator(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.wantUser, session.Principal().User.ID)
+		})
+	}
+}
+
+func TestControllerAuthorizer(t *testing.T) {
+	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+	require.NoError(t, os.WriteFile(kubeconfig, []byte(`apiVersion: v1
+kind: Config
+clusters: [{name: test, cluster: {server: https://127.0.0.1:6443}}]
+contexts: [{name: test, context: {cluster: test, user: test}}]
+current-context: test
+users: [{name: test, user: {token: test}}]
+`), 0o600))
+	t.Setenv(env.Kubeconfig.Name(), kubeconfig)
+	for _, tt := range []struct {
+		name, mode, selector string
+		want                 any
+		wantErr              string
+	}{
+		{name: "default", mode: env.AuthorizationMode.DefaultValue(), want: &auth.NoopAuthorizer{}},
+		{name: "kubernetes", mode: env.AuthorizationModeKubernetes, want: &auth.KubernetesAuthorizer{}},
+		{name: "kubernetes with a selector", mode: env.AuthorizationModeKubernetes, selector: "tenant=true", want: &auth.KubernetesAuthorizer{}},
+		{name: "invalid selector", mode: env.AuthorizationModeKubernetes, selector: "tenant in", wantErr: env.AuthorizationNamespaceSelector.Name()},
+		{name: "unsupported mode", mode: "opa", wantErr: env.AuthorizationMode.Name()},
+		{name: "empty mode", mode: "", wantErr: env.AuthorizationMode.Name()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer, err := controllerAuthorizer(tt.mode, authorizationConfig{namespaceSelector: tt.selector})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Nil(t, authorizer)
+				return
+			}
+			require.NoError(t, err)
+			require.IsType(t, tt.want, authorizer)
 		})
 	}
 }

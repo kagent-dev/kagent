@@ -1,6 +1,10 @@
 package serviceerrors
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+)
 
 type Code string
 
@@ -61,6 +65,17 @@ func NewUnauthenticated(message string, cause error) *Error {
 }
 
 func NewPermissionDenied(message string, cause error) *Error {
+	return New(CodePermissionDenied, message, cause)
+}
+
+// NewNotAuthorized reports the authorizer's answer to a check: a refusal is
+// permission denied, and a check the authorizer could not decide because the
+// API server did not answer (auth.ErrReviewUnavailable) is unavailable, so a
+// caller retries instead of remembering a refusal that never was.
+func NewNotAuthorized(message string, cause error) *Error {
+	if errors.Is(cause, auth.ErrReviewUnavailable) {
+		return New(CodeUnavailable, "Authorization is unavailable", cause)
+	}
 	return New(CodePermissionDenied, message, cause)
 }
 

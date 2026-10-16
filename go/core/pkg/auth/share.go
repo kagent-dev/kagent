@@ -31,3 +31,20 @@ func ShareContextFrom(ctx context.Context) (*ShareContext, bool) {
 func ShareContextTo(ctx context.Context, sc *ShareContext) context.Context {
 	return context.WithValue(ctx, shareContextKey, sc)
 }
+
+type ownerGroupsKeyType struct{}
+
+var ownerGroupsKey = ownerGroupsKeyType{}
+
+// OwnerGroupsFrom returns the session owner's groups a turn a share admits
+// runs with, if the turn's context carries them.
+func OwnerGroupsFrom(ctx context.Context) ([]string, bool) {
+	groups, ok := ctx.Value(ownerGroupsKey).([]string)
+	return groups, ok
+}
+
+// OwnerGroupsTo returns a copy of ctx carrying the session owner's groups for
+// a turn a share admits.
+func OwnerGroupsTo(ctx context.Context, groups []string) context.Context {
+	return context.WithValue(ctx, ownerGroupsKey, groups)
+}

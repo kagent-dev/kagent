@@ -3,7 +3,9 @@
 import asyncio
 from unittest.mock import patch
 
+import httpx
 import pytest
+from kagent.core.a2a import set_request_user_groups, set_request_user_id
 
 from kagent.adk._token import KAgentTokenService
 
@@ -41,3 +43,23 @@ async def test_refresh_token_survives_unexpected_error():
 
     assert read_calls == 3, "the loop must keep running after the first read raises"
     assert service.token == "new-token", "a later successful read must still update the token"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_id", "groups_of", "want"),
+    [("alice", "alice", "team-a"), ("alice", "bob", None), (None, "alice", None)],
+)
+async def test_add_headers_sends_the_users_groups(user_id, groups_of, want):
+    """The groups go to the controller only with the ID of the user they belong to."""
+    service = KAgentTokenService(app_name="test-agent")
+
+    async def send():
+        set_request_user_id(user_id)
+        set_request_user_groups(groups_of, "team-a")
+        request = httpx.Request("GET", "http://controller")
+        await service._add_headers(request)
+        return request
+
+    request = await asyncio.create_task(send())
+    assert request.headers.get("X-User-Groups") == want

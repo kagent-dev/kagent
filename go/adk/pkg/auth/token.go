@@ -10,7 +10,36 @@ import (
 
 type contextKey int
 
-const userIDKey contextKey = iota
+const (
+	userIDKey contextKey = iota
+	userGroupsKey
+)
+
+// UserGroupsHeader carries the user's groups beside X-User-Id, as the
+// controller encodes them; the runtime passes the value on unread.
+const UserGroupsHeader = "X-User-Groups"
+
+// userGroups are the groups of one user, so that they are never sent with
+// another user's ID.
+type userGroups struct {
+	userID, groups string
+}
+
+// WithUserGroups returns a copy of ctx that carries the groups of the user
+// userID as the controller encoded them (X-User-Groups).
+func WithUserGroups(ctx context.Context, userID, groups string) context.Context {
+	return context.WithValue(ctx, userGroupsKey, userGroups{userID: userID, groups: groups})
+}
+
+// UserGroupsFor returns the groups ctx carries for userID; empty when it
+// carries none or another user's.
+func UserGroupsFor(ctx context.Context, userID string) string {
+	carried, _ := ctx.Value(userGroupsKey).(userGroups)
+	if userID == "" || carried.userID != userID {
+		return ""
+	}
+	return carried.groups
+}
 
 // WithUserID returns a copy of ctx that carries the user ID for injection into
 // outgoing HTTP requests by TokenRoundTripper.
@@ -79,6 +108,9 @@ func (s *KAgentTokenService) AddHeaders(req *http.Request) {
 	}
 	if userID := UserIDFromContext(req.Context()); userID != "" {
 		req.Header.Set("X-User-Id", userID)
+		if groups := UserGroupsFor(req.Context(), userID); groups != "" {
+			req.Header.Set(UserGroupsHeader, groups)
+		}
 	}
 }
 

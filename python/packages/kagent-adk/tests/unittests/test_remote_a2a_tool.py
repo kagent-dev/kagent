@@ -23,6 +23,7 @@ from kagent.core.a2a import (
     ToolApprovalRequest,
     attach_hitl_extension,
     get_hitl_payload,
+    set_request_user_groups,
 )
 
 from kagent.adk._remote_a2a_tool import (
@@ -365,6 +366,30 @@ class TestFirstCall:
             p.stop()
 
         assert captured_contexts[0].state["x-user-id"] == "alice@example.com"
+
+    async def test_user_groups_forwarded_with_the_user_id(self):
+        """The user's groups go to the subagent call with the user's ID only."""
+        tool = _make_tool()
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
+        captured_contexts: list = []
+
+        async def capture(*, request, context=None, **kw):
+            captured_contexts.append(context)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            set_request_user_groups("alice@example.com", "team-a")
+            ctx = MockToolContext(user_id="alice@example.com")
+            await tool.run_async(args={"request": "go"}, tool_context=ctx.as_tool_context())
+            set_request_user_groups("bob@example.com", "team-b")
+            await tool.run_async(args={"request": "go"}, tool_context=ctx.as_tool_context())
+        finally:
+            set_request_user_groups("", None)
+            p.stop()
+
+        assert captured_contexts[0].service_parameters["x-user-groups"] == "team-a"
+        assert "x-user-groups" not in captured_contexts[1].service_parameters
 
 
 # ---------------------------------------------------------------------------

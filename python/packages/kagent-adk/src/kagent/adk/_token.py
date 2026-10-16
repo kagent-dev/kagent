@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import httpx
-from kagent.core.a2a import get_request_user_id
+from kagent.core.a2a import get_request_user_groups, get_request_user_id
 
 KAGENT_TOKEN_PATH = "/var/run/secrets/tokens/kagent-token"
 logger = logging.getLogger(__name__)
@@ -74,6 +74,8 @@ class KAgentTokenService:
             headers["Authorization"] = f"Bearer {token}"
         if user_id := get_request_user_id():
             headers["X-User-Id"] = user_id
+            if groups := get_request_user_groups(user_id):
+                headers["X-User-Groups"] = groups
         request.headers.update(headers)
 
 

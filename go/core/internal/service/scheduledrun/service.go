@@ -201,7 +201,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 	}
 	principal := session.Principal()
 	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: "ScheduledRun", Name: name}); err != nil {
-		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
+		return "", serviceerrors.NewNotAuthorized("Not authorized", err)
 	}
 	return principal.User.ID, nil
 }
@@ -212,10 +212,10 @@ func (s *Service) authorizeTarget(ctx context.Context, schedule *apiv1alpha1.Sch
 	if err := s.authorizer.Check(ctx, principal, auth.VerbGet, auth.Resource{
 		Type: "Agent", Namespace: schedule.Agent.Namespace, Name: schedule.Agent.Name,
 	}); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized to run Agent", err)
+		return serviceerrors.NewNotAuthorized("Not authorized to run Agent", err)
 	}
-	if err := s.authorizer.Check(ctx, principal, auth.VerbCreate, auth.Resource{Type: "Session"}); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized to create Session", err)
+	if err := s.authorizer.Check(ctx, principal, auth.VerbCreate, auth.Resource{Type: "Session", Namespace: schedule.Agent.Namespace}); err != nil {
+		return serviceerrors.NewNotAuthorized("Not authorized to create Session", err)
 	}
 	return nil
 }

@@ -1,0 +1,18 @@
+{{- if eq .Values.controller.authorization.mode "kubernetes" }}
+# The kubernetes authorization mode asks the API server whether a caller may
+# act on a resource. A SubjectAccessReview is cluster-scoped, so the grant is a
+# ClusterRole whatever rbac.namespaces says.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kagent.fullname" . }}-authorization-role
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+{{- end }}

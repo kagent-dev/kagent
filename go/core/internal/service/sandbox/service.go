@@ -53,7 +53,7 @@ func (s *Service) principal(ctx context.Context, verb auth.Verb, resource auth.R
 	}
 	principal := session.Principal()
 	if err := s.config.Authorizer.Check(ctx, principal, verb, resource); err != nil {
-		return auth.Principal{}, serviceerrors.NewPermissionDenied("Sandbox access denied", err)
+		return auth.Principal{}, serviceerrors.NewNotAuthorized("Sandbox access denied", err)
 	}
 	return principal, nil
 }
@@ -76,7 +76,7 @@ func (s *Service) Create(ctx context.Context, request *apiv1alpha1.CreateSandbox
 		resource.Namespace, resource.Name = template.Namespace, template.Name
 	}
 	if err := s.config.Authorizer.Check(ctx, principal, auth.VerbGet, resource); err != nil {
-		return nil, serviceerrors.NewPermissionDenied("SandboxTemplate access denied", err)
+		return nil, serviceerrors.NewNotAuthorized("SandboxTemplate access denied", err)
 	}
 	ttl := s.config.DefaultTTL
 	if request.Ttl != nil {

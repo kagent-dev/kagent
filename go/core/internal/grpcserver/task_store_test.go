@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/protobuf/proto"
@@ -235,7 +236,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
-		interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, staticSessionWorkflow{}))
+		interactions := sessionsvc.NewInteractionService(store, permittedAgents{}, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, staticSessionWorkflow{}))
 		gateway := a2agateway.New(interactions, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
@@ -391,7 +392,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	storedConfigs, err := store.ListTaskPushConfigs(t.Context(), id, parkedID, "", 10)
 	require.NoError(t, err)
 	require.Len(t, storedConfigs, 2, "stored configs: %+v", storedConfigs)
-	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil))
+	managedService := sessionsvc.NewInteractionService(store, permittedAgents{}, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil))
 	serviceCtx := auth.AuthSessionTo(publicCtx, &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "alice"}}})
 	servicePage, err := managedService.ListTaskPushConfigs(serviceCtx, types.NamespacedName{Namespace: "team-a", Name: "assistant"},
 		&a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID), PageSize: 1})
@@ -657,4 +658,12 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1alpha1.S
 		substrate.ActorHost("team-a", substrate.ActorName(session.Id), ""), "actor-uid", "")
 	require.NoError(t, err)
 	return session
+}
+
+// permittedAgents stands in for the Agent service of a caller who may get
+// every Agent: a turn of an existing conversation checks the Agent again.
+type permittedAgents struct{}
+
+func (permittedAgents) Get(context.Context, types.NamespacedName) (*v1alpha3.Agent, error) {
+	return &v1alpha3.Agent{}, nil
 }

@@ -1,0 +1,72 @@
+suite: controller networkpolicy
+templates:
+  - controller-networkpolicy.yaml
+tests:
+  - it: renders no NetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: refuses a policy that would admit only the UI
+    set:
+      controller.networkPolicy.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: controller.networkPolicy.from
+
+  - it: admits the UI and the named peers to the API port and leaves the metrics port open
+    set:
+      controller.metrics.enabled: true
+      controller.networkPolicy.enabled: true
+      controller.networkPolicy.from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agentgateway
+        - podSelector:
+            matchLabels:
+              kagent.dev/worker-pool-name: kagent
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: controller
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: http
+              protocol: TCP
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: ui
+      - equal:
+          path: spec.ingress[0].from[1]
+          value:
+            namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: agentgateway
+      - equal:
+          path: spec.ingress[0].from[2]
+          value:
+            podSelector:
+              matchLabels:
+                kagent.dev/worker-pool-name: kagent
+      - equal:
+          path: spec.ingress[1]
+          value:
+            ports:
+              - port: metrics
+                protocol: TCP
+
+  - it: renders no metrics rule without the metrics port
+    set:
+      controller.networkPolicy.enabled: true
+      controller.networkPolicy.from:
+        - podSelector: {}
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 1

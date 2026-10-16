@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/stretchr/testify/require"
 )
 
 // createTestJWT creates a minimal JWT token with the given claims
@@ -25,6 +26,7 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 		name         string
 		claims       map[string]any
 		userIDClaim  string
+		required     bool
 		wantUserID   string
 		wantClaims   map[string]any
 		wantErr      bool
@@ -74,6 +76,16 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name: "refuses a token without the custom claim when it is required",
+			claims: map[string]any{
+				"sub":   "fallback-user",
+				"email": "user@example.com",
+			},
+			userIDClaim: "user_id",
+			required:    true,
+			wantErr:     true,
+		},
+		{
 			name:    "returns error when Authorization header missing",
 			noToken: true,
 			wantErr: true,
@@ -105,7 +117,11 @@ func TestProxyAuthenticator_Authenticate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			auth := authimpl.NewProxyAuthenticator(tt.userIDClaim)
+			var options []authimpl.ProxyAuthenticatorOption
+			if tt.required {
+				options = append(options, authimpl.WithUserIDClaimRequired())
+			}
+			auth := authimpl.NewProxyAuthenticator(tt.userIDClaim, options...)
 
 			headers := http.Header{}
 			if !tt.noToken {
@@ -295,4 +311,74 @@ func TestProxyAuthenticator_UpstreamAuth(t *testing.T) {
 	if got := req.Header.Get("X-User-Id"); got != "user123" {
 		t.Errorf("X-User-Id header = %q, want %q", got, "user123")
 	}
+}
+
+func TestProxyAuthenticator_Groups(t *testing.T) {
+	serviceAccountToken := createTestJWT(map[string]any{"sub": "system:serviceaccount:kagent:assistant"})
+	tests := []struct {
+		name       string
+		claims     map[string]any
+		headers    map[string]string
+		wantUserID string
+		wantGroups []string
+		wantErr    bool
+	}{
+		{name: "a list claim", claims: map[string]any{"sub": "alice", "groups": []any{"team-a", "cn=admins,ou=groups"}},
+			wantUserID: "alice", wantGroups: []string{"team-a", "cn=admins,ou=groups"}},
+		{name: "a string claim", claims: map[string]any{"sub": "alice", "groups": "team-a"}, wantUserID: "alice", wantGroups: []string{"team-a"}},
+		{name: "no claim", claims: map[string]any{"sub": "alice"}, wantUserID: "alice"},
+		{name: "a group that is not a string", claims: map[string]any{"sub": "alice", "groups": []any{"team-a", 7}}, wantErr: true},
+		{name: "a claim of another shape", claims: map[string]any{"sub": "alice", "groups": 7}, wantErr: true},
+		{name: "a direct call's header is ignored", claims: map[string]any{"sub": "alice"},
+			headers: map[string]string{"X-User-Groups": "system%3Amasters"}, wantUserID: "alice"},
+		{name: "an agent's call carries its user's groups",
+			headers:    map[string]string{"Authorization": "Bearer " + serviceAccountToken, "X-Agent-Name": "kagent/assistant", "X-User-Id": "alice", "X-User-Groups": "team-a,cn%3Dadmins%2Cou%3Dgroups"},
+			wantUserID: "alice", wantGroups: []string{"team-a", "cn=admins,ou=groups"}},
+		{name: "an agent's call without a user names no groups",
+			headers:    map[string]string{"Authorization": "Bearer " + serviceAccountToken, "X-Agent-Name": "kagent/assistant", "X-User-Groups": "team-a"},
+			wantUserID: "system:serviceaccount:kagent:assistant"},
+		{name: "an agent's call with malformed groups",
+			headers: map[string]string{"Authorization": "Bearer " + serviceAccountToken, "X-Agent-Name": "kagent/assistant", "X-User-Id": "alice", "X-User-Groups": "team-a,,admins"},
+			wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authenticator := authimpl.NewProxyAuthenticator("", authimpl.WithGroupsClaim("groups"))
+			headers := http.Header{}
+			if tt.claims != nil {
+				headers.Set("Authorization", "Bearer "+createTestJWT(tt.claims))
+			}
+			for k, v := range tt.headers {
+				headers.Set(k, v)
+			}
+			session, err := authenticator.Authenticate(context.Background(), headers, url.Values{})
+			if tt.wantErr {
+				require.ErrorIs(t, err, authimpl.ErrUnauthenticated)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUserID, session.Principal().User.ID)
+			require.Equal(t, tt.wantGroups, session.Principal().User.Groups)
+		})
+	}
+}
+
+func TestProxyAuthenticator_UpstreamAuthForwardsTheGroups(t *testing.T) {
+	authenticator := authimpl.NewProxyAuthenticator("", authimpl.WithGroupsClaim("groups"))
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+createTestJWT(map[string]any{"sub": "alice", "groups": []any{"team-a", "cn=admins,ou=groups"}}))
+	session, err := authenticator.Authenticate(context.Background(), headers, url.Values{})
+	require.NoError(t, err)
+
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req.Header.Set("X-User-Groups", "stale")
+	require.NoError(t, authenticator.UpstreamAuth(req, session, session.Principal()))
+	require.Equal(t, "team-a,cn=admins%2Cou=groups", req.Header.Get("X-User-Groups"))
+
+	// A user without groups forwards none, whatever the request held.
+	headers.Set("Authorization", "Bearer "+createTestJWT(map[string]any{"sub": "bob"}))
+	session, err = authenticator.Authenticate(context.Background(), headers, url.Values{})
+	require.NoError(t, err)
+	require.NoError(t, authenticator.UpstreamAuth(req, session, session.Principal()))
+	require.Empty(t, req.Header.Values("X-User-Groups"))
 }

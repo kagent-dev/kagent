@@ -7,7 +7,7 @@ from ._consts import (
     A2A_PART_TYPE_METADATA_KEY,
     A2A_USAGE_METADATA_KEY,
 )
-from ._context import get_request_user_id, set_request_user_id
+from ._context import get_request_user_groups, get_request_user_id, set_request_user_groups, set_request_user_id
 from ._hitl import (
     HITL_EXTENSION_HEADER,
     HITL_EXTENSION_URI,
@@ -45,6 +45,8 @@ __all__ = [
     "A2ARequestSizeLimitMiddleware",
     "get_request_user_id",
     "set_request_user_id",
+    "get_request_user_groups",
+    "set_request_user_groups",
     "KAgentRequestContextBuilder",
     "KAgentGrpcServerCallContextBuilder",
     "TelemetryRequestHandler",

@@ -240,7 +240,7 @@ func Run(ctx context.Context, opts Options) error {
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
 	utilruntime.Must(kmcp.AddToScheme(managerScheme))
-	watchNamespaces := namespaces(kagentenv.WatchNamespaces.Get())
+	watchNamespaces := WatchNamespaces(kagentenv.WatchNamespaces.Get())
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
 	if len(watchNamespaces) > 0 {
@@ -557,7 +557,9 @@ func metricsBindAddress() string {
 	return "0"
 }
 
-func namespaces(value string) []string {
+// WatchNamespaces reads a KAGENT_WATCH_NAMESPACES value: the names between its
+// commas, blank ones left out. Empty means every namespace.
+func WatchNamespaces(value string) []string {
 	var result []string
 	for namespace := range strings.SplitSeq(value, ",") {
 		if namespace = strings.TrimSpace(namespace); namespace != "" {

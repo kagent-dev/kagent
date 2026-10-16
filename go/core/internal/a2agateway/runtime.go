@@ -107,6 +107,12 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		// person of the turn below and keeps their own Authorization.
 		if share, ok := auth.ShareContextFrom(ctx); ok && share.IsForSession(u.session.GetId()) {
 			httpRequest.Header.Set("X-User-Id", share.UserID)
+			// The visitor's groups are not the owner's: the owner's calls
+			// carry the groups the owner's last turn recorded.
+			httpRequest.Header.Del(auth.UserGroupsHeader)
+			if groups, _ := auth.OwnerGroupsFrom(ctx); len(groups) > 0 {
+				httpRequest.Header.Set(auth.UserGroupsHeader, auth.EncodeUserGroups(groups))
+			}
 		}
 		// The person of the turn, for the runtime to name on its model calls
 		// (x-kagent-user): only an identity the authenticator resolved from the

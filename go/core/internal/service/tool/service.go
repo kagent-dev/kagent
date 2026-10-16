@@ -8,6 +8,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/secretmaterial"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -17,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,7 +50,7 @@ type MCPClient interface {
 type Service struct {
 	kubeClient       client.Client
 	discoveryStore   DiscoveryStore
-	authorizer       auth.Authorizer
+	authorizer       auth.CollectionAuthorizer
 	defaultNamespace string
 	mcpClient        MCPClient
 }
@@ -82,7 +84,7 @@ type MCPAppTool struct {
 func NewService(
 	kubeClient client.Client,
 	discoveryStore DiscoveryStore,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	defaultNamespace string,
 	mcpClient MCPClient,
 ) *Service {
@@ -98,24 +100,42 @@ func NewService(
 	}
 }
 
+// ListTools returns the discovered tools of the tool servers the caller may
+// list, as ListToolServers scopes them.
 func (s *Service) ListTools(ctx context.Context) ([]database.Tool, error) {
-	if err := requireSession(ctx); err != nil {
+	matcher, err := s.toolServerScope(ctx)
+	if err != nil {
 		return nil, err
 	}
 	tools, err := s.discoveryStore.ListTools(ctx)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to list tools", err)
 	}
-	return tools, nil
+	visible := make([]database.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if matcher.Matches(toolServerObject(tool.ServerName)) {
+			visible = append(visible, tool)
+		}
+	}
+	return visible, nil
 }
 
+// ListToolServers returns the tool servers in the namespaces in which the
+// caller may list them; a caller allowed nowhere gets none.
 func (s *Service) ListToolServers(ctx context.Context) ([]ToolServer, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "ToolServer"}); err != nil {
+	matcher, err := s.toolServerScope(ctx)
+	if err != nil {
 		return nil, err
 	}
-	servers, err := s.discoveryStore.ListToolServers(ctx)
+	all, err := s.discoveryStore.ListToolServers(ctx)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to list ToolServers from database", err)
+	}
+	servers := make([]database.ToolServer, 0, len(all))
+	for _, server := range all {
+		if matcher.Matches(toolServerObject(server.Name)) {
+			servers = append(servers, server)
+		}
 	}
 	if len(servers) == 0 {
 		return []ToolServer{}, nil
@@ -320,17 +340,36 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.R
 		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
 	if err := s.authorizer.Check(ctx, session.Principal(), verb, resource); err != nil {
-		return serviceerrors.NewPermissionDenied("Not authorized", err)
+		return serviceerrors.NewNotAuthorized("Not authorized", err)
 	}
 	return nil
 }
 
-func requireSession(ctx context.Context) error {
+// toolServerScope is the scope of the tool servers the caller may list.
+func (s *Service) toolServerScope(ctx context.Context) (kubeauth.Matcher, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok || session == nil {
-		return serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
+		return kubeauth.Matcher{}, serviceerrors.NewUnauthenticated("Failed to get authenticated principal", fmt.Errorf("no session found"))
 	}
-	return nil
+	scope, err := s.authorizer.Scope(ctx, session.Principal(), auth.VerbList, "ToolServer")
+	if err != nil {
+		return kubeauth.Matcher{}, serviceerrors.NewUnavailable("Failed to read the ToolServer authorization scope", err)
+	}
+	matcher, err := kubeauth.CompileScope(scope)
+	if err != nil {
+		return kubeauth.Matcher{}, serviceerrors.NewInternal("Failed to apply the ToolServer authorization scope", err)
+	}
+	return matcher, nil
+}
+
+// toolServerObject names a discovered tool server by its namespace and name,
+// as the scope matches it; the catalog records it as "namespace/name".
+func toolServerObject(ref string) metav1.Object {
+	namespace, name, ok := strings.Cut(ref, "/")
+	if !ok {
+		namespace, name = "", ref
+	}
+	return &metav1.ObjectMeta{Namespace: namespace, Name: name}
 }
 
 func normalizeCreateRef(object client.Object, defaultNamespace string) (types.NamespacedName, error) {

@@ -83,19 +83,22 @@ func TestRuntimeDialerForwardsTheResolvedPersonOnly(t *testing.T) {
 	}
 }
 
-// runtimeCallerAuth forwards the caller as X-User-Id and a fixed bearer, like
-// the installed authenticators.
+// runtimeCallerAuth forwards the caller as X-User-Id with their groups and a
+// fixed bearer, like the installed authenticators.
 type runtimeCallerAuth struct{ auth.AuthProvider }
 
 func (runtimeCallerAuth) UpstreamAuth(req *http.Request, session auth.Session, _ auth.Principal) error {
 	req.Header.Set("Authorization", "Bearer visitor")
 	req.Header.Set("X-User-Id", session.Principal().User.ID)
+	req.Header.Set(auth.UserGroupsHeader, "visitors")
 	return nil
 }
 
 // The runtime keys its session on x-user-id, so a turn a share of the routed
 // Session authorizes names the share's owner there, while the visitor stays
-// the person of the turn and keeps their own credentials.
+// the person of the turn and keeps their own credentials. The visitor's
+// groups are not the owner's: the owner's calls carry the groups the owner's
+// last turn recorded, or none.
 func TestRuntimeDialerRunsASharedTurnInTheOwnersSession(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -112,13 +115,17 @@ func TestRuntimeDialerRunsASharedTurnInTheOwnersSession(t *testing.T) {
 	dialer, err := NewRuntimeDialer("http://"+listener.Addr().String(), runtimeCallerAuth{})
 	require.NoError(t, err)
 	for _, tt := range []struct {
-		name  string
-		share *auth.ShareContext
-		want  string
+		name        string
+		share       *auth.ShareContext
+		ownerGroups []string
+		want        string
+		wantGroups  []string
 	}{
-		{name: "no share", want: "visitor@example.com"},
+		{name: "no share", want: "visitor@example.com", wantGroups: []string{"visitors"}},
 		{name: "share of the session", share: &auth.ShareContext{UserID: "owner@example.com", SessionID: "session"}, want: "owner@example.com"},
-		{name: "share of another session", share: &auth.ShareContext{UserID: "owner@example.com", SessionID: "other"}, want: "visitor@example.com"},
+		{name: "share of the session, the owner's groups recorded", share: &auth.ShareContext{UserID: "owner@example.com", SessionID: "session"}, ownerGroups: []string{"team-a", "cn=ops,dc=example"},
+			want: "owner@example.com", wantGroups: []string{"team-a,cn=ops%2Cdc=example"}},
+		{name: "share of another session", share: &auth.ShareContext{UserID: "owner@example.com", SessionID: "other"}, want: "visitor@example.com", wantGroups: []string{"visitors"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -127,6 +134,7 @@ func TestRuntimeDialerRunsASharedTurnInTheOwnersSession(t *testing.T) {
 			if tt.share != nil {
 				ctx = auth.ShareContextTo(ctx, tt.share)
 			}
+			ctx = auth.OwnerGroupsTo(ctx, tt.ownerGroups)
 			client, err := dialer.Dial(ctx, &apiv1alpha1.Session{Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", "")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, client.Destroy()) })
@@ -138,6 +146,7 @@ func TestRuntimeDialerRunsASharedTurnInTheOwnersSession(t *testing.T) {
 			select {
 			case md := <-received:
 				require.Equal(t, []string{tt.want}, md.Get("x-user-id"))
+				require.Equal(t, tt.wantGroups, md.Get("x-user-groups"))
 				require.Equal(t, []string{"visitor@example.com"}, md.Get(adk.UserHeader))
 				require.Equal(t, []string{"Bearer visitor"}, md.Get("authorization"))
 			case <-ctx.Done():

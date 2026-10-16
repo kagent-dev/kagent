@@ -11,8 +11,10 @@ The shipped [controller entrypoint](../../go/core/cmd/controller/main.go) reads
 `KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM` and supplies the authenticator
 through [app.Options](../../go/core/pkg/app/app.go). Unsupported modes fail
 startup. The default remains `insecure`; enabling oauth2-proxy alone does not
-change it. Authorization still defaults to `NoopAuthorizer`; library consumers
-can supply their own authentication and authorization through `app.Options`.
+change it. Authorization defaults to `NoopAuthorizer`; `controller.authorization.mode:
+kubernetes` makes the controller ask Kubernetes RBAC instead (see
+[Controller authorization](#controller-authorization)). Library consumers can
+supply their own authentication and authorization through `app.Options`.
 
 ## Browser session flow
 
@@ -91,8 +93,9 @@ expiry. It assumes an upstream boundary already validated the credential.
 The shipped controller selects it in `trusted-proxy` mode.
 
 For a direct user request, identity comes from the configured user-ID claim,
-defaulting to `sub`. A missing custom claim falls back to `sub`; a missing user
-identity rejects the request. The session retains raw claims and the original
+defaulting to `sub`. A missing custom claim falls back to `sub`, except in the
+`kubernetes` authorization mode, which rejects the request as the API server
+rejects such a token; a missing user identity rejects the request. The session retains raw claims and the original
 authorization header. `UpstreamAuth` forwards that header and `X-User-Id` to
 downstream requests.
 
@@ -106,6 +109,107 @@ incoming authentication metadata to the configured provider. Private runtime
 methods use their separate runtime authenticator; the proxy's agent-header path
 does not define authentication for those methods. See the
 [A2A gateway](a2a-gateway.md) for the runtime boundary.
+
+## Controller authorization
+
+Every service consults the configured `auth.CollectionAuthorizer`: `Check` for
+one object and `Scope` for a collection read. The shipped controller reads
+`KAGENT_AUTHORIZATION_MODE`:
+
+- `noop` (the default) permits every authenticated caller and scopes every
+  collection to `ALL`. The controller's own Kubernetes identity reads and
+  writes the objects.
+- `kubernetes` selects the
+  [KubernetesAuthorizer](../../go/core/pkg/auth/kubernetes.go): the API
+  server's RBAC on the kagent resources is the one source of truth for what a
+  caller sees and runs through the controller, so the API answers the same as
+  `kubectl auth can-i` does for the same person. It decides nothing with
+  `insecure` authentication, where the caller names its own user ID; the
+  controller logs a warning at startup for that pair. A check the API server
+  does not answer is reported as `Unavailable`, not as a refusal.
+
+In `kubernetes` mode every check is a `SubjectAccessReview` for the caller,
+mapped as the API server's OIDC authenticator maps the same token. The username
+is the authenticated user ID, read from the claim `KAGENT_AUTH_USER_ID_CLAIM`
+names, with `KAGENT_AUTHORIZATION_USERNAME_PREFIX` before it
+(`--oidc-username-prefix`): point that claim at the API server's
+`--oidc-username-claim`. Set the prefix to what the API server puts before the
+claim, which is not always what its flag says: an empty prefix matches
+`--oidc-username-prefix=-`, or an `email` claim with the flag unset; for any
+other claim with the flag unset the API server puts `<issuer-url>#` before it,
+so set that. With a structured `AuthenticationConfiguration`, use its
+`claimMappings.username.prefix`. A prefix that differs reviews a user no
+RoleBinding names, and every caller is refused. Choose that claim before the installation holds data:
+Sessions, checkpoints, scheduled runs and sandboxes are keyed by the creator's
+user ID, so changing the claim later (say from `sub` to `email`) orphans every
+person's rows, and the username prefix cannot bridge two claims. The
+`trusted-proxy` authenticator reads the groups from
+`KAGENT_AUTHORIZATION_GROUPS_CLAIM` (`--oidc-groups-claim`), and the review puts
+`KAGENT_AUTHORIZATION_GROUPS_PREFIX` (`--oidc-groups-prefix`) before each;
+`system:authenticated` is always among them. A user or a group that maps into
+the reserved `system:` space is refused, so no caller is reviewed as a
+ServiceAccount, a node or `system:masters`. A caller without a user identity,
+such as a runtime actor, is refused. A refused caller receives empty
+collections and fails every check.
+
+A person's direct calls and the calls their agent makes for them are one
+Kubernetes user with the same groups. When the controller forwards a turn to an
+agent's runtime it sends the person's user ID (`X-User-Id`) and groups
+(`X-User-Groups`, each group percent-encoded, joined by commas); the Go and
+Python runtimes keep both for the turn and send them back on every call to the
+controller, which reviews that call with them. On a turn a Session share
+admits, the runtime's calls run as the Session's owner: the visitor's groups
+are not the owner's, so the calls carry the owner's groups as the owner's last
+turn recorded them. The Session keeps them out of the API, and each of the
+owner's turns replaces them. Each call is still reviewed against the RBAC of
+the time, so a removed RoleBinding takes effect as on any call; a group the
+identity provider removes from the owner stays in use on share turns until the
+owner's next turn.
+
+The controller does not verify the signature of the token it is given: the
+`trusted-proxy` mode trusts the proxy in front of it to have verified it, and
+an agent's call names its user in `X-User-Id`. In `kubernetes` mode whoever
+reaches the controller's API port therefore picks whose RBAC applies. Keep that
+port to the verifying proxy and the agent runtimes: `controller.networkPolicy`
+renders a NetworkPolicy that admits the chart's UI and the peers
+`controller.networkPolicy.from` names, and leaves the metrics port open (the
+kubelet's probes come from the node, which common CNIs admit). An agent's
+runtime can still name any person; a verifiable delegation of the person to the
+runtime is not part of this mode.
+
+| Operation | Reviewed as |
+| --- | --- |
+| A Kubernetes object (`Agent`, `AgentTemplate`, `Harness`, `ModelConfig`, `SandboxTemplate`, a tool server as `remotemcpservers`, a prompt template as `configmaps`) | the verb on that object, in its namespace; a list is `list` in the request's namespace |
+| `ListToolServers`, `ListTools` | scoped like a collection read of `remotemcpservers`: the tool servers, and their tools, in the namespaces where the caller may `list` them |
+| `CreateSession`, and an A2A `message/send` that starts a conversation | `get` on the Agent and `create` on the virtual resource `sessions.api.kagent.dev` in the Agent's namespace |
+| Every further turn: an A2A `message/send` that names a conversation or a running task | `get` on the Agent, for the person who sends it (the owner and a share's visitor alike), so a revoked grant stops the next turn |
+| A scheduled run | the same two reviews for its Agent, when the schedule is created; its executions run as the controller, so a grant revoked later does not stop a schedule — delete the schedule |
+| A fork of a checkpoint | `get` on the checkpoint's Agent and `create` on `sessions.api.kagent.dev` in its namespace, as a new Session |
+| Reading, sharing or deleting a Session; checkpoints, scheduled runs, sandboxes | not reviewed: their service already limits them to the caller's own rows or to a share |
+| The tool server types; the Substrate inventory (`GetSubstrateSummary`, `ListSubstrateActors`, `ListSubstrateWorkers`) | not reviewed: they name no Kubernetes object |
+| `ListSessions` with `all_creators` | refused for everyone: the list spans every namespace and the check names none |
+| The controller's own calls (no principal) | permitted |
+
+A collection read (`ListAgentTemplates`, `ListAgents`, ...) is scoped to the
+namespaces in which the caller may `list` the resource: one review per
+namespace, after a cluster-wide review that short-circuits to the whole
+collection. A caller allowed nowhere receives an empty collection, never
+`PermissionDenied`. The namespaces are the controller's `KAGENT_WATCH_NAMESPACES`
+when it watches a fixed list, otherwise every Namespace, narrowed by the label
+selector `KAGENT_AUTHORIZATION_NAMESPACE_SELECTOR` when one is set, plus the
+namespaces `KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES` names whatever their labels
+(a shared namespace one selector cannot express beside the others). Decisions
+are cached for ten seconds per subject, verb and resource, so a changed
+RoleBinding takes effect within that time; concurrent checks of one decision
+send one review. A review is bounded to five seconds, and a caller waits for it
+no longer than its own deadline: an API server that stops answering shows as
+`Unavailable` within seconds.
+
+The chart renders the settings from `controller.authorization` and, in
+`kubernetes` mode, a ClusterRole and ClusterRoleBinding that let the
+controller's ServiceAccount create `subjectaccessreviews`. Kubernetes RBAC then
+grants the callers: a person who may `list` and `get` `agenttemplates` and
+`agents` and `create` `sessions` in a namespace sees and runs the agents there.
 
 ## CLI
 
@@ -141,7 +245,13 @@ differs.
 | `oauth2-proxy.enabled` | `false` | Install the authentication proxy |
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
 | `controller.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
-| `controller.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
+| `controller.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` (not in `kubernetes` authorization mode) |
+| `controller.authorization.mode` | `noop` | Select `noop` or `kubernetes` |
+| `controller.authorization.usernamePrefix` | Empty | Prefix before the user ID `kubernetes` mode reviews |
+| `controller.authorization.groupsClaim`, `.groupsPrefix` | Empty | How `kubernetes` mode builds the reviewed groups |
+| `controller.authorization.namespaceSelector` | Empty | Namespaces a collection read ranges over |
+| `controller.authorization.includeNamespaces` | Empty | Namespaces ranged over beside the selected ones |
+| `controller.networkPolicy.enabled`, `.from` | `false`, empty | Admit only the UI and these peers to the controller's API port |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 
 For a release named `kagent`, register

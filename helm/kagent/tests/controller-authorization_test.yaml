@@ -1,0 +1,118 @@
+suite: controller authorization
+templates:
+  - controller-configmap.yaml
+  - rbac/authorization-clusterrole.yaml
+  - rbac/authorization-clusterrolebinding.yaml
+tests:
+  - it: permits every caller by default and grants no review
+    asserts:
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_MODE
+          value: noop
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_USERNAME_PREFIX
+          value: ""
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_GROUPS_CLAIM
+          value: ""
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES
+          value: ""
+        template: controller-configmap.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/authorization-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/authorization-clusterrolebinding.yaml
+
+  - it: asks Kubernetes RBAC in kubernetes mode, mapping the token as the API server does
+    set:
+      controller.authorization.mode: kubernetes
+      controller.authorization.usernamePrefix: "oidc:"
+      controller.authorization.groupsClaim: groups
+      controller.authorization.groupsPrefix: "oidc:"
+      controller.authorization.namespaceSelector: "tenant=true"
+    asserts:
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_MODE
+          value: kubernetes
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_USERNAME_PREFIX
+          value: "oidc:"
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_GROUPS_CLAIM
+          value: groups
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_GROUPS_PREFIX
+          value: "oidc:"
+        template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_NAMESPACE_SELECTOR
+          value: "tenant=true"
+        template: controller-configmap.yaml
+
+  - it: ranges over the included namespaces beside the selected ones
+    set:
+      controller.authorization.mode: kubernetes
+      controller.authorization.namespaceSelector: giantswarm.io/organization
+      controller.authorization.includeNamespaces: [kagent, shared]
+    asserts:
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES
+          value: kagent,shared
+        template: controller-configmap.yaml
+
+  - it: grants the controller subjectaccessreviews in kubernetes mode
+    set:
+      controller.authorization.mode: kubernetes
+    asserts:
+      - isKind:
+          of: ClusterRole
+        template: rbac/authorization-clusterrole.yaml
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-authorization-role
+        template: rbac/authorization-clusterrole.yaml
+      - equal:
+          path: rules
+          value:
+            - apiGroups:
+                - authorization.k8s.io
+              resources:
+                - subjectaccessreviews
+              verbs:
+                - create
+        template: rbac/authorization-clusterrole.yaml
+      - isKind:
+          of: ClusterRoleBinding
+        template: rbac/authorization-clusterrolebinding.yaml
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-authorization-role
+        template: rbac/authorization-clusterrolebinding.yaml
+      - equal:
+          path: subjects[0]
+          value:
+            kind: ServiceAccount
+            name: RELEASE-NAME-controller
+            namespace: NAMESPACE
+        template: rbac/authorization-clusterrolebinding.yaml
+
+  - it: keeps the review grant cluster-scoped under namespaced RBAC
+    set:
+      controller.authorization.mode: kubernetes
+      rbac.namespaces: [NAMESPACE, team-a]
+    asserts:
+      - isKind:
+          of: ClusterRole
+        template: rbac/authorization-clusterrole.yaml
+      - isKind:
+          of: ClusterRoleBinding
+        template: rbac/authorization-clusterrolebinding.yaml

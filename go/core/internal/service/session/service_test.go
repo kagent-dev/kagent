@@ -256,6 +256,38 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
+func TestServiceCreateAuthorizesTheAgentAndTheSessionInItsNamespace(t *testing.T) {
+	agent := &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
+	t.Run("both checks pass", func(t *testing.T) {
+		authorizer := &recordingAuthorizer{}
+		service := NewService(&serviceTestStore{}, authorizer, serviceTestWorkflow{})
+		_, err := service.Create(serviceTestContext("alice"), CreateRequest{Agent: agent, RequestID: "request-1"})
+		require.NoError(t, err)
+		require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbCreate}, authorizer.verbs)
+		require.Equal(t, []auth.Resource{
+			{Type: "Agent", Namespace: "team-a", Name: "assistant"},
+			{Type: "Session", Namespace: "team-a"},
+		}, authorizer.checks)
+	})
+	for _, denied := range []string{"Agent", "Session"} {
+		t.Run(denied+" denied", func(t *testing.T) {
+			store := &serviceTestStore{}
+			service := NewService(store, &recordingAuthorizer{deniedTypes: map[string]bool{denied: true}}, serviceTestWorkflow{})
+			_, err := service.Create(serviceTestContext("alice"), CreateRequest{Agent: agent, RequestID: "request-1"})
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Create() error = %v", err)
+			require.Nil(t, store.createInput, "a refused Session is not reserved")
+		})
+	}
+	t.Run("a share is refused before any check", func(t *testing.T) {
+		authorizer := &recordingAuthorizer{}
+		service := NewService(&serviceTestStore{}, authorizer, serviceTestWorkflow{})
+		ctx := auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: "other", UserID: "owner"})
+		_, err := service.Create(ctx, CreateRequest{Agent: agent, RequestID: "request-1"})
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "Create() error = %v", err)
+		require.Empty(t, authorizer.checks)
+	})
+}
+
 func TestServiceLifecycleMethodsPreserveContentionErrors(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -535,16 +567,22 @@ func TestServiceSuspendAcceptsAShareOverThatSession(t *testing.T) {
 	})
 }
 
+// recordingAuthorizer keeps the last check and every check it was asked, and
+// denies the resource names and types it is told to.
 type recordingAuthorizer struct {
-	verb      auth.Verb
-	resource  auth.Resource
-	principal auth.Principal
-	denied    map[string]bool
+	verb        auth.Verb
+	resource    auth.Resource
+	principal   auth.Principal
+	checks      []auth.Resource
+	verbs       []auth.Verb
+	denied      map[string]bool
+	deniedTypes map[string]bool
 }
 
 func (a *recordingAuthorizer) Check(_ context.Context, principal auth.Principal, verb auth.Verb, resource auth.Resource) error {
 	a.verb, a.resource, a.principal = verb, resource, principal
-	if a.denied[resource.Name] {
+	a.checks, a.verbs = append(a.checks, resource), append(a.verbs, verb)
+	if a.denied[resource.Name] || a.deniedTypes[resource.Type] {
 		return errors.New("denied")
 	}
 	return nil

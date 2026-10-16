@@ -54,6 +54,7 @@ func (s *Store) callContext(ctx context.Context) (context.Context, context.Cance
 	md = md.Copy()
 	md.Delete("authorization")
 	md.Delete("x-user-id")
+	md.Delete("x-user-groups")
 	md.Delete("x-agent-name")
 	md.Delete("x-share-token")
 	// Temporary identity transport until Substrate injects actor credentials (#1660).
