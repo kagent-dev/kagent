@@ -182,9 +182,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
 			}
 			states.UpdateObject(state)
-			require.ErrorIs(t, reconciler.reconcileAgent(ctx, state.ResourceName()), database.ErrEgressPolicyNotPublished)
-			_, err = store.SetRuntimeEgressPolicy(ctx, id.String(), egress.Access{})
-			require.NoError(t, err)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
 			request := &apiv1.Session{
@@ -325,6 +322,7 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 type fakeRuntimeRevisionStore struct {
 	pair             *database.AgentDefinition
 	revision         *database.RuntimeRevision
+	policy           egress.Access
 	markedSuccessful bool
 	retired          string
 	revisionErr      error
@@ -340,12 +338,13 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, policy egress.Access) error {
 	s.recordCalls++
 	if s.revisionErr != nil {
 		return s.revisionErr
 	}
 	s.revision = &revision
+	s.policy = policy
 	return nil
 }
 

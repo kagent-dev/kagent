@@ -30,11 +30,12 @@ func (id RevisionID) Short() string { return hex.EncodeToString(id[:shortRevisio
 // IsZero reports whether compilation has not produced an identity.
 func (id RevisionID) IsZero() bool { return id == RevisionID{} }
 
-// CompileResult contains one immutable runtime revision and the non-blocking
-// diagnostics produced while compiling it. Diagnostics are deliberately kept
-// outside Revision because they do not describe runtime behavior.
+// CompileResult contains immutable runtime inputs, current explicit grants,
+// and non-blocking diagnostics. Live grants and diagnostics do not enter the
+// revision's identity.
 type CompileResult struct {
 	Revision
+	Egress   egress.Access
 	Warnings []string
 }
 

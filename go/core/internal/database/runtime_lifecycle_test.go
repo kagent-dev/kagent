@@ -6,6 +6,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func TestRuntimeLifecycleStoresSharedValues(t *testing.T) {
@@ -69,7 +71,7 @@ func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	revision, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	revision.Revision, revision.ActorTemplateUID = "sandbox-revision", "replacement-uid"
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision), ErrConflict)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, egress.Access{}), ErrConflict)
 	require.ErrorIs(t, client.PromoteRuntimeRevision(ctx, "sandbox-revision"), ErrConflict)
 	require.ErrorIs(t, client.PromoteSandboxRevision(ctx, "revision"), ErrConflict)
 	var uid string

@@ -26,6 +26,7 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
@@ -50,6 +51,7 @@ type AgentReconciliation struct {
 // construction all succeed. An absent target means there is no desired runtime.
 type compiledTarget struct {
 	Revision      translator.Revision
+	Egress        egress.Access
 	RevisionID    translator.RevisionID
 	ActorTemplate *ateapipb.ActorTemplate
 }
@@ -59,7 +61,7 @@ func (c *compiledTarget) equals(other *compiledTarget) bool {
 		return c == other
 	}
 	return c.RevisionID == other.RevisionID && c.Revision.Equals(other.Revision) &&
-		proto.Equal(c.ActorTemplate, other.ActorTemplate)
+		proto.Equal(c.ActorTemplate, other.ActorTemplate) && reflect.DeepEqual(c.Egress, other.Egress)
 }
 
 func (r AgentReconciliation) ResourceName() string { return r.Agent.Namespace + "/" + r.Agent.Name }
@@ -137,7 +139,7 @@ func newAgentReconciliations(
 			state.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 			return state
 		}
-		state.Target = &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}
+		state.Target = &compiledTarget{Revision: *revision, Egress: compilation.Egress, RevisionID: revisionID, ActorTemplate: actorTemplate}
 
 		observed := krt.FetchOne(ctx, agentRuntimeObservations, krt.FilterKey(state.ResourceName()))
 		if observed == nil || observed.RevisionID != state.Target.RevisionID {
@@ -166,7 +168,7 @@ func newAgentReconciliations(
 // or a Session or checkpoint references them.
 type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
-	RecordRuntimeRevision(context.Context, database.RuntimeRevision) error
+	RecordRuntimeRevision(context.Context, database.RuntimeRevision, egress.Access) error
 	PromoteRuntimeRevision(context.Context, string) error
 	RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error
 }
@@ -378,9 +380,15 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil
-	if err := r.store.RecordRuntimeRevision(ctx, revision); err != nil {
+	policy, err := egress.MergeAccess(egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}, target.Egress, revision.TokenPassthroughOrigins)
+	if err != nil {
+		return r.observePreparationError(*state, fmt.Errorf("merge runtime egress %s: %w", target.RevisionID, err))
+	}
+	if err := r.store.RecordRuntimeRevision(ctx, revision, policy); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
+	// Catch grants that changed after compilation but before the revision was
+	// visible to source-event discovery. Preparation never replaces live policy.
 	r.enqueueEgress(revision.Revision)
 	if ready {
 		if err := r.store.PromoteRuntimeRevision(ctx, revision.Revision); err != nil {

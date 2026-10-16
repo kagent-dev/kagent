@@ -25,6 +25,7 @@ import (
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -33,6 +34,7 @@ type sandboxTestStore struct {
 	mu             sync.Mutex
 	desired        database.SandboxTemplateDefinition
 	revision       database.SandboxRevision
+	policy         egress.Access
 	ready          bool
 	retired        bool
 	retireAttempts int
@@ -48,7 +50,7 @@ func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, va
 	s.desired = value
 	return nil
 }
-func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision) error {
+func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, policy egress.Access) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recordCalls++
@@ -56,6 +58,7 @@ func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value databa
 		return s.recordErr
 	}
 	s.revision = value
+	s.policy = policy
 	return nil
 }
 func (s *sandboxTestStore) PromoteSandboxRevision(_ context.Context, revision string) error {
@@ -312,25 +315,40 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
-func TestInitialSandboxRevisionWaitsForEgressPublication(t *testing.T) {
-	s, templates, _ := newSandboxTestReconciler(t, "guest@sha256:"+strings.Repeat("b", 64))
-	store := s.store.(*sandboxTestStore)
-	s.actors.(*sandboxTestActors).autoReady = true
-	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
-	syncSandboxTemplate(t, s, templates)
-	store.promoteErr = database.ErrEgressPolicyNotPublished
-	s.enqueueEgress = func(revision string) {
-		require.Equal(t, store.revision.Revision, revision)
-		require.False(t, store.ready, "initial policy must precede readiness")
+func TestSandboxPreparationRecordsCompiledPolicyBeforeEnqueueAndPromotion(t *testing.T) {
+	ctx := t.Context()
+	inputs := newEgressTestInputs(ctx)
+	template := sandboxTestTemplate()
+	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "access"}}
+	inputs.sandboxes.UpdateObject(template)
+	policy := egressTestPolicy("https://tickets.example.com", nil)
+	policy.Namespace = template.Namespace
+	inputs.policies.UpdateObject(policy)
+	inputs.runtime.Collections.WorkerPools = krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: template.Namespace, Name: "default"}}}, inputs.runtime.Options.WithName("Pools")...)
+	store := &sandboxTestStore{}
+	actors := &sandboxTestActors{store: store, templates: map[string]*ateapipb.ActorTemplate{}, autoReady: true}
+	queued := 0
+	s := &SandboxReconciler{
+		collections: newSandboxCollections(inputs.runtime.Collections, substrate.SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}, inputs.runtime.Options),
+		store:       store, actors: actors, client: kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3(),
+		enqueueEgress: func(revision string) {
+			queued++
+			require.Equal(t, store.revision.Revision, revision)
+			require.Equal(t, []string{"https://tickets.example.com:443"}, store.policy.Destinations)
+			require.False(t, store.ready)
+		},
 	}
-	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), database.ErrEgressPolicyNotPublished)
-	require.False(t, store.ready)
-	waitFor(t, func() bool { return s.collections.states.GetKey("team-a/scratch").Failure != nil })
-	store.promoteErr = errors.New("promotion unavailable")
-	require.ErrorIs(t, s.reconcile(t.Context(), "team-a/scratch"), store.promoteErr)
-	require.False(t, store.ready)
-	store.promoteErr = nil
-	require.NoError(t, s.reconcile(t.Context(), "team-a/scratch"))
-	require.True(t, store.ready)
-	require.Equal(t, 3, store.recordCalls, "each attempt must record inputs only once")
+	waitFor(t, func() bool {
+		state := s.collections.states.GetKey("team-a/scratch")
+		return state != nil && state.DesiredActorTemplate != nil
+	})
+	require.NoError(t, s.reconcile(ctx, "team-a/scratch")) // Add the finalizer.
+	syncSandboxTemplate(t, s, inputs.sandboxes)
+	store.recordErr = errors.New("record failed")
+	require.ErrorIs(t, s.reconcile(ctx, "team-a/scratch"), store.recordErr)
+	require.Zero(t, queued)
+	store.recordErr = nil
+	require.NoError(t, s.reconcile(ctx, "team-a/scratch"))
+	require.Equal(t, 1, queued)
+	require.True(t, store.ready, "initial readiness must not wait for the publication queue")
 }

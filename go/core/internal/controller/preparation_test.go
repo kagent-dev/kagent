@@ -55,10 +55,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			templates.template.Status = &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 				GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 			}}
-			reconciler := &Reconciler{enqueueEgress: func(revision string) {
-				_, err := store.SetRuntimeEgressPolicy(ctx, revision, egress.Access{})
-				require.NoError(t, err)
-			}, collections: collections, templates: templates, store: store}
+			reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress, collections: collections, templates: templates, store: store}
 			require.NoError(t, reconciler.reconcileAgent(ctx, initial.ResourceName()))
 
 			updatedHarness := harnesses.List()[0].DeepCopy()
@@ -101,7 +98,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned))
+			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, egress.Access{}))
 			require.NoError(t, store.PromoteRuntimeRevision(ctx, abandoned.Revision))
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
@@ -392,10 +389,10 @@ func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, defi
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, policy egress.Access) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RecordRuntimeRevision(ctx, revision)
+	return p.store.RecordRuntimeRevision(ctx, revision, policy)
 }
 
 func (p *preparationTestBackend) PromoteRuntimeRevision(ctx context.Context, revision string) error {
@@ -560,6 +557,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
 	})
 	collections := Collections{
+		EgressPolicies:           krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...),
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 		Harnesses:                harnesses,
 		ResolvedModelConfigs:     krttest.GetMockCollection[translator.ResolvedModelConfig](mock),
@@ -574,7 +572,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	collections.Reconciliations = newAgentReconciliations(collections.Agents, translator.Collections{
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
-		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
+		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools, EgressPolicies: collections.EgressPolicies,
 	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), nil)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 	waitFor(t, func() bool {
@@ -584,46 +582,38 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	return collections, harnesses
 }
 
-func TestInitialRevisionWaitsForEgressPublication(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		collections, _ := newPreparationTestCollections(t, "gvisor")
-		initial := collections.Reconciliations.List()[0]
-		template := proto.CloneOf(initial.Target.ActorTemplate)
-		template.Metadata.Uid = "prepared"
-		template.Status = sandboxGoldenStatus()
-		store := &fakeRuntimeRevisionStore{promoteErr: database.ErrEgressPolicyNotPublished}
-		backend := &preparationTestBackend{templates: &fakeActorTemplates{template: template}, store: store}
-		queued := 0
-		r := newReconciler(collections, backend, backend, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3(), func(revision string) {
-			backend.inspect(func() {
-				require.NotNil(t, store.revision)
-				require.Equal(t, store.revision.Revision, revision)
-				queued++
-			})
-		})
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-		var workers sync.WaitGroup
-		workers.Go(func() { r.Run(ctx.Done()) })
-		defer func() { cancel(); workers.Wait() }()
-		synctest.Wait()
-		backend.inspect(func() {
-			require.Equal(t, 1, queued)
-			require.False(t, store.markedSuccessful, "enqueueing publication must not make the revision ready")
-		})
-		require.NotNil(t, collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure)
-		time.Sleep(500 * time.Millisecond)
-		synctest.Wait()
-		backend.inspect(func() {
-			require.Equal(t, 1, store.recordCalls, "pending publication must retry with backoff")
-			store.promoteErr = nil // Publication completes independently of preparation.
-		})
-		time.Sleep(500 * time.Millisecond)
-		synctest.Wait()
-		backend.inspect(func() {
-			require.True(t, store.markedSuccessful, "preparation must recover without another Kubernetes event")
-			require.Equal(t, 2, store.recordCalls, "each attempt must record inputs only once")
-		})
-		require.Nil(t, collections.Reconciliations.GetKey(initial.ResourceName()).PreparationFailure)
+func TestPreparationRecordsCompiledPolicyBeforeEnqueueAndPromotion(t *testing.T) {
+	collections, _ := newPreparationTestCollections(t, "gvisor")
+	policy := egressTestPolicy("https://tickets.example.com", nil)
+	policy.Namespace = "team-a"
+	collections.EgressPolicies.(krt.StaticCollection[*kagentv1alpha3.EgressPolicy]).UpdateObject(policy)
+	agent := collections.Agents.List()[0].DeepCopy()
+	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+	collections.Agents.(krt.StaticCollection[*kagentv1alpha3.Agent]).UpdateObject(agent)
+	waitFor(t, func() bool {
+		state := collections.Reconciliations.GetKey("team-a/assistant")
+		return state.Target != nil && len(state.Target.Egress.Destinations) == 1
 	})
+	initial := collections.Reconciliations.List()[0]
+	template := proto.CloneOf(initial.Target.ActorTemplate)
+	template.Metadata.Uid = "prepared"
+	template.Status = sandboxGoldenStatus()
+	want, err := egress.MergeAccess(egress.Access{Destinations: initial.Target.Revision.EgressDestinations, Credentials: initial.Target.Revision.Credentials}, initial.Target.Egress, initial.Target.Revision.TokenPassthroughOrigins)
+	require.NoError(t, err)
+	store := &fakeRuntimeRevisionStore{revisionErr: errors.New("record failed")}
+	queued := 0
+	r := &Reconciler{collections: collections, templates: &fakeActorTemplates{template: template}, store: store,
+		enqueueEgress: func(revision string) {
+			queued++
+			require.Equal(t, initial.Target.RevisionID.String(), revision)
+			require.Equal(t, want, store.policy, "initial policy must be recorded before enqueue")
+			require.False(t, store.markedSuccessful)
+		},
+	}
+	require.ErrorIs(t, r.reconcileAgent(t.Context(), initial.ResourceName()), store.revisionErr)
+	require.Zero(t, queued, "failed recording must not enqueue publication")
+	store.revisionErr = nil
+	require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+	require.Equal(t, 1, queued)
+	require.True(t, store.markedSuccessful, "initial readiness must not wait for the publication queue")
 }

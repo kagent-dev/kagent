@@ -186,9 +186,7 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1.ScheduledRunS
 		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentName: pair.AgentName, AgentUID: pair.AgentUID,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
-	}))
-	_, policyErr := store.SetRuntimeEgressPolicy(t.Context(), pair.DesiredRevision, egress.Access{})
-	require.NoError(t, policyErr)
+	}, egress.Access{}))
 	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), pair.DesiredRevision))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))

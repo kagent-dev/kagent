@@ -161,15 +161,18 @@ Secret values remain outside compiled inputs; the gateway handles value rotation
 
 The elected controller compiles current grants from cached, dependency-tracked
 Kubernetes inputs and persists the intended policy for each retained revision.
-This mutable output is stored separately from immutable revision inputs. Preparation,
-source events, and sweeps enqueue revision IDs into one publication queue. It
-serializes writes for each revision and reruns with the latest grants when an
-event arrives during publication; unrelated revisions can publish concurrently.
-The store prevents promotion until an initial policy has been published.
-Preparation retries with backoff while publication is pending, so initial
-readiness may wait an extra queue hop and retry interval.
-The grants cache can briefly lag initial compilation, so a new workload may
-become ready with only pinned integration access until its grants event arrives.
+This mutable output is stored separately from immutable revision inputs.
+Preparation carries the explicit grants from the same KRT compilation as the
+revision, merges them with pinned access, and records the revision and initial
+policy in one transaction. Repeated preparation preserves the existing policy;
+only the egress reconciler updates it. Promotion remains a separate step once
+the runtime is prepared and does not wait for the publication queue.
+
+After recording commits, preparation enqueues the revision to catch grants that
+changed while source-event discovery could not yet see the new revision. Source
+events and sweeps use the same publication queue. It serializes writes for each
+revision and reruns with the latest grants when an event arrives during
+publication; unrelated revisions can publish concurrently.
 Each revision merges its pinned integration access with the current grants of its
 owning Agent or SandboxTemplate, even when that source's next runtime revision
 cannot be prepared.

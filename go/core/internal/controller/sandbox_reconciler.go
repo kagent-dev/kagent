@@ -21,6 +21,7 @@ import (
 	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -33,7 +34,7 @@ const (
 type sandboxRevisionStore interface {
 	UpsertSandboxTemplateDefinition(context.Context, database.SandboxTemplateDefinition) error
 	RetireSandboxTemplateIdentities(context.Context, string, string) error
-	RecordSandboxRevision(context.Context, database.SandboxRevision) error
+	RecordSandboxRevision(context.Context, database.SandboxRevision, egress.Access) error
 	PromoteSandboxRevision(context.Context, string) error
 }
 
@@ -177,7 +178,11 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID),
 		SourceSnapshot: state.SourceSnapshot,
 	}
-	if err := s.store.RecordSandboxRevision(ctx, revision); err != nil {
+	policy, err := egress.MergeAccess(egress.Access{}, state.Egress, nil)
+	if err != nil {
+		return s.observeError(*state, fmt.Errorf("merge sandbox egress %s: %w", state.RevisionID, err), true)
+	}
+	if err := s.store.RecordSandboxRevision(ctx, revision, policy); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
 	s.enqueueEgress(revision.Revision)
