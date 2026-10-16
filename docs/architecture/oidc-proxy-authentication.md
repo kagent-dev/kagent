@@ -99,6 +99,19 @@ rejects such a token; a missing user identity rejects the request. The session r
 authorization header. `UpstreamAuth` forwards that header and `X-User-Id` to
 downstream requests.
 
+In the `kubernetes` authorization mode a direct request whose token's `sub`
+names a ServiceAccount (`system:serviceaccount:...`) is not read from its
+claims: the controller authenticates it with a TokenReview for the audience
+`KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE` (default `kagent`; the
+controller refuses to start with an empty one, which would accept tokens meant
+for the API server itself), and the caller is the user name and the groups the
+API server returns. A token the API server does not authenticate for that
+audience, or authenticates as anything but a ServiceAccount, rejects the
+request, as does a TokenReview that fails. This is how an in-cluster client, such as a component
+that cleans up after every creator's Sessions, calls the controller with a
+projected ServiceAccount token of that audience. A person's token and an agent
+request are read as before. The `noop` mode reviews no token.
+
 For an agent request with `X-Agent-Name`, a parseable bearer JWT is still required.
 The acting user comes from `user_id`, then `X-User-Id`, then the token's `sub`
 claim. Headers alone do not authenticate an agent. This path does not perform a
@@ -148,7 +161,9 @@ person's rows, and the username prefix cannot bridge two claims. The
 `KAGENT_AUTHORIZATION_GROUPS_PREFIX` (`--oidc-groups-prefix`) before each;
 `system:authenticated` is always among them. A user or a group that maps into
 the reserved `system:` space is refused, so no caller is reviewed as a
-ServiceAccount, a node or `system:masters`. A caller without a user identity,
+ServiceAccount, a node or `system:masters`, except a ServiceAccount whose
+token the API server authenticated itself (above): it is reviewed under the
+user name and groups the TokenReview returned, with no prefix. A caller without a user identity,
 such as a runtime actor, is refused. A refused caller receives empty
 collections and fails every check.
 
@@ -187,7 +202,7 @@ runtime is not part of this mode.
 | A fork of a checkpoint | `get` on the checkpoint's Agent and `create` on `sessions.api.kagent.dev` in its namespace, as a new Session |
 | Reading, sharing or deleting a Session; checkpoints, scheduled runs, sandboxes | not reviewed: their service already limits them to the caller's own rows or to a share |
 | The tool server types; the Substrate inventory (`GetSubstrateSummary`, `ListSubstrateActors`, `ListSubstrateWorkers`) | not reviewed: they name no Kubernetes object |
-| `ListSessions` with `all_creators` | refused for everyone: the list spans every namespace and the check names none |
+| `ListSessions` with `all_creators` | `list` on `sessions.api.kagent.dev` cluster-wide (no namespace), since the list spans every namespace: a ServiceAccount granted it by a ClusterRole lists every creator's Sessions, and a person, who normally has no such grant, is refused; a ClusterRole with wildcard resources or verbs, such as `cluster-admin`, grants it too |
 | The controller's own calls (no principal) | permitted |
 
 A collection read (`ListAgentTemplates`, `ListAgents`, ...) is scoped to the
@@ -207,7 +222,8 @@ no longer than its own deadline: an API server that stops answering shows as
 
 The chart renders the settings from `controller.authorization` and, in
 `kubernetes` mode, a ClusterRole and ClusterRoleBinding that let the
-controller's ServiceAccount create `subjectaccessreviews`. Kubernetes RBAC then
+controller's ServiceAccount create `subjectaccessreviews` and `tokenreviews`;
+`controller.authorization.serviceAccountTokenAudience` sets the audience. Kubernetes RBAC then
 grants the callers: a person who may `list` and `get` `agenttemplates` and
 `agents` and `create` `sessions` in a namespace sees and runs the agents there.
 
@@ -251,6 +267,7 @@ differs.
 | `controller.authorization.groupsClaim`, `.groupsPrefix` | Empty | How `kubernetes` mode builds the reviewed groups |
 | `controller.authorization.namespaceSelector` | Empty | Namespaces a collection read ranges over |
 | `controller.authorization.includeNamespaces` | Empty | Namespaces ranged over beside the selected ones |
+| `controller.authorization.serviceAccountTokenAudience` | `kagent` | Audience a ServiceAccount token must carry in `kubernetes` mode |
 | `controller.networkPolicy.enabled`, `.from` | `false`, empty | Admit only the UI and these peers to the controller's API port |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 

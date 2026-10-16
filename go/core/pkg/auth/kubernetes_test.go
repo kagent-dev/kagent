@@ -191,7 +191,6 @@ func TestKubernetesAuthorizerCheckOutsideKubernetes(t *testing.T) {
 		{name: "a sandbox", principal: alice, verb: VerbCreate, resource: Resource{Type: "Sandbox"}},
 		{name: "the tool server types", principal: alice, verb: VerbGet, resource: Resource{Type: "ToolServerType"}},
 		{name: "the Substrate inventory", principal: alice, verb: VerbGet, resource: Resource{Type: "Substrate"}},
-		{name: "the sessions of every creator", principal: alice, verb: VerbGet, resource: Resource{Type: "SessionAllCreators"}, wantErr: "every creator"},
 		{name: "an unknown type", principal: alice, verb: VerbGet, resource: Resource{Type: "Widget"}, wantErr: `unknown resource type "Widget"`},
 		{name: "a runtime actor", principal: Principal{Agent: Agent{ID: "b1c2"}}, verb: VerbGet, resource: Resource{Type: "Agent", Namespace: "team-a", Name: "assistant"}, wantErr: "no user identity"},
 		{name: "claims without a user", principal: Principal{Claims: map[string]any{"email": "alice@example.com"}}, verb: VerbGet, resource: Resource{Type: "Agent", Namespace: "team-a", Name: "assistant"}, wantErr: "no user identity"},
@@ -236,6 +235,11 @@ func TestKubernetesAuthorizerSubjectMapping(t *testing.T) {
 			wantUser:  "oidc:system:serviceaccount:kagent:kagent-controller", wantGroups: []string{AuthenticatedGroup}},
 		{name: "a reserved group", principal: Principal{User: User{ID: "alice", Groups: []string{"team-a", "system:masters"}}},
 			wantErr: "reserved for Kubernetes"},
+		{name: "a ServiceAccount the API server authenticated", config: KubernetesConfig{UsernamePrefix: "oidc:", GroupsPrefix: "oidc:"},
+			principal: Principal{User: User{ID: "system:serviceaccount:workspace-manager:workspace-manager", Kubernetes: true,
+				Groups: []string{"system:serviceaccounts", "system:serviceaccounts:workspace-manager", AuthenticatedGroup}}},
+			wantUser:   "system:serviceaccount:workspace-manager:workspace-manager",
+			wantGroups: []string{AuthenticatedGroup, "system:serviceaccounts", "system:serviceaccounts:workspace-manager"}},
 		{name: "a reserved group under a prefix", config: KubernetesConfig{GroupsPrefix: "oidc:"},
 			principal: Principal{User: User{ID: "alice", Groups: []string{"system:masters"}}},
 			wantUser:  "alice", wantGroups: []string{"oidc:system:masters", AuthenticatedGroup}},
@@ -253,6 +257,36 @@ func TestKubernetesAuthorizerSubjectMapping(t *testing.T) {
 			require.Len(t, reviewer.asked, 1)
 			require.Equal(t, test.wantUser, reviewer.asked[0].User)
 			require.Equal(t, test.wantGroups, reviewer.asked[0].Groups)
+		})
+	}
+}
+
+func TestKubernetesAuthorizerSessionsOfEveryCreator(t *testing.T) {
+	workspaceManager := Principal{User: User{ID: "system:serviceaccount:workspace-manager:workspace-manager", Kubernetes: true,
+		Groups: []string{AuthenticatedGroup, "system:serviceaccounts"}}}
+	// Only the ServiceAccount is granted list on sessions, cluster-wide.
+	grantedServiceAccount := func(spec authorizationv1.SubjectAccessReviewSpec) (bool, error) {
+		return spec.User == workspaceManager.User.ID, nil
+	}
+	for _, test := range []struct {
+		name      string
+		principal Principal
+		wantErr   string
+	}{
+		{name: "a caller granted list on sessions cluster-wide", principal: workspaceManager},
+		{name: "a person without that grant", principal: alice, wantErr: "alice may not list sessions.api.kagent.dev: no RoleBinding"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reviewer := &fakeReviewer{decide: grantedServiceAccount}
+			authorizer := newTestAuthorizer(t, reviewer, &fakeNamespaces{}, KubernetesConfig{})
+			err := authorizer.Check(t.Context(), test.principal, VerbGet, Resource{Type: "SessionAllCreators"})
+			if test.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, test.wantErr)
+			}
+			require.Len(t, reviewer.asked, 1)
+			require.Equal(t, authorizationv1.ResourceAttributes{Group: "api.kagent.dev", Resource: "sessions", Verb: "list"}, *reviewer.asked[0].ResourceAttributes)
 		})
 	}
 }

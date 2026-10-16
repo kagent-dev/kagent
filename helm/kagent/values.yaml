@@ -234,6 +234,17 @@ controller:
     # namespaceSelector selects, whatever their labels: a shared namespace
     # that one selector cannot express beside the others.
     includeNamespaces: []
+    # -- Audience a ServiceAccount token must carry in the kubernetes mode. A
+    # direct call whose token's sub names a ServiceAccount is authenticated
+    # with a TokenReview for this audience and reviewed as that ServiceAccount
+    # (system:serviceaccount:<namespace>:<name> and the groups the API server
+    # gives it), so an in-cluster client calls with a projected token of this
+    # audience; it must not be empty. The controller's ServiceAccount then
+    # also gets create on tokenreviews. Every-creator Session lists
+    # (ListSessions all_creators) need list on sessions.api.kagent.dev
+    # cluster-wide, which a wildcard ClusterRole such as cluster-admin grants
+    # too.
+    serviceAccountTokenAudience: kagent
   # The controller trusts the identity a caller's token names (trusted-proxy)
   # and the user an agent's call names: in the kubernetes authorization mode,
   # whoever can reach the controller's API port picks whose RBAC applies. A

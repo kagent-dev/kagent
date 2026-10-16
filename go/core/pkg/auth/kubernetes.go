@@ -67,8 +67,9 @@ var permittedResources = map[string]bool{
 	"Session": true, "Checkpoint": true, "ScheduledRun": true, "Sandbox": true, "ToolServerType": true, "Substrate": true,
 }
 
-// allCreatorsResource is the list of every creator's Sessions. Its check names
-// no namespace and its list spans every tenant, so nobody is granted it.
+// allCreatorsResource is the list of every creator's Sessions. It spans every
+// tenant, so it is reviewed as a cluster-wide list of the sessions resource,
+// which a person is normally not granted.
 const allCreatorsResource = "SessionAllCreators"
 
 // defaultDecisionTTL is how long a review's answer is reused.
@@ -198,12 +199,14 @@ func (k *KubernetesAuthorizer) Check(ctx context.Context, principal Principal, v
 	if isControlPlane(principal) {
 		return nil
 	}
-	if resource.Type == allCreatorsResource {
-		return errors.New("the Sessions of every creator are not listed")
-	}
 	target, reviewed, err := reviewedResource(verb, resource)
 	if err != nil || !reviewed {
 		return err
+	}
+	if resource.Type == allCreatorsResource {
+		// Every creator's Sessions, in every namespace: whatever verb the
+		// service names, it is a cluster-wide list.
+		verb, resource = VerbList, Resource{}
 	}
 	subject, err := k.subject(principal)
 	if err != nil {
@@ -311,6 +314,9 @@ func reviewedResource(verb Verb, resource Resource) (schema.GroupResource, bool,
 	if target, ok := kubernetesResources[resource.Type]; ok {
 		return target, true, nil
 	}
+	if resource.Type == allCreatorsResource {
+		return sessionsResource, true, nil
+	}
 	if !permittedResources[resource.Type] {
 		return schema.GroupResource{}, false, fmt.Errorf("unknown resource type %q", resource.Type)
 	}
@@ -332,9 +338,16 @@ type reviewSubject struct {
 // the same token: the user ID and the groups, each with its prefix. A name in
 // the reserved system: space is refused: it would let a caller that names its
 // own user ID or groups pick a ServiceAccount's or an administrator's RBAC.
+// A user the API server authenticated itself (User.Kubernetes) is reviewed
+// under the names it gave, system: ones included.
 func (k *KubernetesAuthorizer) subject(principal Principal) (reviewSubject, error) {
 	if principal.User.ID == "" {
 		return reviewSubject{}, errors.New("the caller has no user identity")
+	}
+	if principal.User.Kubernetes {
+		groups := slices.Clone(principal.User.Groups)
+		slices.Sort(groups)
+		return reviewSubject{user: principal.User.ID, groups: slices.Compact(groups)}, nil
 	}
 	user := k.config.UsernamePrefix + principal.User.ID
 	if strings.HasPrefix(user, reservedPrefix) {

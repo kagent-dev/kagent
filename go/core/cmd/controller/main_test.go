@@ -13,6 +13,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestControllerAuthenticator(t *testing.T) {
@@ -34,7 +36,7 @@ func TestControllerAuthenticator(t *testing.T) {
 		{name: "empty mode", mode: "", wantConfigError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			authenticator, err := controllerAuthenticator(tt.mode, tt.claim, "", false)
+			authenticator, err := controllerAuthenticator(tt.mode, tt.claim, "", nil, "")
 			if tt.wantConfigError {
 				require.ErrorContains(t, err, env.AuthMode.Name())
 				require.Nil(t, authenticator)
@@ -54,6 +56,45 @@ func TestControllerAuthenticator(t *testing.T) {
 			require.Equal(t, tt.wantUser, session.Principal().User.ID)
 		})
 	}
+}
+
+// fakeTokenReviewer authenticates every token as one ServiceAccount.
+type fakeTokenReviewer struct{}
+
+func (fakeTokenReviewer) Create(_ context.Context, review *authenticationv1.TokenReview, _ metav1.CreateOptions) (*authenticationv1.TokenReview, error) {
+	result := review.DeepCopy()
+	result.Status = authenticationv1.TokenReviewStatus{Authenticated: true, Audiences: review.Spec.Audiences, User: authenticationv1.UserInfo{Username: "system:serviceaccount:workspace-manager:workspace-manager"}}
+	return result, nil
+}
+
+func TestControllerAuthenticatorServiceAccountToken(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer e30."+base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"system:serviceaccount:workspace-manager:workspace-manager"}`))+".signature")
+	for _, tt := range []struct {
+		name    string
+		reviews authimpl.TokenReviewer
+	}{
+		// noop authorization passes no TokenReview client: the token's sub
+		// names the user, as before.
+		{name: "noop authorization reads the sub"},
+		// Only the TokenReview marks the user as the API server's own.
+		{name: "kubernetes authorization reviews the token", reviews: fakeTokenReviewer{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authenticator, err := controllerAuthenticator(env.AuthModeTrustedProxy, "email", "", tt.reviews, "kagent")
+			require.NoError(t, err)
+			session, err := authenticator.Authenticate(context.Background(), headers, url.Values{})
+			require.NoError(t, err)
+			require.Equal(t, "system:serviceaccount:workspace-manager:workspace-manager", session.Principal().User.ID)
+			require.Equal(t, tt.reviews != nil, session.Principal().User.Kubernetes)
+		})
+	}
+}
+
+func TestControllerAuthenticatorNeedsAServiceAccountTokenAudience(t *testing.T) {
+	authenticator, err := controllerAuthenticator(env.AuthModeTrustedProxy, "email", "", fakeTokenReviewer{}, "")
+	require.ErrorContains(t, err, env.AuthorizationServiceAccountTokenAudience.Name())
+	require.Nil(t, authenticator)
 }
 
 func TestControllerAuthorizer(t *testing.T) {

@@ -32,6 +32,11 @@ type User struct {
 	// no Kubernetes prefix: the token's groups claim on a direct call, or the
 	// groups an agent's call carries for its user (UserGroupsHeader).
 	Groups []string
+	// Kubernetes marks a user the API server itself authenticated, by a
+	// TokenReview of a ServiceAccount token: ID and Groups are then the API
+	// server's own names for the caller (system:serviceaccount:<namespace>:<name>
+	// and its groups), reviewed as they are, with no prefix put before them.
+	Kubernetes bool
 }
 
 // UserGroupsHeader carries the user's groups on a call an agent makes for

@@ -43,6 +43,10 @@ var (
 		"KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES", "",
 		"Comma-separated namespaces a collection read ranges over in kubernetes authorization mode beside those KAGENT_AUTHORIZATION_NAMESPACE_SELECTOR selects, whatever their labels.", ComponentController,
 	)
+	AuthorizationServiceAccountTokenAudience = RegisterStringVar(
+		"KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE", "kagent",
+		"Audience a ServiceAccount token must carry in kubernetes authorization mode: a direct call whose token's sub names a ServiceAccount is authenticated with a TokenReview for this audience and reviewed as that ServiceAccount. It must not be empty.", ComponentController,
+	)
 	HTTPBindAddress = RegisterStringVar(
 		"KAGENT_HTTP_BIND_ADDRESS", ":8083",
 		"Listen address for the controller HTTP, gRPC, A2A, and MCP server.", ComponentController,

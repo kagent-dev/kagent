@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"testing"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // createTestJWT creates a minimal JWT token with the given claims
@@ -381,4 +385,103 @@ func TestProxyAuthenticator_UpstreamAuthForwardsTheGroups(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, authenticator.UpstreamAuth(req, session, session.Principal()))
 	require.Empty(t, req.Header.Values("X-User-Groups"))
+}
+
+// fakeTokenReviewer answers every TokenReview with status, or fails with err,
+// and records what it was asked.
+type fakeTokenReviewer struct {
+	status authenticationv1.TokenReviewStatus
+	err    error
+	asked  []authenticationv1.TokenReviewSpec
+}
+
+func (f *fakeTokenReviewer) Create(_ context.Context, review *authenticationv1.TokenReview, _ metav1.CreateOptions) (*authenticationv1.TokenReview, error) {
+	f.asked = append(f.asked, review.Spec)
+	if f.err != nil {
+		return nil, f.err
+	}
+	result := review.DeepCopy()
+	result.Status = f.status
+	return result, nil
+}
+
+func TestProxyAuthenticator_ServiceAccountTokenReview(t *testing.T) {
+	const serviceAccount = "system:serviceaccount:workspace-manager:workspace-manager"
+	serviceAccountGroups := []string{"system:serviceaccounts", "system:serviceaccounts:workspace-manager", "system:authenticated"}
+	serviceAccountToken := createTestJWT(map[string]any{"sub": serviceAccount, "aud": []any{"kagent"}, "kubernetes.io": map[string]any{"namespace": "workspace-manager"}})
+	personToken := createTestJWT(map[string]any{"sub": "Cg1hbGljZQ", "email": "alice@example.com", "groups": []any{"team-a"}})
+	authenticated := authenticationv1.TokenReviewStatus{Authenticated: true, Audiences: []string{"kagent"}, User: authenticationv1.UserInfo{Username: serviceAccount, Groups: serviceAccountGroups}}
+
+	for _, tt := range []struct {
+		name       string
+		token      string
+		agent      string
+		audience   string
+		reviewer   *fakeTokenReviewer
+		wantUser   auth.User
+		wantAsked  []authenticationv1.TokenReviewSpec
+		wantRefuse bool
+	}{
+		{
+			name: "a ServiceAccount token is the user and groups the API server authenticates", token: serviceAccountToken, audience: "kagent",
+			reviewer:  &fakeTokenReviewer{status: authenticated},
+			wantUser:  auth.User{ID: serviceAccount, Groups: serviceAccountGroups, Kubernetes: true},
+			wantAsked: []authenticationv1.TokenReviewSpec{{Token: serviceAccountToken, Audiences: []string{"kagent"}}},
+		},
+		{
+			// An authenticator that ignores audiences authenticates the token
+			// for none: it is not shown to be meant for kagent.
+			name: "a ServiceAccount token authenticated for no audience of kagent's is refused", token: serviceAccountToken, audience: "kagent",
+			reviewer:   &fakeTokenReviewer{status: authenticationv1.TokenReviewStatus{Authenticated: true, User: authenticated.User}},
+			wantAsked:  []authenticationv1.TokenReviewSpec{{Token: serviceAccountToken, Audiences: []string{"kagent"}}},
+			wantRefuse: true,
+		},
+		{
+			name: "a ServiceAccount token the API server does not authenticate is refused", token: serviceAccountToken, audience: "kagent",
+			reviewer:   &fakeTokenReviewer{status: authenticationv1.TokenReviewStatus{Error: "token audiences [other] is invalid for the target audiences [kagent]"}},
+			wantAsked:  []authenticationv1.TokenReviewSpec{{Token: serviceAccountToken, Audiences: []string{"kagent"}}},
+			wantRefuse: true,
+		},
+		{
+			name: "a ServiceAccount token that authenticates as someone else is refused", token: serviceAccountToken, audience: "kagent",
+			reviewer:   &fakeTokenReviewer{status: authenticationv1.TokenReviewStatus{Authenticated: true, Audiences: []string{"kagent"}, User: authenticationv1.UserInfo{Username: "alice@example.com"}}},
+			wantAsked:  []authenticationv1.TokenReviewSpec{{Token: serviceAccountToken, Audiences: []string{"kagent"}}},
+			wantRefuse: true,
+		},
+		{
+			name: "a ServiceAccount token is refused when the review fails", token: serviceAccountToken, audience: "kagent",
+			reviewer:   &fakeTokenReviewer{err: errors.New("the API server is unreachable")},
+			wantAsked:  []authenticationv1.TokenReviewSpec{{Token: serviceAccountToken, Audiences: []string{"kagent"}}},
+			wantRefuse: true,
+		},
+		{
+			name: "a person's token is read from its claims, unreviewed", token: personToken, audience: "kagent",
+			reviewer: &fakeTokenReviewer{status: authenticated},
+			wantUser: auth.User{ID: "alice@example.com", Groups: []string{"team-a"}},
+		},
+		{
+			name: "an agent's call names its user, unreviewed", token: serviceAccountToken, agent: "assistant", audience: "kagent",
+			reviewer: &fakeTokenReviewer{status: authenticated},
+			wantUser: auth.User{ID: "alice@example.com"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authenticator := authimpl.NewProxyAuthenticator("email", authimpl.WithGroupsClaim("groups"), authimpl.WithUserIDClaimRequired(),
+				authimpl.WithServiceAccountTokenReview(tt.reviewer, tt.audience))
+			headers := http.Header{}
+			headers.Set("Authorization", "Bearer "+tt.token)
+			if tt.agent != "" {
+				headers.Set("X-Agent-Name", tt.agent)
+				headers.Set("X-User-Id", "alice@example.com")
+			}
+			session, err := authenticator.Authenticate(context.Background(), headers, url.Values{})
+			require.Equal(t, tt.wantAsked, tt.reviewer.asked)
+			if tt.wantRefuse {
+				require.ErrorIs(t, err, authimpl.ErrUnauthenticated)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUser, session.Principal().User)
+		})
+	}
 }

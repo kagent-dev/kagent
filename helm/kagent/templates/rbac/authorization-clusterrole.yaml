@@ -1,6 +1,7 @@
 {{- if eq .Values.controller.authorization.mode "kubernetes" }}
 # The kubernetes authorization mode asks the API server whether a caller may
-# act on a resource. A SubjectAccessReview is cluster-scoped, so the grant is a
+# act on a resource, and who a ServiceAccount token authenticates as. A
+# SubjectAccessReview and a TokenReview are cluster-scoped, so the grant is a
 # ClusterRole whatever rbac.namespaces says.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -13,6 +14,12 @@ rules:
       - authorization.k8s.io
     resources:
       - subjectaccessreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
     verbs:
       - create
 {{- end }}

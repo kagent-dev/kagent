@@ -22,6 +22,10 @@ tests:
           path: data.KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES
           value: ""
         template: controller-configmap.yaml
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE
+          value: kagent
+        template: controller-configmap.yaml
       - hasDocuments:
           count: 0
         template: rbac/authorization-clusterrole.yaml
@@ -69,7 +73,17 @@ tests:
           value: kagent,shared
         template: controller-configmap.yaml
 
-  - it: grants the controller subjectaccessreviews in kubernetes mode
+  - it: names the audience a ServiceAccount token must carry
+    set:
+      controller.authorization.mode: kubernetes
+      controller.authorization.serviceAccountTokenAudience: kagent-api
+    asserts:
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE
+          value: kagent-api
+        template: controller-configmap.yaml
+
+  - it: grants the controller subjectaccessreviews and tokenreviews in kubernetes mode
     set:
       controller.authorization.mode: kubernetes
     asserts:
@@ -87,6 +101,12 @@ tests:
                 - authorization.k8s.io
               resources:
                 - subjectaccessreviews
+              verbs:
+                - create
+            - apiGroups:
+                - authentication.k8s.io
+              resources:
+                - tokenreviews
               verbs:
                 - create
         template: rbac/authorization-clusterrole.yaml

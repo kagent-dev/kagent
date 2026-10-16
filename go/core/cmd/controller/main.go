@@ -42,8 +42,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	var tokenReviews authimpl.TokenReviewer
+	if env.AuthorizationMode.Get() == env.AuthorizationModeKubernetes {
+		clientset, err := kubernetesClientset()
+		if err != nil {
+			logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
+			os.Exit(1)
+		}
+		tokenReviews = clientset.AuthenticationV1().TokenReviews()
+	}
 	authenticator, err := controllerAuthenticator(env.AuthMode.Get(), env.AuthUserIDClaim.Get(), env.AuthorizationGroupsClaim.Get(),
-		env.AuthorizationMode.Get() == env.AuthorizationModeKubernetes)
+		tokenReviews, env.AuthorizationServiceAccountTokenAudience.Get())
 	if err != nil {
 		logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
 		os.Exit(1)
@@ -65,16 +74,21 @@ func main() {
 }
 
 // controllerAuthenticator builds the authenticator of mode. Under Kubernetes
-// authorization (kubernetesAuthorization) a token without the user ID claim
-// is refused rather than read by its sub.
-func controllerAuthenticator(mode, userIDClaim, groupsClaim string, kubernetesAuthorization bool) (auth.AuthProvider, error) {
+// authorization, which passes the API server's tokenReviews, a ServiceAccount
+// token is authenticated with a TokenReview for serviceAccountAudience, and a
+// person's token without the user ID claim is refused rather than read by its
+// sub.
+func controllerAuthenticator(mode, userIDClaim, groupsClaim string, tokenReviews authimpl.TokenReviewer, serviceAccountAudience string) (auth.AuthProvider, error) {
 	switch mode {
 	case env.AuthModeInsecure:
 		return &authimpl.InsecureAuthenticator{}, nil
 	case env.AuthModeTrustedProxy:
 		options := []authimpl.ProxyAuthenticatorOption{authimpl.WithGroupsClaim(groupsClaim)}
-		if kubernetesAuthorization {
-			options = append(options, authimpl.WithUserIDClaimRequired())
+		if tokenReviews != nil {
+			if serviceAccountAudience == "" {
+				return nil, fmt.Errorf("%s must not be empty in %s %s", env.AuthorizationServiceAccountTokenAudience.Name(), env.AuthorizationMode.Name(), env.AuthorizationModeKubernetes)
+			}
+			options = append(options, authimpl.WithUserIDClaimRequired(), authimpl.WithServiceAccountTokenReview(tokenReviews, serviceAccountAudience))
 		}
 		return authimpl.NewProxyAuthenticator(userIDClaim, options...), nil
 	default:
@@ -108,13 +122,9 @@ func controllerAuthorizer(mode string, settings authorizationConfig) (auth.Colle
 		if err != nil {
 			return nil, fmt.Errorf("invalid %s %q: %w", env.AuthorizationNamespaceSelector.Name(), settings.namespaceSelector, err)
 		}
-		restConfig, err := config.GetConfig()
+		clientset, err := kubernetesClientset()
 		if err != nil {
-			return nil, fmt.Errorf("load Kubernetes config: %w", err)
-		}
-		clientset, err := kubernetes.NewForConfig(restConfig)
-		if err != nil {
-			return nil, fmt.Errorf("create Kubernetes client: %w", err)
+			return nil, err
 		}
 		authorizer, err := auth.NewKubernetesAuthorizer(clientset.AuthorizationV1().SubjectAccessReviews(), clientset.CoreV1().Namespaces(), auth.KubernetesConfig{
 			UsernamePrefix: settings.usernamePrefix, GroupsPrefix: settings.groupsPrefix,
@@ -128,4 +138,18 @@ func controllerAuthorizer(mode string, settings authorizationConfig) (auth.Colle
 	default:
 		return nil, fmt.Errorf("unsupported %s %q: expected %s or %s", env.AuthorizationMode.Name(), mode, env.AuthorizationModeNoop, env.AuthorizationModeKubernetes)
 	}
+}
+
+// kubernetesClientset is the controller's own client of the API server, which
+// the kubernetes authorization mode reviews tokens and callers with.
+func kubernetesClientset() (*kubernetes.Clientset, error) {
+	restConfig, err := config.GetConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load Kubernetes config: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create Kubernetes client: %w", err)
+	}
+	return clientset, nil
 }
