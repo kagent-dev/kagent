@@ -26,6 +26,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
@@ -186,6 +187,8 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1.ScheduledRunS
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
 	}))
+	_, policyErr := store.SetRuntimeEgressPolicy(t.Context(), pair.DesiredRevision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, store.PromoteRuntimeRevision(t.Context(), pair.DesiredRevision))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))

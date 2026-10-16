@@ -40,21 +40,21 @@ type sandboxRevisionStore interface {
 // SandboxReconciler owns the queued side effects of SandboxTemplate preparation.
 // Sandbox instance lifecycle remains owned by the PostgreSQL-backed worker.
 type SandboxReconciler struct {
-	collections sandboxCollections
-	store       sandboxRevisionStore
-	egress      revisionEgressReconciler
-	actors      actorTemplateClient
-	client      kagentclient.ApiV1alpha3Interface
+	collections   sandboxCollections
+	store         sandboxRevisionStore
+	enqueueEgress func(string)
+	actors        actorTemplateClient
+	client        kagentclient.ApiV1alpha3Interface
 }
 
 var _ manager.LeaderElectionRunnable = (*SandboxReconciler)(nil)
 
-func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy, egress revisionEgressReconciler) (*SandboxReconciler, error) {
+func NewSandboxReconciler(config *rest.Config, runtime *Runtime, store sandboxRevisionStore, actors actorTemplateClient, policy substrate.SandboxPolicy, enqueueEgress func(string)) (*SandboxReconciler, error) {
 	client, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create SandboxTemplate client: %w", err)
 	}
-	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, egress: egress}, nil
+	return &SandboxReconciler{collections: newSandboxCollections(runtime.Collections, policy, runtime.Options), store: store, actors: actors, client: client, enqueueEgress: enqueueEgress}, nil
 }
 
 func (s *SandboxReconciler) NeedLeaderElection() bool { return true }
@@ -180,9 +180,7 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 	if err := s.store.RecordSandboxRevision(ctx, revision); err != nil {
 		return s.observeError(*state, fmt.Errorf("store sandbox revision %s: %w", state.RevisionID, err), true)
 	}
-	if err := s.egress.ReconcileRevision(ctx, revision.Revision); err != nil {
-		return s.observeError(*state, fmt.Errorf("publish sandbox egress %s: %w", state.RevisionID, err), true)
-	}
+	s.enqueueEgress(revision.Revision)
 	if ready {
 		if err := s.store.PromoteSandboxRevision(ctx, revision.Revision); err != nil {
 			return s.observeError(*state, fmt.Errorf("promote sandbox revision %s: %w", state.RevisionID, err), true)

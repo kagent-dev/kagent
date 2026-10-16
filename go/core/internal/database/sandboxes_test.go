@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 func sandboxFixture(t *testing.T, client *Client, revision string) (*apiv1.Sandbox, SandboxCreateOptions) {
@@ -19,6 +20,8 @@ func sandboxFixture(t *testing.T, client *Client, revision string) (*apiv1.Sandb
 	require.NoError(t, client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision}))
 	require.NoError(t, client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "actor-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`)}))
+	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteSandboxRevision(ctx, revision))
 	hash := sha256.Sum256([]byte("request"))
 	return &apiv1.Sandbox{Id: uuid.NewString(), Creator: "alice", SandboxTemplate: &apiv1.ResourceReference{Namespace: "team-a", Name: "scratch"}, Name: "experiment"},
@@ -49,6 +52,10 @@ func TestPromoteSandboxRevisionOnlyCurrentActiveTemplate(t *testing.T) {
 	}
 	assertAvailable("first")
 	require.ErrorIs(t, client.PromoteSandboxRevision(ctx, "missing"), ErrNotFound)
+	require.ErrorIs(t, client.PromoteSandboxRevision(ctx, "second"), ErrEgressPolicyNotPublished)
+	assertAvailable("first")
+	_, err = client.SetRuntimeEgressPolicy(ctx, "second", egress.Access{})
+	require.NoError(t, err)
 	require.NoError(t, client.PromoteSandboxRevision(ctx, "second"))
 	assertAvailable("second")
 	require.NoError(t, client.PromoteSandboxRevision(ctx, "first"))

@@ -180,11 +180,11 @@ type actorTemplateClient interface {
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
 type Reconciler struct {
-	collections Collections
-	templates   actorTemplateClient
-	store       runtimeRevisionStore
-	egress      revisionEgressReconciler
-	status      kagentclient.ApiV1alpha3Interface
+	collections   Collections
+	templates     actorTemplateClient
+	store         runtimeRevisionStore
+	enqueueEgress func(string)
+	status        kagentclient.ApiV1alpha3Interface
 
 	agents                   controllers.Queue
 	agentStatuses            controllers.Queue
@@ -196,12 +196,12 @@ type Reconciler struct {
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
 // its queues after the registered KRT handlers have received initial state.
-func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient, egress revisionEgressReconciler) (*Reconciler, error) {
+func NewReconciler(config *rest.Config, collections Collections, store runtimeRevisionStore, templates actorTemplateClient, enqueueEgress func(string)) (*Reconciler, error) {
 	statusClient, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
-	return newReconciler(collections, templates, store, statusClient, egress), nil
+	return newReconciler(collections, templates, store, statusClient, enqueueEgress), nil
 }
 
 func newReconciler(
@@ -209,14 +209,14 @@ func newReconciler(
 	templates actorTemplateClient,
 	store runtimeRevisionStore,
 	status kagentclient.ApiV1alpha3Interface,
-	egress revisionEgressReconciler,
+	enqueueEgress func(string),
 ) *Reconciler {
 	r := &Reconciler{
-		collections: collections,
-		templates:   templates,
-		store:       store,
-		egress:      egress,
-		status:      status,
+		collections:   collections,
+		templates:     templates,
+		store:         store,
+		enqueueEgress: enqueueEgress,
+		status:        status,
 	}
 	r.agents = newReconciliationQueue("agents", func(item any) error {
 		return r.reconcileAgent(context.Background(), item.(string))
@@ -381,9 +381,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 	if err := r.store.RecordRuntimeRevision(ctx, revision); err != nil {
 		return r.observePreparationError(*state, fmt.Errorf("store runtime revision %s: %w", target.RevisionID, err))
 	}
-	if err := r.egress.ReconcileRevision(ctx, revision.Revision); err != nil {
-		return r.observePreparationError(*state, fmt.Errorf("publish runtime egress %s: %w", target.RevisionID, err))
-	}
+	r.enqueueEgress(revision.Revision)
 	if ready {
 		if err := r.store.PromoteRuntimeRevision(ctx, revision.Revision); err != nil {
 			return r.observePreparationError(*state, fmt.Errorf("promote runtime revision %s: %w", target.RevisionID, err))

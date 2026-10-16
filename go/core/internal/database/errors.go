@@ -21,3 +21,7 @@ var (
 // ErrObjectDeleting reports that deletion has started. The object is unavailable
 // to new callers, so it also matches ErrNotFound.
 var ErrObjectDeleting = fmt.Errorf("object is being deleted: %w", ErrNotFound)
+
+// ErrEgressPolicyNotPublished asks preparation to retry promotion after the
+// controller has published the revision's initial intended policy.
+var ErrEgressPolicyNotPublished = fmt.Errorf("egress policy is not published: %w", ErrFailedPrecondition)

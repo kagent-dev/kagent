@@ -17,6 +17,8 @@ func TestRuntimeEgressRetainsSourceAndListsSuspendedActors(t *testing.T) {
 	revision := RuntimeRevision{Revision: "agent", Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team-a", ActorTemplateName: "runtime", TokenPassthroughOrigins: []string{"https://model.example.com:443"}, EgressDestinations: []string{"https://model.example.com:443"}}
 	require.NoError(t, client.UpsertAgentDefinition(ctx, AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "old-uid", DesiredRevision: "agent"}))
 	require.NoError(t, client.RecordRuntimeRevision(ctx, revision))
+	_, policyErr := client.SetRuntimeEgressPolicy(ctx, revision.Revision, egress.Access{})
+	require.NoError(t, policyErr)
 	require.NoError(t, client.PromoteRuntimeRevision(ctx, revision.Revision))
 	instance, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "request")
 	require.NoError(t, err)

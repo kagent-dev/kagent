@@ -13,6 +13,7 @@ import (
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/util/cache"
+	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -29,12 +30,6 @@ type runtimeEgressStore interface {
 	ListRuntimeEgressRevisions(context.Context, string, int) ([]string, error)
 	ListRuntimeEgressSourceRevisions(context.Context, database.RuntimeEgressSource, string, int) ([]string, error)
 	ListRuntimeEgressTargets(context.Context, string, string, int) ([]database.RuntimeEgressTarget, error)
-}
-
-// revisionEgressReconciler publishes the initial policy before preparation can
-// promote a revision. Later egress-only translations use the same writer.
-type revisionEgressReconciler interface {
-	ReconcileRevision(context.Context, string) error
 }
 
 type policyGrants struct {
@@ -82,22 +77,19 @@ type actorEgressClient interface {
 
 // EgressReconciler publishes KRT's current grants per retained revision. Actors
 // and API replicas apply this persisted output without translating Kubernetes.
-// Recovery has separate workers so a full sweep cannot delay changed sources.
+// Startup actor recovery has separate workers from live actor updates.
 type EgressReconciler struct {
-	grants     krt.Collection[policyGrants]
-	store      runtimeEgressStore
-	actors     actorEgressClient
-	namespaces []string
-	warnings   *cache.LRUExpireCache
-	// Only active publications retain a lock. The mutex protects this map;
-	// cache lookup and database writes are serialized per revision.
-	publishMu  sync.Mutex
-	publishing map[string]chan struct{}
-	sources    controllers.Queue
-	pages      controllers.Queue
-	updates    controllers.Queue
-	recovery   controllers.Queue
-	sweeps     controllers.Queue
+	grants       krt.Collection[policyGrants]
+	store        runtimeEgressStore
+	actors       actorEgressClient
+	namespaces   []string
+	warnings     *cache.LRUExpireCache
+	publications workqueue.TypedRateLimitingInterface[string]
+	sources      controllers.Queue
+	pages        controllers.Queue
+	updates      controllers.Queue
+	recovery     controllers.Queue
+	sweeps       controllers.Queue
 }
 
 type egressSourcePage struct {
@@ -120,7 +112,11 @@ var _ manager.LeaderElectionRunnable = (*EgressReconciler)(nil)
 
 func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgressStore, actors actorEgressClient, namespaces []string) *EgressReconciler {
 	e := &EgressReconciler{grants: newEgressGrants(runtime), store: store, actors: actors,
-		namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024), publishing: make(map[string]chan struct{})}
+		namespaces: slices.Clone(namespaces), warnings: cache.NewLRUExpireCache(1024),
+		publications: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.NewTypedItemExponentialFailureRateLimiter[string](time.Second, 30*time.Second),
+			workqueue.TypedRateLimitingQueueConfig[string]{Name: "live-egress-publications"}),
+	}
 	reconcile := func(item any) error {
 		err := e.reconcileActor(ctx, item.(database.RuntimeEgressTarget))
 		if status.Code(err) == codes.NotFound {
@@ -133,6 +129,20 @@ func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgr
 	const pageSize = 100
 	e.pages = newReconciliationQueue("live-egress-revision-actors", func(item any) error {
 		page := item.(egressActorPage)
+		// Startup recovery lists all revisions independently of publication.
+		// Check watch scope before expanding its first actor page.
+		if page.Recovery && page.After == "" && len(e.namespaces) > 0 {
+			pinned, err := e.store.GetRuntimeEgress(ctx, page.Revision)
+			if errors.Is(err, database.ErrNotFound) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !slices.Contains(e.namespaces, pinned.Namespace) {
+				return nil
+			}
+		}
 		targets, err := e.store.ListRuntimeEgressTargets(ctx, page.Revision, page.After, pageSize)
 		if err != nil {
 			return err
@@ -157,9 +167,7 @@ func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgr
 			return err
 		}
 		for _, revision := range revisions {
-			if err := e.ReconcileRevision(ctx, revision); err != nil && !errors.Is(err, database.ErrNotFound) {
-				return err
-			}
+			e.EnqueueRevision(revision)
 		}
 		if len(revisions) == pageSize {
 			page.After = revisions[len(revisions)-1]
@@ -174,12 +182,9 @@ func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgr
 			return err
 		}
 		for _, revision := range revisions {
-			err := e.publishRevision(ctx, revision, page.RecoverActors)
-			if errors.Is(err, database.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return err
+			e.EnqueueRevision(revision)
+			if page.RecoverActors {
+				e.pages.Add(egressActorPage{Revision: revision, Recovery: true})
 			}
 		}
 		if len(revisions) == pageSize {
@@ -191,21 +196,15 @@ func NewEgressReconciler(ctx context.Context, runtime *Runtime, store runtimeEgr
 	return e
 }
 
-// ReconcileRevision publishes current intended access before making a new
-// revision ready, and schedules existing actors independently of preparation.
-func (e *EgressReconciler) ReconcileRevision(ctx context.Context, revision string) error {
-	if !e.grants.WaitUntilSynced(ctx.Done()) {
-		return ctx.Err()
-	}
-	return e.publishRevision(ctx, revision, false)
+// EnqueueRevision schedules publication from the latest cached grants. The
+// revision alone is the key: re-adding it during publication guarantees a rerun.
+func (e *EgressReconciler) EnqueueRevision(revision string) {
+	e.publications.Add(revision)
 }
 
-func (e *EgressReconciler) publishRevision(ctx context.Context, revision string, recoverActors bool) error {
-	unlock, err := e.lockPublication(ctx, revision)
-	if err != nil {
-		return err
-	}
-	defer unlock()
+// publishRevision is called only by publication workers; the queue serializes
+// cache lookup through persistence for each revision.
+func (e *EgressReconciler) publishRevision(ctx context.Context, revision string) error {
 	pinned, err := e.store.GetRuntimeEgress(ctx, revision)
 	if err != nil {
 		return err
@@ -231,42 +230,40 @@ func (e *EgressReconciler) publishRevision(ctx context.Context, revision string,
 		e.warnings.Remove(revision)
 	}
 	changed, err := e.store.SetRuntimeEgressPolicy(ctx, revision, access)
-	if changed || recoverActors || err != nil {
+	if changed || err != nil {
 		// A failed response may hide a committed write. Queue actor application
 		// even then: a publication retry could observe an unchanged policy.
-		e.pages.Add(egressActorPage{Revision: revision, Recovery: recoverActors})
+		e.pages.Add(egressActorPage{Revision: revision})
 	}
 	return err
 }
 
-// Initial preparation and source/recovery queues share a publisher. Hold the
-// revision lock from cache lookup through commit so an older translation cannot
-// commit last. Waiters retry after release; unrelated revisions never wait on I/O.
-func (e *EgressReconciler) lockPublication(ctx context.Context, revision string) (func(), error) {
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		e.publishMu.Lock()
-		done, busy := e.publishing[revision]
-		if !busy {
-			done = make(chan struct{})
-			e.publishing[revision] = done
-			e.publishMu.Unlock()
-			return func() {
-				e.publishMu.Lock()
-				defer e.publishMu.Unlock()
-				delete(e.publishing, revision)
-				close(done)
-			}, nil
-		}
-		e.publishMu.Unlock()
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+func (e *EgressReconciler) runPublications(ctx context.Context) {
+	var workers sync.WaitGroup
+	for range 4 {
+		workers.Go(func() {
+			for e.processPublication(ctx) {
+			}
+		})
 	}
+	<-ctx.Done()
+	e.publications.ShutDown()
+	workers.Wait()
+}
+
+func (e *EgressReconciler) processPublication(ctx context.Context) bool {
+	revision, shutdown := e.publications.Get()
+	if shutdown {
+		return false
+	}
+	defer e.publications.Done(revision)
+	if err := e.publishRevision(ctx, revision); err != nil && !errors.Is(err, database.ErrNotFound) && ctx.Err() == nil {
+		logging.FromContext(ctx).ErrorContext(ctx, "publish runtime egress policy", "revision", revision, "error", err)
+		e.publications.AddRateLimited(revision)
+	} else {
+		e.publications.Forget(revision)
+	}
+	return true
 }
 
 func (e *EgressReconciler) NeedLeaderElection() bool { return true }
@@ -280,12 +277,14 @@ func (e *EgressReconciler) Start(ctx context.Context) error {
 	defer handler.UnregisterHandler()
 	queues := []controllers.Queue{e.sources, e.pages, e.updates, e.recovery, e.sweeps}
 	if !handler.WaitUntilSynced(ctx.Done()) {
+		e.publications.ShutDown()
 		for _, queue := range queues {
 			queue.ShutDownEarly()
 		}
 		return ctx.Err()
 	}
 	var workers sync.WaitGroup
+	workers.Go(func() { e.runPublications(ctx) })
 	for _, queue := range queues {
 		workers.Go(func() { queue.Run(ctx.Done()) })
 	}

@@ -26,6 +26,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -55,7 +56,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	store := &fakeRuntimeRevisionStore{}
 	templates := &fakeActorTemplates{}
 	statusClient := kagentfake.NewSimpleClientset(template.DeepCopy()).ApiV1alpha3()
-	reconciler := &Reconciler{egress: noopRevisionEgress,
+	reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress,
 		collections: Collections{
 			Agents:                   krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),
 			AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
@@ -109,7 +110,7 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	}
 
 	// A fresh reconciler must clean up observations without remembering earlier calls.
-	reconciler = &Reconciler{egress: noopRevisionEgress, collections: reconciler.collections, templates: templates, store: store, status: statusClient}
+	reconciler = &Reconciler{enqueueEgress: noopEnqueueEgress, collections: reconciler.collections, templates: templates, store: store, status: statusClient}
 	nextTarget := *state.Target
 	state.Target = &nextTarget
 	state.Target.ActorTemplate = proto.CloneOf(state.Target.ActorTemplate)
@@ -157,7 +158,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			opts := krt.NewOptionsBuilder(ctx.Done(), "test", nil)
 			states := krt.NewStaticCollection[AgentReconciliation](nil, nil, opts.WithName("Reconciliations")...)
 			templates := &fakeActorTemplates{}
-			reconciler := &Reconciler{egress: noopRevisionEgress,
+			reconciler := &Reconciler{enqueueEgress: noopEnqueueEgress,
 				collections: Collections{
 					AgentRuntimeObservations: krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...),
 					Reconciliations:          states,
@@ -181,6 +182,9 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 				Target: &compiledTarget{Revision: *revision, RevisionID: id, ActorTemplate: desired},
 			}
 			states.UpdateObject(state)
+			require.ErrorIs(t, reconciler.reconcileAgent(ctx, state.ResourceName()), database.ErrEgressPolicyNotPublished)
+			_, err = store.SetRuntimeEgressPolicy(ctx, id.String(), egress.Access{})
+			require.NoError(t, err)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
 			request := &apiv1.Session{
@@ -404,7 +408,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		&fakeActorTemplates{},
 		&fakeRuntimeRevisionStore{},
 		statusClient,
-		noopRevisionEgress,
+		noopEnqueueEgress,
 	)
 
 	go reconciler.Run(stop)
