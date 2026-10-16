@@ -89,7 +89,8 @@ func requireIdleSession(ctx context.Context, tx pgx.Tx, row sessionRow, idleSinc
 	}
 	busy, err := queryOne(ctx, tx, `
 		SELECT EXISTS (SELECT 1 FROM session_task WHERE history_id = $1
-		    AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED', 'TASK_STATE_REJECTED'))
+		    AND state NOT IN ('TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED',
+		        'TASK_STATE_REJECTED', 'TASK_STATE_INPUT_REQUIRED', 'TASK_STATE_AUTH_REQUIRED'))
 	`, pgx.RowTo[bool], row.HistoryID)
 	if err != nil {
 		return err
