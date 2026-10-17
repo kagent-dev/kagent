@@ -233,7 +233,12 @@ The lane installs an in-cluster NFS server, the NFS CSI driver
 `nfs.csi.k8s.io` registered with Substrate through its `CSIDriverConfig`, and
 the `csi-nfs-sc` StorageClass, by running the pinned Substrate release's own
 Kind setup (`scripts/kind/setup-csi-nfs.sh`, also for a local Kind cluster;
-the host kernel needs `nfs` and `nfsd`).
+the host kernel needs `nfs` and `nfsd`). The setup ends once a probe claim of
+`csi-nfs-sc` was mounted, written and deleted, so the tests start on an NFS
+server that answers. During the tests `scripts/kind/nfs-diagnostics.sh watch`
+samples nfsd's threads, pool counters and an NFSv4 NULL call, with the host's
+pressure, every 15 seconds; `dump` writes the server's and the CSI driver's
+logs, nfsd's state and the kernel messages. Both land in the artifact's `nfs/`.
 
 `newWorkspaceFixture` (`workspace_test.go`) builds the rest per test:
 

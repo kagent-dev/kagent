@@ -277,6 +277,10 @@ jobs:
           worker_logs_pid=$!
           kubectl logs -n ate-system -l app --all-containers --prefix --timestamps --tail=-1 --follow --max-log-requests=20 > "$RUNNER_TEMP/e2e-logs/substrate.log" 2>&1 &
           substrate_logs_pid=$!
+          # The NFS server's nfsd state and the runner's pressure over time, for a
+          # stall of the workspace volumes (scripts/kind/nfs-diagnostics.sh).
+          bash ../scripts/kind/nfs-diagnostics.sh watch "$RUNNER_TEMP/e2e-logs/nfs" &
+          nfs_watch_pid=$!
           # Tests roll the controller (withControllerEnv, the sandbox restart), and a
           # log read at the end holds only the final pod: every controller pod is
           # followed from the moment it runs, into a file of its own.
@@ -295,7 +299,7 @@ jobs:
             done
           ) &
           controller_logs_pid=$!
-          trap 'kill "$worker_logs_pid" "$substrate_logs_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true' EXIT
+          trap 'kill "$worker_logs_pid" "$substrate_logs_pid" "$nfs_watch_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true; wait "$worker_logs_pid" "$substrate_logs_pid" "$nfs_watch_pid" "$controller_logs_pid" $(cat "$controller_log_pids") 2>/dev/null || true' EXIT
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=20m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
 
       - name: Check E2E telemetry with Weaver live-check
@@ -304,6 +308,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/e2e-logs"
           telemetry/live-check.sh stop || echo "::warning::Weaver live-check produced no report"
           cp -r telemetry/conformance/report "$RUNNER_TEMP/e2e-logs/live-check" 2>/dev/null || true
+
+      - name: Collect NFS state
+        # The NFS server and CSI driver behind csi-nfs-sc, their full logs, the
+        # server's nfsd state and the runner's kernel messages, into the artifact.
+        if: always()
+        run: bash scripts/kind/nfs-diagnostics.sh dump "$RUNNER_TEMP/e2e-logs/nfs"
 
       - name: Upload E2E logs
         if: always()
@@ -331,13 +341,9 @@ jobs:
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --previous --tail=200 || true
-          echo "::error::NFS server and CSI driver behind csi-nfs-sc"
-          kubectl get pvc,pv -A || true
-          kubectl logs -n default deployment/nfs-server --tail=200 || true
-          kubectl logs -n kube-system -l app=csi-nfs-controller --all-containers --prefix --tail=200 || true
-          kubectl logs -n kube-system -l app=csi-nfs-node --all-containers --prefix --tail=200 || true
-          echo "::error::Kernel NFS messages of the runner, which serves the Kind node's NFS server"
-          sudo dmesg --ctime | grep -i -E 'nfs|rpc|lockd|blocked for more than' | tail -100 || true
+          echo "::error::NFS server, CSI driver, nfsd state and kernel messages: the artifact's nfs/"
+          cat "$RUNNER_TEMP/e2e-logs/nfs/nfsd.txt" || true
+          grep -i -E 'nfs|rpc|lockd|blocked for more than|oom' "$RUNNER_TEMP/e2e-logs/nfs/host.txt" | tail -100 || true
 
   proto-check:
     name: Protobuf Contract Check

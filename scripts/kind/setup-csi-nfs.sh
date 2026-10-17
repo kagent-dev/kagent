@@ -22,3 +22,56 @@ trap 'rm -rf "$checkout"' EXIT
 git -c advice.detachedHead=false clone --quiet --depth 1 --branch "v${SUBSTRATE_VERSION}" --single-branch \
   "$SUBSTRATE_GIT" "$checkout/substrate"
 (cd "$checkout/substrate" && bash hack/setup-csi-nfs-kind.sh)
+
+# The NFS server's pod is available before its nfsd answers (it has no
+# readiness probe, and nfsd waits out client tracking and a 10-second grace
+# period after "NFS started"), so the setup ends only once a claim of
+# csi-nfs-sc is provisioned, mounted, written and read back, and deleted.
+# The probe runs the server's own image, which the node already holds.
+NFS_READY_TIMEOUT=${NFS_READY_TIMEOUT:-300s}
+nfs_image=$(kubectl get deployment nfs-server -n default -o jsonpath='{.spec.template.spec.containers[0].image}')
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-readiness
+  namespace: default
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: csi-nfs-sc
+  resources:
+    requests:
+      storage: 1Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nfs-readiness
+  namespace: default
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: probe
+          image: ${nfs_image}
+          imagePullPolicy: IfNotPresent
+          command: [sh, -c, 'echo ready > /data/probe && sync && test "\$(cat /data/probe)" = ready']
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nfs-readiness
+EOF
+if ! kubectl wait --for=condition=Complete job/nfs-readiness -n default --timeout="$NFS_READY_TIMEOUT"; then
+  echo "ERROR: no claim of csi-nfs-sc was mounted and written within ${NFS_READY_TIMEOUT}." >&2
+  kubectl describe job,pvc -n default nfs-readiness >&2 || true
+  kubectl describe pods -n default -l job-name=nfs-readiness >&2 || true
+  kubectl logs -n default deployment/nfs-server >&2 || true
+  exit 1
+fi
+kubectl delete job/nfs-readiness pvc/nfs-readiness -n default --cascade=foreground --wait --timeout=120s
+echo "NFS server answers: a csi-nfs-sc claim was mounted, written and deleted."
