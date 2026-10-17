@@ -40,6 +40,8 @@ jobs:
         run: scripts/fork/harness-pins.sh check
       - name: Test the Releases table's writer and gate
         run: scripts/fork/releases-row_test.sh
+      - name: Test that the published charts depend on nothing from ghcr.io
+        run: scripts/fork/chart-gsoci-deps_test.sh
       - name: Show the table
         run: scripts/fork/carried.sh >> "$GITHUB_STEP_SUMMARY"
 

@@ -199,6 +199,10 @@ jobs:
             for chart in kagent kagent-crds; do
               printf 'appVersion: %s\n' "${VERSION}" >> "helm/${chart}/Chart-template.yaml"
             done
+            # The charts depend on nothing outside gsoci: upstream's ghcr.io
+            # subcharts (kmcp, kmcp-crds, kagent-tools) leave the templates and
+            # their conditions turn false, before the dependency update.
+            scripts/fork/chart-gsoci-deps.sh helm/kagent helm/kagent-crds
             # helm-publish pushes to $(HELM_REPO)/kagent/helm.
             make helm-publish HELM_REPO="oci://${registry}/giantswarm"
             # The pushed charts, by digest, for the signing step.
@@ -257,6 +261,13 @@ jobs:
             check runtimeImages.ompHarness.digest "${D[omp-harness]}" omp-harness
             check tag "${VERSION}" version
             check registry "${registry}" registry
+            # Nothing the published charts declare is pulled from ghcr.io.
+            for chart in kagent kagent-crds; do
+              if helm show chart "oci://${registry}/${repo}/helm/${chart}" --version "${VERSION}" | grep -n 'ghcr\.io' >&2; then
+                echo "ERROR: chart ${chart} ${VERSION} declares a ghcr.io dependency" >&2
+                exit 1
+              fi
+            done
             # The pin annotation on the published indexes is static in this
             # file and moves by hand after a re-pin (FORK.md, "Re-pin"). A dev
             # build whose annotation lags behind the pin warns; a release must
