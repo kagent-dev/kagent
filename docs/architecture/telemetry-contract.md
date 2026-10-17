@@ -130,7 +130,7 @@ Kind `internal`. One execution segment of a runtime that emits its own invoke_ag
 
 ### `kagent.invoke_agent.internal`
 
-Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment of a kagent agent. Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`.
+Refines `gen_ai.invoke_agent.internal`, kind `internal`. One execution segment of a kagent agent. Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime whose own spans carry no invocation segment: a native coding agent it wraps. Such an agent may still mark a span of its own invoke_agent, as Claude Code does with `claude_code.interaction`; that span is a child of this one, so a consumer counts turns by `kagent.invocation.segment`. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`.
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |

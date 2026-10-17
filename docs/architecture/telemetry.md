@@ -13,7 +13,7 @@ The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/regi
 
 | Concept | Attributes | Where |
 | --- | --- | --- |
-| Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime emits none of its own |
+| Operation | `gen_ai.operation.name` | A span is a GenAI operation when it carries this. kagent writes `invoke_agent` only where the runtime's own spans carry no invocation segment. Count turns by `kagent.invocation.segment` |
 | Runtime | `kagent.runtime` | Resource |
 | Agent | `gen_ai.agent.name`, `gen_ai.agent.id` | invoke_agent and request spans. The resource carries the same identity as `gen_ai.main_agent.name` and `gen_ai.main_agent.id` |
 | Provider and model | `gen_ai.provider.name`, `gen_ai.request.model` | Resource and invoke_agent span, for harnesses compiled against one model |
@@ -31,7 +31,7 @@ The registry describes the contract the runtimes are moving to. The next section
 | Runtime | `kagent.runtime` | Request span | `invoke_agent` | Inference spans | Keys outside the contract |
 | --- | --- | --- | --- | --- | --- |
 | Go ADK | `adk-go` | `otelgrpc` or `otelhttp` SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's own | `gcp.vertex.agent.*`, written by the ADK itself |
-| Claude Code, Codex | `claude`, `codex` | `otelgrpc` or `otelhttp` SERVER span | kagent's wrapper, `invoke_agent <agent>` | The native runtime's own | None |
+| Claude Code, Codex | `claude`, `codex` | `otelgrpc` or `otelhttp` SERVER span | kagent's wrapper, `invoke_agent <agent>`; Claude Code's `claude_code.interaction`, which also marks itself `invoke_agent`, is its child | The native runtime's own | None |
 | Python ADK | `adk-python` | gRPC or FastAPI SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's `generate_content` | `gcp.vertex.agent.*`, and usage repeated on `call_llm`, both written by the ADK itself |
 | LangGraph | `langgraph` | gRPC or FastAPI SERVER span | kagent's wrapper, `invoke_agent <agent>` | `opentelemetry-instrumentation-genai-langchain` | None |
 | CrewAI | `crewai` | gRPC or FastAPI SERVER span | kagent's wrapper, `invoke_agent <agent>` | `opentelemetry-instrumentation-genai-openai` and `-genai-anthropic` | None |
