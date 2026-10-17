@@ -249,12 +249,10 @@ even when a policy cannot resolve. `TestSandboxEgressPolicyUpdatesLiveActor` exe
 grant, revocation, and resume through the standalone sandbox process API.
 
 `TestEgressPolicyCredentialDelivery` runs the same skill on every harness against
-an HTTPS server that rejects requests unless both Authorization (with a Bearer
+an HTTP server that rejects requests unless both Authorization (with a Bearer
 prefix) and X-API-Key (without a prefix) match the Secret. The script has only
-inert placeholders. This test runs sequentially because it temporarily installs
-a test origin CA in the Substrate gateway, rolls it out, and restores the gateway
-configuration afterwards. Actor identity, policy checks, and credential injection
-use the normal Substrate path.
+inert placeholders. The test and its harness subtests run in parallel. Actor
+identity, policy checks, and credential injection use the normal Substrate path.
 
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
