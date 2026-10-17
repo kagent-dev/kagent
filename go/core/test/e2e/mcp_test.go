@@ -58,12 +58,7 @@ func TestMCPSessionInteraction(t *testing.T) {
 			pageToken = next
 		}
 
-		created := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "What is 2+2?", true)
-		handle, ok := created["taskId"].(string)
-		if !ok || handle == "" {
-			t.Fatalf("task-capable MCP invocation = %#v", created)
-		}
-		completed := waitMCPTask(t, endpoint, handle, "completed")
+		_, completed := fixture.mcpInvokeTask(t, endpoint, "What is 2+2?", "completed")
 		result := completed["result"].(map[string]any)
 		structured := result["structuredContent"].(map[string]any)
 		if !strings.Contains(mcpResultText(result), "The answer is 4.") {
@@ -96,8 +91,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 		}
 		fixture := newInteractionFixture(t, harness, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
 		endpoint := mcpEndpoint(t)
-		handle := fixture.mcpInvoke(t, endpoint, fixture.sessionID, "Which database should we use for storage?", true)["taskId"].(string)
-		waiting := waitMCPTask(t, endpoint, handle, "input_required")
+		handle, waiting := fixture.mcpInvokeTask(t, endpoint, "Which database should we use for storage?", "input_required")
 		requests := waiting["inputRequests"].(map[string]any)
 		if len(requests) != 1 {
 			t.Fatalf("inputRequests = %#v", requests)
@@ -111,7 +105,7 @@ func TestMCPAskUserContinuation(t *testing.T) {
 				"action": "accept", "content": map[string]any{"response": "PostgreSQL"},
 			}},
 		}, true)
-		completed := waitMCPTask(t, endpoint, handle, "completed")
+		completed := fixture.waitMCPTask(t, endpoint, handle, "completed")
 		if text := mcpResultText(completed["result"].(map[string]any)); !strings.Contains(text, "Using PostgreSQL") {
 			t.Fatalf("continued MCP result = %q", text)
 		}
@@ -133,7 +127,7 @@ func TestMCPCancelTask(t *testing.T) {
 			t.Fatal("runtime did not call the blocking model")
 		}
 		mcpCall(t, endpoint, "tasks/cancel", map[string]any{"taskId": handle}, true)
-		waitMCPTask(t, endpoint, handle, "cancelled")
+		fixture.waitMCPTask(t, endpoint, handle, "cancelled")
 	})
 }
 
@@ -294,30 +288,110 @@ func (f *interactionFixture) turnState(sessionID string) string {
 	return state
 }
 
-func waitMCPTask(t *testing.T, endpoint, taskID, status string) map[string]any {
+// mcpTurnLostAfter bounds how long the task of a task-capable invocation may
+// stay "working" before mcpInvokeTask takes its turn as lost. The mock model
+// answers in milliseconds. Under gVisor a model response the egress gateway
+// delivered can fail to reach the runtime, which then waits on it for the model
+// client's timeout; the task stays "working" and its Actor idles.
+const mcpTurnLostAfter = time.Minute
+
+// mcpInvokeTask invokes a turn on the fixture's Session as an MCP task and
+// waits until the task reaches status; it returns the task's handle and its
+// tasks/get result. A turn lost in "working" is cancelled
+// and invoked once more (retryLostMCPTurn); a task that does not reach status
+// fails the step with the Session's state, its tasks' and its Actor's.
+func (f *interactionFixture) mcpInvokeTask(t *testing.T, endpoint, message, status string) (string, map[string]any) {
 	t.Helper()
+	invoke := func() string {
+		created := f.mcpInvoke(t, endpoint, f.sessionID, message, true)
+		handle, ok := created["taskId"].(string)
+		if !ok || handle == "" {
+			t.Fatalf("task-capable MCP invocation = %#v", created)
+		}
+		return handle
+	}
+	poll := func(handle, want string, timeout time.Duration) (map[string]any, string, error) {
+		return pollMCPTask(t.Context(), endpoint, handle, want, timeout)
+	}
+	cancel := func(handle string) error {
+		ctx, cancel := context.WithTimeout(t.Context(), mcpStepTimeout)
+		defer cancel()
+		_, err := mcpRequest(ctx, endpoint, "tasks/cancel", map[string]any{"taskId": handle}, true)
+		return err
+	}
+	lost := func(handle string) {
+		t.Logf("MCP task %s still working after %s, cancelled and invoked once more; %s; %s", handle, mcpTurnLostAfter, f.turnState(f.sessionID), f.actorReport())
+	}
+	handle, result, err := retryLostMCPTurn(mcpTurnLostAfter, status, invoke, poll, cancel, lost)
+	if err != nil {
+		t.Fatalf("%v; %s; %s", err, f.turnState(f.sessionID), f.actorReport())
+	}
+	return handle, result
+}
+
+// retryLostMCPTurn runs one task-capable turn to want. Only a task last seen
+// "working" when lostAfter runs out is taken as lost: it is cancelled, its
+// cancellation awaited, and the turn invoked once more under mcpStepTimeout.
+// Any other outcome, a task stuck in "submitted" included, is returned as it is.
+func retryLostMCPTurn(lostAfter time.Duration, want string,
+	invoke func() string,
+	poll func(handle, want string, timeout time.Duration) (map[string]any, string, error),
+	cancel func(handle string) error,
+	lost func(handle string),
+) (string, map[string]any, error) {
+	handle := invoke()
+	result, last, err := poll(handle, want, lostAfter)
+	if err == nil || last != "working" || !errors.Is(err, context.DeadlineExceeded) {
+		return handle, result, err
+	}
+	lost(handle)
+	if err := cancel(handle); err != nil {
+		return handle, nil, fmt.Errorf("cancel lost MCP task %s: %w", handle, err)
+	}
+	if _, _, err := poll(handle, "cancelled", mcpStepTimeout); err != nil {
+		return handle, nil, err
+	}
+	handle = invoke()
+	result, _, err = poll(handle, want, mcpStepTimeout)
+	return handle, result, err
+}
+
+// waitMCPTask waits until the MCP task reaches status; a task that does not
+// fails the step with the Session's state, its tasks' and its Actor's.
+func (f *interactionFixture) waitMCPTask(t *testing.T, endpoint, taskID, status string) map[string]any {
+	t.Helper()
+	result, _, err := pollMCPTask(t.Context(), endpoint, taskID, status, mcpStepTimeout)
+	if err != nil {
+		t.Fatalf("%v; %s; %s", err, f.turnState(f.sessionID), f.actorReport())
+	}
+	return result
+}
+
+// pollMCPTask polls tasks/get until the task reaches status, for at most
+// timeout, and returns the last status it saw. A task that reaches another
+// terminal status ends the poll at once.
+func pollMCPTask(ctx context.Context, endpoint, taskID, status string, timeout time.Duration) (map[string]any, string, error) {
 	params := map[string]any{"taskId": taskID}
 	var result map[string]any
-	err := waitForStep(t.Context(), mcpStep("tasks/get", params), fmt.Sprintf("status %q", status), mcpStepTimeout, 250*time.Millisecond,
+	var last string
+	err := waitForStep(ctx, mcpStep("tasks/get", params), fmt.Sprintf("status %q", status), timeout, 250*time.Millisecond,
 		func(ctx context.Context) (bool, string, error) {
 			response, err := mcpRequest(ctx, endpoint, "tasks/get", params, true)
 			if err != nil {
 				return false, "", err
 			}
 			result = response["result"].(map[string]any)
+			last, _ = result["status"].(string)
 			seen := fmt.Sprintf("status %q", result["status"])
-			if result["status"] == status {
+			if last == status {
 				return true, seen, nil
 			}
-			if result["status"] == "failed" || result["status"] == "cancelled" || result["status"] == "completed" {
-				return false, seen, fmt.Errorf("MCP task reached %q, want %q: %#v", result["status"], status, result)
+			if last == "failed" || last == "cancelled" || last == "completed" {
+				return false, seen, fmt.Errorf("MCP task reached %q, want %q: %#v", last, status, result)
 			}
 			return false, seen, nil
 		})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
+	return result, last, err
 }
 
 // mcpStep names an MCP call for a failure: the method, the tool and the
