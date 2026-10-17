@@ -16,8 +16,12 @@ import (
 )
 
 // commitFiles creates a git repository holding files and returns its path and HEAD commit.
+// Git reads no global or system configuration, so a developer's commit signing
+// or hooks do not reach the fixture commit.
 func commitFiles(t *testing.T, files map[string]string) (repository, commit string) {
 	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	repository = t.TempDir()
 	git := func(args ...string) string {
 		command := exec.Command("git", append([]string{"-C", repository}, args...)...)
