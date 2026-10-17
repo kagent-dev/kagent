@@ -26,9 +26,9 @@ type sandboxReconciliation struct {
 	Template              *kagentv1alpha3.SandboxTemplate
 	RevisionID            string
 	SourceSnapshot        json.RawMessage
-	EgressGrant           egress.Access
+	EgressGrant           egress.Access // Requested union, including conflicting grants.
 	EgressIssues          []translator.EgressGrantIssue
-	EgressConflict        bool
+	EgressConflict        string
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	CompilationError      string
@@ -90,8 +90,11 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 			return state
 		}
 		resolution := translator.CompileEgressPolicies(ctx, translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}, template.Namespace, template.Spec.EgressPolicyRefs)
+		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
 		// Sandboxes have no pinned model or tool access.
-		state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, egress.Access{}, nil)
+		if _, err := egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil); err != nil {
+			state.EgressConflict = err.Error()
+		}
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
 		if pool == nil {
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}

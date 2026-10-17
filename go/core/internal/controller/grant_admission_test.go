@@ -18,7 +18,6 @@ import (
 	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestGrantAdmissionAcrossSources(t *testing.T) {
@@ -118,32 +117,56 @@ func TestGrantAdmissionAcrossSources(t *testing.T) {
 	}
 }
 
-func TestGrantAdmissionWithChangedBase(t *testing.T) {
-	const a = "https://a.example.com:443"
-	const model = "https://model.example.com:443"
-	old := egress.Access{Destinations: []string{a, model}}
-	base := egress.Access{Destinations: []string{"http://model.example.com:443"}}
-	candidate, issues, conflict := evaluateEgressGrant(translator.EgressGrantResolution{Access: old}, base, nil)
-	require.True(t, conflict)
-	require.Len(t, issues, 1)
-	require.Equal(t, egress.Access{Destinations: []string{a}}, retainedEgressGrant(old, candidate, base, nil))
-	// With no compiled target, admission can still revoke grants safely.
-	require.Equal(t, old, retainedEgressGrant(old, candidate, egress.Access{}, nil))
-	require.Empty(t, retainedEgressGrant(egress.Access{}, candidate, base, nil).Destinations, "new identities inherit no grants")
-}
+func TestAgentGrantAdmissionWithAndWithoutCompiledBase(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		collections, harnesses := newPreparationTestCollections(t, "gvisor")
+		initial := collections.Reconciliations.List()[0]
+		template := proto.CloneOf(initial.Target.ActorTemplate)
+		template.Metadata.Uid, template.Status = "prepared", sandboxGoldenStatus()
+		store := &fakeRuntimeRevisionStore{}
+		r := &Reconciler{collections: collections, templates: &fakeActorTemplates{template: template}, store: store}
+		policies := collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy])
+		agents := collections.Agents.(krt.StaticCollection[*v1alpha3.Agent])
+		agent := initial.Agent.DeepCopy()
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "a"}, {Name: "b"}}
+		agents.UpdateObject(agent)
+		harness := harnesses.List()[0]
+		harnesses.DeleteObject("team-a/byo")
 
-func TestEgressConditionSurvivesRuntimeFailureAndBoundsMessages(t *testing.T) {
-	issues := []translator.EgressGrantIssue{
-		{Policy: "team/missing", Reason: v1alpha3.EgressPoliciesReasonNotFound, Message: "missing"},
-		{Reason: v1alpha3.EgressPoliciesReasonConflict, Message: strings.Repeat("conflict", 1000)},
-	}
-	state := AgentReconciliation{EgressIssues: issues, EgressConflict: true,
-		CompilationFailure: &ReconciliationFailure{Condition: v1alpha3.AgentConditionResolvedRefs, Reason: "ReferenceResolutionFailed", Message: "Harness is missing"}}
-	status := statusForAgent(state, 1, "")
-	condition := meta.FindStatusCondition(status.Conditions, v1alpha3.AgentConditionEgressPoliciesApplied)
-	require.Equal(t, v1alpha3.EgressPoliciesReasonConflict, condition.Reason)
-	require.Contains(t, condition.Message, "new grants are held until the conflict is resolved")
-	require.Contains(t, condition.Message, "team/missing")
-	require.LessOrEqual(t, len(condition.Message), 4096)
-	require.False(t, meta.IsStatusConditionTrue(status.Conditions, v1alpha3.AgentConditionReady))
+		const tickets = "https://tickets.example.com:443"
+		const controller = "https://kagent-controller.kagent:8083"
+		policy := func(name, origin string) *v1alpha3.EgressPolicy {
+			return &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: name},
+				Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: origin}}}}
+		}
+		policies.UpdateObject(policy("a", tickets))
+		policies.UpdateObject(policy("b", controller))
+		check := func(compiled, conflict bool, want ...string) {
+			t.Helper()
+			synctest.Wait()
+			state := collections.Reconciliations.GetKey(initial.ResourceName())
+			require.Equal(t, compiled, state.Target != nil)
+			require.Equal(t, conflict, state.EgressConflict != "")
+			require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+			require.ElementsMatch(t, want, store.pair.EgressGrant.Destinations)
+		}
+		// With no target, the requested grants are validated on their own.
+		check(false, false, tickets, controller)
+		// Restoring compilation introduces an HTTP base that conflicts with the
+		// previously admitted HTTPS grant on the same host and port.
+		harnesses.UpdateObject(harness)
+		check(true, true, tickets)
+
+		harnesses.DeleteObject("team-a/byo")
+		conflicting := policy("b", "http://tickets.example.com:443")
+		conflicting.Spec.Destinations = append(conflicting.Spec.Destinations, v1alpha3.EgressDestination{Origin: "https://new.example.com"})
+		policies.UpdateObject(conflicting)
+		// Conflicts between policies still hold additions without a target.
+		check(false, true, tickets)
+		// A replacement source cannot retain grants belonging to the old UID.
+		agent = agent.DeepCopy()
+		agent.UID = "replacement"
+		agents.UpdateObject(agent)
+		check(false, true)
+	})
 }

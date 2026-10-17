@@ -41,9 +41,9 @@ import (
 // status instead of disappearing from the graph.
 type AgentReconciliation struct {
 	Agent                 *kagentv1alpha3.Agent
-	EgressGrant           egress.Access
+	EgressGrant           egress.Access // Requested union, including conflicting grants.
 	EgressIssues          []translator.EgressGrantIssue
-	EgressConflict        bool
+	EgressConflict        string
 	Target                *compiledTarget
 	Warnings              []string
 	CompilationFailure    *ReconciliationFailure
@@ -111,10 +111,20 @@ func newAgentReconciliations(
 			return state
 		}
 		resolution := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
+		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
 		state.Target, state.Warnings, state.CompilationFailure = compileAgentTarget(ctx, collections, agent, settings, images)
-		// Admission still runs when an unrelated runtime input fails to compile.
-		base, tokenOrigins := state.Target.egressBase()
-		state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, base, tokenOrigins)
+		var err error
+		if state.Target == nil {
+			// Unrelated compilation failures must not freeze grant updates.
+			_, err = egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil)
+		} else {
+			revision := &state.Target.Revision
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
+			_, err = egress.MergeAccess(base, state.EgressGrant, revision.TokenPassthroughOrigins)
+		}
+		if err != nil {
+			state.EgressConflict = err.Error()
+		}
 		if state.CompilationFailure != nil {
 			return state
 		}
@@ -188,7 +198,7 @@ type runtimeRevisionStore interface {
 	UpsertAgentDefinition(context.Context, database.AgentDefinition) error
 	GetAgentEgressGrant(context.Context, string, string) (egress.Access, error)
 	RecordRuntimeRevision(context.Context, database.RuntimeRevision, database.RecordRevisionOptions) error
-	ListAgentDefinitionSources(context.Context) ([]database.RuntimeEgressSource, error)
+	ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error)
 	RetireAgentIdentities(ctx context.Context, namespace, name string) error
 }
 
@@ -310,7 +320,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 }
 
 func (r *Reconciler) enqueueDeletedAgents(ctx context.Context) error {
-	sources, err := r.store.ListAgentDefinitionSources(ctx)
+	sources, err := r.store.ListAgentEgressSources(ctx)
 	if err != nil {
 		return fmt.Errorf("recover deleted Agents: %w", err)
 	}
@@ -367,13 +377,17 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		return nil
 	}
 	grants := state.EgressGrant
-	if state.EgressConflict {
+	if state.EgressConflict != "" {
 		previous, err := r.store.GetAgentEgressGrant(ctx, state.Agent.Namespace, string(state.Agent.UID))
 		if err != nil {
 			return r.observePreparationError(*state, fmt.Errorf("read Agent %s grants: %w", key, err))
 		}
-		base, tokenOrigins := state.Target.egressBase()
-		grants = retainedEgressGrant(previous, grants, base, tokenOrigins)
+		grants = egress.IntersectAccess(previous, grants)
+		if state.Target != nil {
+			revision := &state.Target.Revision
+			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
+			grants, _ = egress.FilterConflicts(base, grants, revision.TokenPassthroughOrigins)
+		}
 	}
 	definition := database.AgentDefinition{
 		Namespace: state.Agent.Namespace, AgentName: state.Agent.Name,

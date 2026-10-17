@@ -1,10 +1,14 @@
 package controller
 
 import (
+	"fmt"
+	"strings"
+
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func newAgentStatuses(agents krt.Collection[*kagentv1alpha3.Agent], states krt.Collection[AgentReconciliation], opts krt.OptionsBuilder) krt.StatusCollection[*kagentv1alpha3.Agent, kagentv1alpha3.AgentStatus] {
@@ -73,4 +77,39 @@ func setAgentCondition(status *kagentv1alpha3.AgentStatus, generation int64, con
 	status.Conditions = append(status.Conditions, metav1.Condition{
 		Type: conditionType, Status: conditionStatus, Reason: reason, Message: message, ObservedGeneration: generation,
 	})
+}
+
+func egressPoliciesCondition(conditionType string, generation int64, issues []translator.EgressGrantIssue, conflict string) metav1.Condition {
+	condition := metav1.Condition{
+		Type: conditionType, ObservedGeneration: generation,
+		Status: metav1.ConditionTrue, Reason: kagentv1alpha3.EgressPoliciesReasonApplied,
+		Message: "All requested egress grants are admitted",
+	}
+	if len(issues) == 0 && conflict == "" {
+		return condition
+	}
+	condition.Status = metav1.ConditionFalse
+	var messages []string
+	for _, issue := range issues {
+		message := issue.Message
+		if issue.Policy != "" {
+			message = fmt.Sprintf("%s: %s", issue.Policy, message)
+		}
+		messages = append(messages, message)
+	}
+	if conflict != "" {
+		condition.Reason = kagentv1alpha3.EgressPoliciesReasonConflict
+		condition.Message = "new grants are held until the conflict is resolved; "
+		messages = append(messages, "first conflict: "+conflict)
+	} else {
+		condition.Reason = issues[0].Reason
+		condition.Message = ""
+	}
+	condition.Message += strings.Join(messages, "; ")
+	// Stay comfortably below the Kubernetes condition message limit.
+	const maxMessage = 4096
+	if len(condition.Message) > maxMessage {
+		condition.Message = strings.ToValidUTF8(condition.Message[:maxMessage-3], "") + "..."
+	}
+	return condition
 }

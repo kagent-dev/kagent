@@ -78,10 +78,10 @@ func (c *Client) GetAgentEgressGrant(ctx context.Context, namespace, uid string)
 	return decodeEgressGrant(grants, err)
 }
 
-// ListAgentDefinitionSources returns active Agent names and retired identities
-// that still have non-deleted instances. Startup recovery includes these retired
-// rows because a crash may interrupt actor revocation after retirement commits.
-func (c *Client) ListAgentDefinitionSources(ctx context.Context) ([]RuntimeEgressSource, error) {
+// ListAgentEgressSources returns names for active Agent definitions and retired
+// identities that still have non-deleted instances. Startup recovery includes
+// retired identities because a crash may interrupt revocation after retirement.
+func (c *Client) ListAgentEgressSources(ctx context.Context) ([]RuntimeEgressSource, error) {
 	return queryMany(ctx, c.db, `
   SELECT DISTINCT 'agent' AS kind, d.namespace, d.agent_name AS name
   FROM agent_definition d

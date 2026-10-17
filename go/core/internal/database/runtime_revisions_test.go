@@ -35,7 +35,7 @@ func TestRetireAgentIdentities(t *testing.T) {
 	require.Equal(t, "revision", revisions[0].Revision)
 }
 
-func TestListAgentDefinitionSourcesBoundsRetiredIdentities(t *testing.T) {
+func TestListAgentEgressSourcesBoundsRetiredIdentities(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
@@ -52,14 +52,14 @@ func TestListAgentDefinitionSourcesBoundsRetiredIdentities(t *testing.T) {
 	}
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant"))
 	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "unused"))
-	sources, err := client.ListAgentDefinitionSources(ctx)
+	sources, err := client.ListAgentEgressSources(ctx)
 	require.NoError(t, err)
 	require.Equal(t, []RuntimeEgressSource{
 		{Kind: RuntimeEgressAgent, Namespace: "team-a", Name: "assistant"},
 		{Kind: RuntimeEgressAgent, Namespace: "team-b", Name: "assistant"},
 	}, sources, "include only active sources and retired identities that still have actors")
 	require.NoError(t, deleteSession(ctx, client, session.Id))
-	sources, err = client.ListAgentDefinitionSources(ctx)
+	sources, err = client.ListAgentEgressSources(ctx)
 	require.NoError(t, err)
 	require.Equal(t, []RuntimeEgressSource{{Kind: RuntimeEgressAgent, Namespace: "team-b", Name: "assistant"}}, sources)
 }

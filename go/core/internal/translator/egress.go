@@ -15,7 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
-// EgressGrantIssue describes one policy resolution error or admission conflict.
+// EgressGrantIssue describes one policy resolution error.
 type EgressGrantIssue struct {
 	Policy  string
 	Reason  string

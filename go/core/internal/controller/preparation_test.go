@@ -383,10 +383,10 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
-func (p *preparationTestBackend) ListAgentDefinitionSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
+func (p *preparationTestBackend) ListAgentEgressSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.ListAgentDefinitionSources(ctx)
+	return p.store.ListAgentEgressSources(ctx)
 }
 
 func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) error {

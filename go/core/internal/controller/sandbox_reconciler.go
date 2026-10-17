@@ -142,12 +142,12 @@ func (s *SandboxReconciler) reconcile(ctx context.Context, key string) error {
 		return nil
 	}
 	grants := state.EgressGrant
-	if state.EgressConflict {
+	if state.EgressConflict != "" {
 		previous, err := s.store.GetSandboxEgressGrant(ctx, state.Template.Namespace, string(state.Template.UID))
 		if err != nil {
 			return s.observeError(*state, fmt.Errorf("read SandboxTemplate %s grants: %w", key, err), true)
 		}
-		grants = retainedEgressGrant(previous, grants, egress.Access{}, nil)
+		grants = egress.IntersectAccess(previous, grants)
 	}
 	err := s.store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{
 		Namespace: state.Template.Namespace, SandboxTemplateName: state.Template.Name, SandboxTemplateUID: string(state.Template.UID), DesiredRevision: state.desiredRevision(), EgressGrant: grants,

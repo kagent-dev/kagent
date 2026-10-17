@@ -335,7 +335,7 @@ type fakeRuntimeRevisionStore struct {
 	sourcesErr        error
 }
 
-func (s *fakeRuntimeRevisionStore) ListAgentDefinitionSources(context.Context) ([]database.RuntimeEgressSource, error) {
+func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {
 	return s.definitionSources, s.sourcesErr
 }
 
