@@ -117,7 +117,7 @@ func chatGPTModel(name, secret string) *v1alpha3.ModelConfig {
 }
 
 func loginSecret(access string) *corev1.Secret {
-	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "login"}, Data: map[string][]byte{
+	return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "login", Labels: map[string]string{v1alpha3.ChatGPTLoginLabel: "true"}}, Data: map[string][]byte{
 		v1alpha3.ChatGPTAccessTokenKey: []byte(access), v1alpha3.ChatGPTRefreshTokenKey: []byte("refresh-1"), v1alpha3.ChatGPTAccountIDKey: []byte("account"),
 	}}
 }
@@ -132,7 +132,7 @@ func TestReconcile(t *testing.T) {
 		server := httptest.NewServer(endpoint)
 		t.Cleanup(server.Close)
 		kube := fake.NewClientBuilder().WithScheme(scheme(t)).WithObjects(append(objects, loginSecret(access))...).Build()
-		refresher := NewRefresher(kube, kube, server.Client(), server.URL, ClientID)
+		refresher := NewRefresher(kube, kube, kube, server.Client(), server.URL, ClientID)
 		refresher.now = func() time.Time { return now }
 		return refresher, kube, endpoint, &now
 	}
@@ -188,6 +188,18 @@ func TestReconcile(t *testing.T) {
 		require.Zero(t, endpoint.count())
 	})
 
+	t.Run("a Secret that has not opted in is never written", func(t *testing.T) {
+		refresher, kube, endpoint, _ := setup(t, expiring, chatGPTModel("codex", "login"))
+		secret := readLogin(t, kube)
+		secret.Labels = nil
+		require.NoError(t, kube.Update(t.Context(), secret))
+		result, err := refresher.Reconcile(t.Context(), reconcile.Request{NamespacedName: login})
+		require.NoError(t, err)
+		require.Zero(t, result)
+		require.Zero(t, endpoint.count())
+		require.Equal(t, expiring, string(readLogin(t, kube).Data[v1alpha3.ChatGPTAccessTokenKey]))
+	})
+
 	t.Run("a refused refresh keeps the login and fails the reconcile", func(t *testing.T) {
 		refresher, kube, endpoint, _ := setup(t, expiring, chatGPTModel("codex", "login"))
 		endpoint.status = http.StatusUnauthorized
@@ -223,7 +235,7 @@ func TestRefresherOnAManager(t *testing.T) {
 
 	mgr, err := ctrl.NewManager(config, ctrl.Options{Scheme: scheme(t), Metrics: metricsserver.Options{BindAddress: "0"}})
 	require.NoError(t, err)
-	require.NoError(t, NewRefresher(mgr.GetClient(), mgr.GetAPIReader(), server.Client(), server.URL, ClientID).SetupWithManager(mgr))
+	require.NoError(t, NewRefresher(mgr.GetClient(), mgr.GetAPIReader(), mgr.GetClient(), server.Client(), server.URL, ClientID).SetupWithManager(mgr))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- mgr.Start(ctx) }()

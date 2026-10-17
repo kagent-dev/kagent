@@ -20,6 +20,7 @@ data:
   KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS: {{ .Values.controller.push.allowPrivateNetworks | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
+  KAGENT_CHATGPT_LOGIN_REFRESHER_SERVICE_ACCOUNT: {{ include "kagent.chatgptLoginRefresher.serviceAccountName" . | quote }}
   KAGENT_SESSION_IDLE_TTL: {{ .Values.controller.sessionIdleTTL | quote }}
   KAGENT_SESSION_SHARE_MAX_TTL: {{ .Values.controller.sessionShareMaxTTL | quote }}
   KAGENT_STALLED_TURN_TIMEOUT: {{ .Values.controller.stalledTurnTimeout | quote }}

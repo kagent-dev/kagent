@@ -25,7 +25,8 @@ harness.
 - OpenAI through a Secret-backed API key, the Responses API, and an optional
   absolute HTTP(S) base URL.
 - A ChatGPT subscription login (`openAI.credentialType: chatgptOAuth`) against
-  the ChatGPT Codex backend; the controller refreshes its access token.
+  the ChatGPT Codex backend; the controller refreshes its access token in a
+  Secret labelled `kagent.dev/chatgpt-login: "true"`.
 - Amazon Bedrock through `AWS_BEARER_TOKEN_BEDROCK` in a Secret.
 - Streaming text, command and file activity, direct Streamable HTTP MCP (with
   allowed-tools selection), and native Shared agents.

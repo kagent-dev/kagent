@@ -108,7 +108,8 @@ account id, used against the ChatGPT Codex backend
 (`https://chatgpt.com/backend-api/codex`, or `openAI.baseUrl`) rather than the
 OpenAI API. A ModelConfig with `openAI.credentialType: chatgptOAuth` names the
 Secret in `apiKeySecret` and leaves `apiKeySecretKey` unset; the Secret holds
-the keys `access_token`, `refresh_token` and `account_id`. The Codex compiler
+the keys `access_token`, `refresh_token` and `account_id` and carries the label
+`kagent.dev/chatgpt-login: "true"`. The Codex compiler
 points a custom Codex provider at the backend instead of Codex's own ChatGPT
 sign-in, sets no `OPENAI_API_KEY`, and has Codex send
 `KAGENT_CHATGPT_ACCESS_TOKEN` as its bearer token and
@@ -127,7 +128,20 @@ endpoint 30 minutes before the token's expiry (a quarter of its lifetime
 before, for a shorter-lived token), ahead of the gateway's cache, and writes
 the new access token and the rotated refresh token back into the same Secret
 with an optimistic update, so a login written in the meantime wins. A rotation
-changes no revision and restarts no agent. A login must not be shared with any
+changes no revision and restarts no agent.
+
+The ModelConfig author names the Secret, and the refresher rewrites it, so a
+login's Secret opts in: a Secret without the label `kagent.dev/chatgpt-login:
+"true"` is never written, and its ModelConfig reports `ResolvedRefs` false with
+the reason `ChatGPTLoginNotOptedIn`. The refresher writes as a ServiceAccount
+of its own, `<release>-chatgpt-login-refresher`, which the controller
+impersonates (`KAGENT_CHATGPT_LOGIN_REFRESHER_SERVICE_ACCOUNT`): the chart lets
+the controller impersonate that account only, grants the account `update` on
+Secrets and nothing else, and a ValidatingAdmissionPolicy admits its update
+only to a Secret that carries the label before and after the write, so the
+account can neither add nor remove it. On an API server without
+ValidatingAdmissionPolicy the chart renders none, and the refresher's own check
+is the gate. A login must not be shared with any
 other client, a Codex CLI included: sign in once with
 `codex login --device-auth` into a `CODEX_HOME` of its own and copy the
 tokens from its `auth.json` into the Secret. The ADK runtimes reject the mode.

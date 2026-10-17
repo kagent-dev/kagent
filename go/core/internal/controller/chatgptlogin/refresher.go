@@ -8,6 +8,12 @@
 // login is refreshed here only: the reconciler is keyed by the Secret, so two
 // ModelConfigs on one Secret share one refresh, and controller-runtime runs it
 // on the elected leader alone.
+//
+// A ModelConfig author names the Secret, so the refresher rewrites only a
+// Secret that opts in with the label v1alpha3.ChatGPTLoginLabel; the
+// ModelConfig of any other Secret reports ResolvedRefs false. The chart runs
+// the writes under an identity of their own that may update only such
+// Secrets.
 package chatgptlogin
 
 import (
@@ -50,23 +56,25 @@ const (
 	minRetry = time.Minute
 )
 
-// Refresher refreshes the access token of every Secret a ChatGPT-login
-// ModelConfig names before it expires, and writes the new access token and
-// the rotated refresh token back into the same Secret.
+// Refresher refreshes the access token of every opted-in Secret a
+// ChatGPT-login ModelConfig names before it expires, and writes the new
+// access token and the rotated refresh token back into the same Secret.
 type Refresher struct {
 	kube     client.Client
 	secrets  client.Reader
+	writer   client.Writer
 	http     *http.Client
 	tokenURL string
 	clientID string
 	now      func() time.Time
 }
 
-// NewRefresher returns a Refresher writing through kube and reading Secrets
-// through secrets, which should be uncached: a cache of every Secret would be
-// held for the few that are logins.
-func NewRefresher(kube client.Client, secrets client.Reader, httpClient *http.Client, tokenURL, clientID string) *Refresher {
-	return &Refresher{kube: kube, secrets: secrets, http: httpClient, tokenURL: tokenURL, clientID: clientID, now: time.Now}
+// NewRefresher returns a Refresher listing ModelConfigs through kube,
+// reading Secrets through secrets, which should be uncached (a cache of every
+// Secret would be held for the few that are logins), and writing them through
+// writer.
+func NewRefresher(kube client.Client, secrets client.Reader, writer client.Writer, httpClient *http.Client, tokenURL, clientID string) *Refresher {
+	return &Refresher{kube: kube, secrets: secrets, writer: writer, http: httpClient, tokenURL: tokenURL, clientID: clientID, now: time.Now}
 }
 
 // SetupWithManager registers the refresher, keyed by the Secret each
@@ -101,6 +109,13 @@ func (r *Refresher) Reconcile(ctx context.Context, req reconcile.Request) (recon
 		}
 		return reconcile.Result{}, err
 	}
+	// A Secret that has not opted in is never written; its ModelConfig
+	// reports why. Labelling it changes that status, which enqueues the
+	// login again.
+	if !v1alpha3.IsChatGPTLoginSecret(secret.Labels) {
+		logger.Info("ChatGPT login Secret is not labelled; not refreshing it", "label", v1alpha3.ChatGPTLoginLabel)
+		return reconcile.Result{}, nil
+	}
 	// An access token without a readable expiry is never refreshed on a
 	// guess: each refresh spends the refresh token, so a guess repeated on
 	// every retry would churn the login.
@@ -127,7 +142,7 @@ func (r *Refresher) Reconcile(ctx context.Context, req reconcile.Request) (recon
 	}
 	// The update carries the read's resourceVersion: a login written in the
 	// meantime (a person signing in again) wins over this refresh.
-	if err := r.kube.Update(ctx, updated); err != nil {
+	if err := r.writer.Update(ctx, updated); err != nil {
 		if apierrors.IsConflict(err) {
 			logger.Info("ChatGPT login changed while it was refreshed; keeping the newer login")
 			return reconcile.Result{RequeueAfter: minRetry}, nil

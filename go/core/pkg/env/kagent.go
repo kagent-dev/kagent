@@ -43,6 +43,14 @@ var (
 		ComponentController,
 	)
 
+	ChatGPTLoginRefresherServiceAccount = RegisterStringVar(
+		"KAGENT_CHATGPT_LOGIN_REFRESHER_SERVICE_ACCOUNT",
+		"",
+		"ServiceAccount in KAGENT_NAMESPACE the ChatGPT login refresher impersonates to write login Secrets; "+
+			"the chart grants it updates on Secrets labelled kagent.dev/chatgpt-login=true only. Empty writes as the controller.",
+		ComponentController,
+	)
+
 	// Standalone runtime settings supplied by the controller in managed runtimes.
 
 	KagentName = RegisterStringVar(

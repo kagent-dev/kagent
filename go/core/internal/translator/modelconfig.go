@@ -118,8 +118,13 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 				addSemanticFailure("InvalidProviderConfig", "a ChatGPT login requires apiKeySecret")
 				break
 			}
-			requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "ChatGPTLoginKeyNotFound",
+			secret := requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "ChatGPTLoginKeyNotFound",
 				v1alpha3.ChatGPTAccessTokenKey, v1alpha3.ChatGPTRefreshTokenKey, v1alpha3.ChatGPTAccountIDKey)
+			// The refresher rewrites the login's Secret, so only a Secret
+			// that opts in may be one.
+			if secret != nil && !v1alpha3.IsChatGPTLoginSecret(secret.Labels) {
+				addReferenceFailure("ChatGPTLoginNotOptedIn", fmt.Sprintf("secret %s is not labelled %s=true; the ChatGPT login refresher writes only Secrets that opt in", config.Spec.APIKeySecret, v1alpha3.ChatGPTLoginLabel))
+			}
 		case !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "":
 			requireAPIKey()
 		}

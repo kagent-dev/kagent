@@ -187,6 +187,14 @@ Controller ServiceAccount name
 {{- end }}
 
 {{/*
+ChatGPT login refresher ServiceAccount name: the identity the controller
+impersonates to write ChatGPT login Secrets.
+*/}}
+{{- define "kagent.chatgptLoginRefresher.serviceAccountName" -}}
+{{- printf "%s-chatgpt-login-refresher" (include "kagent.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
 Substrate worker ServiceAccount name
 */}}
 {{- define "kagent.substrateWorkerPool.serviceAccountName" -}}

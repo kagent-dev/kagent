@@ -1,0 +1,91 @@
+suite: test chatgpt login refresher rbac
+templates:
+  - rbac/chatgpt-login-refresher.yaml
+  - controller-configmap.yaml
+release:
+  name: kagent
+  namespace: kagent
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: names the refresher's account to the controller
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.KAGENT_CHATGPT_LOGIN_REFRESHER_SERVICE_ACCOUNT
+          value: kagent-chatgpt-login-refresher
+
+  - it: lets the controller impersonate only the refresher's account
+    template: rbac/chatgpt-login-refresher.yaml
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [serviceaccounts]
+              resourceNames: [kagent-chatgpt-login-refresher]
+              verbs: [impersonate]
+
+  - it: grants the refresher's account update on Secrets only, cluster-wide by default
+    template: rbac/chatgpt-login-refresher.yaml
+    documentSelector:
+      path: kind
+      value: ClusterRole
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              verbs: [update]
+
+  - it: grants it per namespace when rbac.namespaces is set
+    template: rbac/chatgpt-login-refresher.yaml
+    set:
+      rbac:
+        namespaces: [kagent, team]
+    asserts:
+      - containsDocument:
+          kind: Role
+          apiVersion: rbac.authorization.k8s.io/v1
+          name: kagent-chatgpt-login-refresher
+          namespace: team
+          any: true
+      - containsDocument:
+          kind: RoleBinding
+          apiVersion: rbac.authorization.k8s.io/v1
+          name: kagent-chatgpt-login-refresher
+          namespace: team
+          any: true
+      - containsDocument:
+          kind: ClusterRole
+          apiVersion: rbac.authorization.k8s.io/v1
+          name: kagent-chatgpt-login-refresher
+        not: true
+
+  - it: admits the account's updates to labelled Secrets only
+    template: rbac/chatgpt-login-refresher.yaml
+    documentSelector:
+      path: kind
+      value: ValidatingAdmissionPolicy
+    asserts:
+      - equal:
+          path: spec.matchConditions[0].expression
+          value: request.userInfo.username == 'system:serviceaccount:kagent:kagent-chatgpt-login-refresher'
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: oldObject\.metadata\.labels\['kagent\.dev/chatgpt-login'\] == 'true'
+
+  - it: renders no admission policy where the API server lacks it
+    template: rbac/chatgpt-login-refresher.yaml
+    capabilities:
+      apiVersions: []
+    asserts:
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+        not: true

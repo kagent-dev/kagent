@@ -1,0 +1,133 @@
+{{- /*
+The ChatGPT login refresher writes the Secrets ModelConfig authors name as
+their logins. It writes as a ServiceAccount of its own, which the controller
+impersonates: the account may update Secrets, and the admission policy below
+admits its update only to a Secret labelled kagent.dev/chatgpt-login=true
+before and after the write. The controller's own Secret rights stay as they
+are; it needs them for the companion Secrets of the API.
+*/ -}}
+{{- include "kagent.rbac.validate" . -}}
+{{- $refresher := include "kagent.chatgptLoginRefresher.serviceAccountName" . -}}
+{{- $namespace := include "kagent.namespace" . -}}
+{{- $rbacNamespaces := include "kagent.rbacNamespaces" . | fromJsonArray -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $refresher }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $refresher }}-impersonator
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  resourceNames:
+  - {{ $refresher }}
+  verbs:
+  - impersonate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $refresher }}-impersonator
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $refresher }}-impersonator
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kagent.controller.serviceAccountName" . | quote }}
+  namespace: {{ $namespace }}
+{{- range $scope := ($rbacNamespaces | default (list "")) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ ternary "Role" "ClusterRole" (ne $scope "") }}
+metadata:
+  name: {{ $refresher }}
+  {{- with $scope }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ ternary "RoleBinding" "ClusterRoleBinding" (ne $scope "") }}
+metadata:
+  name: {{ $refresher }}
+  {{- with $scope }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ ternary "Role" "ClusterRole" (ne $scope "") }}
+  name: {{ $refresher }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $refresher }}
+  namespace: {{ $namespace }}
+{{- end }}
+{{- if .Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $refresher }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:
+      - ""
+      apiVersions:
+      - v1
+      operations:
+      - UPDATE
+      resources:
+      - secrets
+  matchConditions:
+  - name: chatgpt-login-refresher
+    expression: request.userInfo.username == {{ printf "system:serviceaccount:%s:%s" $namespace $refresher | squote }}
+  validations:
+  - expression: >-
+      has(oldObject.metadata.labels) && 'kagent.dev/chatgpt-login' in oldObject.metadata.labels &&
+      oldObject.metadata.labels['kagent.dev/chatgpt-login'] == 'true' &&
+      has(object.metadata.labels) && 'kagent.dev/chatgpt-login' in object.metadata.labels &&
+      object.metadata.labels['kagent.dev/chatgpt-login'] == 'true'
+    message: the ChatGPT login refresher updates only Secrets labelled kagent.dev/chatgpt-login=true
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $refresher }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $refresher }}
+  validationActions:
+  - Deny
+{{- end }}

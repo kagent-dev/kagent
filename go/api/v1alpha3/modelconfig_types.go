@@ -277,7 +277,8 @@ type OpenAIConfig struct {
 	// API key under apiKeySecretKey (the default), or a ChatGPT subscription
 	// login under the fixed keys access_token, refresh_token and account_id,
 	// with apiKeySecretKey unset. A ChatGPT login is accepted by the Codex
-	// harness only; the controller refreshes its access token in the Secret.
+	// harness only; the controller refreshes its access token in the Secret,
+	// which must opt in with the label kagent.dev/chatgpt-login: "true".
 	// +optional
 	// +kubebuilder:validation:Enum=apiKey;chatgptOAuth
 	// +kubebuilder:default=apiKey
@@ -306,6 +307,17 @@ const (
 	ChatGPTRefreshTokenKey = "refresh_token"
 	ChatGPTAccountIDKey    = "account_id"
 )
+
+// ChatGPTLoginLabel opts a Secret in to the ChatGPT login refresher, which
+// rewrites only a Secret carrying it with the value "true": a ModelConfig
+// naming any other Secret as its login is refused.
+const ChatGPTLoginLabel = "kagent.dev/chatgpt-login"
+
+// IsChatGPTLoginSecret reports whether a Secret's labels opt it in to the
+// ChatGPT login refresher.
+func IsChatGPTLoginSecret(labels map[string]string) bool {
+	return labels[ChatGPTLoginLabel] == "true"
+}
 
 // ChatGPTOAuth reports whether the OpenAI credential is a ChatGPT
 // subscription login rather than an API key.

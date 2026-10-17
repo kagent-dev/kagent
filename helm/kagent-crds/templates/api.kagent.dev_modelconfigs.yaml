@@ -481,7 +481,8 @@ spec:
                       API key under apiKeySecretKey (the default), or a ChatGPT subscription
                       login under the fixed keys access_token, refresh_token and account_id,
                       with apiKeySecretKey unset. A ChatGPT login is accepted by the Codex
-                      harness only; the controller refreshes its access token in the Secret.
+                      harness only; the controller refreshes its access token in the Secret,
+                      which must opt in with the label kagent.dev/chatgpt-login: "true".
                     enum:
                     - apiKey
                     - chatgptOAuth

@@ -90,7 +90,7 @@ func TestChatGPTLoginCredentialDelivery(t *testing.T) {
 	kube := interactionKubeClient(t)
 	accessToken := unsignedJWT(time.Now().Add(30 * 24 * time.Hour))
 	const accountID = "chatgpt-account-e2e"
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "chatgpt-login-", Namespace: "kagent"}, StringData: map[string]string{
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "chatgpt-login-", Namespace: "kagent", Labels: map[string]string{v1alpha3.ChatGPTLoginLabel: "true"}}, StringData: map[string]string{
 		v1alpha3.ChatGPTAccessTokenKey: accessToken, v1alpha3.ChatGPTRefreshTokenKey: "refresh-token-e2e", v1alpha3.ChatGPTAccountIDKey: accountID,
 	}}
 	require.NoError(t, kube.Create(t.Context(), secret))

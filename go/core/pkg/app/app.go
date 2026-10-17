@@ -66,6 +66,7 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -295,7 +296,11 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	// The one refresher of every ChatGPT login: it runs on the elected leader
 	// alone, so no two replicas spend the same refresh token.
-	chatGPTLogins := chatgptlogin.NewRefresher(manager.GetClient(), manager.GetAPIReader(),
+	chatGPTLoginWriter, err := chatGPTLoginWriter(manager)
+	if err != nil {
+		return err
+	}
+	chatGPTLogins := chatgptlogin.NewRefresher(manager.GetClient(), manager.GetAPIReader(), chatGPTLoginWriter,
 		&http.Client{Timeout: 30 * time.Second}, chatgptlogin.TokenURL, chatgptlogin.ClientID)
 	if err := chatGPTLogins.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("add ChatGPT login refresher to controller manager: %w", err)
@@ -617,4 +622,21 @@ func sessionVolumeAdmission(ctx context.Context, logger *slog.Logger) (sessionsv
 		return nil, err
 	}
 	return admission, nil
+}
+
+// chatGPTLoginWriter is the client the ChatGPT login refresher writes Secrets
+// through: the configured ServiceAccount, impersonated, whose Secret updates
+// the chart limits to opted-in logins; the manager's client when none is set.
+func chatGPTLoginWriter(manager manager.Manager) (client.Writer, error) {
+	serviceAccount := kagentenv.ChatGPTLoginRefresherServiceAccount.Get()
+	if serviceAccount == "" {
+		return manager.GetClient(), nil
+	}
+	config := rest.CopyConfig(manager.GetConfig())
+	config.Impersonate = rest.ImpersonationConfig{UserName: "system:serviceaccount:" + env(kagentenv.KagentNamespace) + ":" + serviceAccount}
+	writer, err := client.New(config, client.Options{Scheme: manager.GetScheme(), Mapper: manager.GetRESTMapper()})
+	if err != nil {
+		return nil, fmt.Errorf("create ChatGPT login writer: %w", err)
+	}
+	return writer, nil
 }
