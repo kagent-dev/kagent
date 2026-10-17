@@ -174,6 +174,38 @@ kill -KILL $$
 	}
 }
 
+func TestProcessDriverCompletesATurnWhoseAppServerExitsAfterTheTerminalEvent(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"message-1","delta":"done"}}'
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+exit 0
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
+		Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 5 * time.Second,
+	})
+	sink := &recordingSink{}
+	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "hello"}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Failure != nil || sink.text.String() != "done" {
+		t.Fatalf("outcome = %#v, text = %q", outcome, sink.text.String())
+	}
+}
+
 func TestProcessDriverSharedAgentNotifications(t *testing.T) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "codex")

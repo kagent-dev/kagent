@@ -42,10 +42,13 @@ type ProcessDriver struct {
 }
 
 type processSession struct {
-	command    *exec.Cmd
-	stdin      io.WriteCloser
-	client     *rpcClient
-	wait       <-chan error
+	command *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  *os.File
+	client  *rpcClient
+	// exited is closed once Wait has returned; exitErr is its result.
+	exited     chan struct{}
+	exitErr    error
 	stderr     *utils.BoundedBuffer
 	translator *eventTranslator
 }
@@ -99,19 +102,24 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Codex stdin: %w", err)
 	}
-	stdout, err := command.StdoutPipe()
+	// A pipe of our own rather than StdoutPipe: Wait closes a StdoutPipe as soon
+	// as the process exits, which races the reader for the frames still in it.
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Codex stdout: %w", err)
 	}
+	command.Stdout = stdoutWriter
 	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	command.Stderr = stderr
-	if err := command.Start(); err != nil {
+	err = command.Start()
+	_ = stdoutWriter.Close()
+	if err != nil {
+		_ = stdout.Close()
 		return runtime.Outcome{}, fmt.Errorf("start Codex App Server: %w", err)
 	}
-	wait := make(chan error, 1)
-	go func() { wait <- command.Wait(); close(wait) }()
 	client := newRPCClient(stdin, stdout, d.config.MaxFrameBytes)
-	session := &processSession{command: command, stdin: stdin, client: client, wait: wait, stderr: stderr}
+	session := &processSession{command: command, stdin: stdin, stdout: stdout, client: client, exited: make(chan struct{}), stderr: stderr}
+	go func() { session.exitErr = command.Wait(); close(session.exited) }()
 	sessionOwnedByPendingTurn := false
 	defer func() {
 		if !sessionOwnedByPendingTurn {
@@ -195,7 +203,9 @@ func mcpOnlyApprovalPolicy() map[string]any {
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
-	client, command, wait, stderr, translator := session.client, session.command, session.wait, session.stderr, session.translator
+	client, command, translator := session.client, session.command, session.translator
+	exited := session.exited
+	var streamGrace <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -208,15 +218,20 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				_ = utils.TerminateProcessGroup(command.Process)
 			}
 			select {
-			case <-wait:
+			case <-session.exited:
 			case <-time.After(d.config.InterruptGrace):
 				_ = utils.KillProcessGroup(command.Process)
-				<-wait
+				<-session.exited
 			}
 			return runtime.Outcome{}, ctx.Err()
-		case waitErr := <-wait:
-			if waitErr != nil {
-				return runtime.Outcome{}, fmt.Errorf("codex App Server exited: %w: %s", waitErr, strings.TrimSpace(stderr.String()))
+		case <-exited:
+			// The exit can be observed before the frames written ahead of it and
+			// before the stream closes: keep reading until it does, bounded by
+			// the interrupt grace, since a child process can hold stdout open.
+			exited, streamGrace = nil, time.After(d.config.InterruptGrace)
+		case <-streamGrace:
+			if session.exitErr != nil {
+				return runtime.Outcome{}, fmt.Errorf("codex App Server exited: %w: %s", session.exitErr, strings.TrimSpace(session.stderr.String()))
 			}
 			return runtime.Outcome{}, fmt.Errorf("codex App Server exited without a terminal event")
 		case frame, ok := <-client.frames:
@@ -448,19 +463,21 @@ func codexInputResponse(request runtime.InputRequest, response runtime.InputResp
 }
 
 func (d *ProcessDriver) stopSession(session *processSession) {
+	// Closing stdout last unblocks a reader whose stream a child process holds open.
+	defer func() { _ = session.stdout.Close() }()
 	_ = session.stdin.Close()
 	select {
-	case <-session.wait:
+	case <-session.exited:
 		return
 	case <-time.After(d.config.InterruptGrace):
 	}
 
 	_ = utils.TerminateProcessGroup(session.command.Process)
 	select {
-	case <-session.wait:
+	case <-session.exited:
 	case <-time.After(d.config.InterruptGrace):
 		_ = utils.KillProcessGroup(session.command.Process)
-		<-session.wait
+		<-session.exited
 	}
 }
 
@@ -487,10 +504,10 @@ func rejectWorkspaceConfig(workspace string) error {
 func (d *ProcessDriver) protocolError(err error, session *processSession) error {
 	if errors.Is(err, errStreamClosed) {
 		select {
-		case waitErr, exited := <-session.wait:
-			if exited && waitErr != nil {
-				err = fmt.Errorf("%w: codex App Server exited: %v", err, waitErr)
-			} else if exited {
+		case <-session.exited:
+			if session.exitErr != nil {
+				err = fmt.Errorf("%w: codex App Server exited: %v", err, session.exitErr)
+			} else {
 				err = fmt.Errorf("%w: codex App Server exited with status 0", err)
 			}
 		case <-time.After(d.config.InterruptGrace):
