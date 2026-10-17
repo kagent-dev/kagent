@@ -420,6 +420,8 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 				aggregatedText.WriteString(part.Text)
 			}
 		}
+		// Closing-only thinking deltas carry replay state, not displayable content.
+		parts = slices.DeleteFunc(parts, func(part *genai.Part) bool { return part.Text == "" })
 		if len(parts) > 0 {
 			if !yield(&model.LLMResponse{
 				Partial:      true,
@@ -471,6 +473,11 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	finalParts := aggregatedParts
 	if aggregatedText.Len() > 0 {
 		finalParts = append(finalParts, &genai.Part{Text: aggregatedText.String()})
+	}
+	finalParts, err := mergeMistralThinkingParts(finalParts)
+	if err != nil {
+		yield(&model.LLMResponse{ErrorCode: openAIContentError, ErrorMessage: err.Error()}, nil)
+		return
 	}
 	for _, idx := range indices {
 		tc := toolCallsAcc[idx]

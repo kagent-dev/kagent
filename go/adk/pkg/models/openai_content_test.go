@@ -21,20 +21,23 @@ func TestOpenAIMistralContent(t *testing.T) {
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			thinking := `{"type":"thinking","thinking":[{"type":"text","text":"Let me think."}],"closed":true}`
 			answer := `{"type":"text","text":"{\"answer\":"}`
+			reference := `{"type":"reference","reference_ids":[1]}`
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if stream {
 					w.Header().Set("Content-Type", "text/event-stream")
 					for _, content := range []string{
 						`[{"type":"thinking","thinking":[{"type":"text","text":"Let me "}],"closed":false}]`,
-						`[{"type":"thinking","thinking":[{"type":"text","text":"think."}],"closed":true},` + answer + `]`,
+						`[{"type":"thinking","thinking":[{"type":"text","text":"think."}],"closed":false}]`,
+						`[{"type":"thinking","thinking":[],"closed":true},` + answer + `]`,
 						`"42}"`,
+						`[` + reference + `]`,
 					} {
 						fmt.Fprintf(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":%s}}]}\n\n", content)
 					}
 					fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5,\"total_tokens\":8}}\n\ndata: [DONE]\n\n")
 				} else {
 					w.Header().Set("Content-Type", "application/json")
-					fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":[%s,{"type":"text","text":"{\"answer\":42}"}]},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}}`, thinking)
+					fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":[%s,{"type":"text","text":"{\"answer\":42}"},%s]},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}}`, thinking, reference)
 				}
 			}))
 			t.Cleanup(server.Close)
@@ -54,6 +57,7 @@ func TestOpenAIMistralContent(t *testing.T) {
 					continue
 				}
 				for _, part := range resp.Content.Parts {
+					require.NotEmpty(t, part.Text)
 					if part.Thought {
 						partialThought.WriteString(part.Text)
 					} else {
@@ -62,6 +66,7 @@ func TestOpenAIMistralContent(t *testing.T) {
 				}
 			}
 			require.NotNil(t, final)
+			require.Len(t, final.Content.Parts, 2)
 			require.True(t, final.TurnComplete)
 			require.Equal(t, genai.FinishReasonStop, final.FinishReason)
 			require.Equal(t, int32(8), final.UsageMetadata.TotalTokenCount)
@@ -90,6 +95,11 @@ func TestOpenAIMistralContent(t *testing.T) {
 			require.NotNil(t, messages[0].OfAssistant)
 			wire, err := json.Marshal(messages[0])
 			require.NoError(t, err)
+			wantThinking := thinking
+			if stream {
+				wantThinking = `{"type":"thinking","thinking":[{"type":"text","text":"Let me "},{"type":"text","text":"think."}],"closed":true}`
+			}
+			require.JSONEq(t, `{"role":"assistant","content":[`+wantThinking+`,{"type":"text","text":"{\"answer\":42}"}],"tool_calls":[]}`, string(wire))
 			var replay struct {
 				Role    string `json:"role"`
 				Content []struct {
@@ -103,17 +113,9 @@ func TestOpenAIMistralContent(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(wire, &replay))
 			require.Equal(t, "assistant", replay.Role)
-			if stream {
-				require.Len(t, replay.Content, 3)
-				require.NotNil(t, replay.Content[0].Closed)
-				require.False(t, *replay.Content[0].Closed)
-				require.NotNil(t, replay.Content[1].Closed)
-				require.True(t, *replay.Content[1].Closed)
-			} else {
-				require.Len(t, replay.Content, 2)
-				require.NotNil(t, replay.Content[0].Closed)
-				require.True(t, *replay.Content[0].Closed)
-			}
+			require.Len(t, replay.Content, 2)
+			require.NotNil(t, replay.Content[0].Closed)
+			require.True(t, *replay.Content[0].Closed)
 			var replayThought, replayAnswer strings.Builder
 			for _, chunk := range replay.Content {
 				switch chunk.Type {
@@ -140,10 +142,17 @@ func TestOpenAIStreamingContentVariants(t *testing.T) {
 		content []string
 		want    string
 		wantErr bool
+		thought bool
 	}{
 		{name: "plain text and empty deltas", content: []string{`null`, `"hello"`, `[]`, `" world"`, `""`}, want: "hello world"},
 		{name: "literal JSON string", content: []string{`"[{\"type\":\"text\",\"text\":\"literal\"}]"`}, want: `[{"type":"text","text":"literal"}]`},
 		{name: "invalid thinking", content: []string{`[{"type":"thinking","thinking":"invalid"}]`}, wantErr: true},
+		{name: "unknown extension", content: []string{`[{"type":"future","text":{"value":42},"thinking":false},{"type":"text","text":"answer"}]`}, want: "answer"},
+		{name: "thinking fragments marked closed", content: []string{
+			`[{"type":"thinking","thinking":[{"type":"text","text":"a "}],"closed":true}]`,
+			`[{"type":"thinking","thinking":[{"type":"text","text":"plan"}],"closed":true}]`,
+		}, want: "a plan", thought: true},
+		{name: "thinking extension", content: []string{`[{"type":"thinking","thinking":[{"type":"future","text":{"value":42}},{"type":"text","text":"a plan"}],"closed":true}]`}, want: "a plan", thought: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +181,7 @@ func TestOpenAIStreamingContentVariants(t *testing.T) {
 				require.False(t, final.Partial)
 				require.Len(t, final.Content.Parts, 1)
 				require.Equal(t, tt.want, final.Content.Parts[0].Text)
-				require.False(t, final.Content.Parts[0].Thought)
+				require.Equal(t, tt.thought, final.Content.Parts[0].Thought)
 			}
 		})
 	}
@@ -223,7 +232,9 @@ func TestChatCompletionInvalidContentChunks(t *testing.T) {
 	for _, content := range []string{
 		`[{"type":"thinking","thinking":"invalid"}]`,
 		`[{"type":"text","text":42}]`,
-		`[{"type":"unknown","text":"must not become an answer"}]`,
+		`[{"type":"thinking","thinking":[{"type":"text","text":42}]}]`,
+		`[{"type":"thinking","thinking":[{"text":"missing type"}]}]`,
+		`[{"text":"missing type"}]`,
 	} {
 		t.Run(content, func(t *testing.T) {
 			var completion openai.ChatCompletion
