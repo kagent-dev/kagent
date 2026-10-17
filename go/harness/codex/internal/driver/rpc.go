@@ -31,6 +31,10 @@ type w3cTraceContext struct {
 	Tracestate  string `json:"tracestate,omitempty"`
 }
 
+// errStreamClosed reports an App Server stdout that ended before the protocol
+// did, which means the process is exiting.
+var errStreamClosed = errors.New("codex protocol stream closed")
+
 type rpcFrame struct {
 	message rpcMessage
 	err     error
@@ -101,7 +105,7 @@ func (c *rpcClient) call(ctx context.Context, id int, method string, params any)
 			return nil, ctx.Err()
 		case frame, ok := <-c.frames:
 			if !ok {
-				return nil, fmt.Errorf("codex protocol stream closed while awaiting %s", method)
+				return nil, fmt.Errorf("%w while awaiting %s", errStreamClosed, method)
 			}
 			if frame.err != nil {
 				return nil, frame.err

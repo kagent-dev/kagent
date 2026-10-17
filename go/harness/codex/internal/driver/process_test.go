@@ -124,6 +124,56 @@ printf graceful > "$EXIT_CAPTURE"
 	}
 }
 
+func TestProcessDriverNamesTheExitOfAnAppServerWhoseStreamCloses(t *testing.T) {
+	for _, test := range []struct{ name, script, want string }{
+		{
+			name: "awaiting thread/start",
+			script: `read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+echo "thread start panicked" >&2
+exit 101
+`,
+			want: "codex protocol stream closed while awaiting thread/start: codex App Server exited: exit status 101: thread start panicked",
+		},
+		{
+			name: "during the turn",
+			script: `read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+echo "turn killed" >&2
+kill -KILL $$
+`,
+			want: "codex protocol stream closed without a terminal event: codex App Server exited: signal: killed: turn killed",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			executable := filepath.Join(directory, "codex")
+			if err := os.WriteFile(executable, []byte("#!/bin/sh\n"+test.script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			workspace := filepath.Join(directory, "workspace")
+			if err := os.Mkdir(workspace, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			driver := NewProcessDriver(ProcessConfig{
+				Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+				Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 5 * time.Second,
+			})
+			_, err := driver.Run(t.Context(), runtime.Turn{Prompt: "hello"}, &recordingSink{})
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("Run() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestProcessDriverSharedAgentNotifications(t *testing.T) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "codex")

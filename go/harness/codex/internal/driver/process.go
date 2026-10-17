@@ -5,6 +5,7 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -125,10 +126,10 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		"capabilities": map[string]bool{"experimentalApi": true},
 	}
 	if _, err := client.call(ctx, 1, "initialize", initialize); err != nil {
-		return runtime.Outcome{}, d.protocolError(err, stderr)
+		return runtime.Outcome{}, d.protocolError(err, session)
 	}
 	if err := client.notify("initialized", map[string]any{}); err != nil {
-		return runtime.Outcome{}, d.protocolError(err, stderr)
+		return runtime.Outcome{}, d.protocolError(err, session)
 	}
 	threadID := turn.ContinuationID
 	if threadID == "" {
@@ -137,7 +138,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
 		})
 		if err != nil {
-			return runtime.Outcome{}, d.protocolError(err, stderr)
+			return runtime.Outcome{}, d.protocolError(err, session)
 		}
 		threadID, err = responseThreadID(result)
 		if err != nil {
@@ -149,7 +150,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
 		})
 		if err != nil {
-			return runtime.Outcome{}, d.protocolError(err, stderr)
+			return runtime.Outcome{}, d.protocolError(err, session)
 		}
 		resumedID, err := responseThreadID(result)
 		if err != nil {
@@ -166,7 +167,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		"threadId": threadID, "input": []map[string]any{{"type": "text", "text": turn.Prompt}},
 	})
 	if err != nil {
-		return runtime.Outcome{}, d.protocolError(err, stderr)
+		return runtime.Outcome{}, d.protocolError(err, session)
 	}
 	turnID, err := responseTurnID(result)
 	if err != nil {
@@ -220,7 +221,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 			return runtime.Outcome{}, fmt.Errorf("codex App Server exited without a terminal event")
 		case frame, ok := <-client.frames:
 			if !ok {
-				return runtime.Outcome{}, fmt.Errorf("codex protocol stream closed without a terminal event")
+				return runtime.Outcome{}, d.protocolError(fmt.Errorf("%w without a terminal event", errStreamClosed), session)
 			}
 			if frame.err != nil {
 				return runtime.Outcome{}, frame.err
@@ -480,8 +481,23 @@ func rejectWorkspaceConfig(workspace string) error {
 	return nil
 }
 
-func (d *ProcessDriver) protocolError(err error, stderr *utils.BoundedBuffer) error {
-	message := strings.TrimSpace(stderr.String())
+// protocolError adds what the App Server left behind to err. A closed stream
+// means the process is exiting: wait for it, bounded by the interrupt grace, so
+// the error names its exit and carries the stderr that Wait finishes copying.
+func (d *ProcessDriver) protocolError(err error, session *processSession) error {
+	if errors.Is(err, errStreamClosed) {
+		select {
+		case waitErr, exited := <-session.wait:
+			if exited && waitErr != nil {
+				err = fmt.Errorf("%w: codex App Server exited: %v", err, waitErr)
+			} else if exited {
+				err = fmt.Errorf("%w: codex App Server exited with status 0", err)
+			}
+		case <-time.After(d.config.InterruptGrace):
+			err = fmt.Errorf("%w: codex App Server still running after %s", err, d.config.InterruptGrace)
+		}
+	}
+	message := strings.TrimSpace(session.stderr.String())
 	if message == "" {
 		return err
 	}
