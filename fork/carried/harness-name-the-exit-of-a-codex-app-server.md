@@ -1,0 +1,3 @@
+| Carried commit (subject) | Why the platform needs it | Upstream |
+|---|---|---|
+| `fix(harness): name the exit of a Codex App Server whose stream closes` | A Codex App Server that exits mid-protocol failed the turn with `codex protocol stream closed while awaiting thread/start` or `… without a terminal event`, without the exit status or the stderr, because the driver reported the closed stdout before `Wait` had copied stderr (giantswarm/kagent-upstream#663). The driver now waits for the process, bounded by the interrupt grace, and the error names the exit status or signal and carries the stderr | to file — prepared in the fork: branch `upstream/codex-name-app-server-exit` |
