@@ -4767,7 +4767,7 @@ refinements:
         When `gen_ai.agent.name` is not available, it SHOULD be `invoke_agent`.
         Semantic conventions for individual GenAI systems and frameworks MAY specify different span name format.
     note: |
-      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime that emits no invoke_agent span of its own. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`. Usage and finish reasons are only on inference spans, so they are opt-in here and never set.
+      Named `invoke_agent {gen_ai.agent.name}`. kagent opens it only for a runtime whose own spans carry no invocation segment: a native coding agent it wraps. Such an agent may still mark a span of its own invoke_agent, as Claude Code does with `claude_code.interaction`; that span is a child of this one, so a consumer counts turns by `kagent.invocation.segment`. A resumed segment links to the segment that started the native turn, with `kagent.invocation.relationship` set to `resume_origin`. Usage and finish reasons are only on inference spans, so they are opt-in here and never set.
     provenance:
       path: telemetry/registry/signals.yaml
     requirement_level: recommended
