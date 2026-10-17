@@ -201,16 +201,35 @@ jobs:
             done
             # The charts depend on nothing outside gsoci: upstream's ghcr.io
             # subcharts (kmcp, kmcp-crds, kagent-tools) leave the templates and
-            # their conditions turn false, before the dependency update.
-            scripts/fork/chart-gsoci-deps.sh helm/kagent helm/kagent-crds
+            # their conditions turn false; the file:// subchart grafana-mcp is
+            # pushed to gsoci at the same version and the HTTP one oauth2-proxy
+            # mirrored there, both before the dependency update pulls them, so a
+            # pulled chart builds its dependencies from gsoci alone.
+            charts="oci://${registry}/${repo}/helm"
+            scripts/fork/chart-gsoci-deps.sh --local-repo "${charts}" --mirror-list /tmp/.mirror helm/kagent helm/kagent-crds
+            make helm-tools
+            helm push "dist/grafana-mcp-${VERSION}.tgz" "${charts}"
+            : > /tmp/.mirror_refs
+            while read -r name version from; do
+              mkdir -p "/tmp/.mirror-${name}"
+              helm pull "${name}" --repo "${from}" --version "${version}" -d "/tmp/.mirror-${name}"
+              for tgz in /tmp/.mirror-"${name}"/*.tgz; do
+                helm push "${tgz}" "${charts}"
+                tag=${tgz##*/"${name}"-}
+                echo "${registry}/${repo}/helm/${name}:${tag%.tgz}" >> /tmp/.mirror_refs
+              done
+            done < /tmp/.mirror
             # helm-publish pushes to $(HELM_REPO)/kagent/helm.
             make helm-publish HELM_REPO="oci://${registry}/giantswarm"
             # The pushed charts, by digest, for the signing step.
             : > /tmp/.cosign_refs
-            for chart in kagent-crds kagent; do
+            for chart in grafana-mcp kagent-crds kagent; do
               ref="${registry}/${repo}/helm/${chart}"
               echo "${ref}@$(digest "${ref}:${VERSION}")" | tee -a /tmp/.cosign_refs
             done
+            while read -r ref; do
+              echo "${ref%:*}@$(digest "${ref}")" | tee -a /tmp/.cosign_refs
+            done < /tmp/.mirror_refs
       - architect/cosign-sign-verify
 
   record:
@@ -261,10 +280,11 @@ jobs:
             check runtimeImages.ompHarness.digest "${D[omp-harness]}" omp-harness
             check tag "${VERSION}" version
             check registry "${registry}" registry
-            # Nothing the published charts declare is pulled from ghcr.io.
+            # The published charts' dependencies all come from gsoci: none from
+            # ghcr.io, a file:// path or an HTTP chart repository.
             for chart in kagent kagent-crds; do
-              if helm show chart "oci://${registry}/${repo}/helm/${chart}" --version "${VERSION}" | grep -n 'ghcr\.io' >&2; then
-                echo "ERROR: chart ${chart} ${VERSION} declares a ghcr.io dependency" >&2
+              if helm show chart "oci://${registry}/${repo}/helm/${chart}" --version "${VERSION}" | grep -nE 'ghcr\.io|repository: *"?(file|https?)://' >&2; then
+                echo "ERROR: chart ${chart} ${VERSION} declares a dependency from outside gsoci" >&2
                 exit 1
               fi
             done

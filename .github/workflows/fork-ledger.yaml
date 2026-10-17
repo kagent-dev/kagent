@@ -25,6 +25,12 @@ concurrency:
 jobs:
   fork-ledger:
     runs-on: ubuntu-latest
+    services:
+      # A plain-HTTP OCI registry standing in for gsoci in the chart test.
+      registry:
+        image: gsoci.azurecr.io/giantswarm/zot:v2.1.21
+        ports:
+          - 5000:5000
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -40,7 +46,9 @@ jobs:
         run: scripts/fork/harness-pins.sh check
       - name: Test the Releases table's writer and gate
         run: scripts/fork/releases-row_test.sh
-      - name: Test that the published charts depend on nothing from ghcr.io
+      - name: Test that the published charts pull and build from gsoci alone
+        env:
+          CHART_TEST_REGISTRY: localhost:5000
         run: scripts/fork/chart-gsoci-deps_test.sh
       - name: Show the table
         run: scripts/fork/carried.sh >> "$GITHUB_STEP_SUMMARY"
