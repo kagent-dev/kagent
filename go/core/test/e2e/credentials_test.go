@@ -163,16 +163,20 @@ func TestGitArtifactCredentialDelivery(t *testing.T) {
 		ready := time.Now()
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 		_, _, task := fixture.send(t, "What is 2+2?")
-		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task text: %q", taskText(task))
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "turn after golden boot: task text: %q", taskText(task))
 		for _, repository := range []string{gitSkillRepository, gitPluginRepository} {
-			requireEgressCredential(t, receivedBefore(repositories.received(repository), ready), "Authorization", wantAuthorization, everyRoute)
+			require.NoError(t, egressCredentialViolation(receivedBefore(repositories.received(repository), ready), "Authorization", wantAuthorization, everyRoute),
+				"golden boot fetch of %s", repository)
 		}
 
+		// The mock answers the sandbox turn only after the shell tool's output
+		// reaches the model, so a tool call the runtime rejects fails here.
 		sandbox := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 		_, _, task = sandbox.send(t, gitSourceRequestPrompt)
-		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task text: %q", taskText(task))
-		require.Contains(t, taskText(task), "SANDBOX_SOURCE_REQUESTED")
-		require.NoError(t, sandboxSourceRequestViolation(receivedSince(repositories.received(gitSkillRepository), ready), credential))
+		require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "sandbox source request turn: task text: %q", taskText(task))
+		require.Contains(t, taskText(task), "SANDBOX_SOURCE_REQUESTED", "sandbox source request turn")
+		require.NoError(t, sandboxSourceRequestViolation(receivedSince(repositories.received(gitSkillRepository), ready), credential),
+			"sandbox source requests to %s", gitSkillRepository)
 	})
 }
 

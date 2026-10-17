@@ -82,8 +82,8 @@
             "type": "function_call",
             "status": "completed",
             "call_id": "call_codex_source_request",
-            "name": "shell_command",
-            "arguments": "{\"command\": \"export GIT_TERMINAL_PROMPT=0; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem ls-remote {{SOURCE_URL}}; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem -c 'http.extraHeader=Authorization: Basic kagent-credential-injected' ls-remote {{SOURCE_URL}}; echo SANDBOX_SOURCE_REQUESTS_DONE\", \"workdir\": \"/data/workspace\"}"
+            "name": "exec_command",
+            "arguments": "{\"cmd\": \"export GIT_TERMINAL_PROMPT=0; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem ls-remote {{SOURCE_URL}}; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem -c 'http.extraHeader=Authorization: Basic kagent-credential-injected' ls-remote {{SOURCE_URL}}; printf 'SANDBOX_SOURCE_REQUESTS_%s\\\\n' DONE\", \"workdir\": \"/data/workspace\"}"
           }
         ],
         "parallel_tool_calls": false,
@@ -99,7 +99,7 @@
       "name": "codex_source_request_result",
       "match": {
         "match_type": "contains",
-        "input": "call_codex_source_request"
+        "input": "SANDBOX_SOURCE_REQUESTS_DONE"
       },
       "response": {
         "id": "resp_codex_source_done",
