@@ -20,7 +20,7 @@ const (
 	// PinnedOmpVersion is the omp release the image installs; the adapter
 	// refuses any other binary, so a protocol change arrives only with a
 	// reviewed bump. Renovate moves it with the Dockerfile's OMP_VERSION.
-	PinnedOmpVersion = "18.11.1"
+	PinnedOmpVersion = "18.11.3"
 )
 
 // Config is the part of the compiled Agent the omp adapter runs.
