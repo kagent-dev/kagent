@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"printf 'entries=%s\\\\n' \\\"$(ls -A /workspace | tr '\\\\n' ' ')\\\"; test -f /mirrors/e2e/alpha.git/HEAD && echo mirrors=present; if touch /mirrors/written 2>/dev/null; then echo mirrors=writable; else echo mirrors=read-only; fi; echo own > /workspace/OWN && echo own=written; echo PROBE_DONE\"}"
+                    "arguments": "{\"command\": \"printf 'entries=%s\\\\n' \\\"$(ls -A /workspace | tr '\\\\n' ' ')\\\"; test -f /mirrors/e2e/alpha.git/HEAD && echo mirrors=present; if touch /mirrors/written 2>/dev/null; then echo mirrors=writable; else echo mirrors=read-only; fi; echo own > /workspace/OWN && echo own=written; printf 'PROBE_%s\\\\n' DONE\"}"
                   }
                 }
               ]
@@ -88,7 +88,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"echo before-pause > /workspace/NOTE && echo NOTE_WRITTEN\"}"
+                    "arguments": "{\"command\": \"echo before-pause > /workspace/NOTE && printf 'NOTE_%s\\\\n' WRITTEN\"}"
                   }
                 }
               ]
@@ -160,7 +160,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"printf 'note=%s\\\\n' \\\"$(cat /workspace/NOTE)\\\"; echo READ_DONE\"}"
+                    "arguments": "{\"command\": \"printf 'note=%s\\\\n' \\\"$(cat /workspace/NOTE)\\\"; printf 'READ_%s\\\\n' DONE\"}"
                   }
                 }
               ]

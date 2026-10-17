@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"export GIT_TERMINAL_PROMPT=0; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem ls-remote {{SOURCE_URL}}; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem -c 'http.extraHeader=Authorization: Basic kagent-credential-injected' ls-remote {{SOURCE_URL}}; echo SANDBOX_SOURCE_REQUESTS_DONE\"}"
+                    "arguments": "{\"command\": \"export GIT_TERMINAL_PROMPT=0; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem ls-remote {{SOURCE_URL}}; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem -c 'http.extraHeader=Authorization: Basic kagent-credential-injected' ls-remote {{SOURCE_URL}}; printf 'SANDBOX_SOURCE_REQUESTS_%s\\\\n' DONE\"}"
                   }
                 }
               ]
@@ -156,7 +156,7 @@
             "id": "toolu_source_request",
             "name": "Bash",
             "input": {
-              "command": "export GIT_TERMINAL_PROMPT=0; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem ls-remote {{SOURCE_URL}}; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem -c 'http.extraHeader=Authorization: Basic kagent-credential-injected' ls-remote {{SOURCE_URL}}; echo SANDBOX_SOURCE_REQUESTS_DONE"
+              "command": "export GIT_TERMINAL_PROMPT=0; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem ls-remote {{SOURCE_URL}}; git -c http.sslCAInfo=/run/kagent/egress/trust-bundle.pem -c 'http.extraHeader=Authorization: Basic kagent-credential-injected' ls-remote {{SOURCE_URL}}; printf 'SANDBOX_SOURCE_REQUESTS_%s\\n' DONE"
             }
           }
         ],
@@ -177,7 +177,8 @@
           "content": [
             {
               "type": "tool_result",
-              "tool_use_id": "toolu_source_request"
+              "tool_use_id": "toolu_source_request",
+              "content": [{"type": "text", "text": "SANDBOX_SOURCE_REQUESTS_DONE"}]
             }
           ]
         }

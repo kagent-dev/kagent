@@ -26,7 +26,7 @@
                   "type": "function",
                   "function": {
                     "name": "bash",
-                    "arguments": "{\"command\": \"cd /workspace/e2e/alpha && git switch --quiet main && printf 'toplevel=%s\\\\nbranch=%s\\\\n' \\\"$(git rev-parse --show-toplevel)\\\" \\\"$(git status --short --branch | head -1)\\\"; echo REPORT_DONE\"}"
+                    "arguments": "{\"command\": \"cd /workspace/e2e/alpha && git switch --quiet main && printf 'toplevel=%s\\\\nbranch=%s\\\\n' \\\"$(git rev-parse --show-toplevel)\\\" \\\"$(git status --short --branch | head -1)\\\"; printf 'REPORT_%s\\\\n' DONE\"}"
                   }
                 }
               ]

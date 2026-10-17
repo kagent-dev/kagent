@@ -67,7 +67,7 @@
                 {
                   "id": "call_count",
                   "type": "function",
-                  "function": { "name": "bash", "arguments": "{\"command\": \"echo \\\"sleeps=$(pgrep sleep | wc -l | tr -d ' ').\\\"; ps -o pid,ppid,pgid,stat,args || true\"}" }
+                  "function": { "name": "bash", "arguments": "{\"command\": \"printf '%s=%s.\\\\n' sleeps \\\"$(pgrep sleep | wc -l | tr -d ' ')\\\"; ps -o pid,ppid,pgid,stat,args || true\"}" }
                 }
               ]
             },

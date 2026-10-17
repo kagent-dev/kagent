@@ -24,7 +24,7 @@
             "id": "toolu_workspace_probe",
             "name": "Bash",
             "input": {
-              "command": "printf 'pwd=%s\\n' \"$(pwd)\"\nfor repository in e2e/alpha e2e/beta; do\n  if [ -f \"$repository/.git/objects/info/alternates\" ]; then printf '%s alternates=%s\\n' \"$repository\" \"$(cat \"$repository/.git/objects/info/alternates\")\"; fi\n  printf '%s tree=%s\\n' \"$repository\" \"$(ls -A \"$repository\" 2>/dev/null | grep -vx .git | wc -l | tr -d ' ')\"\n  printf '%s origin=%s\\n' \"$repository\" \"$(git -C \"$repository\" rev-parse origin/main 2>/dev/null)\"\ndone\nif git -C e2e/beta switch --quiet main 2>/dev/null; then printf 'switched=%s\\n' \"$(ls e2e/beta | tr '\\n' ' ')\"; fi\nprintf 'probe=done\\n'\n"
+              "command": "printf 'pwd=%s\\n' \"$(pwd)\"\nfor repository in e2e/alpha e2e/beta; do\n  if [ -f \"$repository/.git/objects/info/alternates\" ]; then printf '%s alternates=%s\\n' \"$repository\" \"$(cat \"$repository/.git/objects/info/alternates\")\"; fi\n  printf '%s tree=%s\\n' \"$repository\" \"$(ls -A \"$repository\" 2>/dev/null | grep -vx .git | wc -l | tr -d ' ')\"\n  printf '%s origin=%s\\n' \"$repository\" \"$(git -C \"$repository\" rev-parse origin/main 2>/dev/null)\"\ndone\nif git -C e2e/beta switch --quiet main 2>/dev/null; then printf 'switched=%s\\n' \"$(ls e2e/beta | tr '\\n' ' ')\"; fi\nprintf 'probe=%s\\n' done\n"
             }
           }
         ],
@@ -45,7 +45,8 @@
           "content": [
             {
               "type": "tool_result",
-              "tool_use_id": "toolu_workspace_probe"
+              "tool_use_id": "toolu_workspace_probe",
+              "content": [{"type": "text", "text": "probe=done"}]
             }
           ]
         }

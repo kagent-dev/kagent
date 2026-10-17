@@ -21,7 +21,7 @@
                 {
                   "id": "call_tickets",
                   "type": "function",
-                  "function": { "name": "bash", "arguments": "{\"command\": \"git -c http.extraHeader='Authorization: Bearer kagent-credential-injected' ls-remote TICKET_REPOSITORY_URL main >/dev/null 2>&1 && echo TICKETS_$((40+2)) || echo TICKETS_REFUSED\"}" }
+                  "function": { "name": "bash", "arguments": "{\"command\": \"git -c http.extraHeader='Authorization: Bearer kagent-credential-injected' ls-remote TICKET_REPOSITORY_URL main >/dev/null 2>&1 && echo TICKETS_$((40+2)) || printf 'TICKETS_%s\\\\n' REFUSED\"}" }
                 }
               ]
             },

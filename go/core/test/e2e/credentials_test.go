@@ -332,12 +332,8 @@ func startCredentialMock(t *testing.T, header, value string) (string, *requestRe
 	for i := range config.Anthropic {
 		config.Anthropic[i].Match.Headers = append(config.Anthropic[i].Match.Headers, match)
 	}
-	routes := http.NewServeMux()
-	routes.HandleFunc("POST /v1/chat/completions", mockllm.NewOpenAIProvider(config.OpenAI).Handle)
-	routes.HandleFunc("POST /v1/responses", mockllm.NewOpenAIResponseProvider(config.OpenAIResponse).Handle)
-	routes.HandleFunc("POST /v1/messages", mockllm.NewAnthropicProvider(config.Anthropic).Handle)
 	received := &requestRecorder{}
-	return startHostServer(t, received.record(routes)).URL, received
+	return startHostServer(t, received.record(mockLLMRoutes(config))).URL, received
 }
 
 // startHostServer listens on every interface so runtimes reach the server

@@ -1007,17 +1007,7 @@ func startMockLLMServer(t *testing.T, fixtures fs.ReadFileFS, fixture string) st
 
 func startMockLLMConfig(t *testing.T, cfg mockllm.Config) string {
 	t.Helper()
-	server := mockllm.NewServer(cfg)
-	baseURL, err := server.Start(t.Context())
-	if err != nil {
-		t.Fatalf("start mock LLM: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := server.Stop(context.Background()); err != nil {
-			t.Errorf("stop mock LLM: %v", err)
-		}
-	})
-	return baseURL
+	return startHostServer(t, mockLLMRoutes(cfg)).URL
 }
 
 func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
