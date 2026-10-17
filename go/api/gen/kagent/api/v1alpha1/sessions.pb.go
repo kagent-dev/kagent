@@ -323,8 +323,9 @@ func (x *Session) GetLastTurnTime() *timestamppb.Timestamp {
 type SessionProvider struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Hostname string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	// The provider instance of a Session stored before provider existed;
-	// read as provider when that is empty, never written.
+	// The provider instance as clients read it before provider existed: equal
+	// to provider on a new Session, and read as provider when that is empty on
+	// a Session stored before it.
 	//
 	// Deprecated: Marked as deprecated in kagent/api/v1alpha1/sessions.proto.
 	Audience string `protobuf:"bytes,2,opt,name=audience,proto3" json:"audience,omitempty"`

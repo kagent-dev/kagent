@@ -44,6 +44,7 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 		Providers:      []grant.Provider{{Hostname: "gitlab.example.com", PathPrefix: "/api/", Scheme: "Bearer", Provider: "gitlab"}},
 	}, time.Minute)
 	require.NoError(t, err)
+	//nolint:staticcheck // the admission keeps audience equal to provider.
 	wantProvider := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Scheme: "Bearer", Provider: "gitlab", Audience: "gitlab"}
 
 	created, err := server.CreateSession(ctx, &apiv1alpha1.CreateSessionRequest{Agent: agent, RequestId: "with-grant", VolumeSource: source, AdmissionToken: token})

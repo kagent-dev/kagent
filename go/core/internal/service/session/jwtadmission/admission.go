@@ -261,6 +261,7 @@ func admitted(grant *claims, authority string) (session.Admitted, error) {
 		scopes[scope] = true
 		result.Providers = append(result.Providers, &apiv1alpha1.SessionProvider{
 			Hostname: granted.Hostname, Scheme: granted.Scheme, PathPrefix: granted.PathPrefix,
+			//nolint:staticcheck // audience mirrors provider for clients that read it before provider existed.
 			Provider: instance, Audience: instance,
 		})
 	}

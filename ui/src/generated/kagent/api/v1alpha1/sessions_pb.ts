@@ -177,8 +177,9 @@ export type SessionProvider = Message<"kagent.api.v1alpha1.SessionProvider"> & {
   hostname: string;
 
   /**
-   * The provider instance of a Session stored before provider existed;
-   * read as provider when that is empty, never written.
+   * The provider instance as clients read it before provider existed: equal
+   * to provider on a new Session, and read as provider when that is empty on
+   * a Session stored before it.
    *
    * @generated from field: string audience = 2 [deprecated = true];
    * @deprecated

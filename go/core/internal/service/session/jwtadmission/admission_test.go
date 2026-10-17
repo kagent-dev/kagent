@@ -130,6 +130,7 @@ func TestAdmitsAValidGrant(t *testing.T) {
 	require.Equal(t, []string{"acme/api", "acme/web"}, admitted.Changed)
 	require.Len(t, admitted.Providers, 1)
 	require.True(t, proto.Equal(&apiv1alpha1.SessionProvider{
+		//nolint:staticcheck // the admission keeps audience equal to provider.
 		Hostname: "github.com", Scheme: "Basic", Provider: "github", Audience: "github",
 	}, admitted.Providers[0]), "provider = %v", admitted.Providers[0])
 
