@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -59,7 +60,7 @@ func TestSendMessageRetryContract(t *testing.T) {
 				}
 				return response, nil
 			}}
-			result, err := sendMessageWithRetry(t.Context(), client, request)
+			result, err := sendMessageWithRetry(t.Context(), sendRetryWindow, client, request)
 			if test.retry {
 				require.NoError(t, err)
 				require.Same(t, response, result)
@@ -86,7 +87,7 @@ func TestSendMessageRetryStopsAtDeadline(t *testing.T) {
 		return nil, rejected.Err()
 	}}
 	_, request := newMessageRequest(t, "What is 3+3?")
-	_, err = sendMessageWithRetry(ctx, client, request)
+	_, err = sendMessageWithRetry(ctx, sendRetryWindow, client, request)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Equal(t, 1, calls)
 }
@@ -115,4 +116,43 @@ func TestRetryWindowBoundsOnlyRefusals(t *testing.T) {
 	})
 	require.ErrorIs(t, err, refused)
 	require.GreaterOrEqual(t, calls, 2)
+}
+
+// A refusal that stands longer than the default window is waited out by a
+// longer one, such as a workspace Session's, whose first resume mounts its
+// volume; the default window gives up on it.
+func TestSendMessageRetryWindowIsTheCallers(t *testing.T) {
+	rejected, err := status.New(codes.FailedPrecondition, "not accepted").WithDetails(&errdetails.ErrorInfo{
+		Domain: a2atype.ProtocolDomain, Metadata: map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED"},
+	})
+	require.NoError(t, err)
+	refusingFor := func(d time.Duration) retrySendClient {
+		until := time.Now().Add(d)
+		return retrySendClient{send: func(context.Context, *a2apb.SendMessageRequest) (*a2apb.SendMessageResponse, error) {
+			if time.Now().Before(until) {
+				return nil, rejected.Err()
+			}
+			return &a2apb.SendMessageResponse{}, nil
+		}}
+	}
+	_, request := newMessageRequest(t, "Probe the workspace.")
+
+	_, err = sendMessageWithRetry(t.Context(), 50*time.Millisecond, refusingFor(500*time.Millisecond), request)
+	require.True(t, sendNotAccepted(err), "a short window returns the standing refusal, got %v", err)
+
+	response, err := sendMessageWithRetry(t.Context(), 5*time.Second, refusingFor(500*time.Millisecond), request)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+}
+
+func TestDescribeActor(t *testing.T) {
+	const name = "session-1"
+	require.Equal(t, "no Actor session-1", describeActor(name, nil))
+	require.Equal(t, "Actor session-1 ACTOR_STATE_RESUMING", describeActor(name, &ateapipb.Actor{
+		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RESUMING},
+	}))
+	mount := "NodePublishVolume failed: mount volume nfs-server.default.svc.cluster.local:/pvc-1 timeout after 110s"
+	require.Equal(t, "Actor session-1 ACTOR_STATE_CRASHED, crashed: "+mount, describeActor(name, &ateapipb.Actor{
+		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_CRASHED, Crash: &ateapipb.ActorCrash{Message: mount}},
+	}))
 }
