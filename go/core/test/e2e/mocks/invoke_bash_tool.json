@@ -185,6 +185,36 @@
           { "index": 0, "role": "assistant", "message": { "content": "FETCH_FAILED" } }
         ]
       }
+    },
+    {
+      "name": "exit_the_harness",
+      "match": {
+        "match_type": "contains",
+        "message": { "content": "Exit the harness.", "role": "user" }
+      },
+      "response": {
+        "id": "chatcmpl-bash-10",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "role": "assistant",
+            "message": {
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_exit",
+                  "type": "function",
+                  "function": { "name": "bash", "arguments": "{\"command\": \"kill -QUIT \\\"$PPID\\\"; sleep 60\"}" }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
     }
   ]
 }
