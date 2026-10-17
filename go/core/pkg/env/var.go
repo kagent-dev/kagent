@@ -68,7 +68,7 @@ const (
 
 // Var holds the metadata for a single registered environment variable.
 type Var struct {
-	// Name is the environment variable name (e.g. "KAGENT_NAMESPACE").
+	// Name is the environment variable name (e.g. "OTEL_SERVICE_NAME").
 	Name string `json:"name"`
 	// DefaultValue is the stringified default value.
 	DefaultValue string `json:"default"`

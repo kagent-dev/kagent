@@ -12,6 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from kagent.adk.types import create_agent
+
 
 @pytest.fixture(autouse=True)
 def _isolate_types_import(monkeypatch):
@@ -38,7 +40,7 @@ def _make_agent_config(instruction: str):
     import kagent.adk.types as types_mod
 
     return types_mod.AgentConfig(
-        model={"type": "gemini", "model": "gemini-3.5-flash"},
+        model={"model": "gemini-3.5-flash", "gemini": {}},
         description="test agent",
         instruction=instruction,
     )
@@ -50,7 +52,7 @@ class TestStaticInstruction:
     def test_instruction_with_curly_braces_creates_agent(self):
         """Agent with {repo} in instruction should not raise KeyError."""
         config = _make_agent_config("Clone the repo {repo} and run tests on branch {branch}.")
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert agent is not None
         assert agent.name == "test_agent"
 
@@ -58,39 +60,39 @@ class TestStaticInstruction:
         """Instruction should be set as static_instruction to bypass state injection."""
         original = "Use {variable} in prompt"
         config = _make_agent_config(original)
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert agent.static_instruction == original
 
     def test_dynamic_instruction_is_empty_without_memory(self):
         """Without memory, the dynamic instruction field should not be set."""
         config = _make_agent_config("Deploy to {environment}")
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert not agent.instruction
 
     def test_instruction_without_braces_works(self):
         """Instructions without curly braces should still work normally."""
         config = _make_agent_config("Just a normal instruction without braces.")
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert agent.static_instruction == "Just a normal instruction without braces."
 
     def test_instruction_with_nested_braces(self):
         """Instructions with nested or multiple braces should be preserved."""
         original = "Format: {{key}}, single: {value}, mixed: {a} and {{b}}"
         config = _make_agent_config(original)
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert agent.static_instruction == original
 
     def test_instruction_with_json_like_content(self):
         """Instructions containing JSON-like content should be preserved."""
         original = 'Return output as JSON: {"status": "ok", "data": {items}}'
         config = _make_agent_config(original)
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert agent.static_instruction == original
 
     def test_empty_instruction(self):
         """Empty instruction should still work."""
         config = _make_agent_config("")
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         assert agent.static_instruction == ""
 
 
@@ -126,7 +128,7 @@ class TestStaticInstructionBypass:
         KeyError on unresolved {variables}.
         """
         config = _make_agent_config("Safe instruction")
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
         # Temporarily set instruction to a raw string to verify ADK behavior
         agent.instruction = "Raw string with {repo}"
         mock_ctx = MagicMock()

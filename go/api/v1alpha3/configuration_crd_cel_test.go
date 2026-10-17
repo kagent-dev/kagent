@@ -18,9 +18,11 @@ package v1alpha3
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -36,7 +38,7 @@ import (
 func TestConfigurationCRDValidation(t *testing.T) {
 	testEnv := &envtest.Environment{
 		BinaryAssetsDirectory: envtestAssetsDir(t),
-		CRDDirectoryPaths:     []string{crdBasesDir(t)},
+		CRDDirectoryPaths:     []string{crdChartDir(t)},
 		ErrorIfCRDPathMissing: true,
 	}
 	cfg, err := testEnv.Start()
@@ -69,6 +71,103 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
 
+	t.Run("MCP timeout bounds", func(t *testing.T) {
+		for _, field := range []string{"timeout", "sseReadTimeout"} {
+			for _, value := range []time.Duration{-time.Second, 0, 250 * time.Millisecond, 9223372036 * time.Second, 9223372036*time.Second + 1} {
+				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-timeout-", Namespace: namespace},
+					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com"}}
+				duration := &metav1.Duration{Duration: value}
+				if field == "timeout" {
+					server.Spec.Timeout = duration
+				} else {
+					server.Spec.SseReadTimeout = duration
+				}
+				err := cl.Create(ctx, server)
+				if value <= 0 || value > 9223372036*time.Second {
+					require.ErrorContains(t, err, field)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		}
+	})
+
+	t.Run("optional Harness workload", func(t *testing.T) {
+		for _, variant := range []struct {
+			name string
+			spec HarnessSpec
+		}{
+			{"kagent", HarnessSpec{Kagent: &KagentHarness{}}},
+			{"claude", HarnessSpec{Claude: &ClaudeHarness{}}},
+			{"codex", HarnessSpec{Codex: &CodexHarness{}}},
+			{"byo", HarnessSpec{BYO: &BYOHarness{}}},
+		} {
+			for _, workload := range []string{"omitted", "empty"} {
+				t.Run(variant.name+"/"+workload, func(t *testing.T) {
+					harness := validHarness(namespace, "workload-"+variant.name+"-"+workload, *variant.spec.DeepCopy())
+					harness.Spec.Workload = HarnessWorkload{}
+					harness.SetGroupVersionKind(GroupVersion.WithKind("Harness"))
+					data, err := json.Marshal(harness)
+					require.NoError(t, err)
+					object := &unstructured.Unstructured{}
+					require.NoError(t, object.UnmarshalJSON(data))
+					_, found, err := unstructured.NestedMap(object.Object, "spec", "workload")
+					require.NoError(t, err)
+					require.False(t, found, "zero workload must be omitted during serialization")
+					if workload == "empty" {
+						require.NoError(t, unstructured.SetNestedMap(object.Object, map[string]any{}, "spec", "workload"))
+					}
+					err = cl.Create(ctx, object)
+					if variant.name == "byo" {
+						require.ErrorContains(t, err, "BYO harnesses must specify workload.image")
+						require.ErrorContains(t, err, "BYO harnesses must specify workload.command")
+					} else {
+						require.NoError(t, err)
+						require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), harness))
+						require.Equal(t, HarnessWorkload{}, harness.Spec.Workload)
+					}
+				})
+			}
+		}
+	})
+
+	t.Run("Harness image defaulting", func(t *testing.T) {
+		for _, variant := range []struct {
+			name string
+			spec HarnessSpec
+		}{
+			{"kagent", HarnessSpec{Kagent: &KagentHarness{}}},
+			{"claude", HarnessSpec{Claude: &ClaudeHarness{}}},
+			{"codex", HarnessSpec{Codex: &CodexHarness{}}},
+			{"byo", HarnessSpec{BYO: &BYOHarness{}, Workload: HarnessWorkload{Command: []string{"/app"}}}},
+		} {
+			for _, imageCase := range []struct {
+				name  string
+				image *string
+			}{
+				{"omitted", nil},
+				{"empty", new("")},
+				{"tagged", new("registry/runtime:latest")},
+				{"pinned", new("registry/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+			} {
+				t.Run(fmt.Sprintf("%s/%s", variant.name, imageCase.name), func(t *testing.T) {
+					harness := validHarness(namespace, fmt.Sprintf("image-%s-%s", variant.name, imageCase.name), *variant.spec.DeepCopy())
+					harness.Spec.Workload.Image = imageCase.image
+					err := cl.Create(ctx, harness)
+					if imageCase.name == "omitted" && variant.name == "byo" {
+						require.ErrorContains(t, err, "BYO harnesses must specify workload.image")
+					} else if imageCase.name == "empty" || imageCase.name == "tagged" {
+						require.ErrorContains(t, err, "workload.image")
+					} else {
+						require.NoError(t, err)
+						require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(harness), harness))
+						require.Equal(t, imageCase.image, harness.Spec.Workload.Image)
+					}
+				})
+			}
+		}
+	})
+
 	cases := []struct {
 		name       string
 		object     ctrlclient.Object
@@ -77,7 +176,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "Harness requires one runtime",
 			object:     validHarness(namespace, "harness-no-runtime", HarnessSpec{}),
-			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
+			wantReject: "exactly one of the fields in [kagent codex claude byo] must be set",
 		},
 		{
 			name: "Harness rejects multiple runtimes",
@@ -85,13 +184,13 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				Kagent: &KagentHarness{},
 				Codex:  &CodexHarness{},
 			}),
-			wantReject: "exactly one of kagent, codex, claude, or byo must be specified",
+			wantReject: "exactly one of the fields in [kagent codex claude byo] must be set",
 		},
 		{
 			name: "Harness rejects tag-only image",
 			object: validHarness(namespace, "harness-tagged-image", HarnessSpec{
 				Kagent:   &KagentHarness{},
-				Workload: HarnessWorkload{Image: "registry.example.com/kagent:latest"},
+				Workload: HarnessWorkload{Image: new("registry.example.com/kagent:latest")},
 			}),
 			wantReject: "spec.workload.image",
 		},
@@ -134,7 +233,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		{
 			name:       "AgentTemplate tool requires one source",
 			object:     validAgentTemplate(namespace, "template-empty-tool", []ToolBinding{{}}),
-			wantReject: "exactly one of mcp or subAgent must be specified",
+			wantReject: "exactly one of the fields in [mcp subAgent] must be set",
 		},
 		{
 			name: "AgentTemplate tool rejects two sources",
@@ -147,7 +246,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					Name: "helper", Description: "delegate work", TemplateRef: &corev1.LocalObjectReference{Name: "helper"},
 				},
 			}}),
-			wantReject: "exactly one of mcp or subAgent must be specified",
+			wantReject: "exactly one of the fields in [mcp subAgent] must be set",
 		},
 		{
 			name: "AgentTemplate accepts a subagent template reference",
@@ -183,7 +282,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			object: compactionHarness(namespace, "compaction-no-strategy", KagentHarnessCompaction{
 				Summarizer: &KagentHarnessSummarizer{PromptTemplate: "Summarize.\n\n{conversation_history}"},
 			}),
-			wantReject: "compactionInterval or tokenThreshold must be specified",
+			wantReject: "at least one of the fields in [compactionInterval tokenThreshold] must be set",
 		},
 		{
 			name:       "Harness compaction pairs tokenThreshold with eventRetentionSize",
@@ -270,7 +369,8 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				var object ctrlclient.Object = template
 				if inline {
 					object = &Agent{ObjectMeta: template.ObjectMeta, Spec: AgentSpec{
-						Template: &template.Spec, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+						Template:   AgentTemplateSource{Inline: &template.Spec},
+						HarnessRef: corev1.LocalObjectReference{Name: "runner"},
 					}}
 				}
 				err := cl.Create(ctx, object)
@@ -282,7 +382,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				// Read back through the API so pruning a reference cannot masquerade as acceptance.
 				require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(object), object))
 				if agent, ok := object.(*Agent); ok {
-					require.Equal(t, binding, agent.Spec.Template.Tools[0].SubAgent)
+					require.Equal(t, binding, agent.Spec.Template.Inline.Tools[0].SubAgent)
 				} else {
 					require.Equal(t, binding, object.(*AgentTemplate).Spec.Tools[0].SubAgent)
 				}
@@ -291,55 +391,64 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	}
 
 	for _, inlineTemplate := range []bool{false, true} {
-		for _, inlineHarness := range []bool{false, true} {
-			name := fmt.Sprintf("agent-%t-%t", inlineTemplate, inlineHarness)
-			spec := AgentSpec{}
-			if inlineTemplate {
-				spec.Template = &AgentTemplateSpec{}
-			} else {
-				spec.TemplateRef = &corev1.LocalObjectReference{Name: "behavior"}
-			}
-			if inlineHarness {
-				spec.Harness = &validHarness(namespace, "runner", HarnessSpec{Kagent: &KagentHarness{}}).Spec
-			} else {
-				spec.HarnessRef = &corev1.LocalObjectReference{Name: "runner"}
-			}
-			t.Run(name, func(t *testing.T) {
-				agent := &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Spec: spec}
-				require.NoError(t, cl.Create(ctx, agent))
-				for _, field := range []string{"template", "harness"} {
-					invalid := agent.DeepCopy()
-					invalid.Name += "-both-" + field
-					invalid.ResourceVersion, invalid.UID = "", ""
-					if field == "template" {
-						invalid.Spec.Template = &AgentTemplateSpec{}
-						invalid.Spec.TemplateRef = &corev1.LocalObjectReference{Name: "behavior"}
-					} else {
-						invalid.Spec.Harness = &validHarness(namespace, "runner", HarnessSpec{Kagent: &KagentHarness{}}).Spec
-						invalid.Spec.HarnessRef = &corev1.LocalObjectReference{Name: "runner"}
-					}
-					require.ErrorContains(t, cl.Create(ctx, invalid), "exactly one of "+field)
-					invalid.Name = name + "-neither-" + field
-					if field == "template" {
-						invalid.Spec.Template = nil
-						invalid.Spec.TemplateRef = nil
-					} else {
-						invalid.Spec.Harness = nil
-						invalid.Spec.HarnessRef = nil
-					}
-					require.ErrorContains(t, cl.Create(ctx, invalid), "exactly one of "+field)
-				}
-			})
+		name := fmt.Sprintf("agent-inline-template-%t", inlineTemplate)
+		spec := AgentSpec{
+			HarnessRef: corev1.LocalObjectReference{Name: "runner"},
 		}
-	}
-	for _, field := range []string{"templateRef", "harnessRef"} {
-		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"}}
-		if field == "templateRef" {
-			spec.TemplateRef.Name = ""
+		if inlineTemplate {
+			spec.Template.Inline = &AgentTemplateSpec{}
 		} else {
-			spec.HarnessRef.Name = ""
+			spec.Template.Ref = &corev1.LocalObjectReference{Name: "behavior"}
 		}
-		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "empty-" + strings.ToLower(field)}, Spec: spec}), field+".name must not be empty")
+		t.Run(name, func(t *testing.T) {
+			agent := &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Spec: spec}
+			require.NoError(t, cl.Create(ctx, agent))
+
+			both := agent.DeepCopy()
+			both.Name += "-both"
+			both.ResourceVersion, both.UID = "", ""
+			both.Spec.Template = AgentTemplateSource{
+				Inline: &AgentTemplateSpec{}, Ref: &corev1.LocalObjectReference{Name: "behavior"},
+			}
+			require.ErrorContains(t, cl.Create(ctx, both), "exactly one of the fields in [inline ref] must be set")
+
+			neither := agent.DeepCopy()
+			neither.Name += "-neither"
+			neither.ResourceVersion, neither.UID = "", ""
+			neither.Spec.Template = AgentTemplateSource{}
+			require.ErrorContains(t, cl.Create(ctx, neither), "exactly one of the fields in [inline ref] must be set")
+		})
+	}
+	for _, field := range []string{"template", "harnessRef"} {
+		spec := map[string]any{
+			"template":   map[string]any{"ref": map[string]any{"name": "behavior"}},
+			"harnessRef": map[string]any{"name": "runner"},
+		}
+		delete(spec, field)
+		object := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": GroupVersion.String(), "kind": "Agent",
+			"metadata": map[string]any{"namespace": namespace, "name": "missing-" + field},
+			"spec":     spec,
+		}}
+		require.ErrorContains(t, cl.Create(ctx, object), field+": Required value")
+	}
+	for _, tc := range []struct {
+		name string
+		spec AgentSpec
+		want string
+	}{
+		{
+			name: "template",
+			spec: AgentSpec{Template: AgentTemplateSource{Ref: &corev1.LocalObjectReference{}}, HarnessRef: corev1.LocalObjectReference{Name: "runner"}},
+			want: "ref.name must not be empty",
+		},
+		{
+			name: "harness",
+			spec: AgentSpec{Template: AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: "behavior"}}},
+			want: "harnessRef.name must not be empty",
+		},
+	} {
+		require.ErrorContains(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "empty-" + tc.name + "-ref"}, Spec: tc.spec}), tc.want)
 	}
 
 	for _, tc := range cases {
@@ -362,12 +471,6 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}{
 			{kind: "Harness", object: harness, path: []string{"spec", "env"}},
 			{kind: "SandboxTemplate", object: sandboxTemplateForValidation(namespace, "env-sandbox", nil), path: []string{"spec", "env"}},
-			{kind: "Agent", object: &Agent{
-				ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "env-agent"},
-				Spec: AgentSpec{
-					Harness: &harness.Spec, TemplateRef: &corev1.LocalObjectReference{Name: "behavior"},
-				},
-			}, path: []string{"spec", "harness", "env"}},
 		} {
 			for _, tc := range []struct {
 				name       string
@@ -418,8 +521,8 @@ func sandboxTemplateForValidation(namespace, name string, mutate func(*SandboxTe
 }
 
 func validHarness(namespace, name string, overrides HarnessSpec) *Harness {
-	if overrides.Workload.Image == "" {
-		overrides.Workload.Image = "registry.example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if overrides.Workload.Image == nil {
+		overrides.Workload.Image = new("registry.example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	}
 	if overrides.Substrate.WorkerPoolRef.Name == "" {
 		overrides.Substrate.WorkerPoolRef.Name = "default"

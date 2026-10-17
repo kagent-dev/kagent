@@ -1,39 +1,16 @@
 # Development
 
-The [environment variable reference](docs/env.md) is generated from
-`go/core/pkg/env`. Register user-configurable settings there, including settings
-consumed by Python, the UI, or standalone runtimes. Exclude controller-generated
-payloads, credentials, private paths, and other internal process wiring.
-Keep defaults and descriptions aligned with
-their readers, then run `make env-docs`. Use `make env-docs-check` to run the same
-freshness check as CI.
+CLI and controller settings use the protobuf schemas in
+`proto/kagent/config/v1/config.proto` and Protovalidate. ADK runtime settings use
+`proto/kagent/config/v1/adk.proto`; other harnesses use their native config structs.
+See [process configuration](docs/architecture/process-configuration.md)
+for file locations, precedence, and examples.
 
-Register shared settings once, passing each consuming component to
-`RegisterStringVar`, `RegisterBoolVar`, `RegisterIntVar`, or
-`RegisterDurationVar`, for example:
-
-```go
-RegisterStringVar("KAGENT_LOG_LEVEL", "info", "Logging level.", ComponentController, ComponentCLI, ComponentAgentRuntime)
-```
-
-The reference lists shared settings under each component. `kagent env --component`
-matches any registered component; JSON output includes a `components` array.
-
-Kagent-owned settings use the `KAGENT_` prefix. Keep names defined by upstream
-SDKs and tools, such as `OTEL_*`, provider credentials, and `KUBECONFIG`, unchanged.
-The pre-release rename replaces the old unprefixed names: for example,
-`LOG_LEVEL` becomes `KAGENT_LOG_LEVEL`, `HTTP_BIND_ADDRESS` becomes
-`KAGENT_HTTP_BIND_ADDRESS`, and the Go ADK's `PORT` becomes `KAGENT_PORT`.
-The old names are no longer read by kagent.
-
-Both ADKs use `KAGENT_PORT` for their A2A listener; Python's former
-`KAGENT_A2A_GRPC_ADDRESS` is removed. The controller sets `80`. Standalone
-defaults remain `8080` for Go's shared HTTP/gRPC listener and `80` for Python's
-gRPC listener; Python's HTTP port is configured separately with `--port`.
-
-UI containers and Vite development use the same `KAGENT_*` inputs, documented in
-`ui/.env.example`. UI build-time switches use `KAGENT_UI_VITE_*`; extension settings
-use `KAGENT_UI_EXTENSION_*`. Other `KAGENT_*` settings are not exposed to the browser.
+Standard `OTEL_*` settings override the receiving process's telemetry defaults.
+Provider credentials, SDK trust, `KUBECONFIG`, UI settings, and test inputs remain
+environment interfaces. Register supported public variables in `go/core/pkg/env`,
+then run `make env-docs` and `make env-docs-check`. Generated runtime payloads,
+credentials, and private bootstrap paths are excluded from this reference.
 
 To understand how to develop for kagent, it's important to understand the architecture of the project. Please refer to the [README.md](README.md#architecture) file for an overview of the project.
 
@@ -89,34 +66,17 @@ helm upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
 Each workflow run includes a changelog in its summary and an artifact containing
 CLI binaries, checksums, and commit-specific chart archives.
 
-## Dependencies
+## Prerequisites
 
-Before you can run kagent in Kubernetes, you need to have the following tools installed:
-
-### Required Dependencies
-
+- **Docker** with **Docker Buildx** (v0.23.0+)
+- **Git**
+- **Go** (v1.27.0+)
+- **Helm**
 - **Kind** (v0.27.0+)
 - **kubectl** (v1.33.4+)
-- **Helm**
-- **Go** (v1.27.0+)
-- **Docker**
-- **Docker Buildx** (v0.23.0+)
 - **Make**
-
-### Installation Verification
-
-You can verify your installation by running:
-
-```shell
-# Check core dependencies
-kind version
-kubectl version
-helm version
-go version
-docker version
-docker buildx version
-make --version
-```
+- **Node.js** (v24.13.0+) with **Corepack/Yarn**
+- **uv** (v0.10.4+)
 
 ## How to run everything in Kubernetes
 
@@ -129,9 +89,9 @@ make create-kind-cluster
 2. Set your model provider:
 
 ```shell
-export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+export MODEL_PROVIDER=openAI
 #or
-export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
+export MODEL_PROVIDER=anthropic
 ```
 
 3. Set the provider's API key:
@@ -148,7 +108,7 @@ export ANTHROPIC_API_KEY=your-anthropic-api-key
 
 ```shell
 # Set your provider (supported: openAI, anthropic, azureOpenAI, gemini, ollama)
-KAGENT_DEFAULT_MODEL_PROVIDER=openAI
+MODEL_PROVIDER=openAI
 
 # Set the corresponding API key for your provider
 OPENAI_API_KEY=your-openai-api-key
@@ -182,12 +142,12 @@ runs `kagent install`. The Make target selects the Kind context, and the CLI the
 The command opens the Kagent dashboard after the installation completes.
 
 To apply personal Helm overrides without committing them, set
-`KAGENT_HELM_EXTRA_ARGS` in your `.env` file. The variable accepts one or more
+`HELM_ARGS` in your `.env` file. The variable accepts one or more
 Helm `--set` overrides:
 
 ```shell
 # .env
-KAGENT_HELM_EXTRA_ARGS=--set ui.replicas=0 --set controller.loglevel=debug
+HELM_ARGS=--set ui.replicas=0 --set config.logging.level=debug
 ```
 
 The Substrate chart version defaults to the `github.com/kagent-dev/substrate`
@@ -209,8 +169,8 @@ make kagent-cli-install \
   SUBSTRATE_PODCERT_VERSION=0.5.1
 ```
 
-The corresponding CLI environment variables are documented in
-[docs/env.md](docs/env.md).
+For direct CLI use, configure `install.substrate` and `install.podCertificate`
+in the [CLI config file](docs/architecture/process-configuration.md#cli).
 
 To access the UI, port-forward to the UI port on the `kagent-ui` service:
 
@@ -244,13 +204,15 @@ This installs the following components into your cluster:
 
 `make kagent-cli-install` deploys PostgreSQL as development infrastructure before
 installing Kagent and Substrate. PostgreSQL is not part of the Kagent Helm chart.
-A direct Helm installation requires a prepared database, a `kagent-postgres`
-connection Secret in the Kagent namespace, and a separately installed Substrate.
+A direct Helm installation requires a prepared database (see
+[Preparing your own database](helm/README.md#preparing-your-own-database)), the
+`kagent-postgres-owner` and `kagent-postgres-readwrite` connection Secrets in the
+Kagent namespace, and a separately installed Substrate.
 The optional addons above provide observability components.
 
 > **pgvector:** The PostgreSQL image `kagent install` deploys does not include the pgvector
 > extension. Vector features require a PostgreSQL deployment with pgvector and
-> `database.postgres.vectorEnabled=true`.
+> `config.database.vectorEnabled=true`.
 
 Verify the database connection by checking the controller logs:
 
@@ -291,19 +253,18 @@ make kagent-cli-install
 kubectl scale -n kagent deployment kagent-controller --replicas 0
 ```
 
-Run kagent with `KAGENT_A2A_DEBUG_ADDR=localhost:8080` environment variable set, and when it connect to agents it will go to "localhost:8080" instead of the Kubernetes service.
+For a standalone agent, mount a root runtime document at `/config/config.json`:
 
-Run the agent locally as well, with `--net=host` option, so it can connect to the kagent service on localhost. For example:
+```json
+{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"kebab-agent","namespace":"kagent"}}
+```
 
 ```bash
-docker run --rm \
-  -e KAGENT_API_URL=http://localhost:8083 \
-  -e KAGENT_GATEWAY_URL=http://localhost:8083 \
-  -e KAGENT_NAME=kebab-agent \
-  -e KAGENT_NAMESPACE=kagent \
-  --net=host \
-  localhost:5001/kebab:latest
+docker run --rm --net=host -v "$PWD/config.json:/config/config.json:ro" localhost:5001/kebab:latest
 ```
+
+The control plane must be reachable from the agent process. Managed agents receive
+these process settings from their Harness compiler.
 
 ## Telemetry
 
@@ -327,6 +288,6 @@ run; see the Conformance section of that document.
 
 To look at traces locally, `make otel-local` starts Jaeger with an OTLP receiver
 on ports 4317 and 4318 and its UI on http://localhost:16686. Point an install
-at it with `--set otel.traces.enabled=true --set otel.exporter.otlp.endpoint=http://<host>:4317`.
+at it with `--set config.runtimeDefaults.telemetry.traces.endpoint=http://<host>:4317`.
 `make otel-collector-kind` installs the reference collector from
 `examples/observability` into the kind cluster and prints what it receives.

@@ -7,14 +7,15 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/kagent-dev/mockllm"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	e2emocks "github.com/kagent-dev/kagent/go/core/test/e2e/mocks"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/kagent-dev/mockllm"
 )
 
 func main() {
-	logger, err := logging.NewFromEnv(os.Stderr)
+	logger, err := logging.New(os.Stderr, "info")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

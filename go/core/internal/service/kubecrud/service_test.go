@@ -6,17 +6,18 @@ import (
 	"slices"
 	"testing"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type testSession struct{}
@@ -361,7 +362,7 @@ func TestAgentServiceFiltersAndAuthorizesStoredObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	mutable.Spec.Template = &v1alpha3.AgentTemplateSpec{Description: "updated"}
+	mutable.Spec.Template = v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{Description: "updated"}}
 	if _, err := service.Update(ctx, mutable); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}

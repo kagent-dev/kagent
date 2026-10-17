@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type schedulerStore interface {

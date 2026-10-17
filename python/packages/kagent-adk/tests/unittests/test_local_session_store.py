@@ -6,7 +6,7 @@ from google.protobuf.json_format import ParseDict
 
 import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
-from kagent.adk.types import AgentConfig, Gemini
+from kagent.adk.types import AgentConfig, Config, Gemini, ModelConfig
 
 APP_NAME = "test-app"
 
@@ -31,13 +31,13 @@ def make_kagent_app(agent_config: AgentConfig | None = None) -> KAgentApp:
         agent_card=card,
         kagent_api_url="http://kagent-controller:8083",
         app_name=APP_NAME,
-        agent_config=agent_config,
+        config=Config(agent=agent_config),
     )
 
 
 def config_with_session_db_url(url: str | None) -> AgentConfig:
     return AgentConfig(
-        model=Gemini(type="gemini", model="gemini-2.5-flash"),
+        model=ModelConfig(model="gemini-2.5-flash", gemini=Gemini()),
         description="d",
         instruction="i",
         session_db_url=url,

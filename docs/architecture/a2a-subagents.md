@@ -19,7 +19,8 @@ the selected harness compiler emits its native, in-process representation.
 Kagent, Codex, and Claude support Shared bindings according to their runtime
 capabilities.
 
-For example, in an AgentTemplate spec (or an Agent's inline `template`):
+For example, in an AgentTemplate spec (or an Agent's inline
+`spec.template.inline`):
 
 ```yaml
 tools:

@@ -1,104 +1,44 @@
+{{- $namespace := include "kagent.namespace" . -}}
+{{- $apiURL := printf "http://%s-controller.%s.svc:%v" (include "kagent.fullname" .) $namespace .Values.controller.service.ports.port -}}
+{{- $watch := list -}}
+{{- with include "kagent.watchNamespaces" . -}}{{- $watch = splitList "," . -}}{{- end -}}
+{{- $database := dict "readWrite" (dict "urlFile" "/etc/kagent/secrets/database-readwrite-url") -}}
+{{- if not (include "kagent.database.skipMigrations" .) -}}
+{{- $_ := set $database "owner" (dict "urlFile" "/etc/kagent/secrets/database-owner-url") -}}
+{{- end -}}
+{{- $base := dict
+  "kubernetes" (dict "namespace" $namespace "watchNamespaces" $watch)
+  "server" (dict "bindAddress" (printf ":%v" .Values.controller.service.ports.targetPort))
+  "database" $database
+  "gateway" (dict "publicUrl" $apiURL)
+  "push" (dict)
+  "runtimeDefaults" (dict "controlPlaneUrl" $apiURL "gatewayUrl" $apiURL)
+-}}
+{{- $config := mergeOverwrite $base (deepCopy .Values.config) -}}
+{{- if and $config.sandboxes $config.sandboxes.guestImage -}}
+{{- $_ := set $config.sandboxes "guestImage" (include "kagent.mirroredImage" (dict "root" . "image" $config.sandboxes.guestImage)) -}}
+{{- end -}}
+{{- $_ := set $config "harnessImages" (include "kagent.builtinHarnessImages" . | mustFromJson) -}}
+{{- if .Values.controller.push.signing.secretName -}}
+{{- $_ := set $config.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
+{{- end -}}
+{{- if not (hasKey $config.push "issuer") -}}
+{{- $_ := set $config.push "issuer" (coalesce .Values.ui.externalUrl $config.gateway.publicUrl | trimSuffix "/") -}}
+{{- end -}}
+{{- if not (include "kagent.controller.metricsEnabled" .) -}}
+{{- $_ := set $config.metrics "bindAddress" "0" -}}
+{{- end -}}
+{{- if .Values.controller.substrateClientCertificate.enabled -}}
+{{- $_ := set $config.substrate "caFile" "/run/substrate-servicedns/trust-bundle.pem" -}}
+{{- $_ := set $config.substrate "clientCertFile" "/run/substrate-podidentity/credential-bundle.pem" -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "kagent.fullname" . }}-controller
-  namespace: {{ include "kagent.namespace" . }}
+  namespace: {{ $namespace }}
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
-  KAGENT_AUTH_MODE: {{ .Values.controller.auth.mode | quote }}
-  KAGENT_AUTH_USER_ID_CLAIM: {{ .Values.controller.auth.userIdClaim | quote }}
-  KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
-  KAGENT_A2A_PUSH_ISSUER: {{ coalesce .Values.controller.push.signing.issuer .Values.ui.externalUrl (include "kagent.a2aGatewayUrl" .) | trimSuffix "/" | quote }}
-  KAGENT_A2A_PUSH_ALLOW_HTTP: {{ .Values.controller.push.allowHTTP | quote }}
-  KAGENT_A2A_PUSH_ALLOW_PRIVATE_NETWORKS: {{ .Values.controller.push.allowPrivateNetworks | quote }}
-  DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
-  KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
-  KAGENT_SESSION_IDLE_TTL: {{ .Values.controller.sessionIdleTTL | quote }}
-  KAGENT_SESSION_SHARE_MAX_TTL: {{ .Values.controller.sessionShareMaxTTL | quote }}
-  {{- if .Values.ui.externalUrl }}
-  KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
-  {{- end }}
-  IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry | quote }}
-  IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
-  IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
-  {{- with .Values.controller.sandbox }}
-  KAGENT_SANDBOX_GUEST_IMAGE: {{ include "kagent.sandboxGuestImage" $ | quote }}
-  KAGENT_SANDBOX_CPU: {{ .cpu | quote }}
-  KAGENT_SANDBOX_MEMORY: {{ .memory | quote }}
-  KAGENT_SANDBOX_DEFAULT_TTL: {{ .defaultTTL | quote }}
-  KAGENT_SANDBOX_MAX_TTL: {{ .maxTTL | quote }}
-  {{- end }}
-  {{- with .Values.otel }}
-  {{- if not (or .traces.enabled .metrics.enabled .logs.enabled $.Values.controller.metrics.enabled) }}
-  OTEL_SDK_DISABLED: "true"
-  {{- end }}
-  OTEL_TRACES_EXPORTER: {{ ternary "otlp" "none" .traces.enabled | quote }}
-  OTEL_METRICS_EXPORTER: {{ ternary "otlp" "none" .metrics.enabled | quote }}
-  OTEL_LOGS_EXPORTER: {{ ternary "otlp" "none" .logs.enabled | quote }}
-  {{- with .exporter.otlp.endpoint }}
-  OTEL_EXPORTER_OTLP_ENDPOINT: {{ . | quote }}
-  {{- end }}
-  OTEL_EXPORTER_OTLP_PROTOCOL: {{ .exporter.otlp.protocol | default "grpc" | quote }}
-  {{- with .exporter.otlp.timeout }}
-  OTEL_EXPORTER_OTLP_TIMEOUT: {{ . | quote }}
-  {{- end }}
-  {{- range $signal := list "traces" "metrics" "logs" }}
-  {{- $config := index $.Values.otel $signal }}
-  {{- with $config.endpoint }}
-  OTEL_EXPORTER_OTLP_{{ upper $signal }}_ENDPOINT: {{ . | quote }}
-  {{- end }}
-  {{- with $config.protocol }}
-  OTEL_EXPORTER_OTLP_{{ upper $signal }}_PROTOCOL: {{ . | quote }}
-  {{- end }}
-  {{- end }}
-  OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: {{ ternary "SPAN_ONLY" "NO_CONTENT" .capture.messageContent | quote }}
-  KAGENT_OTEL_CAPTURE_RAW_API_BODIES: {{ .capture.rawApiBodies | quote }}
-  {{- with .capture.maxBytes }}
-  KAGENT_OTEL_MAX_CAPTURE_BYTES: {{ . | quote }}
-  {{- end }}
-  {{- with include "kagent.otel.resourceAttributes" $ }}
-  KAGENT_OTEL_RESOURCE_ATTRIBUTES: {{ . | quote }}
-  {{- end }}
-  {{- end }}
-  {{- if .Values.proxy.url }}
-  PROXY_URL: {{ .Values.proxy.url | quote }}
-  {{- end }}
-  KAGENT_DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
-  KAGENT_SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
-  KAGENT_POSTGRES_DATABASE_ROLE: {{ .Values.database.postgres.role | quote }}
-  KAGENT_POSTGRES_DATABASE_SCHEMA: {{ .Values.database.postgres.schema | quote }}
-  KAGENT_POSTGRES_VECTOR_SCHEMA: {{ .Values.database.postgres.vectorSchema | quote }}
-  {{- with .Values.database.postgres.pool }}
-  {{- if and (hasKey . "maxConns") (ne .maxConns nil) }}
-  KAGENT_POSTGRES_DATABASE_MAX_CONNS: {{ .maxConns | quote }}
-  {{- end }}
-  {{- if and (hasKey . "minConns") (ne .minConns nil) }}
-  KAGENT_POSTGRES_DATABASE_MIN_CONNS: {{ .minConns | quote }}
-  {{- end }}
-  {{- if .maxConnIdleTime }}
-  KAGENT_POSTGRES_DATABASE_MAX_CONN_IDLE_TIME: {{ .maxConnIdleTime | quote }}
-  {{- end }}
-  {{- if .maxConnLifetime }}
-  KAGENT_POSTGRES_DATABASE_MAX_CONN_LIFETIME: {{ .maxConnLifetime | quote }}
-  {{- end }}
-  {{- end }}
-  KAGENT_WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
-  MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
-  {{- if .Values.controller.a2aClientTimeout }}
-  KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
-  {{- end }}
-  KAGENT_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
-  {{- if include "kagent.controller.metricsEnabled" . }}
-  KAGENT_METRICS_BIND_ADDRESS: {{ .Values.controller.metrics.bindAddress | quote }}
-  KAGENT_METRICS_SECURE: {{ .Values.controller.metrics.secureServing | quote }}
-  {{- end }}
-  KAGENT_GRPC_REFLECTION: {{ .Values.controller.grpc.reflection | quote }}
-  {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
-  KAGENT_SUBSTRATE_ATE_API_ENDPOINT: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
-  KAGENT_SUBSTRATE_ATE_API_CA_FILE: /run/substrate-servicedns/trust-bundle.pem
-  KAGENT_SUBSTRATE_ATE_API_CLIENT_CERT_FILE: /run/substrate-podidentity/credential-bundle.pem
-  {{- with .Values.controller.substrate.atenetRouterURL }}
-  KAGENT_SUBSTRATE_ATENET_ROUTER_URL: {{ . | quote }}
-  {{- end }}
-  {{- end }}
+  controller.yaml: |
+    {{- toYaml $config | nindent 4 }}

@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	"github.com/spf13/cobra"
 )
 
 func runBugReport(namespace string, verbose bool) {

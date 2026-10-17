@@ -5,14 +5,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/image"
 )
 
 // SandboxPolicy is operator-owned. Its resolved values are pinned in each revision.
@@ -33,12 +34,10 @@ type sandboxInputs struct {
 	Policy    SandboxPolicy
 }
 
-var pinnedSandboxImage = regexp.MustCompile(`^[^\s@]+@sha256:[a-f0-9]{64}$`)
-
 // SandboxActorTemplate compiles standalone inputs without an Agent Card or Harness.
 // The image's entrypoint is replaced by the pinned, platform-managed guest.
 func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.SandboxClass, policy SandboxPolicy) (*ateapipb.ActorTemplate, string, json.RawMessage, error) {
-	if !pinnedSandboxImage.MatchString(policy.GuestImage) || !pinnedSandboxImage.MatchString(template.Spec.Workload.Image) {
+	if !image.IsDigestPinned(policy.GuestImage) || !image.IsDigestPinned(template.Spec.Workload.Image) {
 		return nil, "", nil, fmt.Errorf("sandbox workload and guest images must be pinned by sha256 digest")
 	}
 	for name, value := range map[string]string{"cpu": policy.CPU, "memory": policy.Memory} {
@@ -97,9 +96,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 		},
 		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: template.Spec.Substrate.SnapshotPolicy.Location,
-			// Substrate 0.5 applies one scope to pause and suspend. Keep process memory
-			// for both until lifecycle v2 separates them again.
-			OnCommit: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
+			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
 		},
 	}
 	return result, revision, snapshot, nil

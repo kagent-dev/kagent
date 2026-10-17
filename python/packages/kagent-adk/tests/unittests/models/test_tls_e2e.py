@@ -36,7 +36,7 @@ from google.genai.types import Content, Part
 from kagent.adk.models._anthropic import FoundryAnthropic, KAgentAnthropicLlm
 from kagent.adk.models._openai import BaseOpenAI
 from kagent.adk.models._ssl import create_ssl_context
-from kagent.adk.types import HttpMcpServerConfig, SseMcpServerConfig
+from kagent.adk.types import HttpMcpServerConfig, SseMcpServerConfig, _mcp_params
 
 # Path to test certificates
 CERT_DIR = Path(__file__).parent.parent.parent / "fixtures" / "certs"
@@ -622,9 +622,9 @@ if __name__ == "__main__":
 )
 async def test_mcp_tls_against_local_server(config_cls, params_cls, tls_kwargs, trusted):
     with TestHTTPSServer() as server:
-        config = config_cls(params=params_cls(url=server.url), tools=[], **tls_kwargs)
-        config._apply_tls_to_params(config.params)
-        async with config.params.httpx_client_factory(timeout=httpx2.Timeout(5)) as client:
+        config = config_cls(params={"url": server.url, **tls_kwargs})
+        params = _mcp_params(config.params, params_cls)
+        async with params.httpx_client_factory(timeout=httpx2.Timeout(5)) as client:
             if trusted:
                 response = await client.get(f"{server.url}/health")
                 assert response.status_code == 200

@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
 func TestDeleteCRDsLeavesLegacyGroupAlone(t *testing.T) {
@@ -54,7 +56,7 @@ esac
 	t.Setenv("KAGENT_TEST_KUBECTL_LOG", logPath)
 	t.Setenv("KAGENT_TEST_SQL", sqlPath)
 
-	require.NoError(t, prepareBundledPostgres(t.Context(), "demo"))
+	require.NoError(t, prepareBundledPostgres(t.Context(), "demo", "mirror.example/library/postgres:18-alpine"))
 	commands, err := os.ReadFile(logPath)
 	require.NoError(t, err)
 	for _, want := range []string{
@@ -78,7 +80,7 @@ esac
 }
 
 func TestPrepareBundledPostgresRejectsInvalidNamespace(t *testing.T) {
-	require.ErrorContains(t, prepareBundledPostgres(t.Context(), "bad\nnamespace: injected"), "invalid namespace")
+	require.ErrorContains(t, prepareBundledPostgres(t.Context(), "bad\nnamespace: injected", "postgres:18-alpine"), "invalid namespace")
 }
 
 func TestBundledPostgresImage(t *testing.T) {
@@ -91,7 +93,9 @@ func TestBundledPostgresImage(t *testing.T) {
 }
 
 func TestBundledPostgresAssets(t *testing.T) {
-	manifest, err := bundledPostgresManifest("demo", env.KagentBundledPostgresImage.DefaultValue())
+	cfg := &configv1.CLIConfig{}
+	config.DefaultCLI(cfg)
+	manifest, err := bundledPostgresManifest("demo", cfg.Install.GetBundledPostgresImage())
 	require.NoError(t, err)
 	for document := range strings.SplitSeq(manifest, "\n---\n") {
 		require.NotContains(t, document, "${")
@@ -102,40 +106,29 @@ func TestBundledPostgresAssets(t *testing.T) {
 	require.Contains(t, manifest, "hostssl all postgres all reject")
 	require.Contains(t, manifest, "postgres.podcert.ate.dev/identity")
 	require.Contains(t, manifest, "sslmode=verify-full")
-	require.Contains(t, manifest, "name: kagent-postgres")
+	require.Contains(t, manifest, "name: kagent-postgres-owner")
+	require.Contains(t, manifest, "name: kagent-postgres-readwrite")
 	require.Contains(t, manifest, "name: substrate-postgres-readwrite")
 	require.Contains(t, manifest, "name: substrate-postgres-owner")
 	require.Contains(t, manifest, "namespace: ate-system")
-	for _, want := range []string{"kagent_owner", "kagent_user", "substrate_owner", "substrate_readwrite"} {
-		require.Contains(t, bundledPostgresSetupSQL(), want)
+	for _, want := range []string{"--set=kagent_owner_role=kagent_owner", "--set=kagent_owner_user=kagent_owner_user", "--set=kagent_readwrite_role=kagent_readwrite", "--set=kagent_readwrite_user=kagent_readwrite_user", "--set=substrate_owner_role=substrate_owner", "--set=substrate_readwrite_role=substrate_readwrite"} {
+		require.Contains(t, bundledPostgresSetupArgs(), want)
 	}
-	require.NotContains(t, bundledPostgresSQL, "substrate_owner")
+	require.Contains(t, bundledPostgresSetupSQL(), ":'kagent_schema'")
+	require.Contains(t, bundledPostgresSetupSQL(), ":'substrate_schema'")
 }
 
 func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	cmd := NewInstallCmd()
 	require.NotNil(t, cmd.Flags().Lookup("skip-database-setup"))
 
-	t.Setenv("KAGENT_HELM_EXTRA_ARGS", "--set ui.replicas=0")
-	config := setupHelmConfig("openAI", "fake")
-	require.Contains(t, config.values, "controller.substrate.enabled=true")
-	require.Contains(t, config.values, "ui.replicas=0")
-	require.Empty(t, crdChartValues(config.values))
-	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
-
-	t.Setenv("KAGENT_SUBSTRATE_HELM_REPO", "./substrate-charts/")
-	t.Setenv("KAGENT_SUBSTRATE_HELM_VERSION", "v1.2.3")
-	t.Setenv("KAGENT_SUBSTRATE_HELM_EXTRA_ARGS", "--set rustfs.enabled=false")
-	substrateConfig := setupSubstrateHelmConfig()
-	require.Equal(t, "./substrate-charts/", substrateConfig.registry)
-	require.Equal(t, "v1.2.3", substrateConfig.version)
-	require.Equal(t, []string{"rustfs.enabled=false"}, substrateConfig.values)
-
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_REPO", "./podcert-charts/")
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_VERSION", "v4.5.6")
-	podCertificateConfig := setupPodCertificateHelmConfig(substrateConfig)
-	require.Equal(t, "./podcert-charts/", podCertificateConfig.registry)
-	require.Equal(t, "v4.5.6", podCertificateConfig.version)
+	chart := &configv1.ChartConfig{Repository: new("./charts/"), Version: new("v1.2.3"), ValuesFiles: []string{"custom.yaml"}}
+	config := setupHelmConfig(chart, "OpenAI", "fake")
+	require.Contains(t, config.inlineValues, "substrateClientCertificate:\n    enabled: true")
+	require.Equal(t, []string{"custom.yaml"}, config.valuesFiles)
+	require.Equal(t, "./charts/", config.registry)
+	require.Equal(t, "v1.2.3", config.version)
+	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_owner_user", "postgresClients[1]=demo/kagent-controller=kagent_readwrite_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
 }
 
 func TestInstallUsesSeparateSubstrateReleases(t *testing.T) {
@@ -156,15 +149,14 @@ cat >/dev/null
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "kubectl"), []byte(kubectl), 0o700))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("KAGENT_TEST_HELM_LOG", logPath)
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_REPO", "./podcert/")
-	t.Setenv("KAGENT_SUBSTRATE_PODCERT_HELM_VERSION", "v3")
 
 	cfg := connection.DefaultOptions()
 	// The fake kubectl fails port-forward, so only the API check after the releases fails.
 	err := install(t.Context(), &cfg,
 		helmConfig{registry: "./kagent/", version: "v1"},
 		helmConfig{registry: "./substrate/", version: "v2"},
-		"openAI", false,
+		helmConfig{registry: "./podcert/", version: "v3"},
+		"openAI", false, "postgres:18-alpine",
 	)
 	require.ErrorContains(t, err, "start port-forward")
 
@@ -173,8 +165,26 @@ cat >/dev/null
 	require.Equal(t, []string{
 		"upgrade --install kagent-crds ./kagent/kagent-crds --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
 		"upgrade --install substrate-crds ./substrate/substrate-crds --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m",
-		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_user",
-		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set credentialProvider.namespacePolicies[0].atespace=kagent --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent --set postgres.clientCertificates.enabled=true",
-		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set substrateWorkerPool.create=true --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v2 --set database.postgres.clientCertificate.enabled=true",
+		"upgrade --install substrate-podcert ./podcert/substrate-podcert --version v3 --namespace podcertificate-controller-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgresClients[0]=kagent/kagent-controller=kagent_owner_user --set postgresClients[1]=kagent/kagent-controller=kagent_readwrite_user",
+		"upgrade --install substrate ./substrate/substrate --version v2 --namespace ate-system --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set postgres.clientCertificates.enabled=true -f -",
+		"upgrade --install kagent ./kagent/kagent --version v1 --namespace kagent --create-namespace --wait --wait-for-jobs --history-max 2 --timeout 5m --set database.postgres.clientCertificate.enabled=true -f -",
 	}, strings.Split(strings.TrimSpace(string(commands)), "\n"))
+}
+
+func TestInstallValuesFilesFollowDefaults(t *testing.T) {
+	dir := t.TempDir()
+	argsPath, valuesPath := filepath.Join(dir, "args"), filepath.Join(dir, "values")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "helm"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$KAGENT_TEST_HELM_ARGS\"\ncat > \"$KAGENT_TEST_HELM_VALUES\"\n"), 0o700))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("KAGENT_TEST_HELM_ARGS", argsPath)
+	t.Setenv("KAGENT_TEST_HELM_VALUES", valuesPath)
+	defaults := "config:\n  logging: {level: info}\n"
+	_, err := installChart(t.Context(), "kagent", "team", "./charts/", "v1", nil, []string{"operator.yaml", "local.yaml"}, defaults)
+	require.NoError(t, err)
+	args, err := os.ReadFile(argsPath)
+	require.NoError(t, err)
+	require.True(t, strings.HasSuffix(string(args), "-f\n-\n-f\noperator.yaml\n-f\nlocal.yaml\n"), string(args))
+	values, err := os.ReadFile(valuesPath)
+	require.NoError(t, err)
+	require.Equal(t, defaults, string(values))
 }

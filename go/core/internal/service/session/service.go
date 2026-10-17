@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
 
 const (
@@ -25,39 +26,39 @@ const (
 )
 
 type store interface {
-	CreateSession(context.Context, *apiv1alpha1.Session, string) (*apiv1alpha1.Session, bool, error)
-	GetSession(context.Context, string, string) (*apiv1alpha1.Session, error)
-	GetSessionByID(context.Context, string) (*apiv1alpha1.Session, error)
-	ListSessions(context.Context, database.SessionQuery) ([]*apiv1alpha1.Session, error)
-	UpdateSessionName(context.Context, string, string, string) (*apiv1alpha1.Session, error)
-	CreateSessionShare(context.Context, *apiv1alpha1.SessionShare, []byte, string) (*apiv1alpha1.SessionShare, error)
-	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1alpha1.SessionShare, error)
+	CreateSession(context.Context, *apiv1.Session, string) (*apiv1.Session, bool, error)
+	GetSession(context.Context, string, string) (*apiv1.Session, error)
+	GetSessionByID(context.Context, string) (*apiv1.Session, error)
+	ListSessions(context.Context, database.SessionQuery) ([]*apiv1.Session, error)
+	UpdateSessionName(context.Context, string, string, string) (*apiv1.Session, error)
+	CreateSessionShare(context.Context, *apiv1.SessionShare, []byte, string) (*apiv1.SessionShare, error)
+	ListSessionShares(context.Context, string, string, string, int) ([]*apiv1.SessionShare, error)
 	DeleteSessionShare(context.Context, string, string) error
 }
 
 type sessionWorkflow interface {
-	Create(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
-	Suspend(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
-	Resume(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
-	Delete(context.Context, *apiv1alpha1.Session) (*apiv1alpha1.Session, error)
+	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Suspend(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Resume(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
 }
 
 type ListRequest struct {
 	AllCreators bool
 	// Agent narrows the page to one agent's conversations.
 	// Either may be given alone.
-	Agent     *apiv1alpha1.ResourceReference
+	Agent     *apiv1.ResourceReference
 	PageSize  int
 	PageToken string
 }
 
 type ListResult struct {
-	Sessions      []*apiv1alpha1.Session
+	Sessions      []*apiv1.Session
 	NextPageToken string
 }
 
 type ShareListResult struct {
-	Shares        []*apiv1alpha1.SessionShare
+	Shares        []*apiv1.SessionShare
 	NextPageToken string
 }
 
@@ -89,7 +90,7 @@ func NewService(store store, authorizer auth.Authorizer, workflow sessionWorkflo
 // Create reserves and converges a new conversation. name is optional; an empty
 // name leaves the conversation identified by its id, which is how every session
 // created before names existed behaves.
-func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReference, requestID, name string) (*apiv1alpha1.Session, error) {
+func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, requestID, name string) (*apiv1.Session, error) {
 	if err := validateCreate(agent, requestID); err != nil {
 		return nil, err
 	}
@@ -105,7 +106,7 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
 	}
-	session, _, err := s.store.CreateSession(ctx, &apiv1alpha1.Session{
+	session, _, err := s.store.CreateSession(ctx, &apiv1.Session{
 		Id: id.String(), Creator: creator, Name: name,
 		Agent: agent,
 	}, requestID)
@@ -134,14 +135,14 @@ func (s *Service) Create(ctx context.Context, agent *apiv1alpha1.ResourceReferen
 	return session, nil
 }
 
-func (s *Service) Get(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+func (s *Service) Get(ctx context.Context, id string) (*apiv1.Session, error) {
 	return s.getAuthorized(ctx, id, auth.VerbGet)
 }
 
 // getAuthorized loads a Session authorized for the requested operation. Reads are
 // independent of runtime readiness: viewing a suspended conversation must not
 // provision a worker. Lifecycle and A2A operations use this same access policy.
-func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) (*apiv1alpha1.Session, error) {
+func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) (*apiv1.Session, error) {
 	parsed, err := uuid.Parse(id)
 	if err != nil {
 		return nil, serviceerrors.NewInvalidArgument("Session identifier is invalid", err)
@@ -151,7 +152,7 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 	if err != nil {
 		return nil, err
 	}
-	var session *apiv1alpha1.Session
+	var session *apiv1.Session
 	authSession, _ := auth.AuthSessionFrom(ctx)
 	_, shared := auth.ShareContextFrom(ctx)
 	// Internal controllers may access Sessions independently of ownership,
@@ -173,7 +174,7 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 // Rename sets the conversation's display name. Unlike every other read on this
 // service this is a write, and it authorizes as one: a reader who may list and
 // open a conversation must not be able to retitle it.
-func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1alpha1.Session, error) {
+func (s *Service) Rename(ctx context.Context, id, name string) (*apiv1.Session, error) {
 	creator, err := s.authorize(ctx, auth.VerbUpdate, id)
 	if err != nil {
 		return nil, err
@@ -206,7 +207,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		if err != nil {
 			return ListResult{}, err
 		}
-		result := ListResult{Sessions: []*apiv1alpha1.Session{}}
+		result := ListResult{Sessions: []*apiv1.Session{}}
 		if session.Id > afterID && (request.Agent == nil ||
 			(session.GetAgent().GetNamespace() == request.Agent.Namespace && session.GetAgent().GetName() == request.Agent.Name)) {
 			result.Sessions = append(result.Sessions, session)
@@ -226,7 +227,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		UserID: userID, AllUsers: request.AllCreators, Agent: request.Agent,
 		AfterID: afterID, Limit: pageSize + 1,
 	}
-	result := ListResult{Sessions: []*apiv1alpha1.Session{}}
+	result := ListResult{Sessions: []*apiv1.Session{}}
 	for {
 		sessions, err := s.store.ListSessions(ctx, query)
 		if err != nil {
@@ -255,7 +256,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 }
 
-func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error) {
 	session, err := s.getAuthorized(ctx, id, auth.VerbDelete)
 	if err != nil {
 		return nil, err
@@ -273,7 +274,7 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1alpha1.Session, 
 	return session, nil
 }
 
-func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+func (s *Service) Suspend(ctx context.Context, id string) (*apiv1.Session, error) {
 	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
@@ -291,7 +292,7 @@ func (s *Service) Suspend(ctx context.Context, id string) (*apiv1alpha1.Session,
 	return session, nil
 }
 
-func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+func (s *Service) Resume(ctx context.Context, id string) (*apiv1.Session, error) {
 	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
@@ -309,15 +310,12 @@ func (s *Service) Resume(ctx context.Context, id string) (*apiv1alpha1.Session, 
 	return session, nil
 }
 
-// CreateShare mints a share of the caller's session. A positive ttl bounds how long its
+// CreateShare mints a read-only share of the caller's session. A positive ttl bounds how long its
 // token grants access and must not exceed the configured maximum; zero takes the maximum,
 // or leaves the share valid until it is revoked or the session deleted when none is set.
-func (s *Service) CreateShare(ctx context.Context, sessionID string, permission apiv1alpha1.SessionSharePermission, ttl time.Duration) (*apiv1alpha1.SessionShare, string, error) {
+func (s *Service) CreateShare(ctx context.Context, sessionID string, ttl time.Duration) (*apiv1.SessionShare, string, error) {
 	if err := validateIdentity(sessionID); err != nil {
 		return nil, "", err
-	}
-	if permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY && permission != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE {
-		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
 	if ttl < 0 {
 		return nil, "", serviceerrors.NewInvalidArgument("share ttl must be positive", nil)
@@ -342,7 +340,7 @@ func (s *Service) CreateShare(ctx context.Context, sessionID string, permission 
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to generate share identifier", err)
 	}
-	value := &apiv1alpha1.SessionShare{Id: id.String(), SessionId: sessionID, Permission: permission}
+	value := &apiv1.SessionShare{Id: id.String(), SessionId: sessionID}
 	if ttl > 0 {
 		value.ExpiresAt = timestamppb.New(time.Now().Add(ttl))
 	}
@@ -411,7 +409,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	if share, ok := auth.ShareContextFrom(ctx); ok {
-		if share.ReadOnly && verb != auth.VerbGet {
+		if verb != auth.VerbGet {
 			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
 		}
 		if share.IsForSession(name) {
@@ -433,8 +431,8 @@ func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceTyp
 	return principal.User.ID, nil
 }
 
-func validateCreate(agent *apiv1alpha1.ResourceReference, requestID string) error {
-	for _, ref := range []*apiv1alpha1.ResourceReference{agent} {
+func validateCreate(agent *apiv1.ResourceReference, requestID string) error {
+	for _, ref := range []*apiv1.ResourceReference{agent} {
 		if problems := utilvalidation.IsDNS1123Label(ref.GetNamespace()); len(problems) > 0 {
 			return serviceerrors.NewInvalidArgument("target namespace is invalid: "+strings.Join(problems, "; "), nil)
 		}

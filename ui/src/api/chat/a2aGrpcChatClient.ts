@@ -118,6 +118,15 @@ function isAwaitingReply(state: TaskState | undefined): boolean {
   return state === TaskState.INPUT_REQUIRED || state === TaskState.AUTH_REQUIRED;
 }
 
+function pendingRequestFromStatus(
+  taskId: string,
+  status: TaskStatus | undefined,
+): PendingRequest | undefined {
+  if (!taskId || !isAwaitingReply(status?.state)) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
+}
+
 /** The turn states this client has an opinion about. */
 const TURN_STATE_BY_ENUM: Partial<Record<TaskState, ChatTurnState>> = {
   [TaskState.SUBMITTED]: "submitted",
@@ -416,12 +425,7 @@ export class A2AGrpcChatClient implements ChatClient {
           if (isAwaitingReply(task.status?.state) && task.id) {
             // The payload is persisted with the task, so a reader who comes back
             // tomorrow gets the same choices the reader who watched it park did.
-            awaitingReply =
-              readHitlRequest(
-                task.id,
-                task.status?.message?.metadata,
-                task.status?.message?.extensions,
-              ) ?? { kind: "unknown", taskId: task.id };
+            awaitingReply = pendingRequestFromStatus(task.id, task.status);
           }
         }
 
@@ -522,7 +526,7 @@ export class A2AGrpcChatClient implements ChatClient {
      * every frame of a run carries the same one. A local rather than a field: it
      * belongs to this turn and must not outlive it.
      */
-    const artifacts = new Map<string, string>();
+    const artifacts = new Map<string, ChatPart[]>();
 
     let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
     try {
@@ -555,13 +559,7 @@ export class A2AGrpcChatClient implements ChatClient {
            * it — so the choices reach the transcript as the turn parks rather than
            * waiting for the next read of history.
            */
-          const awaiting =
-            state === "input_required"
-              ? (readHitlRequest(event.taskId, message?.metadata, message?.extensions) ?? {
-                  kind: "unknown" as const,
-                  taskId: event.taskId,
-                })
-              : undefined;
+          const awaiting = pendingRequestFromStatus(event.taskId, status);
 
           if (
             message &&
@@ -635,18 +633,23 @@ export class A2AGrpcChatClient implements ChatClient {
 
           if (known) {
             const id = artifactId;
-            if (event.append) {
-              const whole = (artifacts.get(artifactId) ?? "") + body;
-              artifacts.set(artifactId, whole);
+            const previous = artifacts.get(id) ?? [];
+            const textOnly = previous.every((part) => part.kind === "text") &&
+              parts.every((part) => part.kind === "text");
+            const combined = event.append ? [...previous, ...parts] : parts;
+            const updated: ChatPart[] = textOnly
+              ? [{ kind: "text", text: textOf(combined) }]
+              : combined;
+            artifacts.set(id, updated);
+            if (event.append && textOnly) {
               yield { type: "delta", messageId: id, text: body };
             } else {
-              artifacts.set(artifactId, body);
               yield {
                 type: "message",
                 message: {
                   id,
                   role: "agent",
-                  parts,
+                  parts: updated,
                   createdAt: new Date().toISOString(),
                   taskId: event.taskId,
                 },
@@ -668,7 +671,7 @@ export class A2AGrpcChatClient implements ChatClient {
           statusReply = "";
 
           const id = artifactId || nextId("artifact");
-          artifacts.set(id, body);
+          artifacts.set(id, parts);
           yield {
             type: "message",
             message: {
@@ -690,7 +693,12 @@ export class A2AGrpcChatClient implements ChatClient {
             delivered.add(message.id);
             yield { type: "message", message };
           }
-          yield { type: "status", state: turnState(task.status?.state), taskId: task.id };
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequestFromStatus(task.id, task.status),
+          };
           continue;
         }
 

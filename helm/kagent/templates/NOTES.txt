@@ -22,10 +22,6 @@ DEPLOYED COMPONENTS:
   - Controller: {{ include "kagent.fullname" . }}-controller (manages Kubernetes resources)
   - Engine: {{ include "kagent.fullname" . }}-engine (AI agent runtime)
   - UI: {{ include "kagent.fullname" . }}-ui (web interface)
-{{- if index .Values "kmcp" "enabled" }}
-  - KMCP Controller: {{ include "kagent.fullname" . }}-{{ .Values.kmcp.nameOverride }}-manager-controller (manages MCPServer resources)
-{{- end }}
-
 ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
@@ -60,11 +56,11 @@ DOCUMENTATION:
   These values are ignored. Please remove them from your values override.
 
 {{- end }}
-{{- if .Values.database.postgres.skipMigrations }}
+{{- if .Values.config.database.skipMigrations }}
 ################################################################################
 # NOTE: STARTUP MIGRATIONS ARE DISABLED                                        #
 ################################################################################
-  database.postgres.skipMigrations is set: the controller will not run database
+  config.database.skipMigrations is true: the controller will not run database
   migrations at startup. It verifies the schema is already migrated and fails
   to start if it is not.
 

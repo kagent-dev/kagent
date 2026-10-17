@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
 from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
+from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -48,7 +49,7 @@ class KAgentApp:
     ):
         self._crew = crew
         self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
-        self.config = config or KAgentConfig()
+        self.config = config or KAgentConfig.from_file()
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
 
@@ -78,11 +79,11 @@ class KAgentApp:
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         if self.tracing:
-            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name)
+            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name, config=self.config.runtime)
             instrument_app(app)
 
         app.add_route("/health", methods=["GET"], route=def_health_check)

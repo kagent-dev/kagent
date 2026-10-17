@@ -1,10 +1,10 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
-import { AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
+import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
 import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
-import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
  *
@@ -38,7 +38,7 @@ import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, S
  * ## What it answers, and what it refuses
  *
  * A call is dispatched on `service.typeName/method.name`, so the table below reads
- * as the controller's own API surface — `kagent.api.v1alpha1.ModelService/ListModelConfigs`
+ * as the controller's own API surface — `kagent.api.v1.ModelService/ListModelConfigs`
  * and so on. An RPC with no entry answers `Unimplemented` naming itself, and
  * `stream` throws for the same reason: nothing in this app streams over gRPC yet,
  * and a silently empty stream is a fixture that lies.
@@ -82,24 +82,23 @@ import type {
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Transport, UnaryResponse } from "@connectrpc/connect";
-import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
-import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { HarnessService } from "@/generated/kagent/api/v1/harnesses_pb";
+import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
+} from "@/generated/kagent/api/v1/system_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
-} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+} from "@/generated/kagent/api/v1/checkpoints_pb";
 import {
   SessionService,
-  SessionSharePermission as PbSharePermission,
   type SessionSchema,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1alpha1/common_pb";
+} from "@/generated/kagent/api/v1/sessions_pb";
+import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1/common_pb";
 import type {
   AgentInstance,
   AgentInstanceOperation,
@@ -514,11 +513,11 @@ on(ToolService.method.createToolServer, (input) => {
     input.resource,
     "tool server",
   );
-  saveToolServer(input.type, server.metadata);
+  saveToolServer(server.metadata);
   // The RPC answers with the created resource rather than with a list row, which
   // is what the client assembles the row from.
   return {
-    resource: structured(input.type, server, input.type === "MCPServer" ? "kagent.dev/v1alpha1" : undefined),
+    resource: structured(input.type, server),
   };
 });
 
@@ -1052,10 +1051,7 @@ on(SessionService.method.createSessionShare, (input, call) => {
     requireInstanceId(input.sessionId),
     call,
   );
-  const { share, token } = createInstanceShare(
-    instance.id,
-    input.permission === PbSharePermission.READ_WRITE ? "readWrite" : "readOnly",
-  );
+  const { share, token } = createInstanceShare(instance.id);
   return { share: instanceShareMessage(share), token };
 });
 
@@ -1069,10 +1065,6 @@ on(SessionService.method.revokeSessionShare, (input) => {
 const instanceShareMessage = (share: AgentInstanceShare) => ({
   id: share.id,
   sessionId: share.agentInstanceId,
-  permission:
-    share.permission === "readWrite"
-      ? PbSharePermission.READ_WRITE
-      : PbSharePermission.READ_ONLY,
   createdAt: timestampFromDate(new Date(share.createdAt)),
 });
 
@@ -1689,8 +1681,8 @@ function writeAgent(ref: {namespace: string; name: string} | undefined, value: J
   const name = requireOptionalName("agent", ref?.name);
   const resource = value as unknown as Agent["resource"];
   const spec = resource?.spec;
-  if (!name || !spec || Number(spec.template !== undefined) + Number(spec.templateRef !== undefined) !== 1 || Number(spec.harness !== undefined) + Number(spec.harnessRef !== undefined) !== 1 || (spec.templateRef && !spec.templateRef.name) || (spec.harnessRef && !spec.harnessRef.name)) {
-    throw new ConnectError("Choose exactly one template or templateRef and one harness or harnessRef", Code.InvalidArgument);
+  if (!name || !spec || !spec.template || Number(spec.template.inline !== undefined) + Number(spec.template.ref !== undefined) !== 1 || (spec.template.ref && !spec.template.ref.name) || !spec.harnessRef?.name) {
+    throw new ConnectError("Choose exactly one inline or ref template source and a Harness reference", Code.InvalidArgument);
   }
   const status = reconciledStatus(namespace, spec, previous);
   return {ref: `${namespace}/${name}`, namespace, name, resource: {metadata: {...resource.metadata, namespace, name, generation: status?.observedGeneration}, spec, status}};
@@ -1706,9 +1698,9 @@ function reconciledStatus(namespace: string, spec: Agent["resource"]["spec"], pr
   const condition = (type: string, ok: boolean, reason: string, message: string) =>
     ({type, status: ok ? "True" : "False", reason, message});
   const accepted = condition("Accepted", true, "Accepted", "Agent explicitly selects its template and harness");
-  const missing = spec.templateRef && !allAgentTemplates().some(row => row.namespace === namespace && row.name === spec.templateRef?.name)
-    ? `AgentTemplate ${spec.templateRef.name} not found`
-    : spec.harnessRef && !allHarnesses().some(row => row.namespace === namespace && row.name === spec.harnessRef?.name)
+  const missing = spec.template.ref && !allAgentTemplates().some(row => row.namespace === namespace && row.name === spec.template.ref?.name)
+    ? `AgentTemplate ${spec.template.ref.name} not found`
+    : !allHarnesses().some(row => row.namespace === namespace && row.name === spec.harnessRef.name)
       ? `Harness ${spec.harnessRef.name} not found` : undefined;
   if (missing) {
     return {observedGeneration: generation, desiredRevision, latestSuccessfulRevision: latest, conditions: [

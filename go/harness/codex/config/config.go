@@ -18,7 +18,7 @@ import (
 
 const (
 	Version            = 3
-	PinnedCodexVersion = "0.148.0"
+	PinnedCodexVersion = "0.161.0"
 )
 
 var nativeNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -26,6 +26,9 @@ var nativeNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // Config is compiler-owned input to the native adapter. Credential values are
 // supplied only through the process environment.
 type Config struct {
+	MaxContentLength     *int64                 `json:"max_content_length,omitempty"`
+	ControlPlaneURL      string                 `json:"control_plane_url"`
+	LogLevel             string                 `json:"log_level,omitempty"`
 	Version              int                    `json:"version"`
 	CodexExecutable      string                 `json:"codex_executable"`
 	ExpectedCodexVersion string                 `json:"expected_codex_version"`
@@ -77,11 +80,15 @@ type MCPServer struct {
 	RequireApproval bool              `json:"require_approval,omitempty"`
 }
 
+// Bounds the memory one JSON-RPC frame can take. Frames carry a tool
+// result's images as base64.
+const maxFrameBytes = 16 << 20
+
 func Production(model, instruction string) Config {
 	return Config{
 		Version: Version, CodexExecutable: "codex", ExpectedCodexVersion: PinnedCodexVersion,
 		StrictVersion: true, Model: model, DeveloperInstruction: instruction,
-		MaxFrameBytes: 1 << 20, MaxStderrBytes: 64 << 10, InterruptGraceMillis: 2000,
+		MaxFrameBytes: maxFrameBytes, MaxStderrBytes: 64 << 10, InterruptGraceMillis: 2000,
 	}
 }
 
@@ -102,6 +109,14 @@ func Parse(data []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.MaxContentLength != nil && *c.MaxContentLength < 0 {
+		return fmt.Errorf("max_content_length must be nonnegative")
+	}
+	switch c.LogLevel {
+	case "", "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("log_level must be debug, info, warn, or error")
+	}
 	if c.Version != Version {
 		return fmt.Errorf("unsupported config version %d (want %d)", c.Version, Version)
 	}

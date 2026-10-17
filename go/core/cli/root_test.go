@@ -5,9 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 func TestRootCommandUsesDefaultFlagValues(t *testing.T) {
@@ -71,9 +72,9 @@ func TestRootCommandsOwnIndependentFlagState(t *testing.T) {
 	assert.Equal(t, "kagent", second.PersistentFlags().Lookup("namespace").Value.String())
 }
 
-func TestRootCommandDoesNotValidateClientFlagsForIndependentCommand(t *testing.T) {
+func TestRootCommandVersionWorksWithoutConfig(t *testing.T) {
 	rootCmd := cli.Root()
-	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "env"})
+	rootCmd.SetArgs([]string{"--output-format", "yaml", "--user-id", "invalid user", "version"})
 	rootCmd.SetOut(&bytes.Buffer{})
 
 	require.NoError(t, rootCmd.ExecuteContext(t.Context()))
@@ -86,10 +87,10 @@ func TestRootCommandInvokeContract(t *testing.T) {
 
 	invokeCmd, _, err := rootCmd.Find([]string{"agent", "invoke"})
 	require.NoError(t, err)
-	for _, flag := range []string{"session", "task", "file", "stream", "token"} {
+	for _, flag := range []string{"session", "task", "file", "stream"} {
 		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
-	for _, legacyFlag := range []string{"agent", "url-override"} {
+	for _, legacyFlag := range []string{"agent", "url-override", "token"} {
 		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
 	}
 
@@ -150,11 +151,10 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range rootCmd.Commands() {
 		rootCommands = append(rootCommands, command.Name())
 	}
-	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "get", "create", "delete", "invoke", "session"} {
+	for _, command := range []string{"deploy", "init", "build", "run", "add-mcp", "mcp", "get", "create", "delete", "invoke", "session"} {
 		assert.NotContains(t, rootCommands, command)
 	}
 	assert.NotContains(t, rootCommands, "update")
-	assert.Contains(t, rootCommands, "mcp")
 
 	agentCmd, _, err := rootCmd.Find([]string{"agent"})
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 			err := rootCmd.ExecuteContext(t.Context())
 
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `unsupported output format "bogus"`)
+			assert.Contains(t, err.Error(), "output.format")
 		})
 	}
 }

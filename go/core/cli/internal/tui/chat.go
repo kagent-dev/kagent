@@ -13,11 +13,12 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/wordwrap"
+
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
-	"github.com/muesli/reflow/wordwrap"
 )
 
 // SendMessageFn abstracts the A2A client's SendStreamingMessage method for easier testing.

@@ -39,18 +39,20 @@ type rpcFrame struct {
 // rpcClient owns newline-delimited JSON-RPC framing for one App Server
 // process. App Server notifications share the same stream as call responses.
 type rpcClient struct {
-	writer  io.WriteCloser
-	writeMu sync.Mutex
-	frames  chan rpcFrame
+	writer   io.WriteCloser
+	writeMu  sync.Mutex
+	frames   chan rpcFrame
+	readDone chan struct{}
 }
 
 func newRPCClient(writer io.WriteCloser, reader io.Reader, maxFrameBytes int) *rpcClient {
-	client := &rpcClient{writer: writer, frames: make(chan rpcFrame, 16)}
+	client := &rpcClient{writer: writer, frames: make(chan rpcFrame, 16), readDone: make(chan struct{})}
 	go client.read(reader, maxFrameBytes)
 	return client
 }
 
 func (c *rpcClient) read(reader io.Reader, max int) {
+	defer close(c.readDone)
 	defer close(c.frames)
 	buffered := bufio.NewReaderSize(reader, max+1)
 	for {
@@ -87,7 +89,7 @@ func (c *rpcClient) read(reader io.Reader, max int) {
 	}
 }
 
-func (c *rpcClient) call(ctx context.Context, id int, method string, params any) (json.RawMessage, error) {
+func (c *rpcClient) call(ctx context.Context, id int, method string, params any, onNotification func(rpcMessage)) (json.RawMessage, error) {
 	message := rpcMessage{
 		JSONRPC: "2.0", ID: json.RawMessage(fmt.Sprintf("%d", id)), Method: method,
 		Trace: traceContextFromContext(ctx),
@@ -111,8 +113,11 @@ func (c *rpcClient) call(ctx context.Context, id int, method string, params any)
 				if len(message.ID) != 0 {
 					return nil, fmt.Errorf("unsupported Codex server request %q", message.Method)
 				}
-				// Initialization calls can receive additive notifications before
-				// their response. Turn notifications are consumed after turn/start.
+				// Notifications can arrive before the response. Setup calls drop them;
+				// turn/interrupt records the usage, errors and completion among them.
+				if onNotification != nil {
+					onNotification(message)
+				}
 				continue
 			}
 			if string(message.ID) != fmt.Sprintf("%d", id) {

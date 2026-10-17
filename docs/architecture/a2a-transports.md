@@ -22,8 +22,8 @@ There is no deployment-wide Agent Card because the gateway serves multiple agent
 
 Cards and JSON-RPC calls require the same authentication as the core API. A
 validated `X-Share-Token` supplements the authenticated user's access to its
-session: read-only shares permit card/task reads and subscriptions; read-write
-shares also permit messages and cancellation. Cards are not publicly cached.
+session: shares permit only card/task reads and subscriptions. Sending messages,
+cancellation, and lifecycle mutations are denied. Cards are not publicly cached.
 
 The card comes from the Agent's latest successful revision (or the shared
 session's pinned revision) and advertises
@@ -39,7 +39,7 @@ The card advertises `capabilities.pushNotifications: true`. See
 [A2A push notifications](a2a-push-notifications.md) for registration, callbacks,
 and delivery guarantees.
 
-Set `controller.a2aGatewayUrl` in Helm (the controller's `KAGENT_GATEWAY_URL`) to
+Set `config.gateway.publicUrl` in Helm (the controller’s `gateway.publicUrl`) to
 the externally reachable gateway base URL when exposing agents outside the
 cluster. Its default is the controller's cluster Service URL. HTTP interfaces
 append `/agents/{namespace}/{name}` to this base, preserving any deployment prefix.

@@ -24,16 +24,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/consts"
-	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
+	migrations "github.com/kagent-dev/kagent/go/core/pkg/migrations"
+	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
 const (
 	postgresServiceName = "kagent-postgresql"
 	// The login user and role kagent install creates for the controller.
-	postgresLoginUser = "kagent_user"
+	postgresLoginUser = "kagent_owner_user"
 	postgresRole      = "kagent_owner"
 )
 
@@ -128,8 +130,10 @@ func applyEmbeddedMigrations(t *testing.T, env upgradeEnv, schema string, vector
 	localPort, stop := startPortForward(t, env, postgresServiceName, 5432)
 	defer stop()
 
+	config, err := postgres.PoolConfig(postgresURL(t, env, localPort), postgresRole)
+	require.NoError(t, err)
 	sources := migrations.BuiltinSourcesInSchema(vectorEnabled, schema, consts.DefaultPgvectorSchema)
-	require.NoError(t, migrations.RunUpAsRole(t.Context(), postgresURL(t, env, localPort), postgresRole, sources),
+	require.NoError(t, migrations.RunUp(t.Context(), config, sources),
 		"apply embedded migrations to schema %s", schema)
 }
 
@@ -138,12 +142,13 @@ func migrateEmbeddedSourcesTo(t *testing.T, env upgradeEnv, targets map[string]i
 
 	localPort, stop := startPortForward(t, env, postgresServiceName, 5432)
 	defer stop()
-	url := postgresURL(t, env, localPort)
+	config, err := postgres.PoolConfig(postgresURL(t, env, localPort), postgresRole)
+	require.NoError(t, err)
 
 	for _, source := range slices.Backward(migrations.BuiltinSourcesInSchema(vectorEnabled, kagentSchema, consts.DefaultPgvectorSchema)) {
 		target, ok := targets[source.Name]
 		require.True(t, ok, "missing rollback target for migration source %s", source.Name)
-		err := migrations.WithProviderAsRole(t.Context(), url, postgresRole, source, func(provider *goose.Provider) error {
+		err := migrations.WithProvider(t.Context(), config, source, func(provider *goose.Provider) error {
 			_, err := provider.DownTo(t.Context(), int64(target))
 			return err
 		})

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: harnesses.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -150,13 +150,14 @@ spec:
                         type: integer
                     type: object
                     x-kubernetes-validations:
-                    - message: compactionInterval or tokenThreshold must be specified
-                      rule: has(self.compactionInterval) || has(self.tokenThreshold)
                     - message: tokenThreshold and eventRetentionSize must be specified
                         together
                       rule: has(self.tokenThreshold) == has(self.eventRetentionSize)
                     - message: overlapSize requires compactionInterval
                       rule: '!has(self.overlapSize) || has(self.compactionInterval)'
+                    - message: at least one of the fields in [compactionInterval tokenThreshold]
+                        must be set
+                      rule: has(self.compactionInterval)||has(self.tokenThreshold)
                   memory:
                     description: Memory enables long-term memory for agents using
                       this Harness.
@@ -226,8 +227,8 @@ spec:
                 - message: workerPoolRef name must not be empty
                   rule: self.workerPoolRef.name.size() > 0
               workload:
-                description: HarnessWorkload identifies the immutable runtime image
-                  used by a Harness.
+                description: Workload overrides the built-in runtime image and its
+                  command. BYO requires it.
                 properties:
                   args:
                     description: Args overrides the image command arguments when set.
@@ -242,23 +243,25 @@ spec:
                     maxItems: 32
                     type: array
                   image:
-                    description: Image is an OCI image reference pinned by sha256
-                      digest.
+                    description: |-
+                      Image overrides the release's built-in runtime image. BYO requires an image.
+                      When set, it must be an OCI image reference pinned by sha256 digest.
                     pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                     type: string
-                required:
-                - image
                 type: object
             required:
             - substrate
-            - workload
             type: object
             x-kubernetes-validations:
-            - message: exactly one of kagent, codex, claude, or byo must be specified
-              rule: '(has(self.kagent) ? 1 : 0) + (has(self.codex) ? 1 : 0) + (has(self.claude)
-                ? 1 : 0) + (has(self.byo) ? 1 : 0) == 1'
             - message: BYO harnesses must specify workload.command
-              rule: '!has(self.byo) || size(self.workload.command) > 0'
+              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command)
+                && size(self.workload.command) > 0)'
+            - message: BYO harnesses must specify workload.image
+              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.image))'
+            - message: exactly one of the fields in [kagent codex claude byo] must
+                be set
+              rule: (has(self.kagent)?1:0)+(has(self.codex)?1:0)+(has(self.claude)?1:0)+(has(self.byo)?1:0)
+                == 1
           status:
             description: HarnessStatus reports controller-derived capabilities and
               current health.

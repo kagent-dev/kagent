@@ -5,14 +5,16 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Collections contains shared Kubernetes inputs and compiled Agent state.
@@ -60,7 +62,7 @@ func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) Collections {
+func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
@@ -76,7 +78,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		Harnesses: harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
-	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts)
+	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{

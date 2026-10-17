@@ -6,20 +6,22 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // Unexpected calls use the embedded nil interface and fail the test.
 type transitionActors struct {
 	LifecycleClient
-	actor     *ateapipb.Actor
-	calls     []string
-	policyErr error
-	resumeUID string
+	actor           *ateapipb.Actor
+	calls           []string
+	policyErr       error
+	resumeUID       string
+	suspendSnapshot *ateapipb.ExternalSnapshot
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -56,6 +58,10 @@ func (a *transitionActors) ResumeActor(context.Context, string, string) (*ateapi
 func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	a.actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/data", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+	if a.suspendSnapshot != nil {
+		a.actor.Status.ExternalSnapshot = proto.CloneOf(a.suspendSnapshot)
+	}
 	return proto.CloneOf(a.actor), nil
 }
 
@@ -83,7 +89,7 @@ func TestActorCreationStartupPolicy(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{policyErr: test.policyErr, resumeUID: test.resumeUID}
 			binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
-			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
+			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
 				&ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: test.resume})
 			require.NoError(t, err)
 			require.Empty(t, actors.calls, "preparation must not mutate the backend")
@@ -113,7 +119,7 @@ func TestActorRetryContinuesExistingCreation(t *testing.T) {
 			}}
 			transition, err := PrepareActorRetry(t.Context(), actors,
 				ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"},
-				apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: true})
+				apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: true})
 			require.NoError(t, err)
 			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 			require.Equal(t, "original", actors.actor.Metadata.Uid)
@@ -129,14 +135,14 @@ func TestActorRetryContinuesExistingCreation(t *testing.T) {
 func TestActorTransitionAdmission(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		operation apiv1alpha1.RuntimeOperation
+		operation apiv1.RuntimeOperation
 		mutate    func(*ateapipb.Actor)
 	}{
-		{name: "never adopt existing actor", operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE},
-		{name: "wrong template", operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, mutate: func(a *ateapipb.Actor) { a.ActorTemplate.Name = "other" }},
-		{name: "wrong identity", operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, mutate: func(a *ateapipb.Actor) { a.Metadata.Name = "other" }},
-		{name: "missing UID", operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, mutate: func(a *ateapipb.Actor) { a.Metadata.Uid = "" }},
-		{name: "crashed actor cannot resume", operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME, mutate: func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED }},
+		{name: "never adopt existing actor", operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE},
+		{name: "wrong template", operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, mutate: func(a *ateapipb.Actor) { a.ActorTemplate.Name = "other" }},
+		{name: "wrong identity", operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, mutate: func(a *ateapipb.Actor) { a.Metadata.Name = "other" }},
+		{name: "missing UID", operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, mutate: func(a *ateapipb.Actor) { a.Metadata.Uid = "" }},
+		{name: "crashed actor cannot resume", operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, mutate: func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{}
@@ -161,14 +167,33 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	actors.calls = nil
 	binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
-	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 	require.Equal(t, []string{"suspend", "delete"}, actors.calls)
 
 	actors.calls = nil
-	transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
+	transition, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 	require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+}
+
+func TestActorSuspendRequiresDataSnapshot(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		snapshot *ateapipb.ExternalSnapshot
+	}{
+		{name: "missing URI", snapshot: &ateapipb.ExternalSnapshot{ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}},
+		{name: "FULL rejected", snapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/full", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			actors := &transitionActors{suspendSnapshot: test.snapshot}
+			_, err := actors.CreateActor(t.Context(), "team", "instance", "team", "revision")
+			require.NoError(t, err)
+			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
+			require.NoError(t, err)
+			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "external DATA snapshot")
+		})
+	}
 }

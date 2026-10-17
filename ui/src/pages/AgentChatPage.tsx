@@ -135,12 +135,7 @@ export function AgentChatPage() {
   const chat = useChat(conversation, resumeFirst);
   const [pushTask, setPushTask] = useState<{ conversationId: string; taskId: string }>();
 
-  /*
-   * The other side of a share writes here too.
-   *
-   * A read-write share makes this conversation something two people send to, and the
-   * owner sitting on this page was the one who never saw the visitor's messages.
-   */
+  // Keep up with messages sent from other tabs or clients.
   useLiveTranscript(chat.refreshTranscript, {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
@@ -706,6 +701,7 @@ export function AgentChatPage() {
               do it in and nothing else. */}
           <ChatTranscript
             chat={chat}
+            isLoading={instance.isLoading}
             sessionId={id}
             onOpenCheckpoint={openSnapshot}
             onRenameCheckpoint={renameSnapshot}

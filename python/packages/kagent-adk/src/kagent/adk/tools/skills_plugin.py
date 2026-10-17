@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional
 
 from google.adk.agents import BaseAgent, LlmAgent
-from kagent.skills import file_search_tools_enabled
 
 from ..tools import BashTool, EditFileTool, GrepFileTool, ListFilesTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
@@ -16,6 +15,9 @@ logger = logging.getLogger("kagent_adk." + __name__)
 def add_skills_tool_to_agent(
     skills_directory: str | Path,
     agent: BaseAgent,
+    *,
+    file_search_tools: bool = False,
+    bash_venv_path: str = "",
 ) -> None:
     """Utility function to add Skills and Bash tools to a given agent.
 
@@ -37,7 +39,9 @@ def add_skills_tool_to_agent(
 
     # Add BashTool if not already present
     if "bash" not in existing_tool_names:
-        agent.tools.append(BashTool(skills_directory))
+        agent.tools.append(
+            BashTool(skills_directory, file_search_tools=file_search_tools, bash_venv_path=bash_venv_path)
+        )
         logger.debug(f"Added bash tool to agent: {agent.name}")
 
     if "read_file" not in existing_tool_names:
@@ -55,7 +59,7 @@ def add_skills_tool_to_agent(
     # list_files/grep_file are opt-in: they give an agent broad filesystem
     # visibility, so deployments enable them deliberately. Note this gate is
     # theirs alone -- bash above is always registered.
-    if file_search_tools_enabled():
+    if file_search_tools:
         if "list_files" not in existing_tool_names:
             agent.tools.append(ListFilesTool(skills_directory))
             logger.debug(f"Added list files tool to agent: {agent.name}")
@@ -65,5 +69,5 @@ def add_skills_tool_to_agent(
             logger.debug(f"Added grep file tool to agent: {agent.name}")
     else:
         logger.debug(
-            f"Omitting list_files/grep_file tools for agent: {agent.name} (KAGENT_ENABLE_FILE_SEARCH_TOOLS not enabled)"
+            f"Omitting list_files/grep_file tools for agent: {agent.name} (runtime.skill_tools.file_search_tools not enabled)"
         )

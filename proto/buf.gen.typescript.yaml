@@ -1,5 +1,5 @@
 version: v2
-# Browser clients only use public APIs; runtime persistence is private.
+# Browser clients only use public APIs; runtime contracts are generated separately.
 inputs:
   # Structured gRPC error reasons used by checkpoint retries.
   - module: buf.build/googleapis/googleapis:c17df5b2beca46928cc87d5656bd5343
@@ -9,7 +9,8 @@ inputs:
     exclude_paths:
       - a2a.proto
       - ateapi.proto
-      - kagent/api/v1alpha1/task_store.proto
+      - kagent/runtime
+      - kagent/config
 plugins:
   - remote: buf.build/bufbuild/es:v2.13.0
     out: ../ui/src/generated

@@ -59,10 +59,10 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(dataRows(page)).toHaveCount(SEEDED.length);
     await expectSettled(page);
 
-    const local = rowNamed(page, "kagent-tool-server");
-    await expect(local).toContainText("kagent");
-    await expect(local).toContainText("MCPServer");
-    await expect(local).toContainText("3");
+    const builtIn = rowNamed(page, "kagent-tool-server");
+    await expect(builtIn).toContainText("kagent");
+    await expect(builtIn).toContainText("RemoteMCPServer");
+    await expect(builtIn).toContainText("3");
 
     const remote = rowNamed(page, "grafana-mcp");
     await expect(remote).toContainText("platform");
@@ -170,9 +170,8 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     const row = rowNamed(page, CREATED);
     await expect(row).toHaveCount(1, { timeout: 30_000 });
     await expect(row).toContainText("kagent");
-    // A remote URL is a `RemoteMCPServer`; the other branch of the form makes an
-    // `MCPServer`. The kind is the form's choice made durable, so it is checked here
-    // rather than taken on trust from the segmented control.
+    // The form creates a `RemoteMCPServer`; check the durable kind rather than taking
+    // the submitted request on trust.
     await expect(row).toContainText("RemoteMCPServer");
     // Nothing has connected to it yet, which is the state a cluster reports for a
     // server the controller has not reached. A fixture answering with tools would hide

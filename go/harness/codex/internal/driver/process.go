@@ -11,7 +11,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -32,10 +35,12 @@ type ProcessConfig struct {
 	MaxStderrBytes       int
 	InterruptGrace       time.Duration
 	ApprovalServers      map[string]struct{}
+	PendingDir           string
+	Tools                ToolCaller
 }
 
-// ProcessDriver supervises Codex App Server and retains it while a protected
-// MCP invocation is waiting for a human decision.
+// ProcessDriver supervises Codex App Server. Pending input is persisted and
+// the native process exits before input-required.
 type ProcessDriver struct {
 	config ProcessConfig
 }
@@ -47,15 +52,8 @@ type processSession struct {
 	wait       <-chan error
 	stderr     *utils.BoundedBuffer
 	translator *eventTranslator
-}
-
-// pendingTurn owns an App Server process blocked on the correlated server
-// request. Resume continues that process; Cancel terminates it.
-type pendingTurn struct {
-	driver  *ProcessDriver
-	session *processSession
-	request runtime.InputRequest
-	id      json.RawMessage
+	stopOnce   sync.Once
+	turn       runtime.Turn
 }
 
 // NewProcessDriver constructs a Codex process driver.
@@ -81,7 +79,36 @@ func (d *ProcessDriver) Validate(ctx context.Context) error {
 // Run initializes App Server, starts or resumes the Actor's native thread, and
 // emits the turn's ordered runtime events.
 func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
-	if strings.TrimSpace(turn.Prompt) == "" {
+	return d.run(ctx, turn, nil, sink)
+}
+
+type turnToolOutput struct {
+	Name      string  `json:"name"`
+	Namespace *string `json:"namespace"`
+	Output    string  `json:"output"`
+}
+
+// toolContinuation pairs native input with the original public result. Publish
+// that result only once native startup has passed the safe retry boundary.
+type toolContinuation struct {
+	output turnToolOutput
+	result runtime.ToolResult
+}
+
+// turnNotStartedError proves that this attempt never sent turn/start.
+type turnNotStartedError struct{ err error }
+
+func (e *turnNotStartedError) Error() string { return e.err.Error() }
+func (e *turnNotStartedError) Unwrap() error { return e.err }
+
+func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, tool *toolContinuation, sink runtime.EventSink) (outcome runtime.Outcome, returnErr error) {
+	dispatched := false
+	defer func() {
+		if !dispatched && returnErr != nil {
+			returnErr = &turnNotStartedError{err: returnErr}
+		}
+	}()
+	if strings.TrimSpace(turn.Prompt) == "" && tool == nil {
 		return runtime.Outcome{}, fmt.Errorf("codex prompt is required")
 	}
 	if err := rejectWorkspaceConfig(d.config.Workspace); err != nil {
@@ -102,21 +129,22 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("open Codex stdout: %w", err)
 	}
+
 	stderr := utils.NewBoundedBuffer(d.config.MaxStderrBytes)
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Codex App Server: %w", err)
 	}
 	wait := make(chan error, 1)
-	go func() { wait <- command.Wait(); close(wait) }()
 	client := newRPCClient(stdin, stdout, d.config.MaxFrameBytes)
-	session := &processSession{command: command, stdin: stdin, client: client, wait: wait, stderr: stderr}
-	sessionOwnedByPendingTurn := false
-	defer func() {
-		if !sessionOwnedByPendingTurn {
-			d.stopSession(session)
-		}
+	go func() {
+		// Wait closes StdoutPipe; let the RPC reader consume the final reports first.
+		<-client.readDone
+		wait <- command.Wait()
+		close(wait)
 	}()
+	session := &processSession{command: command, stdin: stdin, client: client, wait: wait, stderr: stderr, turn: turn}
+	defer d.stopSession(session, sink)
 
 	initialize := map[string]any{
 		"clientInfo": map[string]string{"name": "kagent-codex", "version": "1"},
@@ -124,7 +152,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		// Unknown experimental server requests still fail closed below.
 		"capabilities": map[string]bool{"experimentalApi": true},
 	}
-	if _, err := client.call(ctx, 1, "initialize", initialize); err != nil {
+	if _, err := client.call(ctx, 1, "initialize", initialize, nil); err != nil {
 		return runtime.Outcome{}, d.protocolError(err, stderr)
 	}
 	if err := client.notify("initialized", map[string]any{}); err != nil {
@@ -135,7 +163,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		result, err := client.call(ctx, 2, "thread/start", map[string]any{
 			"cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
-		})
+		}, nil)
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
 		}
@@ -147,7 +175,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		result, err := client.call(ctx, 2, "thread/resume", map[string]any{
 			"threadId": threadID, "cwd": d.config.Workspace, "model": d.config.Model, "modelProvider": d.config.Provider,
 			"approvalPolicy": mcpOnlyApprovalPolicy(), "sandbox": "danger-full-access", "developerInstructions": d.config.DeveloperInstruction,
-		})
+		}, nil)
 		if err != nil {
 			return runtime.Outcome{}, d.protocolError(err, stderr)
 		}
@@ -162,9 +190,20 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err := sink.SessionStarted(runtime.SessionStarted{ContinuationID: threadID}); err != nil {
 		return runtime.Outcome{}, err
 	}
-	result, err := client.call(ctx, 3, "turn/start", map[string]any{
-		"threadId": threadID, "input": []map[string]any{{"type": "text", "text": turn.Prompt}},
-	})
+	params := struct {
+		ThreadID   string          `json:"threadId"`
+		Input      []textInput     `json:"input"`
+		ToolOutput *turnToolOutput `json:"toolOutput,omitempty"`
+	}{ThreadID: threadID, Input: []textInput{}}
+	if tool == nil {
+		params.Input = append(params.Input, textInput{Type: "text", Text: turn.Prompt})
+	} else {
+		params.ToolOutput = &tool.output
+	}
+	// A lost response after sending this request is uncertain, even if the
+	// process has not emitted any model or tool activity yet.
+	dispatched = true
+	result, err := client.call(ctx, 3, "turn/start", params, nil)
 	if err != nil {
 		return runtime.Outcome{}, d.protocolError(err, stderr)
 	}
@@ -172,12 +211,18 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
+	if tool != nil {
+		if err := sink.ToolResult(tool.result); err != nil {
+			return runtime.Outcome{}, err
+		}
+	}
 	session.translator = newEventTranslator(threadID, turnID)
-	outcome, err := d.consume(ctx, session, sink)
-	// A pending outcome carries this same live session. Every other return path
-	// leaves cleanup with this Run invocation.
-	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
-	return outcome, err
+	return d.consume(ctx, session, sink)
+}
+
+type textInput struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 // mcpOnlyApprovalPolicy lets Codex surface MCP approval prompts while rejecting
@@ -194,24 +239,19 @@ func mcpOnlyApprovalPolicy() map[string]any {
 }
 
 func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
-	client, command, wait, stderr, translator := session.client, session.command, session.wait, session.stderr, session.translator
+	client, wait, stderr, translator := session.client, session.wait, session.stderr, session.translator
 	for {
 		select {
 		case <-ctx.Done():
-			interruptCtx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
-			_, err := client.call(interruptCtx, 4, "turn/interrupt", map[string]string{"threadId": translator.threadID, "turnId": translator.turnID})
-			cancel()
+			interrupted := time.Now()
+			err := d.interrupt(session, sink)
 			if err != nil {
-				_ = utils.KillProcessGroup(command.Process)
-			} else {
-				_ = utils.TerminateProcessGroup(command.Process)
+				_ = utils.KillProcessGroup(session.command.Process)
 			}
-			select {
-			case <-wait:
-			case <-time.After(d.config.InterruptGrace):
-				_ = utils.KillProcessGroup(command.Process)
-				<-wait
-			}
+			// An interrupt response can precede the final usage report. Let Codex
+			// flush it on stdin EOF before escalating to process-group signals.
+			d.stopSession(session, sink)
+			translator.flushOpenCall(interrupted, sink)
 			return runtime.Outcome{}, ctx.Err()
 		case waitErr := <-wait:
 			if waitErr != nil {
@@ -235,10 +275,8 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 					return runtime.Outcome{}, err
 				}
 				if expose {
-					return runtime.Outcome{Pending: &pendingTurn{
-						driver: d, session: session, request: request,
-						id: append(json.RawMessage(nil), message.ID...),
-					}}, nil
+					translator.endOpenCalls()
+					return d.deferInput(ctx, session, request, sink)
 				}
 				continue
 			}
@@ -270,7 +308,9 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 		}
 	}
 	var params struct {
-		Meta struct {
+		ThreadID string  `json:"threadId"`
+		TurnID   *string `json:"turnId"`
+		Meta     struct {
 			Kind       string         `json:"codex_approval_kind"`
 			ToolName   string         `json:"tool_name"`
 			ToolParams map[string]any `json:"tool_params"`
@@ -281,6 +321,10 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, false, fmt.Errorf("decode Codex MCP approval request: %w", err)
 	}
+	_, child := translator.spawnedBy[params.ThreadID]
+	if !child && (params.ThreadID != translator.threadID || params.TurnID != nil && *params.TurnID != translator.turnID) {
+		return nil, false, fmt.Errorf("Codex MCP request does not match the active turn")
+	}
 	if params.Meta.Kind != "mcp_tool_call" {
 		// This is genuine MCP elicitation, which the native Harness does not expose.
 		return nil, false, client.respond(message.ID, map[string]any{"action": "decline", "content": map[string]any{}})
@@ -288,12 +332,16 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 	if _, protected := d.config.ApprovalServers[params.ServerName]; !protected {
 		return nil, false, client.respond(message.ID, map[string]any{"action": "accept", "content": map[string]any{}})
 	}
-	callID, name, err := translator.approvalTool(params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
+	if child {
+		// DATA continuation currently resumes only the root thread. Decline a
+		// child callback without releasing a protected call or failing its parent.
+		return nil, false, client.respond(message.ID, map[string]any{"action": "decline", "content": map[string]any{}})
+	}
+	callID, name, err := translator.approvalTool(params.ThreadID, params.ServerName, params.Meta.ToolName, params.Meta.ToolParams)
 	if err != nil {
 		return nil, false, err
 	}
-	key := requestKey(message.ID)
-	return &runtime.ApprovalRequest{ID: key, CallID: callID, Name: name, Args: params.Meta.ToolParams, Hint: params.Message}, true, nil
+	return &runtime.ApprovalRequest{ID: uuid.NewString(), CallID: callID, Name: name, Args: params.Meta.ToolParams, Hint: params.Message}, true, nil
 }
 
 // decodeAskUserRequest decodes a Codex ask-user request into a runtime.AskUserRequest.
@@ -313,7 +361,9 @@ func decodeAskUserRequest(message rpcMessage, translator *eventTranslator) (*run
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, fmt.Errorf("decode Codex ask-user request: %w", err)
 	}
-	if params.ThreadID != translator.threadID || params.TurnID != translator.turnID {
+	// A spawned subagent asks from its own thread and turn.
+	_, subagent := translator.spawnedBy[params.ThreadID]
+	if !subagent && (params.ThreadID != translator.threadID || params.TurnID != translator.turnID) {
 		return nil, fmt.Errorf("Codex ask-user request does not match the active turn")
 	}
 	if len(params.Questions) == 0 {
@@ -343,127 +393,71 @@ func decodeAskUserRequest(message rpcMessage, translator *eventTranslator) (*run
 		})
 	}
 	return &runtime.AskUserRequest{
-		ID: requestKey(message.ID), Questions: questions,
+		ID: uuid.NewString(), Questions: questions,
 		Hint: "Codex requires more information before continuing.",
 	}, nil
 }
 
-func requestKey(id json.RawMessage) string {
-	var text string
-	if json.Unmarshal(id, &text) == nil {
-		return text
-	}
-	return string(id)
+// interrupt asks Codex to stop the turn. Usage and final errors Codex reports until it answers,
+// including buffered ones, still reach sink; stopSession records what arrives after.
+func (d *ProcessDriver) interrupt(session *processSession, sink runtime.ModelCallSink) error {
+	ctx, cancel := context.WithTimeout(context.Background(), d.config.InterruptGrace)
+	defer cancel()
+	params := map[string]string{"threadId": session.translator.threadID, "turnId": session.translator.turnID}
+	_, err := session.client.call(ctx, 4, "turn/interrupt", params, func(message rpcMessage) { session.recordUsage(message, sink) })
+	return err
 }
 
-func (p *pendingTurn) Request() runtime.InputRequest { return p.request }
-
-// Resume answers the correlated App Server request and continues consuming the
-// same process until it completes, fails, or returns another PendingTurn.
-//
-// The JSON-RPC response that releases the turn carries no trace context, and
-// the native turn began under the trace of the request that parked it. Work the
-// native runtime does after this point therefore stays under the originating
-// trace. The resumed A2A segment records a link to that origin rather than
-// claiming ownership of it.
-func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
-	sessionOwnedByPendingTurn := false
-	defer func() {
-		if !sessionOwnedByPendingTurn {
-			p.driver.stopSession(p.session)
-		}
-	}()
-	native, err := codexInputResponse(p.request, response)
-	if err != nil {
-		return runtime.Outcome{}, err
+func (s *processSession) recordUsage(message rpcMessage, sink runtime.ModelCallSink) {
+	if s.translator == nil {
+		return // Initialization failed before a turn started.
 	}
-	if err := p.session.client.respond(p.id, native); err != nil {
-		return runtime.Outcome{}, err
-	}
-	outcome, err := p.driver.consume(ctx, p.session, sink)
-	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
-	return outcome, err
-}
-
-// Cancel resolves the outstanding request when possible, interrupts the Codex
-// turn, and always reaps the App Server process.
-func (p *pendingTurn) Cancel(ctx context.Context) error {
-	responded := true
-	if _, approval := p.request.(*runtime.ApprovalRequest); approval {
-		responded = p.session.client.respond(p.id, map[string]any{
-			"action": "cancel", "content": nil,
-		}) == nil
-	}
-	if responded {
-		interruptCtx, cancel := context.WithTimeout(ctx, p.driver.config.InterruptGrace)
-		_, _ = p.session.client.call(interruptCtx, 4, "turn/interrupt", map[string]string{
-			"threadId": p.session.translator.threadID,
-			"turnId":   p.session.translator.turnID,
-		})
-		cancel()
-	}
-	p.driver.stopSession(p.session)
-	return nil
-}
-
-// codexInputResponse maps the runtime-neutral input request onto Codex's input response,
-// which is either a MCP elicitation response or ask-user response.
-// For MCP elicitation, Codex accepts only the decision here: the public A2A and
-// runtime models retain a rejection reason for harnesses that support one, but
-// this adapter deliberately drops it rather than sending undocumented metadata.
-func codexInputResponse(request runtime.InputRequest, response runtime.InputResponse) (map[string]any, error) {
-	switch request := request.(type) {
-	case *runtime.ApprovalRequest:
-		decision, ok := response.(*runtime.ApprovalDecision)
-		if !ok {
-			return nil, fmt.Errorf("Codex is waiting for a structured tool approval response")
+	switch message.Method {
+	case "thread/tokenUsage/updated":
+		_ = s.translator.usage(message.Params, sink)
+	case "error":
+		_ = s.translator.codexError(message.Params, sink)
+	case "turn/completed":
+		var params struct {
+			ThreadID string
+			Turn     struct{ ID, Status string }
 		}
-		if decision.ID != request.ID {
-			return nil, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, request.ID)
+		if json.Unmarshal(message.Params, &params) == nil && params.ThreadID == s.translator.threadID &&
+			params.Turn.ID == s.translator.turnID && params.Turn.Status == "completed" {
+			s.translator.completed = true
 		}
-		if decision.Approved {
-			return map[string]any{"action": "accept", "content": map[string]any{}}, nil
-		}
-		return map[string]any{"action": "decline"}, nil
-	case *runtime.AskUserRequest:
-		answer, ok := response.(*runtime.AskUserResponse)
-		if !ok {
-			return nil, fmt.Errorf("Codex is waiting for a structured ask-user response")
-		}
-		if answer.ID != request.ID {
-			return nil, fmt.Errorf("ask-user response ID %q does not match pending ID %q", answer.ID, request.ID)
-		}
-		if len(answer.Answers) != len(request.Questions) {
-			return nil, fmt.Errorf("ask-user response must answer every pending question")
-		}
-		answers := make(map[string]any, len(request.Questions))
-		for index, question := range request.Questions {
-			answers[question.ID] = map[string]any{"answers": answer.Answers[index]}
-		}
-		return map[string]any{"answers": answers}, nil
-	default:
-		return nil, fmt.Errorf("Codex has an unsupported pending input request %T", request)
 	}
 }
 
-func (d *ProcessDriver) stopSession(session *processSession) {
-	_ = session.stdin.Close()
-	select {
-	case <-session.wait:
-		return
-	case <-time.After(d.config.InterruptGrace):
-	}
+func (d *ProcessDriver) stopSession(session *processSession, sink runtime.ModelCallSink) {
+	session.stopOnce.Do(func() {
+		// Drain on every exit path so a full frame buffer cannot block the reader
+		// and prevent Wait from reaping the process.
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for frame := range session.client.frames {
+				session.recordUsage(frame.message, sink)
+			}
+		}()
+		defer func() { <-drained }()
 
-	_ = utils.TerminateProcessGroup(session.command.Process)
-	select {
-	case <-session.wait:
-	case <-time.After(d.config.InterruptGrace):
-		_ = utils.KillProcessGroup(session.command.Process)
-		<-session.wait
-	}
+		_ = session.stdin.Close()
+		select {
+		case <-session.wait:
+			return
+		case <-time.After(d.config.InterruptGrace):
+		}
+
+		_ = utils.TerminateProcessGroup(session.command.Process)
+		select {
+		case <-session.wait:
+		case <-time.After(d.config.InterruptGrace):
+			_ = utils.KillProcessGroup(session.command.Process)
+			<-session.wait
+		}
+	})
 }
-
-var _ runtime.PendingTurn = (*pendingTurn)(nil)
 
 func rejectWorkspaceConfig(workspace string) error {
 	path := filepath.Join(workspace, ".codex", "config.toml")

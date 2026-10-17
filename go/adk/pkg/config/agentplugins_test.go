@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 )
 
@@ -20,9 +20,9 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 		Data:     filepath.Join(root, "data"),
 	}
 	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
-	agentConfig := &adk.AgentConfig{
-		AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}},
-		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}}}},
+	agentConfig := &configv1.ADKAgentConfig{
+		AgentPlugins: PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}}),
+		SubAgents:    []*configv1.ADKAgentConfig{{Name: "child", AgentPlugins: PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}})}},
 	}
 	for _, path := range []string{
 		filepath.Join(paths.Packages, "standalone-0"),
@@ -63,14 +63,14 @@ func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
-	agentConfig := &adk.AgentConfig{AgentPlugins: &agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}}}
+	agentConfig := &configv1.ADKAgentConfig{AgentPlugins: PluginConfig(agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}})}
 	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err == nil {
 		t.Fatal("MaterializeAgentPlugins() accepted a Claude-format plugin")
 	}
 }
 
 func TestAddMCPConfigConvertsRuntimeNeutralServers(t *testing.T) {
-	agentConfig := &adk.AgentConfig{}
+	agentConfig := &configv1.ADKAgentConfig{}
 	addMCPConfig(agentConfig, agentplugins.MCPConfig{
 		StreamableHTTP: []agentplugins.RemoteMCPServer{{URL: "https://http.example.com", Headers: map[string]string{"X-Test": "http"}}},
 		SSE:            []agentplugins.RemoteMCPServer{{URL: "https://sse.example.com", Headers: map[string]string{"X-Test": "sse"}}},

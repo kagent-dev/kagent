@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 )
 
 func TestSandboxPrompts(t *testing.T) {

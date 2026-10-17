@@ -1,15 +1,16 @@
 package translator_test
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestCompileFoundryEndpoint(t *testing.T) {
@@ -30,7 +31,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				Spec: v1alpha3.HarnessSpec{
 					Kagent: &v1alpha3.KagentHarness{},
 
-					Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent:latest"},
+					Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
 						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
@@ -61,6 +62,7 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				harness.Spec.Kagent = nil
 				harness.Spec.BYO = &v1alpha3.BYOHarness{}
 			}
+			objects = append(objects, harness)
 
 			var previous translator.RevisionID
 			for _, host := range []string{"first.services.ai.azure.com", "second.services.ai.azure.com"} {
@@ -71,20 +73,20 @@ func TestCompileFoundryEndpoint(t *testing.T) {
 				}
 				revision, err := compiler(t, append(objects, configMap)...).CompileAgent(t.Context(), inlineAgent(harness, template))
 				require.NoError(t, err)
-				var config adk.AgentConfig
-				require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-				runtimeModel := config.Model
+				var config configv1.ADKConfig
+				require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
+				runtimeModel := config.Agent.Model
 				if location == "shared agent" {
-					require.Len(t, config.SubAgents, 1)
-					runtimeModel = config.SubAgents[0].Model
+					require.Len(t, config.Agent.SubAgents, 1)
+					runtimeModel = config.Agent.SubAgents[0].Model
 				}
 				if location == "memory" {
-					require.NotNil(t, config.Memory)
-					require.NotNil(t, config.Memory.Embedding)
-					require.Equal(t, endpoint, config.Memory.Embedding.Endpoint)
+					require.NotNil(t, config.Agent.Memory)
+					require.NotNil(t, config.Agent.Memory.Embedding)
+					require.Equal(t, endpoint, config.Agent.Memory.Embedding.Endpoint)
 				} else {
-					require.IsType(t, &adk.Foundry{}, runtimeModel)
-					require.Equal(t, endpoint, runtimeModel.(*adk.Foundry).Endpoint)
+					require.IsType(t, &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{}}}, runtimeModel)
+					require.Equal(t, endpoint, runtimeModel.GetFoundry().Endpoint)
 				}
 				require.Contains(t, revision.Environment, corev1.EnvVar{Name: "FOUNDRY_ENDPOINT", Value: endpoint})
 				require.Len(t, revision.Credentials, 1)

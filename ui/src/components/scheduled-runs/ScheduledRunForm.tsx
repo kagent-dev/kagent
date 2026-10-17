@@ -6,7 +6,7 @@ import { newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces 
 import { invoke } from "@/api/operations";
 import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
-import type { ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import type { ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 import { minuteIntervals, parseSchedule, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
 
 const timeZones = ["UTC", ...Intl.supportedValuesOf("timeZone")].map((value) => ({ value }));

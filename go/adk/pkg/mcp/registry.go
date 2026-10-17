@@ -5,22 +5,23 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"time"
 
-	"log/slog"
-
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // DynamicHeaderProvider is a function that returns headers to inject into MCP requests.
@@ -29,7 +30,7 @@ import (
 type DynamicHeaderProvider func(ctx context.Context) map[string]string
 
 const (
-	// Default timeout matching Python KAGENT_REMOTE_AGENT_TIMEOUT
+	// Default timeout for MCP requests.
 	defaultTimeout = 30 * time.Minute
 )
 
@@ -80,8 +81,8 @@ type mcpServerParams struct {
 	Args                  []string
 	Env                   map[string]string
 	Dir                   string
-	Timeout               *float64
-	SseReadTimeout        *float64
+	Timeout               *durationpb.Duration
+	SseReadTimeout        *durationpb.Duration
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
@@ -94,15 +95,15 @@ type mcpServerParams struct {
 //
 // When propagateToken is true, Authorization is forwarded to every MCP server
 // independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
-// behaviour triggered by KAGENT_PROPAGATE_TOKEN.
+// behaviour enabled by runtime.token_propagation.enabled.
 //
 // Optional headerProvider can be used to inject per-request headers
 // derived from invocation context (e.g., STS exchanged access tokens).
 func CreateToolsets(
 	ctx context.Context,
-	httpTools []adk.HttpMcpServerConfig,
-	sseTools []adk.SseMcpServerConfig,
-	stdioTools []adk.StdioMcpServerConfig,
+	httpTools []*configv1.ADKHTTPMCPServerConfig,
+	sseTools []*configv1.ADKSSEMCPServerConfig,
+	stdioTools []*configv1.ADKStdioMCPServerConfig,
 	propagateToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
@@ -132,9 +133,9 @@ func CreateToolsets(
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: httpTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         httpTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   httpTool.Params.TLSDisableSystemCAs,
+			TLSInsecureSkipVerify: httpTool.Params.TlsInsecureSkipVerify,
+			TLSCACertPath:         httpTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs:   httpTool.Params.TlsDisableSystemCas,
 		}
 		ts, err := addToolset(ctx, log, params, httpTool.Tools, httpTool.RequireApproval, "HTTP", i+1)
 		if err != nil {
@@ -154,9 +155,9 @@ func CreateToolsets(
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: sseTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         sseTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   sseTool.Params.TLSDisableSystemCAs,
+			TLSInsecureSkipVerify: sseTool.Params.TlsInsecureSkipVerify,
+			TLSCACertPath:         sseTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs:   sseTool.Params.TlsDisableSystemCas,
 		}
 		ts, err := addToolset(ctx, log, params, sseTool.Tools, sseTool.RequireApproval, "SSE", i+1)
 		if err != nil {
@@ -190,6 +191,9 @@ func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, t
 		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
 		return nil, err
 	}
+	if params.ServerType != "stdio" {
+		ts.inner = withCallScope(ts.inner)
+	}
 	if requireApproval {
 		ts.inner = tool.WithConfirmation(ts.inner, true, nil)
 	}
@@ -212,18 +216,15 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	operationTimeout := defaultTimeout
-	if params.Timeout != nil && *params.Timeout > 0 {
-		operationTimeout = max(time.Duration(*params.Timeout)*time.Second, 1*time.Second)
+	if params.Timeout != nil {
+		operationTimeout = params.Timeout.AsDuration()
 	}
 
 	httpTimeout := operationTimeout
-	if params.ServerType == "sse" && params.SseReadTimeout != nil && *params.SseReadTimeout > 0 {
-		configuredSseTimeout := time.Duration(*params.SseReadTimeout) * time.Second
+	if params.ServerType == "sse" && params.SseReadTimeout != nil {
+		configuredSseTimeout := params.SseReadTimeout.AsDuration()
 		if configuredSseTimeout > operationTimeout {
 			httpTimeout = configuredSseTimeout
-		}
-		if httpTimeout < 1*time.Second {
-			httpTimeout = 1 * time.Second
 		}
 	}
 
@@ -270,9 +271,10 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		}
 	}
 
-	// Outermost layer: inject W3C traceparent/tracestate from the active span so
-	// MCP calls stay attached to the invocation trace (kagent-dev/kagent#2550).
-	httpTransport = otelhttp.NewTransport(httpTransport)
+	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
+	// OTEL_PROPAGATORS includes it, from the active span so MCP calls stay
+	// attached to the invocation trace (kagent-dev/kagent#2550).
+	httpTransport = otelhttp.NewTransport(httpTransport, otelhttp.WithFilter(traceMCPRequest))
 
 	httpClient := &http.Client{
 		Timeout:   httpTimeout,
@@ -315,7 +317,7 @@ type headerRoundTripper struct {
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 
-	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
+	// When propagateToken is enabled, forward Authorization from the incoming
 	// A2A request independently of allowedHeaders. Carry the authenticated user
 	// alongside it so kagent callbacks preserve ownership in insecure and
 	// trusted-proxy deployments. This remains opt-in for all configured servers.

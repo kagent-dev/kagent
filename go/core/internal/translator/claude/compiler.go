@@ -13,25 +13,26 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 type Compiler struct {
+	settings    *configv1.RuntimeDefaultsConfig
 	ctx         krt.HandlerContext
 	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
@@ -45,8 +46,10 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
 		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
 	}
-	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
-	logConfig := telemetryConfig.Logs
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
+	if err != nil {
+		return nil, err
+	}
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
@@ -57,7 +60,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := translator.CompileSkillResources(input.Root.Template)
+	skills, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -67,30 +70,16 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	}
 	environment := append([]corev1.EnvVar(nil), providerEnvironment...)
 	environment = append(environment, mcp.environment...)
-	harnessAttributes := translator.HarnessResourceAttributes(input.Harness)
 	for _, variable := range input.Harness.Spec.Env {
-		if translator.IsResourceAttributesVariable(variable.Name) {
-			continue
-		}
-		if variable.Name == env.KagentAPIURL.Name() || claudeconfig.OwnsEnvironment(variable.Name) || translator.OwnsTelemetryEnvironment(variable.Name) {
+		if claudeconfig.OwnsEnvironment(variable.Name) {
 			return nil, translator.NewValidationError("Harness env %q conflicts with Claude-owned runtime configuration", variable.Name)
 		}
 		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
 	// Substrate v0.0.20 runs Actor processes as root even when the image declares
 	// a non-root USER. Claude otherwise rejects --dangerously-skip-permissions.
-	environment = append(environment,
-		corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"},
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	)
-	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
-	// The adapter derives Claude Code's own telemetry flags; raw bodies have no
-	// compiled field yet.
-	if telemetryConfig.CaptureRawAPIBodies && logConfig.Enabled {
-		environment = append(environment, corev1.EnvVar{Name: "OTEL_LOG_RAW_API_BODIES", Value: "1"})
-	}
+
+	environment = append(environment, corev1.EnvVar{Name: claudeconfig.SandboxEnvName, Value: "1"})
 
 	localAgents, err := c.compileLocalAgents(input.Root)
 	if err != nil {
@@ -99,8 +88,11 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
-	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
-		config.SkillResources = &skillResources
+	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
+	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
+	config.LogLevel = c.settings.GetLogging().GetLevel()
+	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
+		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
@@ -123,17 +115,18 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 
-	egress = append(egress, skillEgress...)
+	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
-	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	egress = append(egress, telemetryConfig.Destinations(environment)...)
+	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment,
-			ConfigJSON: configJSON, AgentCard: card,
+			Namespace:   template.Namespace,
+			SkillImages: skills.Images,
+			Environment: environment,
+			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,
@@ -369,10 +362,9 @@ type provenanceEntry struct {
 func (c *Compiler) buildProvenance(ctx context.Context, input *translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	harness := input.Harness
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
-	}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.Source.UID, harness.Source.Generation, harness.Spec))
 	configMaps := map[string]struct{}{}
 	objects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, content any) {

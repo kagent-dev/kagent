@@ -5,10 +5,10 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
-
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/pgvector/pgvector-go"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 type Tool struct {
@@ -76,7 +76,7 @@ type RuntimeRevision struct {
 type SessionQuery struct {
 	UserID   string
 	AllUsers bool
-	Agent    *apiv1alpha1.ResourceReference
+	Agent    *apiv1.ResourceReference
 	AfterID  string
 	Limit    int
 }

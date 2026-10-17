@@ -1,307 +1,110 @@
 package translator_test
 
 import (
-	"reflect"
-	"strings"
 	"testing"
+	"time"
 
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-var testIdentity = tracing.RuntimeTelemetry{AgentName: "demo-claude", AgentNamespace: "team", Provider: "anthropic", Model: "claude-sonnet-5"}
-
-func environmentMap(environment []corev1.EnvVar) map[string]string {
-	values := make(map[string]string, len(environment))
-	for _, variable := range environment {
-		values[variable.Name] = variable.Value
-	}
-	return values
+func TestRuntimeDefaultsIgnoreProcessEnvironment(t *testing.T) {
+	cfg := &configv1.ControllerConfig{}
+	config.DefaultController(cfg)
+	cfg.RuntimeDefaults.Telemetry.Traces = &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc"), Timeout: durationpb.New(time.Second)}
+	first, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
+	require.NoError(t, err)
+	firstRuntime := translator.RuntimeConfig(cfg.GetRuntimeDefaults(), "assistant", "team")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://other:4317")
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+	second, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
+	require.NoError(t, err)
+	require.Equal(t, first, second)
+	secondRuntime := translator.RuntimeConfig(cfg.GetRuntimeDefaults(), "assistant", "team")
+	require.True(t, proto.Equal(firstRuntime, secondRuntime))
+	require.Equal(t, "assistant", secondRuntime.GetName())
+	require.Equal(t, "team", secondRuntime.GetNamespace())
+	require.Equal(t, "http://collector:4317", secondRuntime.GetTelemetry().GetTraces().GetEndpoint())
+	require.Equal(t, []string{"http://collector:4317"}, first.Destinations(nil))
+	require.Equal(t, int64(1000), first.Runtime.Exporters.Traces.TimeoutMillis)
 }
 
-func TestTelemetryConfigFromProcess(t *testing.T) {
-	clearTelemetryEnvironment(t)
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "otlp")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://generic:4318/otel")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://traces:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc")
-	t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "5000")
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_ONLY")
-	t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", "true")
-	t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", "4096")
-
-	got, warnings := translator.TelemetryConfigFromProcess()
-	if len(warnings) != 0 {
-		t.Fatalf("TelemetryConfigFromProcess() warnings = %v", warnings)
-	}
-	if !got.CaptureSensitiveContent || !got.CaptureRawAPIBodies {
-		t.Fatalf("content capture = sensitive:%t raw:%t", got.CaptureSensitiveContent, got.CaptureRawAPIBodies)
-	}
-	if !got.Traces.Enabled || got.Traces.Endpoint != "http://traces:4317" || got.Traces.Protocol != "grpc" || got.Traces.Hostname != "traces" {
-		t.Fatalf("traces = %#v", got.Traces)
-	}
-	if !got.Logs.Enabled || got.Logs.Endpoint != "http://generic:4318/otel/v1/logs" || got.Logs.Protocol != "http/protobuf" {
-		t.Fatalf("logs = %#v", got.Logs)
-	}
-	if want := []string{"http://traces:4317", "http://generic:4318", "http://generic:4318"}; !reflect.DeepEqual(got.Destinations(), want) {
-		t.Fatalf("destinations = %v, want %v", got.Destinations(), want)
-	}
-	want := []corev1.EnvVar{
-		{Name: "OTEL_TRACES_EXPORTER", Value: "otlp"},
-		{Name: "OTEL_METRICS_EXPORTER", Value: "otlp"},
-		{Name: "OTEL_LOGS_EXPORTER", Value: "otlp"},
-		{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "http://generic:4318/otel"},
+func TestBYOTelemetryGenericEnvironmentOverridesFileDefaults(t *testing.T) {
+	cfg := &configv1.ControllerConfig{}
+	config.DefaultController(cfg)
+	cfg.RuntimeDefaults.Telemetry.Traces = &configv1.OTLPConfig{Endpoint: "http://file-collector:4317", Protocol: new("grpc")}
+	settings, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
+	require.NoError(t, err)
+	credential := corev1.EnvVar{Name: "OPENAI_API_KEY", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{Key: "api-key", LocalObjectReference: corev1.LocalObjectReference{Name: "model-auth"}}}}
+	environment := settings.TelemetryEnvironment(tracing.RuntimeTelemetry{}, []corev1.EnvVar{
+		credential,
+		{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "http://runtime-collector:4318"},
 		{Name: "OTEL_EXPORTER_OTLP_PROTOCOL", Value: "http/protobuf"},
-		{Name: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", Value: "http://traces:4317"},
-		{Name: "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", Value: "grpc"},
-		{Name: "OTEL_EXPORTER_OTLP_TIMEOUT", Value: "5000"},
-		{Name: "OTEL_SERVICE_NAME", Value: "demo-claude"},
-		{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.main_agent.id=team/demo-claude,gen_ai.main_agent.name=demo-claude,gen_ai.provider.name=anthropic,gen_ai.request.model=claude-sonnet-5,service.namespace=team"},
-		{Name: "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", Value: "SPAN_ONLY"},
+	})
+	require.Contains(t, environment, credential)
+	for _, variable := range environment {
+		require.NotEqual(t, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", variable.Name)
 	}
-	if environment := got.TelemetryEnvironment(testIdentity, ""); !reflect.DeepEqual(environment, want) {
-		t.Errorf("environment = %#v\nwant %#v", environment, want)
-	}
-}
-
-func TestTelemetryEnvironmentRendersOnlyWhatChangesBehavior(t *testing.T) {
-	clearTelemetryEnvironment(t)
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "none")
-	t.Setenv("OTEL_LOGS_EXPORTER", "none")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-
-	got, warnings := translator.TelemetryConfigFromProcess()
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v", warnings)
-	}
-	environment := environmentMap(got.TelemetryEnvironment(testIdentity, ""))
-	if environment["OTEL_EXPORTER_OTLP_PROTOCOL"] != "grpc" {
-		t.Fatalf("protocol = %q, want the chart default rendered because SDK defaults differ", environment["OTEL_EXPORTER_OTLP_PROTOCOL"])
-	}
-	for _, name := range []string{
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_TIMEOUT", "OTEL_SDK_DISABLED", "OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT",
-		"OTEL_PROPAGATORS", "OTEL_EXPORTER_OTLP_COMPRESSION", "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION",
-	} {
-		if _, ok := environment[name]; ok {
-			t.Errorf("%s rendered without a setting that needs it", name)
-		}
-	}
-	if environment["OTEL_METRICS_EXPORTER"] != "none" || environment["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] != "false" {
-		t.Fatalf("environment = %v", environment)
+	destinations := settings.Destinations(environment)
+	require.NotEmpty(t, destinations)
+	for _, destination := range destinations {
+		require.Equal(t, "http://runtime-collector:4318", destination)
 	}
 }
 
-func TestTelemetryEnvironmentDisablesEverySDKWhenOff(t *testing.T) {
-	for name, env := range map[string]map[string]string{
-		"unset":        {},
-		"none":         {"OTEL_TRACES_EXPORTER": "none", "OTEL_METRICS_EXPORTER": "none", "OTEL_LOGS_EXPORTER": "none"},
-		"sdk disabled": {"OTEL_TRACES_EXPORTER": "otlp", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317", "OTEL_SDK_DISABLED": "true"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			clearTelemetryEnvironment(t)
-			for key, value := range env {
-				t.Setenv(key, value)
-			}
-			got, _ := translator.TelemetryConfigFromProcess()
-			want := []corev1.EnvVar{
-				{Name: "OTEL_SDK_DISABLED", Value: "true"},
-				{Name: "OTEL_TRACES_EXPORTER", Value: "none"},
-				{Name: "OTEL_METRICS_EXPORTER", Value: "none"},
-				{Name: "OTEL_LOGS_EXPORTER", Value: "none"},
-				{Name: "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", Value: "false"},
-			}
-			if environment := got.TelemetryEnvironment(testIdentity, ""); !reflect.DeepEqual(environment, want) {
-				t.Fatalf("environment = %#v", environment)
-			}
-			if got.Destinations() != nil {
-				t.Fatalf("destinations = %v", got.Destinations())
-			}
-		})
-	}
-}
-
-func TestTelemetryEnvironmentKeepsIdentityOverOperatorAndHarnessAttributes(t *testing.T) {
-	clearTelemetryEnvironment(t)
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-	t.Setenv(env.OtelResourceAttributes.Name(), "deployment.environment.name=prod, service.namespace=forged,k8s.cluster.name=east")
-
-	got, warnings := translator.TelemetryConfigFromProcess()
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v", warnings)
-	}
-	identity := tracing.RuntimeTelemetry{AgentName: "a-kagent", AgentNamespace: "team"}
-	attributes := environmentMap(got.TelemetryEnvironment(identity, "k8s.cluster.name=west,department=eng,gen_ai.main_agent.name=forged"))["OTEL_RESOURCE_ATTRIBUTES"]
-	if want := "deployment.environment.name=prod,k8s.cluster.name=west,department=eng,gen_ai.main_agent.id=team/a-kagent,gen_ai.main_agent.name=a-kagent,service.namespace=team"; attributes != want {
-		t.Fatalf("resource attributes = %q, want %q", attributes, want)
-	}
-}
-
-func TestTelemetryConfigFromProcessDisablesInvalidSignals(t *testing.T) {
-	clearTelemetryEnvironment(t)
-	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-	t.Setenv("OTEL_METRICS_EXPORTER", "prometheus")
-	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
-	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "not a URL")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "http://logs:4317")
-	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "http/json")
-	t.Setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true")
-
-	got, warnings := translator.TelemetryConfigFromProcess()
-	if got.Enabled() || got.CaptureSensitiveContent {
-		t.Fatalf("invalid telemetry settings remain enabled: %#v", got)
-	}
-	messages := make([]string, 0, len(warnings))
-	for _, warning := range warnings {
-		messages = append(messages, warning.Error())
-	}
-	joined := strings.Join(messages, "\n")
-	for _, want := range []string{"traces endpoint", "OTEL_METRICS_EXPORTER", "logs protocol", "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("warnings %q do not mention %s", joined, want)
-		}
-	}
-}
-
-func TestTelemetryConfigFromProcessRejectsInvalidSignalConfiguration(t *testing.T) {
-	for _, test := range []struct {
-		name, endpoint, protocol string
+func TestBYOTelemetryServiceNameDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name, serviceName, attributes, want string
 	}{
-		{name: "missing endpoint", protocol: "grpc"},
-		{name: "relative endpoint", endpoint: "collector:4317", protocol: "grpc"},
-		{name: "unsupported protocol", endpoint: "http://collector:4317", protocol: "zipkin"},
+		{name: "agent default", want: "assistant"},
+		{name: "resource override", attributes: "service.name=custom", want: "custom"},
+		{name: "image service override", serviceName: "image-service", attributes: "service.name=custom", want: "image-service"},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			clearTelemetryEnvironment(t)
-			t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", test.endpoint)
-			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", test.protocol)
-
-			got, warnings := translator.TelemetryConfigFromProcess()
-			if got.Traces.Enabled || len(warnings) != 1 {
-				t.Fatalf("telemetry = %#v, warnings = %v", got, warnings)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_SERVICE_NAME", tc.serviceName)
+			cfg := &configv1.ControllerConfig{}
+			config.DefaultController(cfg)
+			cfg.RuntimeDefaults.Telemetry.ResourceAttributes = map[string]string{"deployment.environment.name": "production"}
+			settings, err := translator.TelemetryConfigFromSettings(cfg.GetRuntimeDefaults().GetTelemetry())
+			require.NoError(t, err)
+			environment := settings.TelemetryEnvironment(tracing.RuntimeTelemetry{AgentName: "assistant", AgentNamespace: "team"}, []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: tc.attributes}})
+			for _, variable := range environment {
+				if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+					t.Setenv(variable.Name, variable.Value)
+				}
 			}
+			// An ordinary SDK must recover the identity without kagent's JSON loader.
+			res, err := resource.New(t.Context(), resource.WithFromEnv())
+			require.NoError(t, err)
+			name, ok := res.Set().Value(semconv.ServiceNameKey)
+			require.True(t, ok)
+			require.Equal(t, tc.want, name.AsString())
+			require.Equal(t, map[string]string{"deployment.environment.name": "production"}, settings.Runtime.Exporters.ResourceAttributes)
 		})
 	}
 }
 
-func TestTelemetryConfigFromProcessReportsInvalidOperatorSettings(t *testing.T) {
-	clearTelemetryEnvironment(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_TIMEOUT", "15s")
-	t.Setenv(env.OtelResourceAttributes.Name(), "deployment.environment.name=prod,broken")
-
-	got, warnings := translator.TelemetryConfigFromProcess()
-	if len(warnings) != 2 || got.Timeout != "" || got.ResourceAttributes != "deployment.environment.name=prod" {
-		t.Fatalf("telemetry = %#v, warnings = %v", got, warnings)
+func TestCompilerPreservesSharedRuntimeTelemetry(t *testing.T) {
+	cfg := &configv1.TelemetryConfig{
+		CaptureContent: true, CaptureRawApiBodies: true, OpenaiNativeTracing: true, MaxCaptureBytes: new(int32(4096)),
+		ResourceAttributes: map[string]string{"deployment.environment.name": "test"},
+		Traces:             &configv1.OTLPConfig{Endpoint: "http://collector:4317", Timeout: durationpb.New(time.Second)},
 	}
-}
-
-func TestTelemetryCaptureBudgetValidation(t *testing.T) {
-	for _, tt := range []struct {
-		input       string
-		want        int
-		wantWarning bool
-	}{
-		{input: ""},
-		{input: " "},
-		{input: " 4096 ", want: 4096},
-		{input: "65536", want: 65536},
-		{input: "0", wantWarning: true},
-		{input: "-1", wantWarning: true},
-		{input: "65537", wantWarning: true},
-		{input: "garbage", wantWarning: true},
-		{input: "99999999999999999999999999", wantWarning: true},
-	} {
-		t.Run(tt.input, func(t *testing.T) {
-			clearTelemetryEnvironment(t)
-			t.Setenv("KAGENT_OTEL_MAX_CAPTURE_BYTES", tt.input)
-			got, warnings := translator.TelemetryConfigFromProcess()
-			if got.MaxCaptureBytes != tt.want || (len(warnings) > 0) != tt.wantWarning {
-				t.Fatalf("MaxCaptureBytes = %d, warnings = %v", got.MaxCaptureBytes, warnings)
-			}
-			if tt.wantWarning && !strings.Contains(warnings[0].Error(), "KAGENT_OTEL_MAX_CAPTURE_BYTES") {
-				t.Fatalf("warning does not identify the setting: %v", warnings)
-			}
-		})
-	}
-}
-
-func TestTelemetryBooleanGrammars(t *testing.T) {
-	for _, tt := range []struct {
-		input             string
-		disabled, capture bool
-	}{
-		{input: " TrUe ", disabled: true, capture: true},
-		{input: "1", capture: true},
-		{input: "t", capture: true},
-		{input: "false"},
-		{input: "invalid"},
-	} {
-		t.Run(tt.input, func(t *testing.T) {
-			clearTelemetryEnvironment(t)
-			t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
-			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
-			t.Setenv("OTEL_SDK_DISABLED", tt.input)
-			t.Setenv("KAGENT_OTEL_CAPTURE_RAW_API_BODIES", tt.input)
-			got, warnings := translator.TelemetryConfigFromProcess()
-			if len(warnings) != 0 || got.Traces.Enabled == tt.disabled || got.CaptureRawAPIBodies != tt.capture {
-				t.Fatalf("telemetry = %#v, warnings = %v", got, warnings)
-			}
-		})
-	}
-}
-
-func TestOwnsTelemetryEnvironment(t *testing.T) {
-	for _, name := range []string{
-		"OTEL_SDK_DISABLED",
-		"OTEL_TRACES_EXPORTER",
-		"OTEL_METRICS_EXPORTER",
-		"OTEL_LOGS_EXPORTER",
-		"OTEL_EXPORTER_OTLP_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_PROTOCOL",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-		"OTEL_SERVICE_NAME",
-		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
-	} {
-		if !translator.OwnsTelemetryEnvironment(name) {
-			t.Errorf("OwnsTelemetryEnvironment(%q) = false", name)
-		}
-	}
-	for _, name := range []string{"OTEL_BSP_SCHEDULE_DELAY", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_TRACES_SAMPLER", "OTEL_RESOURCE_ATTRIBUTES", "OTEL_PROPAGATORS"} {
-		if translator.OwnsTelemetryEnvironment(name) {
-			t.Errorf("OwnsTelemetryEnvironment(%q) = true", name)
-		}
-	}
-}
-
-func clearTelemetryEnvironment(t *testing.T) {
-	t.Helper()
-	for _, name := range []string{
-		"OTEL_SDK_DISABLED",
-		"OTEL_TRACES_EXPORTER",
-		"OTEL_METRICS_EXPORTER",
-		"OTEL_LOGS_EXPORTER",
-		"OTEL_EXPORTER_OTLP_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_PROTOCOL",
-		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
-		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
-		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
-		"OTEL_EXPORTER_OTLP_TIMEOUT",
-		"OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
-		"KAGENT_OTEL_RESOURCE_ATTRIBUTES",
-		"KAGENT_OTEL_CAPTURE_RAW_API_BODIES",
-		"KAGENT_OTEL_MAX_CAPTURE_BYTES",
-	} {
-		t.Setenv(name, "")
-	}
+	compiled, err := translator.TelemetryConfigFromSettings(cfg)
+	require.NoError(t, err)
+	want := config.RuntimeTelemetry(cfg)
+	want.Runtime, want.AgentName, want.AgentNamespace = tracing.RuntimeADKGo, "assistant", "team"
+	want.Provider, want.Model = "openai", "gpt-4"
+	actual := compiled.RuntimeTelemetry(tracing.RuntimeADKGo, "assistant", "team", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4"})
+	require.Equal(t, want, actual)
 }

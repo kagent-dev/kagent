@@ -16,11 +16,6 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
-	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/session"
@@ -28,6 +23,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -53,19 +53,18 @@ func TestNew_NilExecutor(t *testing.T) {
 }
 
 func TestNew_RequiresController(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "")
 	app, err := New(AppConfig{
 		AgentCard: a2atype.AgentCard{Name: "test-agent"},
 	}, &fakeExecutor{})
-	require.ErrorContains(t, err, "ControllerClient or KAGENT_API_URL is required")
+	require.ErrorContains(t, err, "ControllerClient or ControlPlaneURL is required")
 	require.Nil(t, app)
 }
 
-func TestNew_ControllerFromEnv(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "http://127.0.0.1:1")
+func TestNew_ControllerFromConfig(t *testing.T) {
 	app, err := New(AppConfig{
-		AgentCard: a2atype.AgentCard{Name: "test-agent"},
-		Port:      "0",
+		AgentCard:       a2atype.AgentCard{Name: "test-agent"},
+		Port:            "0",
+		ControlPlaneURL: "http://127.0.0.1:1",
 	}, &fakeExecutor{})
 	require.NoError(t, err)
 	require.NotNil(t, app)
@@ -74,7 +73,6 @@ func TestNew_ControllerFromEnv(t *testing.T) {
 }
 
 func TestNew_ProvidedController(t *testing.T) {
-	t.Setenv(env.KagentAPIURL.Name(), "")
 	controller, err := controllerclient.New(controllerclient.Config{APIURL: "http://127.0.0.1:1"})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, controller.Close()) })
@@ -89,23 +87,13 @@ func TestNew_ProvidedController(t *testing.T) {
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
-	t.Setenv("KAGENT_PORT", "")
 	cfg := applyDefaults(AppConfig{})
 	if cfg.Port != defaultPort {
 		t.Errorf("expected port %q, got %q", defaultPort, cfg.Port)
 	}
 }
 
-func TestApplyDefaults_PortFromEnv(t *testing.T) {
-	t.Setenv("KAGENT_PORT", "9090")
-	cfg := applyDefaults(AppConfig{})
-	if cfg.Port != "9090" {
-		t.Errorf("expected port %q, got %q", "9090", cfg.Port)
-	}
-}
-
 func TestApplyDefaults_PortExplicit(t *testing.T) {
-	t.Setenv("KAGENT_PORT", "9090")
 	cfg := applyDefaults(AppConfig{Port: "3000"})
 	if cfg.Port != "3000" {
 		t.Errorf("expected port %q, got %q", "3000", cfg.Port)
@@ -126,34 +114,14 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	}
 }
 
-func TestBuildAppName_FromEnv(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "my-agent")
-	t.Setenv("KAGENT_NAMESPACE", "my-ns")
-	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
-	if name != "my_ns__NS__my_agent" {
-		t.Errorf("expected %q, got %q", "my_ns__NS__my_agent", name)
-	}
-}
-
 func TestBuildAppName_FromAgentCard(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{Name: "card-name"})
 	if name != "card-name" {
 		t.Errorf("expected %q, got %q", "card-name", name)
 	}
 }
 
-func TestBuildAppName_UnsetNamespace(t *testing.T) {
-	t.Setenv(env.KagentName.Name(), "my-agent")
-	t.Setenv(env.KagentNamespace.Name(), "")
-	require.NoError(t, os.Unsetenv(env.KagentNamespace.Name()))
-	require.Equal(t, "card-name", buildAppName(&a2atype.AgentCard{Name: "card-name"}))
-}
-
 func TestBuildAppName_Default(t *testing.T) {
-	t.Setenv("KAGENT_NAME", "")
-	t.Setenv("KAGENT_NAMESPACE", "")
 	name := buildAppName(&a2atype.AgentCard{})
 	if name != defaultAppName {
 		t.Errorf("expected %q, got %q", defaultAppName, name)
@@ -207,9 +175,9 @@ func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
 // admissionServer sends the next message during settlement: the first moment the
 // gateway can report the previous task as terminal.
 type admissionServer struct {
-	apiv1alpha1.UnimplementedTaskStoreServiceServer
+	runtimev1.UnimplementedTaskStoreServiceServer
 	mu      sync.Mutex
-	tasks   map[string]*apiv1alpha1.StoredTask
+	tasks   map[string]*runtimev1.StoredTask
 	next    func() error
 	nextErr chan error
 }
@@ -218,40 +186,40 @@ func (s *admissionServer) save(task *a2apb.Task) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	version := s.tasks[task.GetId()].GetVersion() + 1
-	s.tasks[task.GetId()] = &apiv1alpha1.StoredTask{Task: task, Version: version}
+	s.tasks[task.GetId()] = &runtimev1.StoredTask{Task: task, Version: version}
 	return version
 }
 
-func (s *admissionServer) GetTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceGetTaskRequest) (*apiv1alpha1.TaskStoreServiceGetTaskResponse, error) {
+func (s *admissionServer) GetTask(_ context.Context, request *runtimev1.TaskStoreServiceGetTaskRequest) (*runtimev1.TaskStoreServiceGetTaskResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if stored, ok := s.tasks[request.TaskId]; ok {
-		return &apiv1alpha1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
+		return &runtimev1.TaskStoreServiceGetTaskResponse{Stored: stored}, nil
 	}
 	return nil, status.Error(codes.NotFound, "task not found")
 }
 
-func (s *admissionServer) CreateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceCreateTaskRequest) (*apiv1alpha1.TaskStoreServiceCreateTaskResponse, error) {
-	return &apiv1alpha1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
+func (s *admissionServer) CreateTask(_ context.Context, request *runtimev1.TaskStoreServiceCreateTaskRequest) (*runtimev1.TaskStoreServiceCreateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceCreateTaskResponse{Version: s.save(request.Task)}, nil
 }
 
-func (s *admissionServer) UpdateTask(_ context.Context, request *apiv1alpha1.TaskStoreServiceUpdateTaskRequest) (*apiv1alpha1.TaskStoreServiceUpdateTaskResponse, error) {
-	return &apiv1alpha1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
+func (s *admissionServer) UpdateTask(_ context.Context, request *runtimev1.TaskStoreServiceUpdateTaskRequest) (*runtimev1.TaskStoreServiceUpdateTaskResponse, error) {
+	return &runtimev1.TaskStoreServiceUpdateTaskResponse{Version: s.save(request.Task)}, nil
 }
 
-func (s *admissionServer) SettleTask(context.Context, *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
+func (s *admissionServer) SettleTask(context.Context, *runtimev1.TaskStoreServiceSettleTaskRequest) (*runtimev1.TaskStoreServiceSettleTaskResponse, error) {
 	if next := s.next; next != nil {
 		s.next = nil
 		s.nextErr <- next()
 	}
-	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 
 func TestSettledTaskAdmitsNextSend(t *testing.T) {
-	api := &admissionServer{tasks: map[string]*apiv1alpha1.StoredTask{}, nextErr: make(chan error, 1)}
+	api := &admissionServer{tasks: map[string]*runtimev1.StoredTask{}, nextErr: make(chan error, 1)}
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	apiv1alpha1.RegisterTaskStoreServiceServer(server, api)
+	runtimev1.RegisterTaskStoreServiceServer(server, api)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	client, err := controllerclient.New(controllerclient.Config{

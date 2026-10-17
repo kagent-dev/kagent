@@ -7,7 +7,6 @@ These tools are wrappers around the centralized logic in the kagent-skills packa
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
 from agents.exceptions import UserError
@@ -33,34 +32,36 @@ from .._agent_executor import SessionContext
 
 logger = logging.getLogger(__name__)
 
-_skills_directory = os.getenv("KAGENT_SKILLS_FOLDER", "/skills")
 
 # --- System Tools ---
 
 
-@function_tool(
-    name_override="read_file",
-    description_override=get_read_file_description(),
-)
-def read_file(
-    wrapper: RunContextWrapper[SessionContext],
-    file_path: str,
-    offset: int | None = None,
-    limit: int | None = None,
-) -> str:
-    """Read a file from the filesystem."""
-    try:
-        session_id = wrapper.context.session_id
-        working_dir = get_session_path(session_id)
-        path = Path(file_path)
-        if not path.is_absolute():
-            path = working_dir / path
+def _read_file_tool(skills_directory: str | Path) -> FunctionTool:
+    @function_tool(
+        name_override="read_file",
+        description_override=get_read_file_description(),
+    )
+    def read_file(
+        wrapper: RunContextWrapper[SessionContext],
+        file_path: str,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> str:
+        """Read a file from the filesystem."""
+        try:
+            session_id = wrapper.context.session_id
+            working_dir = get_session_path(session_id)
+            path = Path(file_path)
+            if not path.is_absolute():
+                path = working_dir / path
 
-        allowed_dirs = [working_dir, Path(_skills_directory)]
+            allowed_dirs = [working_dir, Path(skills_directory)]
 
-        return read_file_content(path, offset, limit, allowed_root=allowed_dirs)
-    except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as e:
-        raise UserError(str(e)) from e
+            return read_file_content(path, offset, limit, allowed_root=allowed_dirs)
+        except (FileNotFoundError, IsADirectoryError, PermissionError, OSError) as e:
+            raise UserError(str(e)) from e
+
+    return read_file
 
 
 @function_tool(
@@ -105,19 +106,25 @@ def edit_file(
         raise UserError(str(e)) from e
 
 
-@function_tool(
-    name_override="bash",
-    description_override=get_bash_description(),
-)
-async def bash(wrapper: RunContextWrapper[SessionContext], command: str) -> str:
-    """Executes a bash command in a sandboxed environment."""
-    try:
-        session_id = wrapper.context.session_id
-        working_dir = get_session_path(session_id)
-        return await execute_command(command, working_dir, _skills_directory)
-    except Exception as e:
-        raise UserError(f"Error executing command: {e}") from e
+def _bash_tool(skills_directory: str | Path, bash_venv_path: str = "") -> FunctionTool:
+    @function_tool(
+        name_override="bash",
+        description_override=get_bash_description(),
+    )
+    async def bash(wrapper: RunContextWrapper[SessionContext], command: str) -> str:
+        """Executes a bash command in a sandboxed environment."""
+        try:
+            session_id = wrapper.context.session_id
+            working_dir = get_session_path(session_id)
+            return await execute_command(command, working_dir, Path(skills_directory), bash_venv_path=bash_venv_path)
+        except Exception as e:
+            raise UserError(f"Error executing command: {e}") from e
 
+    return bash
+
+
+read_file = _read_file_tool("/skills")
+bash = _bash_tool("/skills")
 
 # --- Skill Tools ---
 
@@ -172,7 +179,7 @@ def get_skill_tool(skills_directory: str | Path = "/skills") -> FunctionTool:
     return skill_tool_impl
 
 
-def get_skill_tools(skills_directory: str | Path = "/skills") -> list[FunctionTool]:
+def get_skill_tools(skills_directory: str | Path = "/skills", *, bash_venv_path: str = "") -> list[FunctionTool]:
     """
     Create a list of tools including the skill tool and file operation tools.
 
@@ -182,4 +189,10 @@ def get_skill_tools(skills_directory: str | Path = "/skills") -> list[FunctionTo
     Returns:
         A list of FunctionTool instances: skills tool, read_file, write_file, edit_file, and bash
     """
-    return [get_skill_tool(skills_directory), read_file, write_file, edit_file, bash]
+    return [
+        get_skill_tool(skills_directory),
+        _read_file_tool(skills_directory),
+        write_file,
+        edit_file,
+        _bash_tool(skills_directory, bash_venv_path),
+    ]

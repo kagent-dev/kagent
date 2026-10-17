@@ -13,9 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/pelletier/go-toml/v2"
 )
 
 func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
@@ -95,6 +96,52 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 	if agentConfig.Model != "gpt-5.2-codex" || agentConfig.DeveloperInstructions != `Inspect "all" changes` {
 		t.Fatalf("generated Codex agent configuration = %#v", agentConfig)
+	}
+}
+
+func TestNativeTelemetryHonorsProcessOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		environment []string
+		endpoint    string
+	}{
+		{"generic", []string{"OTEL_EXPORTER_OTLP_ENDPOINT=http://override:4318", "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"}, "http://override:4318/v1/traces"},
+		{"specific", []string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://override:4318/custom", "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf"}, "http://override:4318/custom"},
+		{"disabled SDK", []string{"OTEL_SDK_DISABLED=true"}, ""},
+		{"disabled signal", []string{"OTEL_TRACES_EXPORTER=none"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Production("gpt-5.2-codex", "test")
+			cfg.Provider = config.Provider{Name: "openai"}
+			cfg.Telemetry = &config.Telemetry{CaptureContent: true, Traces: &config.OTLPExporter{Endpoint: "http://file:4317", Protocol: "grpc"}}
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			environment := append(tc.environment, "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT")
+			if _, err := New(t.Context(), Input{ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"), DurableDir: dir, Environment: environment}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "codex/config.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var native nativeConfig
+			if err := toml.Unmarshal(data, &native); err != nil {
+				t.Fatal(err)
+			}
+			if native.Otel.LogUserPrompt {
+				t.Fatal("process override did not disable native content capture")
+			}
+			if tc.endpoint == "" {
+				if native.Otel.TraceExporter != nil {
+					t.Fatal("disabled process exports native traces")
+				}
+			} else if native.Otel.TraceExporter == nil || native.Otel.TraceExporter.OTLPHTTP == nil || native.Otel.TraceExporter.OTLPHTTP.Endpoint != tc.endpoint {
+				t.Fatalf("native OTLP destination does not use process override: %#v", native.Otel.TraceExporter)
+			}
+		})
 	}
 }
 

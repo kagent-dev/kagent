@@ -9,24 +9,24 @@ import (
 	"time"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"google.golang.org/protobuf/encoding/protowire"
-	"google.golang.org/protobuf/proto"
-
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
-	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func TestReconcilerPersistsPairInOrder(t *testing.T) {
@@ -150,7 +150,7 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			ctx := t.Context()
 			dsn := dbtest.StartT(ctx, t)
 			dbtest.MigrateT(t, dsn, false)
-			pool, err := database.Connect(ctx, &database.PostgresConfig{URL: dsn})
+			pool, err := database.Connect(ctx, &database.PostgresConfig{Pool: dbtest.PoolConfig(dsn)})
 			require.NoError(t, err)
 			t.Cleanup(pool.Close)
 			store := database.NewClient(pool, "public")
@@ -188,14 +188,14 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
-			request := &apiv1alpha1.Session{
+			request := &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
-				Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), session.GetPreparedRevision())
-			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()
 			claimed, err := store.ClaimSessionOperation(ctx, session.Id, operation.ID, executor)

@@ -60,13 +60,13 @@ func envtestAssetsDir(t *testing.T) string {
 	return ""
 }
 
-// crdBasesDir resolves the CRD-bases directory at runtime so the test
-// reads the same YAML the helm chart ships.
-func crdBasesDir(t *testing.T) string {
+// crdChartDir resolves the Helm CRD template directory at runtime so the test
+// reads the same YAML the chart ships.
+func crdChartDir(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	return filepath.Join(wd, "..", "config", "crd", "bases")
+	return filepath.Join(wd, "..", "..", "..", "helm", "kagent-crds", "templates")
 }
 
 // TestTLSConfigCELValidation checks the supported TLS option and rejects deferred
@@ -74,7 +74,7 @@ func crdBasesDir(t *testing.T) string {
 func TestTLSConfigCELValidation(t *testing.T) {
 	testEnv := &envtest.Environment{
 		BinaryAssetsDirectory: envtestAssetsDir(t),
-		CRDDirectoryPaths:     []string{crdBasesDir(t)},
+		CRDDirectoryPaths:     []string{crdChartDir(t)},
 		ErrorIfCRDPathMissing: true,
 	}
 	cfg, err := testEnv.Start()

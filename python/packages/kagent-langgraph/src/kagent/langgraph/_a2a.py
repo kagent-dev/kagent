@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
 from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
+from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -120,11 +121,13 @@ class KAgentApp:
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         if self._enable_tracing:
-            bootstrap(conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name)
+            bootstrap(
+                conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name, config=self.config.runtime
+            )
             instrument_app(app)
 
         # Add health check and debugging routes

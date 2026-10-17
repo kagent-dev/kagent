@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 	"k8s.io/client-go/tools/clientcmd"
+
+	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 )
 
 // NewKagentClientset builds the generated kagent clientset from the ambient
@@ -66,25 +67,4 @@ func GetCurrentKindClusterName() (string, error) {
 	}
 
 	return "", fmt.Errorf("current cluster %q is not a kind cluster", currentContext.Cluster)
-}
-
-// GetCurrentContext returns the name of the current kubeconfig context.
-func GetCurrentContext() (string, error) {
-	config := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		clientcmd.NewDefaultClientConfigLoadingRules(),
-		&clientcmd.ConfigOverrides{},
-	)
-
-	rawConfig, err := config.RawConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to get raw kubeconfig: %w", err)
-	}
-
-	return rawConfig.CurrentContext, nil
-}
-
-// IsKindCluster checks if the current kubeconfig context points to a kind cluster.
-func IsKindCluster() bool {
-	_, err := GetCurrentKindClusterName()
-	return err == nil
 }

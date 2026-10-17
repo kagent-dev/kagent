@@ -6,8 +6,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestTaskEventsRequireTaskIdentity(t *testing.T) {
@@ -228,13 +229,13 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	hash := sha256.Sum256([]byte("checkpoint boundary"))
 	version, err := client.UpdateSessionTask(t.Context(), source.Id, initialVersion, hash[:], completed, completed, "")
 	require.NoError(t, err)
-	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
+	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.NoError(t, client.SettleSessionTask(t.Context(), source.Id, string(completed.ID), version))
 	boundary, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "turn-N", ContentScope: "DATA"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
+	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-N", "retained-N", "")
 	require.NoError(t, err)
@@ -467,7 +468,7 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	version, err := client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("finish"), task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
-	request := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
+	request := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 	_, _, err = client.ReserveSessionCheckpoint(ctx, request, "alice", "checkpoint")
 	require.ErrorIs(t, err, ErrSnapshotPending)
 	work, err := client.ClaimSessionQuiescence(ctx)
@@ -533,7 +534,7 @@ func TestCheckpointRejectsOlderPendingTask(t *testing.T) {
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", ContentScope: "DATA"}))
-	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)

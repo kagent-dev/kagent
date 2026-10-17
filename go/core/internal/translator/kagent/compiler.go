@@ -2,62 +2,62 @@ package kagent
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
+	"buf.build/go/protovalidate"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"istio.io/istio/pkg/kube/krt"
+
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // Compiler translates resolved inputs into a kagent runtime revision.
 type Compiler struct {
-	config *adkconfig.Builder
+	settings *configv1.RuntimeDefaultsConfig
+	config   *adkconfig.Builder
 }
 
 var _ translator.HarnessCompiler = (*Compiler)(nil)
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections) *Compiler {
-	return &Compiler{config: adkconfig.NewBuilder(ctx, collections)}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, config: adkconfig.NewBuilder(ctx, collections)}
 }
 
 func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
-	telemetryConfig, _ := translator.TelemetryConfigFromProcess()
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
+	if err != nil {
+		return nil, err
+	}
 	compiled, err := c.config.Build(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	configJSON, err := json.Marshal(compiled.Config)
+	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
+		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
+		Agent:   compiled.Config,
+	})
 	if err != nil {
+		var invalid *protovalidate.ValidationError
+		if errors.As(err, &invalid) {
+			return nil, translator.NewValidationError("invalid agent config: %w", err)
+		}
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(translator.ManagedAgentCard(input.AgentName, template))
+	card, err := pbconv.ToProtoAgentCard(agentCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
 
-	harnessAttributes := translator.HarnessResourceAttributes(harness)
-	harnessEnvironment := slices.DeleteFunc(adkconfig.HarnessEnvironment(harness), func(variable corev1.EnvVar) bool {
-		return translator.OwnsTelemetryEnvironment(variable.Name)
-	})
+	harnessEnvironment := adkconfig.HarnessEnvironment(harness)
 	environment := append(compiled.Environment, harnessEnvironment...)
-	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-		corev1.EnvVar{Name: env.KagentGatewayURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-		corev1.EnvVar{Name: env.KagentPort.Name(), Value: "80"},
-	)
-	environment = append(environment, telemetryConfig.TelemetryEnvironment(tracing.RuntimeTelemetry{
-		AgentName: input.AgentName, AgentNamespace: template.Namespace,
-	}, harnessAttributes)...)
 	environment = adkconfig.DedupeEnv(environment)
 	provenance, err := c.config.BuildProvenance(ctx, harness, compiled.Templates, compiled.Models, environment)
 	if err != nil {
@@ -67,15 +67,24 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations()...)
-	compiled.Egress = append(compiled.Egress, "http://"+utils.GetControllerName()+"."+utils.GetResourceNamespace()+":8083")
+	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations(environment)...)
+	compiled.Egress = append(compiled.Egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(compiled.Egress)
 	compiled.Egress = slices.Compact(compiled.Egress)
 	return &translator.CompileResult{Revision: translator.Revision{
 		Namespace: template.Namespace,
-		Image:     harness.Spec.Workload.Image, Command: slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
+		Command:   slices.Clone(harness.Spec.Workload.Command), Args: slices.Clone(harness.Spec.Workload.Args),
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 		Credentials: credentials, Provenance: provenance, EgressDestinations: compiled.Egress,
 	}}, nil
+}
+
+// agentCard is the managed card plus the capabilities only the kagent ADK
+// runtimes implement.
+func agentCard(agentName string, template *translator.TemplateConfiguration) *a2atype.AgentCard {
+	card := translator.ManagedAgentCard(agentName, template)
+	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.UsageExtension())
+	return card
 }

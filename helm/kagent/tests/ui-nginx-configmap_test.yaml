@@ -25,7 +25,7 @@ tests:
 
   - it: strips internal agent identity headers in trusted proxy mode even if opted in
     set:
-      controller.auth.mode: trusted-proxy
+      config.server.auth.mode: trusted-proxy
       ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
     asserts:
       - matchRegex:

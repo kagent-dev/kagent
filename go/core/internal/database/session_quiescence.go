@@ -7,13 +7,14 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
-// SessionQuiescence grants one worker permission to pause an idle session or
-// suspend it and record its snapshot. Task publication has already completed.
+// SessionQuiescence grants one worker permission to suspend an idle session
+// and record its snapshot. Task publication has already completed.
 type SessionQuiescence struct {
-	Session    *apiv1alpha1.Session
+	Session    *apiv1.Session
 	TaskID     string
 	State      a2a.TaskState
 	Version    int64
@@ -101,16 +102,16 @@ func (c *Client) ClaimSessionQuiescence(ctx context.Context) (*SessionQuiescence
 	return result, err
 }
 
-// FinishSessionQuiescence records a claimed pause/suspend outcome and releases
-// the session for new execution. Terminal tasks require the matching snapshot.
+// FinishSessionQuiescence records a claimed suspension outcome and releases
+// the session for new execution. Every settled task requires the matching snapshot.
 // Retries are harmless, and a stale claim cannot release another operation.
 // Task state and history remain readable throughout lifecycle work.
 func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuiescence, snapshot *SessionTaskSnapshot) error {
 	if work == nil || work.ExecutorID == uuid.Nil {
 		return fmt.Errorf("claimed task boundary is required")
 	}
-	if work.State.Terminal() && (snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope == "") {
-		return fmt.Errorf("terminal task quiescence requires a runtime snapshot")
+	if snapshot == nil || snapshot.URI == "" || snapshot.Atespace == "" || snapshot.ContentScope == "" {
+		return fmt.Errorf("task quiescence requires a runtime snapshot")
 	}
 	return c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, work.Session.Id)

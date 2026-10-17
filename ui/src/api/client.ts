@@ -52,7 +52,6 @@ import type {
 import type {
   AgentInstance,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
   CreatedAgentInstanceShare,
 } from "./domain/agentInstances";
 import type { Checkpoint } from "./domain/checkpoints";
@@ -269,10 +268,7 @@ export interface AgentInstancesApi {
 
   shares: {
     list(id: string, options?: ReadOptions): Promise<AgentInstanceShare[]>;
-    create(
-      id: string,
-      permission: AgentInstanceSharePermission,
-    ): Promise<CreatedAgentInstanceShare>;
+    create(id: string): Promise<CreatedAgentInstanceShare>;
 
     /** By share id, not by token: the token is not stored to match on. */
     revoke(shareId: string): Promise<void>;
@@ -401,8 +397,7 @@ export function createApiClient(): KagentApiClient {
       shares: {
         list: (id, options) =>
           invoke("agentInstances.shares.list", { id }, options),
-        create: (id, permission) =>
-          invoke("agentInstances.shares.create", { id, permission }),
+        create: (id) => invoke("agentInstances.shares.create", { id }),
         revoke: (shareId) =>
           invoke("agentInstances.shares.revoke", { shareId }),
       },

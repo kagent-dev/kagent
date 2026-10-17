@@ -26,9 +26,9 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mi
 
 The Kagent chart does not deploy or initialize PostgreSQL, and it does not install Substrate. A direct Helm install needs a prepared database, a connection Secret in the Kagent namespace, and Substrate installed as its own release.
 
-`kagent install` does all of this for development: it installs Substrate in `ate-system`, deploys a PostgreSQL instance in the Kagent namespace, creates the identities and schemas below, writes the connection Secrets, and then installs Kagent. Kagent, Substrate, and PostgreSQL authenticate with Pod Certificates rather than passwords. The development database has no pgvector extension and is not intended for production. It pulls `postgres:18-alpine` from Docker Hub; set `KAGENT_BUNDLED_POSTGRES_IMAGE` to use a mirror.
+`kagent install` does all of this for development: it installs Substrate in `ate-system`, deploys a PostgreSQL instance in the Kagent namespace, creates the identities and schemas below, writes the connection Secrets, and then installs Kagent. Kagent, Substrate, and PostgreSQL authenticate with Pod Certificates rather than passwords. The development database has no pgvector extension and is not intended for production. It pulls `postgres:18-alpine` from Docker Hub; set `install.bundledPostgresImage` in the CLI config to use a mirror.
 
-To run `kagent install` against a database you prepared yourself, pass `--skip-database-setup` and point each chart at your Secrets through `KAGENT_HELM_EXTRA_ARGS` and `KAGENT_SUBSTRATE_HELM_EXTRA_ARGS`.
+To run `kagent install` against a database you prepared yourself (see [Preparing your own database](#preparing-your-own-database)), pass `--skip-database-setup` and point each chart at your Secrets through `install.kagent.valuesFiles` and `install.substrate.valuesFiles` in the CLI config.
 
 `kagent install` creates Substrate's certificate authorities once, and they expire one year later. Nothing renews them, and re-running `kagent install` keeps the existing ones. To replace them, delete the CA Secrets, re-run `kagent install`, and restart the Substrate and Kagent workloads:
 
@@ -41,7 +41,8 @@ Kagent and Substrate share one database with separate identities and schemas:
 
 | Access | Login user | Assumed role | Schema |
 | --- | --- | --- | --- |
-| Kagent | `kagent_user` | `kagent_owner` | `kagent` |
+| Kagent migrations | `kagent_owner_user` | `kagent_owner` | `kagent` |
+| Kagent runtime | `kagent_readwrite_user` | `kagent_readwrite` | `kagent` |
 | Substrate migrations | `substrate_owner_user` | `substrate_owner` | `substrate` |
 | Substrate runtime | `substrate_readwrite_user` | `substrate_readwrite` | `substrate` |
 
@@ -50,56 +51,91 @@ Kagent and Substrate share one database with separate identities and schemas:
 ```yaml
 database:
   postgres:
-    # Secret holding the connection string. Required.
-    connectionStringSecretRef:
-      name: kagent-postgres
-      key: connectionString
-    # Role assumed on every connection. Set to "" to use the login user directly.
-    role: kagent_owner
-    # Schema for Kagent tables. It must exist, or the role must be able to create it.
-    schema: kagent
-    # Schema where pgvector is installed. Used only when vectorEnabled is true.
-    vectorSchema: extensions
-    vectorEnabled: false
-    # Project the kagent_user Pod Certificate at /run/postgres.podcert.ate.dev.
+    # Owner login: creates the schema and runs migrations. Not used when config.database.skipMigrations is true.
+    ownerConnectionStringSecretRef:
+      name: kagent-postgres-owner
+      key: ownerConnectionString
+    # Read/write login: serves every runtime query. Required.
+    readWriteConnectionStringSecretRef:
+      name: kagent-postgres-readwrite
+      key: readWriteConnectionString
+    # Project the kagent_readwrite_user Pod Certificate, and kagent_owner_user unless
+    # config.database.skipMigrations is true, at /run/postgres.podcert.ate.dev.
     # Only for databases that trust the Substrate postgres CA.
     clientCertificate:
       enabled: false
+config:
+  database:
+    owner:
+      role: kagent_owner
+    readWrite:
+      role: kagent_readwrite
+    # Schema for Kagent tables. It must exist, or the owner role must be able to create it.
+    schema: kagent
+    vectorSchema: extensions
+    vectorEnabled: false
 ```
 
-With an external database, either create the `kagent_owner` role and grant it to the login user, or set `role: ""`.
+#### Preparing your own database
 
-When vectors are enabled, install pgvector into `vectorSchema` before Kagent starts, and grant the Kagent role `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
+Run [`go/core/pkg/postgressetup/setup.sql`](../go/core/pkg/postgressetup/setup.sql) with `psql` as a database administrator. `kagent install` runs the same script against its development database. The script creates:
+
+- a `NOLOGIN` owner role, which owns the schema and every object Kagent's migrations create;
+- a `NOLOGIN` read/write role, with `USAGE` on the schema and, through the owner's default privileges, `SELECT`, `INSERT`, `UPDATE` and `DELETE` on tables, `USAGE`, `SELECT` and `UPDATE` on sequences, `EXECUTE` on routines and `USAGE` on types. It cannot change the schema;
+- a `NOINHERIT` login user for each role. The logins have no privileges of their own, and Kagent assumes each role after connecting;
+- the schema, owned by the owner role, with all privileges revoked from `PUBLIC`.
+
+The script also revokes `CREATE` on the `public` schema from `PUBLIC` in the whole database. It fails rather than change an existing role with different attributes or a schema owned by another role, and running it again is safe.
+
+Every variable is required, and the script must run in one transaction. Pass the passwords through environment variables, which `\getenv` (psql 15 or later) reads, so they stay out of the process list:
+
+```bash
+export KAGENT_OWNER_PASSWORD=... KAGENT_READWRITE_PASSWORD=...
+psql "$ADMIN_CONNECTION_STRING" --no-psqlrc --set=ON_ERROR_STOP=1 --single-transaction \
+  --set=kagent_schema=kagent \
+  --set=kagent_owner_role=kagent_owner \
+  --set=kagent_owner_user=kagent_owner_user \
+  --set=kagent_readwrite_role=kagent_readwrite \
+  --set=kagent_readwrite_user=kagent_readwrite_user \
+  --command='\getenv kagent_owner_password KAGENT_OWNER_PASSWORD' \
+  --command='\getenv kagent_readwrite_password KAGENT_READWRITE_PASSWORD' \
+  --file=go/core/pkg/postgressetup/setup.sql
+```
+
+The script doesn't print the passwords, but they reach the server as statement text, so a server that logs every statement (`log_statement = all`) records them. To avoid that, pass a SCRAM-SHA-256 verifier instead of the plain password; PostgreSQL stores it as given.
+
+| Variable | `kagent install` value |
+| --- | --- |
+| `kagent_schema` | `kagent` |
+| `kagent_owner_role` | `kagent_owner` |
+| `kagent_owner_user` | `kagent_owner_user` |
+| `kagent_owner_password` | Empty (certificate authentication) |
+| `kagent_readwrite_role` | `kagent_readwrite` |
+| `kagent_readwrite_user` | `kagent_readwrite_user` |
+| `kagent_readwrite_password` | Empty (certificate authentication) |
+
+Each run sets each login's password to its variable. An empty value removes the password, so pass the current passwords every time. An unset variable stops the script before it changes anything.
+
+Set `config.database.owner.role`, `config.database.readWrite.role` and `config.database.schema` to the values you used, and put a connection string for each login in the Secrets that `database.postgres.ownerConnectionStringSecretRef` and `database.postgres.readWriteConnectionStringSecretRef` name. Leave role settings out of the connection strings: Kagent assumes each role after it connects. With `config.database.skipMigrations: true`, only the read/write Secret and role are needed.
+
+Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v0.5.0-alpha2/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
+
+When vectors are enabled, install pgvector into `config.database.vectorSchema` before Kagent starts, and grant both Kagent roles `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 
 The Substrate chart reads its own connection Secrets. See that chart's `postgres.ownerConnectionStringSecretRef` and `postgres.readWriteConnectionStringSecretRef` values.
 
 #### Credential rotation
 
-Kagent reads the connection string from the Secret once, at startup. After the Secret changes, restart the controller.
+Kagent reads the connection strings from their Secrets once, at startup. After a Secret changes, restart the controller.
 
-When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `database.postgres.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
-
-#### Migrating from `url` and `urlFile`
-
-Kagent 1.x removes `database.postgres.url` and `database.postgres.urlFile`. Move the connection string into a Secret and reference it:
-
-```yaml
-database:
-  postgres:
-    connectionStringSecretRef:
-      name: postgres-connection
-      key: connectionString
-```
-
-Kagent 1.x also stores its tables in the `kagent` schema instead of `public`, so an upgraded installation starts with empty tables. Only clean installs are supported.
+When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `config.database.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
 
 #### OIDC authentication
 
-Set `controller.auth.mode: trusted-proxy` together with
-`oauth2-proxy.enabled: true`. Set `controller.auth.userIdClaim: email` to use
-email identities, or leave it empty to use `sub`. The chart renders
-`KAGENT_AUTH_MODE` and `KAGENT_AUTH_USER_ID_CLAIM`, which the shipped controller
-consumes at startup. Unsupported modes fail startup; `insecure` remains the
+Set `config.server.auth.mode: trusted-proxy` together with
+`oauth2-proxy.enabled: true`. Set `config.server.auth.userIdClaim: email` to use
+email identities, or leave it empty to use `sub`. The chart writes these settings into `controller.yaml`, which the controller
+validates at startup. Unsupported modes fail startup; `insecure` remains the
 default.
 
 Follow the [OIDC deployment configuration](../docs/architecture/oidc-proxy-authentication.md#deployment-configuration)
@@ -114,9 +150,6 @@ The default sandbox is `gvisor`. With Substrate configured, use these values
 to select `microvm`:
 
 ```yaml
-controller:
-  substrate:
-    enabled: true
 substrateWorkerPool:
   create: true
   sandboxClass: microvm
@@ -129,6 +162,11 @@ use a release tag matching your Substrate version.
 
 Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.
 
+The worker pods run as a ServiceAccount with the name `substrateWorkerPool.name`, which the
+chart creates. To use your own ServiceAccount, set `substrateWorkerPool.serviceAccount.create`
+to `false` and `substrateWorkerPool.serviceAccount.name` to its name. It must exist in the
+release namespace.
+
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
@@ -139,19 +177,30 @@ export OPENAI_API_KEY=your-openai-api-key
 
 # Build the local images, then install them with Substrate and the development database
 make build
-make KAGENT_DEFAULT_MODEL_PROVIDER=openAI kagent-cli-install
+make MODEL_PROVIDER=openAI kagent-cli-install
 ```
 
-`make kagent-cli-install` builds the local CLI and runs `kagent install` against the local charts. `make helm-install` installs the charts directly with Helm. That needs a prepared database and `kagent-postgres` Secret (see [PostgreSQL](#postgresql)) and a separately installed Substrate. Native gRPC, gRPC-Web, A2A, MCP, and operational HTTP endpoints share controller port `8083`.
+`make kagent-cli-install` builds the local CLI and runs `kagent install` against the local charts. `make helm-install` installs the charts directly with Helm. That needs a prepared database, the `kagent-postgres-owner` and `kagent-postgres-readwrite` Secrets (see [PostgreSQL](#postgresql)), and a separately installed Substrate. Native gRPC, gRPC-Web, A2A, MCP, and operational HTTP endpoints share controller port `8083`.
 
 ### Using kagent cli
 
 ```bash
 export OPENAI_API_KEY=your-openai-api-key
 # openAI is the default; other choices include anthropic, azureOpenAI, gemini, and ollama
-export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
-kagent install
+# config.yaml: install: {defaultModelProvider: OpenAI}
+kagent --config config.yaml install
 ```
+
+## Application configuration
+
+`config` follows the [ControllerConfig schema](../proto/kagent/config/v1/config.proto).
+It is rendered as `/etc/kagent/controller.yaml`; secret files are projected separately.
+Configure controller and agent telemetry independently using `config.telemetry`
+and `config.runtimeDefaults.telemetry`. Standard OTEL overrides can be supplied
+through `controller.env`/`envFrom` for this controller process only.
+
+See [process configuration](../docs/architecture/process-configuration.md) for examples,
+validation commands, defaults, and runtime configuration.
 
 ## Upgrading
 

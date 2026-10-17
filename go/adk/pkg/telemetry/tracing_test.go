@@ -9,15 +9,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
-	logglobal "go.opentelemetry.io/otel/log/global"
 	lognoop "go.opentelemetry.io/otel/log/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestInitExportsConfiguredSignals(t *testing.T) {
@@ -61,15 +61,15 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", collector.URL)
 			t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "3600000")
-			t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "")
-			oldTrace, oldLog, oldPropagation := otel.GetTracerProvider(), logglobal.GetLoggerProvider(), otel.GetTextMapPropagator()
+			t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", "gzip")
+			oldTrace, oldLog, oldPropagation := otel.GetTracerProvider(), otel.GetLoggerProvider(), otel.GetTextMapPropagator()
 			t.Cleanup(func() {
 				otel.SetTracerProvider(oldTrace)
-				logglobal.SetLoggerProvider(oldLog)
+				otel.SetLoggerProvider(oldLog)
 				otel.SetTextMapPropagator(oldPropagation)
 			})
 			otel.SetTracerProvider(tracenoop.NewTracerProvider())
-			logglobal.SetLoggerProvider(lognoop.NewLoggerProvider())
+			otel.SetLoggerProvider(lognoop.NewLoggerProvider())
 			providers, err := Init(t.Context(), tracing.RuntimeTelemetry{
 				Runtime: tracing.RuntimeADKGo, AgentName: "adk-service", AgentNamespace: "agent-namespace",
 			})
@@ -84,7 +84,7 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 			span.End()
 			var record log.Record
 			record.SetBody(attribute.StringValue("test log"))
-			logglobal.GetLoggerProvider().Logger("test").Emit(t.Context(), record)
+			otel.GetLoggerProvider().Logger("test").Emit(t.Context(), record)
 			if err := providers.Shutdown(t.Context()); err != nil {
 				t.Fatal(err)
 			}
@@ -110,6 +110,9 @@ func TestInitExportsConfiguredSignals(t *testing.T) {
 				}
 				if attrs["service.name"] != tc.wantService || attrs["service.namespace"] != "agent-namespace" || attrs["kagent.runtime"] != "adk-go" {
 					t.Fatalf("resource = %v", attrs)
+				}
+				if attrs[tracing.AttributeMainAgentName] != "adk-service" || attrs[tracing.AttributeMainAgentID] != "agent-namespace/adk-service" {
+					t.Fatalf("resource is missing compiled agent identity: %v", attrs)
 				}
 				found := false
 				for _, scope := range resource.ScopeSpans {
