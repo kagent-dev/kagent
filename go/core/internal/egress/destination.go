@@ -66,9 +66,9 @@ type Access struct {
 	Credentials  []Credential `json:"credentials,omitempty"`
 }
 
-// CanonicalAccess merges equivalent origins and validates the complete grant
-// before a revision can become ready or an Actor can be resumed.
-func CanonicalAccess(destinations []string, credentials []Credential) (Access, error) {
+// CanonicalAccess merges equivalent origins and validates destinations and
+// credentials, including conflicts with canonical caller-token origins.
+func CanonicalAccess(destinations []string, credentials []Credential, tokenPassthroughOrigins []string) (Access, error) {
 	result := Access{}
 	protocols := map[string]string{}
 	allowed := map[string]bool{}
@@ -98,6 +98,9 @@ func CanonicalAccess(destinations []string, credentials []Credential) (Access, e
 	for _, binding := range result.Credentials {
 		if !allowed[binding.Origin] {
 			return Access{}, fmt.Errorf("credential destination %q is not explicitly allowed", binding.Origin)
+		}
+		if slices.Contains(tokenPassthroughOrigins, binding.Origin) {
+			return Access{}, fmt.Errorf("destination %q cannot combine caller-token passthrough with gateway credentials", binding.Origin)
 		}
 	}
 	return result, nil

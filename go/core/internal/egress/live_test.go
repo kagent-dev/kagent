@@ -10,7 +10,7 @@ import (
 
 func canonicalTestAccess(t *testing.T, destinations []string, credentials ...Credential) Access {
 	t.Helper()
-	access, err := CanonicalAccess(destinations, credentials)
+	access, err := CanonicalAccess(destinations, credentials, nil)
 	require.NoError(t, err)
 	return access
 }

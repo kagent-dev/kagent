@@ -132,5 +132,5 @@ func compileEgressPolicy(namespace string, policy *v1alpha3.EgressPolicy, getSec
 		}
 		credentials = append(credentials, binding)
 	}
-	return egress.CanonicalAccess(destinations, credentials)
+	return egress.CanonicalAccess(destinations, credentials, nil)
 }

@@ -208,13 +208,13 @@ func TestAgentStartupRecoversOfflineDeletions(t *testing.T) {
 					targets: []database.RuntimeEgressTarget{{ID: "actor", Revision: "old", Atespace: "team-a", TemplateName: "runtime"}},
 				}}
 				attempts := 0
-				actors := &fakeActorTemplates{actorEgressStub: actorEgressStub{ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
+				actors := &fakeActorTemplates{actorEgressStub: actorEgressStub{ensurePolicy: func(context.Context, string, string, string) error {
 					assert.NotEmpty(t, store.retired, "retire before applying revocation")
 					attempts++
 					if attempts == 1 {
-						return egress.Policy{}, errors.New("backend unavailable")
+						return errors.New("backend unavailable")
 					}
-					return egress.Policy{}, nil
+					return nil
 				}}}
 				r := newReconciler(collections, actors, store, kagentfake.NewSimpleClientset().ApiV1alpha3())
 				var workers sync.WaitGroup
@@ -321,15 +321,15 @@ func TestPreparationReplaysAndRetriesUnchangedGrants(t *testing.T) {
 				var mu sync.Mutex
 				var attempts []time.Time
 				var applied egress.Access
-				actorStub.ensurePolicy = func(context.Context, string, string, string) (egress.Policy, error) {
+				actorStub.ensurePolicy = func(context.Context, string, string, string) error {
 					mu.Lock()
 					defer mu.Unlock()
 					attempts = append(attempts, time.Now())
 					if len(attempts) == 1 {
-						return egress.Policy{}, errors.New("backend unavailable")
+						return errors.New("backend unavailable")
 					}
 					applied = persisted()
-					return egress.Policy{Access: applied}, nil
+					return nil
 				}
 				var workers sync.WaitGroup
 				workers.Go(func() { assert.NoError(t, start(ctx)) })
@@ -361,9 +361,9 @@ func TestSandboxFinalizerWaitsForActorRevocation(t *testing.T) {
 	store := s.store.(*sandboxTestStore)
 	store.targets = []database.RuntimeEgressTarget{{ID: "actor", Revision: "old", Atespace: "team-a", TemplateName: "runtime"}}
 	pushErr := errors.New("backend unavailable")
-	s.actors.(*sandboxTestActors).ensurePolicy = func(context.Context, string, string, string) (egress.Policy, error) {
+	s.actors.(*sandboxTestActors).ensurePolicy = func(context.Context, string, string, string) error {
 		assert.True(t, store.retired, "retire before applying revocation")
-		return egress.Policy{}, pushErr
+		return pushErr
 	}
 	require.ErrorIs(t, s.reconcile(t.Context(), key), pushErr)
 	persisted, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})

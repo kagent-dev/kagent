@@ -111,35 +111,13 @@ func newAgentReconciliations(
 			return state
 		}
 		resolution := translator.CompileEgressPolicies(ctx, collections, agent.Namespace, agent.Spec.EgressPolicyRefs)
+		state.Target, state.Warnings, state.CompilationFailure = compileAgentTarget(ctx, collections, agent, settings, images)
 		// Admission still runs when an unrelated runtime input fails to compile.
-		defer func() {
-			base, tokenOrigins := state.Target.egressBase()
-			state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, base, tokenOrigins)
-		}()
-		compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-			translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
-			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
-			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
-			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
-		}, images).CompileAgent(context.Background(), agent)
-		if err != nil {
-			state.CompilationFailure = compilationFailure(err)
+		base, tokenOrigins := state.Target.egressBase()
+		state.EgressGrant, state.EgressIssues, state.EgressConflict = evaluateEgressGrant(resolution, base, tokenOrigins)
+		if state.CompilationFailure != nil {
 			return state
 		}
-		revision := &compilation.Revision
-		state.Warnings = append([]string(nil), compilation.Warnings...)
-		revisionID, err := revision.Digest()
-		if err != nil {
-			state.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
-			return state
-		}
-
-		actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
-		if err != nil {
-			state.CompilationFailure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
-			return state
-		}
-		state.Target = &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}
 
 		observed := krt.FetchOne(ctx, agentRuntimeObservations, krt.FilterKey(state.ResourceName()))
 		if observed == nil || observed.RevisionID != state.Target.RevisionID {
@@ -161,6 +139,29 @@ func newAgentReconciliations(
 		}
 		return state
 	}, opts.WithName("AgentReconciliations")...)
+}
+
+func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collections, agent *kagentv1alpha3.Agent, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) (*compiledTarget, []string, *ReconciliationFailure) {
+	compilation, err := translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
+	}, images).CompileAgent(context.Background(), agent)
+	if err != nil {
+		return nil, nil, compilationFailure(err)
+	}
+	revision := &compilation.Revision
+	warnings := slices.Clone(compilation.Warnings)
+	revisionID, err := revision.Digest()
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+	}
+	actorTemplate, err := substrate.ActorTemplateForRevision(revision, revisionID)
+	if err != nil {
+		return nil, warnings, &ReconciliationFailure{Condition: kagentv1alpha3.AgentConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
+	}
+	return &compiledTarget{Revision: *revision, RevisionID: revisionID, ActorTemplate: actorTemplate}, warnings, nil
 }
 
 func compilationFailure(err error) *ReconciliationFailure {

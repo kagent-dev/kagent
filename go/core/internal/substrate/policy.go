@@ -11,7 +11,7 @@ import (
 // ActorEgressPolicy compiles HTTP(S) origins into an actor's default allowlist.
 // Credential bindings are already canonicalized by the store.
 func ActorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
-	access, err := egress.CanonicalAccess(destinations, credentials)
+	access, err := egress.CanonicalAccess(destinations, credentials, nil)
 	if err != nil {
 		return nil, err
 	}

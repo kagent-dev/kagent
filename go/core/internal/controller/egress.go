@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
@@ -21,7 +20,7 @@ type actorEgressStore interface {
 
 type actorEgressClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
-	EnsureActorEgressPolicy(context.Context, string, string, string) (egress.Policy, error)
+	EnsureActorEgressPolicy(context.Context, string, string, string) error
 }
 
 // applySourceEgress updates every allocated actor, including suspended actors and
@@ -69,13 +68,9 @@ func applyActorEgress(ctx context.Context, actors actorEgressClient, target data
 	if !binding.Matches(actor) || (target.ActorUID != "" && target.ActorUID != actor.GetMetadata().GetUid()) {
 		return nil
 	}
-	_, err = actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
+	err = actors.EnsureActorEgressPolicy(ctx, binding.Atespace, binding.Name, target.Revision)
 	if status.Code(err) == codes.NotFound {
 		return nil
 	}
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }

@@ -197,7 +197,7 @@ func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 			resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, objects...), "test", refs)
 			if name == "conflicting auth" || name == "conflicting prefix" {
 				require.Empty(t, resolution.Issues, "individually valid policies reach admission")
-				_, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials)
+				_, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials, nil)
 				require.Error(t, err)
 			} else {
 				require.Len(t, resolution.Issues, 1)
@@ -218,7 +218,7 @@ func TestEgressPoliciesMergeCredentialsAndOrigins(t *testing.T) {
 	refs := []corev1.LocalObjectReference{{Name: policy.Name}, {Name: other.Name}}
 	resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, collections, "test", refs)
 	require.Empty(t, resolution.Issues)
-	access, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials)
+	access, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials, nil)
 	require.NoError(t, err)
 	require.Len(t, access.Destinations, 3)
 	require.Len(t, access.Credentials, 2)
@@ -226,7 +226,7 @@ func TestEgressPoliciesMergeCredentialsAndOrigins(t *testing.T) {
 	refs[0], refs[1] = refs[1], refs[0]
 	reversed := translator.CompileEgressPolicies(krt.TestingDummyContext{}, collections, "test", refs)
 	require.Empty(t, reversed.Issues)
-	canonical, err := egress.CanonicalAccess(reversed.Access.Destinations, reversed.Access.Credentials)
+	canonical, err := egress.CanonicalAccess(reversed.Access.Destinations, reversed.Access.Credentials, nil)
 	require.NoError(t, err)
 	require.Equal(t, access, canonical)
 }

@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
 type egressTargetStoreStub struct {
@@ -38,7 +37,7 @@ func (s *egressTargetStoreStub) ListRuntimeEgressSourceTargets(_ context.Context
 
 type actorEgressStub struct {
 	getActor     func(context.Context, string, string) (*ateapipb.Actor, error)
-	ensurePolicy func(context.Context, string, string, string) (egress.Policy, error)
+	ensurePolicy func(context.Context, string, string, string) error
 }
 
 var _ actorEgressClient = (*actorEgressStub)(nil)
@@ -49,7 +48,7 @@ func (a *actorEgressStub) GetActor(ctx context.Context, space, name string) (*at
 	}
 	return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: "uid"}, ActorTemplate: &ateapipb.ObjectRef{Atespace: space, Name: "runtime"}}, nil
 }
-func (a *actorEgressStub) EnsureActorEgressPolicy(ctx context.Context, space, name, revision string) (egress.Policy, error) {
+func (a *actorEgressStub) EnsureActorEgressPolicy(ctx context.Context, space, name, revision string) error {
 	return a.ensurePolicy(ctx, space, name, revision)
 }
 
@@ -64,7 +63,7 @@ func TestSourceEgressAppliesEveryPageWithBoundedConcurrency(t *testing.T) {
 		active, peak := 0, 0
 		applied := map[string]int{}
 		backendErr := errors.New("backend unavailable")
-		actors := &actorEgressStub{ensurePolicy: func(ctx context.Context, _, name, _ string) (egress.Policy, error) {
+		actors := &actorEgressStub{ensurePolicy: func(ctx context.Context, _, name, _ string) error {
 			mu.Lock()
 			active++
 			peak = max(peak, active)
@@ -75,9 +74,9 @@ func TestSourceEgressAppliesEveryPageWithBoundedConcurrency(t *testing.T) {
 			active--
 			mu.Unlock()
 			if name == "session-000" {
-				return egress.Policy{}, backendErr
+				return backendErr
 			}
-			return egress.Policy{}, ctx.Err()
+			return ctx.Err()
 		}}
 		require.ErrorIs(t, applySourceEgress(t.Context(), store, actors, source), backendErr)
 		require.Len(t, applied, 101, "a failed actor must not block subsequent actors or pages")
@@ -113,9 +112,9 @@ func TestActorEgressSkipsStaleOrMissingActors(t *testing.T) {
 				getActor: func(_ context.Context, space, name string) (*ateapipb.Actor, error) {
 					return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name, Uid: test.uid}, ActorTemplate: &ateapipb.ObjectRef{Atespace: space, Name: test.template}}, test.getErr
 				},
-				ensurePolicy: func(context.Context, string, string, string) (egress.Policy, error) {
+				ensurePolicy: func(context.Context, string, string, string) error {
 					calls++
-					return egress.Policy{}, test.applyErr
+					return test.applyErr
 				},
 			}
 			err := applyActorEgress(t.Context(), actors, database.RuntimeEgressTarget{ID: "actor", Revision: "revision", Atespace: "team", TemplateName: "runtime", ActorUID: "uid"})

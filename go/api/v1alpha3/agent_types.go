@@ -80,8 +80,8 @@ type AgentTemplateSource struct {
 }
 
 const (
-	AgentConditionEgressPoliciesApplied = "EgressPoliciesApplied"
 	AgentConditionAccepted              = "Accepted"
+	AgentConditionEgressPoliciesApplied = "EgressPoliciesApplied"
 	AgentConditionResolvedRefs          = "ResolvedRefs"
 	AgentConditionCompatible            = "Compatible"
 	AgentConditionReady                 = "Ready"

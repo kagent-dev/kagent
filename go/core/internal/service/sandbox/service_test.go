@@ -22,7 +22,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
-	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -74,12 +73,12 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) (egress.Policy, error) {
+func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "policy")
 	a.egressRevision = revision
-	return egress.Policy{}, a.mutationErr
+	return a.mutationErr
 }
 func (a *testActors) ResumeActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.mu.Lock()

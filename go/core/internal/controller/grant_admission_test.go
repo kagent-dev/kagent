@@ -87,6 +87,9 @@ func TestGrantAdmissionAcrossSources(t *testing.T) {
 					condition := meta.FindStatusCondition(observed, "EgressPoliciesApplied")
 					require.NotNil(t, condition)
 					require.Equal(t, reason, condition.Reason)
+					if reason == v1alpha3.EgressPoliciesReasonConflict {
+						require.Contains(t, condition.Message, "new grants are held until the conflict is resolved; first conflict:")
+					}
 					if reason == v1alpha3.EgressPoliciesReasonApplied {
 						require.Equal(t, metav1.ConditionTrue, condition.Status)
 					} else {
@@ -96,6 +99,8 @@ func TestGrantAdmissionAcrossSources(t *testing.T) {
 				const a = "https://a.example.com:443"
 				const x = "https://x.example.com:443"
 				policies.UpdateObject(policy("a", a))
+				policies.UpdateObject(policy("b", "http://a.example.com:443"))
+				check(v1alpha3.EgressPoliciesReasonConflict)
 				policies.UpdateObject(policy("b", x))
 				check(v1alpha3.EgressPoliciesReasonApplied, a, x)
 				// The new HTTP rule conflicts with a. An unrelated addition is held
@@ -137,7 +142,7 @@ func TestEgressConditionSurvivesRuntimeFailureAndBoundsMessages(t *testing.T) {
 	status := statusForAgent(state, 1, "")
 	condition := meta.FindStatusCondition(status.Conditions, v1alpha3.AgentConditionEgressPoliciesApplied)
 	require.Equal(t, v1alpha3.EgressPoliciesReasonConflict, condition.Reason)
-	require.Contains(t, condition.Message, "new grants are held")
+	require.Contains(t, condition.Message, "new grants are held until the conflict is resolved")
 	require.Contains(t, condition.Message, "team/missing")
 	require.LessOrEqual(t, len(condition.Message), 4096)
 	require.False(t, meta.IsStatusConditionTrue(status.Conditions, v1alpha3.AgentConditionReady))

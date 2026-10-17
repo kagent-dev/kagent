@@ -12,7 +12,7 @@ import (
 
 // canonicalStoredGrants validates and normalizes source grants for NOT NULL storage.
 func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
-	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials)
+	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials, nil)
 	if err != nil {
 		return egress.Access{}, err
 	}
@@ -29,7 +29,7 @@ func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
 // in one database snapshot. Missing/deleting revisions and malformed inputs fail
 // closed. Retired or replaced identities contribute no grants. Older revisions
 // retain their pinned base and only the grants compatible with it.
-func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Policy, error) {
+func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
 	type policyInputs struct {
 		EgressDestinations      []string
 		Credentials             []egress.Credential
@@ -50,25 +50,24 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
     AND (a.revision IS NOT NULL OR s.revision IS NOT NULL)
  `, pgx.RowToStructByName[policyInputs], revision)
 	if err != nil {
-		return egress.Policy{}, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
+		return egress.Access{}, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
 	}
 	for i, raw := range row.TokenPassthroughOrigins {
 		origin, err := egress.ParseOrigin(raw)
 		if err != nil {
-			return egress.Policy{}, fmt.Errorf("decode runtime token origins %s: %w", revision, err)
+			return egress.Access{}, fmt.Errorf("decode runtime token origins %s: %w", revision, err)
 		}
 		row.TokenPassthroughOrigins[i] = origin.String()
 	}
-	base, err := egress.MergeAccess(egress.Access{Destinations: row.EgressDestinations, Credentials: row.Credentials}, egress.Access{}, row.TokenPassthroughOrigins)
+	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, row.TokenPassthroughOrigins)
 	if err != nil {
-		return egress.Policy{}, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
+		return egress.Access{}, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
 	}
-	grants, err := egress.CanonicalAccess(row.GrantDestinations, row.GrantCredentials)
+	grants, err := egress.CanonicalAccess(row.GrantDestinations, row.GrantCredentials, nil)
 	if err != nil {
-		return egress.Policy{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
+		return egress.Access{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
 	}
-	access, err := egress.EffectiveAccess(base, grants, row.TokenPassthroughOrigins)
-	return egress.Policy{Access: access}, err
+	return egress.EffectiveAccess(base, grants, row.TokenPassthroughOrigins)
 }
 
 var _ egress.PolicyStore = (*Client)(nil)
@@ -149,7 +148,7 @@ func decodeEgressGrant(grants egress.Access, err error) (egress.Access, error) {
 	if err != nil {
 		return egress.Access{}, err
 	}
-	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials)
+	canonical, err := egress.CanonicalAccess(grants.Destinations, grants.Credentials, nil)
 	if err != nil {
 		return egress.Access{}, fmt.Errorf("decode source egress grants: %w", err)
 	}

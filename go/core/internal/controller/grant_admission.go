@@ -14,7 +14,7 @@ import (
 // evaluateEgressGrant checks the complete candidate without reading persisted
 // grants. On conflict, retain the raw union so preparation can apply removals.
 func evaluateEgressGrant(resolution translator.EgressGrantResolution, base egress.Access, tokenOrigins []string) (egress.Access, []translator.EgressGrantIssue, bool) {
-	candidate, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials)
+	candidate, err := egress.CanonicalAccess(resolution.Access.Destinations, resolution.Access.Credentials, nil)
 	if err == nil {
 		_, err = egress.MergeAccess(base, candidate, tokenOrigins)
 	}
@@ -22,7 +22,7 @@ func evaluateEgressGrant(resolution translator.EgressGrantResolution, base egres
 		return candidate, resolution.Issues, false
 	}
 	issues := append(resolution.Issues, translator.EgressGrantIssue{
-		Reason: v1alpha3.EgressPoliciesReasonConflict, Message: err.Error(),
+		Reason: v1alpha3.EgressPoliciesReasonConflict, Message: "first conflict: " + err.Error(),
 	})
 	return resolution.Access, issues, true
 }
@@ -53,7 +53,7 @@ func egressPoliciesCondition(conditionType string, generation int64, issues []tr
 	}
 	if conflict {
 		condition.Reason = v1alpha3.EgressPoliciesReasonConflict
-		condition.Message = "new grants are held, previously applied grants remain in effect; "
+		condition.Message = "new grants are held until the conflict is resolved; "
 	} else {
 		condition.Reason = issues[0].Reason
 		condition.Message = ""

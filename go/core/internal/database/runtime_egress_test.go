@@ -178,7 +178,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 			require.NoError(t, err)
 			err = upsert("uid", initial)
 			require.NoError(t, err)
-			canonical, err := egress.CanonicalAccess(initial.Destinations, initial.Credentials)
+			canonical, err := egress.CanonicalAccess(initial.Destinations, initial.Credentials, nil)
 			require.NoError(t, err)
 			err = upsert("uid", canonical)
 			require.NoError(t, err)
@@ -208,7 +208,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 				require.NoError(t, err)
 				expected, err := egress.MergeAccess(base, canonical, nil)
 				require.NoError(t, err)
-				require.Equal(t, expected, policy.Access, "older revisions retain nonconflicting grants")
+				require.Equal(t, expected, policy, "older revisions retain nonconflicting grants")
 			}
 			if kind == RuntimeEgressAgent {
 				require.NoError(t, client.RetireAgentIdentities(ctx, "team", "source"))

@@ -590,7 +590,7 @@ func (p *preparationTestBackend) ListRuntimeEgressSourceTargets(ctx context.Cont
 func (p *preparationTestBackend) GetActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	return p.templates.GetActor(ctx, atespace, name)
 }
-func (p *preparationTestBackend) EnsureActorEgressPolicy(ctx context.Context, atespace, name, revision string) (egress.Policy, error) {
+func (p *preparationTestBackend) EnsureActorEgressPolicy(ctx context.Context, atespace, name, revision string) error {
 	return p.templates.EnsureActorEgressPolicy(ctx, atespace, name, revision)
 }
 

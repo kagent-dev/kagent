@@ -87,10 +87,6 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
-	bindings, err := egress.CanonicalCredentials(bindings)
-	if err != nil {
-		return nil, nil, nil, NewValidationError("%v", err)
-	}
 	for _, resolved := range models {
 		if !resolved.Config.Spec.APIKeyPassthrough {
 			continue
@@ -110,7 +106,8 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	for _, binding := range bindings {
 		destinations = append(destinations, binding.Origin)
 	}
-	if _, err := egress.MergeAccess(egress.Access{Destinations: destinations, Credentials: bindings}, egress.Access{}, tokenPassthroughOrigins); err != nil {
+	access, err := egress.CanonicalAccess(destinations, bindings, tokenPassthroughOrigins)
+	if err != nil {
 		return nil, nil, nil, NewValidationError("%v", err)
 	}
 
@@ -126,7 +123,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
-	return result, bindings, tokenPassthroughOrigins, nil
+	return result, access.Credentials, tokenPassthroughOrigins, nil
 }
 
 func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {

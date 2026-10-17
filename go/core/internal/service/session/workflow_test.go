@@ -285,13 +285,13 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	return fork, checkpoint.Id
 }
 
-func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, revision string) (egress.Policy, error) {
+func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.policyActor = actorKey(atespace, name)
 	a.policyRevision = revision
 	a.policyCalls++
-	return egress.Policy{}, a.policyErr
+	return a.policyErr
 }
 
 func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
