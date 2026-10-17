@@ -331,6 +331,13 @@ jobs:
           kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
           kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --previous --tail=200 || true
+          echo "::error::NFS server and CSI driver behind csi-nfs-sc"
+          kubectl get pvc,pv -A || true
+          kubectl logs -n default deployment/nfs-server --tail=200 || true
+          kubectl logs -n kube-system -l app=csi-nfs-controller --all-containers --prefix --tail=200 || true
+          kubectl logs -n kube-system -l app=csi-nfs-node --all-containers --prefix --tail=200 || true
+          echo "::error::Kernel NFS messages of the runner, which serves the Kind node's NFS server"
+          sudo dmesg --ctime | grep -i -E 'nfs|rpc|lockd|blocked for more than' | tail -100 || true
 
   proto-check:
     name: Protobuf Contract Check
