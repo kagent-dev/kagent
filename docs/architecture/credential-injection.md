@@ -93,9 +93,12 @@ validates and pins the bindings, then renders client placeholders.
 
 MCP Secret bindings can coexist with extension bindings on different headers.
 Literal or ConfigMap MCP headers prevent additions at their origin. Model
-requirements restrict the header and prefix. Conflicting credentials fail
-compilation. A later EgressPolicy conflict withholds all explicit grants and
-retains the pinned bindings. EgressPolicy-only destinations are outside the draft.
+requirements restrict the header and prefix. An extension binding that conflicts
+with a model or MCP binding in the draft fails compilation. A later EgressPolicy
+conflict does not block compilation. Pinned integration bindings take precedence,
+and admission holds the new grants and reports
+[EgressPoliciesApplied](egress-policies.md#preparation-and-lifecycle).
+EgressPolicy-only destinations are outside the draft.
 
 References require a registered Substrate provider and use
 `ate-secret://<provider>/<path>`, with a lowercase DNS provider, no port, and at

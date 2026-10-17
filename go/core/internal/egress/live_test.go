@@ -39,6 +39,8 @@ func TestFilterConflicts(t *testing.T) {
 	base := canonicalTestAccess(t, []string{binding.Origin}, binding)
 	conflict := binding
 	conflict.URI = "ate-secret://k8s.io/default/team/other/token"
+	external := binding
+	external.URI = "ate-secret://provider.example/default/token"
 	const extra = "https://tickets.example.com:443"
 	for _, test := range []struct {
 		name               string
@@ -48,6 +50,8 @@ func TestFilterConflicts(t *testing.T) {
 		{name: "additive", base: base, grants: canonicalTestAccess(t, []string{extra}), want: canonicalTestAccess(t, []string{extra})},
 		{name: "duplicate", base: base, grants: base, want: base},
 		{name: "credential conflict keeps network access", base: base, grants: canonicalTestAccess(t, []string{binding.Origin, extra}, conflict),
+			want: canonicalTestAccess(t, []string{binding.Origin, extra}), dropped: []string{binding.Origin}},
+		{name: "external credential conflict keeps network access", base: canonicalTestAccess(t, []string{binding.Origin}, external), grants: canonicalTestAccess(t, []string{binding.Origin, extra}, binding),
 			want: canonicalTestAccess(t, []string{binding.Origin, extra}), dropped: []string{binding.Origin}},
 		{name: "protocol conflict keeps other grants", base: base, grants: canonicalTestAccess(t, []string{"http://model.example.com:443", extra}),
 			want: canonicalTestAccess(t, []string{extra}), dropped: []string{"http://model.example.com:443"}},

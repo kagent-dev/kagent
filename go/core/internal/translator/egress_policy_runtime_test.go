@@ -236,13 +236,11 @@ func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {
 				key = "AWS_BEARER_TOKEN_BEDROCK"
 			}
 			server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com/mcp"}}
-			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Name: "extra", Namespace: "test"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: "https://tickets.example.com:8443"}}}}
 			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
 				ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help", Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}}},
 			}}
 			agent := inlineAgent(harness, template)
-			agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
-			collections := mockCollections(t, harness, model, server, policy, defaultWorkerPool())
+			collections := mockCollections(t, harness, model, server, defaultWorkerPool())
 			compile := func(policyTranslator egressext.PolicyTranslator) (*translator.CompileResult, error) {
 				settings := testRuntimeDefaults()
 				ctx := krt.TestingDummyContext{}
@@ -256,7 +254,7 @@ func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {
 			}
 			result, err := compile(defaultPolicyTranslator{uri: "ate-secret://provider.example/default/token"})
 			require.NoError(t, err)
-			require.Len(t, result.Credentials, 2, "live EgressPolicy grants are not credential targets")
+			require.Len(t, result.Credentials, 2)
 			require.Contains(t, result.Environment, corev1.EnvVar{Name: key, Value: translator.CredentialPlaceholder})
 			for _, variable := range result.Environment {
 				require.Nil(t, variable.ValueFrom)
@@ -301,7 +299,7 @@ func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {
 				model.Spec.APIKeySecretKey, secretKey = "", "AWS_BEARER_TOKEN_BEDROCK"
 			}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: map[string][]byte{secretKey: []byte("model-secret")}}
-			collections = mockCollections(t, harness, model, server, policy, defaultWorkerPool(), secret)
+			collections = mockCollections(t, harness, model, server, defaultWorkerPool(), secret)
 			baseline, err := compile(nil)
 			require.NoError(t, err)
 			if test.provider == v1alpha3.ModelProviderBedrock {
@@ -325,7 +323,7 @@ func TestCompileContributedCredentialsAcrossHarnesses(t *testing.T) {
 			t.Run("MCP Secret and extension", func(t *testing.T) {
 				server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-API-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "service-auth", Key: "key"}}}
 				serviceSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "service-auth", Namespace: "test"}, Data: map[string][]byte{"key": []byte("service-secret")}}
-				collections = mockCollections(t, harness, model, server, policy, defaultWorkerPool(), secret, serviceSecret)
+				collections = mockCollections(t, harness, model, server, defaultWorkerPool(), secret, serviceSecret)
 				combined, err := compile(credentialPolicyTranslator{
 					Origin: "https://tools.example.com:443", Header: "Authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token",
 				})
@@ -380,31 +378,6 @@ func compiledMCPHeaders(t *testing.T, kind translator.HarnessType, result *trans
 		t.Fatalf("unsupported harness %q", kind)
 		return nil
 	}
-}
-
-func TestCompileRejectsEgressPolicyCredentialConflict(t *testing.T) {
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		Kagent: &v1alpha3.KagentHarness{}, Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
-	}}
-	model := modelConfig()
-	server := remoteMCPServer("tools", "https://tools.example.com/mcp")
-	policy, secret := egressPolicy()
-	policy.Spec.Destinations[0].Origin = "https://tools.example.com"
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-		ModelConfig: &corev1.LocalObjectReference{Name: model.Name},
-		Tools:       []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}}},
-	}}
-	agent := inlineAgent(harness, template)
-	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
-	collections := mockCollections(t, harness, model, server, policy, secret, defaultWorkerPool())
-	extension := credentialPolicyTranslator{
-		Origin: "https://tools.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token",
-	}
-	compiler := translator.NewCompiler(krt.TestingDummyContext{}, collections, map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: &testHarnessCompiler{},
-	}, testHarnessImages, extension)
-	_, err := compiler.CompileAgent(t.Context(), agent)
-	require.ErrorContains(t, err, "conflicting credentials for https://tools.example.com:443 header authorization")
 }
 
 func TestPolicyResolvesAuxiliaryModelsBeforeHarnessRendering(t *testing.T) {
