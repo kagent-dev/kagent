@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/harness/workspace"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/turn"
 )
@@ -329,15 +331,8 @@ func NewCommandExecutor(timeout time.Duration) *CommandExecutor {
 	return &CommandExecutor{timeout: timeout}
 }
 
-// credentialPlaceholder is the inert GH_TOKEN a workspace turn's command
-// sees: gh refuses every API call without a token, and the egress gateway
-// replaces the header gh sends with the caller's own credential, so the value
-// only has to exist. It is never a real token.
-const credentialPlaceholder = "kagent-credential-injected"
-
 // turnEnvironment is what the turn of ctx adds to a command's allowlisted
-// environment: git's author and committer as the person of the turn, and in a
-// turn whose dispatch names a workspace directory the GH_TOKEN placeholder. A
+// environment: git's author and committer as the person of the turn. A
 // turn without a resolved person (no claims: the unsecure mode, an agent's
 // propagated caller id) gets no identity, so git's own error stands rather
 // than a stand-in author. The forwarded identity carries one value, the
@@ -351,9 +346,6 @@ func turnEnvironment(ctx context.Context) []string {
 			"GIT_COMMITTER_NAME="+user,
 			"GIT_COMMITTER_EMAIL="+user,
 		)
-	}
-	if turn.Directory(ctx) != "" {
-		env = append(env, "GH_TOKEN="+credentialPlaceholder)
 	}
 	return env
 }
@@ -375,7 +367,10 @@ func (e *CommandExecutor) executeCommand(ctx context.Context, command string, wo
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
-	cmd.Env = append(turn.CommandEnvironment(os.Environ(), workingDir), turnEnvironment(ctx)...)
+	// A turn in a workspace directory sends placeholder credentials from git
+	// and gh, which the egress gateway replaces on a provider's host.
+	cmd.Env = workspace.WithCredentialPlaceholders(workspace.Dispatch{Directory: turn.Directory(ctx)},
+		append(turn.CommandEnvironment(os.Environ(), workingDir), turnEnvironment(ctx)...))
 	killProcessGroupOnCancel(cmd)
 	// If the shell does not exit after cancellation, stop waiting for it.
 	cmd.WaitDelay = commandWaitDelay

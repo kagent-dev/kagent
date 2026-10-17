@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -324,4 +325,37 @@ func TestMirrors(t *testing.T) {
 	repositories, err := Mirrors(dir)
 	require.NoError(t, err)
 	require.Equal(t, []string{"o/a", "o/b", "p/c"}, repositories)
+}
+
+// A workspace turn's git answers a host's challenge with the placeholder, so
+// the egress gateway has an Authorization header to replace, and gh gets its
+// placeholder token; an own GH_TOKEN stands, and a turn without a working
+// directory gets neither.
+func TestWithCredentialPlaceholders(t *testing.T) {
+	dispatch := Dispatch{Directory: t.TempDir()}
+	environment := WithCredentialPlaceholders(dispatch, []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=/mirrors/*"})
+	fill := exec.Command("git", "credential", "fill")
+	fill.Env = append(environment, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+	fill.Stdin = strings.NewReader("protocol=https\nhost=github.example.com\n\n")
+	out, err := fill.Output()
+	if err != nil {
+		t.Fatalf("git credential fill: %v", err)
+	}
+	for _, want := range []string{"username=x-access-token\n", "password=" + CredentialPlaceholder + "\n"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("git credential fill = %q, want %q", out, want)
+		}
+	}
+	for _, want := range []string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_KEY_1=credential.helper", "GH_TOKEN=" + CredentialPlaceholder} {
+		if !slices.Contains(environment, want) {
+			t.Fatalf("environment %v lacks %s", environment, want)
+		}
+	}
+	own := WithCredentialPlaceholders(dispatch, []string{"GH_TOKEN=own"})
+	if slices.Contains(own, "GH_TOKEN="+CredentialPlaceholder) {
+		t.Fatalf("an own GH_TOKEN was replaced: %v", own)
+	}
+	if got := WithCredentialPlaceholders(Dispatch{}, []string{"A=1"}); !slices.Equal(got, []string{"A=1"}) {
+		t.Fatalf("a turn without a working directory got %v", got)
+	}
 }

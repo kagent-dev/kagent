@@ -203,7 +203,7 @@ func Prepare(ctx context.Context, dispatch Dispatch, options Options) (Report, e
 	if err != nil {
 		return Report{}, err
 	}
-	git := gitRunner{root: root, environment: options.Environment}
+	git := gitRunner{root: root, environment: WithCredentialPlaceholders(dispatch, options.Environment)}
 	report := Report{SetUp: true}
 	for _, repository := range repositories {
 		if err := git.clone(ctx, dispatch, repository); err != nil {
@@ -240,20 +240,54 @@ func TrustMirrors(dispatch Dispatch, environment []string) []string {
 	if !filepath.IsAbs(dispatch.Mirrors) {
 		return environment
 	}
+	// A trailing /* trusts every repository below the directory.
+	return withGitConfig(environment, "safe.directory", filepath.Join(dispatch.Mirrors, "*"))
+}
+
+// CredentialPlaceholder is the inert credential a workspace turn's git and
+// gh send: the egress gateway replaces the Authorization header of a request
+// to a provider's host with the person's own credential, and sets none on a
+// request that carries no such header. It is never a real token.
+const CredentialPlaceholder = "kagent-credential-injected"
+
+// CredentialHelper answers git's request for a credential with the
+// placeholder. git asks only after a host challenges a request, so a host
+// that answers anonymously never sees it; on a provider's host the gateway
+// replaces the Basic header git then sends.
+const CredentialHelper = "!f() { test \"$1\" = get && printf 'username=x-access-token\\npassword=" + CredentialPlaceholder + "\\n'; }; f"
+
+// WithCredentialPlaceholders returns environment with the placeholder
+// credentials of a turn in the dispatch's working directory: git's credential
+// helper (CredentialHelper) and GH_TOKEN, which gh needs before it makes any
+// call, unless the environment sets one. A dispatch without an absolute
+// working directory leaves the environment as it is.
+func WithCredentialPlaceholders(dispatch Dispatch, environment []string) []string {
+	if !filepath.IsAbs(dispatch.Directory) {
+		return environment
+	}
+	result := withGitConfig(environment, "credential.helper", CredentialHelper)
+	if !slices.ContainsFunc(result, func(variable string) bool { return strings.HasPrefix(variable, "GH_TOKEN=") }) {
+		result = append(result, "GH_TOKEN="+CredentialPlaceholder)
+	}
+	return result
+}
+
+// withGitConfig returns environment with key = value added to the git
+// configuration GIT_CONFIG_COUNT carries, after the entries it already has.
+func withGitConfig(environment []string, key, value string) []string {
 	count := 0
 	result := make([]string, 0, len(environment)+3)
 	for _, variable := range environment {
-		if value, ok := strings.CutPrefix(variable, "GIT_CONFIG_COUNT="); ok {
-			count, _ = strconv.Atoi(value)
+		if current, ok := strings.CutPrefix(variable, "GIT_CONFIG_COUNT="); ok {
+			count, _ = strconv.Atoi(current)
 			continue
 		}
 		result = append(result, variable)
 	}
-	// A trailing /* trusts every repository below the directory.
 	return append(result,
 		"GIT_CONFIG_COUNT="+strconv.Itoa(count+1),
-		fmt.Sprintf("GIT_CONFIG_KEY_%d=safe.directory", count),
-		fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", count, filepath.Join(dispatch.Mirrors, "*")))
+		fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", count, key),
+		fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", count, value))
 }
 
 // PrepareSubcommand is the argument a harness binary takes to run

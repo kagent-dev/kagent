@@ -203,7 +203,7 @@ func TestProcessDriverWorksInTheDispatchedDirectory(t *testing.T) {
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "pwd")
 	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\npwd > \"$CAPTURE\"\nprintf '%s\\n' \"$GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0\" > \"$CAPTURE.git\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	script := "#!/bin/sh\npwd > \"$CAPTURE\"\nprintf '%s\\n' \"$GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0\" > \"$CAPTURE.git\"\n[ -z \"$GIT_CONFIG_KEY_1\" ] || printf '%s\\n' \"$GIT_CONFIG_KEY_1=$GIT_CONFIG_VALUE_1\" >> \"$CAPTURE.git\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -239,14 +239,14 @@ func TestProcessDriverWorksInTheDispatchedDirectory(t *testing.T) {
 		wantGit string
 	}{
 		{name: "no dispatch", want: configured},
-		{name: "durable directory", params: map[string][]string{adk.WorkingDirectoryHeader: {configured}}, want: configured},
+		{name: "durable directory", params: map[string][]string{adk.WorkingDirectoryHeader: {configured}}, want: configured, wantGit: "credential.helper=" + workspace.CredentialHelper},
 		{
 			name: "session directory",
 			params: map[string][]string{
 				adk.WorkingDirectoryHeader: {sessionDirectory}, adk.MirrorsDirectoryHeader: {mirrors}, adk.ChangedRepositoriesHeader: {"o/r"},
 			},
 			want: sessionDirectory, wantNotice: "o/r: the origin refused the fetch",
-			wantGit: "safe.directory=" + filepath.Join(mirrors, "*"),
+			wantGit: "safe.directory=" + filepath.Join(mirrors, "*") + "\ncredential.helper=" + workspace.CredentialHelper,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
