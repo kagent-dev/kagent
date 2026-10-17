@@ -34,6 +34,7 @@ import (
 	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
 // AgentReconciliation is the complete desired and observed state for one
@@ -104,6 +105,7 @@ func newAgentReconciliations(
 	opts krt.OptionsBuilder,
 	settings *configv1.RuntimeDefaultsConfig,
 	images *configv1.HarnessImagesConfig,
+	policyTranslator egressext.PolicyTranslator,
 ) krt.Collection[AgentReconciliation] {
 	return krt.NewCollection(agents, func(ctx krt.HandlerContext, agent *kagentv1alpha3.Agent) *AgentReconciliation {
 		state := &AgentReconciliation{Agent: agent}
@@ -121,7 +123,7 @@ func newAgentReconciliations(
 			translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
 			translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
 			translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
-		}, images).CompileAgent(context.Background(), agent)
+		}, images, policyTranslator).CompileAgent(context.Background(), agent)
 		if err != nil {
 			state.CompilationFailure = compilationFailure(err)
 			return state

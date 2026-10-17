@@ -30,6 +30,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
 func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
@@ -540,6 +541,11 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 
 func newPreparationTestCollections(t *testing.T, workerPool string) (Collections, krt.StaticCollection[*kagentv1alpha3.Harness]) {
 	t.Helper()
+	return newExtensionTestCollections(t, workerPool, nil)
+}
+
+func newExtensionTestCollections(t *testing.T, workerPool string, extension egressext.PolicyTranslator, objects ...any) (Collections, krt.StaticCollection[*kagentv1alpha3.Harness]) {
+	t.Helper()
 	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-preparation", nil)
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	runtimeHarness := harness("team-a", "byo", nil)
@@ -551,11 +557,11 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
-	mock := krttest.NewMock(t, []any{
+	mock := krttest.NewMock(t, append([]any{
 		template,
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassGvisor}},
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
-	})
+	}, objects...))
 	collections := Collections{
 		EgressPolicies:           krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...),
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
@@ -573,7 +579,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
 		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools, EgressPolicies: collections.EgressPolicies,
-	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), nil)
+	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), nil, extension)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()

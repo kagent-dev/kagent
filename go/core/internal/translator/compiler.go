@@ -12,11 +12,14 @@ import (
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
 // Compiler resolves public API objects into a complete, immutable runtime
 // revision. It owns the translation boundary from API objects to runtime inputs.
 type Compiler struct {
+	policyTranslator egressext.PolicyTranslator
 	ctx              krt.HandlerContext
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
@@ -38,6 +41,13 @@ const (
 // revision and its user-facing diagnostics.
 type HarnessCompiler interface {
 	Compile(context.Context, *HarnessInput) (*CompileResult, error)
+	ModelRequirements(*ResolvedModelConfig) ModelRequirements
+}
+
+// ModelRequirements declares integration-specific grants and authentication before rendering.
+type ModelRequirements struct {
+	Destinations       []string
+	CredentialRequired bool
 }
 
 // resolvedTemplateTree is the validated AgentTemplate topology for one Harness.
@@ -61,6 +71,9 @@ type resolvedTemplateBinding struct {
 
 // HarnessInput contains the Kubernetes inputs needed by a harness compiler.
 type HarnessInput struct {
+	Policy          ResolvedPolicy
+	SummarizerModel *ResolvedModelConfig
+	MemoryModel     *ResolvedModelConfig
 	// AgentName is the runnable identity, independent of inline or referenced inputs.
 	AgentName    string
 	Harness      *HarnessConfiguration
@@ -91,8 +104,8 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig, policyTranslator egressext.PolicyTranslator) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images, policyTranslator: policyTranslator}
 }
 
 // CompileAgent resolves inline or referenced behavior with its referenced
@@ -157,6 +170,13 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 		return nil, err
 	}
 	input.AgentName = agent.Name
+	if err := c.resolveAuxiliaryModels(input); err != nil {
+		return nil, err
+	}
+	input.Policy, err = ResolvePolicy(input, harnessCompiler, c.policyTranslator)
+	if err != nil {
+		return nil, err
+	}
 	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
@@ -165,6 +185,12 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	if err != nil {
 		return nil, err
 	}
+	// Pin integration access.
+	pinned, err := egress.CanonicalAccess(append(result.EgressDestinations, input.Policy.access.Destinations...), input.Policy.access.Credentials)
+	if err != nil {
+		return nil, NewValidationError("%v", err)
+	}
+	result.EgressDestinations, result.Credentials, result.TokenPassthroughOrigins = pinned.Destinations, pinned.Credentials, input.Policy.tokenPassthroughOrigins
 	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
 	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
 	if workerPool == nil {
@@ -330,4 +356,41 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 		return nil, err
 	}
 	return &HarnessInput{Harness: tree.Harness, Root: root, OutputSchema: outputSchema}, nil
+}
+
+// resolveAuxiliaryModels tracks every ADK model before policy resolution and rendering.
+func (c *Compiler) resolveAuxiliaryModels(input *HarnessInput) error {
+	if input.Harness.Spec.Kagent == nil {
+		return nil
+	}
+	resolve := func(name string) (*ResolvedModelConfig, error) {
+		model := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: input.Harness.Namespace, Name: name}))
+		if model == nil {
+			return nil, fmt.Errorf("model config %q not found", name)
+		}
+		if failure := model.Failure(); failure != nil {
+			if len(model.SemanticFailures) != 0 {
+				return nil, NewValidationError("ModelConfig %q: %s", name, failure.Message)
+			}
+			return nil, fmt.Errorf("ModelConfig %q: %s", name, failure.Message)
+		}
+		return model, nil
+	}
+	var err error
+	if compaction := input.Harness.Spec.Kagent.Compaction; compaction != nil && compaction.Summarizer != nil && compaction.Summarizer.ModelConfigRef != nil {
+		name := compaction.Summarizer.ModelConfigRef.Name
+		if input.Root.Template.Spec.ModelConfig == nil || input.Root.Template.Spec.ModelConfig.Name != name {
+			input.SummarizerModel, err = resolve(name)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if memory := input.Harness.Spec.Kagent.Memory; memory != nil {
+		input.MemoryModel, err = resolve(memory.ModelConfigRef.Name)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

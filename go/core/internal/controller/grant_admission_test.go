@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -13,12 +14,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
 func TestGrantAdmissionAcrossSources(t *testing.T) {
@@ -141,4 +144,58 @@ func TestEgressConditionSurvivesRuntimeFailureAndBoundsMessages(t *testing.T) {
 	require.Contains(t, condition.Message, "team/missing")
 	require.LessOrEqual(t, len(condition.Message), 4096)
 	require.False(t, meta.IsStatusConditionTrue(status.Conditions, v1alpha3.AgentConditionReady))
+}
+
+// targetCredential binds its origin once the draft makes that origin a target.
+type targetCredential egressext.Credential
+
+func (c targetCredential) Translate(_ types.NamespacedName, draft egressext.PolicyDraft) (egressext.PolicyDraft, error) {
+	if slices.ContainsFunc(draft.Requirements, func(r egressext.AuthenticationRequirement) bool { return r.Origin == c.Origin }) {
+		draft.Credentials = append(draft.Credentials, egressext.Credential(c))
+	}
+	return draft, nil
+}
+
+func TestGrantAdmissionHoldsConflictWithExtensionCredential(t *testing.T) {
+	const tools = "https://tools.example.com:443"
+	pinned := egress.Credential{Origin: tools, Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://provider.example/default/token"}
+	collections, _ := newExtensionTestCollections(t, "gvisor", targetCredential(pinned),
+		&v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "tools"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://tools.example.com/mcp"}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "auth"}, Data: map[string][]byte{"token": []byte("value")}})
+	initial := collections.Reconciliations.List()[0]
+	collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy]).UpdateObject(&v1alpha3.EgressPolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "access"},
+		Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{
+			{Origin: "https://x.example.com"},
+			{Origin: "https://tools.example.com", Authentication: &v1alpha3.EgressAuthentication{
+				Header: "Authorization", SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"},
+			}},
+			{Origin: "https://new.example.com"},
+		}},
+	})
+	agent := initial.Agent.DeepCopy()
+	agent.Spec.Template = v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+		Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: "tools"},
+	}}}}}
+	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "access"}}
+	collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+
+	var state AgentReconciliation
+	waitFor(t, func() bool {
+		current := collections.Reconciliations.GetKey(initial.ResourceName())
+		if current == nil || current.Target == nil || current.Target.RevisionID == initial.Target.RevisionID {
+			return false
+		}
+		state = *current
+		return true
+	})
+	require.Nil(t, state.CompilationFailure)
+	require.Contains(t, state.Target.Revision.Credentials, pinned, "a live grant conflict must not block compilation")
+	require.True(t, state.EgressConflict)
+	condition := meta.FindStatusCondition(statusForAgent(state, agent.Generation, "").Conditions, v1alpha3.AgentConditionEgressPoliciesApplied)
+	require.Equal(t, metav1.ConditionFalse, condition.Status)
+	require.Equal(t, v1alpha3.EgressPoliciesReasonConflict, condition.Reason)
+	base, origins := state.Target.egressBase()
+	previous := egress.Access{Destinations: []string{"https://x.example.com:443"}}
+	require.Equal(t, previous, retainedEgressGrant(previous, state.EgressGrant, base, origins), "additions stay held")
 }

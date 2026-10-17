@@ -16,6 +16,7 @@ import (
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 )
 
 // Collections contains shared Kubernetes inputs and compiled Agent state.
@@ -65,7 +66,7 @@ func (p AgentRuntimeObservation) Equals(other AgentRuntimeObservation) bool {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
+func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig, policyTranslator egressext.PolicyTranslator) Collections {
 	egressPolicies := typedCollection[*kagentv1alpha3.EgressPolicy](client, watchNamespaces, "EgressPolicies", opts)
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
@@ -83,7 +84,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		Harnesses:      harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
 		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
 	}
-	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
+	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images, policyTranslator)
 	statuses := newAgentStatuses(agents, reconciliations, opts)
 
 	return Collections{

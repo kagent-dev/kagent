@@ -68,6 +68,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
+	"github.com/kagent-dev/kagent/go/core/pkg/egressext"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -83,6 +84,9 @@ import (
 // every service that takes one — so a library consumer cannot narrow where
 // its own policy applies.
 type Options struct {
+	// EgressPolicyTranslator resolves additional outbound credentials before client rendering.
+	// Nil preserves the built-in authentication rules.
+	EgressPolicyTranslator egressext.PolicyTranslator
 	// Authenticator identifies the caller. Nil selects InsecureAuthenticator,
 	// which admits every request.
 	Authenticator auth.AuthProvider
@@ -272,7 +276,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages())
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages(), opts.EgressPolicyTranslator)
 	if err != nil {
 		return err
 	}

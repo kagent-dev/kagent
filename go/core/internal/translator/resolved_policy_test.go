@@ -6,11 +6,13 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
-func TestCompileCredentialDestinations(t *testing.T) {
+func TestResolvedPolicyCredentialDestinations(t *testing.T) {
 	for _, test := range []struct {
 		name                      string
 		spec                      v1alpha3.ModelConfigSpec
@@ -34,7 +36,7 @@ func TestCompileCredentialDestinations(t *testing.T) {
 			}
 			input := credentialInput(test.spec)
 			environment := []corev1.EnvVar{credentialEnv(test.env, "auth", test.spec.APIKeySecretKey)}
-			got, bindings, _, err := CompileCredentials(input, nil, environment)
+			got, bindings, err := renderTestCredentials(input, environment)
 			require.NoError(t, err)
 			require.Equal(t, CredentialPlaceholder, got[0].Value)
 			require.Nil(t, got[0].ValueFrom)
@@ -48,43 +50,46 @@ func TestCompileCredentialDestinations(t *testing.T) {
 	}
 }
 
-func TestCompileCredentialsRejectsConflictingSharedModels(t *testing.T) {
+func TestResolvedPolicyRejectsConflictingSharedModels(t *testing.T) {
 	spec := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "root", APIKeySecretKey: "token"}
 	input := credentialInput(spec)
 	spec.APIKeySecret = "child"
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(spec).Root}}
 	// The ADK environment is deduplicated, but every model still needs its own binding.
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	environment, _, err := renderTestCredentials(input, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
 	require.ErrorContains(t, err, "conflicting credentials")
 	require.Nil(t, environment)
 	input.Root.Shared[0].Agent.ResolvedModelConfig.Config.Spec.OpenAI = &v1alpha3.OpenAIConfig{BaseURL: "https://child.example.com/v1"}
-	_, bindings, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
+	_, bindings, err := renderTestCredentials(input, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "child", "token")})
 	require.NoError(t, err)
 	require.Len(t, bindings, 2)
 }
 
-func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
+func TestResolvedPolicyRejectsLocalSecrets(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{})
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
+	environment, _, err := renderTestCredentials(input, []corev1.EnvVar{credentialEnv("AWS_SECRET_ACCESS_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot use gateway header injection")
 	require.Nil(t, environment)
 }
 
-func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
+func TestResolvedPolicyPreservesPassthrough(t *testing.T) {
 	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true})
-	_, bindings, _, err := CompileCredentials(input, nil, nil)
+	_, bindings, err := renderTestCredentials(input, nil)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
 	input.Root.Shared = []AgentInputBinding{{Agent: credentialInput(v1alpha3.ModelConfigSpec{
 		Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "auth", APIKeySecretKey: "token",
 	}).Root}}
-	environment, _, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
+	environment, _, err := renderTestCredentials(input, []corev1.EnvVar{credentialEnv("OPENAI_API_KEY", "auth", "token")})
 	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
 	require.Nil(t, environment)
 }
 
 func credentialInput(spec v1alpha3.ModelConfigSpec) *HarnessInput {
 	resolved := &ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: spec}}
+	if spec.Provider == v1alpha3.ModelProviderBedrock && spec.APIKeySecretKey == "AWS_BEARER_TOKEN_BEDROCK" {
+		resolved.References = []ModelConfigReference{{Kind: "Secret", NamespacedName: types.NamespacedName{Namespace: "team", Name: spec.APIKeySecret}, Key: spec.APIKeySecretKey}}
+	}
 	if spec.Foundry != nil {
 		resolved.FoundryEndpoint = spec.Foundry.Endpoint
 	}
@@ -98,87 +103,50 @@ func credentialEnv(name, secret, key string) corev1.EnvVar {
 	return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret}, Key: key}}}
 }
 
-// A cloud-tagged Ollama model reaches api.ollama.com with the key, which is a
-// gateway-injected credential like any other — without this binding the
-// translator rejects OLLAMA_API_KEY as an unsupported local secret and the
-// AgentTemplate goes Compatible=False.
-func TestModelCredentialTargetOllamaCloud(t *testing.T) {
-	secret := v1alpha3.ModelConfigSpec{
-		Provider:     v1alpha3.ModelProviderOllama,
-		Model:        "deepseek-v4-flash:0731-cloud",
-		APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-		Ollama: &v1alpha3.OllamaConfig{},
-	}
+func TestPassthroughCredentialConflictUsesCanonicalOrigin(t *testing.T) {
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
+	input.Root.MCPTools = []ResolvedMCPTool{{Server: &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://api.openai.com/mcp", HeadersFrom: []v1alpha3.ValueRef{{Name: "authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "auth", Key: "token"}}},
+	}}}}
+	environment, _, err := renderTestCredentials(input, nil)
+	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+	require.Nil(t, environment)
+	input.Root.ResolvedModelConfig.Config.Spec.OpenAI.BaseURL = "https://api.openai.com:8443/v1"
+	policy, err := ResolvePolicy(input, nil, nil)
+	require.NoError(t, err, "a different port is a distinct credential scope")
+	require.Equal(t, []string{"https://api.openai.com:8443"}, policy.tokenPassthroughOrigins)
+}
 
-	tests := []struct {
-		name         string
-		spec         v1alpha3.ModelConfigSpec
-		wantName     string
-		wantEndpoint string
-	}{
-		{
-			name:         "cloud model with a secret binds the cloud",
-			spec:         secret,
-			wantName:     "OLLAMA_API_KEY",
-			wantEndpoint: "https://api.ollama.com",
-		},
-		{
-			name: "cloud model with passthrough binds the cloud",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				APIKeyPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
-			},
-			wantName:     "OLLAMA_API_KEY",
-			wantEndpoint: "https://api.ollama.com",
-		},
-		{
-			// A local model must declare no binding: no request leaves for the
-			// cloud, so there is nothing to inject a header into.
-			name: "local model declares no binding",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{},
-			},
-		},
-		{
-			// An explicit host wins over the cloud route, so the key stays a
-			// plain secret reference rather than a gateway binding.
-			name: "explicit host declares no binding",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
-			},
-		},
-		{
-			name: "cloud model without any key declares no binding",
-			spec: v1alpha3.ModelConfigSpec{
-				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				Ollama: &v1alpha3.OllamaConfig{},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resolved := &ResolvedModelConfig{
-				Config: &v1alpha3.ModelConfig{
-					ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
-					Spec:       tt.spec,
-				},
+func TestResolvedPolicyRejectsInvalidOrigins(t *testing.T) {
+	for _, endpoint := range []string{
+		"ftp://api.example.com", "https://192.0.2.1",
+		"https://user@api.example.com", "https://api.example.com/#fragment",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			for _, passthrough := range []bool{false, true} {
+				spec := v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: passthrough,
+					OpenAI: &v1alpha3.OpenAIConfig{BaseURL: endpoint},
+				}
+				if !passthrough {
+					spec.APIKeySecret, spec.APIKeySecretKey = "auth", "token"
+				}
+				_, bindings, err := renderTestCredentials(credentialInput(spec), nil)
+				require.Error(t, err)
+				require.Empty(t, bindings)
 			}
-			name, endpoint, _, _ := modelCredentialTarget(resolved)
-			require.Equal(t, tt.wantName, name)
-			require.Equal(t, tt.wantEndpoint, endpoint)
 		})
 	}
 }
 
-func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
-	environment, credentials, origins, err := CompileCredentials(input, nil, nil)
-	require.NoError(t, err)
-	require.Empty(t, environment)
-	require.Empty(t, credentials)
-	require.Equal(t, []string{"https://api.openai.com:443"}, origins)
+func renderTestCredentials(input *HarnessInput, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, error) {
+	policy, err := ResolvePolicy(input, nil, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	rendered, err := policy.RenderEnvironment(environment)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rendered, policy.access.Credentials, nil
 }

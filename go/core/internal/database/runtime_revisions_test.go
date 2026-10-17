@@ -544,17 +544,21 @@ func TestRecordReadyRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 }
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
-	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
-	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
-	require.NoError(t, err)
-	require.Equal(t, revision.Credentials, got.Credentials)
-	revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
-	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
-	require.NoError(t, err)
-	require.Equal(t, got.Credentials, unchanged.Credentials, "revision credentials are immutable")
+	for _, provider := range []string{"k8s.io", "provider.example"} {
+		t.Run(provider, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			revision := RuntimeRevision{Revision: "credential-revision-" + provider, Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://" + provider + "/default/team/auth/token"}}}
+			require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
+			got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
+			require.NoError(t, err)
+			require.Equal(t, revision.Credentials, got.Credentials)
+			revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
+			require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
+			unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
+			require.NoError(t, err)
+			require.Equal(t, got.Credentials, unchanged.Credentials, "revision credentials are immutable")
+		})
+	}
 }
 
 func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {

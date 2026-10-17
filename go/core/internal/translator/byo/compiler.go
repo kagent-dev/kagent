@@ -38,17 +38,6 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		return nil, err
 	}
 	template, harness := input.Root.Template, input.Harness
-	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
-		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
-		Agent:   compiled.Config,
-	})
-	if err != nil {
-		var invalid *protovalidate.ValidationError
-		if errors.As(err, &invalid) {
-			return nil, translator.NewValidationError("invalid agent config: %w", err)
-		}
-		return nil, fmt.Errorf("marshal agent config: %w", err)
-	}
 	card, err := pbconv.ToProtoAgentCard(agentTemplateCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
@@ -70,9 +59,21 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, compiled.Models, environment)
+	environment, err = input.Policy.RenderEnvironment(environment)
 	if err != nil {
 		return nil, err
+	}
+
+	configJSON, err := runtimeconfig.Marshal(&configv1.ADKConfig{
+		Runtime: translator.RuntimeConfig(c.settings, input.AgentName, template.Namespace),
+		Agent:   compiled.Config,
+	})
+	if err != nil {
+		var invalid *protovalidate.ValidationError
+		if errors.As(err, &invalid) {
+			return nil, translator.NewValidationError("invalid agent config: %w", err)
+		}
+		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 	compiled.Egress = append(compiled.Egress, telemetryConfig.Destinations(environment)...)
 	compiled.Egress = append(compiled.Egress, c.settings.GetControlPlaneUrl())
@@ -84,7 +85,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 		SkillImages:    compiled.SkillImages,
 		WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-		TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
+		Provenance: provenance, EgressDestinations: slices.Compact(compiled.Egress),
 	}}, nil
 }
 
@@ -95,4 +96,9 @@ func agentTemplateCard(agentName string, template *translator.TemplateConfigurat
 		Capabilities:        a2atype.AgentCapabilities{Streaming: true}, Skills: []a2atype.AgentSkill{},
 		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
 	}
+}
+
+// ModelRequirements declares authentication and grants before client rendering.
+func (*Compiler) ModelRequirements(model *translator.ResolvedModelConfig) translator.ModelRequirements {
+	return translator.ModelRequirements{Destinations: adkconfig.AdditionalModelDestinations(model)}
 }

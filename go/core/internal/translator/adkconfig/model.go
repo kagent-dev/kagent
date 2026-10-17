@@ -326,7 +326,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		if model.Spec.Ollama.Host != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  env.OllamaAPIBase.Name(),
-				Value: withDefaultScheme(model.Spec.Ollama.Host),
+				Value: translator.OllamaURL(model.Spec.Ollama.Host),
 			})
 		}
 		// Bind the Secret only when the model reaches api.ollama.com; the
