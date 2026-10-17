@@ -50,6 +50,7 @@ overrides of these variables are rejected.
 | Source | Header |
 | --- | --- |
 | OpenAI API key | `authorization: Bearer <key>` |
+| ChatGPT login (`openAI.credentialType: chatgptOAuth`, Codex harness only) | `authorization: Bearer <access token>` and `chatgpt-account-id: <account id>` under the ChatGPT Codex backend's path |
 | Anthropic API key | `x-api-key: <key>` |
 | Azure OpenAI and Foundry OpenAI API key | `api-key: <key>` |
 | Foundry Anthropic API key | `x-api-key: <key>` |
@@ -100,6 +101,36 @@ release whose provider serves the `google-access-token.k8s.io` authority.
 
 AWS IAM signing keys and OAuth client credentials require mechanisms beyond
 static header injection and are rejected rather than serialized into runtimes.
+
+A ChatGPT login is the subscription sign-in of the Codex CLI: a short-lived
+access token, a refresh token that rotates on every use, and the ChatGPT
+account id, used against the ChatGPT Codex backend
+(`https://chatgpt.com/backend-api/codex`, or `openAI.baseUrl`) rather than the
+OpenAI API. A ModelConfig with `openAI.credentialType: chatgptOAuth` names the
+Secret in `apiKeySecret` and leaves `apiKeySecretKey` unset; the Secret holds
+the keys `access_token`, `refresh_token` and `account_id`. The Codex compiler
+points a custom Codex provider at the backend instead of Codex's own ChatGPT
+sign-in, sets no `OPENAI_API_KEY`, and has Codex send
+`KAGENT_CHATGPT_ACCESS_TOKEN` as its bearer token and
+`KAGENT_CHATGPT_ACCOUNT_ID` as `chatgpt-account-id`, both placeholders the
+gateway replaces from the Secret; the backend's host is a compiled egress
+destination. A login opens the whole ChatGPT account, so both bindings carry
+the backend's path as their path prefix (`/backend-api/codex/`): a request
+the sandbox sends elsewhere on the host carries no credential. The refresh
+token is bound nowhere and reaches no actor.
+
+Each refresh spends the refresh token and returns a new one, so two
+refreshers on one login invalidate each other. The controller is the login's
+one refresher: on the elected leader, keyed by the Secret (two ModelConfigs on
+one Secret share it), it refreshes the access token at the OpenAI token
+endpoint 30 minutes before the token's expiry (a quarter of its lifetime
+before, for a shorter-lived token), ahead of the gateway's cache, and writes
+the new access token and the rotated refresh token back into the same Secret
+with an optimistic update, so a login written in the meantime wins. A rotation
+changes no revision and restarts no agent. A login must not be shared with any
+other client, a Codex CLI included: sign in once with
+`codex login --device-auth` into a `CODEX_HOME` of its own and copy the
+tokens from its `auth.json` into the Secret. The ADK runtimes reject the mode.
 Caller-token passthrough retains its existing behavior. A passthrough model
 cannot share a hostname with static gateway credentials, which would override
 the caller's authentication.

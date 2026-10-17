@@ -80,6 +80,55 @@ func TestModelCredentialDelivery(t *testing.T) {
 	})
 }
 
+// A ChatGPT login reaches the model as two gateway-injected headers: the
+// access token as a bearer token and the account id. Codex sends placeholders
+// for both, and the upstream sees the Secret's values only. The access token
+// is far from its expiry, so the controller's refresher leaves it alone.
+func TestChatGPTLoginCredentialDelivery(t *testing.T) {
+	t.Parallel()
+	target := interactionTarget(t)
+	kube := interactionKubeClient(t)
+	accessToken := unsignedJWT(time.Now().Add(30 * 24 * time.Hour))
+	const accountID = "chatgpt-account-e2e"
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{GenerateName: "chatgpt-login-", Namespace: "kagent"}, StringData: map[string]string{
+		v1alpha3.ChatGPTAccessTokenKey: accessToken, v1alpha3.ChatGPTRefreshTokenKey: "refresh-token-e2e", v1alpha3.ChatGPTAccountIDKey: accountID,
+	}}
+	require.NoError(t, kube.Create(t.Context(), secret))
+	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), secret)) })
+	origin, received := startCredentialsMock(t,
+		mockllm.HeaderMatch{Name: "Authorization", Value: "Bearer " + accessToken, MatchType: mockllm.MatchTypeExact},
+		mockllm.HeaderMatch{Name: "Chatgpt-Account-Id", Value: accountID, MatchType: mockllm.MatchTypeExact})
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "chatgpt-login-", Namespace: "kagent"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: secret.Name,
+			OpenAI: &v1alpha3.OpenAIConfig{BaseURL: reachableModelURL(t, origin), APIFormat: &responses, CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth},
+		},
+	}
+	require.NoError(t, kube.Create(t.Context(), model))
+	t.Cleanup(func() { require.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), model))) })
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "chatgpt-login-", Namespace: "kagent", Labels: testHarness{name: codexE2EHarness, runtimeLabel: "codex"}.labels()},
+		Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly."},
+	}
+	createAndWaitInteractionTemplateForHarness(t, kube, template, codexE2EHarness)
+	fixture := newInteractionFixtureForHarnessTemplate(t, target, codexE2EHarness, template.Name)
+	_, _, task := fixture.send(t, "What is 2+2?")
+	require.Equal(t, a2atype.TaskStateCompleted, task.Status.State, "task status: %+v", task.Status)
+	requireEgressCredential(t, received.Requests(), "Authorization", "Bearer "+accessToken, modelAPIRoute)
+	requireEgressCredential(t, received.Requests(), "Chatgpt-Account-Id", accountID, modelAPIRoute)
+	stored := &corev1.Secret{}
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(secret), stored))
+	require.Equal(t, accessToken, string(stored.Data[v1alpha3.ChatGPTAccessTokenKey]), "a login far from its expiry was refreshed")
+}
+
+// unsignedJWT is a JWT-shaped access token expiring at expiry.
+func unsignedJWT(expiry time.Time) string {
+	encode := func(payload string) string { return base64.RawURLEncoding.EncodeToString([]byte(payload)) }
+	return encode(`{"alg":"none"}`) + "." + encode(fmt.Sprintf(`{"iat":%d,"exp":%d}`, time.Now().Unix(), expiry.Unix())) + ".e2e"
+}
+
 func TestMCPCredentialDelivery(t *testing.T) {
 	t.Parallel()
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
@@ -320,17 +369,22 @@ func (r *requestRecorder) Requests() []mockmcp.RecordedRequest {
 // credential delivery. A request without the credential matches no mock.
 func startCredentialMock(t *testing.T, header, value string) (string, *requestRecorder) {
 	t.Helper()
+	return startCredentialsMock(t, mockllm.HeaderMatch{Name: header, Value: value, MatchType: mockllm.MatchTypeExact})
+}
+
+// startCredentialsMock answers only a model call that carries every header.
+func startCredentialsMock(t *testing.T, matches ...mockllm.HeaderMatch) (string, *requestRecorder) {
+	t.Helper()
 	config, err := mockllm.LoadConfigFromFile("mocks/invoke_agent.json", interactionMocks)
 	require.NoError(t, err)
-	match := mockllm.HeaderMatch{Name: header, Value: value, MatchType: mockllm.MatchTypeExact}
 	for i := range config.OpenAI {
-		config.OpenAI[i].Match.Headers = append(config.OpenAI[i].Match.Headers, match)
+		config.OpenAI[i].Match.Headers = append(config.OpenAI[i].Match.Headers, matches...)
 	}
 	for i := range config.OpenAIResponse {
-		config.OpenAIResponse[i].Match.Headers = append(config.OpenAIResponse[i].Match.Headers, match)
+		config.OpenAIResponse[i].Match.Headers = append(config.OpenAIResponse[i].Match.Headers, matches...)
 	}
 	for i := range config.Anthropic {
-		config.Anthropic[i].Match.Headers = append(config.Anthropic[i].Match.Headers, match)
+		config.Anthropic[i].Match.Headers = append(config.Anthropic[i].Match.Headers, matches...)
 	}
 	received := &requestRecorder{}
 	return startHostServer(t, received.record(mockLLMRoutes(config))).URL, received

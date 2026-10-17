@@ -36,7 +36,8 @@ const (
 )
 
 var ownedEnvironment = map[string]struct{}{
-	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
+	codexHomeEnv: {}, openAIAPIKeyEnv: {}, env.ChatGPTAccessToken.Name(): {}, env.ChatGPTAccountID.Name(): {},
+	awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
 	env.KagentName.Name(): {}, env.KagentNamespace.Name(): {}, env.KagentAgentTemplate.Name(): {}, env.KagentAPIURL.Name(): {},
 }
@@ -166,9 +167,12 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 		}
 		options := *model.Spec.OpenAI
 		baseURL := strings.TrimSpace(options.BaseURL)
-		options.BaseURL, options.APIFormat = "", nil
+		options.BaseURL, options.APIFormat, options.CredentialType = "", nil, ""
 		if !reflect.DeepEqual(options, v1alpha3.OpenAIConfig{}) {
-			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl and apiFormat responses")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl, apiFormat responses and credentialType")
+		}
+		if model.Spec.ChatGPTOAuth() {
+			return c.compileChatGPTProvider(ctx, model, baseURL)
 		}
 		if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
 			return codexconfig.Provider{}, nil, nil, err
@@ -217,6 +221,36 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 	default:
 		return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
 	}
+}
+
+// compileChatGPTProvider points Codex at the ChatGPT Codex backend with a
+// ChatGPT login. Codex sends the access token as its bearer token and the
+// account id as chatgpt-account-id, both read from variables that carry the
+// gateway placeholder; the gateway replaces them with the Secret's current
+// values. Codex's own ChatGPT sign-in is not used, so it never refreshes: the
+// controller is the login's one refresher, and the refresh token reaches no
+// actor.
+func (c *Compiler) compileChatGPTProvider(ctx context.Context, model *v1alpha3.ModelConfig, baseURL string) (codexconfig.Provider, []corev1.EnvVar, []string, error) {
+	if model.Spec.APIKeySecret == "" || model.Spec.APIKeySecretKey != "" {
+		return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex ChatGPT login requires apiKeySecret and an empty apiKeySecretKey")
+	}
+	for _, key := range []string{v1alpha3.ChatGPTAccessTokenKey, v1alpha3.ChatGPTRefreshTokenKey, v1alpha3.ChatGPTAccountIDKey} {
+		if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, key); err != nil {
+			return codexconfig.Provider{}, nil, nil, err
+		}
+	}
+	if baseURL == "" {
+		baseURL = translator.ChatGPTCodexBaseURL
+	}
+	host, err := absoluteHTTPOrigin(baseURL)
+	if err != nil {
+		return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex OpenAI baseUrl %v", err)
+	}
+	environment := []corev1.EnvVar{
+		secretEnvironment(env.ChatGPTAccessToken.Name(), model.Spec.APIKeySecret, v1alpha3.ChatGPTAccessTokenKey),
+		secretEnvironment(env.ChatGPTAccountID.Name(), model.Spec.APIKeySecret, v1alpha3.ChatGPTAccountIDKey),
+	}
+	return codexconfig.Provider{Name: codexconfig.ProviderChatGPT, BaseURL: baseURL}, environment, []string{host}, nil
 }
 
 func compileAgents(root *translator.AgentInput) (map[string]codexconfig.Agent, error) {

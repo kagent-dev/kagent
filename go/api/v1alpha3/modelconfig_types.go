@@ -273,8 +273,44 @@ type OpenAIConfig struct {
 	// +kubebuilder:default=chatCompletions
 	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
 
+	// CredentialType is what the Secret named by apiKeySecret holds: an OpenAI
+	// API key under apiKeySecretKey (the default), or a ChatGPT subscription
+	// login under the fixed keys access_token, refresh_token and account_id,
+	// with apiKeySecretKey unset. A ChatGPT login is accepted by the Codex
+	// harness only; the controller refreshes its access token in the Secret.
+	// +optional
+	// +kubebuilder:validation:Enum=apiKey;chatgptOAuth
+	// +kubebuilder:default=apiKey
+	CredentialType OpenAICredentialType `json:"credentialType,omitempty"`
+
 	// Deferred until service-account credentials can be provided to the runtime.
 	// TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
+}
+
+// OpenAICredentialType is what the Secret named by apiKeySecret holds.
+type OpenAICredentialType string
+
+const (
+	// OpenAICredentialTypeAPIKey is an OpenAI API key, sent as a bearer token.
+	OpenAICredentialTypeAPIKey OpenAICredentialType = "apiKey"
+	// OpenAICredentialTypeChatGPTOAuth is a ChatGPT subscription login (the
+	// tokens `codex login` stores): a short-lived access token, a rotating
+	// refresh token and the ChatGPT account id, used against the ChatGPT Codex
+	// backend rather than the OpenAI API.
+	OpenAICredentialTypeChatGPTOAuth OpenAICredentialType = "chatgptOAuth"
+)
+
+// The Secret keys of a ChatGPT login (credentialType chatgptOAuth).
+const (
+	ChatGPTAccessTokenKey  = "access_token"
+	ChatGPTRefreshTokenKey = "refresh_token"
+	ChatGPTAccountIDKey    = "account_id"
+)
+
+// ChatGPTOAuth reports whether the OpenAI credential is a ChatGPT
+// subscription login rather than an API key.
+func (s *ModelConfigSpec) ChatGPTOAuth() bool {
+	return s.Provider == ModelProviderOpenAI && s.OpenAI != nil && s.OpenAI.CredentialType == OpenAICredentialTypeChatGPTOAuth
 }
 
 // OpenAIAPIFormat selects the OpenAI HTTP API shape used by the ADK runtime.
@@ -566,7 +602,8 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
 // +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
-// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
+// +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers and a ChatGPT login)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore' && !(has(self.openAI) && has(self.openAI.credentialType) && self.openAI.credentialType == 'chatgptOAuth'))"
+// +kubebuilder:validation:XValidation:message="a ChatGPT login (openAI.credentialType chatgptOAuth) requires apiKeySecret and no apiKeySecretKey",rule="!(has(self.openAI) && has(self.openAI.credentialType) && self.openAI.credentialType == 'chatgptOAuth' && (!has(self.apiKeySecret) || has(self.apiKeySecretKey)))"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 type ModelConfigSpec struct {

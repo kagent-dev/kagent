@@ -41,6 +41,10 @@ func TestParseRejectsUnsafeConfiguration(t *testing.T) {
 	}{
 		{"version", func(c *Config) { c.Version++ }, "unsupported config version"},
 		{"provider", func(c *Config) { c.Provider.Name = "other" }, "unsupported Codex provider"},
+		{"ChatGPT without base URL", func(c *Config) { c.Provider = Provider{Name: ProviderChatGPT} }, "ChatGPT provider requires its base URL"},
+		{"Bedrock base URL", func(c *Config) {
+			c.Provider = Provider{Name: ProviderBedrock, BaseURL: "https://bedrock.example.com"}
+		}, "base URL is supported only"},
 		{"URL", func(c *Config) { c.Provider.BaseURL = "https://user:pass@example.com" }, "invalid provider base URL"},
 		{"agent name", func(c *Config) {
 			c.Agents = map[string]Agent{"../bad": {Description: "x", Instruction: "x", Model: "x"}}

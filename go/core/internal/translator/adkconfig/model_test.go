@@ -298,6 +298,24 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 	}
 }
 
+// A ChatGPT login is used against the ChatGPT Codex backend, which serves the
+// Codex harness alone, so an ADK agent cannot run on it.
+func TestTranslateOpenAIRejectsAChatGPTLogin(t *testing.T) {
+	resolved := &translator.ResolvedModelConfig{
+		Config: &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.1-codex", APIKeySecret: "chatgpt-login",
+				OpenAI: &v1alpha3.OpenAIConfig{CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth},
+			},
+		},
+	}
+	_, _, err := translateModel(resolved)
+	var validation *translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.ErrorContains(t, err, "Codex harness only")
+}
+
 func TestTranslateOllamaThink(t *testing.T) {
 	off, on := false, true
 	tests := []struct {

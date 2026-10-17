@@ -4,6 +4,7 @@ package adapter
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -197,14 +198,26 @@ func renderConfig(cfg config.Config, codexHome string, environment []string) ([]
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),
 	}
 	switch cfg.Provider.Name {
-	case "openai":
+	case config.ProviderOpenAI:
 		native.ModelProviders = map[string]nativeModelProvider{
 			"kagent-openai": {
 				Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
 				EnvHTTPHeaders: agentHeaderEnvironment,
 			},
 		}
-	case "amazon-bedrock":
+	case config.ProviderChatGPT:
+		// A custom provider rather than Codex's own ChatGPT sign-in: Codex
+		// sends the placeholder access token and account id the gateway
+		// replaces, and never refreshes the login itself.
+		headers := maps.Clone(agentHeaderEnvironment)
+		headers[chatGPTAccountIDHeader] = env.ChatGPTAccountID.Name()
+		native.ModelProviders = map[string]nativeModelProvider{
+			"kagent-chatgpt": {
+				Name: "ChatGPT", WireAPI: "responses", EnvKey: env.ChatGPTAccessToken.Name(), BaseURL: cfg.Provider.BaseURL,
+				EnvHTTPHeaders: headers,
+			},
+		}
+	case config.ProviderBedrock:
 		// The built-in Bedrock provider takes http_headers but not
 		// env_http_headers, so the identity is written as literal values.
 		if headers := agentHeaders(environment); len(headers) != 0 {
@@ -287,9 +300,16 @@ func nativeExporter(exporterConfig *config.OTLPExporter) *nativeOtelExporter {
 	return exporter
 }
 
+// chatGPTAccountIDHeader names the ChatGPT account a ChatGPT login's access
+// token belongs to; the ChatGPT Codex backend requires it.
+const chatGPTAccountIDHeader = "chatgpt-account-id"
+
 func nativeProviderName(name string) string {
-	if name == "openai" {
+	switch name {
+	case config.ProviderOpenAI:
 		return "kagent-openai"
+	case config.ProviderChatGPT:
+		return "kagent-chatgpt"
 	}
 	return name
 }

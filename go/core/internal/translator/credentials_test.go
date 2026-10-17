@@ -48,6 +48,51 @@ func TestCompileCredentialDestinations(t *testing.T) {
 	}
 }
 
+// A ChatGPT login binds two headers on the ChatGPT Codex backend: the access
+// token as a bearer token and the account id. The refresh token is bound
+// nowhere: only the controller's refresher reads it.
+func TestCompileCredentialsBindsAChatGPTLogin(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		baseURL    string
+		host       string
+		pathPrefix string
+	}{
+		{"ChatGPT Codex backend", "", "chatgpt.com", "/backend-api/codex/"},
+		{"ChatGPT override", "https://codex.example.com/backend-api/codex/", "codex.example.com", "/backend-api/codex/"},
+		{"ChatGPT override at the root", "https://codex.example.com", "codex.example.com", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := credentialInput(v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "login",
+				OpenAI: &v1alpha3.OpenAIConfig{CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth, BaseURL: test.baseURL},
+			})
+			environment := []corev1.EnvVar{
+				credentialEnv("KAGENT_CHATGPT_ACCESS_TOKEN", "login", "access_token"),
+				credentialEnv("KAGENT_CHATGPT_ACCOUNT_ID", "login", "account_id"),
+			}
+			got, bindings, err := CompileCredentials(input, nil, environment)
+			require.NoError(t, err)
+			for _, variable := range got {
+				require.Equal(t, CredentialPlaceholder, variable.Value, variable.Name)
+				require.Nil(t, variable.ValueFrom, variable.Name)
+			}
+			require.ElementsMatch(t, []egress.Credential{
+				{Hostname: test.host, Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/login/access_token", PathPrefix: test.pathPrefix},
+				{Hostname: test.host, Header: "chatgpt-account-id", URI: "ate-secret://k8s.io/default/team/login/account_id", PathPrefix: test.pathPrefix},
+			}, bindings)
+		})
+	}
+	// The refresh token never reaches an actor, not even as a reference.
+	input := credentialInput(v1alpha3.ModelConfigSpec{
+		Provider: v1alpha3.ModelProviderOpenAI, APIKeySecret: "login",
+		OpenAI: &v1alpha3.OpenAIConfig{CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth},
+	})
+	_, _, err := CompileCredentials(input, nil, []corev1.EnvVar{credentialEnv("KAGENT_CHATGPT_REFRESH_TOKEN", "login", "refresh_token")})
+	var validation *ValidationError
+	require.ErrorAs(t, err, &validation)
+}
+
 // A Vertex AI key is bound on the Google access-token authority, which mints
 // the bearer token the gateway sets; no variable carries the key, so the
 // environment compiles unchanged.

@@ -251,6 +251,71 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			},
 			wantReject: "maxTokens",
 		},
+		{
+			// A ChatGPT login lives under fixed Secret keys.
+			name: "ChatGPT login without apiKeySecretKey accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-chatgpt-ok", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model: "gpt-5.1-codex", Provider: ModelProviderOpenAI, APIKeySecret: "chatgpt-login",
+						OpenAI: &OpenAIConfig{CredentialType: OpenAICredentialTypeChatGPTOAuth},
+					},
+				}
+			},
+		},
+		{
+			name: "ChatGPT login with apiKeySecretKey rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-chatgpt-key", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model: "gpt-5.1-codex", Provider: ModelProviderOpenAI, APIKeySecret: "chatgpt-login", APIKeySecretKey: "access_token",
+						OpenAI: &OpenAIConfig{CredentialType: OpenAICredentialTypeChatGPTOAuth},
+					},
+				}
+			},
+			wantReject: "requires apiKeySecret and no apiKeySecretKey",
+		},
+		{
+			name: "ChatGPT login without apiKeySecret rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-chatgpt-nosecret", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model: "gpt-5.1-codex", Provider: ModelProviderOpenAI,
+						OpenAI: &OpenAIConfig{CredentialType: OpenAICredentialTypeChatGPTOAuth},
+					},
+				}
+			},
+			wantReject: "requires apiKeySecret and no apiKeySecretKey",
+		},
+		{
+			name: "API key without apiKeySecretKey still rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-apikey-nokey", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model: "gpt-5.1-codex", Provider: ModelProviderOpenAI, APIKeySecret: "openai-secret",
+						OpenAI: &OpenAIConfig{CredentialType: OpenAICredentialTypeAPIKey},
+					},
+				}
+			},
+			wantReject: "apiKeySecretKey must be set if apiKeySecret is set",
+		},
+		{
+			name: "unknown credential type rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-credential-unknown", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model: "gpt-5.1-codex", Provider: ModelProviderOpenAI, APIKeySecret: "openai-secret", APIKeySecretKey: "api-key",
+						OpenAI: &OpenAIConfig{CredentialType: "oauthToken"},
+					},
+				}
+			},
+			wantReject: "credentialType",
+		},
 	}
 
 	for _, c := range cases {

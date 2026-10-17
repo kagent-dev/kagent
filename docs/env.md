@@ -39,6 +39,8 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KAGENT_API_URL` | String | `(none)` | Base URL for kagent control-plane API calls. Required by Python runtimes and supplied by the controller in managed runtimes; also used as the E2E test URL when KAGENT_E2E_API_URL is unset. |
 | `KAGENT_BASH_TOOL_TIMEOUT` | Duration | `10m0s` | How long the Go runtime's bash tool lets a command run before it kills the command with every process it started, as a Go duration (90s, 10m). A value that is not a positive duration keeps the default. A process a command leaves in the background is killed when the turn ends. |
 | `KAGENT_BASH_VENV_PATH` | String | `(none)` | Virtual environment used for Python skills shell commands; its bin directory is prepended to PATH and VIRTUAL_ENV is set. |
+| `KAGENT_CHATGPT_ACCESS_TOKEN` | String | `(none)` | ChatGPT login access token, used by the Codex harness in place of an OpenAI API key; set to the gateway placeholder. |
+| `KAGENT_CHATGPT_ACCOUNT_ID` | String | `(none)` | ChatGPT account id of a ChatGPT login, sent by the Codex harness as chatgpt-account-id; set to the gateway placeholder. |
 | `KAGENT_CONFIG_DIR` | String | `/config` | Go ADK configuration directory; --filepath takes precedence. |
 | `KAGENT_ENABLE_FILE_SEARCH_TOOLS` | Boolean | `false` | When true, t, or 1 (case-insensitive), enables the list_files and grep_file skills tools, which let an agent enumerate and search the filesystem under its session/skills roots without a shell. Disabled by default; set in Harness env to opt in. |
 | `KAGENT_GATEWAY_URL` | String | `(none)` | Base URL for A2A and MCP traffic. The controller falls back to http://127.0.0.1:8083; Python runtimes require a value. |

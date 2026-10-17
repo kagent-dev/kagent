@@ -112,7 +112,15 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 
 	switch config.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		if !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "" {
+		switch {
+		case config.Spec.ChatGPTOAuth():
+			if config.Spec.APIKeySecret == "" {
+				addSemanticFailure("InvalidProviderConfig", "a ChatGPT login requires apiKeySecret")
+				break
+			}
+			requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "ChatGPTLoginKeyNotFound",
+				v1alpha3.ChatGPTAccessTokenKey, v1alpha3.ChatGPTRefreshTokenKey, v1alpha3.ChatGPTAccountIDKey)
+		case !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "":
 			requireAPIKey()
 		}
 	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry, v1alpha3.ModelProviderMistral:

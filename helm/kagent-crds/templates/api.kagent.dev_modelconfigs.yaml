@@ -474,6 +474,18 @@ spec:
                   baseUrl:
                     description: Base URL for the OpenAI API (overrides default)
                     type: string
+                  credentialType:
+                    default: apiKey
+                    description: |-
+                      CredentialType is what the Secret named by apiKeySecret holds: an OpenAI
+                      API key under apiKeySecretKey (the default), or a ChatGPT subscription
+                      login under the fixed keys access_token, refresh_token and account_id,
+                      with apiKeySecretKey unset. A ChatGPT login is accepted by the Codex
+                      harness only; the controller refreshes its access token in the Secret.
+                    enum:
+                    - apiKey
+                    - chatgptOAuth
+                    type: string
                   frequencyPenalty:
                     description: Frequency penalty
                     type: string
@@ -614,9 +626,15 @@ spec:
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except
-                for Bedrock and SAPAICore providers)
+                for Bedrock and SAPAICore providers and a ChatGPT login)
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
-                != ''Bedrock'' && self.provider != ''SAPAICore'')'
+                != ''Bedrock'' && self.provider != ''SAPAICore'' && !(has(self.openAI)
+                && has(self.openAI.credentialType) && self.openAI.credentialType ==
+                ''chatgptOAuth''))'
+            - message: a ChatGPT login (openAI.credentialType chatgptOAuth) requires
+                apiKeySecret and no apiKeySecretKey
+              rule: '!(has(self.openAI) && has(self.openAI.credentialType) && self.openAI.credentialType
+                == ''chatgptOAuth'' && (!has(self.apiKeySecret) || has(self.apiKeySecretKey)))'
             - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
                 && size(self.apiKeySecret) > 0)'

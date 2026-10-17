@@ -65,6 +65,9 @@ func translateModel(resolved *translator.ResolvedModelConfig) (adk.Model, *model
 
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
+		if model.Spec.ChatGPTOAuth() {
+			return nil, nil, translator.NewValidationError("openAI.credentialType chatgptOAuth is accepted by the Codex harness only")
+		}
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),

@@ -25,6 +25,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/chatgptlogin"
 	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
@@ -291,6 +292,13 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if err := manager.Add(reconciler); err != nil {
 		return fmt.Errorf("add reconciler to controller manager: %w", err)
+	}
+	// The one refresher of every ChatGPT login: it runs on the elected leader
+	// alone, so no two replicas spend the same refresh token.
+	chatGPTLogins := chatgptlogin.NewRefresher(manager.GetClient(), manager.GetAPIReader(),
+		&http.Client{Timeout: 30 * time.Second}, chatgptlogin.TokenURL, chatgptlogin.ClientID)
+	if err := chatGPTLogins.SetupWithManager(manager); err != nil {
+		return fmt.Errorf("add ChatGPT login refresher to controller manager: %w", err)
 	}
 	runtimeGC, err := controller.NewRuntimeRevisionGC(store, actors, kagentenv.RuntimeRevisionGCInterval.Get(), otel.GetMeterProvider())
 	if err != nil {

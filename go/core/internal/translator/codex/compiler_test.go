@@ -30,6 +30,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 		model       v1alpha3.ModelConfigSpec
 		secret      map[string][]byte
 		provider    string
+		baseURL     string
 		environment map[string]string
 		egress      []string
 		wantErr     string
@@ -40,11 +41,30 @@ func TestCompileProviderCredentials(t *testing.T) {
 		},
 		{
 			name: "OpenAI gateway", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, BaseURL: "https://gateway.example.com/v1"}},
-			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://gateway.example.com:443"},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", baseURL: "https://gateway.example.com/v1", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://gateway.example.com:443"},
 		},
 		{
 			name: "Bedrock API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", CacheTTL: "5m"}},
 			secret: map[string][]byte{awsBedrockTokenEnv: []byte(credentialValue)}, provider: "amazon-bedrock", environment: map[string]string{awsRegionEnv: "us-east-1", awsBedrockTokenEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-east-1.amazonaws.com:443"},
+		},
+		{
+			// The CRD defaults credentialType to apiKey.
+			name: "OpenAI explicit API key", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, CredentialType: v1alpha3.OpenAICredentialTypeAPIKey}},
+			secret: map[string][]byte{"api-key": []byte(credentialValue)}, provider: "openai", environment: map[string]string{openAIAPIKeyEnv: translator.CredentialPlaceholder}, egress: []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443"},
+		},
+		{
+			name: "ChatGPT login", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.1-codex", APIKeySecret: "model-auth", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth}},
+			secret: chatGPTLogin(), provider: codexconfig.ProviderChatGPT, baseURL: "https://chatgpt.com/backend-api/codex",
+			environment: map[string]string{"KAGENT_CHATGPT_ACCESS_TOKEN": translator.CredentialPlaceholder, "KAGENT_CHATGPT_ACCOUNT_ID": translator.CredentialPlaceholder},
+			egress:      []string{"http://kagent-controller.kagent:8083", "https://chatgpt.com:443"},
+		},
+		{
+			name: "ChatGPT login without a refresh token", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.1-codex", APIKeySecret: "model-auth", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth}},
+			secret: map[string][]byte{"access_token": []byte(credentialValue), "account_id": []byte("account")}, wantErr: `does not contain a non-empty key "refresh_token"`,
+		},
+		{
+			name: "ChatGPT login with an apiKeySecretKey", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.1-codex", APIKeySecret: "model-auth", APIKeySecretKey: "access_token", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth}},
+			secret: chatGPTLogin(), wantErr: "requires apiKeySecret and an empty apiKeySecretKey",
 		},
 		{
 			name: "Bedrock IAM", model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt-5.2", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-west-2"}},
@@ -68,7 +88,7 @@ func TestCompileProviderCredentials(t *testing.T) {
 			if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
 				t.Fatal(err)
 			}
-			if cfg.Provider.Name != test.provider || cfg.ExpectedCodexVersion != codexconfig.PinnedCodexVersion {
+			if cfg.Provider.Name != test.provider || cfg.Provider.BaseURL != test.baseURL || cfg.ExpectedCodexVersion != codexconfig.PinnedCodexVersion {
 				t.Fatalf("config = %#v", cfg)
 			}
 			gotEnvironment := map[string]string{}
@@ -86,6 +106,9 @@ func TestCompileProviderCredentials(t *testing.T) {
 			if !reflect.DeepEqual(revision.EgressDestinations, test.egress) {
 				t.Errorf("egress = %v, want %v", revision.EgressDestinations, test.egress)
 			}
+			if _, ok := gotEnvironment[openAIAPIKeyEnv]; ok && test.provider == codexconfig.ProviderChatGPT {
+				t.Errorf("a ChatGPT login sets %s", openAIAPIKeyEnv)
+			}
 			if bytes.Contains(revision.ConfigJSON, []byte(credentialValue)) || bytes.Contains(revision.Provenance, []byte(credentialValue)) {
 				t.Fatal("credential leaked into immutable revision")
 			}
@@ -94,6 +117,31 @@ func TestCompileProviderCredentials(t *testing.T) {
 				t.Fatalf("compilation is not deterministic: %v", err)
 			}
 		})
+	}
+}
+
+func chatGPTLogin() map[string][]byte {
+	return map[string][]byte{"access_token": []byte(credentialValue), "refresh_token": []byte(credentialValue), "account_id": []byte(credentialValue)}
+}
+
+// The refresher rewrites a ChatGPT login's Secret at every rotation. The
+// gateway reads the Secret by reference, so a rotation leaves the revision,
+// and with it every running agent, as it is.
+func TestCompileChatGPTLoginSurvivesRotation(t *testing.T) {
+	responses := v1alpha3.OpenAIAPIFormatResponses
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-5.1-codex", APIKeySecret: "model-auth", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, CredentialType: v1alpha3.OpenAICredentialTypeChatGPTOAuth}}
+	input, reader := testInput(t, model, chatGPTLogin())
+	before, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, reader = testInput(t, model, map[string][]byte{"access_token": []byte("rotated"), "refresh_token": []byte("rotated"), "account_id": []byte(credentialValue)})
+	after, err := NewCompiler(krt.TestingDummyContext{}, reader).Compile(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.Revision, after.Revision) {
+		t.Fatalf("a rotated ChatGPT login changed the revision:\n%#v\n%#v", before.Revision, after.Revision)
 	}
 }
 

@@ -26,6 +26,20 @@ var (
 		"Custom base URL for the OpenAI API.",
 		ComponentAgentRuntime,
 	)
+
+	ChatGPTAccessToken = RegisterStringVar(
+		"KAGENT_CHATGPT_ACCESS_TOKEN",
+		"",
+		"ChatGPT login access token, used by the Codex harness in place of an OpenAI API key; set to the gateway placeholder.",
+		ComponentAgentRuntime,
+	)
+
+	ChatGPTAccountID = RegisterStringVar(
+		"KAGENT_CHATGPT_ACCOUNT_ID",
+		"",
+		"ChatGPT account id of a ChatGPT login, sent by the Codex harness as chatgpt-account-id; set to the gateway placeholder.",
+		ComponentAgentRuntime,
+	)
 )
 
 // Anthropic

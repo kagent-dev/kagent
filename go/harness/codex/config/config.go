@@ -59,6 +59,15 @@ type OTLPExporter struct {
 	Protocol string `json:"protocol"`
 }
 
+// The Codex providers the compiler selects.
+const (
+	ProviderOpenAI  = "openai"
+	ProviderBedrock = "amazon-bedrock"
+	// ProviderChatGPT is the ChatGPT Codex backend reached with a ChatGPT
+	// login; it always carries its base URL.
+	ProviderChatGPT = "chatgpt"
+)
+
 type Provider struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url,omitempty"`
@@ -121,7 +130,13 @@ func (c Config) Validate() error {
 	if c.MaxFrameBytes <= 0 || c.MaxStderrBytes <= 0 || c.InterruptGraceMillis <= 0 {
 		return fmt.Errorf("frame, stderr, and interrupt grace limits must be positive")
 	}
-	if c.Provider.Name != "openai" && c.Provider.Name != "amazon-bedrock" {
+	switch c.Provider.Name {
+	case ProviderOpenAI, ProviderBedrock:
+	case ProviderChatGPT:
+		if c.Provider.BaseURL == "" {
+			return fmt.Errorf("the ChatGPT provider requires its base URL")
+		}
+	default:
 		return fmt.Errorf("unsupported Codex provider %q", c.Provider.Name)
 	}
 	if err := c.RuntimeTelemetry.Validate(); err != nil {
@@ -142,8 +157,8 @@ func (c Config) Validate() error {
 		}
 	}
 	if c.Provider.BaseURL != "" {
-		if c.Provider.Name != "openai" {
-			return fmt.Errorf("base URL is supported only for the OpenAI provider")
+		if c.Provider.Name == ProviderBedrock {
+			return fmt.Errorf("base URL is supported only for the OpenAI and ChatGPT providers")
 		}
 		if err := validateURL(c.Provider.BaseURL); err != nil {
 			return fmt.Errorf("invalid provider base URL: %w", err)
