@@ -33,6 +33,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 	"github.com/kagent-dev/mockllm"
 	"github.com/kagent-dev/mockmcp"
 	"github.com/stretchr/testify/require"
@@ -214,10 +215,12 @@ func receivedSince(received []mockmcp.RecordedRequest, at time.Time) []mockmcp.R
 // sandboxSourceRequestViolation reports the first request of a session's
 // sandbox that the gateway gave the golden boot's credential: every request
 // reached the source (a denied one is never recorded), a request without
-// Authorization arrived without it, and one with the placeholder arrived with
-// the placeholder, not the Secret value.
+// Authorization arrived without it, and one with a placeholder arrived with
+// the placeholder, not the Secret value. git answers the source's challenge to
+// the request without Authorization with the turn's credential helper, whose
+// Basic placeholder is the second form.
 func sandboxSourceRequestViolation(received []mockmcp.RecordedRequest, credential string) error {
-	placeholder := "Basic " + translator.CredentialPlaceholder
+	placeholders := []string{"Basic " + translator.CredentialPlaceholder, gitHelperPlaceholder}
 	var bare, unreplaced int
 	for i, request := range received {
 		where := fmt.Sprintf("request %d of %d (%s %s)", i+1, len(received), request.Method, request.Path)
@@ -231,7 +234,7 @@ func sandboxSourceRequestViolation(received []mockmcp.RecordedRequest, credentia
 		switch values := request.Headers.Values("Authorization"); {
 		case len(values) == 0:
 			bare++
-		case len(values) == 1 && values[0] == placeholder:
+		case len(values) == 1 && slices.Contains(placeholders, values[0]):
 			unreplaced++
 		default:
 			return fmt.Errorf("%s: Authorization = %q, want none or the placeholder the sandbox sent", where, values)
@@ -685,6 +688,10 @@ func TestEgressCredentialViolation(t *testing.T) {
 	}
 }
 
+// gitHelperPlaceholder is the Authorization git sends with the placeholder
+// credential of a turn's credential helper (workspace.CredentialHelper).
+var gitHelperPlaceholder = "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+workspace.CredentialPlaceholder))
+
 func TestSandboxSourceRequestViolation(t *testing.T) {
 	const credential = "c2VjcmV0"
 	placeholder := "Basic " + translator.CredentialPlaceholder
@@ -698,6 +705,7 @@ func TestSandboxSourceRequestViolation(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "neither replaced", received: []mockmcp.RecordedRequest{bare, unreplaced, bare}},
+		{name: "the credential helper's placeholder unreplaced", received: []mockmcp.RecordedRequest{bare, request(http.Header{"Authorization": {gitHelperPlaceholder}})}},
 		{name: "credential injected", received: []mockmcp.RecordedRequest{bare, request(http.Header{"Authorization": {"Basic " + credential}})}, wantErr: "request 2 of 2 (GET /skill.git/info/refs): header Authorization carries the golden boot's credential"},
 		{name: "credential in another header", received: []mockmcp.RecordedRequest{bare, unreplaced, request(http.Header{"X-Token": {credential}})}, wantErr: "header X-Token carries"},
 		{name: "another Authorization", received: []mockmcp.RecordedRequest{bare, request(http.Header{"Authorization": {"Bearer other"}})}, wantErr: "want none or the placeholder"},
