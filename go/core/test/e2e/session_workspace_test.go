@@ -94,6 +94,7 @@ func (a *workspaceAgent) session(t *testing.T, target string, fixture *workspace
 		request.AdmissionToken = token
 	})
 	session.ctx = metadata.AppendToOutgoingContext(session.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
+	session.retryWindow = workspaceSendRetryWindow
 	return session
 }
 

@@ -79,7 +79,7 @@ func (a *claudeWorkspaceAgent) session(t *testing.T, target string, fixture *wor
 		return newInteractionFixtureWith(t, target, a.template, nil)
 	}
 	token := fixture.workspaceGrant(t)
-	return newInteractionFixtureWith(t, target, a.template, func(request *apiv1alpha1.CreateSessionRequest) {
+	session := newInteractionFixtureWith(t, target, a.template, func(request *apiv1alpha1.CreateSessionRequest) {
 		request.VolumeSource = &apiv1alpha1.SessionVolumeSource{
 			Volume: &apiv1alpha1.SessionVolume{CsiDriver: fixture.Volume.Driver, VolumeHandle: fixture.Volume.Handle},
 			Mounts: []*apiv1alpha1.SessionVolumeMount{
@@ -89,6 +89,8 @@ func (a *claudeWorkspaceAgent) session(t *testing.T, target string, fixture *wor
 		}
 		request.AdmissionToken = token
 	})
+	session.retryWindow = workspaceSendRetryWindow
+	return session
 }
 
 // probe runs the probe turn in session and returns its answer and the probe's

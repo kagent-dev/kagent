@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -37,6 +39,17 @@ const (
 	// workspaceGitToken is the origin's credential, as a provider token the
 	// egress gateway would set: the volume and a Session's sandbox never hold it.
 	workspaceGitToken = "workspace-e2e-token"
+	// workspaceClaimBindTimeout bounds the wait for the fixture's claim to
+	// bind; the provisioner mounts the NFS server to create its directory.
+	workspaceClaimBindTimeout = 3 * time.Minute
+	// The in-cluster NFS server the StorageClass provisions from.
+	workspaceNFSServerNamespace = "default"
+	workspaceNFSServerApp       = "nfs-server"
+	// workspaceSendRetryWindow bounds the resends of a refused turn on a
+	// Session with a workspace volume: its Actor's first resume mounts the
+	// NFS volume, which Substrate retries after a mount timeout, so the
+	// Session can take longer than sendRetryWindow to become available.
+	workspaceSendRetryWindow = 3 * time.Minute
 )
 
 var (
@@ -161,18 +174,101 @@ func createWorkspaceVolume(t *testing.T, kube ctrlclient.Client) (*corev1.Persis
 		},
 	}
 	createWorkspaceObject(t, kube, claim)
-	var volume corev1.PersistentVolume
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		current := &corev1.PersistentVolumeClaim{}
-		if !assert.NoError(c, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(claim), current)) ||
-			!assert.Equal(c, corev1.ClaimBound, current.Status.Phase, "claim %s phase", claim.Name) {
-			return
+	current := &corev1.PersistentVolumeClaim{}
+	err := wait.PollUntilContextTimeout(t.Context(), time.Second, workspaceClaimBindTimeout, true, func(ctx context.Context) (bool, error) {
+		if err := kube.Get(ctx, ctrlclient.ObjectKeyFromObject(claim), current); err != nil {
+			return false, err
 		}
-		assert.NoError(c, kube.Get(t.Context(), ctrlclient.ObjectKey{Name: current.Spec.VolumeName}, &volume))
-	}, 3*time.Minute, time.Second)
+		return current.Status.Phase == corev1.ClaimBound, nil
+	})
+	if err != nil {
+		t.Fatalf("%v: %s", err, unboundClaimReport(t, kube, current))
+	}
+	var volume corev1.PersistentVolume
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Name: current.Spec.VolumeName}, &volume))
 	require.NotNil(t, volume.Spec.CSI, "PersistentVolume %s has a CSI source", volume.Name)
 	require.NotEmpty(t, volume.Spec.CSI.VolumeHandle)
 	return claim, workspaceVolume{Driver: volume.Spec.CSI.Driver, Handle: volume.Spec.CSI.VolumeHandle}
+}
+
+// unboundClaimReport says why claim is not bound: its phase, the events of its
+// provisioning, which carry the provisioner's error, and the state of the NFS
+// server behind the StorageClass.
+func unboundClaimReport(t *testing.T, kube ctrlclient.Client, claim *corev1.PersistentVolumeClaim) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+	defer cancel()
+	var events corev1.EventList
+	eventsErr := kube.List(ctx, &events, ctrlclient.InNamespace(claim.Namespace))
+	var servers corev1.PodList
+	serversErr := kube.List(ctx, &servers, ctrlclient.InNamespace(workspaceNFSServerNamespace), ctrlclient.MatchingLabels{"app": workspaceNFSServerApp})
+	report := fmt.Sprintf("claim %s/%s of StorageClass %s is %s after %s; its events: ", claim.Namespace, claim.Name, workspaceStorageClass, claim.Status.Phase, workspaceClaimBindTimeout)
+	if eventsErr != nil {
+		report += "unreadable: " + eventsErr.Error()
+	} else {
+		report += objectEvents(events.Items, "PersistentVolumeClaim", claim.Name)
+	}
+	report += "; NFS server: "
+	if serversErr != nil {
+		return report + "unreadable: " + serversErr.Error()
+	}
+	return report + podStates(servers.Items)
+}
+
+// objectEvents lists the events of the named object, oldest first, as
+// "Reason: message" with their count, or says there are none.
+func objectEvents(events []corev1.Event, kind, name string) string {
+	var own []corev1.Event
+	for _, event := range events {
+		if event.InvolvedObject.Kind == kind && event.InvolvedObject.Name == name {
+			own = append(own, event)
+		}
+	}
+	if len(own) == 0 {
+		return "none"
+	}
+	slices.SortStableFunc(own, func(a, b corev1.Event) int { return eventTime(a).Compare(eventTime(b)) })
+	lines := make([]string, 0, len(own))
+	for _, event := range own {
+		line := event.Reason + ": " + event.Message
+		if event.Count > 1 {
+			line += fmt.Sprintf(" (x%d)", event.Count)
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "; ")
+}
+
+func eventTime(event corev1.Event) time.Time {
+	if !event.LastTimestamp.IsZero() {
+		return event.LastTimestamp.Time
+	}
+	if !event.EventTime.IsZero() {
+		return event.EventTime.Time
+	}
+	return event.CreationTimestamp.Time
+}
+
+// podStates describes each pod as "<name> <phase>, ready <bool>, <n>
+// restarts", or says there is none.
+func podStates(pods []corev1.Pod) string {
+	if len(pods) == 0 {
+		return "no pod"
+	}
+	states := make([]string, 0, len(pods))
+	for _, pod := range pods {
+		ready, restarts := false, int32(0)
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodReady {
+				ready = condition.Status == corev1.ConditionTrue
+			}
+		}
+		for _, container := range pod.Status.ContainerStatuses {
+			restarts += container.RestartCount
+		}
+		states = append(states, fmt.Sprintf("%s %s, ready %t, %d restarts", pod.Name, pod.Status.Phase, ready, restarts))
+	}
+	return strings.Join(states, "; ")
 }
 
 // workspaceMount mounts SubPath of the workspace volume at Path.
@@ -379,4 +475,36 @@ func TestGitFixturePush(t *testing.T) {
 	require.NotEqual(t, before, after)
 	require.Equal(t, fixture.commit, fixture.head(t, "e2e/beta.git"))
 	requireNoOriginRequest(t, fixture, "e2e/alpha")
+}
+
+// A claim that stays Pending is reported with its provisioning events, oldest
+// first, and the NFS server's state; another object's events are left out.
+func TestUnboundClaimReportParts(t *testing.T) {
+	at := func(seconds int) metav1.Time { return metav1.NewTime(time.Unix(int64(seconds), 0)) }
+	claimEvent := func(reason, message string, seconds int, count int32) corev1.Event {
+		return corev1.Event{
+			InvolvedObject: corev1.ObjectReference{Kind: "PersistentVolumeClaim", Name: "workspace-1"},
+			Reason:         reason, Message: message, LastTimestamp: at(seconds), Count: count,
+		}
+	}
+	events := []corev1.Event{
+		claimEvent("ProvisioningFailed", "failed to mount nfs server: timeout after 110s", 20, 2),
+		{InvolvedObject: corev1.ObjectReference{Kind: "PersistentVolumeClaim", Name: "workspace-2"}, Reason: "ProvisioningSucceeded", LastTimestamp: at(5)},
+		claimEvent("Provisioning", "External provisioner is provisioning volume", 10, 1),
+	}
+	require.Equal(t,
+		"Provisioning: External provisioner is provisioning volume; ProvisioningFailed: failed to mount nfs server: timeout after 110s (x2)",
+		objectEvents(events, "PersistentVolumeClaim", "workspace-1"))
+	require.Equal(t, "none", objectEvents(events, "PersistentVolumeClaim", "workspace-3"))
+
+	require.Equal(t, "no pod", podStates(nil))
+	server := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "nfs-server-1"},
+		Status: corev1.PodStatus{
+			Phase:             corev1.PodRunning,
+			Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			ContainerStatuses: []corev1.ContainerStatus{{RestartCount: 1}},
+		},
+	}
+	require.Equal(t, "nfs-server-1 Running, ready true, 1 restarts", podStates([]corev1.Pod{server}))
 }
