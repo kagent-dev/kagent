@@ -238,6 +238,24 @@ selection quality. The registry must accept pushes from the test runner and be
 reachable by Substrate workers through their existing registry rewrite.
 Private-registry credentials are not required.
 
+`TestSessionEgressPolicyUpdatesLiveActors` loads the same OCI skill and runs
+the same HTTP probe script through each harness's shell tool. During a single
+active invocation, it adds a policy reference and revokes the destination,
+checking actual script output and destination requests without replacing the
+actor. It also checks that deleting a policy while suspended revokes access
+after resume and in a checkpoint fork. Runtime configuration stays on the same
+prepared revision. New sessions continue using that revision with current grants
+even when a policy cannot resolve. `TestSandboxEgressPolicyUpdatesLiveActor` exercises live
+grant, revocation, and resume through the standalone sandbox process API.
+
+`TestEgressPolicyCredentialDelivery` runs the same skill on every harness against
+an HTTPS server that rejects requests unless both Authorization (with a Bearer
+prefix) and X-API-Key (without a prefix) match the Secret. The script has only
+inert placeholders. This test runs sequentially because it temporarily installs
+a test origin CA in the Substrate gateway, rolls it out, and restores the gateway
+configuration afterwards. Actor identity, policy checks, and credential injection
+use the normal Substrate path.
+
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
 persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`

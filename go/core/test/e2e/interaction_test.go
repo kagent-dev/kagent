@@ -37,7 +37,6 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -50,7 +49,7 @@ import (
 )
 
 //go:embed mocks/invoke_agent.json mocks/invoke_golang_hitl_ask_user.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json mocks/invoke_structured_output.json mocks/invoke_native_ask_user.json
-//go:embed mocks/invoke_mounted_skills.json
+//go:embed mocks/invoke_mounted_skills.json mocks/invoke_egress_skill.json
 var interactionMocks embed.FS
 
 const structuredOutputSchema = `{"type":"object","properties":{"answer":{"type":"integer"},"explanation":{"type":"string"}},"required":["answer","explanation"],"additionalProperties":false}`
@@ -1243,17 +1242,7 @@ func interactionKubeClient(t *testing.T) ctrlclient.Client {
 	if err != nil {
 		t.Fatalf("load Kubernetes config: %v", err)
 	}
-	clientScheme := k8sruntime.NewScheme()
-	if err := corev1.AddToScheme(clientScheme); err != nil {
-		t.Fatalf("register Kubernetes core API: %v", err)
-	}
-	if err := discoveryv1.AddToScheme(clientScheme); err != nil {
-		t.Fatalf("register discovery API: %v", err)
-	}
-	if err := v1alpha3.AddToScheme(clientScheme); err != nil {
-		t.Fatalf("register kagent API: %v", err)
-	}
-	kube, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: clientScheme})
+	kube, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: suiteKubeScheme})
 	if err != nil {
 		t.Fatalf("create Kubernetes client: %v", err)
 	}

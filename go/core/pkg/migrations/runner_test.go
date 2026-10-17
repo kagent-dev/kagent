@@ -323,6 +323,14 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
 		}
 	}
+	if !testColumnExists(t, dsn, "runtime_revision", "token_passthrough_origins") || !testColumnExists(t, dsn, "agent_runtime_revision", "token_passthrough_origins") {
+		t.Fatal("runtime and agent revisions must expose passthrough origins")
+	}
+	for _, table := range []string{"agent_definition", "sandbox_template_definition"} {
+		if !testColumnExists(t, dsn, table, "grant_destinations") || !testColumnExists(t, dsn, table, "grant_credentials") {
+			t.Fatalf("%s source grants are missing", table)
+		}
+	}
 	if !testColumnExists(t, dsn, "session", "deletion_reason") {
 		t.Fatal("session deletion reason is missing")
 	}

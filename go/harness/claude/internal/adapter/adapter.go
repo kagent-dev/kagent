@@ -59,7 +59,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	var pluginDirs []string
 	if cfg.SkillResources != nil {
-		skillsDir := filepath.Join(skillRoot, ".claude", "skills")
+		skillsDir := config.SkillsRoot(input.DurableDir)
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
 			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
 		}

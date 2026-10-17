@@ -4,6 +4,7 @@
   resources:
   - harnesses
   - agents
+  - egresspolicies
   - sandboxtemplates
   - agenttemplates
   - modelconfigs

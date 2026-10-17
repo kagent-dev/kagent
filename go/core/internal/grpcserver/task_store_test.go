@@ -637,11 +637,12 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	require.NoError(t, store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
+	upsertErr := store.UpsertAgentDefinition(t.Context(), database.AgentDefinition{
 		Namespace: revision.Namespace, AgentName: revision.AgentName, AgentUID: revision.AgentUID,
 		DesiredRevision: revision.Revision,
-	}))
-	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, true))
+	})
+	require.NoError(t, upsertErr)
+	require.NoError(t, store.RecordRuntimeRevision(t.Context(), revision, database.RecordRevisionOptions{Ready: true}))
 	session, _, err := store.CreateSession(t.Context(), &apiv1.Session{
 		Id: uuid.NewString(), Creator: "alice",
 

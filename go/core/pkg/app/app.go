@@ -277,6 +277,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
+		EgressPolicies: store,
 		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
 		CAFile:         cfg.GetSubstrate().GetCaFile(),
 		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),

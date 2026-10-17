@@ -110,7 +110,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -127,9 +127,9 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			SkillImages: skills.Images,
 			Environment: environment,
 			ConfigJSON:  configJSON, AgentCard: card,
-			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
-			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,
+			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
+			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
+			TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil

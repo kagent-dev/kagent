@@ -30,9 +30,8 @@ func (id RevisionID) Short() string { return hex.EncodeToString(id[:shortRevisio
 // IsZero reports whether compilation has not produced an identity.
 func (id RevisionID) IsZero() bool { return id == RevisionID{} }
 
-// CompileResult contains one immutable runtime revision and the non-blocking
-// diagnostics produced while compiling it. Diagnostics are deliberately kept
-// outside Revision because they do not describe runtime behavior.
+// CompileResult contains immutable runtime inputs and non-blocking diagnostics.
+// Diagnostics do not enter the revision's identity.
 type CompileResult struct {
 	Revision
 	Warnings []string
@@ -61,11 +60,13 @@ type Revision struct {
 	SandboxClass     atev1alpha1.SandboxClass
 	SnapshotLocation string
 
-	// Provenance identifies non-secret Kubernetes inputs. Gateway-fetched
-	// credential values are deliberately excluded from revision identity.
+	// Provenance records non-secret source configuration for diagnostics. Revision
+	// identity comes from compiled runtime inputs, not this source snapshot.
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
+	// TokenPassthroughOrigins cannot receive gateway credentials, including live grants.
+	TokenPassthroughOrigins []string
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
 }
@@ -92,21 +93,21 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
 	}
 	raw, err := json.Marshal(struct {
-		AgentName          string                   `json:"agentName"`
-		AgentUID           string                   `json:"agentUID"`
-		Namespace          string                   `json:"namespace"`
-		Image              string                   `json:"image"`
-		Command            []string                 `json:"command,omitempty"`
-		Args               []string                 `json:"args,omitempty"`
-		Environment        []corev1.EnvVar          `json:"environment"`
-		ConfigJSON         json.RawMessage          `json:"config"`
-		SkillImages        []SkillImage             `json:"skillImages,omitempty"`
-		WorkerPoolName     string                   `json:"workerPoolName"`
-		SnapshotLocation   string                   `json:"snapshotLocation"`
-		Provenance         json.RawMessage          `json:"provenance"`
-		Credentials        []egress.Credential      `json:"credentials,omitempty"`
-		EgressDestinations []string                 `json:"egressDestinations"`
-		SandboxClass       atev1alpha1.SandboxClass `json:"sandboxClass"`
+		AgentName               string                   `json:"agentName"`
+		AgentUID                string                   `json:"agentUID"`
+		Namespace               string                   `json:"namespace"`
+		Image                   string                   `json:"image"`
+		Command                 []string                 `json:"command,omitempty"`
+		Args                    []string                 `json:"args,omitempty"`
+		Environment             []corev1.EnvVar          `json:"environment"`
+		ConfigJSON              json.RawMessage          `json:"config"`
+		SkillImages             []SkillImage             `json:"skillImages,omitempty"`
+		WorkerPoolName          string                   `json:"workerPoolName"`
+		SnapshotLocation        string                   `json:"snapshotLocation"`
+		Credentials             []egress.Credential      `json:"credentials,omitempty"`
+		TokenPassthroughOrigins []string                 `json:"tokenPassthroughOrigins,omitempty"`
+		EgressDestinations      []string                 `json:"egressDestinations"`
+		SandboxClass            atev1alpha1.SandboxClass `json:"sandboxClass"`
 
 		// Placement now matches the pool's namespace as well as its name.
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
@@ -115,8 +116,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
-		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
-		Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
+		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
+		TokenPassthroughOrigins: r.TokenPassthroughOrigins, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})
 	if err != nil {

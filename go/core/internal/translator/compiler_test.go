@@ -227,6 +227,7 @@ func mockCollections(t *testing.T, objects ...any) translator.Collections {
 	t.Helper()
 	mock := krttest.NewMock(t, objects)
 	collections := translator.Collections{
+		EgressPolicies:   krttest.GetMockCollection[*v1alpha3.EgressPolicy](mock),
 		AgentTemplates:   krttest.GetMockCollection[*v1alpha3.AgentTemplate](mock),
 		Harnesses:        krttest.GetMockCollection[*v1alpha3.Harness](mock),
 		RemoteMCPServers: krttest.GetMockCollection[*v1alpha3.RemoteMCPServer](mock),
@@ -405,6 +406,14 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	require.Empty(t, config.Agent.SubAgents[0].SessionDbUrl)
 	require.Contains(t, string(revision.Provenance), `"kind":"ConfigMap"`)
 	require.Equal(t, []string{"application/json"}, revision.AgentCard.DefaultOutputModes)
+	original, err := revision.Digest()
+	require.NoError(t, err)
+	configMap.Data["answer.json"] = `{"type":"object","properties":{"changed":{"type":"string"}}}`
+	changed, err := compiler(t, modelConfig(), configMap, child, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
+	require.NoError(t, err)
+	updated, err := changed.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, original, updated, "resolved ConfigMap contents must still affect compiled runtime identity")
 }
 
 func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
@@ -682,7 +691,10 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 				runtimeHarness.Spec.BYO = &v1alpha3.BYOHarness{}
 				runtimeHarness.Spec.Workload.Command = []string{"/app"}
 			}
-			revision, err := compiler(t, modelConfig(), child, runtimeHarness, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), inlineAgent(runtimeHarness, root))
+			policy, secret := egressPolicy()
+			agent := inlineAgent(runtimeHarness, root)
+			agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+			revision, err := compiler(t, modelConfig(), child, runtimeHarness, policy, secret, remoteMCPServer("search", "https://search.example.com/mcp")).CompileAgent(context.Background(), agent)
 			require.NoError(t, err)
 			var config configv1.ADKConfig
 			require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
@@ -692,6 +704,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 			require.Equal(t, "research carefully", config.Agent.SubAgents[0].Instruction)
 			require.Equal(t, []string{"lookup"}, config.Agent.SubAgents[0].HttpTools[0].Tools)
 			require.Equal(t, "review", config.Agent.SubAgents[0].AgentPlugins.Skills[0].Name)
+			require.NotContains(t, revision.EgressDestinations, "https://tickets.example.com:443")
 			require.Contains(t, revision.EgressDestinations, "https://search.example.com:443")
 			require.NotContains(t, revision.EgressDestinations, "https://ghcr.io:443")
 			require.Equal(t, []translator.SkillImage{translator.SkillImage(child.Spec.Skills[0].Source.OCI)}, revision.SkillImages)

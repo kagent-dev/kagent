@@ -2,7 +2,6 @@ package egress
 
 import (
 	"fmt"
-	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -14,28 +13,27 @@ import (
 // Credential binds a Secret reference to an exact destination and HTTP header.
 // Values are fetched by the gateway and never enter a runtime revision.
 type Credential struct {
-	Hostname string `json:"hostname"`
-	Header   string `json:"header"`
-	Prefix   string `json:"prefix,omitempty"`
-	URI      string `json:"uri"`
+	Origin string `json:"origin"`
+	Header string `json:"header"`
+	Prefix string `json:"prefix,omitempty"`
+	URI    string `json:"uri"`
 }
 
-// CanonicalCredentials validates and orders bindings. Substrate matches only
-// hostnames, so two credentials for the same host and header cannot coexist.
+// CanonicalCredentials validates and orders bindings by complete origin and header.
 func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 	result := slices.Clone(bindings)
 	for i := range result {
 		c := &result[i]
-		c.Hostname = strings.TrimSuffix(strings.ToLower(c.Hostname), ".")
-		c.Header = strings.ToLower(c.Header)
-		_, ipErr := netip.ParseAddr(c.Hostname)
-		if ipErr == nil || len(validation.IsDNS1123Subdomain(c.Hostname)) != 0 {
-			return nil, fmt.Errorf("credential injection requires an exact DNS hostname, got %q", c.Hostname)
+		u, err := ParseOrigin(c.Origin)
+		if err != nil || strings.Contains(c.Origin, "*") {
+			return nil, fmt.Errorf("credential injection requires an exact HTTP(S) DNS origin, got %q", c.Origin)
 		}
-		if !httpguts.ValidHeaderFieldName(c.Header) || !httpguts.ValidHeaderFieldValue(c.Prefix) {
+		c.Origin = u.String()
+		c.Header = strings.ToLower(c.Header)
+		if !validCredentialHeader(c.Header) || !httpguts.ValidHeaderFieldValue(c.Prefix) {
 			return nil, fmt.Errorf("invalid credential injection header %q", c.Header)
 		}
-		u, err := url.Parse(c.URI)
+		u, err = url.Parse(c.URI)
 		if err != nil || u.Scheme != "ate-secret" || u.Host != "k8s.io" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return nil, fmt.Errorf("invalid Kubernetes credential URI")
 		}
@@ -45,21 +43,33 @@ func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 		}
 	}
 	slices.SortFunc(result, func(a, b Credential) int {
-		return strings.Compare(a.Hostname+"\x00"+a.Header, b.Hostname+"\x00"+b.Header)
+		return strings.Compare(a.Origin+"\x00"+a.Header, b.Origin+"\x00"+b.Header)
 	})
 	for i := 1; i < len(result); i++ {
 		a, b := result[i-1], result[i]
-		if a.Hostname == b.Hostname && a.Header == b.Header && a != b {
-			return nil, fmt.Errorf("conflicting credentials for %s header %s", a.Hostname, a.Header)
+		if a.Origin == b.Origin && a.Header == b.Header && a != b {
+			return nil, fmt.Errorf("conflicting credentials for %s header %s", a.Origin, a.Header)
 		}
 	}
 	result = slices.Compact(result)
 	counts := map[string]int{}
 	for _, c := range result {
-		counts[c.Hostname]++
-		if counts[c.Hostname] > 16 {
-			return nil, fmt.Errorf("credential injection supports at most 16 headers per hostname")
+		counts[c.Origin]++
+		if counts[c.Origin] > 16 {
+			return nil, fmt.Errorf("credential injection supports at most 16 headers per origin")
 		}
 	}
 	return result, nil
+}
+
+// validCredentialHeader excludes routing, framing, hop-by-hop and cookie headers.
+func validCredentialHeader(header string) bool {
+	if len(header) > 256 || !httpguts.ValidHeaderFieldName(header) {
+		return false
+	}
+	switch strings.ToLower(header) {
+	case "host", "connection", "content-length", "transfer-encoding", "te", "trailer", "upgrade", "keep-alive", "proxy-authorization", "proxy-authenticate", "cookie":
+		return false
+	}
+	return true
 }

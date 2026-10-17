@@ -377,7 +377,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -536,7 +536,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -638,7 +638,7 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -952,7 +952,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	_, _, err = client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	// Tombstones release the revision FK and no longer block runtime cleanup.
-	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant"))
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)

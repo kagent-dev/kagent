@@ -16,12 +16,56 @@ import (
 func sandboxFixture(t *testing.T, client *Client, revision string) (*apiv1.Sandbox, SandboxCreateOptions) {
 	t.Helper()
 	ctx := t.Context()
-	require.NoError(t, client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision}))
+	upsertErr := client.UpsertSandboxTemplateDefinition(ctx, SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: revision})
+	require.NoError(t, upsertErr)
 	require.NoError(t, client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: revision, Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: revision, ActorTemplateUID: "actor-uid"},
-		SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`)}, true))
+		SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", SourceSnapshot: []byte(`{}`)}, RecordRevisionOptions{Ready: true}))
 	hash := sha256.Sum256([]byte("request"))
 	return &apiv1.Sandbox{Id: uuid.NewString(), Creator: "alice", SandboxTemplate: &apiv1.ResourceReference{Namespace: "team-a", Name: "scratch"}, Name: "experiment"},
 		SandboxCreateOptions{RequestHash: hash[:], TemplateUID: "uid", TTL: time.Hour}
+}
+
+func TestRecordReadySandboxRevisionOnlyCurrentActiveTemplate(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	request, options := sandboxFixture(t, client, "first")
+	definition := SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "uid", DesiredRevision: "second"}
+	upsertErr := client.UpsertSandboxTemplateDefinition(ctx, definition)
+	require.NoError(t, upsertErr)
+	revision, err := client.GetSandboxRevision(ctx, "first")
+	require.NoError(t, err)
+	revision.Revision, revision.ActorTemplateName = "second", "second"
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{}))
+	assertAvailable := func(want string) {
+		t.Helper()
+		input := proto.CloneOf(request)
+		input.Id = uuid.NewString()
+		instance, _, err := client.CreateSandbox(ctx, input, uuid.NewString(), options)
+		if want == "" {
+			require.ErrorIs(t, err, ErrNotFound)
+			return
+		}
+		require.NoError(t, err)
+		require.Equal(t, want, instance.PreparedRevision)
+	}
+	assertAvailable("first")
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	assertAvailable("second")
+	revision.Revision, revision.ActorTemplateName = "first", "first"
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	assertAvailable("second")
+	require.NoError(t, client.RetireSandboxTemplateIdentities(ctx, "team-a", "scratch"))
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}))
+	assertAvailable("")
+	upsertErr = client.UpsertSandboxTemplateDefinition(ctx, definition)
+	require.NoError(t, upsertErr)
+	assertAvailable("second")
+	revision.Revision, revision.ActorTemplateName = "unused", "unused"
+	require.NoError(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{}))
+	claimed, err := client.BeginRuntimeRevisionDeletion(ctx, "unused")
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.ErrorIs(t, client.RecordSandboxRevision(ctx, *revision, RecordRevisionOptions{Ready: true}), ErrObjectDeleting)
 }
 
 func finishSandbox(t *testing.T, client *Client, id string, kind apiv1.RuntimeOperation) *apiv1.Sandbox {

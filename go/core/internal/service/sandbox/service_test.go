@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -45,7 +46,7 @@ type testActors struct {
 	substrate.LifecycleClient
 	mu             sync.Mutex
 	actor          *ateapipb.Actor
-	egressPolicy   *ateapipb.EgressPolicy
+	egressRevision string
 	calls          []string
 	readErr        error
 	mutationErr    error
@@ -73,12 +74,12 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, policy *ateapipb.EgressPolicy) error {
+func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) (egress.Policy, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "policy")
-	a.egressPolicy = proto.CloneOf(policy)
-	return a.mutationErr
+	a.egressRevision = revision
+	return egress.Policy{}, a.mutationErr
 }
 func (a *testActors) ResumeActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.mu.Lock()
@@ -134,11 +135,12 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	store := database.NewClient(pool, "public")
-	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
+	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"})
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}, true))
+	}, database.RecordRevisionOptions{Ready: true}))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxTemplate{
@@ -215,8 +217,7 @@ func TestSandboxLifecycleClientRetriesAfterRestart(t *testing.T) {
 				}
 			}
 			require.Equal(t, 1, count, "retry must preserve the original Actor and files")
-			require.NotNil(t, actors.egressPolicy)
-			require.Empty(t, actors.egressPolicy.Rules)
+			require.NotEmpty(t, actors.egressRevision)
 		})
 	}
 }
@@ -285,5 +286,24 @@ func TestSandboxConflictingRequestCanRetryAfterActiveAttempt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
 	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
-	require.Equal(t, []string{"create", "policy", "resume", "suspend", "resume"}, actors.observedCalls())
+	require.Equal(t, []string{"create", "policy", "resume", "suspend", "policy", "resume"}, actors.observedCalls())
+}
+
+func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
+	service, ctx, actors := serviceFixture(t)
+	revision := database.SandboxRevision{
+		RuntimeArtifact:     database.RuntimeArtifact{Revision: "policy-revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "policy-runtime", ActorTemplateUID: "policy-runtime-uid"},
+		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
+	}
+	store := service.config.Store
+	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision})
+	require.NoError(t, upsertErr)
+	require.NoError(t, store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: true}))
+	instance, err := service.Create(ctx, createRequest())
+	require.NoError(t, err)
+	require.Equal(t, revision.Revision, instance.PreparedRevision)
+	require.Equal(t, revision.Revision, actors.egressRevision)
+	calls := actors.observedCalls()
+	require.Less(t, slices.Index(calls, "policy"), slices.Index(calls, "resume"))
+	require.Contains(t, calls, "policy")
 }

@@ -124,7 +124,7 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, fmt.Errorf("resolve Harness %q: not found", harnessKey)
 	}
 	harness := harnessConfiguration(*foundHarness)
-	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
+	result, err := c.compileConfiguration(ctx, agent, harness, template)
 	if err != nil {
 		return nil, err
 	}
@@ -141,9 +141,9 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 	return result, nil
 }
 
-// compileConfiguration compiles resolved configuration for the named Agent.
+// compileConfiguration resolves inputs and compiles configuration for the Agent.
 // The Agent name owns runtime identity; template and Harness names are provenance.
-func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
+func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Agent, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -156,7 +156,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
-	input.AgentName = agentName
+	input.AgentName = agent.Name
 	image, err := harnessImage(harness, c.images)
 	if err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
-	result.AgentName = agentName
+	result.AgentName = agent.Name
 	result.Image = image
 	result.SandboxClass = (*workerPool).Spec.SandboxClass
 	// Shared agents and plugin selections can contribute the same image.

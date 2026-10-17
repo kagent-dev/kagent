@@ -128,10 +128,15 @@ spec:
               description:
                 type: string
               headersFrom:
+                description: |-
+                  HeadersFrom supplies request headers. Secret-backed headers are injected by
+                  the egress gateway and cannot use routing, framing, hop-by-hop,
+                  proxy-authentication, or Cookie headers. At most 64 headers may be supplied.
                 items:
                   description: ValueRef represents a configuration value
                   properties:
                     name:
+                      maxLength: 256
                       type: string
                     value:
                       type: string
@@ -161,9 +166,20 @@ spec:
                   - name
                   type: object
                   x-kubernetes-validations:
+                  - fieldPath: .name
+                    message: Secret-backed headers require a valid HTTP header name
+                    rule: '!has(self.valueFrom) || self.valueFrom.type != ''Secret''
+                      || self.name.matches(''^[!#$%&\\x27*+.^_`|~0-9A-Za-z-]+$'')'
+                  - fieldPath: .name
+                    message: this header cannot carry an egress credential
+                    rule: '!has(self.valueFrom) || self.valueFrom.type != ''Secret''
+                      || !(self.name.lowerAscii() in [''host'', ''connection'', ''content-length'',
+                      ''transfer-encoding'', ''te'', ''trailer'', ''upgrade'', ''keep-alive'',
+                      ''proxy-authorization'', ''proxy-authenticate'', ''cookie''])'
                   - message: exactly one of the fields in [value valueFrom] must be
                       set
                     rule: (has(self.value)?1:0)+(has(self.valueFrom)?1:0) == 1
+                maxItems: 64
                 type: array
               protocol:
                 default: STREAMABLE_HTTP

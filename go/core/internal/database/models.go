@@ -51,25 +51,27 @@ type AgentMemorySearchResult struct {
 
 // AgentDefinition tracks the desired and last successful runtime for an Agent UID.
 type AgentDefinition struct {
-	Namespace string
-	AgentName string
-	AgentUID  string
+	Namespace   string
+	AgentName   string
+	AgentUID    string
+	EgressGrant egress.Access
 	// DesiredRevision is a compiled runtime digest, or empty while inputs are unresolved.
 	DesiredRevision string
 }
 
 type RuntimeRevision struct {
-	Revision              string
-	Namespace             string
-	AgentName             string
-	AgentUID              string
-	SourceSnapshot        json.RawMessage
-	AgentCard             *a2apb.AgentCard
-	Credentials           []egress.Credential
-	EgressDestinations    []string
-	ActorTemplateAtespace string
-	ActorTemplateName     string
-	ActorTemplateUID      string
+	Revision                string
+	Namespace               string
+	AgentName               string
+	AgentUID                string
+	SourceSnapshot          json.RawMessage
+	AgentCard               *a2apb.AgentCard
+	Credentials             []egress.Credential
+	EgressDestinations      []string
+	TokenPassthroughOrigins []string
+	ActorTemplateAtespace   string
+	ActorTemplateName       string
+	ActorTemplateUID        string
 }
 
 // SessionQuery narrows a page of sessions to an optional Agent.

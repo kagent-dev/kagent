@@ -34,6 +34,7 @@ CREATE TABLE runtime_revision (
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
     credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
+    token_passthrough_origins TEXT[]      NOT NULL DEFAULT '{}',
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
@@ -52,6 +53,7 @@ CREATE TABLE agent_revision (
     agent_card BYTEA NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
+CREATE INDEX agent_revision_source_idx ON agent_revision (agent_name, revision);
 
 CREATE TABLE sandbox_revision (
     revision TEXT PRIMARY KEY,
@@ -59,11 +61,14 @@ CREATE TABLE sandbox_revision (
     sandbox_template_uid TEXT NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
+CREATE INDEX sandbox_revision_source_idx ON sandbox_revision (sandbox_template_name, revision);
 
 CREATE TABLE agent_definition (
     namespace                    TEXT        NOT NULL,
     agent_name                   TEXT        NOT NULL,
     agent_uid                    TEXT        NOT NULL,
+    grant_destinations           TEXT[]      NOT NULL DEFAULT '{}',
+    grant_credentials            JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     desired_revision             TEXT        NOT NULL,
     latest_successful_revision   TEXT        REFERENCES agent_revision(revision) ON DELETE RESTRICT,
     retired_at                   TIMESTAMPTZ,
@@ -78,6 +83,8 @@ CREATE TABLE sandbox_template_definition (
     namespace TEXT NOT NULL,
     sandbox_template_name TEXT NOT NULL,
     sandbox_template_uid TEXT NOT NULL,
+    grant_destinations TEXT[] NOT NULL DEFAULT '{}',
+    grant_credentials JSONB NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     desired_revision TEXT NOT NULL,
     latest_successful_revision TEXT REFERENCES sandbox_revision(revision) ON DELETE RESTRICT,
     retired_at TIMESTAMPTZ,
@@ -135,6 +142,8 @@ CREATE TABLE runtime_instance (
 );
 CREATE INDEX runtime_instance_owner_idx ON runtime_instance (kind, user_id, id)
     WHERE state <> 'RUNTIME_STATE_DELETED';
+CREATE INDEX runtime_instance_revision_idx ON runtime_instance (prepared_revision, id)
+    WHERE state <> 'RUNTIME_STATE_DELETED' AND operation <> 'RUNTIME_OPERATION_DELETE';
 
 CREATE TABLE session (
     id                   UUID        PRIMARY KEY,

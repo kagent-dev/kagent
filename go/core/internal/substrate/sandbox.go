@@ -9,6 +9,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -25,7 +26,6 @@ type SandboxPolicy struct {
 
 type sandboxInputs struct {
 	Kind      string
-	Version   int
 	Namespace string
 	Name      string
 	UID       string
@@ -67,17 +67,13 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	if len(environment) > 32 {
 		return nil, "", nil, fmt.Errorf("sandbox exceeds Substrate's 32 environment variables")
 	}
-	// Namespace-scoped placement changes immutable template contents, so it
-	// needs a new revision even when the operator's inputs stay the same.
-	inputs := sandboxInputs{Kind: "sandbox", Version: 2, Namespace: template.Namespace, Name: template.Name, UID: string(template.UID), Spec: template.Spec, Class: class, Policy: policy}
+	inputs := sandboxInputs{Kind: "sandbox", Namespace: template.Namespace, Name: template.Name, UID: string(template.UID), Spec: template.Spec, Class: class, Policy: policy}
 	snapshot, err := json.Marshal(inputs)
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("encode sandbox inputs: %w", err)
 	}
-	digest := sha256.Sum256(snapshot)
-	revision := hex.EncodeToString(digest[:])
 	result := &ateapipb.ActorTemplate{
-		Metadata:       &ateapipb.ResourceMetadata{Atespace: template.Namespace, Name: "sandbox-" + revision[:40]},
+		Metadata:       &ateapipb.ResourceMetadata{Atespace: template.Namespace},
 		SandboxConfig:  config,
 		WorkerSelector: workerSelectorForPool(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.Substrate.WorkerPoolRef.Name}),
 		Resources:      &ateapipb.Resources{Limits: []*ateapipb.Limits{{Name: "cpu", Quantity: policy.CPU}, {Name: "memory", Quantity: policy.Memory}}},
@@ -99,5 +95,22 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
 		},
 	}
+	// Hash the compiled template and source identity. Live policy references
+	// remain in provenance but do not affect immutable runtime contents.
+	compiled, err := proto.MarshalOptions{Deterministic: true}.Marshal(result)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("encode sandbox template: %w", err)
+	}
+	identity, err := json.Marshal(struct {
+		Name     string
+		UID      string
+		Template []byte
+	}{template.Name, string(template.UID), compiled})
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("encode sandbox revision: %w", err)
+	}
+	digest := sha256.Sum256(identity)
+	revision := hex.EncodeToString(digest[:])
+	result.Metadata.Name = "sandbox-" + revision[:40]
 	return result, revision, snapshot, nil
 }
