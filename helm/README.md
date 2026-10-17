@@ -159,7 +159,7 @@ controller:
         allowHTTP: true
         issuer: https://workspaces.example.com
         audience: kagent
-        brokers: [workspaces]
+    credentialAuthority: muster.giantswarm.io
 ```
 
 The chart renders `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`,
@@ -167,10 +167,13 @@ The chart renders `KAGENT_SESSION_ADMISSION_JWT_JWKS_URL`,
 all three are set together or not at all. The JWKS URL must be `https`:
 whoever can rewrite the keys in transit can sign grants. `allowHTTP`
 (`KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP`) admits a plain `http` URL, for an
-in-cluster issuer that serves no TLS yet. `brokers`
-(`KAGENT_SESSION_ADMISSION_JWT_BROKERS`) names the token brokers the egress
-gateway knows; a grant whose provider names another is refused, and an empty
-list admits any name. Unset, every create that names a
+in-cluster issuer that serves no TLS yet. `credentialAuthority`
+(`KAGENT_SESSION_CREDENTIAL_AUTHORITY`) names the egress gateway's credential
+provider that answers a Session's provider credentials: each provider host of
+a Session admitted with a grant gets
+`ate-secret://<credentialAuthority>/<provider>/git` with `Basic ` or
+`.../api` with `Bearer ` on its `Authorization` header; unset, a grant naming
+providers is refused. Unset, every create that names a
 volume source is refused `FailedPrecondition`. The grant's claims are described
 in [Runtime and Lifecycle](../docs/architecture/runtime-and-lifecycle.md#session-volume-admission).
 

@@ -22,5 +22,8 @@ var (
 	SessionAdmissionJWTAllowHTTP = RegisterBoolVar("KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP", false, "Allow a plain HTTP KAGENT_SESSION_ADMISSION_JWT_JWKS_URL, for an in-cluster issuer that serves no TLS. HTTPS is required by default: a plain HTTP URL without it is logged as an error and every create that names a volume source or carries an admission token is refused; the controller keeps running.", ComponentController)
 	SessionAdmissionJWTIssuer    = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_ISSUER", "", "Required iss of a Session admission grant. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL.", ComponentController)
 	SessionAdmissionJWTAudience  = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_AUDIENCE", "", "Required aud of a Session admission grant: this kagent. Set with KAGENT_SESSION_ADMISSION_JWT_JWKS_URL.", ComponentController)
-	SessionAdmissionJWTBrokers   = RegisterStringVar("KAGENT_SESSION_ADMISSION_JWT_BROKERS", "", "Comma-separated names of the token brokers the egress gateway knows; a grant whose provider names another is refused. Empty admits any broker name.", ComponentController)
 )
+
+// SessionCredentialAuthority is the credential provider a Session's provider
+// credentials resolve through.
+var SessionCredentialAuthority = RegisterStringVar("KAGENT_SESSION_CREDENTIAL_AUTHORITY", "", "Authority of the egress gateway's credential provider that answers a Session's provider credentials (ate-secret://<authority>/<provider instance>/<git|api>), a DNS name other than a Kubernetes Secret provider. Empty refuses every admission grant that names providers.", ComponentController)

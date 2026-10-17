@@ -759,8 +759,8 @@ func TestSessionEgressPolicyAllowsTheSessionsProviders(t *testing.T) {
 	session, _, err := store.CreateSession(t.Context(), &apiv1alpha1.Session{
 		Id: uuid.NewString(), Creator: "alice", Agent: plain.GetAgent(), VolumeSource: testVolumeSource(),
 		Providers: []*apiv1alpha1.SessionProvider{
-			{Hostname: "github.com", Audience: "github", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"},
-			{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"},
+			{Hostname: "github.com", Scheme: "Basic", Provider: "github"},
+			{Hostname: "gitlab.example.com", Scheme: "Bearer", Provider: "gitlab"},
 		},
 	}, uuid.NewString())
 	require.NoError(t, err)
@@ -786,11 +786,11 @@ func TestSessionEgressPolicyAllowsTheSessionsProviders(t *testing.T) {
 }
 
 // A session admitted with providers gets its caller credential on exactly
-// its Bearer providers' hosts: the JWT the gateway mints for the session's
-// own Actor, bound to the provider's audience, never a value the controller
-// or the sandbox holds. A Basic provider's host is allowed without one, a
-// session of the same Agent without providers and the template's default get
-// none, and the Harness's own credentials stay as the revision binds them.
+// its providers' hosts: the credential the gateway fetches for the provider
+// instance's URI at the installation's authority, git for Basic and api for
+// Bearer, never a value the controller or the sandbox holds. A session of the
+// same Agent without providers and the template's default get none, and the
+// Harness's own credentials stay as the revision binds them.
 func TestSessionEgressPolicyBindsTheProvidersCallerCredentials(t *testing.T) {
 	headers := func(policy *ateapipb.EgressPolicy) map[string][]string {
 		result := map[string][]string{}
@@ -820,25 +820,25 @@ func TestSessionEgressPolicyBindsTheProvidersCallerCredentials(t *testing.T) {
 	session, _, err := store.CreateSession(t.Context(), &apiv1alpha1.Session{
 		Id: uuid.NewString(), Creator: "alice", Agent: plain.GetAgent(), VolumeSource: testVolumeSource(),
 		Providers: []*apiv1alpha1.SessionProvider{
-			{Hostname: "github.com", Audience: "github", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"},
-			{Hostname: "api.github.com", Audience: "github", Scheme: "Bearer", Broker: "workspaces"},
-			{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"},
+			{Hostname: "github.com", Scheme: "Basic", Provider: "github"},
+			{Hostname: "api.github.com", Scheme: "Bearer", Provider: "github"},
+			{Hostname: "gitlab.example.com", Scheme: "Bearer", Provider: "gitlab"},
 		},
 	}, uuid.NewString())
 	require.NoError(t, err)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, WithCredentialAuthority("muster.giantswarm.io"))
 
 	session, err = workflow.Create(t.Context(), session)
 	require.NoError(t, err)
 	withProviders := map[string][]string{
 		"api.example.com":    harness["api.example.com"],
 		"mcp.example.com":    harness["mcp.example.com"],
-		"api.github.com":     {"authorization Bearer actor-jwt [github] 900s"},
-		"gitlab.example.com": {"authorization Bearer actor-jwt [gitlab] 900s"},
-		"github.com":         {},
+		"api.github.com":     {"authorization Bearer ate-secret://muster.giantswarm.io/github/api"},
+		"gitlab.example.com": {"authorization Bearer ate-secret://muster.giantswarm.io/gitlab/api"},
+		"github.com":         {"authorization Basic ate-secret://muster.giantswarm.io/github/git"},
 	}
-	require.Equal(t, withProviders, headers(actors.policy), "the Bearer providers get the Actor's JWT for their audience, the Harness's bindings stay")
+	require.Equal(t, withProviders, headers(actors.policy), "each provider gets its instance's credential URI, the Harness's bindings stay")
 	require.Equal(t, harness, headers(actors.inherited), "the template's default carries no caller credential")
 
 	_, err = workflow.Create(t.Context(), plain)
@@ -861,42 +861,57 @@ func TestSessionEgressPolicyRefusesAProviderOnACredentialedHeader(t *testing.T) 
 		EgressDestinations: []string{"https://api.github.com"},
 		Credentials:        []egress.Credential{{Hostname: "api.github.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/mcp/key"}},
 	}
-	_, err := sessionEgressPolicy("team-a", revision, []*apiv1alpha1.SessionProvider{{Hostname: "api.github.com", Audience: "github", Scheme: "Bearer", Broker: "workspaces"}})
+	_, err := sessionEgressPolicy("team-a", revision, "muster.giantswarm.io", []*apiv1alpha1.SessionProvider{{Hostname: "api.github.com", Scheme: "Bearer", Provider: "github"}})
 	require.ErrorContains(t, err, "conflicting credentials for api.github.com header authorization")
-	_, err = sessionEgressPolicy("team-a", revision, []*apiv1alpha1.SessionProvider{{Hostname: "api.github.com", PathPrefix: "/repos/", Audience: "github", Scheme: "Bearer", Broker: "workspaces"}})
+	_, err = sessionEgressPolicy("team-a", revision, "muster.giantswarm.io", []*apiv1alpha1.SessionProvider{{Hostname: "api.github.com", PathPrefix: "/repos/", Scheme: "Bearer", Provider: "github"}})
 	require.ErrorContains(t, err, "conflicting credentials for api.github.com header authorization", "a path prefix does not let a provider share the Agent's header")
 }
 
 // GitLab takes Basic for git and Bearer for its API under /api/ on one host:
-// the session's Actor gets its JWT on the API's paths alone, and the git
-// paths stay without a credential until the gateway exchanges it for Basic.
-// Two Bearer providers on one host and prefix stay refused.
+// the git paths get the instance's git credential, the API's paths its API
+// token. Two Bearer providers on one host and prefix stay refused.
 func TestSessionEgressPolicyScopesAProviderToItsPathPrefix(t *testing.T) {
-	git := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Basic", Username: "oauth2", Broker: "workspaces"}
-	api := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
-	policy, err := sessionEgressPolicy("team-a", &database.RuntimeRevision{}, []*apiv1alpha1.SessionProvider{git, api})
+	const authority = "muster.giantswarm.io"
+	git := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Scheme: "Basic", Provider: "gitlab"}
+	api := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Scheme: "Bearer", Provider: "gitlab"}
+	policy, err := sessionEgressPolicy("team-a", &database.RuntimeRevision{}, authority, []*apiv1alpha1.SessionProvider{git, api})
 	require.NoError(t, err)
 	require.Len(t, policy.GetRules(), 1, "one rule for the host")
 	rule := policy.GetRules()[0].GetHttps()
 	require.Equal(t, []string{"gitlab.example.com"}, rule.GetHostnames())
 	headers := rule.GetEffects().GetReplaceHeaders()
-	require.Len(t, headers, 1)
+	require.Len(t, headers, 2)
 	require.Equal(t, "authorization", headers[0].GetHeader())
-	require.Equal(t, "Bearer ", headers[0].GetPrefix())
-	require.Equal(t, "/api/", headers[0].GetPathPrefix())
-	require.Equal(t, []string{"gitlab"}, headers[0].GetActorJwt().GetAudiences())
-
-	wide := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
-	policy, err = sessionEgressPolicy("team-a", &database.RuntimeRevision{}, []*apiv1alpha1.SessionProvider{wide, api})
-	require.NoError(t, err)
-	headers = policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders()
-	require.Len(t, headers, 2, "a host-wide and a path-scoped Bearer provider bind side by side")
+	require.Equal(t, "Basic ", headers[0].GetPrefix())
 	require.Empty(t, headers[0].GetPathPrefix())
+	require.Equal(t, "ate-secret://muster.giantswarm.io/gitlab/git", headers[0].GetCredentialUri())
+	require.Equal(t, "Bearer ", headers[1].GetPrefix())
 	require.Equal(t, "/api/", headers[1].GetPathPrefix())
+	require.Equal(t, "ate-secret://muster.giantswarm.io/gitlab/api", headers[1].GetCredentialUri())
+	require.Nil(t, headers[1].GetActorJwt())
 
-	other := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Audience: "elsewhere", Scheme: "Bearer", Broker: "workspaces"}
-	_, err = sessionEgressPolicy("team-a", &database.RuntimeRevision{}, []*apiv1alpha1.SessionProvider{wide, other})
+	wide := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Scheme: "Bearer", Provider: "gitlab"}
+	other := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", Scheme: "Bearer", Provider: "elsewhere"}
+	_, err = sessionEgressPolicy("team-a", &database.RuntimeRevision{}, authority, []*apiv1alpha1.SessionProvider{wide, other})
 	require.ErrorContains(t, err, "conflicting credentials for gitlab.example.com header authorization")
+}
+
+// A session stored before its providers had an instance field of their own
+// names the instance as the audience and gets the same credential URI; with
+// no authority configured, a provider's host is allowed without a credential.
+func TestSessionEgressPolicyReadsAStoredProvidersAudienceAsItsInstance(t *testing.T) {
+	//nolint:staticcheck // audience is how a session stored before provider named the instance.
+	stored := &apiv1alpha1.SessionProvider{Hostname: "api.github.com", Audience: "github", Scheme: "Bearer"}
+	policy, err := sessionEgressPolicy("team-a", &database.RuntimeRevision{}, "muster.giantswarm.io", []*apiv1alpha1.SessionProvider{stored})
+	require.NoError(t, err)
+	headers := policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders()
+	require.Len(t, headers, 1)
+	require.Equal(t, "ate-secret://muster.giantswarm.io/github/api", headers[0].GetCredentialUri())
+
+	policy, err = sessionEgressPolicy("team-a", &database.RuntimeRevision{}, "", []*apiv1alpha1.SessionProvider{stored})
+	require.NoError(t, err)
+	require.Equal(t, []string{"api.github.com"}, policy.GetRules()[0].GetHttps().GetHostnames())
+	require.Empty(t, policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders())
 }
 
 func TestActorEgressPolicy(t *testing.T) {

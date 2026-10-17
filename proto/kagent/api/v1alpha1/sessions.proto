@@ -87,17 +87,22 @@ message Session {
 // carry a provider per path prefix: a request takes the provider with the
 // longest prefix its path lies under, the one without a prefix otherwise.
 message SessionProvider {
+  reserved 4, 5;
+  reserved "username", "broker";
   string hostname = 1;
-  string audience = 2;
-  // "Bearer" or "Basic".
+  // The provider instance as clients read it before provider existed: equal
+  // to provider on a new Session, and read as provider when that is empty on
+  // a Session stored before it.
+  string audience = 2 [deprecated = true];
+  // "Basic" (git) or "Bearer" (the provider's API).
   string scheme = 3;
-  // The user name of the Basic scheme; empty for Bearer.
-  string username = 4;
-  // The token broker that exchanges the person's token for audience.
-  string broker = 5;
   // The request paths under this prefix, a path starting and ending with
   // "/" (GitLab's "/api/"); empty for every path of hostname.
   string path_prefix = 6;
+  // The provider instance, one DNS label: the credential rule on hostname
+  // names ate-secret://<the installation's credential authority>/<provider>/git
+  // for Basic and .../api for Bearer.
+  string provider = 7;
 }
 
 // SessionVolumeSource names an existing read-write-many volume and how the

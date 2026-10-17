@@ -28,7 +28,7 @@ var (
 		Volume:         grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs-server.kagent.svc#export#workspace-e2e##"},
 		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
 		Changed:        []string{"e2e/alpha"},
-		Providers:      []grant.Provider{{Hostname: "git.e2e.test", Audience: "git", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"}},
+		Providers:      []grant.Provider{{Hostname: "git.e2e.test", Scheme: "Basic", Provider: "git"}},
 	}
 )
 

@@ -6,13 +6,13 @@
 package jwtadmission
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path"
-	"slices"
 	"strings"
 	"time"
 
@@ -45,18 +45,18 @@ type Config struct {
 	Issuer string
 	// Audience is the grant's required aud: this installation's kagent.
 	Audience string
-	// Brokers names the token brokers the installation's egress gateway knows:
-	// a grant whose provider names another is refused. A broker is named,
-	// never addressed, so a grant cannot point a credential at an endpoint of
-	// its choosing. Empty admits any name: the actor-JWT credentials the
-	// controller compiles today address no broker.
-	Brokers []string
+	// CredentialAuthority is the authority of the credential provider the
+	// installation's egress gateway resolves a Session's provider credentials
+	// through (muster.giantswarm.io on the Giant Swarm platform): a grant names
+	// a provider instance, never an authority, so it cannot point a credential
+	// at a provider of its choosing. Empty refuses every grant with providers.
+	CredentialAuthority string
 }
 
 // Admission verifies workspace grants. It is safe for concurrent use.
 type Admission struct {
 	issuer, audience string
-	brokers          []string
+	authority        string
 	keys             *keySet
 }
 
@@ -92,10 +92,10 @@ func New(config Config, client *http.Client) (*Admission, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-	if slices.Contains(config.Brokers, "") {
-		return nil, errors.New("a broker name is empty")
+	if err := egress.ValidCredentialAuthority(config.CredentialAuthority); config.CredentialAuthority != "" && err != nil {
+		return nil, err
 	}
-	return &Admission{issuer: config.Issuer, audience: config.Audience, brokers: slices.Clone(config.Brokers), keys: newKeySet(location.String(), client)}, nil
+	return &Admission{issuer: config.Issuer, audience: config.Audience, authority: config.CredentialAuthority, keys: newKeySet(location.String(), client)}, nil
 }
 
 // volume is the grant's volume claim: a CSI volume by its driver and handle.
@@ -113,14 +113,14 @@ type mount struct {
 }
 
 // provider is a host, or the request paths under PathPrefix on it, whose
-// credential the Session gets.
+// credential the Session gets from the provider instance Provider. Audience
+// is the instance of a grant issued before Provider existed.
 type provider struct {
 	Hostname   string `json:"hostname"`
 	PathPrefix string `json:"pathPrefix,omitempty"`
-	Audience   string `json:"audience"`
 	Scheme     string `json:"scheme"`
-	Username   string `json:"username,omitempty"`
-	Broker     string `json:"broker"`
+	Provider   string `json:"provider"`
+	Audience   string `json:"audience,omitempty"`
 }
 
 // claims is a grant's payload.
@@ -173,7 +173,7 @@ func (a *Admission) Admit(ctx context.Context, caller string, agent *apiv1alpha1
 	if err := allows(grant, source); err != nil {
 		return session.Admitted{}, err
 	}
-	return admitted(grant, a.brokers)
+	return admitted(grant, a.authority)
 }
 
 // refusal maps a failed verification to its named reason, most specific
@@ -228,22 +228,28 @@ func mountAllowed(allowed []mount, requested *apiv1alpha1.SessionVolumeMount) bo
 }
 
 // admitted is what the grant admits the Session with, refused as malformed
-// when a provider or a changed path is not one a Session can carry, and when
-// brokers is set, refused for a provider naming a broker not in it. A host
-// takes one provider per path prefix, so a request has one credential.
-func admitted(grant *claims, brokers []string) (session.Admitted, error) {
+// when a provider or a changed path is not one a Session can carry, and
+// refused when the grant has providers and the installation configures no
+// credential authority. A host takes one provider per path prefix, so a
+// request has one credential.
+func admitted(grant *claims, authority string) (session.Admitted, error) {
 	result := session.Admitted{Changed: grant.Changed}
 	for _, changed := range grant.Changed {
 		if changed == "" || changed != path.Clean(changed) || path.IsAbs(changed) || changed == ".." || strings.HasPrefix(changed, "../") {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is malformed: a changed repository is not a clean relative path", nil)
 		}
 	}
+	if len(grant.Providers) != 0 && authority == "" {
+		return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant names providers and this installation configures no credential authority", nil)
+	}
 	scopes := map[string]bool{}
 	for _, granted := range grant.Providers {
-		if granted.Hostname == "" || granted.Audience == "" || granted.Broker == "" ||
-			(granted.Scheme != "Bearer" && granted.Scheme != "Basic") ||
-			(granted.Scheme == "Basic") != (granted.Username != "") {
-			return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is malformed: a provider needs a hostname, an audience, a broker and the Bearer or Basic scheme, a user name with Basic only", nil)
+		instance := cmp.Or(granted.Provider, granted.Audience)
+		if granted.Hostname == "" || (granted.Scheme != "Bearer" && granted.Scheme != "Basic") {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied("admission grant is malformed: a provider needs a hostname and the Bearer or Basic scheme", nil)
+		}
+		if !egress.ValidProviderInstance(instance) {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: provider instance %q is not a DNS label", instance), nil)
 		}
 		if granted.PathPrefix != "" && !egress.ValidPathPrefix(granted.PathPrefix) {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: provider path prefix %q is not a path below the root starting and ending with /", granted.PathPrefix), nil)
@@ -253,12 +259,9 @@ func admitted(grant *claims, brokers []string) (session.Admitted, error) {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: %s is granted more than once", scope), nil)
 		}
 		scopes[scope] = true
-		if len(brokers) != 0 && !slices.Contains(brokers, granted.Broker) {
-			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant names an unknown broker %q", granted.Broker), nil)
-		}
 		result.Providers = append(result.Providers, &apiv1alpha1.SessionProvider{
-			Hostname: granted.Hostname, Audience: granted.Audience, Scheme: granted.Scheme,
-			Username: granted.Username, Broker: granted.Broker, PathPrefix: granted.PathPrefix,
+			Hostname: granted.Hostname, Scheme: granted.Scheme, PathPrefix: granted.PathPrefix,
+			Provider: instance, Audience: instance,
 		})
 	}
 	return result, nil

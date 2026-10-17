@@ -120,10 +120,10 @@ ES384, RS256 or PS256, with a `kid`), whose payload is:
   ],
   "changed": ["<owner>/<repository>"],
   "providers": [
-    {"hostname": "github.com", "audience": "<token audience>", "scheme": "Basic",
-     "username": "x-access-token", "broker": "<token broker>"},
-    {"hostname": "gitlab.example.com", "pathPrefix": "/api/", "audience": "<token audience>",
-     "scheme": "Bearer", "broker": "<token broker>"}
+    {"hostname": "github.com", "scheme": "Basic", "provider": "<provider instance>"},
+    {"hostname": "api.github.com", "scheme": "Bearer", "provider": "<provider instance>"},
+    {"hostname": "gitlab.example.com", "pathPrefix": "/api/", "scheme": "Bearer",
+     "provider": "<provider instance>"}
   ]
 }
 ```
@@ -137,9 +137,11 @@ request's, and every
 requested mount's sub-path is one the grant allows, read-only where the grant
 says so. `changed` lists repositories, relative to the session's working
 directory, whose origin moved since the volume's last sync; each provider is a
-host whose credential the session gets, with the `Bearer` or `Basic` scheme (a
-user name for Basic only) and the broker that exchanges the person's token for
-its audience. A provider may narrow its host to the request paths under a
+host whose credential the session gets, with the `Basic` scheme (git) or
+`Bearer` (the provider's API), from the provider instance it names: one DNS
+label, so it is one segment of the credential URI. A grant from before
+`provider` existed names the instance as `audience`, which is read in its
+place. A provider may narrow its host to the request paths under a
 `pathPrefix`, a path starting and ending with `/` without empty or dot
 segments, a query or percent-encoding: GitLab takes Basic for git and Bearer
 for its REST API under `/api/` on one host, so its grant lists the host once
@@ -151,33 +153,34 @@ revision's origins, on create and on every repoint: the session's directory
 setup and its git and API calls reach the provider without the Agent listing
 it, and the Agent's other sessions and its revision are unchanged.
 
-A `Bearer` provider's host also carries the session's caller credential: the
-egress gateway replaces the `Authorization` header a request from the session's
-Actor carries (any placeholder value) with `Bearer <JWT>`, the JWT Substrate
-mints for that Actor bound to the provider's audience (`CredentialHeader.actor_jwt`,
-fifteen minutes each), on the provider's path prefix alone when it has one:
-of a host's bindings, the gateway applies the one with the longest prefix the
-request path lies under, the one without a prefix otherwise
-(`CredentialHeader.path_prefix`). The token is minted at the gateway per request: it is
-never in the sandbox's environment, `/data` or `/workspace`, nor in the
-controller or its database, which hold only the provider's host, audience and
-broker. The provider, or the broker in front of it, verifies the JWT with
-OpenID Connect Discovery against Substrate's issuer and maps its subject,
-`atespaces:<atespace>:actors:session-<session id>`, to the person: the Actor is
-the session's own, and the session records its creator as the person the grant
-admitted. A session of the same Agent without providers, the ActorTemplate's
-default policy and the Agent's own credential bindings get no such rule, and a
-provider on a host and header the Agent already binds a credential to is
-refused when the session's policy is compiled, whatever its path prefix. A `Basic` provider's host is
-allowed without a credential until the gateway exchanges the actor JWT at the
-named broker (RFC 8693) and injects the broker's token, since a Basic header
-encodes the user name with the token. A grant names a broker, never its
-address: with `KAGENT_SESSION_ADMISSION_JWT_BROKERS` set, a provider naming a
-broker outside it is refused at admission.
+Each provider's host also carries the session's caller credential: the egress
+gateway replaces the `Authorization` header a request from the session's Actor
+carries (any placeholder value) with the rule's prefix, `Basic ` or `Bearer `,
+followed by the credential it fetches for
+`ate-secret://<authority>/<provider instance>/git` (Basic) or `.../api`
+(Bearer), on the provider's path prefix alone when it has one: of a host's
+bindings, the gateway applies the one with the longest prefix the request path
+lies under, the one without a prefix otherwise (`CredentialHeader.path_prefix`).
+The authority is the installation's (`KAGENT_SESSION_CREDENTIAL_AUTHORITY`),
+never the grant's: a grant naming providers is refused when none is configured,
+and a Kubernetes Secret provider is refused as the authority. The gateway
+resolves the URI through the credential provider it configures for that
+authority (`CredentialProvider.FetchSecret`, with the Actor's verified SPIFFE
+id); the URI names no person and no session, and that provider finds the
+person from the Actor, which it learned was the session's when the session
+started. It answers the git credential already encoded for Basic
+(`base64(<user>:<token>)`) and the raw token for Bearer. The token is fetched at
+the gateway: it is never in the sandbox's environment, `/data` or `/workspace`,
+nor in the controller or its database, which hold only the provider's host,
+scheme, path prefix and instance. A session of the same Agent without
+providers, the ActorTemplate's default policy and the Agent's own credential
+bindings get no such rule, and a provider on a host and header the Agent
+already binds a credential to is refused when the session's policy is
+compiled, whatever its path prefix.
 
 Every refusal is `PermissionDenied` with its reason (no grant, expired, not yet
 valid, another person's, another volume, a mount it does not allow, an unknown
-issuer, audience, key or broker, an invalid signature, a malformed grant) and never
+issuer, audience or key, providers without a configured credential authority, an invalid signature, a malformed grant) and never
 key material. The JWKS is fetched on the first grant, trusted for ten minutes,
 and fetched again on a key id it lacks (at most every ten seconds), so a key
 rotation needs no restart. An issuer whose JWKS cannot be fetched refuses

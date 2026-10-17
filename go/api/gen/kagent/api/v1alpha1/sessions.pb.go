@@ -323,16 +323,20 @@ func (x *Session) GetLastTurnTime() *timestamppb.Timestamp {
 type SessionProvider struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Hostname string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	Audience string                 `protobuf:"bytes,2,opt,name=audience,proto3" json:"audience,omitempty"`
-	// "Bearer" or "Basic".
+	// The provider instance of a Session stored before provider existed;
+	// read as provider when that is empty, never written.
+	//
+	// Deprecated: Marked as deprecated in kagent/api/v1alpha1/sessions.proto.
+	Audience string `protobuf:"bytes,2,opt,name=audience,proto3" json:"audience,omitempty"`
+	// "Basic" (git) or "Bearer" (the provider's API).
 	Scheme string `protobuf:"bytes,3,opt,name=scheme,proto3" json:"scheme,omitempty"`
-	// The user name of the Basic scheme; empty for Bearer.
-	Username string `protobuf:"bytes,4,opt,name=username,proto3" json:"username,omitempty"`
-	// The token broker that exchanges the person's token for audience.
-	Broker string `protobuf:"bytes,5,opt,name=broker,proto3" json:"broker,omitempty"`
 	// The request paths under this prefix, a path starting and ending with
 	// "/" (GitLab's "/api/"); empty for every path of hostname.
-	PathPrefix    string `protobuf:"bytes,6,opt,name=path_prefix,json=pathPrefix,proto3" json:"path_prefix,omitempty"`
+	PathPrefix string `protobuf:"bytes,6,opt,name=path_prefix,json=pathPrefix,proto3" json:"path_prefix,omitempty"`
+	// The provider instance, one DNS label: the credential rule on hostname
+	// names ate-secret://<the installation's credential authority>/<provider>/git
+	// for Basic and .../api for Bearer.
+	Provider      string `protobuf:"bytes,7,opt,name=provider,proto3" json:"provider,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -374,6 +378,7 @@ func (x *SessionProvider) GetHostname() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in kagent/api/v1alpha1/sessions.proto.
 func (x *SessionProvider) GetAudience() string {
 	if x != nil {
 		return x.Audience
@@ -388,23 +393,16 @@ func (x *SessionProvider) GetScheme() string {
 	return ""
 }
 
-func (x *SessionProvider) GetUsername() string {
-	if x != nil {
-		return x.Username
-	}
-	return ""
-}
-
-func (x *SessionProvider) GetBroker() string {
-	if x != nil {
-		return x.Broker
-	}
-	return ""
-}
-
 func (x *SessionProvider) GetPathPrefix() string {
 	if x != nil {
 		return x.PathPrefix
+	}
+	return ""
+}
+
+func (x *SessionProvider) GetProvider() string {
+	if x != nil {
+		return x.Provider
 	}
 	return ""
 }
@@ -1760,15 +1758,14 @@ const file_kagent_api_v1alpha1_sessions_proto_rawDesc = "" +
 	"\rvolume_source\x18\x11 \x01(\v2(.kagent.api.v1alpha1.SessionVolumeSourceR\fvolumeSource\x12B\n" +
 	"\tproviders\x18\x12 \x03(\v2$.kagent.api.v1alpha1.SessionProviderR\tproviders\x12\x18\n" +
 	"\achanged\x18\x13 \x03(\tR\achanged\x12@\n" +
-	"\x0elast_turn_time\x18\x14 \x01(\v2\x1a.google.protobuf.TimestampR\flastTurnTimeJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\f\x10\rR\aharnessR\x0eagent_templateR\x06labels\"\xb6\x01\n" +
+	"\x0elast_turn_time\x18\x14 \x01(\v2\x1a.google.protobuf.TimestampR\flastTurnTimeJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\f\x10\rR\aharnessR\x0eagent_templateR\x06labels\"\xc0\x01\n" +
 	"\x0fSessionProvider\x12\x1a\n" +
-	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x1a\n" +
-	"\baudience\x18\x02 \x01(\tR\baudience\x12\x16\n" +
-	"\x06scheme\x18\x03 \x01(\tR\x06scheme\x12\x1a\n" +
-	"\busername\x18\x04 \x01(\tR\busername\x12\x16\n" +
-	"\x06broker\x18\x05 \x01(\tR\x06broker\x12\x1f\n" +
+	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x1e\n" +
+	"\baudience\x18\x02 \x01(\tB\x02\x18\x01R\baudience\x12\x16\n" +
+	"\x06scheme\x18\x03 \x01(\tR\x06scheme\x12\x1f\n" +
 	"\vpath_prefix\x18\x06 \x01(\tR\n" +
-	"pathPrefix\"\xaf\x03\n" +
+	"pathPrefix\x12\x1a\n" +
+	"\bprovider\x18\a \x01(\tR\bproviderJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\busernameR\x06broker\"\xaf\x03\n" +
 	"\x13SessionVolumeSource\x12B\n" +
 	"\x06volume\x18\x01 \x01(\v2\".kagent.api.v1alpha1.SessionVolumeB\x06\xbaH\x03\xc8\x01\x01R\x06volume\x12K\n" +
 	"\x06mounts\x18\x02 \x03(\v2'.kagent.api.v1alpha1.SessionVolumeMountB\n" +

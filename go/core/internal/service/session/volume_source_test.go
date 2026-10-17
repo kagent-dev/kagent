@@ -72,7 +72,7 @@ func TestServiceCreateRefusesAVolumeSourceWithoutAnAdmission(t *testing.T) {
 }
 
 func TestServiceCreateAdmitsAVolumeSourceThroughTheAdmission(t *testing.T) {
-	provider := &apiv1alpha1.SessionProvider{Hostname: "github.com", Audience: "https://github.com", Scheme: "Basic", Username: "x-access-token", Broker: "workspaces"}
+	provider := &apiv1alpha1.SessionProvider{Hostname: "github.com", Scheme: "Basic", Provider: "github"}
 	admission := &recordingAdmission{admitted: Admitted{Providers: []*apiv1alpha1.SessionProvider{provider}, Changed: []string{"acme/api"}}}
 	store := &serviceTestStore{}
 	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithVolumeAdmission(admission))

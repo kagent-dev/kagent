@@ -1,6 +1,7 @@
 package session
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -63,7 +64,10 @@ type ActorWorkflow struct {
 	recoveryInterval time.Duration
 	quiescenceWake   chan struct{}
 	pausedRuntimeTTL time.Duration
-	deferred         deferrals
+	// credentialAuthority resolves the providers' credentials of a session;
+	// empty binds none.
+	credentialAuthority string
+	deferred            deferrals
 	// settling tracks the claims whose failed Pause or Quiesce is resolved from
 	// the Actor's state; settleDelay is the first wait between its reads.
 	settling    sync.WaitGroup
@@ -138,6 +142,13 @@ type WorkflowOption func(*ActorWorkflow)
 // place until the reply.
 func WithPausedRuntimeTTL(ttl time.Duration) WorkflowOption {
 	return func(w *ActorWorkflow) { w.pausedRuntimeTTL = ttl }
+}
+
+// WithCredentialAuthority names the credential provider the egress gateway
+// resolves a session's provider credentials through. Without one, a session's
+// provider hosts are allowed without a credential.
+func WithCredentialAuthority(authority string) WorkflowOption {
+	return func(w *ActorWorkflow) { w.credentialAuthority = authority }
 }
 
 // WithDirectoryReleaser tells releaser about every deleted session that has a
@@ -605,7 +616,7 @@ func (w *ActorWorkflow) execute(ctx context.Context, operation *database.Session
 	binding := actorBinding(session.Id, revision)
 	var creation *substrate.ActorCreation
 	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := sessionEgressPolicy(binding.Atespace, revision, session.GetProviders())
+		policy, err := sessionEgressPolicy(binding.Atespace, revision, w.credentialAuthority, session.GetProviders())
 		if err != nil {
 			return w.failPreparation(ctx, operation, err)
 		}
@@ -837,7 +848,7 @@ func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.Ru
 	case current.Revision == revision.Revision || current.ActorTemplateAtespace != revision.ActorTemplateAtespace:
 		return nil, nil, nil
 	}
-	policy, err := sessionEgressPolicy(current.ActorTemplateAtespace, current, providers)
+	policy, err := sessionEgressPolicy(current.ActorTemplateAtespace, current, w.credentialAuthority, providers)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build egress policy of revision %s: %w", current.Revision, err)
 	}
@@ -855,13 +866,13 @@ func (w *ActorWorkflow) repointTarget(ctx context.Context, revision *database.Ru
 // unchanged. A provider never takes a header the Agent binds on its host, on
 // no path of it: the person's token and the Agent's own credential never meet
 // on one host.
-func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision, providers []*apiv1alpha1.SessionProvider) (*ateapipb.EgressPolicy, error) {
+func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision, authority string, providers []*apiv1alpha1.SessionProvider) (*ateapipb.EgressPolicy, error) {
 	destinations := slices.Clone(revision.EgressDestinations)
 	for _, provider := range providers {
 		destinations = append(destinations, "https://"+provider.GetHostname())
 	}
 	agent := egress.ForActors(revision.Credentials)
-	callers, err := egress.CanonicalCredentials(providerCredentials(providers))
+	callers, err := egress.CanonicalProviderCredentials(providerCredentials(authority, providers))
 	if err != nil {
 		return nil, fmt.Errorf("the session's provider credentials: %w", err)
 	}
@@ -870,35 +881,36 @@ func sessionEgressPolicy(atespace string, revision *database.RuntimeRevision, pr
 			return nil, fmt.Errorf("the session's provider credentials: conflicting credentials for %s header %s", caller.Hostname, caller.Header)
 		}
 	}
-	credentials, err := egress.CanonicalCredentials(append(agent, callers...))
+	credentials, err := egress.MergeCredentials(agent, callers)
 	if err != nil {
 		return nil, fmt.Errorf("the session's provider credentials: %w", err)
 	}
 	return substrate.ActorEgressPolicy(atespace, destinations, credentials)
 }
 
-// providerCredentials binds the caller credential of each Bearer provider: on
-// the provider's host, the egress gateway replaces the Authorization header a
-// request from the session's Actor carries with the JWT Substrate mints for
-// that Actor, bound to the provider's audience. The token is minted at the
-// gateway per request and never reaches the sandbox or the controller. The
-// provider, or the broker it names, verifies the JWT against Substrate's
-// issuer and maps its subject (atespaces:<atespace>:actors:<actor>) to the
-// person the session was admitted for: the Actor is the session's own, and
-// the session records its creator. A Basic provider gets none yet: the
-// gateway prepends the credential verbatim, and a Basic header needs the
-// broker's token encoded with the user name, which waits for the gateway's
-// token exchange at a named broker. A provider with a path prefix binds the
-// request paths under it alone (GitLab's Bearer API under "/api/" beside its
-// Basic git on the rest of the host).
-func providerCredentials(providers []*apiv1alpha1.SessionProvider) []egress.Credential {
+// providerCredentials binds each provider's credential on its host: the
+// egress gateway replaces the Authorization header a request from the
+// session's Actor carries with the credential it fetches for the provider's
+// URI at authority (egress.ProviderCredentialURI), sending the Actor's
+// verified identity. The credential provider finds the session's person from
+// that Actor and answers the git credential already encoded for Basic and the
+// raw token for Bearer, so the rule prepends only the scheme. The token never
+// reaches the sandbox or the controller. A provider with a path prefix binds
+// the request paths under it alone (GitLab's Bearer API under "/api/" beside
+// its Basic git on the rest of the host). Without an authority none is bound.
+// A provider stored before its instance had a field of its own carries the
+// instance as its audience.
+func providerCredentials(authority string, providers []*apiv1alpha1.SessionProvider) []egress.Credential {
+	if authority == "" {
+		return nil
+	}
 	var bindings []egress.Credential
 	for _, provider := range providers {
-		if provider.GetScheme() != "Bearer" {
-			continue
-		}
+		//nolint:staticcheck // audience is the instance of a session stored before provider existed.
+		instance := cmp.Or(provider.GetProvider(), provider.GetAudience())
 		bindings = append(bindings, egress.Credential{
-			Hostname: provider.GetHostname(), Header: "authorization", Prefix: "Bearer ", Audience: provider.GetAudience(), PathPrefix: provider.GetPathPrefix(),
+			Hostname: provider.GetHostname(), Header: "authorization", Prefix: provider.GetScheme() + " ",
+			URI: egress.ProviderCredentialURI(authority, instance, provider.GetScheme()), PathPrefix: provider.GetPathPrefix(),
 		})
 	}
 	return bindings
@@ -973,7 +985,7 @@ func (w *ActorWorkflow) RepointQuiesced(ctx context.Context, session *apiv1alpha
 	}
 	updated, err := w.store.RepointSession(ctx, session.GetId(), revision.Revision, current.Revision)
 	if errors.Is(err, database.ErrConflict) && updated.GetPreparedRevision() == revision.Revision {
-		previous, policyErr := sessionEgressPolicy(atespace, revision, session.GetProviders())
+		previous, policyErr := sessionEgressPolicy(atespace, revision, w.credentialAuthority, session.GetProviders())
 		if policyErr == nil {
 			_, policyErr = w.repointActor(ctx, session.GetId(), revision, previous)
 		}

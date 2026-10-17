@@ -323,6 +323,7 @@ func Run(ctx context.Context, opts Options) error {
 	memory := memoryservice.NewService(store)
 	quiescenceWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, sessionsvc.WithPausedRuntimeTTL(kagentenv.SessionPausedRuntimeTTL.Get()),
+		sessionsvc.WithCredentialAuthority(kagentenv.SessionCredentialAuthority.Get()),
 		sessionsvc.WithDirectoryReleaser(sessionsvc.NewEventDirectoryReleaser(manager.GetClient())))
 	runtimeTasks := taskstore.NewService(store, quiescenceWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
@@ -592,18 +593,15 @@ func sessionVolumeAdmission(ctx context.Context, logger *slog.Logger) (sessionsv
 		AllowHTTP: kagentenv.SessionAdmissionJWTAllowHTTP.Get(),
 		Issuer:    kagentenv.SessionAdmissionJWTIssuer.Get(),
 		Audience:  kagentenv.SessionAdmissionJWTAudience.Get(),
+
+		CredentialAuthority: kagentenv.SessionCredentialAuthority.Get(),
 	}
 	if config.JWKSURL == "" && config.Issuer == "" && config.Audience == "" {
 		return nil, nil
 	}
-	if brokers := kagentenv.SessionAdmissionJWTBrokers.Get(); brokers != "" {
-		for broker := range strings.SplitSeq(brokers, ",") {
-			config.Brokers = append(config.Brokers, strings.TrimSpace(broker))
-		}
-	}
 	admission, err := jwtadmission.New(config, nil)
 	if err != nil {
-		err = fmt.Errorf("configure the Session admission (%s, %s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTAllowHTTP.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), err)
+		err = fmt.Errorf("configure the Session admission (%s, %s, %s, %s, %s): %w", kagentenv.SessionAdmissionJWTJWKSURL.Name(), kagentenv.SessionAdmissionJWTAllowHTTP.Name(), kagentenv.SessionAdmissionJWTIssuer.Name(), kagentenv.SessionAdmissionJWTAudience.Name(), kagentenv.SessionCredentialAuthority.Name(), err)
 		if errors.Is(err, jwtadmission.ErrPlainHTTP) {
 			logger.ErrorContext(ctx, "the Session admission refuses every volume source", "error", err)
 			return jwtadmission.Refused{Cause: err}, nil

@@ -466,16 +466,19 @@ controller:
     # transit can sign grants; a plain http jwksURL without allowHTTP is logged
     # by the controller and refuses every volume source. allowHTTP admits a
     # plain http jwksURL, for an in-cluster issuer that serves no TLS yet.
-    # brokers names the token brokers
-    # the egress gateway knows: a grant whose provider names another is
-    # refused; empty admits any name.
     admission:
       jwt:
         jwksURL: ""
         allowHTTP: false
         issuer: ""
         audience: ""
-        brokers: []
+    # The authority of the egress gateway's credential provider that answers a
+    # Session's provider credentials: each provider host of a Session admitted
+    # with a grant gets ate-secret://<credentialAuthority>/<provider>/git with
+    # "Basic " or .../api with "Bearer " on its Authorization header. A DNS
+    # name, never a Kubernetes Secret provider. Empty refuses every grant that
+    # names providers.
+    credentialAuthority: ""
 
   # Standalone workspaces, enabled by default.
   # Each SandboxTemplate supplies its own digest-pinned tools image.

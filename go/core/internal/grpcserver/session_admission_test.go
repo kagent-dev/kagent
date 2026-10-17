@@ -23,7 +23,7 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 	store, db := volumeTestStore(t)
 	signer, err := grant.NewSigner(issuer, audience)
 	require.NoError(t, err)
-	admission, err := jwtadmission.New(jwtadmission.Config{JWKSURL: signer.Serve(t), AllowHTTP: true, Issuer: issuer, Audience: audience}, nil)
+	admission, err := jwtadmission.New(jwtadmission.Config{JWKSURL: signer.Serve(t), AllowHTTP: true, Issuer: issuer, Audience: audience, CredentialAuthority: "credentials.example.test"}, nil)
 	require.NoError(t, err)
 	server := &sessionServer{service: sessionsvc.NewService(store, &auth.NoopAuthorizer{}, staticSessionWorkflow{}, sessionsvc.WithVolumeAdmission(admission))}
 
@@ -41,10 +41,10 @@ func TestSessionAdmittedByAGrantOnTheWire(t *testing.T) {
 		Volume:         grant.Volume{Driver: "nfs.csi.k8s.io", Handle: "nfs.example.test#exports#workspace-1##"},
 		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
 		Changed:        []string{"acme/api"},
-		Providers:      []grant.Provider{{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}},
+		Providers:      []grant.Provider{{Hostname: "gitlab.example.com", PathPrefix: "/api/", Scheme: "Bearer", Provider: "gitlab"}},
 	}, time.Minute)
 	require.NoError(t, err)
-	wantProvider := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Audience: "gitlab", Scheme: "Bearer", Broker: "workspaces"}
+	wantProvider := &apiv1alpha1.SessionProvider{Hostname: "gitlab.example.com", PathPrefix: "/api/", Scheme: "Bearer", Provider: "gitlab", Audience: "gitlab"}
 
 	created, err := server.CreateSession(ctx, &apiv1alpha1.CreateSessionRequest{Agent: agent, RequestId: "with-grant", VolumeSource: source, AdmissionToken: token})
 	require.NoError(t, err)
