@@ -1716,6 +1716,7 @@ type RuntimeDefaultsConfig struct {
 	// ate-secret:// URI, that the egress gateway resolves a ModelConfig's
 	// apiKeySecret through, keyed by ModelConfig provider. A provider absent
 	// here uses k8s.io, which injects the Secret value as it is stored.
+	// GeminiVertexAI and AnthropicVertexAI need a class that mints access tokens.
 	ModelCredentialAuthorities map[string]string `protobuf:"bytes,8,rep,name=model_credential_authorities,json=modelCredentialAuthorities,proto3" json:"model_credential_authorities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache

@@ -589,12 +589,12 @@ func TestCompileAgentBindsVertexAIAtGateway(t *testing.T) {
 	} {
 		for _, authority := range []struct {
 			name, set, want string
-			// The provider class owns the Secret's format: an access token for
-			// k8s.io, a service account key for a class that mints one.
-			data string
+			data            string
+			wantErr         string
 		}{
-			{"default authority", "", "k8s.io", "ya29.access-token-must-not-be-serialized"},
-			{"minting authority", "tokens.example.com", "tokens.example.com", `{"type":"service_account","private_key":"private-key-must-not-be-serialized"}`},
+			// k8s.io would set the stored service account key as the bearer token.
+			{"default authority", "", "", `{"type":"service_account","private_key":"private-key-must-not-be-serialized"}`, "set runtimeDefaults.modelCredentialAuthorities." + string(tt.spec.Provider)},
+			{"minting authority", "tokens.example.com", "tokens.example.com", `{"type":"service_account","private_key":"private-key-must-not-be-serialized"}`, ""},
 		} {
 			t.Run(tt.name+"/"+authority.name, func(t *testing.T) {
 				secret := &corev1.Secret{
@@ -613,6 +613,10 @@ func TestCompileAgentBindsVertexAIAtGateway(t *testing.T) {
 					Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
 				}
 				spec, err := compilerWithSettings(t, testHarnessImages, settings, model, secret, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
+				if authority.wantErr != "" {
+					require.ErrorContains(t, err, authority.wantErr)
+					return
+				}
 				require.NoError(t, err)
 				require.Equal(t, []egress.Credential{{
 					Origin: "https://us-east5-aiplatform.googleapis.com:443", Header: "authorization", Prefix: "Bearer ",

@@ -60,7 +60,7 @@ overrides of these variables are rejected.
 | Foundry Anthropic API key | `x-api-key: <key>` |
 | Gemini API key | `x-goog-api-key: <key>` |
 | Bedrock bearer token | `authorization: Bearer <token>` |
-| Vertex AI credential | `authorization: Bearer <access token>`; the Secret holds the token, or what the configured provider class mints it from |
+| Vertex AI credential | `authorization: Bearer <access token>`, minted by the configured provider class from the Secret |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
@@ -89,10 +89,13 @@ beside Substrate, or the gateway fails the request closed. RemoteMCPServer and
 EgressPolicy credentials always use `k8s.io`.
 
 A `GeminiVertexAI` or `AnthropicVertexAI` ModelConfig with `apiKeySecret` binds
-`authorization: Bearer` on the Vertex AI origin for its location. With `k8s.io`
-the Secret holds a short-lived access token. A class that mints access tokens
-lets the Secret hold a service account key instead; the provider owns the
-Secret's format, so the compiler does not inspect it. The runtime never holds
+`authorization: Bearer` on the Vertex AI origin for its location. Its provider
+needs a class in `runtimeDefaults.modelCredentialAuthorities` that mints access
+tokens: `k8s.io` would set the stored key itself as the bearer token, so the
+compiler rejects a Vertex AI `apiKeySecret` that resolves to it. The provider
+class owns the Secret's format, typically a service account key, so the
+compiler does not inspect it. Vertex AI ModelConfigs do not support
+`tokenPassthrough`. The runtime never holds
 the Secret: the Go and Python ADKs run with `KAGENT_SKIP_VERTEX_AUTH=true` and
 Claude Code with `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the
 placeholder `Authorization: Bearer kagent-credential-injected` for the gateway

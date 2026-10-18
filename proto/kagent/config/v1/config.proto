@@ -351,6 +351,7 @@ message RuntimeDefaultsConfig {
   // ate-secret:// URI, that the egress gateway resolves a ModelConfig's
   // apiKeySecret through, keyed by ModelConfig provider. A provider absent
   // here uses k8s.io, which injects the Secret value as it is stored.
+  // GeminiVertexAI and AnthropicVertexAI need a class that mints access tokens.
   map<string, string> model_credential_authorities = 8 [(buf.validate.field).map = {
     keys: {
       string: {

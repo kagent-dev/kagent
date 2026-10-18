@@ -50,42 +50,74 @@ func TestCompileCredentialDestinations(t *testing.T) {
 	}
 }
 
-// A Vertex AI key is bound on the Google access-token provider class, which
-// mints the bearer token the gateway sets; no variable carries the key, so the
-// environment compiles unchanged.
+// A Vertex AI key is bound on the provider class configured for its provider,
+// which mints the bearer token the gateway sets; no variable carries the key,
+// so the environment compiles unchanged.
 func TestCompileCredentialsBindsVertexAIWithoutEnvironment(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		spec v1alpha3.ModelConfigSpec
 		host string
 	}{
-		{"Gemini regional", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderGeminiVertexAI, GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-central1"}}}, "us-central1-aiplatform.googleapis.com"},
-		{"Anthropic global", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global"}}}, "aiplatform.googleapis.com"},
-		{"Anthropic multi-region", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "eu"}}}, "aiplatform.eu.rep.googleapis.com"},
+		{"Gemini regional", vertexSpec(v1alpha3.ModelProviderGeminiVertexAI, "us-central1"), "us-central1-aiplatform.googleapis.com"},
+		{"Anthropic global", vertexSpec(v1alpha3.ModelProviderAnthropicVertexAI, "global"), "aiplatform.googleapis.com"},
+		{"Anthropic multi-region", vertexSpec(v1alpha3.ModelProviderAnthropicVertexAI, "eu"), "aiplatform.eu.rep.googleapis.com"},
 	} {
-		for _, authority := range []struct {
-			name     string
-			settings *configv1.RuntimeDefaultsConfig
-			want     string
-		}{
-			{"default", nil, "k8s.io"},
-			{"other provider overridden", &configv1.RuntimeDefaultsConfig{ModelCredentialAuthorities: map[string]string{"OpenAI": "tokens.example.com"}}, "k8s.io"},
-			{"overridden", &configv1.RuntimeDefaultsConfig{ModelCredentialAuthorities: map[string]string{string(test.spec.Provider): "tokens.example.com"}}, "tokens.example.com"},
+		t.Run(test.name, func(t *testing.T) {
+			spec := test.spec
+			spec.APIKeySecret, spec.APIKeySecretKey = "auth", "credentials.json"
+			settings := &configv1.RuntimeDefaultsConfig{ModelCredentialAuthorities: map[string]string{string(spec.Provider): "tokens.example.com"}}
+			environment := []corev1.EnvVar{{Name: "GOOGLE_CLOUD_LOCATION", Value: "somewhere"}}
+			got, bindings, _, err := CompileCredentials(credentialInput(spec), nil, environment, settings)
+			require.NoError(t, err)
+			require.Equal(t, environment, got)
+			require.Equal(t, []egress.Credential{{
+				Origin: "https://" + test.host + ":443", Header: "authorization", Prefix: "Bearer ",
+				URI: "ate-secret://tokens.example.com/default/team/auth/credentials.json",
+			}}, bindings)
+		})
+	}
+}
+
+// k8s.io would set the stored service account key itself as the bearer token,
+// so a Vertex AI key needs a class configured for its provider.
+func TestCompileCredentialsRejectsVertexAIOnKubernetesClass(t *testing.T) {
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI} {
+		for _, settings := range []*configv1.RuntimeDefaultsConfig{
+			nil,
+			{ModelCredentialAuthorities: map[string]string{"OpenAI": "tokens.example.com"}},
+			{ModelCredentialAuthorities: map[string]string{string(provider): "k8s.io"}},
 		} {
-			t.Run(test.name+"/"+authority.name, func(t *testing.T) {
-				spec := test.spec
+			t.Run(string(provider), func(t *testing.T) {
+				spec := vertexSpec(provider, "us-central1")
 				spec.APIKeySecret, spec.APIKeySecretKey = "auth", "credentials.json"
-				environment := []corev1.EnvVar{{Name: "GOOGLE_CLOUD_LOCATION", Value: "somewhere"}}
-				got, bindings, _, err := CompileCredentials(credentialInput(spec), nil, environment, authority.settings)
-				require.NoError(t, err)
-				require.Equal(t, environment, got)
-				require.Equal(t, []egress.Credential{{
-					Origin: "https://" + test.host + ":443", Header: "authorization", Prefix: "Bearer ",
-					URI: "ate-secret://" + authority.want + "/default/team/auth/credentials.json",
-				}}, bindings)
+				compiled, bindings, _, err := CompileCredentials(credentialInput(spec), nil, nil, settings)
+				require.ErrorContains(t, err, "set runtimeDefaults.modelCredentialAuthorities."+string(provider))
+				require.Nil(t, compiled)
+				require.Nil(t, bindings)
 			})
 		}
 	}
+}
+
+func TestCompileCredentialsRejectsVertexAITokenPassthrough(t *testing.T) {
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI} {
+		t.Run(string(provider), func(t *testing.T) {
+			spec := vertexSpec(provider, "us-central1")
+			spec.TokenPassthrough = true
+			_, _, origins, err := CompileCredentials(credentialInput(spec), nil, nil, nil)
+			require.ErrorContains(t, err, "does not support tokenPassthrough")
+			require.Nil(t, origins)
+		})
+	}
+}
+
+func vertexSpec(provider v1alpha3.ModelProvider, location string) v1alpha3.ModelConfigSpec {
+	vertex := v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: location}
+	if provider == v1alpha3.ModelProviderGeminiVertexAI {
+		return v1alpha3.ModelConfigSpec{Provider: provider, GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: vertex}}
+	}
+	return v1alpha3.ModelConfigSpec{Provider: provider, AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}}
 }
 
 func TestCompileCredentialsModelAuthority(t *testing.T) {

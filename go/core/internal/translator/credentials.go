@@ -74,6 +74,9 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		if target.name == "" {
 			continue
 		}
+		if target.name == vertexAICredentialName && target.authority == egress.KubernetesSecretAuthority {
+			return nil, nil, nil, NewValidationError("ModelConfig %q provider %s needs a credential provider class that serves Vertex AI access tokens; set runtimeDefaults.modelCredentialAuthorities.%s", model.Name, model.Spec.Provider, model.Spec.Provider)
+		}
 		key := model.Spec.APIKeySecretKey
 		if model.Spec.Provider == v1alpha3.ModelProviderBedrock {
 			key = env.AWSBearerTokenBedrock.Name()
@@ -95,6 +98,9 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	for _, resolved := range models {
 		if !resolved.Config.Spec.TokenPassthrough {
 			continue
+		}
+		if VertexAIConfig(&resolved.Config.Spec) != nil {
+			return nil, nil, nil, NewValidationError("ModelConfig %q provider %s does not support tokenPassthrough", resolved.Config.Name, resolved.Config.Spec.Provider)
 		}
 		passthroughEndpoints = append(passthroughEndpoints, modelCredentialTarget(resolved, settings).endpoint)
 	}
@@ -142,6 +148,10 @@ func ModelCredentialAuthority(settings *configv1.RuntimeDefaultsConfig, provider
 	return egress.KubernetesSecretAuthority
 }
 
+// vertexAICredentialName keys a Vertex AI binding. No variable carries the
+// Secret, and the space keeps the name from matching any environment variable.
+const vertexAICredentialName = "Vertex AI access token"
+
 // credentialTarget is where a ModelConfig credential is injected and which
 // Substrate credential provider class resolves it. name is the SDK variable the
 // placeholder replaces and keys the binding; an empty name means the provider
@@ -173,11 +183,9 @@ func modelCredentialTarget(resolved *ResolvedModelConfig, settings *configv1.Run
 	case v1alpha3.ModelProviderGemini:
 		name, endpoint, header = env.GoogleAPIKey.Name(), "https://generativelanguage.googleapis.com", "x-goog-api-key"
 	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
-		// Vertex AI accepts only OAuth 2.0 access tokens: the configured provider
-		// class serves the Secret's access token as it is, or one it mints from a
-		// service account key the Secret holds. The runtime holds no credential
-		// and no variable carries the Secret; the name only keys the binding.
-		name, header, prefix = env.GoogleApplicationCredentials.Name(), "authorization", "Bearer "
+		// Vertex AI accepts only OAuth 2.0 access tokens, which the configured
+		// provider class mints from the service account key the Secret holds.
+		name, header, prefix = vertexAICredentialName, "authorization", "Bearer "
 		if vertex := VertexAIConfig(&spec); vertex != nil {
 			endpoint = "https://" + VertexAIHostname(vertex.Location)
 		}

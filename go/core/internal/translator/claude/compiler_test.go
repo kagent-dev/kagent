@@ -74,17 +74,13 @@ func TestCompileProviderCredentials(t *testing.T) {
 			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://bedrock-runtime.us-west-2.amazonaws.com:443"},
 		},
 		{
-			name: "Anthropic Vertex AI access token",
+			// k8s.io would set the stored service account key as the bearer token.
+			name: "Anthropic Vertex AI on the Kubernetes class",
 			model: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929",
 				APIKeySecret: "model-auth", APIKeySecretKey: "credentials.json",
 				AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}}},
-			secretData: map[string][]byte{"credentials.json": []byte(credentialValue)},
-			wantEnv: map[string]string{claudeconfig.UseVertexEnvName: "1", claudeconfig.SkipVertexAuthEnvName: "1",
-				claudeconfig.VertexProjectEnvName: "project", claudeconfig.VertexRegionEnvName: "us-east5",
-				claudeconfig.AnthropicCustomHeadersEnvName: "Authorization: Bearer " + translator.CredentialPlaceholder},
-			wantEgress: []string{"http://kagent-controller.kagent:8083", "https://us-east5-aiplatform.googleapis.com:443"},
-			wantCredentials: []egress.Credential{{Origin: "https://us-east5-aiplatform.googleapis.com:443", Header: "authorization", Prefix: "Bearer ",
-				URI: "ate-secret://k8s.io/default/test/model-auth/credentials.json"}},
+			secretData: map[string][]byte{"credentials.json": []byte(`{"type":"service_account","private_key":"` + credentialValue + `"}`)},
+			wantErr:    "set runtimeDefaults.modelCredentialAuthorities.AnthropicVertexAI",
 		},
 		{
 			name: "Anthropic Vertex AI minting authority",
