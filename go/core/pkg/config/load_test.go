@@ -51,6 +51,11 @@ func TestControllerConfig(t *testing.T) {
 		{"runtime service name", "runtimeDefaults: {telemetry: {resourceAttributes: {service.name: shared}}}", true},
 		{"runtime service namespace", "runtimeDefaults: {telemetry: {resourceAttributes: {service.namespace: shared}}}", true},
 		{"runtime resource attributes", "runtimeDefaults: {telemetry: {resourceAttributes: {deployment.environment.name: production}}}", false},
+		{"model credential authority", "runtimeDefaults: {modelCredentialAuthorities: {GeminiVertexAI: tokens.example.com, AnthropicVertexAI: tokens.example.com}}", false},
+		{"model credential authority for an unknown provider", "runtimeDefaults: {modelCredentialAuthorities: {Vertex: tokens.example.com}}", true},
+		{"model credential authority with a port", "runtimeDefaults: {modelCredentialAuthorities: {OpenAI: 'tokens.example.com:50051'}}", true},
+		{"uppercase model credential authority", "runtimeDefaults: {modelCredentialAuthorities: {OpenAI: Tokens.Example.com}}", true},
+		{"IP model credential authority", "runtimeDefaults: {modelCredentialAuthorities: {OpenAI: 192.0.2.1}}", true},
 		{"controller service labels", "telemetry: {resourceAttributes: {service.name: controller, service.namespace: control-plane}}", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

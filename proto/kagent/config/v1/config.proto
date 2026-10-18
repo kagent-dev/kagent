@@ -347,6 +347,40 @@ message RuntimeDefaultsConfig {
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
   SkillToolsConfig skill_tools = 7;
+  // The Substrate credential provider class, the authority of the
+  // ate-secret:// URI, that the egress gateway resolves a ModelConfig's
+  // apiKeySecret through, keyed by ModelConfig provider. A provider absent
+  // here uses k8s.io, which injects the Secret value as it is stored.
+  map<string, string> model_credential_authorities = 8 [(buf.validate.field).map = {
+    keys: {
+      string: {
+        in: [
+          "Anthropic",
+          "AnthropicVertexAI",
+          "AzureOpenAI",
+          "Bedrock",
+          "Foundry",
+          "Gemini",
+          "GeminiVertexAI",
+          "Mistral",
+          "Ollama",
+          "OpenAI",
+          "SAPAICore"
+        ]
+      }
+    }
+    values: {
+      cel: {
+        id: "model_credential_authorities.ip"
+        message: "a credential authority must be a DNS name, not an IP address"
+        expression: "!this.isIp()"
+      }
+      string: {
+        max_len: 253
+        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+      }
+    }
+  }];
 }
 
 // SkillToolsConfig configures the built-in tools available with local skills.

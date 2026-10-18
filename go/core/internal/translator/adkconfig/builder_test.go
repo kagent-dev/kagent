@@ -278,6 +278,49 @@ func TestOllamaEgressDestination(t *testing.T) {
 	})
 }
 
+// A Vertex AI ModelConfig with apiKeySecret compiles for the Substrate runtime:
+// no volume, no Secret in the environment, and the location's endpoint allowed.
+func TestBuildVertexAIGatewayCredential(t *testing.T) {
+	vertex := v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "global"}
+	for _, model := range []v1alpha3.ModelConfigSpec{
+		{Provider: v1alpha3.ModelProviderGeminiVertexAI, Model: "gemini-2.5-pro", GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: vertex}},
+		{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}},
+	} {
+		t.Run(string(model.Provider), func(t *testing.T) {
+			build := func(t *testing.T, key string) (*Result, error) {
+				t.Helper()
+				spec := model
+				spec.APIKeySecret, spec.APIKeySecretKey = "vertex-auth", "credentials.json"
+				config := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "vertex", Namespace: "test"}, Spec: spec}
+				secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "vertex-auth", Namespace: "test"}, Data: map[string][]byte{"credentials.json": []byte(key)}}
+				mock := krttest.NewMock(t, []any{config, secret})
+				collections := translator.Collections{Secrets: krttest.GetMockCollection[*corev1.Secret](mock)}
+				resolved, err := translator.ResolveModelConfig(krt.TestingDummyContext{}, collections, krttest.GetMockCollection[*v1alpha3.ModelConfig](mock).List()[0])
+				require.NoError(t, err)
+				collections.ResolvedModelConfigs = krttest.GetMockCollection[translator.ResolvedModelConfig](krttest.NewMock(t, []any{*resolved}))
+				return NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
+					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{Name: "pi", Namespace: "test"}, ResolvedModelConfig: resolved},
+				})
+			}
+			// The provider class that fetches the Secret owns its format, so an
+			// access token and a service account key both compile.
+			for _, data := range []string{"ya29.access-token", `{"type":"service_account","private_key":"private"}`} {
+				result, err := build(t, data)
+				require.NoError(t, err)
+				require.Equal(t, []string{"https://aiplatform.googleapis.com:443"}, result.Egress)
+				environment := map[string]string{}
+				for _, variable := range result.Environment {
+					require.Nil(t, variable.ValueFrom, "%s reads a Secret", variable.Name)
+					environment[variable.Name] = variable.Value
+				}
+				require.Equal(t, "true", environment[env.SkipVertexAuth.Name()])
+				require.NotContains(t, environment, env.GoogleApplicationCredentials.Name())
+			}
+		})
+	}
+}
+
 func contextTestCollections(t *testing.T, models ...*v1alpha3.ModelConfig) translator.Collections {
 	t.Helper()
 	objects := make([]any, 0, 2*len(models))

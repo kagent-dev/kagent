@@ -60,6 +60,7 @@ overrides of these variables are rejected.
 | Foundry Anthropic API key | `x-api-key: <key>` |
 | Gemini API key | `x-goog-api-key: <key>` |
 | Bedrock bearer token | `authorization: Bearer <token>` |
+| Vertex AI credential | `authorization: Bearer <access token>`; the Secret holds the token, or what the configured provider class mints it from |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
@@ -77,9 +78,30 @@ Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on
 ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway injection.
 
-AWS IAM signing keys, Google service-account keys, and OAuth client credentials
-require mechanisms beyond static header injection and are rejected rather than
-serialized into runtimes.
+Each ModelConfig provider resolves its `apiKeySecret` through a Substrate
+credential provider class, the authority of the `ate-secret://` URI. The class
+is `k8s.io` unless the controller setting
+`runtimeDefaults.modelCredentialAuthorities` (Helm value
+`config.runtimeDefaults.modelCredentialAuthorities`) names another one for that
+provider; `k8s.io` injects the Secret value as stored. Another class needs a
+Substrate egress gateway that routes it to a credential provider deployed
+beside Substrate, or the gateway fails the request closed. RemoteMCPServer and
+EgressPolicy credentials always use `k8s.io`.
+
+A `GeminiVertexAI` or `AnthropicVertexAI` ModelConfig with `apiKeySecret` binds
+`authorization: Bearer` on the Vertex AI origin for its location. With `k8s.io`
+the Secret holds a short-lived access token. A class that mints access tokens
+lets the Secret hold a service account key instead; the provider owns the
+Secret's format, so the compiler does not inspect it. The runtime never holds
+the Secret: the Go ADK runs with `KAGENT_SKIP_VERTEX_AUTH=true` and Claude Code
+with `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the placeholder
+`Authorization: Bearer kagent-credential-injected` for the gateway to replace,
+since the gateway replaces a header a request carries and adds none. The Python
+ADK authenticates to Vertex AI itself, so a BYO image on it cannot use this
+binding.
+
+AWS IAM signing keys and OAuth client credentials require mechanisms beyond
+static header injection and are rejected rather than serialized into runtimes.
 
 Caller-token passthrough is set with `tokenPassthrough` on ModelConfig or
 RemoteMCPServer. It forwards the bearer token from the incoming A2A request
@@ -111,6 +133,5 @@ TLS settings and warn when ignoring RemoteMCPServer TLS settings. Runtime trust
 for gateway injection is configured by the platform.
 
 `apiKeySecret` remains available for supported gateway credentials. Secret-backed
-AWS IAM signing, Vertex service-account, and SAP OAuth credentials still fail
-compilation; sharing this field with supported providers does not enable those
-credential modes.
+AWS IAM signing and SAP OAuth credentials still fail compilation; sharing this
+field with supported providers does not enable those credential modes.

@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -20,18 +21,18 @@ const CredentialPlaceholder = "kagent-credential-injected"
 // CompileCredentials replaces secret-backed environment values with inert SDK
 // placeholders and compiles their destination-scoped gateway bindings. Models
 // outside the agent tree (such as memory embeddings) are supplied separately.
-func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar) ([]corev1.EnvVar, []egress.Credential, []string, error) {
+func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig, environment []corev1.EnvVar, settings *configv1.RuntimeDefaultsConfig) ([]corev1.EnvVar, []egress.Credential, []string, error) {
 	var bindings []egress.Credential
 	var tokenPassthroughOrigins []string
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
 	var passthroughEndpoints []string
-	bind := func(rawURL, header, prefix, namespace, name, key string) error {
+	bind := func(rawURL, header, prefix, authority, namespace, name, key string) error {
 		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 			return NewValidationError("credential destination must be an absolute HTTP(S) URL without user information or fragment")
 		}
-		uri := "ate-secret://k8s.io/default/" + namespace + "/" + name + "/" + key
+		uri := egress.CredentialURI(authority, namespace, name, key)
 		bindings = append(bindings, egress.Credential{Origin: egress.Origin(u), Header: header, Prefix: prefix, URI: uri})
 		return nil
 	}
@@ -48,7 +49,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			for _, ref := range tool.Server.Spec.HeadersFrom {
 				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
 					boundMCP[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
-					if err := bind(tool.Server.Spec.URL, ref.Name, "", tool.Server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
+					if err := bind(tool.Server.Spec.URL, ref.Name, "", egress.KubernetesSecretAuthority, tool.Server.Namespace, ref.ValueFrom.Name, ref.ValueFrom.Key); err != nil {
 						return err
 					}
 				}
@@ -69,8 +70,8 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		if model.Spec.TokenPassthrough || model.Spec.APIKeySecret == "" {
 			continue
 		}
-		name, endpoint, header, prefix := modelCredentialTarget(resolved)
-		if name == "" {
+		target := modelCredentialTarget(resolved, settings)
+		if target.name == "" {
 			continue
 		}
 		key := model.Spec.APIKeySecretKey
@@ -78,7 +79,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			key = env.AWSBearerTokenBedrock.Name()
 			bearer := false
 			for _, variable := range environment {
-				if variable.Name == name && variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil && variable.ValueFrom.SecretKeyRef.Name == model.Spec.APIKeySecret && variable.ValueFrom.SecretKeyRef.Key == key {
+				if variable.Name == target.name && variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil && variable.ValueFrom.SecretKeyRef.Name == model.Spec.APIKeySecret && variable.ValueFrom.SecretKeyRef.Key == key {
 					bearer = true
 				}
 			}
@@ -86,17 +87,16 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 				continue
 			}
 		}
-		if err := bind(endpoint, header, prefix, model.Namespace, model.Spec.APIKeySecret, key); err != nil {
+		if err := bind(target.endpoint, target.header, target.prefix, target.authority, model.Namespace, model.Spec.APIKeySecret, key); err != nil {
 			return nil, nil, nil, err
 		}
-		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
+		boundModels[target.name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
 	for _, resolved := range models {
 		if !resolved.Config.Spec.TokenPassthrough {
 			continue
 		}
-		_, endpoint, _, _ := modelCredentialTarget(resolved)
-		passthroughEndpoints = append(passthroughEndpoints, endpoint)
+		passthroughEndpoints = append(passthroughEndpoints, modelCredentialTarget(resolved, settings).endpoint)
 	}
 	for _, endpoint := range passthroughEndpoints {
 		u, err := url.Parse(strings.TrimSpace(endpoint))
@@ -133,8 +133,27 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	return result, access.Credentials, tokenPassthroughOrigins, nil
 }
 
-func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {
+// ModelCredentialAuthority is the Substrate credential provider class the
+// egress gateway resolves a ModelConfig provider's apiKeySecret through.
+func ModelCredentialAuthority(settings *configv1.RuntimeDefaultsConfig, provider v1alpha3.ModelProvider) string {
+	if authority := settings.GetModelCredentialAuthorities()[string(provider)]; authority != "" {
+		return authority
+	}
+	return egress.KubernetesSecretAuthority
+}
+
+// credentialTarget is where a ModelConfig credential is injected and which
+// Substrate credential provider class resolves it. name is the SDK variable the
+// placeholder replaces and keys the binding; an empty name means the provider
+// has no gateway credential.
+type credentialTarget struct {
+	name, endpoint, header, prefix, authority string
+}
+
+func modelCredentialTarget(resolved *ResolvedModelConfig, settings *configv1.RuntimeDefaultsConfig) credentialTarget {
 	spec := resolved.Config.Spec
+	target := credentialTarget{authority: ModelCredentialAuthority(settings, spec.Provider)}
+	var name, endpoint, header, prefix string
 	switch spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
 		name, endpoint, header, prefix = env.OpenAIAPIKey.Name(), "https://api.openai.com", "authorization", "Bearer "
@@ -153,6 +172,15 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		}
 	case v1alpha3.ModelProviderGemini:
 		name, endpoint, header = env.GoogleAPIKey.Name(), "https://generativelanguage.googleapis.com", "x-goog-api-key"
+	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
+		// Vertex AI accepts only OAuth 2.0 access tokens: the configured provider
+		// class serves the Secret's access token as it is, or one it mints from a
+		// service account key the Secret holds. The runtime holds no credential
+		// and no variable carries the Secret; the name only keys the binding.
+		name, header, prefix = env.GoogleApplicationCredentials.Name(), "authorization", "Bearer "
+		if vertex := VertexAIConfig(&spec); vertex != nil {
+			endpoint = "https://" + VertexAIHostname(vertex.Location)
+		}
 	case v1alpha3.ModelProviderMistral:
 		name, endpoint, header, prefix = env.MistralAPIKey.Name(), "https://api.mistral.ai", "authorization", "Bearer "
 		if spec.Mistral != nil && spec.Mistral.BaseURL != nil && *spec.Mistral.BaseURL != "" {
@@ -190,5 +218,6 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 			header = "x-api-key"
 		}
 	}
-	return name, endpoint, header, prefix
+	target.name, target.endpoint, target.header, target.prefix = name, endpoint, header, prefix
+	return target
 }

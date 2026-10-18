@@ -20,6 +20,7 @@ import (
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	byotranslator "github.com/kagent-dev/kagent/go/core/internal/translator/byo"
@@ -209,13 +210,18 @@ func compiler(t *testing.T, objects ...any) *translator.Compiler {
 
 func compilerWithImages(t *testing.T, images *configv1.HarnessImagesConfig, objects ...any) *translator.Compiler {
 	t.Helper()
+	return compilerWithSettings(t, images, testRuntimeDefaults(), objects...)
+}
+
+func compilerWithSettings(t *testing.T, images *configv1.HarnessImagesConfig, settings *configv1.RuntimeDefaultsConfig, objects ...any) *translator.Compiler {
+	t.Helper()
 	collections := mockCollections(t, append(objects, defaultWorkerPool())...)
 	ctx := krt.TestingDummyContext{}
 	return translator.NewCompiler(ctx, collections, map[translator.HarnessType]translator.HarnessCompiler{
-		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
-		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
-		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
-		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, testRuntimeDefaults()),
+		translator.HarnessTypeKagent: kagenttranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
+		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
 	}, images)
 }
 
@@ -552,6 +558,116 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	}, testHarnessImages).CompileAgent(context.Background(), inlineAgent(harness, template))
 	require.NoError(t, err)
 	require.Nil(t, adapter.input.Root.ResolvedModelConfig)
+}
+
+func gatewayCredentialHarness() *v1alpha3.Harness {
+	return &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:   &v1alpha3.KagentHarness{},
+			Workload: v1alpha3.HarnessWorkload{Image: new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
+}
+
+// A Vertex AI ModelConfig with a service account key compiles for the kagent
+// harness: the key is bound on the Google access-token provider class for the
+// gateway to exchange, the runtime skips Google authentication of its own, and
+// nothing of the key reaches the revision.
+func TestCompileAgentBindsVertexAIAtGateway(t *testing.T) {
+	vertex := v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-east5"}
+	for _, tt := range []struct {
+		name string
+		spec v1alpha3.ModelConfigSpec
+	}{
+		{"Gemini", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderGeminiVertexAI, Model: "gemini-2.5-pro", GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: vertex}}},
+		{"Anthropic", v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropicVertexAI, Model: "claude-sonnet-4-5@20250929", AnthropicVertexAI: &v1alpha3.AnthropicVertexAIConfig{BaseVertexAIConfig: vertex}}},
+	} {
+		for _, authority := range []struct {
+			name, set, want string
+			// The provider class owns the Secret's format: an access token for
+			// k8s.io, a service account key for a class that mints one.
+			data string
+		}{
+			{"default authority", "", "k8s.io", "ya29.access-token-must-not-be-serialized"},
+			{"minting authority", "tokens.example.com", "tokens.example.com", `{"type":"service_account","private_key":"private-key-must-not-be-serialized"}`},
+		} {
+			t.Run(tt.name+"/"+authority.name, func(t *testing.T) {
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "vertex-auth", Namespace: "test"},
+					Data:       map[string][]byte{"credentials.json": []byte(authority.data)},
+				}
+				model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"}, Spec: tt.spec}
+				model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = secret.Name, "credentials.json"
+				settings := testRuntimeDefaults()
+				if authority.set != "" {
+					settings.ModelCredentialAuthorities = map[string]string{string(tt.spec.Provider): authority.set}
+				}
+				harness := gatewayCredentialHarness()
+				template := &v1alpha3.AgentTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+					Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+				}
+				spec, err := compilerWithSettings(t, testHarnessImages, settings, model, secret, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
+				require.NoError(t, err)
+				require.Equal(t, []egress.Credential{{
+					Origin: "https://us-east5-aiplatform.googleapis.com:443", Header: "authorization", Prefix: "Bearer ",
+					URI: "ate-secret://" + authority.want + "/default/test/vertex-auth/credentials.json",
+				}}, spec.Credentials)
+				environment := map[string]string{}
+				for _, variable := range spec.Environment {
+					require.Nil(t, variable.ValueFrom, "%s is unresolved", variable.Name)
+					environment[variable.Name] = variable.Value
+				}
+				require.Equal(t, "true", environment["KAGENT_SKIP_VERTEX_AUTH"])
+				require.NotContains(t, environment, "GOOGLE_APPLICATION_CREDENTIALS")
+				require.Contains(t, spec.EgressDestinations, "https://us-east5-aiplatform.googleapis.com:443")
+				require.NotContains(t, spec.EgressDestinations, "https://oauth2.googleapis.com:443")
+				require.False(t, bytes.Contains(spec.ConfigJSON, []byte("must-not-be-serialized")) || bytes.Contains(spec.Provenance, []byte("must-not-be-serialized")), "runtime revision contains credential material")
+			})
+		}
+	}
+}
+
+// Credentials the runtime would have to sign or exchange itself have no
+// gateway binding, so the compiler refuses them rather than placing them in
+// the runtime.
+func TestCompileAgentRejectsRuntimeSigningCredentials(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		spec v1alpha3.ModelConfigSpec
+		data map[string][]byte
+	}{
+		{
+			name: "Bedrock IAM keys",
+			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			data: map[string][]byte{"AWS_ACCESS_KEY_ID": []byte("access"), "AWS_SECRET_ACCESS_KEY": []byte("secret")},
+		},
+		{
+			name: "SAP AI Core client credentials",
+			spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderSAPAICore, Model: "gpt-4o", SAPAICore: &v1alpha3.SAPAICoreConfig{BaseURL: "https://api.ai.example.com", ResourceGroup: "default", AuthURL: "https://auth.example.com"}},
+			data: map[string][]byte{"client_id": []byte("client"), "client_secret": []byte("secret")},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "model-auth", Namespace: "test"}, Data: tt.data}
+			model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"}, Spec: tt.spec}
+			model.Spec.APIKeySecret = secret.Name
+			harness := gatewayCredentialHarness()
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"},
+			}
+			_, err := compiler(t, model, secret, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
+			var validation *translator.ValidationError
+			require.ErrorAs(t, err, &validation)
+			require.ErrorContains(t, err, "cannot use gateway header injection")
+		})
+	}
 }
 
 func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {

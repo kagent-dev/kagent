@@ -103,9 +103,6 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 			return nil, fmt.Errorf("render ModelConfig %q: %w", modelConfig.Name, err)
 		}
 	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
 	stream := new(true)
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
 		stream = modelConfig.Spec.Stream
@@ -331,6 +328,10 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 		destinations = append(destinations, "https://api.anthropic.com:443")
 	case v1alpha3.ModelProviderGemini:
 		destinations = append(destinations, "https://generativelanguage.googleapis.com:443")
+	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
+		if vertex := translator.VertexAIConfig(&modelConfig.Spec); vertex != nil {
+			destinations = append(destinations, translator.VertexAIOrigin(vertex.Location))
+		}
 	case v1alpha3.ModelProviderMistral:
 		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
 			destinations = append(destinations, "https://api.mistral.ai:443")

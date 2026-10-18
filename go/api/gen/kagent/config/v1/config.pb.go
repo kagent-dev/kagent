@@ -1712,8 +1712,13 @@ type RuntimeDefaultsConfig struct {
 	MaxContentLength *int64                  `protobuf:"varint,5,opt,name=max_content_length,json=maxContentLength,proto3,oneof" json:"max_content_length,omitempty"`
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	SkillTools       *SkillToolsConfig       `protobuf:"bytes,7,opt,name=skill_tools,json=skillTools,proto3" json:"skill_tools,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The Substrate credential provider class, the authority of the
+	// ate-secret:// URI, that the egress gateway resolves a ModelConfig's
+	// apiKeySecret through, keyed by ModelConfig provider. A provider absent
+	// here uses k8s.io, which injects the Secret value as it is stored.
+	ModelCredentialAuthorities map[string]string `protobuf:"bytes,8,rep,name=model_credential_authorities,json=modelCredentialAuthorities,proto3" json:"model_credential_authorities,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *RuntimeDefaultsConfig) Reset() {
@@ -1791,6 +1796,13 @@ func (x *RuntimeDefaultsConfig) GetTokenPropagation() *TokenPropagationConfig {
 func (x *RuntimeDefaultsConfig) GetSkillTools() *SkillToolsConfig {
 	if x != nil {
 		return x.SkillTools
+	}
+	return nil
+}
+
+func (x *RuntimeDefaultsConfig) GetModelCredentialAuthorities() map[string]string {
+	if x != nil {
+		return x.ModelCredentialAuthorities
 	}
 	return nil
 }
@@ -2121,7 +2133,8 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\xbb\x06\n" +
+	"\t_protocol\"\xd9\n" +
+	"\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2132,7 +2145,12 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x12max_content_length\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x02R\x10maxContentLength\x88\x01\x01\x12U\n" +
 	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12C\n" +
 	"\vskill_tools\x18\a \x01(\v2\".kagent.config.v1.SkillToolsConfigR\n" +
-	"skillToolsB\x14\n" +
+	"skillTools\x12\xcc\x03\n" +
+	"\x1cmodel_credential_authorities\x18\b \x03(\v2G.kagent.config.v1.RuntimeDefaultsConfig.ModelCredentialAuthoritiesEntryB\xc0\x02\xbaH\xbc\x02\x9a\x01\xb8\x02\"{ryR\tAnthropicR\x11AnthropicVertexAIR\vAzureOpenAIR\aBedrockR\aFoundryR\x06GeminiR\x0eGeminiVertexAIR\aMistralR\x06OllamaR\x06OpenAIR\tSAPAICore*\xb8\x01\xba\x01m\n" +
+	"\x1fmodel_credential_authorities.ip\x12<a credential authority must be a DNS name, not an IP address\x1a\f!this.isIp()rF\x18\xfd\x012A^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$R\x1amodelCredentialAuthorities\x1aM\n" +
+	"\x1fModelCredentialAuthoritiesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
 	"\x13_max_content_length\"\x87\x01\n" +
@@ -2159,7 +2177,7 @@ func file_kagent_config_v1_config_proto_rawDescGZIP() []byte {
 	return file_kagent_config_v1_config_proto_rawDescData
 }
 
-var file_kagent_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_kagent_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*CLIConfig)(nil),              // 0: kagent.config.v1.CLIConfig
 	(*ConnectionConfig)(nil),       // 1: kagent.config.v1.ConnectionConfig
@@ -2189,7 +2207,8 @@ var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*SkillToolsConfig)(nil),       // 25: kagent.config.v1.SkillToolsConfig
 	(*TokenPropagationConfig)(nil), // 26: kagent.config.v1.TokenPropagationConfig
 	nil,                            // 27: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	(*durationpb.Duration)(nil),    // 28: google.protobuf.Duration
+	nil,                            // 28: kagent.config.v1.RuntimeDefaultsConfig.ModelCredentialAuthoritiesEntry
+	(*durationpb.Duration)(nil),    // 29: google.protobuf.Duration
 }
 var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	1,  // 0: kagent.config.v1.CLIConfig.connection:type_name -> kagent.config.v1.ConnectionConfig
@@ -2197,7 +2216,7 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	3,  // 2: kagent.config.v1.CLIConfig.logging:type_name -> kagent.config.v1.LoggingConfig
 	4,  // 3: kagent.config.v1.CLIConfig.install:type_name -> kagent.config.v1.InstallConfig
 	11, // 4: kagent.config.v1.CLIConfig.database:type_name -> kagent.config.v1.DatabaseConfig
-	28, // 5: kagent.config.v1.ConnectionConfig.timeout:type_name -> google.protobuf.Duration
+	29, // 5: kagent.config.v1.ConnectionConfig.timeout:type_name -> google.protobuf.Duration
 	5,  // 6: kagent.config.v1.InstallConfig.kagent:type_name -> kagent.config.v1.ChartConfig
 	5,  // 7: kagent.config.v1.InstallConfig.substrate:type_name -> kagent.config.v1.ChartConfig
 	5,  // 8: kagent.config.v1.InstallConfig.pod_certificate:type_name -> kagent.config.v1.ChartConfig
@@ -2220,33 +2239,34 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	12, // 25: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
 	12, // 26: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
 	13, // 27: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
-	28, // 28: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
-	28, // 29: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	28, // 30: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	28, // 31: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	28, // 32: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	28, // 33: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	28, // 34: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
-	28, // 35: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	28, // 36: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	28, // 37: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	28, // 38: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	28, // 39: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	28, // 40: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	29, // 28: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
+	29, // 29: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
+	29, // 30: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	29, // 31: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	29, // 32: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	29, // 33: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
+	29, // 34: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	29, // 35: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	29, // 36: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	29, // 37: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	29, // 38: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	29, // 39: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	29, // 40: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
 	23, // 41: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
 	23, // 42: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
 	23, // 43: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
 	27, // 44: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	28, // 45: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	29, // 45: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
 	3,  // 46: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
 	22, // 47: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
 	26, // 48: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
 	25, // 49: kagent.config.v1.RuntimeDefaultsConfig.skill_tools:type_name -> kagent.config.v1.SkillToolsConfig
-	50, // [50:50] is the sub-list for method output_type
-	50, // [50:50] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	28, // 50: kagent.config.v1.RuntimeDefaultsConfig.model_credential_authorities:type_name -> kagent.config.v1.RuntimeDefaultsConfig.ModelCredentialAuthoritiesEntry
+	51, // [51:51] is the sub-list for method output_type
+	51, // [51:51] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }
@@ -2279,7 +2299,7 @@ func file_kagent_config_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_config_v1_config_proto_rawDesc), len(file_kagent_config_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -18,21 +18,15 @@ import (
 )
 
 // modelDeploymentData collects the Kubernetes inputs required by a provider.
-// Volumes are retained even though the current Substrate ActorTemplate path
-// rejects them, so the compiler can report incompatibility instead of silently
-// dropping credentials.
 type modelDeploymentData struct {
-	EnvVars      []corev1.EnvVar
-	Volumes      []corev1.Volume
-	VolumeMounts []corev1.VolumeMount
+	EnvVars []corev1.EnvVar
 }
 
 // modelRuntime is the provider-neutral result consumed by the rest of the
 // compiler.
 type modelRuntime struct {
-	Model                 *configv1.ADKModelConfig
-	Environment           []corev1.EnvVar
-	HasUnsupportedVolumes bool
+	Model       *configv1.ADKModelConfig
+	Environment []corev1.EnvVar
 }
 
 // resolveModel collapses provider-specific translation output into the subset
@@ -42,13 +36,22 @@ func resolveModel(resolved *translator.ResolvedModelConfig) (*modelRuntime, erro
 	if err != nil {
 		return nil, err
 	}
-	return &modelRuntime{
-		Model: model, Environment: data.EnvVars,
-		HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
-	}, nil
+	return &modelRuntime{Model: model, Environment: data.EnvVars}, nil
 }
 
-const googleCredsVolumeName = "google-creds"
+// vertexAIEnvironment names the Vertex AI project and location. With an
+// apiKeySecret the egress gateway sets the access token on every call, so the
+// runtime skips Google authentication of its own and never holds the Secret.
+func vertexAIEnvironment(model *v1alpha3.ModelConfig, vertex *v1alpha3.BaseVertexAIConfig) []corev1.EnvVar {
+	environment := []corev1.EnvVar{
+		{Name: env.GoogleCloudProject.Name(), Value: vertex.ProjectID},
+		{Name: env.GoogleCloudLocation.Name(), Value: vertex.Location},
+	}
+	if model.Spec.APIKeySecret != "" && !model.Spec.TokenPassthrough {
+		environment = append(environment, corev1.EnvVar{Name: env.SkipVertexAuth.Name(), Value: "true"})
+	}
+	return environment
+}
 
 // tlsInsecureSkipVerify leaves empty configs unset to preserve SDK client defaults.
 func tlsInsecureSkipVerify(tlsConfig *v1alpha3.TLSConfig) *bool {
@@ -232,35 +235,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 			return nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  env.GoogleCloudProject.Name(),
-			Value: model.Spec.GeminiVertexAI.ProjectID,
-		})
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  env.GoogleCloudLocation.Name(),
-			Value: model.Spec.GeminiVertexAI.Location,
-		})
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  env.GoogleGenAIUseVertexAI.Name(),
 			Value: "true",
 		})
-		if model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.GoogleApplicationCredentials.Name(),
-				Value: "/creds/" + model.Spec.APIKeySecretKey,
-			})
-			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-				Name: googleCredsVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: model.Spec.APIKeySecret,
-					},
-				},
-			})
-			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-				Name:      googleCredsVolumeName,
-				MountPath: "/creds",
-			})
-		}
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, vertexAIEnvironment(model, &model.Spec.GeminiVertexAI.BaseVertexAIConfig)...)
 		gemini := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
@@ -279,32 +257,7 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		if model.Spec.AnthropicVertexAI == nil {
 			return nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  env.GoogleCloudProject.Name(),
-			Value: model.Spec.AnthropicVertexAI.ProjectID,
-		})
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name:  env.GoogleCloudLocation.Name(),
-			Value: model.Spec.AnthropicVertexAI.Location,
-		})
-		if model.Spec.APIKeySecret != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.GoogleApplicationCredentials.Name(),
-				Value: "/creds/" + model.Spec.APIKeySecretKey,
-			})
-			modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-				Name: googleCredsVolumeName,
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: model.Spec.APIKeySecret,
-					},
-				},
-			})
-			modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-				Name:      googleCredsVolumeName,
-				MountPath: "/creds",
-			})
-		}
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, vertexAIEnvironment(model, &model.Spec.AnthropicVertexAI.BaseVertexAIConfig)...)
 		anthropic := &configv1.ADKModelConfig{
 			Model:    model.Spec.Model,
 			Headers:  model.Spec.DefaultHeaders,
