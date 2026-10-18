@@ -51,6 +51,15 @@ onto the server's URL. Of Claude's request headers, only those the streamable HT
 and trace propagation use reach the server (`Accept`, `Content-Type`, `Mcp-Session-Id`,
 `Mcp-Protocol-Version`, `Last-Event-ID`, `User-Agent`, `traceparent`, `tracestate`, `baggage`).
 
+The forwarder counts the requests it answers itself: one without its token (401), one for a
+server it does not front (404) and a refused path (400); what a server answers is not counted,
+nor a lookup under `/.well-known/`, which an MCP client makes for OAuth metadata after a 401.
+Claude Code holds the token and reaches only its servers, so each count is another process in
+the sandbox probing the forwarder. Every turn boundary, completed, failed or waiting for an
+approval, reports the counts since the previous one under the status message's
+`kagent.dev/a2a/forwarder-refusals` metadata, and the controller counts them per Agent
+(`kagent.harness.forwarder.refusals`, docs/architecture/runtime-and-lifecycle.md).
+
 Claude Code exposes every tool a server lists, so the same forwarder enforces a binding's tool
 selection: a streamable HTTP server with selected tools is fronted whether or not the caller's
 credential travels, its `tools/list` results (JSON or event stream) keep only the selected

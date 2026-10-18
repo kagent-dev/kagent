@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/jackc/pgx/v5"
@@ -15,7 +16,16 @@ import (
 // Retries cannot republish an old state over a later turn. Callers authenticate
 // runtime authority; a missing or deleted session returns ErrNotFound.
 func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string, version int64) error {
-	return c.withTx(ctx, func(tx pgx.Tx) error {
+	_, err := c.SettleSessionTaskPublished(ctx, sessionID, taskID, version)
+	return err
+}
+
+// SettleSessionTaskPublished settles like SettleSessionTask and returns the task
+// this call published, nil when an earlier call already published the
+// boundary, so a caller can act on each boundary exactly once.
+func (c *Client) SettleSessionTaskPublished(ctx context.Context, sessionID, taskID string, version int64) (*a2a.Task, error) {
+	var published *a2a.Task
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
@@ -23,13 +33,19 @@ func (c *Client) SettleSessionTask(ctx context.Context, sessionID, taskID string
 		if session.State == "RUNTIME_STATE_DELETED" {
 			return ErrNotFound
 		}
-		return settleSessionTask(ctx, tx, session, taskID, version)
+		published, err = settleSessionTask(ctx, tx, session, taskID, version)
+		return err
 	})
+	if err != nil {
+		return nil, err
+	}
+	return published, nil
 }
 
 // settleSessionTask publishes the boundary at version in the caller's
-// transaction. The caller holds the session lock.
-func settleSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, taskID string, version int64) error {
+// transaction and returns the published task, nil when the boundary was
+// already published. The caller holds the session lock.
+func settleSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, taskID string, version int64) (*a2a.Task, error) {
 	type boundary struct {
 		Data            []byte
 		ExpectedVersion int64
@@ -41,40 +57,43 @@ func settleSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, taskI
 		  AND expected_version IS NOT NULL AND quiescence_pending IS NOT NULL
 	`, pgx.RowToStructByName[boundary], session.HistoryID, taskID, version)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrConflict
+		return nil, ErrConflict
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if row.Published {
-		return nil
+		return nil, nil
 	}
 	stored, err := readSessionTask(ctx, tx, session.HistoryID, taskID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	wire, err := applyStoredBoundary(stored.Data, row.Data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	task, err := pbconv.FromProtoTask(wire)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	data, err := proto.Marshal(wire)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := saveTaskProjection(ctx, tx, session.HistoryID, taskID, string(task.Status.State), task.Status.Timestamp, data); err != nil {
-		return err
+		return nil, err
 	}
 	if err := execSQL(ctx, tx, `
 		UPDATE session_task_event SET published = TRUE
 		WHERE history_id = $1 AND task_id = $2 AND sequence > $3 AND sequence <= $4
 	`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
-		return err
+		return nil, err
 	}
-	return enqueuePushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
+	if err := enqueuePushBoundary(ctx, tx, session.HistoryID, taskID, version, task); err != nil {
+		return nil, err
+	}
+	return task, nil
 }
 
 func applyStoredBoundary(data, eventData []byte) (*a2apb.Task, error) {

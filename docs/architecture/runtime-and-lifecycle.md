@@ -577,6 +577,25 @@ can retain a stale file identity and reject writes with `SQLITE_READONLY_DBMOVED
 Closing connections when returned to the pool keeps quiescent snapshots free of
 database handles; each later operation opens the current backing file.
 
+## Forwarder refusal metrics
+
+A runtime that fronts its MCP servers with a loopback forwarder (the Claude
+harness) reports, on the status message of every turn boundary, what the
+forwarder answered itself since the previous boundary
+(`kagent.dev/a2a/forwarder-refusals`: `unauthorized`, `unknownServer`,
+`refusedPath`). The task store counts them when it publishes the boundary, which
+happens once per boundary, so a retried settlement counts nothing twice.
+
+| OTel metric | Instrument / unit | Prometheus name | Meaning |
+| --- | --- | --- | --- |
+| `kagent.harness.forwarder.refusals` | Counter / `{request}` | `kagent_harness_forwarder_refusals_total` | Requests refused by the forwarder, with `k8s.namespace.name` and `gen_ai.agent.name` of the Session's Agent and `http.response.status_code`: `401` without the forwarder's token, `404` for a server it does not front, `400` for a path that could leave its server. |
+
+The model client holds the forwarder's token and reaches only its servers, so a
+count is another process in the sandbox probing the forwarder. The runtime
+reports its own refusals: the counter is a signal to alert on, not an
+attribution a process in the sandbox could not influence. A boundary settled by
+the controller for a runtime that was lost before settling reports nothing.
+
 ## Runtime revision cleanup metrics
 
 GC uses the controller's shared OpenTelemetry provider and configured OTLP export.

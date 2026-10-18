@@ -16,6 +16,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -680,5 +681,30 @@ func TestExecuteOmitsTheCostAndModelTurnsARuntimeDoesNotReport(t *testing.T) {
 	}
 	if !reflect.DeepEqual(usage, want) {
 		t.Fatalf("usage metadata = %#v, want %#v without costUsd or numTurns", usage, want)
+	}
+}
+
+// A turn's forwarder refusals reach the status message even when the runtime
+// reports no usage, so the control plane counts them for every boundary.
+func TestExecuteReportsTheForwarderRefusalsOfATurn(t *testing.T) {
+	refusals := apia2a.ForwarderRefusals{Unauthorized: 2, RefusedPath: 1}
+	for name, outcome := range map[string]runtime.Outcome{
+		"completed": {ForwarderRefusals: refusals},
+		"failed":    {Failure: &runtime.Failure{Message: "boom"}, ForwarderRefusals: refusals},
+	} {
+		t.Run(name, func(t *testing.T) {
+			executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+				return outcome, nil
+			}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+			require.NoError(t, err)
+			events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+			require.Empty(t, errs)
+			last := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
+			require.NotNil(t, last.Status.Message)
+			got, ok := apia2a.ForwarderRefusalsOf(last.Status.Message)
+			require.True(t, ok)
+			require.Equal(t, refusals, got)
+			require.NotContains(t, last.Status.Message.Metadata, apia2a.UsageMetadataKey)
+		})
 	}
 }

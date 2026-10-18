@@ -326,6 +326,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
 			endInvocation()
+			apia2a.SetForwarderRefusals(message, outcome.ForwarderRefusals)
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
 			return
@@ -340,9 +341,9 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
 			endInvocation()
 			var message *a2atype.Message
-			if outcome.Usage != nil {
+			if metadata := outcomeMetadata(outcome); len(metadata) != 0 {
 				message = taskMessage(reqCtx, "")
-				message.Metadata = usageMetadata(outcome)
+				message.Metadata = metadata
 				apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			}
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, message), nil)
@@ -351,8 +352,8 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
 		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
-		if outcome.Usage != nil {
-			message.Metadata = usageMetadata(outcome)
+		if metadata := outcomeMetadata(outcome); len(metadata) != 0 {
+			message.Metadata = metadata
 		}
 		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
@@ -775,12 +776,15 @@ func safeFailure(message string) string {
 var _ runtime.EventSink = (*executionSink)(nil)
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
-// usageMetadata carries a turn's usage under the canonical usage key, in the
+// outcomeMetadata carries a turn's usage under the canonical usage key, in the
 // token fields every runtime reports, plus the cost and model turns when the
 // runtime reports them, as Claude Code does. An unreported cost is absent,
-// never zero.
-func usageMetadata(outcome runtime.Outcome) map[string]any {
+// never zero. What the runtime's MCP forwarder refused rides beside it.
+func outcomeMetadata(outcome runtime.Outcome) map[string]any {
 	metadata := map[string]any{}
+	if !outcome.ForwarderRefusals.IsZero() {
+		metadata[apia2a.ForwarderRefusalsMetadataKey] = outcome.ForwarderRefusals.MetadataValue()
+	}
 	if usage := outcome.Usage; usage != nil {
 		fields := map[string]any{
 			"promptTokenCount":        usage.InputTokens,

@@ -2,7 +2,11 @@
 // Harness runtime adapters.
 package runtime
 
-import "context"
+import (
+	"context"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+)
 
 // Turn is one invocation of an Actor's root conversation.
 type Turn struct {
@@ -88,10 +92,13 @@ type PendingTurn interface {
 // ends the turn, Pending transfers its live resources to the caller, and an
 // empty Outcome is successful completion. Failure and Pending are exclusive.
 // Usage is what the turn consumed, when the runtime reports it.
+// ForwarderRefusals counts what the runtime's loopback MCP forwarder refused
+// since the previous outcome, zero for a runtime without one.
 type Outcome struct {
-	Failure *Failure
-	Pending PendingTurn
-	Usage   *Usage
+	Failure           *Failure
+	Pending           PendingTurn
+	Usage             *Usage
+	ForwarderRefusals apia2a.ForwarderRefusals
 }
 
 // Usage is what one turn consumed, as the runtime reported it.

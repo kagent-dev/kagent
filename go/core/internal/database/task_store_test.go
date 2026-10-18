@@ -603,3 +603,31 @@ func TestCheckpointRejectsOlderPendingTask(t *testing.T) {
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.ErrorContains(t, err, "all tasks to be terminal")
 }
+
+// A settlement returns the task it published, metadata included, and a
+// retried settlement of the same boundary returns none, so a caller acting on
+// each published boundary acts once.
+func TestSettleSessionTaskPublishedReturnsEachBoundaryOnce(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, waiting := waitingTaskFixture(t, client)
+	reply := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("PostgreSQL"))
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	current, initialVersion := resumeRuntimeTask(t, client, session.Id, reply)
+	message := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("done"))
+	message.SetMeta("kagent.dev/a2a/forwarder-refusals", map[string]any{"unauthorized": 2})
+	current.Status = a2a.TaskStatus{State: a2a.TaskStateCompleted, Message: message}
+	hash := sha256.Sum256([]byte("published once"))
+	version, err := client.UpdateSessionTask(t.Context(), session.Id, initialVersion, hash[:], current, current, "")
+	require.NoError(t, err)
+
+	published, err := client.SettleSessionTaskPublished(t.Context(), session.Id, string(current.ID), version)
+	require.NoError(t, err)
+	require.NotNil(t, published)
+	require.Equal(t, a2a.TaskStateCompleted, published.Status.State)
+	require.Equal(t, map[string]any{"unauthorized": 2.0}, published.Status.Message.Metadata["kagent.dev/a2a/forwarder-refusals"])
+
+	again, err := client.SettleSessionTaskPublished(t.Context(), session.Id, string(current.ID), version)
+	require.NoError(t, err)
+	require.Nil(t, again, "a retried settlement publishes nothing")
+}

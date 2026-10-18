@@ -8,21 +8,29 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
 type Store interface {
-	SettleSessionTask(context.Context, string, string, int64) error
+	SettleSessionTaskPublished(context.Context, string, string, int64) (*a2a.Task, error)
 	GetSessionForRuntime(context.Context, string, string) (*apiv1alpha1.Session, error)
 	CreateRuntimeTask(context.Context, string, []byte, *a2a.Task, string) (int64, error)
 	GetVersionedSessionTask(context.Context, string, string) (*a2a.Task, int64, error)
@@ -33,12 +41,22 @@ type Store interface {
 var _ Store = (*database.Client)(nil)
 
 type Service struct {
-	store          Store
-	quiescenceWake chan<- struct{}
+	store             Store
+	quiescenceWake    chan<- struct{}
+	forwarderRefusals metric.Int64Counter
 }
 
 func NewService(store Store, quiescenceWake chan<- struct{}) *Service {
-	return &Service{store: store, quiescenceWake: quiescenceWake}
+	// An instrument that fails to register is a no-op one, reported to the
+	// global error handler: the count is a signal, not part of persistence.
+	refusals, err := otel.Meter("github.com/kagent-dev/kagent/go/core/internal/service/taskstore").Int64Counter(
+		"kagent.harness.forwarder.refusals",
+		metric.WithDescription("Requests a Harness runtime's loopback MCP forwarder refused itself, by the status it answered, as each turn boundary reported them."),
+		metric.WithUnit("{request}"))
+	if err != nil {
+		otel.Handle(err)
+	}
+	return &Service{store: store, quiescenceWake: quiescenceWake, forwarderRefusals: refusals}
 }
 
 func (s *Service) session(ctx context.Context, sessionID string) (*apiv1alpha1.Session, error) {
@@ -162,12 +180,15 @@ func (s *Service) ListTasks(ctx context.Context, input *apiv1alpha1.TaskStoreSer
 }
 
 func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreServiceSettleTaskRequest) (*apiv1alpha1.TaskStoreServiceSettleTaskResponse, error) {
-	if _, err := s.session(ctx, input.SessionId); err != nil {
+	session, err := s.session(ctx, input.SessionId)
+	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SettleSessionTask(ctx, input.SessionId, input.TaskId, input.Version); err != nil {
+	published, err := s.store.SettleSessionTaskPublished(ctx, input.SessionId, input.TaskId, input.Version)
+	if err != nil {
 		return nil, storageError(err)
 	}
+	s.countForwarderRefusals(ctx, session, published)
 	// Publication is committed before waking local workers. The durable claim
 	// remains discoverable if this process exits before delivering the hint.
 	select {
@@ -175,6 +196,37 @@ func (s *Service) SettleTask(ctx context.Context, input *apiv1alpha1.TaskStoreSe
 	default:
 	}
 	return &apiv1alpha1.TaskStoreServiceSettleTaskResponse{}, nil
+}
+
+// countForwarderRefusals counts what the runtime's MCP forwarder reported on a
+// boundary this call published, so a retried settlement counts nothing twice.
+// The runtime reports its own refusals: the counts are a signal for alerts on
+// the Agent, not an attribution a sandboxed process could not influence.
+func (s *Service) countForwarderRefusals(ctx context.Context, session *apiv1alpha1.Session, published *a2a.Task) {
+	if published == nil || published.Status.Message == nil {
+		return
+	}
+	refusals, ok := apia2a.ForwarderRefusalsOf(published.Status.Message)
+	if !ok {
+		logging.FromContext(ctx).WarnContext(ctx, "ignoring malformed forwarder refusals on a settled task", "session", session.GetId(), "task", published.ID)
+		return
+	}
+	agent := []attribute.KeyValue{
+		semconv.K8SNamespaceName(session.GetAgent().GetNamespace()),
+		attribute.String(string(conv.GenAIAgentNameKey), session.GetAgent().GetName()),
+	}
+	for _, count := range []struct {
+		status int
+		value  int64
+	}{
+		{http.StatusUnauthorized, refusals.Unauthorized},
+		{http.StatusNotFound, refusals.UnknownServer},
+		{http.StatusBadRequest, refusals.RefusedPath},
+	} {
+		if count.value > 0 {
+			s.forwarderRefusals.Add(ctx, count.value, metric.WithAttributes(append(agent, semconv.HTTPResponseStatusCode(count.status))...))
+		}
+	}
 }
 
 func storageError(err error) error {

@@ -13,9 +13,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 const (
@@ -55,6 +58,8 @@ type CredentialForwarder struct {
 
 	mu         sync.Mutex
 	credential string
+
+	unauthorized, unknownServer, refusedPath atomic.Int64
 }
 
 type forwardTarget struct {
@@ -154,6 +159,16 @@ func (f *CredentialForwarder) Clear() {
 	f.mu.Unlock()
 }
 
+// TakeRefusals returns what the forwarder refused since the previous call and
+// starts counting again from zero, so each count is reported once.
+func (f *CredentialForwarder) TakeRefusals() apia2a.ForwarderRefusals {
+	return apia2a.ForwarderRefusals{
+		Unauthorized:  f.unauthorized.Swap(0),
+		UnknownServer: f.unknownServer.Swap(0),
+		RefusedPath:   f.refusedPath.Swap(0),
+	}
+}
+
 // Close stops the loopback listener.
 func (f *CredentialForwarder) Close() error { return f.server.Close() }
 
@@ -167,6 +182,7 @@ func (f *CredentialForwarder) authorizeAndLimit(next http.Handler) http.Handler 
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		want, got := "Bearer "+f.token, request.Header.Get("Authorization")
 		if subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
+			f.unauthorized.Add(1)
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -179,17 +195,24 @@ func (f *CredentialForwarder) serve(response http.ResponseWriter, request *http.
 	// The suffix is joined onto the upstream URL, which resolves dot segments:
 	// a request must not climb out of its server's path with the credential.
 	if !forwardablePath(request) {
+		f.refusedPath.Add(1)
 		http.Error(response, "path holds a dot segment, an encoded slash or a character the forwarder refuses", http.StatusBadRequest)
 		return
 	}
 	rest, ok := strings.CutPrefix(request.URL.Path, forwarderPathPrefix)
 	if !ok {
+		// An MCP client looks for OAuth metadata at the origin's well-known
+		// paths once a server answers 401; that is no probe of the forwarder.
+		if !strings.HasPrefix(request.URL.Path, "/.well-known/") {
+			f.unknownServer.Add(1)
+		}
 		http.NotFound(response, request)
 		return
 	}
 	name, suffix, _ := strings.Cut(rest, "/")
 	target, ok := f.targets[name]
 	if !ok {
+		f.unknownServer.Add(1)
 		http.NotFound(response, request)
 		return
 	}

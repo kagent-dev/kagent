@@ -280,6 +280,16 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// A pending outcome carries this same live session. Every other return path
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
+	return d.withForwarderRefusals(outcome, err)
+}
+
+// withForwarderRefusals reports on an outcome what the MCP forwarder refused
+// since the previous outcome. A turn that ends in an error reports nothing, so
+// its refusals are reported with the next outcome rather than lost.
+func (d *ProcessDriver) withForwarderRefusals(outcome runtime.Outcome, err error) (runtime.Outcome, error) {
+	if err == nil && d.config.MCPForwarder != nil {
+		outcome.ForwarderRefusals = d.config.MCPForwarder.TakeRefusals()
+	}
 	return outcome, err
 }
 
@@ -505,7 +515,7 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 	}
 	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink})
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
-	return outcome, err
+	return p.driver.withForwarderRefusals(outcome, err)
 }
 
 // Cancel denies the outstanding permission MCP call and reaps the Claude process.
