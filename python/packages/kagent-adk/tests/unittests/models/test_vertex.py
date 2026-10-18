@@ -8,7 +8,7 @@ from google.genai import Client, types
 
 from kagent.adk.models._vertex import (
     VERTEX_GATEWAY_TOKEN,
-    KAgentClaudeVertexLlm,
+    claude_vertex_llm,
     skip_vertex_auth,
     vertex_client_kwargs,
 )
@@ -82,10 +82,8 @@ async def test_claude_vertex_sends_gateway_placeholder(vertex_env):
             },
         )
 
-    model = KAgentClaudeVertexLlm(model="claude-sonnet-4-5@20250929")
-    client = (await model._get_anthropic_client()).with_options(
-        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
-    )
+    model = claude_vertex_llm("claude-sonnet-4-5@20250929")
+    client = model.client.with_options(http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
     await client.messages.create(
         model="claude-sonnet-4-5@20250929", max_tokens=1, messages=[{"role": "user", "content": "hi"}]
     )
@@ -95,9 +93,19 @@ async def test_claude_vertex_sends_gateway_placeholder(vertex_env):
     assert seen[0].headers["authorization"] == f"Bearer {VERTEX_GATEWAY_TOKEN}"
 
 
-@pytest.mark.asyncio
-async def test_claude_vertex_keeps_google_auth_without_switch(vertex_env):
+def test_claude_vertex_keeps_google_auth_without_switch(vertex_env):
     vertex_env.delenv("KAGENT_SKIP_VERTEX_AUTH", raising=False)
-    model = KAgentClaudeVertexLlm(model="claude-sonnet-4-5@20250929")
-    client = await model._get_anthropic_client()
-    assert client.access_token is None
+    assert claude_vertex_llm("claude-sonnet-4-5@20250929").client is None
+
+
+def test_claude_vertex_resource_name_sets_project_and_location(vertex_env):
+    vertex_env.setenv("KAGENT_SKIP_VERTEX_AUTH", "true")
+    client = claude_vertex_llm("projects/other/locations/europe-west1/publishers/anthropic/models/claude").client
+    assert (client.project_id, client.region) == ("other", "europe-west1")
+
+
+def test_claude_vertex_requires_project_and_location(vertex_env):
+    vertex_env.setenv("KAGENT_SKIP_VERTEX_AUTH", "true")
+    vertex_env.delenv("GOOGLE_CLOUD_LOCATION")
+    with pytest.raises(ValueError, match="GOOGLE_CLOUD_LOCATION"):
+        claude_vertex_llm("claude-sonnet-4-5@20250929")

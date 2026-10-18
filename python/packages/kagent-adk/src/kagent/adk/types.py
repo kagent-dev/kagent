@@ -100,7 +100,7 @@ from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import FoundryOpenAI
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
-from kagent.adk.models._vertex import KAgentClaudeVertexLlm, vertex_client_kwargs
+from kagent.adk.models._vertex import claude_vertex_llm, vertex_client_kwargs
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
 logger = logging.getLogger(__name__)
@@ -586,7 +586,7 @@ def _create_llm_from_model_config(model_config: ModelConfig):
             client_kwargs=vertex_client_kwargs(),
         )
     if provider == "gemini_anthropic":
-        return KAgentClaudeVertexLlm(model=model_config.model)
+        return claude_vertex_llm(model_config.model)
     if provider == "ollama":
         ollama_options = _convert_ollama_options(dict(settings.options))
         # api key passthrough is not applicable for ollama
