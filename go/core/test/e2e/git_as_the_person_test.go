@@ -297,13 +297,9 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 	for _, harness := range []struct {
 		testHarness
 		shellTool string
-		// identity is false where the Harness sets no git identity of the
-		// turn's person, so git's own error stands and the push carries the
-		// fetched commit.
-		identity bool
 	}{
-		{testHarness{name: "kagent", runtimeLabel: "kagent"}, "bash", true},
-		{testHarness{name: claudeE2EHarness, runtimeLabel: "claude"}, "Bash", false},
+		{testHarness{name: "kagent", runtimeLabel: "kagent"}, "bash"},
+		{testHarness{name: claudeE2EHarness, runtimeLabel: "claude"}, "Bash"},
 	} {
 		t.Run(harness.runtimeLabel, func(t *testing.T) {
 			model := harness.createModel(t, kube, modelURL, nil)
@@ -337,12 +333,8 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 				require.Equal(t, "none", probed["jwt_env"], "the sandbox's environment holds no JWT")
 				require.Equal(t, "none", probed["jwt_files"], "/data and the Session's directory hold no JWT")
 				require.Equal(t, "read-only", probed["mirrors"])
-				if harness.identity {
-					require.Equal(t, "ok", probed["commit"])
-					require.Equal(t, gitAsThePersonCaller+" "+gitAsThePersonCaller, origin.author(t, "e2e/alpha.git", probed["branch"]), "the pushed commit is the person's")
-				} else {
-					t.Logf("the %s Harness sets no git identity of the turn's person: commit %s", harness.runtimeLabel, probed["commit"])
-				}
+				require.Equal(t, "ok", probed["commit"])
+				require.Equal(t, gitAsThePersonCaller+" "+gitAsThePersonCaller, origin.author(t, "e2e/alpha.git", probed["branch"]), "the pushed commit is the person's")
 				own[granted.sessionID] = probed["own"]
 			})
 

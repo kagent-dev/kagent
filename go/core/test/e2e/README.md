@@ -318,9 +318,8 @@ audience on both, and answers `gh api user` with the JWT's subject. A Session
 admitted with a grant fetches, commits and pushes in its clone and calls
 `gh api user` through the shell tool: every credential the forge received is
 the Actor's JWT, never the placeholder git and gh sent, the sandbox's
-environment, `/data` and the Session's directory hold no JWT, and on the
-`kagent` Harness the pushed commit's author and committer are the person (the
-`claude` Harness sets no git identity of the turn's person). A Session whose
+environment, `/data` and the Session's directory hold no JWT, and the pushed
+commit's author and committer are the person. A Session whose
 grant names `e2e-forge-refused` as a Bearer provider fails its push and its
 `gh` call there, and no credential reaches the forge on that host. A Session
 of the same Agent without a grant gets the gateway's 403 on the forge, which
