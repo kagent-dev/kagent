@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
@@ -23,6 +25,7 @@ if [ "$1" = "--version" ]; then
   echo "codex-cli 0.148.0"
   exit 0
 fi
+printf '%s\n' "$GIT_AUTHOR_NAME $GIT_AUTHOR_EMAIL $GIT_COMMITTER_NAME $GIT_COMMITTER_EMAIL" > "$CAPTURE.identity"
 read initialize
 printf '%s\n' "$initialize" >> "$CAPTURE"
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"codex-app-server","version":"0.148.0"}}}'
@@ -54,10 +57,13 @@ sleep 5
 		t.Fatal(err)
 	}
 	sink := &recordingSink{}
-	outcome, err := driver.Run(context.Background(), runtime.Turn{Prompt: "say hello"}, sink)
+	// Codex's git commits as the person of the turn.
+	person, _ := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{adk.UserHeader: {"person@example.com"}}))
+	outcome, err := driver.Run(person, runtime.Turn{Prompt: "say hello"}, sink)
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertIdentity(t, capture, strings.Repeat(" person@example.com", 4)[1:])
 	if outcome.Failure != nil || sink.text.String() != "hello" || len(sink.sessions) != 1 || sink.sessions[0].ContinuationID != "01900000-0000-7000-8000-000000000001" {
 		t.Fatalf("outcome = %#v, sink = %#v, text = %q", outcome, sink, sink.text.String())
 	}
@@ -80,6 +86,19 @@ sleep 5
 	}
 	if !bytes.Contains(requests, []byte(`"method":"thread/resume"`)) || !bytes.Contains(requests, []byte(`"threadId":"01900000-0000-7000-8000-000000000001"`)) {
 		t.Fatalf("resume did not select the exact native thread:\n%s", requests)
+	}
+	// A turn without a resolved person gets no identity.
+	assertIdentity(t, capture, "   ")
+}
+
+func assertIdentity(t *testing.T, capture, want string) {
+	t.Helper()
+	identity, err := os.ReadFile(capture + ".identity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSuffix(string(identity), "\n"); got != want {
+		t.Errorf("Codex's git identity = %q, want %q", got, want)
 	}
 }
 

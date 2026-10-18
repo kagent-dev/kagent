@@ -13,6 +13,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
 // ProcessConfig contains the adapter's inputs for one omp process. Args are
@@ -89,7 +90,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 			return runtime.Outcome{}, err
 		}
 	}
-	session, err := d.start(turn.ContinuationID)
+	session, err := d.start(ctx, turn.ContinuationID)
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
@@ -133,7 +134,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	return outcome, nil
 }
 
-func (d *ProcessDriver) start(continuationID string) (*processSession, error) {
+func (d *ProcessDriver) start(ctx context.Context, continuationID string) (*processSession, error) {
 	executable, err := exec.LookPath(d.config.Executable)
 	if err != nil {
 		return nil, fmt.Errorf("find omp executable %q: %w", d.config.Executable, err)
@@ -143,7 +144,8 @@ func (d *ProcessDriver) start(continuationID string) (*processSession, error) {
 		args = append(args, "--resume", continuationID)
 	}
 	command := exec.Command(executable, args...)
-	command.Dir, command.Env = d.config.Workspace, append([]string(nil), d.config.Environment...)
+	// omp's git commits as the person of the turn.
+	command.Dir, command.Env = d.config.Workspace, workspace.AsThePerson(ctx, d.config.Environment)
 	utils.ConfigureProcessGroup(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {

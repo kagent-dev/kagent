@@ -16,6 +16,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
 // ProcessConfig contains validated, compiler-owned inputs for one Codex App
@@ -96,7 +97,8 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		return runtime.Outcome{}, fmt.Errorf("find Codex executable %q: %w", d.config.Executable, err)
 	}
 	command := exec.Command(executable, "app-server", "--strict-config", "--stdio")
-	command.Dir, command.Env = d.config.Workspace, append([]string(nil), d.config.Environment...)
+	// Codex's git commits as the person of the turn.
+	command.Dir, command.Env = d.config.Workspace, workspace.AsThePerson(ctx, d.config.Environment)
 	utils.ConfigureProcessGroup(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {

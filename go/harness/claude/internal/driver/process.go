@@ -11,13 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/harness/workspace"
@@ -221,8 +218,9 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	// the volume's owner, not to Claude's user.
 	// Its git and gh send placeholder credentials the egress gateway replaces
 	// on a provider's host.
+	// It commits as the person of the turn.
 	dispatch := workspace.DispatchFrom(ctx)
-	environment := personEnvironment(ctx, traceEnvironment(ctx, workspace.WithCredentialPlaceholders(dispatch, workspace.TrustMirrors(dispatch, d.config.Environment))))
+	environment := workspace.AsThePerson(ctx, traceEnvironment(ctx, workspace.WithCredentialPlaceholders(dispatch, workspace.TrustMirrors(dispatch, d.config.Environment))))
 	var gate *tracingGate
 	if d.config.AwaitTelemetry {
 		if gate, err = newTracingGate(); err != nil {
@@ -399,48 +397,6 @@ func traceEnvironment(ctx context.Context, environment []string) []string {
 		result = append(result, "TRACESTATE="+tracestate)
 	}
 	return result
-}
-
-// gitIdentityVariables are the variables git takes a commit's author and
-// committer from.
-var gitIdentityVariables = []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"}
-
-// personEnvironment sets git's author and committer to the person of the turn
-// ctx belongs to, as the kagent Harness does: the identity the gateway
-// resolved from the caller's validated token and forwards as x-kagent-user.
-// That identity carries one value, the person's id (their email), so it is
-// both the name and the email. A turn without a resolved person gets no
-// identity, so git's own error stands rather than a stand-in author; an
-// identity the configured environment carries is dropped for the same reason.
-// A turn resumed after an approval keeps the identity its process started with.
-func personEnvironment(ctx context.Context, environment []string) []string {
-	result := make([]string, 0, len(environment)+len(gitIdentityVariables))
-	for _, variable := range environment {
-		name, _, _ := strings.Cut(variable, "=")
-		if !slices.Contains(gitIdentityVariables, name) {
-			result = append(result, variable)
-		}
-	}
-	if person := turnPerson(ctx); person != "" {
-		for _, name := range gitIdentityVariables {
-			result = append(result, name+"="+person)
-		}
-	}
-	return result
-}
-
-// turnPerson returns the person of the A2A call that owns ctx, or the empty
-// string when the gateway resolved nobody.
-func turnPerson(ctx context.Context) string {
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok || callCtx == nil || callCtx.ServiceParams() == nil {
-		return ""
-	}
-	values, _ := callCtx.ServiceParams().Get(adk.UserHeader)
-	if len(values) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(values[0])
 }
 
 // userMessage encodes a prompt as one Claude Code stream-JSON input line.

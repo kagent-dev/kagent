@@ -119,41 +119,6 @@ func TestTraceEnvironment(t *testing.T) {
 	}
 }
 
-func TestPersonEnvironment(t *testing.T) {
-	person := func(values ...string) context.Context {
-		ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{adk.UserHeader: values}))
-		return ctx
-	}
-	configured := []string{"PATH=/bin", "GIT_AUTHOR_NAME=sandbox", "GIT_COMMITTER_EMAIL=sandbox@localhost", "GIT_CONFIG_COUNT=1"}
-	for _, test := range []struct {
-		name string
-		ctx  context.Context
-		want []string
-	}{
-		{
-			name: "the person of the turn is author and committer",
-			ctx:  person(" person@example.com "),
-			want: []string{
-				"PATH=/bin", "GIT_CONFIG_COUNT=1",
-				"GIT_AUTHOR_NAME=person@example.com", "GIT_AUTHOR_EMAIL=person@example.com",
-				"GIT_COMMITTER_NAME=person@example.com", "GIT_COMMITTER_EMAIL=person@example.com",
-			},
-		},
-		{name: "a turn without a person gets no identity", ctx: person(""), want: []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}},
-		{name: "a call without the header gets no identity", ctx: person(), want: []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}},
-		{name: "no A2A call gets no identity", ctx: t.Context(), want: []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := personEnvironment(test.ctx, configured); !slices.Equal(got, test.want) {
-				t.Fatalf("person environment = %q, want %q", got, test.want)
-			}
-			if want := []string{"PATH=/bin", "GIT_AUTHOR_NAME=sandbox", "GIT_COMMITTER_EMAIL=sandbox@localhost", "GIT_CONFIG_COUNT=1"}; !slices.Equal(configured, want) {
-				t.Fatalf("input environment mutated to %q", configured)
-			}
-		})
-	}
-}
-
 // Claude Code's git commits as the person of each turn.
 func TestProcessDriverCommitsAsThePersonOfTheTurn(t *testing.T) {
 	dir := t.TempDir()
