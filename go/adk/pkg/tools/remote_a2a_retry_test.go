@@ -37,6 +37,9 @@ type fakeRemoteAgent struct {
 	tasks     []*a2atype.Task
 	getTasks  int
 	subscribe int
+	// subscribeBlocks holds every SubscribeToTask stream open until its
+	// request ends, like a task that never settles.
+	subscribeBlocks bool
 }
 
 func (f *fakeRemoteAgent) SendMessage(_ context.Context, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
@@ -58,11 +61,16 @@ func (f *fakeRemoteAgent) GetTask(context.Context, *a2atype.GetTaskRequest) (*a2
 	return task, nil
 }
 
-func (f *fakeRemoteAgent) SubscribeToTask(context.Context, *a2atype.SubscribeToTaskRequest) iter.Seq2[a2atype.Event, error] {
+func (f *fakeRemoteAgent) SubscribeToTask(ctx context.Context, _ *a2atype.SubscribeToTaskRequest) iter.Seq2[a2atype.Event, error] {
 	f.mu.Lock()
 	f.subscribe++
+	blocks := f.subscribeBlocks
 	f.mu.Unlock()
-	return func(func(a2atype.Event, error) bool) {}
+	return func(func(a2atype.Event, error) bool) {
+		if blocks {
+			<-ctx.Done()
+		}
+	}
 }
 
 func (f *fakeRemoteAgent) sent() []*a2atype.SendMessageRequest {
@@ -313,5 +321,46 @@ func TestHandleResumeAfterLostResponse(t *testing.T) {
 				t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, "child-context")
 			}
 		})
+	}
+}
+
+func TestResumeRecoveryTimeout(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		client *http.Client
+		want   time.Duration
+	}{
+		{name: "no client", want: defaultResumeRecoveryTimeout},
+		{name: "no client timeout", client: &http.Client{}, want: defaultResumeRecoveryTimeout},
+		{name: "client timeout", client: &http.Client{Timeout: 7 * time.Second}, want: 7 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resumeRecoveryTimeout(test.client); got != test.want {
+				t.Errorf("resumeRecoveryTimeout() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRecoverResumedTaskStopsAtTimeout(t *testing.T) {
+	resume := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("approve"))
+	agent := &fakeRemoteAgent{
+		tasks:           []*a2atype.Task{taskWithHistory(a2atype.TaskStateWorking, "", resume)},
+		subscribeBlocks: true,
+	}
+	client := newFakeRemoteAgentClient(t, agent, false)
+
+	start := time.Now()
+	task, ok := recoverResumedTask(t.Context(), client, "child-task", resume.ID, 100*time.Millisecond)
+	if ok {
+		t.Fatalf("recovered task %#v, want the outcome to stay unknown", task)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("recovery took %v, want it bounded by the timeout", elapsed)
+	}
+	agent.mu.Lock()
+	defer agent.mu.Unlock()
+	if agent.subscribe != 1 {
+		t.Errorf("subscribe = %d, want 1", agent.subscribe)
 	}
 }

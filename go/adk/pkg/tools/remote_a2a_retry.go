@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"net/http"
 	"slices"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -25,13 +27,29 @@ func sendMessageWithRetry(ctx context.Context, client *a2aclient.Client, req *a2
 	})
 }
 
+// defaultResumeRecoveryTimeout bounds recoverResumedTask when the remote
+// agent has no configured timeout.
+const defaultResumeRecoveryTimeout = 5 * time.Minute
+
+// resumeRecoveryTimeout returns the remote agent's configured timeout, or
+// defaultResumeRecoveryTimeout when it has none.
+func resumeRecoveryTimeout(c *http.Client) time.Duration {
+	if c != nil && c.Timeout > 0 {
+		return c.Timeout
+	}
+	return defaultResumeRecoveryTimeout
+}
+
 // recoverResumedTask looks up the task a resume message was sent to after
 // the send failed ambiguously. It returns the task only when its history
 // shows messageID was accepted and the task has since reached a state the
 // caller can report: terminal, or waiting for input again. A task still
-// working is followed with SubscribeToTask until it settles. Otherwise the
-// outcome stays unknown and the caller reports the original error.
-func recoverResumedTask(ctx context.Context, client *a2aclient.Client, taskID a2atype.TaskID, messageID string) (*a2atype.Task, bool) {
+// working is followed with SubscribeToTask until it settles. Recovery gives
+// up after timeout. Otherwise the outcome stays unknown and the caller
+// reports the original error.
+func recoverResumedTask(ctx context.Context, client *a2aclient.Client, taskID a2atype.TaskID, messageID string, timeout time.Duration) (*a2atype.Task, bool) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	task, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: taskID})
 	if err != nil || !taskHasMessage(task, messageID) {
 		return nil, false

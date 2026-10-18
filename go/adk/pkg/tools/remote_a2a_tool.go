@@ -404,7 +404,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	if err != nil && sendCtx.Err() == nil {
 		// The decision may have reached the task before the failure. Never
 		// resend it; read the task to learn whether it was applied.
-		if task, ok := recoverResumedTask(sendCtx, client, message.TaskID, message.ID); ok {
+		if task, ok := recoverResumedTask(sendCtx, client, message.TaskID, message.ID, resumeRecoveryTimeout(s.httpClient)); ok {
 			logging.FromContext(ctx).InfoContext(ctx, "recovered remote agent task after ambiguous resume failure",
 				"tool", subagentName, "task_id", taskID, "error", err)
 			result, err = task, nil
