@@ -197,13 +197,15 @@ func forgeLogin(authorization string) (string, bool) {
 	return actor, err == nil
 }
 
-// requireProviderCredential fails unless every request among received
-// carries the credential the e2e credential provider answered for the
-// Session's Actor, never the placeholder the sandbox sent: the git credential
-// (Basic) outside /api/ and the API token (Bearer) under it. Some request to
-// each of paths must be among received.
+// requireProviderCredential fails unless every request among received that
+// carries an Authorization carries the credential the e2e credential provider
+// answered for the Session's Actor, never the placeholder the sandbox sent:
+// the git credential (Basic) outside /api/ and the API token (Bearer) under
+// it. Some request to each of paths must carry it. The gateway replaces a
+// credential a request carries; git's first, anonymous request carries none.
 func requireProviderCredential(t *testing.T, received []forgeRequest, sessionID string, paths ...string) {
 	t.Helper()
+	received = slices.DeleteFunc(slices.Clone(received), func(request forgeRequest) bool { return request.Authorization == "" })
 	for _, request := range received {
 		require.NotContains(t, request.Authorization, workspaceCredentialPlaceholder, "%s %s carried the sandbox's placeholder", request.Method, request.Path)
 		actor, err := credentialprovider.ActorOf(request.Authorization)
@@ -217,7 +219,7 @@ func requireProviderCredential(t *testing.T, received []forgeRequest, sessionID 
 	}
 	for _, path := range paths {
 		require.True(t, slices.ContainsFunc(received, func(request forgeRequest) bool { return strings.Contains(request.Path, path) }),
-			"no request to %s reached the forge", path)
+			"no request to %s carried the provider's credential", path)
 	}
 }
 
