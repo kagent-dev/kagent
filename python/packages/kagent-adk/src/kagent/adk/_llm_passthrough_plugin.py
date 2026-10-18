@@ -37,7 +37,9 @@ class LLMPassthroughPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> Optional[LlmResponse]:
-        token = extract_bearer_token(callback_context.state.get("headers", {}))
+        token = extract_bearer_token(
+            callback_context.state.get("temp:headers", callback_context.state.get("headers", {}))
+        )
         if not token:
             return None
 

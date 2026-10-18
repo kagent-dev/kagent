@@ -249,6 +249,7 @@ class A2aAgentExecutor(AgentExecutor):
         if task_id:
             self._running_usage[task_id] = execution_state.usage
         identity_token = public_context_id.set(context.context_id)
+        bearer_marker = bearer_token.set(None)
         user_token = None
         try:
             context = self._translate_hitl_response(context)
@@ -309,6 +310,7 @@ class A2aAgentExecutor(AgentExecutor):
                 if runner is not None:
                     await self._safe_close_runner(runner)
             finally:
+                bearer_token.reset(bearer_marker)
                 # The request handler holds the final event until cleanup ends,
                 # so a cancel arriving meanwhile still reports this execution.
                 if task_id and self._running_usage.get(task_id) is execution_state.usage:
@@ -359,7 +361,9 @@ class A2aAgentExecutor(AgentExecutor):
         )
         headers = _call_state(context).get("headers", {})
         headers = headers if isinstance(headers, dict) else {}
-        run_request.state_delta = {"headers": headers}
+        # ADK excludes temp: state from its native session database and events.
+        # Request credentials must not become durable conversation state.
+        run_request.state_delta = {"temp:headers": headers}
         # Also stash the token in a ContextVar for consumers with no
         # callback_context of their own - see _bearer_token.py.
         bearer_token.set(extract_bearer_token(headers))

@@ -235,7 +235,7 @@ class KAgentRemoteA2ATool(BaseTool):
             parent_context_id = public_context_id.get() or getattr(session, "id", None)
             state = getattr(session, "state", None)
             if isinstance(state, dict):
-                hdrs = state.get(_HEADERS_STATE_KEY)
+                hdrs = state.get("temp:headers", state.get(_HEADERS_STATE_KEY))
                 if isinstance(hdrs, dict):
                     inbound_headers = hdrs
 

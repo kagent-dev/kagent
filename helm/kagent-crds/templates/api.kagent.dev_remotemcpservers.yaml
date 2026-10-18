@@ -217,6 +217,13 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
+              tokenPassthrough:
+                default: false
+                description: |-
+                  TokenPassthrough forwards the authenticated invocation's bearer token
+                  to this server. Authorization entries in HeadersFrom are discovery-only.
+                  Invocations without a bearer token fail before connecting.
+                type: boolean
               url:
                 minLength: 1
                 type: string

@@ -1559,6 +1559,11 @@ func (in *RemoteMCPServerSpec) DeepCopyInto(out *RemoteMCPServerSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.TokenPassthrough != nil {
+		in, out := &in.TokenPassthrough, &out.TokenPassthrough
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Timeout != nil {
 		in, out := &in.Timeout, &out.Timeout
 		*out = new(metav1.Duration)

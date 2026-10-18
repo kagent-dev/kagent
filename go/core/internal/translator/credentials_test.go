@@ -71,7 +71,7 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true})
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true})
 	_, bindings, _, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
@@ -126,7 +126,7 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 			name: "cloud model with passthrough binds the cloud",
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				APIKeyPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
+				TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
 			},
 			wantName:     "OLLAMA_API_KEY",
 			wantEndpoint: "https://api.ollama.com",
@@ -175,7 +175,7 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 }
 
 func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
 	environment, credentials, origins, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, environment)

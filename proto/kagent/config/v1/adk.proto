@@ -272,12 +272,16 @@ message ADKHTTPMCPServerConfig {
   repeated string tools = 2;
   repeated string allowed_headers = 3;
   bool require_approval = 4;
+  // Require the current invocation's bearer token, never a runtime credential.
+  bool bearer_token_passthrough = 5;
 }
 message ADKSSEMCPServerConfig {
   ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
   repeated string tools = 2;
   repeated string allowed_headers = 3;
   bool require_approval = 4;
+  // Require the current invocation's bearer token, never a runtime credential.
+  bool bearer_token_passthrough = 5;
 }
 message ADKStdioMCPServerConfig {
   string command = 1;

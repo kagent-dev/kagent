@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 import httpx2
 from google.adk.tools import BaseTool
+from google.adk.tools.mcp_tool.mcp_session_manager import MCPSessionManager
 from google.adk.tools.mcp_tool.mcp_tool import McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, ReadonlyContext
 from google.adk.tools.tool_context import ToolContext
@@ -127,6 +128,14 @@ class ConnectionSafeMcpTool(McpTool):
             return self._connection_error_response(error)
 
 
+class _PassthroughSessionManager(MCPSessionManager):
+    async def _get_mtls_transport(self):
+        # ADK 2.11 replaces the configured client factory when automatic mTLS
+        # succeeds. That discards our TLS/destination guards and may use ADC.
+        # Caller-authenticated connections must use only the configured factory.
+        return None
+
+
 class KAgentMcpToolset(McpToolset):
     """McpToolset variant that catches and enriches errors during MCP session setup
     and handles cancel scope issues during cleanup.
@@ -144,19 +153,43 @@ class KAgentMcpToolset(McpToolset):
     # bypass __init__) still resolve the attribute.
     _app_tool_names: Optional[MCPAppToolNames] = None
     _require_approval: bool = False
+    _bearer_token_passthrough: bool = False
 
     def __init__(
         self,
         *args: Any,
         app_tool_names: Optional[MCPAppToolNames] = None,
         require_approval: bool = False,
+        bearer_token_passthrough: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._app_tool_names = app_tool_names
         self._require_approval = require_approval
+        self._bearer_token_passthrough = bearer_token_passthrough
+        self._passthrough_header_provider = self._header_provider if bearer_token_passthrough else None
+        if bearer_token_passthrough:
+            # The upstream manager has not opened any sessions at construction.
+            self._mcp_session_manager = _PassthroughSessionManager(
+                connection_params=self._connection_params,
+                errlog=self._errlog,
+                sampling_callback=self._sampling_callback,
+                sampling_capabilities=self._sampling_capabilities,
+                elicitation_callback=self._elicitation_callback,
+            )
+
+    async def _build_headers(self, readonly_context=None):
+        if self._bearer_token_passthrough:
+            # Upstream skips header_provider when no ReadonlyContext exists.
+            # Initialization must fail closed too, never try an anonymous dial.
+            return self._passthrough_header_provider(readonly_context)
+        return await super()._build_headers(readonly_context)
 
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
+        if self._bearer_token_passthrough:
+            # The global STS plugin can overwrite _header_provider. Dedicated
+            # per-server passthrough remains independent of that legacy switch.
+            self._header_provider = self._passthrough_header_provider
         try:
             tools = await super().get_tools(readonly_context)
         except asyncio.CancelledError as error:

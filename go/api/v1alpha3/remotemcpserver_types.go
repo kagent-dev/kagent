@@ -56,6 +56,12 @@ type RemoteMCPServerSpec struct {
 	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || self.name.matches('^[!#$%&\\\\x27*+.^_`|~0-9A-Za-z-]+$')",message="Secret-backed headers require a valid HTTP header name",fieldPath=".name"
 	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || !(self.name.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie'])",message="this header cannot carry an egress credential",fieldPath=".name"
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+	// TokenPassthrough forwards the authenticated invocation's bearer token
+	// to this server. Authorization entries in HeadersFrom are discovery-only.
+	// Invocations without a bearer token fail before connecting.
+	// +optional
+	// +kubebuilder:default=false
+	TokenPassthrough *bool `json:"tokenPassthrough,omitempty"`
 	// +optional
 	// +kubebuilder:default="30s"
 	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="timeout must be positive and at most 9223372036s"

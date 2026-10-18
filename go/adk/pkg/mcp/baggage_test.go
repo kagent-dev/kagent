@@ -196,8 +196,11 @@ type toolContext struct {
 	callID string
 }
 
-func (c toolContext) Value(key any) any      { return c.ctx.Value(key) }
-func (c toolContext) FunctionCallID() string { return c.callID }
+func (c toolContext) Value(key any) any           { return c.ctx.Value(key) }
+func (c toolContext) FunctionCallID() string      { return c.callID }
+func (c toolContext) Deadline() (time.Time, bool) { return c.ctx.Deadline() }
+func (c toolContext) Done() <-chan struct{}       { return c.ctx.Done() }
+func (c toolContext) Err() error                  { return c.ctx.Err() }
 
 type readonlyContext struct {
 	adkagent.ReadonlyContext

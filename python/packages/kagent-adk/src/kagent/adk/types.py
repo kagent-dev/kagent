@@ -89,6 +89,7 @@ from kagent.core._runtime_config import optional_field
 from protovalidate import validate
 
 from kagent.adk._approval import make_approval_callback
+from kagent.adk._bearer_token import bearer_token
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
@@ -117,6 +118,7 @@ HEADERS_STATE_KEY = "headers"
 def create_header_provider(
     allowed_headers: list[str] | None = None,
     sts_header_provider: Callable[[Optional[ReadonlyContext]], dict[str, str]] | None = None,
+    bearer_token_passthrough: bool = False,
 ) -> Callable[[Optional[ReadonlyContext]], dict[str, str]] | None:
     """Create a header provider that combines STS tokens and allowed headers.
 
@@ -133,6 +135,15 @@ def create_header_provider(
     Returns:
         A header provider function, or None if no headers need to be propagated.
     """
+    if bearer_token_passthrough:
+
+        def caller_headers(_: Optional[ReadonlyContext]) -> dict[str, str]:
+            token = bearer_token.get()
+            if not token:
+                raise ValueError("MCP bearer token passthrough requires an authenticated invocation bearer token")
+            return {"Authorization": f"Bearer {token}"}
+
+        return caller_headers
     if not allowed_headers and not sts_header_provider:
         return None
 
@@ -144,7 +155,9 @@ def create_header_provider(
 
         # Add allowed headers from session state first
         if normalized_allowed and readonly_context:
-            request_headers = readonly_context.state.get(HEADERS_STATE_KEY, {})
+            request_headers = readonly_context.state.get(
+                "temp:headers", readonly_context.state.get(HEADERS_STATE_KEY, {})
+            )
             for header_name, header_value in request_headers.items():
                 if header_name.lower() in normalized_allowed:
                     headers[header_name] = header_value
@@ -266,9 +279,16 @@ def _timeout_seconds(config, name):
     return duration.seconds + duration.nanos / 1_000_000_000 if duration is not None else None
 
 
-def _mcp_params(config, params_type):
+def _mcp_params(config, params_type, bearer_token_passthrough=False):
     # Only pass present fields, so the ADK retains its own timeout defaults.
-    values = {"url": config.url, "headers": dict(config.headers)}
+    values = {
+        "url": config.url,
+        "headers": {
+            name: value
+            for name, value in config.headers.items()
+            if not bearer_token_passthrough or name.lower() != "authorization"
+        },
+    }
     for name in ("timeout", "sse_read_timeout"):
         if config.HasField(name):
             values[name] = _timeout_seconds(config, name)
@@ -283,6 +303,33 @@ def _mcp_params(config, params_type):
             ca_cert_path=optional_field(config, "tls_ca_cert_path"),
             disable_system_cas=config.tls_disable_system_cas,
         )
+    if bearer_token_passthrough:
+        base_factory = params.httpx_client_factory or _build_tls_httpx_client_factory(
+            disable_verify=False,
+            ca_cert_path=None,
+            disable_system_cas=False,
+        )
+        target = httpx2.URL(config.url)
+
+        async def restrict_destination(request):
+            if (request.url.scheme, request.url.host, request.url.port) != (target.scheme, target.host, target.port):
+                raise ValueError("MCP bearer token passthrough cannot change destination")
+
+        async def reject_redirect(response):
+            # MCP 2.x manually follows same-origin redirects even when the
+            # client's follow_redirects is false. Stop before that SDK loop,
+            # without including the URL, Location, or response body in errors.
+            if response.is_redirect:
+                raise ValueError("MCP bearer token passthrough does not allow redirects")
+
+        def caller_client_factory(**kwargs):
+            client = base_factory(**kwargs)
+            client.follow_redirects = False
+            client.event_hooks["request"].append(restrict_destination)
+            client.event_hooks["response"].append(reject_redirect)
+            return client
+
+        params.httpx_client_factory = caller_client_factory
     return params
 
 
@@ -310,11 +357,12 @@ def create_agent(
             # Install a TLS-aware httpx_client_factory on the params
             # before constructing the toolset, so every MCP session
             # the session manager opens trusts the configured CA.
-            params = _mcp_params(http_tool.params, StreamableHTTPConnectionParams)
+            params = _mcp_params(http_tool.params, StreamableHTTPConnectionParams, http_tool.bearer_token_passthrough)
             # Create header provider combining STS and allowed headers for this tool
             tool_header_provider = create_header_provider(
                 allowed_headers=http_tool.allowed_headers,
                 sts_header_provider=sts_header_provider,
+                bearer_token_passthrough=http_tool.bearer_token_passthrough,
             )
             tools.append(
                 KAgentMcpToolset(
@@ -323,17 +371,19 @@ def create_agent(
                     header_provider=tool_header_provider,
                     app_tool_names=mcp_app_tool_names,
                     require_approval=http_tool.require_approval,
+                    bearer_token_passthrough=http_tool.bearer_token_passthrough,
                 )
             )
             if http_tool.require_approval:
                 has_tools_requiring_approval = True
     if config.sse_tools:
         for sse_tool in config.sse_tools:  # add sse tools
-            params = _mcp_params(sse_tool.params, SseConnectionParams)
+            params = _mcp_params(sse_tool.params, SseConnectionParams, sse_tool.bearer_token_passthrough)
             # Create header provider combining STS and allowed headers for this tool
             tool_header_provider = create_header_provider(
                 allowed_headers=sse_tool.allowed_headers,
                 sts_header_provider=sts_header_provider,
+                bearer_token_passthrough=sse_tool.bearer_token_passthrough,
             )
             tools.append(
                 KAgentMcpToolset(
@@ -342,6 +392,7 @@ def create_agent(
                     header_provider=tool_header_provider,
                     app_tool_names=mcp_app_tool_names,
                     require_approval=sse_tool.require_approval,
+                    bearer_token_passthrough=sse_tool.bearer_token_passthrough,
                 )
             )
             if sse_tool.require_approval:

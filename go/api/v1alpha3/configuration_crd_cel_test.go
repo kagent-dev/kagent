@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -64,12 +65,40 @@ func TestConfigurationCRDValidation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, AddToScheme(scheme))
+	require.NoError(t, apiextensionsv1.AddToScheme(scheme))
 	cl, err := ctrlclient.New(cfg, ctrlclient.Options{Scheme: scheme})
 	require.NoError(t, err)
 
 	ctx := context.Background()
 	const namespace = "configuration-crd-cel"
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}))
+
+	t.Run("MCP token passthrough defaults and round trip", func(t *testing.T) {
+		crd := &apiextensionsv1.CustomResourceDefinition{}
+		require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKey{Name: "remotemcpservers.api.kagent.dev"}, crd))
+		properties := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties
+		require.Contains(t, properties, "tokenPassthrough")
+		require.NotContains(t, properties, "bearerTokenPassthrough")
+		for _, value := range []*bool{nil, new(false), new(true)} {
+			server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-passthrough-", Namespace: namespace},
+				Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: value}}
+			require.NoError(t, cl.Create(ctx, server))
+			stored := &RemoteMCPServer{}
+			require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(server), stored))
+			require.NotNil(t, stored.Spec.TokenPassthrough)
+			require.Equal(t, value != nil && *value, *stored.Spec.TokenPassthrough)
+			data, err := json.Marshal(stored)
+			require.NoError(t, err)
+			require.Contains(t, string(data), `"tokenPassthrough":`)
+			require.NotContains(t, string(data), "bearerTokenPassthrough")
+		}
+		invalid := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": GroupVersion.String(), "kind": "RemoteMCPServer",
+			"metadata": map[string]any{"name": "invalid-passthrough", "namespace": namespace},
+			"spec":     map[string]any{"description": "", "url": "https://mcp.example.com", "tokenPassthrough": "true"},
+		}}
+		require.ErrorContains(t, cl.Create(ctx, invalid), "tokenPassthrough")
+	})
 
 	t.Run("MCP timeout bounds", func(t *testing.T) {
 		for _, field := range []string{"timeout", "sseReadTimeout"} {
@@ -89,6 +118,48 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
+		}
+	})
+
+	t.Run("model token passthrough", func(t *testing.T) {
+		crd := &apiextensionsv1.CustomResourceDefinition{}
+		require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKey{Name: "modelconfigs.api.kagent.dev"}, crd))
+		properties := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties
+		require.Contains(t, properties, "tokenPassthrough")
+		require.NotContains(t, properties, "apiKeyPassthrough")
+		for _, tc := range []struct {
+			name     string
+			provider ModelProvider
+			enabled  bool
+			secret   string
+			wantErr  string
+		}{
+			{name: "enabled", provider: ModelProviderOpenAI, enabled: true},
+			{name: "disabled with secret", provider: ModelProviderOpenAI, secret: "model-key"},
+			{name: "mutually exclusive", provider: ModelProviderOpenAI, enabled: true, secret: "model-key", wantErr: "mutually exclusive"},
+			{name: "Gemini", provider: ModelProviderGemini, enabled: true, wantErr: "tokenPassthrough must be false"},
+			{name: "Gemini Vertex", provider: ModelProviderGeminiVertexAI, enabled: true, wantErr: "tokenPassthrough must be false"},
+			{name: "Anthropic Vertex", provider: ModelProviderAnthropicVertexAI, enabled: true, wantErr: "tokenPassthrough must be false"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				model := &ModelConfig{ObjectMeta: metav1.ObjectMeta{GenerateName: "model-passthrough-", Namespace: namespace},
+					Spec: ModelConfigSpec{Provider: tc.provider, Model: "model", TokenPassthrough: tc.enabled, APIKeySecret: tc.secret}}
+				if tc.secret != "" {
+					model.Spec.APIKeySecretKey = "key"
+				}
+				err := cl.Create(ctx, model)
+				if tc.wantErr != "" {
+					require.ErrorContains(t, err, tc.wantErr)
+					return
+				}
+				require.NoError(t, err)
+				stored := &ModelConfig{}
+				require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(model), stored))
+				require.Equal(t, tc.enabled, stored.Spec.TokenPassthrough)
+				data, err := json.Marshal(stored)
+				require.NoError(t, err)
+				require.NotContains(t, string(data), "apiKeyPassthrough")
+			})
 		}
 	})
 

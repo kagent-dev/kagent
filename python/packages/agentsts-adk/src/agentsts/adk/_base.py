@@ -68,7 +68,7 @@ def _acting_credential(state: dict) -> Optional[str]:
     implementation reading a session-scoped field returns the same value for
     every caller. Only the inbound Authorization header is caller-scoped.
     """
-    headers = state.get(HEADERS_KEY, None)
+    headers = state.get("temp:headers", state.get(HEADERS_KEY, None))
     if not isinstance(headers, dict):
         headers = {}
     return _extract_jwt_from_headers(headers)
@@ -106,8 +106,10 @@ class ADKSTSIntegration(STSIntegrationBase):
     """Google ADK-specific STS integration.
 
     By default, the subject token is read from the ``Authorization`` header
-    stored in the session state under the ``headers`` key.  To retrieve the
-    subject token from a custom source, pass a ``get_subject_token`` callback::
+    in invocation-temporary state under ``temp:headers``, with the legacy
+    ``headers`` state key as a fallback when ``temp:headers`` is absent.
+    To retrieve the subject token from a custom source, pass a
+    ``get_subject_token`` callback::
 
         integration = ADKSTSIntegration(
             well_known_uri="https://example.com/.well-known/sts",
@@ -139,7 +141,8 @@ class ADKSTSIntegration(STSIntegrationBase):
             use_issuer_host: Replace the host:port in token_endpoint with the host:port from well_known_uri
             get_subject_token: Optional callback that takes session.state (dict) and returns
                 the subject token string or None. If not set, defaults to extracting the
-                JWT from the Authorization header in session.state["headers"]. When
+                JWT from Authorization in invocation-temporary state["temp:headers"],
+                falling back to legacy state["headers"] when absent. When
                 the caller sends no Authorization header, the callback also identifies
                 the caller.
         """

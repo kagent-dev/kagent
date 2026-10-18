@@ -34,7 +34,7 @@ func NewRuntimeMCPClient(kubeClient client.Client) *RuntimeMCPClient {
 }
 
 func (c *RuntimeMCPClient) ListTools(ctx context.Context, ref MCPServerRef) ([]MCPAppTool, error) {
-	session, cleanup, err := c.connect(ctx, ref)
+	session, cleanup, err := c.connect(ctx, ref, true)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to connect to MCP server", err)
 	}
@@ -62,7 +62,7 @@ func (c *RuntimeMCPClient) ListTools(ctx context.Context, ref MCPServerRef) ([]M
 }
 
 func (c *RuntimeMCPClient) CallTool(ctx context.Context, ref MCPServerRef, toolName string, arguments any) (*mcp.CallToolResult, error) {
-	session, cleanup, err := c.connect(ctx, ref)
+	session, cleanup, err := c.connect(ctx, ref, false)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to connect to MCP server", err)
 	}
@@ -90,7 +90,7 @@ func (c *RuntimeMCPClient) CallTool(ctx context.Context, ref MCPServerRef, toolN
 }
 
 func (c *RuntimeMCPClient) ReadResource(ctx context.Context, ref MCPServerRef, uri string) (*mcp.ReadResourceResult, error) {
-	session, cleanup, err := c.connect(ctx, ref)
+	session, cleanup, err := c.connect(ctx, ref, false)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to connect to MCP server", err)
 	}
@@ -121,10 +121,15 @@ func (c *RuntimeMCPClient) ResolveServer(ctx context.Context, ref MCPServerRef) 
 	return server, nil
 }
 
-func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef) (*mcp.ClientSession, func(), error) {
+func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef, discovery bool) (*mcp.ClientSession, func(), error) {
 	server, err := c.ResolveServer(ctx, ref)
 	if err != nil {
 		return nil, nil, err
+	}
+	if !discovery && server.Spec.TokenPassthrough != nil && *server.Spec.TokenPassthrough {
+		// MCP Apps use the control-plane API, not an admitted A2A invocation.
+		// Never let those calls reuse discovery-only Authorization.
+		return nil, nil, fmt.Errorf("MCP bearer token passthrough requires an A2A invocation; MCP Apps calls are unsupported")
 	}
 	timeout := 30 * time.Second
 	if server.Spec.Timeout != nil && server.Spec.Timeout.Duration > 0 {
@@ -136,6 +141,16 @@ func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef) (*mcp.
 	if err != nil {
 		cancel()
 		return nil, nil, fmt.Errorf("failed to resolve RemoteMCPServer headers: %w", err)
+	}
+	if discovery && server.Spec.TokenPassthrough != nil && *server.Spec.TokenPassthrough {
+		hasAuthorization := false
+		for name, value := range headers {
+			hasAuthorization = hasAuthorization || strings.EqualFold(name, "Authorization") && strings.TrimSpace(value) != ""
+		}
+		if !hasAuthorization {
+			cancel()
+			return nil, nil, fmt.Errorf("MCP discovery requires a discovery Authorization header")
+		}
 	}
 
 	httpClient := newMCPAppsHTTPClient(headers)

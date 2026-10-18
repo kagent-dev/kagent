@@ -57,7 +57,7 @@ def test_request_converter_adds_headers_without_mutating_message_metadata(stream
     run_request = executor._convert_request(context, None)
 
     assert run_request.run_config.streaming_mode == expected_mode
-    assert run_request.state_delta == {"headers": {"authorization": "Bearer token"}}
+    assert run_request.state_delta == {"temp:headers": {"authorization": "Bearer token"}}
     assert not context.message.metadata
 
 
@@ -163,3 +163,38 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
     assert calls["config"].a2a_part_converter == executor_module._convert_public_a2a_part_to_genai_part
     executor._prepare_session.assert_awaited_once_with(context, run_request, runner)
     executor._safe_close_runner.assert_awaited_once_with(runner)
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+async def test_execute_restores_token_and_usage_after_cleanup(monkeypatch, cleanup_fails):
+    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
+    context = _request_context(state={"headers": {"authorization": "Bearer caller"}})
+    executor = A2aAgentExecutor(runner=lambda: runner)
+    executor._prepare_session = AsyncMock()
+
+    async def close(_):
+        assert bearer_token.get() == "caller"
+        if cleanup_fails:
+            raise RuntimeError("cleanup failed")
+
+    executor._safe_close_runner = close
+
+    class FakeUpstreamExecutor:
+        def __init__(self, **kwargs):
+            pass
+
+        async def execute(self, request_context, queue):
+            assert bearer_token.get() == "caller"
+
+    monkeypatch.setattr(executor_module, "UpstreamA2aAgentExecutor", FakeUpstreamExecutor)
+    marker = bearer_token.set("outer")
+    try:
+        if cleanup_fails:
+            with pytest.raises(RuntimeError, match="cleanup failed"):
+                await executor.execute(context, object())
+        else:
+            await executor.execute(context, object())
+        assert bearer_token.get() == "outer"
+        assert not executor._running_usage
+    finally:
+        bearer_token.reset(marker)

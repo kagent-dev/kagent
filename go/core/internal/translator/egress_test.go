@@ -148,7 +148,7 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 				return
 			}
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "", ""
-			model.Spec.APIKeyPassthrough = true
+			model.Spec.TokenPassthrough = true
 			_, err = compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
 			require.NoError(t, err)
 		})

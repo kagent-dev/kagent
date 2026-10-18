@@ -144,6 +144,7 @@ func TestCompileRejectsUnsupportedProviderConfiguration(t *testing.T) {
 	responses, chat := v1alpha3.OpenAIAPIFormatResponses, v1alpha3.OpenAIAPIFormatChatCompletions
 	tests := []v1alpha3.ModelConfigSpec{
 		{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude"},
+		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", TokenPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses}},
 		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &chat}},
 		{Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt", APIKeySecret: "model-auth", APIKeySecretKey: "api-key", OpenAI: &v1alpha3.OpenAIConfig{APIFormat: &responses, Temperature: "1"}},
 		{Provider: v1alpha3.ModelProviderBedrock, Model: "gpt", APIKeySecret: "model-auth", Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1", PromptCaching: true}},

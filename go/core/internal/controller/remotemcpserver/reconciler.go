@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -45,8 +46,9 @@ import (
 )
 
 const (
-	conditionAccepted = "Accepted"
-	refreshInterval   = 5 * time.Minute
+	conditionAccepted           = "Accepted"
+	refreshInterval             = 5 * time.Minute
+	discoveryCredentialRequired = "DiscoveryCredentialRequired"
 
 	// discoveryDisabledMessage explains an Accepted RemoteMCPServer that publishes
 	// no discovered tools because its operator opted out of discovery.
@@ -108,11 +110,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{RequeueAfter: refreshInterval}, nil
 	}
 
+	if server.Spec.TokenPassthrough != nil && *server.Spec.TokenPassthrough && !hasDiscoveryAuthorization(server) {
+		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, discoveryCredentialRequired,
+			"Bearer token passthrough requires an Authorization entry in headersFrom for discovery; alternatively disable discovery")
+		catalogErr := r.updateCatalog(ctx, server, nil, false)
+		return reconcile.Result{RequeueAfter: refreshInterval}, errors.Join(
+			wrapError("update RemoteMCPServer discovery status", statusErr),
+			wrapError("clear RemoteMCPServer tool catalog", catalogErr),
+		)
+	}
+
 	tools, err := r.discoverer.ListTools(ctx, toolservice.MCPServerRef{
 		Ref: request.NamespacedName, GroupKind: remoteGroupKind,
 	})
 	if err != nil {
-		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, "DiscoveryFailed", err.Error())
+		message := err.Error()
+		if server.Spec.TokenPassthrough != nil && *server.Spec.TokenPassthrough {
+			// Upstream errors can echo the discovery Authorization value.
+			message = "MCP discovery failed"
+			err = errors.New(message)
+		}
+		statusErr := r.updateStatus(ctx, server, nil, metav1.ConditionFalse, "DiscoveryFailed", message)
 		catalogErr := r.updateCatalog(ctx, server, nil, false)
 		return reconcile.Result{}, errors.Join(
 			fmt.Errorf("discover RemoteMCPServer tools: %w", err),
@@ -139,6 +157,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, fmt.Errorf("update RemoteMCPServer tool catalog: %w", err)
 	}
 	return reconcile.Result{RequeueAfter: refreshInterval}, nil
+}
+
+func hasDiscoveryAuthorization(server *v1alpha3.RemoteMCPServer) bool {
+	for _, header := range server.Spec.HeadersFrom {
+		if strings.EqualFold(header.Name, "Authorization") && (header.ValueFrom != nil || strings.TrimSpace(header.Value) != "") {
+			return true
+		}
+	}
+	return false
 }
 
 // discoveryDisabled reports whether the operator opted the server out of tool

@@ -1,6 +1,7 @@
 package adkconfig
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,44 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
+
+func TestTranslateModelTokenPassthrough(t *testing.T) {
+	specs := []v1alpha3.ModelConfigSpec{
+		{Provider: v1alpha3.ModelProviderOpenAI},
+		{Provider: v1alpha3.ModelProviderAnthropic},
+		{Provider: v1alpha3.ModelProviderAzureOpenAI, AzureOpenAI: &v1alpha3.AzureOpenAIConfig{DeploymentName: "model"}},
+		{Provider: v1alpha3.ModelProviderOllama, Ollama: &v1alpha3.OllamaConfig{}},
+		{Provider: v1alpha3.ModelProviderBedrock, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+		{Provider: v1alpha3.ModelProviderSAPAICore, SAPAICore: &v1alpha3.SAPAICoreConfig{}},
+		{Provider: v1alpha3.ModelProviderFoundry, Foundry: &v1alpha3.FoundryConfig{Deployment: "model"}},
+		{Provider: v1alpha3.ModelProviderMistral},
+	}
+	for _, spec := range specs {
+		t.Run(string(spec.Provider), func(t *testing.T) {
+			for _, tt := range []struct {
+				name string
+				raw  string
+				want bool
+			}{
+				{name: "omitted", raw: `{}`},
+				{name: "disabled", raw: `{"tokenPassthrough":false}`},
+				{name: "enabled", raw: `{"tokenPassthrough":true}`, want: true},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					input := spec
+					input.Model = "model"
+					require.NoError(t, json.Unmarshal([]byte(tt.raw), &input))
+					got, _, err := translateModel(&translator.ResolvedModelConfig{
+						Config: &v1alpha3.ModelConfig{Spec: input},
+					})
+					require.NoError(t, err)
+					// The public CRD name changes; the ADK wire contract does not.
+					require.Equal(t, tt.want, got.GetApiKeyPassthrough())
+				})
+			}
+		})
+	}
+}
 
 func TestBedrockProviderJSONRoundTrip(t *testing.T) {
 	for _, raw := range []string{"", "{}", `{"thinking":{"budget_tokens":1024},"large":9007199254740993,"values":[0,false,null,0.25]}`} {
@@ -129,8 +168,8 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				APIKeyPassthrough: true,
-				Ollama:            &v1alpha3.OllamaConfig{},
+				TokenPassthrough: true,
+				Ollama:           &v1alpha3.OllamaConfig{},
 			},
 			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),

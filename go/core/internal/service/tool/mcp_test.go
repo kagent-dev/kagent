@@ -77,6 +77,20 @@ func TestValidateMCPAppResource(t *testing.T) {
 	}
 }
 
+func TestMCPAppsNeverResolvePassthroughDiscoveryCredential(t *testing.T) {
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "default"},
+		Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://must-not-dial.invalid", TokenPassthrough: new(true),
+			HeadersFrom: []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{
+				Type: v1alpha3.SecretValueSource, Name: "must-not-resolve", Key: "token",
+			}}}}}
+	client := NewRuntimeMCPClient(toolTestKube(t, server))
+	ref := MCPServerRef{Ref: types.NamespacedName{Name: server.Name, Namespace: server.Namespace}}
+	_, err := client.CallTool(t.Context(), ref, "write", nil)
+	require.ErrorContains(t, err, "MCP Apps calls are unsupported")
+	_, err = client.ReadResource(t.Context(), ref, "ui://widget")
+	require.ErrorContains(t, err, "MCP Apps calls are unsupported")
+}
+
 func TestRuntimeMCPClientResolveServerMatrix(t *testing.T) {
 	remote := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "remote", Namespace: "default"},
@@ -85,6 +99,7 @@ func TestRuntimeMCPClientResolveServerMatrix(t *testing.T) {
 			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
+
 	collideRemote := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "clash"},
 		Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://remote.example.com/mcp"},
