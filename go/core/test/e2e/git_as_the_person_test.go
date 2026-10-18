@@ -23,6 +23,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/test/credentialprovider"
 	"github.com/kagent-dev/kagent/go/core/test/grant"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -32,33 +33,38 @@ import (
 //go:embed mocks/invoke_git_as_the_person.json
 var gitAsThePersonMocks embed.FS
 
-// The forge a Session works on as the person: its git and API on one host
-// that verifies the Session Actor's own JWT, the provider instance the
-// controller configures for the test (KAGENT_SESSION_ACTOR_JWT_PROVIDERS), and
-// the same forge under a second name, granted as a provider whose credential
-// the egress gateway cannot resolve: no credential provider of the gateway
-// answers the authority the controller names (KAGENT_SESSION_CREDENTIAL_AUTHORITY),
-// as none answers for a person who has not signed in. The probe of
-// invoke_git_as_the_person.json names both hosts.
+// The forge a Session works on as the person, under three names: its git and
+// API on a host that verifies the Session Actor's own JWT, the provider
+// instance the controller configures for the test
+// (KAGENT_SESSION_ACTOR_JWT_PROVIDERS); on a host granted as a provider whose
+// credential the egress gateway fetches by credential URI from the e2e
+// credential provider, the provider of the authority the controller names
+// (KAGENT_SESSION_CREDENTIAL_AUTHORITY), its git credential on the host and its
+// API token under /api/; and on a host granted as a provider instance the
+// credential provider refuses, as a provider refuses a person who has not
+// connected it. The probe of invoke_git_as_the_person.json names the hosts.
 const (
 	forgeService         = "e2e-forge"
+	forgeURIService      = "e2e-forge-uri"
 	forgeRefusedService  = "e2e-forge-refused"
 	forgeHost            = forgeService + ".kagent.svc.cluster.local"
+	forgeURIHost         = forgeURIService + ".kagent.svc.cluster.local"
 	forgeRefusedHost     = forgeRefusedService + ".kagent.svc.cluster.local"
 	forgeProvider        = "e2e-forge"
 	forgeAudience        = "https://e2e-forge.kagent.dev"
+	forgeURIProvider     = "e2e-forge-uri"
 	forgeRefusedProvider = "e2e-forge-refused"
-	forgeAuthority       = "credentials.e2e.kagent.dev"
+	forgeAuthority       = credentialProviderAuthority
 	// gitAsThePersonCaller is the person of the test's turns, the subject of
 	// the token trusted-proxy authentication reads.
 	gitAsThePersonCaller = "alice@example.com"
 	gitAsThePersonPrompt = "Work on the repository as the person."
 	gitAsThePersonDone   = "GIT_AS_THE_PERSON_DONE"
 	// The egress gateway's refusals, in the body of its 403: of a host the
-	// Actor's egress policy does not allow, and of a credential URI whose
-	// authority no credential provider of the gateway answers.
+	// Actor's egress policy does not allow, and of a credential URI the
+	// credential provider of its authority refuses.
 	gatewayDeniedDestination = "actor egress policy denied TLS destination"
-	gatewayNoProvider        = "no credential provider configured for " + forgeAuthority
+	gatewayProviderRefused   = "credential provider " + forgeAuthority + " denied"
 )
 
 // forgeRequest is a request the forge received: the host it was sent to and
@@ -72,7 +78,8 @@ type forgeRequest struct {
 // and GitHub's REST API under /api/v3, as a GitHub Enterprise host does. It
 // accepts the workspace sync's Basic credential on git, and on both the
 // Actor's JWT bound to forgeAudience, whose subject the API answers as the
-// login; it records every request.
+// login, and a credential the e2e credential provider answered, whose Actor
+// the API answers as the login; it records every request.
 type forge struct {
 	*gitFixture
 	sync     string
@@ -85,7 +92,7 @@ func newForge(t *testing.T) *forge {
 	f := &forge{sync: "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+workspaceGitToken))}
 	f.gitFixture = newGitFixtureAuthorizing(t, func(request *http.Request) bool {
 		authorization := request.Header.Get("Authorization")
-		_, actor := forgeActor(authorization)
+		_, actor := forgeLogin(authorization)
 		return authorization == f.sync || actor
 	}, workspaceOriginPaths()...)
 	for _, repository := range workspaceOriginPaths() {
@@ -105,7 +112,7 @@ func (f *forge) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 		f.handler.ServeHTTP(w, request)
 		return
 	}
-	subject, actor := forgeActor(request.Header.Get("Authorization"))
+	subject, actor := forgeLogin(request.Header.Get("Authorization"))
 	if !actor {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -131,14 +138,14 @@ func (f *forge) author(t *testing.T, repository, branch string) string {
 	return strings.TrimSpace(runFixtureGit(t, filepath.Join(f.repositories, filepath.FromSlash(repository)), "log", "-1", "--format=%ae %ce", "refs/heads/"+branch))
 }
 
-// serve serves the forge over HTTPS on the test host under its two Service
+// serve serves the forge over HTTPS on the test host under its three Service
 // names, the hosts the Sessions reach it at, and returns its git base URL.
 func (f *forge) serve(t *testing.T) string {
 	t.Helper()
 	listener, _ := listenOnHost(t)
-	serveTLSThroughEgress(t, listener, f, forgeHost, forgeRefusedHost)
+	serveTLSThroughEgress(t, listener, f, forgeHost, forgeURIHost, forgeRefusedHost)
 	kube := interactionKubeClient(t)
-	for _, service := range []string{forgeService, forgeRefusedService} {
+	for _, service := range []string{forgeService, forgeURIService, forgeRefusedService} {
 		require.NoError(t, exposeOnService(t.Context(), kube, service, 443, listener))
 		t.Cleanup(func() {
 			_ = kube.Delete(t.Context(), &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: service, Namespace: "kagent"}})
@@ -177,6 +184,41 @@ func forgeActor(authorization string) (string, bool) {
 		audiences = []string{audience}
 	}
 	return claims.Subject, slices.Contains(audiences, forgeAudience)
+}
+
+// forgeLogin returns the login the forge answers an Authorization as: the
+// subject of the Actor's JWT (forgeActor), or the Actor a credential of the
+// e2e credential provider names.
+func forgeLogin(authorization string) (string, bool) {
+	if subject, ok := forgeActor(authorization); ok {
+		return subject, true
+	}
+	actor, err := credentialprovider.ActorOf(authorization)
+	return actor, err == nil
+}
+
+// requireProviderCredential fails unless every request among received
+// carries the credential the e2e credential provider answered for the
+// Session's Actor, never the placeholder the sandbox sent: the git credential
+// (Basic) outside /api/ and the API token (Bearer) under it. Some request to
+// each of paths must be among received.
+func requireProviderCredential(t *testing.T, received []forgeRequest, sessionID string, paths ...string) {
+	t.Helper()
+	for _, request := range received {
+		require.NotContains(t, request.Authorization, workspaceCredentialPlaceholder, "%s %s carried the sandbox's placeholder", request.Method, request.Path)
+		actor, err := credentialprovider.ActorOf(request.Authorization)
+		require.NoError(t, err, "%s %s carried no credential of the provider", request.Method, request.Path)
+		require.Equal(t, substrate.ActorName(sessionID), actor, "%s %s carried the credential of another Actor", request.Method, request.Path)
+		scheme := "Basic "
+		if strings.HasPrefix(request.Path, "/api/") {
+			scheme = "Bearer "
+		}
+		require.True(t, strings.HasPrefix(request.Authorization, scheme), "%s %s carried the provider's %s credential", request.Method, request.Path, strings.Fields(request.Authorization)[0])
+	}
+	for _, path := range paths {
+		require.True(t, slices.ContainsFunc(received, func(request forgeRequest) bool { return strings.Contains(request.Path, path) }),
+			"no request to %s reached the forge", path)
+	}
 }
 
 // requireActorCredential fails unless every request among received that
@@ -266,12 +308,15 @@ func stringValues(value any) []string {
 // through the shell tool in its Session's directory: git fetches and pushes
 // and gh calls the forge's API with the person's credential, which the egress
 // gateway sets on the forge's host (the Session Actor's JWT for the forge's
-// audience) in place of the placeholder git and gh send; the sandbox's
-// environment, /data and the Session's directory hold no JWT, and the commit
-// is the person's. A caller whose credential the gateway cannot resolve gets
-// the gateway's refusal in the tool result, and a Session of the same Agent
-// without a grant sends no credential and gets the gateway's 403. Each Session
-// writes only its own directory and never the mirrors.
+// audience) in place of the placeholder git and gh send. On a provider's host
+// granted by credential URI, git pushes and wget calls the API with the
+// credential the gateway fetched from the e2e credential provider for the
+// Session's Actor. The sandbox's environment, /data and the Session's
+// directory hold no JWT and no credential, and the commit is the person's. A
+// caller whose provider refuses the credential gets the gateway's refusal in
+// the tool result, and a Session of the same Agent without a grant sends no
+// credential and gets the gateway's 403. Each Session writes only its own
+// directory and never the mirrors.
 //
 // It stays sequential: it rolls the controller onto trusted-proxy
 // authentication, which resolves the person of a turn, and onto the forge's
@@ -279,6 +324,7 @@ func stringValues(value any) []string {
 func TestGitAsThePersonKagentHarness(t *testing.T) {
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
+	deployCredentialProvider(t, kube, forgeRefusedProvider)
 	withControllerEnv(t, target, map[string]string{
 		kagentenv.AuthMode.Name():                   kagentenv.AuthModeTrustedProxy,
 		kagentenv.SessionActorJWTProviders.Name():   fmt.Sprintf(`{%q:{"hostname":%q,"audience":%q}}`, forgeProvider, forgeHost, forgeAudience),
@@ -319,7 +365,9 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 			}
 
 			t.Run("as the person", func(t *testing.T) {
-				granted := session(t, fixture.admit(fixture.grantFor(t, gitAsThePersonCaller)))
+				granted := session(t, fixture.admit(fixture.grantFor(t, gitAsThePersonCaller,
+					grant.Provider{Hostname: forgeURIHost, Scheme: "Basic", Provider: forgeURIProvider},
+					grant.Provider{Hostname: forgeURIHost, PathPrefix: "/api/", Scheme: "Bearer", Provider: forgeURIProvider})))
 				started := time.Now()
 				probed := gitAsThePersonProbe(t, granted, harness.shellTool)
 				require.Equal(t, "/workspace", probed["pwd"], "the shell runs in the Session's directory")
@@ -330,8 +378,14 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 					"gh api user answered as the Session's Actor: %s", probed["gh"])
 				requireActorCredential(t, origin.requestsSince(forgeHost, started), granted.sessionID, "git-receive-pack")
 				requireActorCredential(t, origin.requestsSince(forgeHost, started), granted.sessionID, "/api/v3/user")
+				require.Equal(t, "ok", probed["uri_push"], "git push on the credential URI's host")
+				require.True(t, strings.HasPrefix(probed["uri_api"], "ok ") && strings.Contains(probed["uri_api"], `"login":"`+substrate.ActorName(granted.sessionID)+`"`),
+					"wget on the credential URI's host answered as the Session's Actor: %s", probed["uri_api"])
+				requireProviderCredential(t, origin.requestsSince(forgeURIHost, started), granted.sessionID, "git-receive-pack", "/api/v3/user")
 				require.Equal(t, "none", probed["jwt_env"], "the sandbox's environment holds no JWT")
 				require.Equal(t, "none", probed["jwt_files"], "/data and the Session's directory hold no JWT")
+				require.Equal(t, "none", probed["credential_env"], "the sandbox's environment holds no provider credential")
+				require.Equal(t, "none", probed["credential_files"], "/data and the Session's directory hold no provider credential")
 				require.Equal(t, "read-only", probed["mirrors"])
 				require.Equal(t, "ok", probed["commit"])
 				require.Equal(t, gitAsThePersonCaller+" "+gitAsThePersonCaller, origin.author(t, "e2e/alpha.git", probed["branch"]), "the pushed commit is the person's")
@@ -345,7 +399,8 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 				probed := gitAsThePersonProbe(t, refused, harness.shellTool)
 				for _, key := range []string{"refused_push", "refused_gh"} {
 					require.True(t, strings.HasPrefix(probed[key], "failed "), "%s failed: %s", key, probed[key])
-					require.Contains(t, probed[key], gatewayNoProvider, "%s got the gateway's refusal", key)
+					require.Contains(t, probed[key], gatewayProviderRefused, "%s got the gateway's refusal", key)
+					require.Contains(t, probed[key], "has not connected "+forgeRefusedProvider, "%s got the provider's reason", key)
 					require.Contains(t, probed[key], "403", key)
 				}
 				for _, request := range origin.requestsSince(forgeRefusedHost, started) {
@@ -365,7 +420,11 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 					require.Contains(t, probed[key], "403", "%s got the gateway's 403", key)
 					require.Contains(t, probed[key], gatewayDeniedDestination, "%s got the gateway's refusal", key)
 				}
+				// busybox wget reports the status, not the body.
+				require.True(t, strings.HasPrefix(probed["uri_api"], "failed "), "uri_api failed: %s", probed["uri_api"])
+				require.Contains(t, probed["uri_api"], "403", "uri_api got the gateway's 403")
 				require.Empty(t, origin.requestsSince(forgeHost, started), "a Session without a grant reached the forge")
+				require.Empty(t, origin.requestsSince(forgeURIHost, started), "a Session without a grant reached the forge on the credential URI's host")
 			})
 		})
 	}
@@ -457,4 +516,43 @@ func TestForgeServesTheActor(t *testing.T) {
 		return request.Authorization == origin.sync || strings.HasPrefix(request.Authorization, "token ")
 	}), "1", "git-receive-pack")
 	require.Empty(t, origin.requestsSince("elsewhere", time.Time{}))
+}
+
+// The forge takes a push with the provider's git credential and answers its
+// API with the provider's token as the Actor it names, and the requests carry
+// the provider's credential for that Actor, Basic outside /api/ and Bearer
+// under it.
+func TestForgeServesTheProviderCredential(t *testing.T) {
+	origin := newForge(t)
+	server := httptest.NewServer(origin)
+	t.Cleanup(server.Close)
+	host := strings.TrimPrefix(server.URL, "http://")
+	const sessionID = "1"
+	provider := credentialprovider.Provider{Authority: forgeAuthority}
+	actorID := "spiffe://cluster.local/actor/kagent/" + substrate.ActorName(sessionID)
+	gitCredential, err := provider.Answer("ate-secret://"+forgeAuthority+"/"+forgeURIProvider+"/git", actorID)
+	require.NoError(t, err)
+	token, err := provider.Answer("ate-secret://"+forgeAuthority+"/"+forgeURIProvider+"/api", actorID)
+	require.NoError(t, err)
+
+	work := t.TempDir()
+	basic := "http.extraHeader=Authorization: Basic " + string(gitCredential)
+	runFixtureGit(t, work, "-c", basic, "clone", "--quiet", server.URL+"/e2e/alpha.git", ".")
+	require.NoError(t, os.WriteFile(filepath.Join(work, "PERSON.md"), []byte("person\n"), 0o644))
+	runFixtureGit(t, work, "add", ".")
+	runFixtureGit(t, work, "-c", "user.name="+gitAsThePersonCaller, "-c", "user.email="+gitAsThePersonCaller, "commit", "--quiet", "--message", "As the person")
+	runFixtureGit(t, work, "-c", basic, "push", "--quiet", "origin", "HEAD:refs/heads/person")
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v3/user", nil)
+	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+string(token))
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.JSONEq(t, `{"login":"`+substrate.ActorName(sessionID)+`"}`, string(body))
+
+	requireProviderCredential(t, origin.requestsSince(host, time.Time{}), sessionID, "git-receive-pack", "/api/v3/user")
 }

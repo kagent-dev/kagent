@@ -189,6 +189,15 @@ of its certificate and key, as the CI job does on every run. Golden boots fetch
 git sources in atespace `ate-golden`, so its credential provider policy must
 allow namespace `kagent`, next to the `kagent` atespace's.
 
+`TestGitAsThePersonKagentHarness` resolves credential URIs through the e2e
+credential provider (`go/core/test/credentialprovider`, image
+`make build-e2e-credential-provider`), which it runs as
+`e2e-credential-provider` in namespace `kagent`. Install Substrate with
+`--set credentialProvider.additionalProviders[0].uriAuthority=credentials.e2e.kagent.dev`
+and `--set credentialProvider.additionalProviders[0].host=e2e-credential-provider.kagent.svc:50051`,
+and export `KAGENT_E2E_CREDENTIAL_PROVIDER_IMAGE` with the image's digest, as
+the CI job does.
+
 ```bash
 KAGENT_E2E_RUNTIME_IMAGE=<registry>/kagent-dev/kagent/golang-adk@sha256:<digest> \
 KAGENT_E2E_BYO_IMAGE=<registry>/kagent-dev/kagent/byo-a2a@sha256:<digest> \
@@ -309,22 +318,30 @@ Harness (`mocks/invoke_git_as_the_person.json`). It is sequential: it rolls the
 controller onto trusted-proxy authentication, so a turn's person
 (`alice@example.com`, an unsigned token's subject) reaches the runtime, onto
 an actor-JWT provider for the test's forge (`KAGENT_SESSION_ACTOR_JWT_PROVIDERS`)
-and onto a credential authority no credential provider of the egress gateway
-answers (`KAGENT_SESSION_CREDENTIAL_AUTHORITY`). The forge serves the workspace
-repositories, push included, and GitHub's REST API under `/api/v3` at the fixed
-Services `e2e-forge` and `e2e-forge-refused` (port 443) on the test host; it
-takes the sync's Basic credential on git and the Session Actor's JWT for its
-audience on both, and answers `gh api user` with the JWT's subject. A Session
-admitted with a grant fetches, commits and pushes in its clone and calls
-`gh api user` through the shell tool: every credential the forge received is
-the Actor's JWT, never the placeholder git and gh sent, the sandbox's
-environment, `/data` and the Session's directory hold no JWT, and the pushed
-commit's author and committer are the person. A Session whose
-grant names `e2e-forge-refused` as a Bearer provider fails its push and its
-`gh` call there, and no credential reaches the forge on that host. A Session
-of the same Agent without a grant gets the gateway's 403 on the forge, which
-receives nothing. A job then reads each Session's own file back from its
-directory on the volume and the mirrors unchanged.
+and onto the credential authority of the e2e credential provider
+(`KAGENT_SESSION_CREDENTIAL_AUTHORITY`, `credentials.e2e.kagent.dev`). That
+provider answers every Actor with a token naming the Actor, the git credential
+Basic-encoded, and refuses the provider instance `e2e-forge-refused`. The
+forge serves the workspace repositories, push included, and GitHub's REST API
+under `/api/v3` at the fixed Services `e2e-forge`, `e2e-forge-uri` and
+`e2e-forge-refused` (port 443) on the test host; it takes the sync's Basic
+credential on git, and the Session Actor's JWT for its audience or a
+credential of the provider on both, and answers `/api/v3/user` with the JWT's
+subject or the credential's Actor. A Session admitted with a grant naming
+`e2e-forge-uri` as a Basic provider and as a Bearer provider under `/api/`
+fetches, commits and pushes in its clone, calls `gh api user` through the shell
+tool, pushes to `e2e-forge-uri` and calls its API with busybox `wget` (the
+runtime images carry no curl): every credential the forge received on
+`e2e-forge` is the Actor's JWT and on `e2e-forge-uri` the provider's credential
+for the Session's Actor, never the placeholder git, gh and wget sent; the
+sandbox's environment, `/data` and the Session's directory hold no JWT and no
+credential of the provider, and the pushed commit's author and committer are
+the person. A Session whose grant names `e2e-forge-refused` as a Bearer
+provider fails its push and its `gh` call there with the provider's refusal in
+the gateway's 403, and no credential reaches the forge on that host. A Session
+of the same Agent without a grant gets the gateway's 403 on `e2e-forge` and
+`e2e-forge-uri`, which receive nothing. A job then reads each Session's own
+file back from its directory on the volume and the mirrors unchanged.
 
 The grant signer (`go/core/test/grant`) stands in for the workspace issuer:
 `grant.NewSigner(issuer, audience)` generates an ES256 key,

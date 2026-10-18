@@ -176,6 +176,8 @@ jobs:
             --set credentialProvider.namespacePolicies[0].allowedNamespaces[0]=kagent
             --set credentialProvider.namespacePolicies[1].atespace=ate-golden
             --set credentialProvider.namespacePolicies[1].allowedNamespaces[0]=kagent
+            --set credentialProvider.additionalProviders[0].uriAuthority=credentials.e2e.kagent.dev
+            --set credentialProvider.additionalProviders[0].host=e2e-credential-provider.kagent.svc:50051
         run: |
           # Reuse Blacksmith's persistent layers and Go cache mounts. The Makefile
           # otherwise selects a fresh local builder, discarding that cache.
@@ -183,7 +185,7 @@ jobs:
           test -n "$BUILDX_BUILDER_NAME"
           export BUILDX_BUILDER_NAME
           make buildx-create
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
+          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a e2e-credential-provider sandbox-guest | xargs -P4 -n1 bash -c '
             image="$1"
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
               make GIT_COMMIT=e2e BUILD_DATE=1970-01-01 "build-${image}"
@@ -242,6 +244,9 @@ jobs:
           BYO_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/byo-a2a:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$BYO_DIGEST"
           export KAGENT_E2E_BYO_IMAGE="localhost:5001/kagent-dev/kagent/byo-a2a@${BYO_DIGEST}"
+          PROVIDER_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/e2e-credential-provider:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
+          test -n "$PROVIDER_DIGEST"
+          export KAGENT_E2E_CREDENTIAL_PROVIDER_IMAGE="localhost:5001/kagent-dev/kagent/e2e-credential-provider@${PROVIDER_DIGEST}"
           CLAUDE_DIGEST=$(docker buildx imagetools inspect "localhost:5001/kagent-dev/kagent/claude-harness:${VERSION}" | awk '$1 == "Digest:" { print $2 }')
           test -n "$CLAUDE_DIGEST"
           export KAGENT_E2E_CLAUDE_IMAGE="localhost:5001/kagent-dev/kagent/claude-harness@${CLAUDE_DIGEST}"
