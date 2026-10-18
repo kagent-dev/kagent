@@ -275,8 +275,8 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 			hasStaticAuthz = hasStaticAuthz || strings.EqualFold(k, constants.AuthorizationHeader)
 		}
 		// The agent card is usually served behind the same authentication as the
-		// agent itself (kagent-controller serves it at the agent's own URL,
-		// /agents/<ns>/<name>). When the caller's token is propagated to the agent's
+		// agent itself (kagent-controller: GET /agents/<ns>/<name>/.well-known/
+		// agent-card.json). When the caller's token is propagated to the agent's
 		// messages, send it on the card request too; a static Authorization header
 		// in extraHeaders still wins, as it does for messages.
 		if s.propagateToken && !hasStaticAuthz {
@@ -299,6 +299,12 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 
 		opts := []a2aclient.FactoryOption{
 			a2aclient.WithJSONRPCTransport(s.httpClient),
+			// A remote agent is a different tenant: never forward the tenant of the
+			// request this agent is serving (a2a-go copies it from ctx by default).
+			// kagent-controller rejects a payload tenant that differs from the Agent
+			// in the URL ("tenant does not match the Agent URL"). A tenant declared
+			// by the remote card's interface still applies.
+			a2aclient.WithConfig(a2aclient.Config{DisableTenantPropagation: true}),
 		}
 		interceptors := []a2aclient.CallInterceptor{
 			a2aext.NewActivator(a2a.HITLExtensionURI),
