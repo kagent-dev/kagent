@@ -46,7 +46,7 @@ type tagClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	GetTag(context.Context, string, string) (*ateapipb.Tag, error)
 	CreateTag(context.Context, string, string, string) (*ateapipb.Tag, error)
-	DeleteTag(context.Context, string, string) error
+	DeleteTag(context.Context, string, string, string) error
 }
 
 type Service struct {
@@ -131,7 +131,7 @@ func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expe
 
 	tag, err := s.ensureTag(ctx, checkpoint, snapshot)
 	if err != nil {
-		cleanupErr := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpoint.GetId()))
+		cleanupErr := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpoint.GetId()), "")
 		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
 			_, finalizeErr := s.store.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "", "", err.Error())
 			err = errors.Join(err, finalizeErr)
@@ -267,13 +267,17 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
 	}
-	if err == nil && (tag.GetMetadata().GetUid() != tagUID ||
-		tag.GetMetadata().GetAtespace() != snapshot.Atespace || tag.GetMetadata().GetName() != tagName(checkpointID) ||
-		tag.GetStatus().GetSnapshot().GetSnapshotUri() != snapshot.URI) {
-		return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
-	}
-	if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID)); err != nil && status.Code(err) != codes.NotFound {
-		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
+	if err == nil {
+		// Failed creation records no tag UID after compensation. An unexpected tag
+		// at that name is not ours to delete, even if its snapshot URI matches.
+		if tagUID == "" || tag.GetMetadata().GetUid() != tagUID ||
+			tag.GetMetadata().GetAtespace() != snapshot.Atespace || tag.GetMetadata().GetName() != tagName(checkpointID) ||
+			tag.GetStatus().GetSnapshot().GetSnapshotUri() != snapshot.URI {
+			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
+		}
+		if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID), tagUID); err != nil && status.Code(err) != codes.NotFound {
+			return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
+		}
 	}
 	if err := s.store.DeleteSessionCheckpoint(ctx, checkpointID, userID); err != nil {
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)

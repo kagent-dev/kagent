@@ -250,10 +250,6 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 	echo "Git hooks initialized"
 
-# KMCP
-KMCP_ENABLED ?= true
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
-
 # Substrate
 # Override for local development with locally published charts.
 SUBSTRATE_REPO ?= oci://ghcr.io/kagent-dev/substrate/helm
@@ -481,8 +477,8 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-tools
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
+	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
+	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
 	helm dependency update "$(HELM_SOURCE_DIR)/kagent"
 	helm dependency update "$(HELM_SOURCE_DIR)/kagent-crds"
 	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent-crds"
@@ -514,8 +510,7 @@ helm-install-provider: helm-dev check-api-key
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--wait \
-		--set kmcp.enabled=$(KMCP_ENABLED)
+		--wait
 	helm $(HELM_ACTION) kagent "$(HELM_SOURCE_DIR)/kagent" \
 		--namespace kagent \
 		--create-namespace \
@@ -538,8 +533,6 @@ helm-install-provider: helm-dev check-api-key
 		--set providers.default=$(MODEL_PROVIDER) \
 		--set database.postgres.ownerConnectionStringSecretRef.name=$(KAGENT_POSTGRES_OWNER_SECRET) \
 		--set database.postgres.readWriteConnectionStringSecretRef.name=$(KAGENT_POSTGRES_READWRITE_SECRET) \
-		--set kmcp.enabled=$(KMCP_ENABLED) \
-		--set kmcp.image.tag=$(KMCP_VERSION) \
 		$(HELM_ARGS)
 
 .PHONY: helm-install
@@ -636,7 +629,7 @@ run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release 
 .PHONY: helm-release
 helm-release: ## Package release charts from RUNTIME_IMAGE_METADATA_DIR without modifying chart sources
 	@test -n "$(RUNTIME_IMAGE_METADATA_DIR)" || { echo "RUNTIME_IMAGE_METADATA_DIR is required for release chart packaging" >&2; exit 1; }
-	KMCP_VERSION="$(KMCP_VERSION)" bash scripts/package-release-charts.sh "$(VERSION)" "$(RUNTIME_IMAGE_METADATA_DIR)" "$(HELM_SOURCE_DIR)" "$(HELM_DIST_FOLDER)" "$(RUNTIME_IMAGE_REPOSITORY)"
+	bash scripts/package-release-charts.sh "$(VERSION)" "$(RUNTIME_IMAGE_METADATA_DIR)" "$(HELM_SOURCE_DIR)" "$(HELM_DIST_FOLDER)" "$(RUNTIME_IMAGE_REPOSITORY)"
 
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry

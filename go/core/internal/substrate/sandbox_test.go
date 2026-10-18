@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -28,13 +29,20 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	require.Equal(t, []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"}, actor.Containers[0].Command)
 	require.Equal(t, policy.GuestImage, actor.Volumes[1].Image.Reference)
 	require.Equal(t, "1Gi", actor.Resources.Limits[1].Quantity)
-	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, actor.GetSnapshotConfig().GetOnCommit())
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actor.GetSnapshotConfig().GetOnCommit())
 	trust := actor.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
 	require.Equal(t, []string{"egress-mitm.ate.dev"}, trust.GetNames())
 	require.Equal(t, "trust-bundle.pem", trust.GetPath())
 	_, same, _, err := SandboxActorTemplate(template, atev1alpha1.SandboxClassGvisor, policy)
 	require.NoError(t, err)
 	require.Equal(t, digest, same)
+	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
+	_, unchanged, source, err := SandboxActorTemplate(template, "", policy)
+	require.NoError(t, err)
+	require.Equal(t, digest, unchanged, "policy references are live authorization")
+	var recorded sandboxInputs
+	require.NoError(t, json.Unmarshal(source, &recorded))
+	require.Equal(t, template.Spec, recorded.Spec, "provenance retains the complete source spec")
 	for _, change := range []struct {
 		name   string
 		mutate func(*v1alpha3.SandboxTemplate, *SandboxPolicy)

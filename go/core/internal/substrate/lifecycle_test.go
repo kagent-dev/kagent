@@ -17,10 +17,11 @@ import (
 // Unexpected calls use the embedded nil interface and fail the test.
 type transitionActors struct {
 	LifecycleClient
-	actor     *ateapipb.Actor
-	calls     []string
-	policyErr error
-	resumeUID string
+	actor           *ateapipb.Actor
+	calls           []string
+	policyErr       error
+	resumeUID       string
+	suspendSnapshot *ateapipb.ExternalSnapshot
 }
 
 func (a *transitionActors) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -40,7 +41,7 @@ func (a *transitionActors) CreateActor(_ context.Context, space, name, templateS
 	return proto.CloneOf(a.actor), nil
 }
 
-func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error {
+func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
 	a.calls = append(a.calls, "policy")
 	return a.policyErr
 }
@@ -57,6 +58,10 @@ func (a *transitionActors) ResumeActor(context.Context, string, string) (*ateapi
 func (a *transitionActors) SuspendActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	a.actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/data", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+	if a.suspendSnapshot != nil {
+		a.actor.Status.ExternalSnapshot = proto.CloneOf(a.suspendSnapshot)
+	}
 	return proto.CloneOf(a.actor), nil
 }
 
@@ -83,9 +88,9 @@ func TestActorCreationStartupPolicy(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			actors := &transitionActors{policyErr: test.policyErr, resumeUID: test.resumeUID}
-			binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
 			transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE,
-				&ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: test.resume})
+				&ActorCreation{Resume: test.resume})
 			require.NoError(t, err)
 			require.Empty(t, actors.calls, "preparation must not mutate the backend")
 			err = ApplyActorTransition(t.Context(), actors, transition)
@@ -113,8 +118,8 @@ func TestActorRetryContinuesExistingCreation(t *testing.T) {
 				Status:        &ateapipb.ActorStatus{State: state},
 			}}
 			transition, err := PrepareActorRetry(t.Context(), actors,
-				ActorBinding{Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"},
-				apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}, Resume: true})
+				ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"},
+				apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{Resume: true})
 			require.NoError(t, err)
 			require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 			require.Equal(t, "original", actors.actor.Metadata.Uid)
@@ -147,8 +152,8 @@ func TestActorTransitionAdmission(t *testing.T) {
 			if test.mutate != nil {
 				test.mutate(actors.actor)
 			}
-			binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
-			_, err = PrepareActorTransition(t.Context(), actors, binding, test.operation, &ActorCreation{EgressPolicy: &ateapipb.EgressPolicy{}})
+			binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+			_, err = PrepareActorTransition(t.Context(), actors, binding, test.operation, &ActorCreation{})
 			require.Error(t, err)
 			require.Empty(t, actors.calls)
 		})
@@ -161,7 +166,7 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	require.NoError(t, err)
 	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	actors.calls = nil
-	binding := ActorBinding{Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+	binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
 	transition, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, nil)
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
@@ -172,4 +177,23 @@ func TestActorDeleteStopsRunningCompute(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ApplyActorTransition(t.Context(), actors, transition))
 	require.Empty(t, actors.calls, "a missing Actor already satisfies deletion")
+}
+
+func TestActorSuspendRequiresDataSnapshot(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		snapshot *ateapipb.ExternalSnapshot
+	}{
+		{name: "missing URI", snapshot: &ateapipb.ExternalSnapshot{ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}},
+		{name: "FULL rejected", snapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/full", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			actors := &transitionActors{suspendSnapshot: test.snapshot}
+			_, err := actors.CreateActor(t.Context(), "team", "instance", "team", "revision")
+			require.NoError(t, err)
+			transition, err := PrepareActorTransition(t.Context(), actors, ActorBinding{Revision: "revision", Atespace: "team", Name: "instance", TemplateAtespace: "team", TemplateName: "revision"}, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, nil)
+			require.NoError(t, err)
+			require.ErrorContains(t, ApplyActorTransition(t.Context(), actors, transition), "external DATA snapshot")
+		})
+	}
 }

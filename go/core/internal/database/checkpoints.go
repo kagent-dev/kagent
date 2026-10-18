@@ -446,7 +446,7 @@ func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, 
 	return result, nil
 }
 
-// BeginDeleteSessionCheckpoint marks an owned READY checkpoint DELETING and returns
+// BeginDeleteSessionCheckpoint marks an owned READY or FAILED checkpoint DELETING and returns
 // the snapshot and tag identity for external cleanup. Retrying a DELETING checkpoint is
 // allowed. A fork reference, another lifecycle state, or a missing/unowned checkpoint
 // returns ErrNotFound.
@@ -471,7 +471,7 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 			UPDATE session_checkpoint
 			SET state = 'DELETING', data = $3
 			WHERE session_checkpoint.id = $1 AND session_checkpoint.user_id = $2
-			  AND session_checkpoint.state IN ('READY', 'DELETING')
+			  AND session_checkpoint.state IN ('READY', 'FAILED', 'DELETING')
 			  AND NOT EXISTS (
 			      SELECT 1 FROM session i WHERE i.pinned_checkpoint_id = session_checkpoint.id
 			  )

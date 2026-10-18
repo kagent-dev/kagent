@@ -44,12 +44,6 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
 	actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))].Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
-	if err := workflow.Pause(context.Background(), created); err != nil {
-		t.Fatal(err)
-	}
-	if actor := actors.actors[actorKey("team-a", substrate.ActorName(session.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_PAUSED {
-		t.Fatalf("paused Actor status = %s", actor.GetStatus().GetState())
-	}
 	boundary, err := workflow.Quiesce(context.Background(), created)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +83,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 }
 
 func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
-	for _, operation := range []string{"pause", "quiesce", "suspend", "delete"} {
+	for _, operation := range []string{"quiesce", "suspend", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
@@ -100,8 +94,6 @@ func TestActorWorkflowRejectsReplacedRuntime(t *testing.T) {
 			actor.Metadata.Uid = "replacement-uid"
 			actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 			switch operation {
-			case "pause":
-				err = workflow.Pause(t.Context(), session)
 			case "quiesce":
 				_, err = workflow.Quiesce(t.Context(), session)
 			case "suspend":
@@ -156,8 +148,9 @@ func lifecycleFixture(t *testing.T) (*lifecycleTestStore, *apiv1.Session) {
 		AgentCard:      &a2apb.AgentCard{Name: "assistant"}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant-kagent-revision", ActorTemplateUID: "actor-template-uid",
 	}
-	require.NoError(t, client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision}))
-	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, true))
+	upsertErr := client.UpsertAgentDefinition(t.Context(), database.AgentDefinition{Namespace: "team-a", AgentName: "assistant", AgentUID: "template-uid", DesiredRevision: revision.Revision})
+	require.NoError(t, upsertErr)
+	require.NoError(t, client.RecordRuntimeRevision(t.Context(), *revision, database.RecordRevisionOptions{Ready: true}))
 	session, _, err := client.CreateSession(t.Context(), &apiv1.Session{Id: uuid.NewString(), Creator: "alice", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}}, uuid.NewString())
 	require.NoError(t, err)
 	return &lifecycleTestStore{Client: client, revision: revision}, session
@@ -173,12 +166,12 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*datab
 }
 
 type lifecycleTestActors struct {
-	mu          sync.Mutex
-	actors      map[string]*ateapipb.Actor
-	policyErr   error
-	policy      *ateapipb.EgressPolicy
-	policyActor string
-	policyCalls int
+	mu             sync.Mutex
+	actors         map[string]*ateapipb.Actor
+	policyErr      error
+	policyRevision string
+	policyActor    string
+	policyCalls    int
 }
 
 func actorKey(atespace, name string) string { return atespace + "/" + name }
@@ -226,14 +219,6 @@ func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name stri
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
-	return proto.CloneOf(actor), nil
-}
-
-func (a *lifecycleTestActors) PauseActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	actor := a.actors[actorKey(atespace, name)]
-	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_PAUSED
 	return proto.CloneOf(actor), nil
 }
 
@@ -300,11 +285,11 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	return fork, checkpoint.Id
 }
 
-func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, policy *ateapipb.EgressPolicy) error {
+func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.policyActor = actorKey(atespace, name)
-	a.policy = proto.CloneOf(policy)
+	a.policyRevision = revision
 	a.policyCalls++
 	return a.policyErr
 }
@@ -320,27 +305,15 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			actors := &retryTestActors{lifecycleTestActors: base}
 			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
 			callsBefore := base.policyCalls
-			store.revision.EgressDestinations = []string{"*"}
-			_, err := workflow.Create(t.Context(), session)
-			require.ErrorContains(t, err, "invalid egress destination")
-			require.Zero(t, actors.mutations.Load(), "validate the allowlist before issuing Actor creation")
-			require.Equal(t, callsBefore, base.policyCalls)
-
-			store.revision.EgressDestinations = []string{"https://api.example.com:443", "https://other.example.com:8443"}
-			store.revision.Credentials = []egress.Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team-a/auth/token"}}
 			base.policyErr = context.DeadlineExceeded
-			_, err = workflow.Create(t.Context(), session)
+			_, err := workflow.Create(t.Context(), session)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_CREATING, current.State)
 			require.Empty(t, current.A2AAuthority)
 			require.Equal(t, actorKey("team-a", substrate.ActorName(session.Id)), base.policyActor)
-			require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, base.policy.Metadata)
-			require.Len(t, base.policy.Rules, 2)
-			require.Equal(t, &ateapipb.CredentialHeader{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/auth/token"}, base.policy.Rules[0].GetHttps().GetEffects().GetReplaceHeaders()[0])
-			require.Equal(t, []string{"api.example.com"}, base.policy.Rules[0].GetHttps().GetHostnames())
-			require.Equal(t, []string{"other.example.com"}, base.policy.Rules[1].GetHttps().GetHostnames())
+			require.Equal(t, session.PreparedRevision, base.policyRevision)
 
 			// Retry completes policy setup for the existing Actor before readiness.
 			base.policyErr = nil
@@ -365,7 +338,7 @@ func TestActorEgressPolicy(t *testing.T) {
 	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
-	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value", "http://*.example.com"} {
+	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value"} {
 		t.Run(destination, func(t *testing.T) {
 			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
 			require.Error(t, err)
@@ -373,7 +346,7 @@ func TestActorEgressPolicy(t *testing.T) {
 	}
 	for _, destination := range []string{"http://192.0.2.1", "http://[2001:db8::1]", "http://[::ffff:192.0.2.1]"} {
 		_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
-		require.ErrorContains(t, err, "requires a DNS name")
+		require.ErrorContains(t, err, "expected a DNS name")
 	}
 	_, err = substrate.ActorEgressPolicy("team-a", []string{"http://api.example.com:8443", "https://api.example.com:8443"}, nil)
 	require.ErrorContains(t, err, "both HTTP and HTTPS on the same port")
@@ -381,15 +354,15 @@ func TestActorEgressPolicy(t *testing.T) {
 
 func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 	bindings := []egress.Credential{
-		{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
-		{Hostname: "api.example.com", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
+		{Origin: "https://api.example.com:8443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
+		{Origin: "https://api.example.com:8443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
 	}
 	_, err := substrate.ActorEgressPolicy("team", []string{"https://other.example.com"}, bindings)
-	require.ErrorContains(t, err, "is not allowed")
+	require.ErrorContains(t, err, "is not explicitly allowed")
 	policy, err := substrate.ActorEgressPolicy("team", []string{"http://api.example.com:8080", "https://api.example.com:8443", "https://other.example.com"}, bindings)
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 3)
-	require.Len(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders(), 2, "configured HTTP endpoints also require credential replacement")
+	require.Empty(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders(), "credentials must not cross schemes or ports")
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[1].GetHttps().GetHostnames())
 	require.Equal(t, []int32{8443}, policy.Rules[1].GetHttps().GetPorts().GetNumbers())
 	require.Len(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders(), 2)
@@ -425,4 +398,28 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	_, err = service.Resume(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
+}
+
+// wrongScopeActors simulates a stale template still producing a memory snapshot.
+type wrongScopeActors struct{ *lifecycleTestActors }
+
+func (a *wrongScopeActors) SuspendActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
+	actor, err := a.lifecycleTestActors.SuspendActor(ctx, space, name)
+	if err == nil {
+		actor.Status.ExternalSnapshot.ContentScope = ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL
+	}
+	return actor, err
+}
+
+var _ actorClient = (*wrongScopeActors)(nil)
+
+func TestQuiesceRejectsFullSnapshot(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &wrongScopeActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	session, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+	snapshot, err := workflow.Quiesce(t.Context(), session)
+	require.ErrorContains(t, err, "invalid snapshot content scope")
+	require.Nil(t, snapshot)
 }

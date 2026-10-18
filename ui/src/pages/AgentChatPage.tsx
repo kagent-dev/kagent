@@ -701,6 +701,7 @@ export function AgentChatPage() {
               do it in and nothing else. */}
           <ChatTranscript
             chat={chat}
+            isLoading={instance.isLoading}
             sessionId={id}
             onOpenCheckpoint={openSnapshot}
             onRenameCheckpoint={renameSnapshot}

@@ -46,8 +46,9 @@ The gateway remains responsible for applying the resulting durable order.
 
 ## Other metadata
 
-Versioned A2A extensions, such as the human-in-the-loop extension, keep their
-negotiated URI as the metadata key. Private gateway-to-runtime continuation
+Versioned A2A extensions, such as the [human-in-the-loop](human-in-the-loop.md)
+and [token usage](usage-extension.md) extensions, keep their URI as the metadata
+key. Private gateway-to-runtime continuation
 state uses an internal URI and is consumed before the message can enter public
 history.
 

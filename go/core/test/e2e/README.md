@@ -86,9 +86,8 @@ default. Missing Harness fixtures, preparation failures, and runtime errors
 must fail, not skip. Keep genuinely harness-specific features (native tool
 events, SDK tracing, kagent compaction) in separate tests.
 
-Current explicit gaps are structured output outside kagent, native Codex/Claude
-ask-user model fixtures, and the Codex shared-subagent model fixture. These
-gaps appear as skips in verbose/JSON test output, including in CI.
+Current explicit gaps are structured output outside kagent and the Codex
+shared-subagent model fixture. These gaps appear as skips in verbose/JSON test output, including in CI.
 
 Run one behavior across all harnesses, or select one harness for debugging:
 
@@ -227,6 +226,34 @@ input continuation, and cancellation.
 
 `mocks/` contains the deterministic LLM responses used by interaction tests.
 
+`TestOCISkillsSurviveSuspension` publishes a tiny skill image to the local
+registry named by `KAGENT_E2E_RUNTIME_IMAGE`. It exercises golden preparation,
+standalone and selected plugin skills, executable file modes, and execution
+after suspend/resume across the harness matrix. It checks discovery metadata,
+then uses Go ADK's `load_skill`, Claude's `Skill`, or Codex's `shell_command` to
+load each `SKILL.md` before execution. Assertions require fresh instructions and
+script output to reach the model in both turns, and unselected skills must be
+absent. The deterministic model verifies runtime wiring, not real-model skill
+selection quality. The registry must accept pushes from the test runner and be
+reachable by Substrate workers through their existing registry rewrite.
+Private-registry credentials are not required.
+
+`TestSessionEgressPolicyUpdatesLiveActors` loads the same OCI skill and runs
+the same HTTP probe script through each harness's shell tool. During a single
+active invocation, it adds a policy reference and revokes the destination,
+checking actual script output and destination requests without replacing the
+actor. It also checks that deleting a policy while suspended revokes access
+after resume and in a checkpoint fork. Runtime configuration stays on the same
+prepared revision. New sessions continue using that revision with current grants
+even when a policy cannot resolve. `TestSandboxEgressPolicyUpdatesLiveActor` exercises live
+grant, revocation, and resume through the standalone sandbox process API.
+
+`TestEgressPolicyCredentialDelivery` runs the same skill on every harness against
+an HTTP server that rejects requests unless both Authorization (with a Bearer
+prefix) and X-API-Key (without a prefix) match the Secret. The script has only
+inert placeholders. The test and its harness subtests run in parallel. Actor
+identity, policy checks, and credential injection use the normal Substrate path.
+
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
 persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`
@@ -239,3 +266,8 @@ For local interaction debugging, start any retained response fixture from the
 ```bash
 go run ./core/hack/mockllm invoke_mcp_agent.json
 ```
+
+Pending-input coverage waits for a suspended Actor and a verified external DATA
+snapshot before approval, denial, cancellation, and native ask-user responses.
+The approval matrix asserts one MCP execution on approval and none on denial or
+cancellation; native question continuations preserve the task and context IDs.

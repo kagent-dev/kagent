@@ -86,6 +86,18 @@ deleted while its context and checkpoint remain.
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
+Failed checkpoints can also be deleted by their owner. Creation marks a checkpoint
+failed only after snapshot-tag cleanup succeeds or confirms that no tag exists.
+Deletion verifies that absence before removing the row; it never deletes an
+unexpected tag without a retained UID. Backend errors leave the checkpoint in
+`DELETING` for a later delete request to retry. Its history and runtime revision
+references remain retained until deletion completes. Checkpoints still in
+`CREATING` cannot be deleted through this path.
+
+Checkpoint deletion passes the retained tag UID as a Substrate delete precondition,
+so a tag replaced after lookup cannot have its snapshot deleted. A rejected delete
+keeps the checkpoint record and its references for retry.
+
 ## Forking
 
 Forks are currently unavailable. Substrate 0.5.0-alpha2 applies one snapshot scope to pause and suspend, and templates use Full so paused Actors keep their process memory. A Full checkpoint restored into a new Actor would resume processes that still hold the source session's IDs, so `ForkSession` rejects it with `FAILED_PRECONDITION`. Forking returns when Substrate's lifecycle v2 lets templates take Data snapshots on suspend again. The rest of this section describes forks of Data checkpoints.

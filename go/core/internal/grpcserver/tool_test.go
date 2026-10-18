@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,10 +17,8 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -154,7 +151,7 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListToolServerTypes() error = %v", err)
 	}
-	if len(serverTypes.GetTypes()) != 2 || serverTypes.GetTypes()[1] != string(toolservice.ServerTypeMCPServer) {
+	if len(serverTypes.GetTypes()) != 1 || serverTypes.GetTypes()[0] != string(toolservice.ServerTypeRemoteMCPServer) {
 		t.Fatalf("ListToolServerTypes() = %v", serverTypes.GetTypes())
 	}
 
@@ -196,19 +193,6 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 		t.Fatalf("CreateToolServer() authorization verb = %q, want create", authorizer.lastVerb())
 	}
 
-	localResource := toolGRPCResource(t, &kmcp.MCPServer{}, kmcp.GroupVersion.String(), string(toolservice.ServerTypeMCPServer))
-	if _, err := toolClient.CreateToolServer(ctx, &apiv1.CreateToolServerRequest{
-		Type: string(toolservice.ServerTypeMCPServer), Ref: ref, Resource: localResource,
-	}); err != nil {
-		t.Fatalf("CreateToolServer(MCPServer collision) error = %v", err)
-	}
-	if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "shared"}, &v1alpha3.RemoteMCPServer{}); err != nil {
-		t.Fatalf("get colliding RemoteMCPServer: %v", err)
-	}
-	if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "shared"}, &kmcp.MCPServer{}); err != nil {
-		t.Fatalf("get colliding MCPServer: %v", err)
-	}
-
 	_, err = toolClient.CreateToolServer(ctx, &apiv1.CreateToolServerRequest{
 		Type: string(toolservice.ServerTypeRemoteMCPServer), Ref: ref, Resource: remoteResource,
 	})
@@ -228,7 +212,7 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	})
 	assertGRPCCode(t, err, codes.InvalidArgument)
 
-	mcpRef := &apiv1.MCPServerReference{Ref: ref, GroupKind: "MCPServer.kagent.dev"}
+	mcpRef := &apiv1.MCPServerReference{Ref: ref, GroupKind: "RemoteMCPServer.api.kagent.dev"}
 	mcpTools, err := toolClient.ListMCPAppTools(ctx, &apiv1.ListMCPAppToolsRequest{Server: mcpRef})
 	if err != nil {
 		t.Fatalf("ListMCPAppTools() error = %v", err)
@@ -280,9 +264,6 @@ func TestToolServiceGeneratedClient(t *testing.T) {
 	if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "shared"}, &v1alpha3.RemoteMCPServer{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("deleted RemoteMCPServer get error = %v, want NotFound", err)
 	}
-	if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: "default", Name: "shared"}, &kmcp.MCPServer{}); err != nil {
-		t.Fatalf("DeleteToolServer removed colliding MCPServer: %v", err)
-	}
 }
 
 func newToolGRPCClient(t *testing.T, service *toolservice.Service) (apiv1.ToolServiceClient, func()) {
@@ -327,18 +308,10 @@ func toolGRPCKubeClient(t *testing.T) client.Client {
 	if err := v1alpha3.AddToScheme(scheme); err != nil {
 		t.Fatalf("v1alpha3.AddToScheme() error = %v", err)
 	}
-	if err := kmcp.AddToScheme(scheme); err != nil {
-		t.Fatalf("kmcp.AddToScheme() error = %v", err)
-	}
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("corev1.AddToScheme() error = %v", err)
 	}
-	restMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{kmcp.GroupVersion})
-	restMapper.Add(
-		schema.GroupVersionKind{Group: kmcp.GroupVersion.Group, Version: kmcp.GroupVersion.Version, Kind: "MCPServer"},
-		meta.RESTScopeNamespace,
-	)
-	return fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(restMapper).Build()
+	return fake.NewClientBuilder().WithScheme(scheme).Build()
 }
 
 func toolGRPCResource(t *testing.T, value any, apiVersion, kind string) *apiv1.StructuredObject {

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1;
 
+import "buf/validate/validate.proto";
 import "kagent/api/v1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
@@ -35,11 +36,20 @@ message AgentTemplate {
 }
 
 message ListAgentTemplatesRequest {
-  string namespace = 1;
+  // Empty lists every namespace.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
+  PageRequest page = 2;
 }
 
 message ListAgentTemplatesResponse {
   repeated AgentTemplate agent_templates = 1;
+  PageResponse page = 2;
 }
 
 message GetAgentTemplateRequest {

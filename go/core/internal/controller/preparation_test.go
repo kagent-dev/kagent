@@ -12,6 +12,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,6 +28,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -97,7 +99,7 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			// A delayed success for the abandoned preparation must not replace A.
 			abandoned, err := store.GetRuntimeRevision(ctx, preparing.Target.RevisionID.String())
 			require.NoError(t, err)
-			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, true))
+			require.NoError(t, store.RecordRuntimeRevision(ctx, *abandoned, database.RecordRevisionOptions{Ready: true}))
 			unreferenced, err = store.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, unreferenced, 1)
@@ -106,12 +108,12 @@ func TestUnresolvedPoolReleasesAbandonedRevision(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, retained, "last-successful A must remain protected without any sessions")
 
-			session, _, err := store.CreateSession(ctx, &apiv1.Session{
+			fresh, _, err := store.CreateSession(ctx, &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
 				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 			}, "last-good-session")
-			require.NoError(t, err)
-			require.Equal(t, initial.Target.RevisionID.String(), session.GetPreparedRevision())
+			require.NoError(t, err, "unresolved edits must leave the last successful revision available")
+			require.Equal(t, initial.Target.RevisionID.String(), fresh.PreparedRevision)
 
 			collector, _ := newTestRuntimeRevisionGC(t, store, templates)
 			require.NoError(t, collector.collect(ctx, abandoned.Revision))
@@ -281,7 +283,7 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 				r := newReconciler(collections, backend, backend, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
-				go r.Run(ctx.Done())
+				go func() { assert.NoError(t, r.Start(ctx)) }()
 				synctest.Wait()
 				backend.inspect(func() {
 					require.Equal(t, 1, test.store.pairCalls, "publishing a failure must not immediately requeue it")
@@ -381,22 +383,28 @@ func (p *preparationTestBackend) CreateActorTemplate(ctx context.Context, templa
 	return p.templates.CreateActorTemplate(ctx, template)
 }
 
+func (p *preparationTestBackend) ListAgentEgressSources(ctx context.Context) ([]database.RuntimeEgressSource, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.ListAgentEgressSources(ctx)
+}
+
 func (p *preparationTestBackend) UpsertAgentDefinition(ctx context.Context, definition database.AgentDefinition) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store.UpsertAgentDefinition(ctx, definition)
 }
 
-func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, ready bool) error {
+func (p *preparationTestBackend) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RecordRuntimeRevision(ctx, revision, ready)
+	return p.store.RecordRuntimeRevision(ctx, revision, options)
 }
 
-func (p *preparationTestBackend) RetireAgentIdentities(ctx context.Context, namespace, name string, except *database.AgentDefinition) error {
+func (p *preparationTestBackend) RetireAgentIdentities(ctx context.Context, namespace, name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.store.RetireAgentIdentities(ctx, namespace, name, except)
+	return p.store.RetireAgentIdentities(ctx, namespace, name)
 }
 
 func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
@@ -408,7 +416,7 @@ func TestPreparationDesiredChangesBypassBackoff(t *testing.T) {
 		r := newReconciler(collections, templates, store, kagentfake.NewSimpleClientset(initial.Agent.DeepCopy()).ApiV1alpha3())
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		go r.Run(ctx.Done())
+		go func() { assert.NoError(t, r.Start(ctx)) }()
 		synctest.Wait()
 		time.Sleep(10 * time.Second)
 		synctest.Wait()
@@ -462,7 +470,7 @@ func TestPreparationTerminalFailures(t *testing.T) {
 				r := newReconciler(collections, templates, store, statusClient)
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
-				go r.Run(ctx.Done())
+				go func() { assert.NoError(t, r.Start(ctx)) }()
 				synctest.Wait()
 				require.Equal(t, 1, store.pairCalls)
 				state := collections.Reconciliations.GetKey(initial.ResourceName())
@@ -549,6 +557,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
 	})
 	collections := Collections{
+		EgressPolicies:           krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...),
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),
 		Harnesses:                harnesses,
 		ResolvedModelConfigs:     krttest.GetMockCollection[translator.ResolvedModelConfig](mock),
@@ -563,7 +572,7 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	collections.Reconciliations = newAgentReconciliations(collections.Agents, translator.Collections{
 		Harnesses: collections.Harnesses, AgentTemplates: collections.AgentTemplates, ResolvedModelConfigs: collections.ResolvedModelConfigs,
 		RemoteMCPServers: collections.RemoteMCPServers, ConfigMaps: collections.ConfigMaps,
-		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools,
+		Secrets: collections.Secrets, WorkerPools: collections.WorkerPools, EgressPolicies: collections.EgressPolicies,
 	}, collections.AgentRuntimeObservations, opts, testRuntimeDefaults(), nil)
 	collections.AgentStatuses = newAgentStatuses(collections.Agents, collections.Reconciliations, opts)
 	waitFor(t, func() bool {
@@ -571,4 +580,22 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		return len(states) == 1 && states[0].CompilationFailure == nil && states[0].Target != nil
 	})
 	return collections, harnesses
+}
+
+func (p *preparationTestBackend) ListRuntimeEgressSourceTargets(ctx context.Context, source database.RuntimeEgressSource, after string, limit int) ([]database.RuntimeEgressTarget, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.ListRuntimeEgressSourceTargets(ctx, source, after, limit)
+}
+func (p *preparationTestBackend) GetActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	return p.templates.GetActor(ctx, atespace, name)
+}
+func (p *preparationTestBackend) EnsureActorEgressPolicy(ctx context.Context, atespace, name, revision string) error {
+	return p.templates.EnsureActorEgressPolicy(ctx, atespace, name, revision)
+}
+
+func (p *preparationTestBackend) GetAgentEgressGrant(ctx context.Context, namespace, uid string) (egress.Access, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store.GetAgentEgressGrant(ctx, namespace, uid)
 }

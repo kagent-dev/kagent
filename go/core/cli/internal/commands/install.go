@@ -126,17 +126,6 @@ type helmConfig struct {
 	inlineValues string
 }
 
-func crdChartValues(values []string) []string {
-	var result []string
-	for _, value := range values {
-		key, _, _ := strings.Cut(value, "=")
-		if key == "kmcp.enabled" {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
 func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
 	result := make([]string, 0, len(values)+2)
 	for _, value := range values {
@@ -194,7 +183,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	s.Suffix = " Installing kagent-crds from " + helmConfig.registry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, crdChartValues(helmConfig.values), helmConfig.valuesFiles, ""); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, nil, helmConfig.valuesFiles, ""); err != nil {
 		// Helm creates the namespaces later steps deploy into, so CRDs it does not
 		// own, such as those left by an old install, stop the install.
 		if strings.Contains(output, "exists and cannot be imported into the current release") {

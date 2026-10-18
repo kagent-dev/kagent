@@ -275,36 +275,6 @@ describe("tool servers and tools", () => {
     expect(created.discoveredTools).toEqual([]);
   });
 
-  it("keeps KMCP servers in their own API group", async () => {
-    let received: unknown;
-    serve(({ service }) => {
-      service(ToolService, {
-        createToolServer: (request) => {
-          received = request;
-          return { resource: request.resource };
-        },
-      });
-    });
-
-    const created = await apiClient.mcpServers.create({
-      type: "MCPServer",
-      mcpServer: {
-        metadata: { name: "local", namespace: "kagent" },
-        spec: {
-          deployment: { image: "example.com/mcp:latest", port: 8080 },
-          transportType: "stdio",
-          stdioTransport: {},
-        },
-      },
-    });
-
-    expect(received).toMatchObject({
-      type: "MCPServer",
-      resource: { kind: "MCPServer", apiVersion: "kagent.dev/v1alpha1" },
-    });
-    expect(created.groupKind).toBe("MCPServer.kagent.dev");
-  });
-
   /**
    * The tool rows are `database.Tool` marshalled to JSON and carried through the
    * envelope untouched — which is why their field names are snake-cased, and why

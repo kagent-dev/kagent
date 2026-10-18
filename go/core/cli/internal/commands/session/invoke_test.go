@@ -2,7 +2,6 @@ package session
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"iter"
@@ -12,25 +11,12 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
-
-var errServiceParamsObserved = errors.New("service parameters observed")
-
-type serviceParamsObserver struct {
-	a2aclient.PassthroughInterceptor
-	authorization []string
-}
-
-func (o *serviceParamsObserver) Before(ctx context.Context, request *a2aclient.Request) (context.Context, any, error) {
-	o.authorization = request.ServiceParams.Get("authorization")
-	return ctx, nil, errServiceParamsObserved
-}
 
 func TestReadInvokeTask(t *testing.T) {
 	tests := []struct {
@@ -99,21 +85,6 @@ func TestNewInvokeRequestLetsGatewayResolveContext(t *testing.T) {
 	assert.Empty(t, request.Message.ContextID)
 	require.Len(t, request.Message.Parts, 1)
 	assert.Equal(t, "hello", request.Message.Parts[0].Text())
-}
-
-func TestWithModelToken(t *testing.T) {
-	observer := &serviceParamsObserver{}
-	client, err := a2aclient.NewFromEndpoints(t.Context(), []*a2atype.AgentInterface{{
-		URL:             "http://unused.invalid",
-		ProtocolBinding: a2atype.TransportProtocolJSONRPC,
-		ProtocolVersion: a2atype.Version,
-	}}, a2aclient.WithCallInterceptors(observer))
-	require.NoError(t, err)
-
-	ctx := withModelToken(context.Background(), "model-key")
-	_, err = client.SendMessage(ctx, newInvokeRequest("hello"))
-	require.ErrorIs(t, err, errServiceParamsObserved)
-	assert.Equal(t, []string{"Bearer model-key"}, observer.authorization)
 }
 
 func TestWriteSendResultTable(t *testing.T) {

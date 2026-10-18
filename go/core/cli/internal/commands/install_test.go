@@ -128,7 +128,6 @@ func TestInstallDatabaseAndHelmOverrides(t *testing.T) {
 	require.Equal(t, []string{"custom.yaml"}, config.valuesFiles)
 	require.Equal(t, "./charts/", config.registry)
 	require.Equal(t, "v1.2.3", config.version)
-	require.Empty(t, crdChartValues(config.values))
 	require.Equal(t, []string{"global.imageRegistry=mirror.example", "postgresClients[0]=demo/kagent-controller=kagent_owner_user", "postgresClients[1]=demo/kagent-controller=kagent_readwrite_user"}, podCertificateChartValues([]string{"rustfs.enabled=false", "global.imageRegistry=mirror.example"}, "demo", true))
 }
 

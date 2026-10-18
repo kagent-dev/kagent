@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -200,12 +199,6 @@ func (s *toolServer) createToolServerRequest(request *apiv1.CreateToolServerRequ
 			return toolservice.CreateToolServerRequest{}, err
 		}
 		result.RemoteMCPServer = server
-	case toolservice.ServerTypeMCPServer:
-		server := &kmcp.MCPServer{}
-		if err := s.decodeCreateToolServerResource(request.GetResource(), string(result.Type), ref, server); err != nil {
-			return toolservice.CreateToolServerRequest{}, err
-		}
-		result.MCPServer = server
 	default:
 		return toolservice.CreateToolServerRequest{}, serviceerrors.NewInvalidArgument("Invalid tool server type", nil)
 	}
@@ -235,9 +228,6 @@ func (s *toolServer) toolServerResource(server client.Object) (*apiv1.Structured
 	case *v1alpha3.RemoteMCPServer:
 		apiVersion = v1alpha3.GroupVersion.String()
 		kind = string(toolservice.ServerTypeRemoteMCPServer)
-	case *kmcp.MCPServer:
-		apiVersion = kmcp.GroupVersion.String()
-		kind = string(toolservice.ServerTypeMCPServer)
 	default:
 		return nil, serviceerrors.NewInternal("Failed to encode ToolServer", nil)
 	}

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,13 +26,9 @@ type ServerType string
 
 const (
 	ServerTypeRemoteMCPServer ServerType = "RemoteMCPServer"
-	ServerTypeMCPServer       ServerType = "MCPServer"
 )
 
-var (
-	remoteMCPServerGVK = v1alpha3.GroupVersion.WithKind(string(ServerTypeRemoteMCPServer))
-	mcpServerGVK       = kmcp.GroupVersion.WithKind(string(ServerTypeMCPServer))
-)
+var remoteMCPServerGVK = v1alpha3.GroupVersion.WithKind(string(ServerTypeRemoteMCPServer))
 
 type DiscoveryStore interface {
 	ListTools(context.Context) ([]database.Tool, error)
@@ -63,7 +58,6 @@ type ToolServer struct {
 type CreateToolServerRequest struct {
 	Type            ServerType
 	RemoteMCPServer *v1alpha3.RemoteMCPServer
-	MCPServer       *kmcp.MCPServer
 	Secrets         []secretmaterial.Material
 }
 
@@ -159,12 +153,6 @@ func (s *Service) CreateToolServer(ctx context.Context, request CreateToolServer
 		}
 		owner = request.RemoteMCPServer
 		gvk = remoteMCPServerGVK
-	case ServerTypeMCPServer:
-		if request.MCPServer == nil {
-			return nil, serviceerrors.NewInvalidArgument("MCPServer data is required when type is MCPServer", nil)
-		}
-		owner = request.MCPServer
-		gvk = mcpServerGVK
 	}
 
 	ref, err := normalizeCreateRef(owner, s.defaultNamespace)
@@ -220,8 +208,6 @@ func (s *Service) DeleteToolServer(ctx context.Context, ref types.NamespacedName
 	switch groupKind {
 	case remoteMCPServerGVK.GroupKind().String():
 		object = &v1alpha3.RemoteMCPServer{}
-	case mcpServerGVK.GroupKind().String():
-		object = &kmcp.MCPServer{}
 	case "Service":
 		object = &corev1.Service{}
 	default:
@@ -298,14 +284,7 @@ func (s *Service) ReadMCPAppResource(ctx context.Context, ref MCPServerRef, uri 
 }
 
 func (s *Service) supportedServerTypes() []ServerType {
-	result := []ServerType{ServerTypeRemoteMCPServer}
-	if s.kubeClient != nil {
-		groupKind := schema.GroupKind{Group: kmcp.GroupVersion.Group, Kind: string(ServerTypeMCPServer)}
-		if _, err := s.kubeClient.RESTMapper().RESTMapping(groupKind); err == nil {
-			result = append(result, ServerTypeMCPServer)
-		}
-	}
-	return result
+	return []ServerType{ServerTypeRemoteMCPServer}
 }
 
 func (s *Service) authorizeMCP(ctx context.Context, verb auth.Verb, ref MCPServerRef) error {
@@ -360,8 +339,6 @@ func objectKindName(object client.Object) string {
 	switch object.(type) {
 	case *v1alpha3.RemoteMCPServer:
 		return "RemoteMCPServer"
-	case *kmcp.MCPServer:
-		return "MCPServer"
 	case *corev1.Service:
 		return "Service"
 	default:

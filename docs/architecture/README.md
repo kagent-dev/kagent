@@ -14,6 +14,7 @@ the agent processes.
 | `Harness`                     | Kubernetes (`api.kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
 | `AgentTemplate`               | Kubernetes (`api.kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | `SandboxTemplate` | Kubernetes (`api.kagent.dev/v1alpha3`) | Tools image, environment, and preparation policy for standalone sandboxes |
+| `EgressPolicy` | Kubernetes (`api.kagent.dev/v1alpha3`) | Additional HTTP(S) origins and gateway credentials selected by Agents and SandboxTemplates |
 | prepared revision             | PostgreSQL and ate-api                   | Immutable compiled runtime input and its Substrate ActorTemplate              |
 | `Session`               | PostgreSQL, exposed by gRPC              | Stable conversation identity and runtime lifecycle                                      |
 | `Sandbox` | PostgreSQL, exposed by gRPC and MCP | Owner-scoped scratch environment with process/file access and expiration |
@@ -95,6 +96,8 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 
 ## Documents
 
+- [Egress policies](egress-policies.md)
+- [Runtime credential injection](credential-injection.md)
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [Client lifecycle retries](../lifecycle-retries.md)
@@ -107,6 +110,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [MCP](mcp.md)
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
+- [Token usage](usage-extension.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
 - [Structured output](structured-output.md)

@@ -30,6 +30,10 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 	if err != nil {
 		return nil, err
 	}
+	items, next, err := kubecrud.Page(items, int(request.GetPage().GetLimit()), request.GetPage().GetPageToken())
+	if err != nil {
+		return nil, err
+	}
 	templates := make([]*apiv1.AgentTemplate, 0, len(items))
 	for _, item := range items {
 		template, err := s.agentTemplate(item)
@@ -38,7 +42,7 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 		}
 		templates = append(templates, template)
 	}
-	return &apiv1.ListAgentTemplatesResponse{AgentTemplates: templates}, nil
+	return &apiv1.ListAgentTemplatesResponse{AgentTemplates: templates, Page: &apiv1.PageResponse{NextPageToken: next}}, nil
 }
 
 func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *apiv1.GetAgentTemplateRequest) (*apiv1.GetAgentTemplateResponse, error) {

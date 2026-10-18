@@ -111,9 +111,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
-			// Substrate 0.5 applies one scope to pause and suspend. Keep process memory
-			// for both until lifecycle v2 separates them again.
-			OnCommit: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
+			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
@@ -130,6 +128,18 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}},
 			}}},
 		},
+	}
+	for i, image := range spec.SkillImages {
+		name := fmt.Sprintf("skill-%d", i)
+		template.Volumes = append(template.Volumes, &ateapipb.Volume{
+			Name: name, Image: &ateapipb.ImageVolumeSource{Reference: string(image)},
+		})
+		template.Containers[0].VolumeMounts = append(template.Containers[0].VolumeMounts, &ateapipb.VolumeMount{
+			Name: name, MountPath: image.MountPath(),
+		})
+	}
+	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
+		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
 	return template, nil
 }

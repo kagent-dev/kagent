@@ -526,7 +526,7 @@ export class A2AGrpcChatClient implements ChatClient {
      * every frame of a run carries the same one. A local rather than a field: it
      * belongs to this turn and must not outlive it.
      */
-    const artifacts = new Map<string, string>();
+    const artifacts = new Map<string, ChatPart[]>();
 
     let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
     try {
@@ -633,18 +633,23 @@ export class A2AGrpcChatClient implements ChatClient {
 
           if (known) {
             const id = artifactId;
-            if (event.append) {
-              const whole = (artifacts.get(artifactId) ?? "") + body;
-              artifacts.set(artifactId, whole);
+            const previous = artifacts.get(id) ?? [];
+            const textOnly = previous.every((part) => part.kind === "text") &&
+              parts.every((part) => part.kind === "text");
+            const combined = event.append ? [...previous, ...parts] : parts;
+            const updated: ChatPart[] = textOnly
+              ? [{ kind: "text", text: textOf(combined) }]
+              : combined;
+            artifacts.set(id, updated);
+            if (event.append && textOnly) {
               yield { type: "delta", messageId: id, text: body };
             } else {
-              artifacts.set(artifactId, body);
               yield {
                 type: "message",
                 message: {
                   id,
                   role: "agent",
-                  parts,
+                  parts: updated,
                   createdAt: new Date().toISOString(),
                   taskId: event.taskId,
                 },
@@ -666,7 +671,7 @@ export class A2AGrpcChatClient implements ChatClient {
           statusReply = "";
 
           const id = artifactId || nextId("artifact");
-          artifacts.set(id, body);
+          artifacts.set(id, parts);
           yield {
             type: "message",
             message: {

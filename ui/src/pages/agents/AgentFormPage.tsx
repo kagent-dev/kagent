@@ -117,6 +117,7 @@ function AgentForm({ agent }: { agent?: Agent }) {
     setSaving(true);
     setFailure(undefined);
     const agentSpec = {
+      ...(spec?.egressPolicyRefs ? { egressPolicyRefs: spec.egressPolicyRefs } : {}),
       template: templateSource === "reference"
         ? { ref: { name: templateRef! } }
         : { inline: specFromDraft(inlineTemplate, spec?.template.inline) },

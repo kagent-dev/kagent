@@ -10,7 +10,9 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Sandbox preparation uses the same informer graph as Agents. Only observations
@@ -24,6 +26,9 @@ type sandboxReconciliation struct {
 	Template              *kagentv1alpha3.SandboxTemplate
 	RevisionID            string
 	SourceSnapshot        json.RawMessage
+	EgressGrant           egress.Access // Requested union, including conflicting grants.
+	EgressIssues          []translator.EgressGrantIssue
+	EgressConflict        string
 	DesiredActorTemplate  *ateapipb.ActorTemplate
 	ObservedActorTemplate *ateapipb.ActorTemplate
 	CompilationError      string
@@ -83,6 +88,12 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		state := &sandboxReconciliation{Template: template}
 		if !template.DeletionTimestamp.IsZero() {
 			return state
+		}
+		resolution := translator.CompileEgressPolicies(ctx, translator.Collections{EgressPolicies: inputs.EgressPolicies, Secrets: inputs.Secrets}, template.Namespace, template.Spec.EgressPolicyRefs)
+		state.EgressGrant, state.EgressIssues = resolution.Access, resolution.Issues
+		// Sandboxes have no pinned model or tool access.
+		if _, err := egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil); err != nil {
+			state.EgressConflict = err.Error()
 		}
 		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
 		if pool == nil {

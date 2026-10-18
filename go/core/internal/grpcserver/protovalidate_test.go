@@ -130,7 +130,12 @@ func TestAgentRequestValidation(t *testing.T) {
 		valid   bool
 	}{
 		{"list", &apiv1.ListAgentsRequest{Namespace: "team-a"}, true},
-		{"list missing namespace", &apiv1.ListAgentsRequest{}, false},
+		{"list every namespace", &apiv1.ListAgentsRequest{}, true},
+		{"list page", &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 100, PageToken: "token"}}, true},
+		{"list page over the limit", &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 101}}, false},
+		{"template list every namespace", &apiv1.ListAgentTemplatesRequest{}, true},
+		{"template list", &apiv1.ListAgentTemplatesRequest{Namespace: "team-a"}, true},
+		{"template list invalid namespace", &apiv1.ListAgentTemplatesRequest{Namespace: "team/a"}, false},
 		{"list invalid namespace", &apiv1.ListAgentsRequest{Namespace: "team/a"}, false},
 		{"get", &apiv1.GetAgentRequest{Ref: ref}, true},
 		{"get missing ref", &apiv1.GetAgentRequest{}, false},

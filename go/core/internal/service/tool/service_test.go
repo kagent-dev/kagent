@@ -5,16 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -95,7 +92,7 @@ func TestServiceDiscoveryAndAuthorization(t *testing.T) {
 		}},
 	}
 	authorizer := &recordingAuthorizer{}
-	service := NewService(toolTestKube(t, true), store, authorizer, "default", &fakeMCPClient{})
+	service := NewService(toolTestKube(t), store, authorizer, "default", &fakeMCPClient{})
 
 	_, err := service.ListTools(context.Background())
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
@@ -114,12 +111,12 @@ func TestServiceDiscoveryAndAuthorization(t *testing.T) {
 
 	types, err := service.ListToolServerTypes(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []ServerType{ServerTypeRemoteMCPServer, ServerTypeMCPServer}, types)
+	assert.Equal(t, []ServerType{ServerTypeRemoteMCPServer}, types)
 }
 
 func TestServiceCreateToolServer(t *testing.T) {
 	t.Run("creates companion secret and maps duplicate", func(t *testing.T) {
-		kubeClient := toolTestKube(t, true)
+		kubeClient := toolTestKube(t)
 		service := NewService(kubeClient, &fakeDiscoveryStore{}, &recordingAuthorizer{}, "default", nil)
 		server := &v1alpha3.RemoteMCPServer{
 			ObjectMeta: metav1.ObjectMeta{Name: "remote", UID: "remote-uid"},
@@ -148,7 +145,7 @@ func TestServiceCreateToolServer(t *testing.T) {
 	})
 
 	t.Run("authorization precedes material validation", func(t *testing.T) {
-		kubeClient := toolTestKube(t, true)
+		kubeClient := toolTestKube(t)
 		authorizer := &recordingAuthorizer{err: errors.New("denied")}
 		service := NewService(kubeClient, &fakeDiscoveryStore{}, authorizer, "default", nil)
 		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "denied"}}
@@ -168,24 +165,24 @@ func TestServiceCreateToolServer(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "default"},
 			Type:       corev1.SecretTypeOpaque,
 		}
-		kubeClient := toolTestKube(t, true, preexisting)
+		kubeClient := toolTestKube(t, preexisting)
 		service := NewService(kubeClient, &fakeDiscoveryStore{}, &recordingAuthorizer{}, "default", nil)
-		server := &kmcp.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: "local", UID: "local-uid"}}
+		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "local", UID: "local-uid"}}
 
 		_, err := service.CreateToolServer(toolTestContext(), CreateToolServerRequest{
-			Type:      ServerTypeMCPServer,
-			MCPServer: server,
-			Secrets:   []secretmaterial.Material{{Name: "shared", Key: "token", Value: "new"}},
+			Type:            ServerTypeRemoteMCPServer,
+			RemoteMCPServer: server,
+			Secrets:         []secretmaterial.Material{{Name: "shared", Key: "token", Value: "new"}},
 		})
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument), err)
-		getErr := kubeClient.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "local"}, &kmcp.MCPServer{})
+		getErr := kubeClient.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "local"}, &v1alpha3.RemoteMCPServer{})
 		assert.True(t, apierrors.IsNotFound(getErr), getErr)
 	})
 }
 
 func TestServiceDeleteToolServer(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "remote", Namespace: "default"}}
-	kubeClient := toolTestKube(t, true, server)
+	kubeClient := toolTestKube(t, server)
 	store := &fakeDiscoveryStore{servers: []database.ToolServer{{
 		Name:      "default/remote",
 		GroupKind: "RemoteMCPServer.api.kagent.dev",
@@ -203,7 +200,7 @@ func TestServiceDeleteToolServer(t *testing.T) {
 func TestServiceMCPFacade(t *testing.T) {
 	ref := MCPServerRef{
 		Ref:       types.NamespacedName{Namespace: "default", Name: "server"},
-		GroupKind: "MCPServer.kagent.dev",
+		GroupKind: "RemoteMCPServer.api.kagent.dev",
 	}
 	mcpClient := &fakeMCPClient{
 		tools:    []MCPAppTool{{Name: "move", UIResourceURI: "ui://board"}},
@@ -211,7 +208,7 @@ func TestServiceMCPFacade(t *testing.T) {
 		resource: &mcp.ReadResourceResult{},
 	}
 	authorizer := &recordingAuthorizer{}
-	service := NewService(toolTestKube(t, true), &fakeDiscoveryStore{}, authorizer, "default", mcpClient)
+	service := NewService(toolTestKube(t), &fakeDiscoveryStore{}, authorizer, "default", mcpClient)
 
 	tools, err := service.ListMCPAppTools(toolTestContext(), ref)
 	require.NoError(t, err)
@@ -240,9 +237,7 @@ func TestRuntimeMCPClientResolveServer(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "default"},
 		Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://remote.example/mcp"},
 	}
-	local := &kmcp.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "default"}}
-	local.Spec.Deployment.Port = 9090
-	client := NewRuntimeMCPClient(toolTestKube(t, true, remote, local))
+	client := NewRuntimeMCPClient(toolTestKube(t, remote))
 
 	remoteResult, err := client.ResolveServer(t.Context(), MCPServerRef{
 		Ref:       types.NamespacedName{Namespace: "default", Name: "shared"},
@@ -250,13 +245,6 @@ func TestRuntimeMCPClientResolveServer(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "https://remote.example/mcp", remoteResult.Spec.URL)
-
-	localResult, err := client.ResolveServer(t.Context(), MCPServerRef{
-		Ref:       types.NamespacedName{Namespace: "default", Name: "shared"},
-		GroupKind: "MCPServer.kagent.dev",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "http://shared.default:9090/mcp", localResult.Spec.URL)
 }
 
 func toolTestContext() context.Context {
@@ -265,21 +253,12 @@ func toolTestContext() context.Context {
 	})
 }
 
-func toolTestKube(t *testing.T, withMCPServer bool, objects ...client.Object) client.Client {
+func toolTestKube(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
-	require.NoError(t, kmcp.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
-
-	restMapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{kmcp.GroupVersion})
-	if withMCPServer {
-		restMapper.Add(
-			schema.GroupVersionKind{Group: kmcp.GroupVersion.Group, Version: kmcp.GroupVersion.Version, Kind: "MCPServer"},
-			meta.RESTScopeNamespace,
-		)
-	}
-	return fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(restMapper).WithObjects(objects...).Build()
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 }
 
 func TestListToolServersGroupsByExactIdentity(t *testing.T) {
@@ -296,7 +275,7 @@ func TestListToolServersGroupsByExactIdentity(t *testing.T) {
 			{ID: "orphan", ServerName: "absent", GroupKind: "remote"},
 		},
 	}
-	service := NewService(toolTestKube(t, true), store, &recordingAuthorizer{}, "default", &fakeMCPClient{})
+	service := NewService(toolTestKube(t), store, &recordingAuthorizer{}, "default", &fakeMCPClient{})
 	servers, err := service.ListToolServers(toolTestContext())
 	require.NoError(t, err)
 	require.Equal(t, []ToolServer{
@@ -308,7 +287,7 @@ func TestListToolServersGroupsByExactIdentity(t *testing.T) {
 
 func TestListToolServersSkipsToolReadWithoutServers(t *testing.T) {
 	store := &fakeDiscoveryStore{toolsErr: errors.New("tool read failed")}
-	service := NewService(toolTestKube(t, true), store, &recordingAuthorizer{}, "default", &fakeMCPClient{})
+	service := NewService(toolTestKube(t), store, &recordingAuthorizer{}, "default", &fakeMCPClient{})
 	servers, err := service.ListToolServers(toolTestContext())
 	require.NoError(t, err)
 	require.Equal(t, []ToolServer{}, servers)

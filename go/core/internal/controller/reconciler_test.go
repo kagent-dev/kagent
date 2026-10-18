@@ -11,6 +11,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,6 +27,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
@@ -183,11 +185,6 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			states.UpdateObject(state)
 			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
 
-			// Compile failures preserve the current UID's last successful runtime.
-			state.Target = nil
-			states.UpdateObject(state)
-			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
-			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
 			request := &apiv1.Session{
 				Id: uuid.NewString(), Creator: "alice",
 				Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
@@ -195,6 +192,17 @@ func TestRuntimeRevisionGCCollectsRetiredRevisions(t *testing.T) {
 			session, _, err := store.CreateSession(ctx, request, "session")
 			require.NoError(t, err)
 			require.Equal(t, id.String(), session.GetPreparedRevision())
+
+			// Compile failures preserve the last successful runtime and pinned retries.
+			state.Target = nil
+			states.UpdateObject(state)
+			require.NoError(t, reconciler.reconcileAgent(ctx, state.ResourceName()))
+			require.Empty(t, reconciler.collections.AgentRuntimeObservations.List(), "invalid preparation must release its observation before GC")
+			retried, created, err := store.CreateSession(ctx, request, "session")
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, session.GetId(), retried.GetId())
+			require.Equal(t, id.String(), retried.GetPreparedRevision())
 			operation, err := store.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 			require.NoError(t, err)
 			executor := uuid.New()
@@ -272,6 +280,7 @@ func (s *failingFinalizationStore) DeleteRuntimeRevision(ctx context.Context, re
 }
 
 type fakeActorTemplates struct {
+	actorEgressStub
 	template           *ateapipb.ActorTemplate
 	ensureErr          error
 	getErr             error
@@ -313,13 +322,21 @@ func (f *fakeActorTemplates) DeleteActorTemplate(context.Context, string, string
 }
 
 type fakeRuntimeRevisionStore struct {
-	pair             *database.AgentDefinition
-	revision         *database.RuntimeRevision
-	markedSuccessful bool
-	retired          string
-	revisionErr      error
-	pairErr          error
-	pairCalls        int
+	egressTargetStoreStub
+	pair              *database.AgentDefinition
+	revision          *database.RuntimeRevision
+	markedSuccessful  bool
+	retired           string
+	revisionErr       error
+	recordCalls       int
+	pairErr           error
+	pairCalls         int
+	definitionSources []database.RuntimeEgressSource
+	sourcesErr        error
+}
+
+func (s *fakeRuntimeRevisionStore) ListAgentEgressSources(context.Context) ([]database.RuntimeEgressSource, error) {
+	return s.definitionSources, s.sourcesErr
 }
 
 func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair database.AgentDefinition) error {
@@ -328,19 +345,20 @@ func (s *fakeRuntimeRevisionStore) UpsertAgentDefinition(_ context.Context, pair
 	return s.pairErr
 }
 
-func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, ready bool) error {
+func (s *fakeRuntimeRevisionStore) RecordRuntimeRevision(_ context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) error {
+	s.recordCalls++
 	if s.revisionErr != nil {
 		return s.revisionErr
 	}
 	s.revision = &revision
-	s.markedSuccessful = ready
+	if options.Ready {
+		s.markedSuccessful = true
+	}
 	return nil
 }
 
-func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string, except *database.AgentDefinition) error {
-	if except == nil {
-		s.retired = namespace + "/" + template
-	}
+func (s *fakeRuntimeRevisionStore) RetireAgentIdentities(_ context.Context, namespace, template string) error {
+	s.retired = namespace + "/" + template
 	return nil
 }
 
@@ -387,7 +405,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		statusClient,
 	)
 
-	go reconciler.Run(stop)
+	go func() { assert.NoError(t, reconciler.Start(t.Context())) }()
 
 	var initialUpdate *kagentv1alpha3.ModelConfig
 	var err error
@@ -449,4 +467,11 @@ func TestReconciliationQueueRetriesWithBackoff(t *testing.T) {
 		cancel()
 		require.NoError(t, queue.WaitForClose(time.Second))
 	})
+}
+
+func (s *fakeRuntimeRevisionStore) GetAgentEgressGrant(_ context.Context, namespace, uid string) (egress.Access, error) {
+	if s.pair != nil && s.pair.Namespace == namespace && s.pair.AgentUID == uid && s.retired == "" {
+		return s.pair.EgressGrant, nil
+	}
+	return egress.Access{}, nil
 }
