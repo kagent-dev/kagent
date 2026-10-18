@@ -54,6 +54,11 @@ const (
 	gitAsThePersonCaller = "alice@example.com"
 	gitAsThePersonPrompt = "Work on the repository as the person."
 	gitAsThePersonDone   = "GIT_AS_THE_PERSON_DONE"
+	// The egress gateway's refusals, in the body of its 403: of a host the
+	// Actor's egress policy does not allow, and of a credential URI whose
+	// authority no credential provider of the gateway answers.
+	gatewayDeniedDestination = "actor egress policy denied TLS destination"
+	gatewayNoProvider        = "no credential provider configured for " + forgeAuthority
 )
 
 // forgeRequest is a request the forge received: the host it was sent to and
@@ -323,7 +328,7 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 				probed := gitAsThePersonProbe(t, granted, harness.shellTool)
 				require.Equal(t, "/workspace", probed["pwd"], "the shell runs in the Session's directory")
 				require.Equal(t, workspaceCredentialPlaceholder, probed["gh_token"], "gh holds the placeholder only")
-				require.Equal(t, "ok", probed["fetch"])
+				require.True(t, strings.HasPrefix(probed["fetch"], "ok"), "git fetch: %s", probed["fetch"])
 				require.Equal(t, "ok", probed["push"])
 				require.True(t, strings.HasPrefix(probed["gh"], "ok actor/") && strings.HasSuffix(probed["gh"], "/"+substrate.ActorName(granted.sessionID)),
 					"gh api user answered as the Session's Actor: %s", probed["gh"])
@@ -346,8 +351,11 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 					grant.Provider{Hostname: forgeRefusedHost, Scheme: "Bearer", Provider: forgeRefusedProvider})))
 				started := time.Now()
 				probed := gitAsThePersonProbe(t, refused, harness.shellTool)
-				require.True(t, strings.HasPrefix(probed["refused_push"], "failed "), "the push to the refused host failed: %s", probed["refused_push"])
-				require.True(t, strings.HasPrefix(probed["refused_gh"], "failed "), "gh on the refused host failed: %s", probed["refused_gh"])
+				for _, key := range []string{"refused_push", "refused_gh"} {
+					require.True(t, strings.HasPrefix(probed[key], "failed "), "%s failed: %s", key, probed[key])
+					require.Contains(t, probed[key], gatewayNoProvider, "%s got the gateway's refusal", key)
+					require.Contains(t, probed[key], "403", key)
+				}
 				for _, request := range origin.requestsSince(forgeRefusedHost, started) {
 					require.Empty(t, request.Authorization, "%s %s reached the forge with a credential", request.Method, request.Path)
 				}
@@ -363,6 +371,7 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 				for _, key := range []string{"fetch", "gh"} {
 					require.True(t, strings.HasPrefix(probed[key], "failed "), "%s failed: %s", key, probed[key])
 					require.Contains(t, probed[key], "403", "%s got the gateway's 403", key)
+					require.Contains(t, probed[key], gatewayDeniedDestination, "%s got the gateway's refusal", key)
 				}
 				require.Empty(t, origin.requestsSince(forgeHost, started), "a Session without a grant reached the forge")
 			})
