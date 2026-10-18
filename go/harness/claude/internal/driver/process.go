@@ -58,6 +58,9 @@ type ProcessConfig struct {
 	// MCPForwarder fronts the MCP servers Claude reaches through the harness;
 	// Close stops it.
 	MCPForwarder *CredentialForwarder
+	// TurnTimeout, when positive, ends every run of Claude between two inputs
+	// of the person with a cap result once it has run this long.
+	TurnTimeout time.Duration
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -199,6 +202,10 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
 	defer d.bindCallerCredential(ctx)()
+	bound := d.segmentBound(ctx)
+	if bound.reached() {
+		return runtime.Outcome{Stop: &bound.stop}, nil
+	}
 	message, err := userMessage(turn.Prompt)
 	if err != nil {
 		return runtime.Outcome{}, err
@@ -276,7 +283,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 			d.stopSession(session)
 		}
 	}()
-	outcome, err := d.consume(ctx, session, sink)
+	outcome, err := d.consume(ctx, session, sink, bound)
 	// A pending outcome carries this same live session. Every other return path
 	// leaves cleanup with this Run invocation.
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
@@ -426,7 +433,34 @@ func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate 
 	_, _ = stdin.Write(message)
 }
 
-func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink) (runtime.Outcome, error) {
+// segmentBound bounds the run of Claude that ctx starts now: by the time
+// limit, and by the caller's bearer expiry when the harness forwards that
+// bearer, since the MCP servers answer 401 once it has expired. It is nil when
+// nothing bounds the run.
+func (d *ProcessDriver) segmentBound(ctx context.Context) *turnBound {
+	var expiry time.Time
+	if d.config.CallerCredentials != nil {
+		expiry, _ = bearerExpiry(CallerCredential(ctx))
+	}
+	bound, ok := boundTurn(time.Now(), d.config.TurnTimeout, expiry)
+	if !ok {
+		return nil
+	}
+	return &bound
+}
+
+// reached reports whether a run bounded by b must not start.
+func (b *turnBound) reached() bool {
+	return b != nil && !time.Now().Before(b.at)
+}
+
+func (d *ProcessDriver) consume(ctx context.Context, session *processSession, sink runtime.EventSink, bound *turnBound) (runtime.Outcome, error) {
+	var capped <-chan time.Time
+	if bound != nil {
+		timer := time.NewTimer(time.Until(bound.at))
+		defer timer.Stop()
+		capped = timer.C
+	}
 	var approvalPending *PendingApprovalRequest
 	for {
 		if approvalPending != nil && session.sessionID != "" {
@@ -485,6 +519,20 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 				return runtime.Outcome{}, fmt.Errorf("claude process exited without a terminal result")
 			}
 			return *session.terminal, nil
+		case <-capped:
+			// Interrupted, Claude keeps the conversation up to here, and the
+			// next turn resumes it. A result Claude already reported, while a
+			// backgrounded tool kept it running, keeps its usage; a failed one
+			// stands.
+			d.stopSession(session)
+			if session.terminal != nil && session.terminal.Failure != nil {
+				return *session.terminal, nil
+			}
+			outcome := runtime.Outcome{Stop: &bound.stop}
+			if session.terminal != nil {
+				outcome.Usage = session.terminal.Usage
+			}
+			return outcome, nil
 		case <-ctx.Done():
 			return runtime.Outcome{}, ctx.Err()
 		}
@@ -510,10 +558,17 @@ func (p *pendingTurn) Resume(ctx context.Context, response runtime.InputResponse
 		return runtime.Outcome{}, fmt.Errorf("tool approval response ID %q does not match pending ID %q", decision.ID, p.pending.request.ID)
 	}
 	defer p.driver.bindCallerCredential(ctx)()
+	bound := p.driver.segmentBound(ctx)
+	if bound.reached() {
+		_ = p.pending.resolve(runtime.ApprovalDecision{
+			ID: p.pending.request.ID, Approved: false, RejectionReason: bound.stop.Message,
+		})
+		return runtime.Outcome{Stop: &bound.stop}, nil
+	}
 	if err := p.pending.resolve(*decision); err != nil {
 		return runtime.Outcome{}, err
 	}
-	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink})
+	outcome, err := p.driver.consume(ctx, p.session, resumedEventSink{EventSink: sink}, bound)
 	sessionOwnedByPendingTurn = err == nil && outcome.Pending != nil
 	return p.driver.withForwarderRefusals(outcome, err)
 }

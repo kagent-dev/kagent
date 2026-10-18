@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
@@ -71,6 +72,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	var skillRoot string
 	if cfg.SkillResources != nil {
 		skillRoot = filepath.Join(generatedDir, "claude")
+	}
+	turnTimeout, err := turnTimeout(input.Environment)
+	if err != nil {
+		return nil, err
 	}
 	holdsCallerCredential := propagateCallerToken(input.Environment) && len(cfg.MCPServers) != 0
 	if holdsCallerCredential {
@@ -241,6 +246,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		SkillRoot: skillRoot, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry, RunAs: runAs, PrepareCommand: prepareCommand,
+		TurnTimeout: turnTimeout,
 	}
 	if forwarder != nil {
 		processConfig.MCPForwarder = forwarder
@@ -255,6 +261,19 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 // caller's credential on MCP calls, the same switch the Go ADK reads.
 func propagateCallerToken(environment []string) bool {
 	return strings.EqualFold(strings.TrimSpace(environmentValue(environment, config.PropagateTokenEnvName)), "true")
+}
+
+// turnTimeout reads the Harness's time limit on a run of Claude; none is zero.
+func turnTimeout(environment []string) (time.Duration, error) {
+	value := strings.TrimSpace(environmentValue(environment, config.TurnTimeoutEnvName))
+	if value == "" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration such as 30m, not %q", config.TurnTimeoutEnvName, value)
+	}
+	return timeout, nil
 }
 
 // frontedServers names the servers the credential forwarder fronts: all of

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
@@ -330,4 +331,24 @@ func TestFrontedServersSelectToolsWithoutCallerCredential(t *testing.T) {
 	require.Equal(t, forwarder.URL("selected"), cfg.MCPServers["selected"].URL)
 	require.Empty(t, cfg.MCPServers["selected"].Tools, "Claude's MCP file carries no selection; the forwarder enforces it")
 	require.Equal(t, servers["whole"], cfg.MCPServers["whole"])
+}
+
+func TestTurnTimeoutReadsTheHarnessEnvironment(t *testing.T) {
+	for _, test := range []struct {
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{value: "", want: 0},
+		{value: "30m", want: 30 * time.Minute},
+		{value: " 1h30m ", want: 90 * time.Minute},
+		{value: "0s", wantErr: true},
+		{value: "-5m", wantErr: true},
+		{value: "thirty minutes", wantErr: true},
+	} {
+		got, err := turnTimeout([]string{"PATH=/bin", config.TurnTimeoutEnvName + "=" + test.value})
+		if (err != nil) != test.wantErr || got != test.want {
+			t.Fatalf("turnTimeout(%q) = %s, %v; want %s, error %v", test.value, got, err, test.want, test.wantErr)
+		}
+	}
 }

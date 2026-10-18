@@ -708,3 +708,29 @@ func TestExecuteReportsTheForwarderRefusalsOfATurn(t *testing.T) {
 		})
 	}
 }
+
+// TestATurnStoppedAtABoundCompletesWithItsReason: a turn the harness ends at
+// a bound (a time limit, the caller's bearer expiry) completes, not fails, and
+// its final status tells the person why and carries the reason for clients.
+func TestATurnStoppedAtABoundCompletesWithItsReason(t *testing.T) {
+	executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+		return runtime.Outcome{Stop: &runtime.Stop{Reason: "turn_time_limit", Message: "The turn reached its time limit. Send continue."}}, nil
+	}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	last, ok := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || last.Status.State != a2atype.TaskStateCompleted || last.Status.Message == nil {
+		t.Fatalf("last event = %#v, want a completed status with a message", events[len(events)-1])
+	}
+	if len(last.Status.Message.Parts) != 1 || last.Status.Message.Parts[0].Text() != "The turn reached its time limit. Send continue." {
+		t.Fatalf("final message parts = %#v, want the stop message", last.Status.Message.Parts)
+	}
+	if reason := last.Status.Message.Metadata[apia2a.StopReasonMetadataKey]; reason != "turn_time_limit" {
+		t.Fatalf("stop reason metadata = %#v", reason)
+	}
+}

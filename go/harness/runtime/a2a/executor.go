@@ -303,12 +303,12 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
-		if outcome.Failure != nil && outcome.Pending != nil {
+		if outcome.Pending != nil && (outcome.Failure != nil || outcome.Stop != nil) {
 			_ = outcome.Pending.Cancel(context.Background())
 			if finish() {
 				return
 			}
-			fail("invalid_runtime_outcome", fmt.Errorf("runtime returned both a failure and a pending turn"))
+			fail("invalid_runtime_outcome", fmt.Errorf("runtime returned a pending turn with a failure or a stop"))
 			return
 		}
 
@@ -341,8 +341,12 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
 			endInvocation()
 			var message *a2atype.Message
-			if metadata := outcomeMetadata(outcome); len(metadata) != 0 {
-				message = taskMessage(reqCtx, "")
+			if metadata := outcomeMetadata(outcome); len(metadata) != 0 || outcome.Stop != nil {
+				text := ""
+				if outcome.Stop != nil {
+					text = outcome.Stop.Message
+				}
+				message = taskMessage(reqCtx, text)
 				message.Metadata = metadata
 				apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
 			}
@@ -779,11 +783,15 @@ var _ a2asrv.AgentExecutor = (*Executor)(nil)
 // outcomeMetadata carries a turn's usage under the canonical usage key, in the
 // token fields every runtime reports, plus the cost and model turns when the
 // runtime reports them, as Claude Code does. An unreported cost is absent,
-// never zero. What the runtime's MCP forwarder refused rides beside it.
+// never zero. What the runtime's MCP forwarder refused and the bound a turn
+// stopped at ride beside it.
 func outcomeMetadata(outcome runtime.Outcome) map[string]any {
 	metadata := map[string]any{}
 	if !outcome.ForwarderRefusals.IsZero() {
 		metadata[apia2a.ForwarderRefusalsMetadataKey] = outcome.ForwarderRefusals.MetadataValue()
+	}
+	if outcome.Stop != nil {
+		metadata[apia2a.StopReasonMetadataKey] = outcome.Stop.Reason
 	}
 	if usage := outcome.Usage; usage != nil {
 		fields := map[string]any{

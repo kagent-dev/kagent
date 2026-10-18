@@ -29,6 +29,7 @@ harness.
 - [x] Standalone skills and plugin-provided skills
 - [x] Direct HTTP and SSE MCP servers; a tool selection on streamable HTTP servers
 - [x] Human-in-the-loop MCP tool approval
+- [x] A time limit on a turn and, when the caller's credential is forwarded, its bearer's expiry
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 A Vertex AI service account key is exchanged for an access token by Substrate's
@@ -71,6 +72,21 @@ what the forwarder checked, so a duplicate member reaches the server as it was d
 selection needs no discovered tool set. An SSE server
 is not fronted and exposes the whole server, which the compiler reports unless the selection
 is all of its current discovered tools.
+
+## Turn bounds
+
+`KAGENT_TURN_TIMEOUT` in the Harness environment, a Go duration such as `30m`, limits how long
+Claude runs between two inputs of the person: a run that reaches it is interrupted. With
+`KAGENT_PROPAGATE_TOKEN=true`, a run also ends 30 seconds before the `exp` of the caller's JWT
+bearer, since the MCP servers it is forwarded to answer 401 once it has expired; a turn whose
+bearer has already expired does not start Claude. The harness reads `exp` without verifying the
+token, which the MCP server does; an opaque bearer bounds nothing.
+
+A run ended at a bound is a completed turn, not a failure: its final status message says why and
+how to go on, and carries the bound under `kagent.dev/a2a/stop-reason` (`turn_time_limit` or
+`caller_credential_expiry`). Claude keeps the conversation up to the interruption, so the person
+continues it with the next message, which brings a fresh bearer. An invalid value fails the
+harness's start.
 
 ## Users
 

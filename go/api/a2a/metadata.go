@@ -12,6 +12,9 @@ const (
 	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
 	PartTypeMetadataKey         = MetadataPrefix + "part-type"
 	UsageMetadataKey            = MetadataPrefix + "usage"
+	// StopReasonMetadataKey names the bound a harness ended a completed turn
+	// at, on the turn's final status.
+	StopReasonMetadataKey = MetadataPrefix + "stop-reason"
 )
 
 // SetTimelinePosition records the temporary task-timeline ordering key.
