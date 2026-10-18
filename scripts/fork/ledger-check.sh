@@ -15,9 +15,12 @@
 # predecessor's row is missing is refused before an image is built. The new
 # release's own row is written after its publish: the pipeline's `record` job
 # proposes it as a pull request (scripts/fork/releases-row-pr.sh). A row
-# counts when it is in the checkout's FORK.md or in the consumed branch's
-# (CONSUMED_BRANCH, default giantswarm, fetched from origin): a candidate cut
-# before the row's pull request merged is promoted all the same.
+# counts when it is in the checkout's FORK.md, in the consumed branch's
+# (CONSUMED_BRANCH, default giantswarm, fetched from origin), or in the FORK.md
+# of that pull request's branch (fork-ledger/releases-<version> on origin): a
+# candidate cut before the row's pull request merged is promoted all the same,
+# and a row still waiting in its pull request never refuses the next stable.
+# A refusal names where the row's pull request is found (REPO_URL).
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -39,7 +42,8 @@ check_pin() {
 }
 
 check_releases() {
-  local release=${1#v} tag version ledgers consumed=${CONSUMED_BRANCH:-giantswarm}
+  local release=${1#v} tag version row proposed prs ledgers consumed=${CONSUMED_BRANCH:-giantswarm}
+  local repo_url=${REPO_URL:-https://github.com/giantswarm/kagent-upstream}
   [[ "$release" =~ $stable ]] || { echo "${1:-dev build}: not a stable release, the Releases table is not checked"; return; }
   ledgers=$(cat "$fork")
   if git fetch -q origin "$consumed" 2>/dev/null; then
@@ -52,8 +56,15 @@ check_releases() {
     [[ "$version" =~ $stable ]] || continue
     [ "$(printf '%s\n%s\n' "$ledger_from" "$version" | sort -V | head -1)" = "$ledger_from" ] || continue
     [ "$(printf '%s\n%s\n' "$version" "$release" | sort -V | head -1)" = "$version" ] && [ "$version" != "$release" ] || continue
-    grep -qF "| \`${version}\` | \`v${version}\` " <<<"$ledgers" ||
-      problems+=("the Releases table of ${fork} has no row for ${version}: merge the pull request \"docs(fork): the Releases table carries ${version}\" the publish of v${version} opened, or run scripts/fork/releases-row.sh ${version}")
+    row="| \`${version}\` | \`v${version}\` "
+    grep -qF "$row" <<<"$ledgers" && continue
+    proposed=fork-ledger/releases-${version}
+    prs="${repo_url}/pulls?q=is%3Apr+head%3A${proposed//\//%2F}"
+    if git fetch -q origin "refs/heads/${proposed}" 2>/dev/null && git show FETCH_HEAD:"$fork" 2>/dev/null | grep -qF "$row"; then
+      echo "the row of ${version} is not on ${consumed} yet: it waits in the pull request of ${proposed} (${prs}), which counts; merge it"
+      continue
+    fi
+    problems+=("the Releases table of ${fork} has no row for ${version}: merge the pull request \"docs(fork): the Releases table carries ${version}\" the publish of v${version} opened (${prs}), or run scripts/fork/releases-row.sh ${version}")
   done < <(git tag -l 'v*')
 }
 

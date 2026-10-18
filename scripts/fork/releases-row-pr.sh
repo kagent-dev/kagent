@@ -8,10 +8,10 @@
 # release's builds.md row is on the `ledger` branch: the row is written from
 # that (scripts/fork/releases-row.sh) on a fresh clone of the consumed branch,
 # committed on `fork-ledger/releases-<version>` and proposed as a `docs(fork)`
-# pull request, which cuts no candidate. The next stable's gate refuses while
-# the row is not on the consumed branch, so the pull request is merged before
-# the next promotion. A re-run finds the row or the open pull request and adds
-# nothing. GH_TOKEN pushes and opens the pull request; GH_REPO names the
+# pull request, which cuts no candidate. The next stable's gate counts the row
+# on the consumed branch or on this pull request's branch, so a row still
+# waiting for its merge refuses no promotion. A re-run finds the row or the
+# open pull request and adds nothing. GH_TOKEN pushes and opens the pull request; GH_REPO names the
 # repository.
 set -euo pipefail
 
@@ -52,6 +52,6 @@ git -c user.name="$name" -c user.email="$email" commit -q -s -m "$title" -- FORK
 gh pr create --repo "$repo" --base "$base" --head "$branch" --title "$title" --body "$(cat <<EOF
 The Releases row of \`v${version}\`, written by the publish pipeline from the release's builds.md row on the \`ledger\` branch, its tags and its Makefile (\`scripts/fork/releases-row.sh\`).
 
-The next stable's gate (\`.github/release-gate.custom.sh\`) refuses while this row is not on \`${base}\`: merge this before the next promotion.
+The next stable's gate (\`.github/release-gate.custom.sh\`) counts this row on \`${base}\` or on this pull request's branch, so the next promotion does not wait for this merge. Merge it to put the row on \`${base}\`; close it only with its branch deleted.
 EOF
 )"

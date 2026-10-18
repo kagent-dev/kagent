@@ -77,6 +77,29 @@ want="| \`1.7.0\` | \`v1.7.0\` (published 2026-10-15T02:19Z, on \`${sha:0:8}\`, 
 scripts/fork/releases-row.sh 1.7.0 >/dev/null
 [ "$(grep -cF '| `1.7.0` |' FORK.md)" = 1 ] && pass "a re-run writes nothing twice" || fail "a re-run wrote the row again"
 
+# 3b. The gate counts a row still waiting in the pull request the publish of
+#     1.7.0 opened (its branch fork-ledger/releases-1.7.0 on origin), and
+#     refuses, naming that pull request, while its branch lacks the row.
+cp FORK.md "$work/FORK.row"
+git checkout -q FORK.md
+(cd "$origin" && g checkout -q -b fork-ledger/releases-1.7.0 && g commit -q --allow-empty -m 'docs(fork): no row' && g checkout -q giantswarm)
+if out=$(scripts/fork/ledger-check.sh releases v1.8.0 2>&1); then
+  fail "the gate passed 1.8.0 with a row branch that lacks 1.7.0's row"
+else
+  grep -qF '(https://github.com/giantswarm/kagent-upstream/pulls?q=is%3Apr+head%3Afork-ledger%2Freleases-1.7.0)' <<<"$out" &&
+    pass "the gate refuses 1.8.0 naming where 1.7.0's row pull request is" || fail "refusal does not link the pull request: $out"
+fi
+(cd "$origin" && g checkout -q fork-ledger/releases-1.7.0 && cp "$work/FORK.row" FORK.md &&
+  g commit -q -am 'docs(fork): the Releases table carries 1.7.0' && g checkout -q giantswarm)
+if out=$(scripts/fork/ledger-check.sh releases v1.8.0 2>&1); then
+  grep -qF 'the row of 1.7.0 is not on giantswarm yet: it waits in the pull request of fork-ledger/releases-1.7.0' <<<"$out" &&
+    pass "the gate passes 1.8.0 with 1.7.0's row waiting in its pull request" || fail "pass without the notice: $out"
+else
+  fail "the gate refused 1.8.0 with 1.7.0's row in its pull request: $out"
+fi
+(cd "$origin" && g branch -q -D fork-ledger/releases-1.7.0)
+cp "$work/FORK.row" FORK.md
+
 # 4. An unpublished stable or a candidate gets no row.
 scripts/fork/releases-row.sh v1.5.0 >/dev/null 2>&1 && pass "a version with a row is left as it is" || fail "1.5.0 with a row failed"
 (cd "$origin" && g tag v1.9.0 v1.7.0) && git fetch -q --tags origin
