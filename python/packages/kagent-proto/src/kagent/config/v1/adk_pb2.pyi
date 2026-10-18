@@ -332,28 +332,32 @@ class ADKSSEConnectionParams(_message.Message):
     def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sse_read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
 
 class ADKHTTPMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
     params: ADKHTTPConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
-    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ...) -> None: ...
+    token_passthrough: bool
+    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
 
 class ADKSSEMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
     params: ADKSSEConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
-    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ...) -> None: ...
+    token_passthrough: bool
+    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
 
 class ADKStdioMCPServerConfig(_message.Message):
     __slots__ = ("command", "args", "env", "dir")

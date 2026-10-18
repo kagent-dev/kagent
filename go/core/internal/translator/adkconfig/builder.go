@@ -353,7 +353,7 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.TokenPassthrough
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}

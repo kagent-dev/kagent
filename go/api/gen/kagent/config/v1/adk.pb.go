@@ -1709,8 +1709,10 @@ type ADKHTTPMCPServerConfig struct {
 	Tools           []string                 `protobuf:"bytes,2,rep,name=tools,proto3" json:"tools,omitempty"`
 	AllowedHeaders  []string                 `protobuf:"bytes,3,rep,name=allowed_headers,json=allowedHeaders,proto3" json:"allowed_headers,omitempty"`
 	RequireApproval bool                     `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Forward the incoming A2A bearer token as this server's Authorization header.
+	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ADKHTTPMCPServerConfig) Reset() {
@@ -1771,14 +1773,23 @@ func (x *ADKHTTPMCPServerConfig) GetRequireApproval() bool {
 	return false
 }
 
+func (x *ADKHTTPMCPServerConfig) GetTokenPassthrough() bool {
+	if x != nil {
+		return x.TokenPassthrough
+	}
+	return false
+}
+
 type ADKSSEMCPServerConfig struct {
 	state           protoimpl.MessageState  `protogen:"open.v1"`
 	Params          *ADKSSEConnectionParams `protobuf:"bytes,1,opt,name=params,proto3" json:"params,omitempty"`
 	Tools           []string                `protobuf:"bytes,2,rep,name=tools,proto3" json:"tools,omitempty"`
 	AllowedHeaders  []string                `protobuf:"bytes,3,rep,name=allowed_headers,json=allowedHeaders,proto3" json:"allowed_headers,omitempty"`
 	RequireApproval bool                    `protobuf:"varint,4,opt,name=require_approval,json=requireApproval,proto3" json:"require_approval,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Forward the incoming A2A bearer token as this server's Authorization header.
+	TokenPassthrough bool `protobuf:"varint,5,opt,name=token_passthrough,json=tokenPassthrough,proto3" json:"token_passthrough,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ADKSSEMCPServerConfig) Reset() {
@@ -1835,6 +1846,13 @@ func (x *ADKSSEMCPServerConfig) GetAllowedHeaders() []string {
 func (x *ADKSSEMCPServerConfig) GetRequireApproval() bool {
 	if x != nil {
 		return x.RequireApproval
+	}
+	return false
+}
+
+func (x *ADKSSEMCPServerConfig) GetTokenPassthrough() bool {
+	if x != nil {
+		return x.TokenPassthrough
 	}
 	return false
 }
@@ -3120,17 +3138,19 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x1b\n" +
 	"\x19_tls_insecure_skip_verifyB\x13\n" +
 	"\x11_tls_ca_cert_pathB\x19\n" +
-	"\x17_tls_disable_system_cas\"\xcd\x01\n" +
+	"\x17_tls_disable_system_cas\"\xfa\x01\n" +
 	"\x16ADKHTTPMCPServerConfig\x12I\n" +
 	"\x06params\x18\x01 \x01(\v2).kagent.config.v1.ADKHTTPConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
-	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\"\xcb\x01\n" +
+	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
+	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xf8\x01\n" +
 	"\x15ADKSSEMCPServerConfig\x12H\n" +
 	"\x06params\x18\x01 \x01(\v2(.kagent.config.v1.ADKSSEConnectionParamsB\x06\xbaH\x03\xc8\x01\x01R\x06params\x12\x14\n" +
 	"\x05tools\x18\x02 \x03(\tR\x05tools\x12'\n" +
 	"\x0fallowed_headers\x18\x03 \x03(\tR\x0eallowedHeaders\x12)\n" +
-	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\"\xd7\x01\n" +
+	"\x10require_approval\x18\x04 \x01(\bR\x0frequireApproval\x12+\n" +
+	"\x11token_passthrough\x18\x05 \x01(\bR\x10tokenPassthrough\"\xd7\x01\n" +
 	"\x17ADKStdioMCPServerConfig\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12D\n" +

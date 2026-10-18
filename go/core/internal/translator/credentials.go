@@ -25,6 +25,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	var tokenPassthroughOrigins []string
 	boundModels := map[string]bool{}
 	boundMCP := map[string]bool{}
+	var passthroughEndpoints []string
 	bind := func(rawURL, header, prefix, namespace, name, key string) error {
 		u, err := url.Parse(strings.TrimSpace(rawURL))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
@@ -41,6 +42,9 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 			models = append(models, agent.ResolvedModelConfig)
 		}
 		for _, tool := range agent.MCPTools {
+			if tool.Server.Spec.TokenPassthrough {
+				passthroughEndpoints = append(passthroughEndpoints, tool.Server.Spec.URL)
+			}
 			for _, ref := range tool.Server.Spec.HeadersFrom {
 				if ref.ValueFrom != nil && ref.ValueFrom.Type == v1alpha3.SecretValueSource {
 					boundMCP[ref.ValueFrom.Name+"\x00"+ref.ValueFrom.Key] = true
@@ -62,7 +66,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	}
 	for _, resolved := range models {
 		model := resolved.Config
-		if model.Spec.APIKeyPassthrough || model.Spec.APIKeySecret == "" {
+		if model.Spec.TokenPassthrough || model.Spec.APIKeySecret == "" {
 			continue
 		}
 		name, endpoint, header, prefix := modelCredentialTarget(resolved)
@@ -88,11 +92,14 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		boundModels[name+"\x00"+model.Spec.APIKeySecret+"\x00"+key] = true
 	}
 	for _, resolved := range models {
-		if !resolved.Config.Spec.APIKeyPassthrough {
+		if !resolved.Config.Spec.TokenPassthrough {
 			continue
 		}
 		_, endpoint, _, _ := modelCredentialTarget(resolved)
-		u, err := url.Parse(endpoint)
+		passthroughEndpoints = append(passthroughEndpoints, endpoint)
+	}
+	for _, endpoint := range passthroughEndpoints {
+		u, err := url.Parse(strings.TrimSpace(endpoint))
 		if err != nil {
 			return nil, nil, nil, NewValidationError("invalid passthrough credential destination")
 		}
@@ -172,7 +179,7 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		if spec.Ollama == nil {
 			break
 		}
-		hasCredential := spec.APIKeySecret != "" || spec.APIKeyPassthrough
+		hasCredential := spec.APIKeySecret != "" || spec.TokenPassthrough
 		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
 			break
 		}

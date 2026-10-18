@@ -71,7 +71,7 @@ func TestCompileCredentialsRejectsLocalSecrets(t *testing.T) {
 }
 
 func TestCompileCredentialsPreservesPassthrough(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true})
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true})
 	_, bindings, _, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
@@ -126,7 +126,7 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 			name: "cloud model with passthrough binds the cloud",
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
-				APIKeyPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
+				TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
 			},
 			wantName:     "OLLAMA_API_KEY",
 			wantEndpoint: "https://api.ollama.com",
@@ -175,10 +175,33 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 }
 
 func TestPassthroughCredentialUsesCanonicalOrigin(t *testing.T) {
-	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, APIKeyPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
+	input := credentialInput(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, TokenPassthrough: true, OpenAI: &v1alpha3.OpenAIConfig{BaseURL: "https://API.OPENAI.COM.:0443/v1"}})
 	environment, credentials, origins, err := CompileCredentials(input, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, environment)
 	require.Empty(t, credentials)
 	require.Equal(t, []string{"https://api.openai.com:443"}, origins)
+}
+
+func TestCompileCredentialsMCPTokenPassthrough(t *testing.T) {
+	passthrough := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+	}}
+	input := credentialInput(v1alpha3.ModelConfigSpec{})
+	input.Root.MCPTools = []ResolvedMCPTool{{Server: passthrough}}
+	_, _, origins, err := CompileCredentials(input, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://mcp.example.com:443"}, origins)
+
+	// A gateway credential on the same origin would overwrite the caller's token.
+	keyed := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "keyed", Namespace: "team"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://mcp.example.com/other",
+		HeadersFrom: []v1alpha3.ValueRef{{Name: "X-API-Key", ValueFrom: &v1alpha3.ValueSource{
+			Type: v1alpha3.SecretValueSource, Name: "mcp", Key: "token",
+		}}},
+	}}
+	input.Root.MCPTools = append(input.Root.MCPTools, ResolvedMCPTool{Server: keyed})
+	environment, _, _, err := CompileCredentials(input, nil, nil)
+	require.ErrorContains(t, err, "cannot combine caller-token passthrough")
+	require.Nil(t, environment)
 }

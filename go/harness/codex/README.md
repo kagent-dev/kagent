@@ -42,7 +42,7 @@ Substrate Actor remains the security boundary. Its granular native approval
 policy enables MCP elicitation and rejects command, sandbox, rule, skill, and
 `request_permissions` prompts. MCP servers marked for approval prompt through
 App Server elicitation, while other MCP servers remain automatically approved.
-Account login, API-key passthrough, custom TLS, legacy SSE MCP, Dedicated agents,
+Account login, ModelConfig `tokenPassthrough`, custom TLS, legacy SSE MCP, Dedicated agents,
 checkpoint/fork guarantees, and configurable native policy are not advertised.
 
 Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and

@@ -80,9 +80,22 @@ ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway 
 AWS IAM signing keys, Google service-account keys, and OAuth client credentials
 require mechanisms beyond static header injection and are rejected rather than
 serialized into runtimes.
-Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share an origin with static gateway credentials, which would override
-the caller's authentication.
+
+Caller-token passthrough is set with `tokenPassthrough` on ModelConfig or
+RemoteMCPServer. It forwards the bearer token from the incoming A2A request
+instead of a gateway credential. A passthrough model or MCP server cannot share
+an origin with static gateway credentials, which would override the caller's
+authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
+`headersFrom`.
+
+RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
+Codex and Claude reject it at compilation, and the Python runtime fails at
+startup. A request without a caller token fails instead of connecting
+anonymously. The runtime discovers tools on first use, because startup has no
+caller token. Controller discovery also has no caller token, so servers that
+require one should set the `kagent.dev/discovery: disabled` label. The runtime
+shares one MCP session per server. The standalone SSE stream and session
+teardown therefore carry the token of the caller that opened the session.
 
 ## Deferred API fields
 

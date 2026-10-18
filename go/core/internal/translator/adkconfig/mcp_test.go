@@ -52,3 +52,15 @@ func TestAddRemoteMCPServerPreservesBindingApproval(t *testing.T) {
 		})
 	}
 }
+
+func TestAddRemoteMCPServerTokenPassthrough(t *testing.T) {
+	config := &configv1.ADKAgentConfig{}
+	for _, protocol := range []v1alpha3.RemoteMCPServerProtocol{v1alpha3.RemoteMCPServerProtocolStreamableHttp, v1alpha3.RemoteMCPServerProtocolSse} {
+		server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{
+			URL: "https://mcp.example.test", Protocol: protocol, TokenPassthrough: true,
+		}}
+		require.NoError(t, (&Builder{}).addRemoteMCPServer(config, server, nil, false, nil))
+	}
+	require.True(t, config.HttpTools[0].TokenPassthrough)
+	require.True(t, config.SseTools[0].TokenPassthrough)
+}

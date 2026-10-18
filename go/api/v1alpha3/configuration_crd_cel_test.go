@@ -92,6 +92,34 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("MCP token passthrough owns Authorization", func(t *testing.T) {
+		for _, test := range []struct {
+			name        string
+			passthrough bool
+			header      string
+			wantReject  bool
+		}{
+			{"passthrough without headers", true, "", false},
+			{"passthrough with other header", true, "X-Tenant", false},
+			{"passthrough with Authorization", true, "authorization", true},
+			{"static Authorization without passthrough", false, "Authorization", false},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-passthrough-", Namespace: namespace},
+					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: test.passthrough}}
+				if test.header != "" {
+					server.Spec.HeadersFrom = []ValueRef{{Name: test.header, Value: "value"}}
+				}
+				err := cl.Create(ctx, server)
+				if test.wantReject {
+					require.ErrorContains(t, err, "headersFrom cannot set Authorization when tokenPassthrough is enabled")
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	})
+
 	t.Run("optional Harness workload", func(t *testing.T) {
 		for _, variant := range []struct {
 			name string
