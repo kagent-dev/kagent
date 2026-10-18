@@ -116,21 +116,30 @@ type authzForwardingInterceptor struct {
 }
 
 func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok {
-		return ctx, nil, nil
-	}
-	meta := callCtx.ServiceParams()
-	if meta == nil {
-		return ctx, nil, nil
-	}
 	if len(req.ServiceParams.Get(constants.AuthorizationHeader)) > 0 {
 		return ctx, nil, nil
 	}
-	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
-		req.ServiceParams.Append(constants.AuthorizationHeader, vals[0])
+	if token := incomingAuthorization(ctx); token != "" {
+		req.ServiceParams.Append(constants.AuthorizationHeader, token)
 	}
 	return ctx, nil, nil
+}
+
+// incomingAuthorization returns the Authorization header of the incoming A2A
+// request carried by ctx, or "" when there is none.
+func incomingAuthorization(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ""
+	}
+	meta := callCtx.ServiceParams()
+	if meta == nil {
+		return ""
+	}
+	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 {
+		return vals[0]
+	}
+	return ""
 }
 
 // staticHeadersInterceptor appends static request headers to every call.
@@ -260,8 +269,20 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 		resolver := agentcard.NewResolver(s.httpClient)
 
 		var resolveOpts []agentcard.ResolveOption
+		hasStaticAuthz := false
 		for k, v := range s.extraHeaders {
 			resolveOpts = append(resolveOpts, agentcard.WithRequestHeader(k, v))
+			hasStaticAuthz = hasStaticAuthz || strings.EqualFold(k, constants.AuthorizationHeader)
+		}
+		// The agent card is usually served behind the same authentication as the
+		// agent itself (kagent-controller serves it at the agent's own URL,
+		// /agents/<ns>/<name>). When the caller's token is propagated to the agent's
+		// messages, send it on the card request too; a static Authorization header
+		// in extraHeaders still wins, as it does for messages.
+		if s.propagateToken && !hasStaticAuthz {
+			if token := incomingAuthorization(ctx); token != "" {
+				resolveOpts = append(resolveOpts, agentcard.WithRequestHeader(constants.AuthorizationHeader, token))
+			}
 		}
 
 		card, err := resolver.Resolve(ctx, s.baseURL, resolveOpts...)
