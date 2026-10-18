@@ -385,6 +385,7 @@ func Run(ctx context.Context, opts Options) error {
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		kagentenv.SubstrateAtenetRouterURL.Get(),
 		authenticator,
+		a2agateway.WithActorJWTProviders(actorJWTProviders),
 	)
 	if err != nil {
 		return err

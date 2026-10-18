@@ -926,7 +926,7 @@ func providerCredentials(resolver providerAuthority, providers []*apiv1alpha1.Se
 		//nolint:staticcheck // audience is the instance of a session stored before provider existed.
 		instance := cmp.Or(provider.GetProvider(), provider.GetAudience())
 		binding := egress.Credential{Hostname: provider.GetHostname(), Header: "authorization", Prefix: provider.GetScheme() + " ", PathPrefix: provider.GetPathPrefix()}
-		if verifier, verifies := resolver.actorJWT[instance]; verifies && provider.GetScheme() == "Bearer" {
+		if verifier, verifies := actorJWTVerifier(resolver.actorJWT, provider); verifies {
 			binding.Audience = verifier.Audience
 		} else if resolver.authority != "" {
 			binding.URI = egress.ProviderCredentialURI(resolver.authority, instance, provider.GetScheme())
@@ -936,6 +936,29 @@ func providerCredentials(resolver providerAuthority, providers []*apiv1alpha1.Se
 		bindings = append(bindings, binding)
 	}
 	return bindings
+}
+
+// actorJWTVerifier returns the instance of actorJWT that verifies the Actor's
+// own JWT on provider's host: a Bearer provider naming it.
+func actorJWTVerifier(actorJWT map[string]egress.ActorJWTProvider, provider *apiv1alpha1.SessionProvider) (egress.ActorJWTProvider, bool) {
+	//nolint:staticcheck // audience is the instance of a session stored before provider existed.
+	verifier, verifies := actorJWT[cmp.Or(provider.GetProvider(), provider.GetAudience())]
+	return verifier, verifies && provider.GetScheme() == "Bearer"
+}
+
+// ActorJWTHosts lists the hosts of providers on which the egress gateway
+// hands the session's Actor its own JWT for every request, whatever its path:
+// a runtime sends no caller credential there, since the gateway replaces it.
+// The list is sorted and holds each host once.
+func ActorJWTHosts(actorJWT map[string]egress.ActorJWTProvider, providers []*apiv1alpha1.SessionProvider) []string {
+	var hosts []string
+	for _, provider := range providers {
+		if _, verifies := actorJWTVerifier(actorJWT, provider); verifies && provider.GetPathPrefix() == "" {
+			hosts = append(hosts, strings.ToLower(provider.GetHostname()))
+		}
+	}
+	slices.Sort(hosts)
+	return slices.Compact(hosts)
 }
 
 // repointActor moves a suspended Actor onto the ActorTemplate of current and

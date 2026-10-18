@@ -13,6 +13,9 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
 type recordedRequest struct {
@@ -84,7 +87,7 @@ func TestCredentialForwarderCarriesTheTurnCredentialOnly(t *testing.T) {
 		t.Fatalf("an unauthenticated loopback call reached the upstream: %#v", seen)
 	}
 
-	forwarder.Bind("Bearer person-token")
+	forwarder.Bind("Bearer person-token", nil)
 	if response := callForwarder(t, forwarder, forwarder.URL("tools"), true); response.StatusCode != http.StatusOK {
 		t.Fatalf("forwarded call status = %d", response.StatusCode)
 	}
@@ -139,7 +142,7 @@ func TestCredentialForwarderAuthorizationHasOneOwner(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = forwarder.Close() })
 			if test.credential != "" {
-				forwarder.Bind(test.credential)
+				forwarder.Bind(test.credential, nil)
 			}
 			require.Equal(t, http.StatusOK, callForwarder(t, forwarder, forwarder.URL("tools"), true).StatusCode)
 			seen := requests()
@@ -239,7 +242,7 @@ func TestCredentialForwarderKeepsThePathAbsoluteForAPathlessUpstream(t *testing.
 	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{"tools": {URL: upstream.URL}}, 1<<20)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
-	forwarder.Bind("Bearer person-token")
+	forwarder.Bind("Bearer person-token", nil)
 	require.Equal(t, http.StatusOK, callForwarder(t, forwarder, forwarder.URL("tools")+"/session", true).StatusCode)
 	seen := requests()
 	require.Len(t, seen, 1)
@@ -253,7 +256,7 @@ func TestCredentialForwarderForwardsTransportHeadersOnly(t *testing.T) {
 	}, 1<<20)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
-	forwarder.Bind("Bearer person-token")
+	forwarder.Bind("Bearer person-token", nil)
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, forwarder.URL("tools"), strings.NewReader(`{"jsonrpc":"2.0"}`))
 	require.NoError(t, err)
@@ -283,4 +286,66 @@ func TestCredentialForwarderForwardsTransportHeadersOnly(t *testing.T) {
 	require.NotEmpty(t, header.Get("Traceparent"))
 	require.Empty(t, header.Get("Cookie"))
 	require.Empty(t, header.Get("X-Custom"))
+}
+
+// A server on a host where the egress gateway hands the session's Actor its
+// own JWT gets the placeholder the gateway replaces, never the caller's
+// credential, and a turn whose every caller-owned server is on such a host
+// holds no caller credential at all.
+func TestCredentialForwarderSendsThePlaceholderToActorJWTHosts(t *testing.T) {
+	upstream, requests := newRecordingUpstream(t)
+	port := strings.TrimPrefix(upstream.URL, "http://127.0.0.1")
+	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
+		"muster": {URL: "http://LOCALHOST" + port + "/mcp"},
+		"tools":  {URL: upstream.URL + "/mcp"},
+	}, 1<<20)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+
+	forwarder.Bind("Bearer person-token", []string{"localhost"})
+	require.Equal(t, http.StatusOK, callForwarder(t, forwarder, forwarder.URL("muster"), true).StatusCode)
+	require.Equal(t, http.StatusOK, callForwarder(t, forwarder, forwarder.URL("tools"), true).StatusCode)
+	forwarder.Clear()
+	seen := requests()
+	require.Len(t, seen, 2)
+	require.Equal(t, []string{"Bearer " + workspace.CredentialPlaceholder}, seen[0].Header.Values("Authorization"), "the actor-JWT host takes the placeholder")
+	require.Equal(t, []string{"Bearer person-token"}, seen[1].Header.Values("Authorization"), "another host still takes the caller's credential")
+
+	only, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
+		"muster": {URL: "http://localhost" + port + "/mcp"},
+		"static": {URL: upstream.URL + "/mcp", Headers: map[string]string{"Authorization": workspace.CredentialPlaceholder}},
+	}, 1<<20)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = only.Close() })
+	only.Bind("Bearer person-token", []string{"localhost"})
+	require.Empty(t, only.credential, "no server takes the caller's credential, so the harness holds none")
+	require.Equal(t, http.StatusOK, callForwarder(t, only, only.URL("muster"), true).StatusCode)
+	seen = requests()
+	require.Equal(t, []string{"Bearer " + workspace.CredentialPlaceholder}, seen[len(seen)-1].Header.Values("Authorization"))
+	only.Clear()
+	require.Equal(t, http.StatusOK, callForwarder(t, only, only.URL("muster"), true).StatusCode)
+	seen = requests()
+	require.Empty(t, seen[len(seen)-1].Header.Values("Authorization"), "a cleared turn names no host and carries nothing")
+}
+
+func TestActorJWTHostsReadsTheTurnsHosts(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		values []string
+		want   []string
+	}{
+		{name: "none"},
+		{name: "one", values: []string{"muster.example.svc"}, want: []string{"muster.example.svc"}},
+		{name: "joined and repeated, case folded", values: []string{"Muster.example.svc, git.example.com", "muster.example.svc,,"}, want: []string{"muster.example.svc", "git.example.com"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			params := map[string][]string{}
+			if test.values != nil {
+				params[adk.ActorJWTHostsHeader] = test.values
+			}
+			ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(params))
+			require.Equal(t, test.want, ActorJWTHosts(ctx))
+		})
+	}
+	require.Nil(t, ActorJWTHosts(t.Context()), "a call outside A2A names no host")
 }

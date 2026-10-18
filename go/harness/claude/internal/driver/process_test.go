@@ -426,11 +426,22 @@ func TestProcessDriverCancellation(t *testing.T) {
 type recordingBinder struct {
 	mu     sync.Mutex
 	events []string
+	// actorJWTHost is the host of the one server that takes the caller's
+	// credential, empty for a server on no host the gateway names.
+	actorJWTHost string
 }
 
-func (b *recordingBinder) Bind(credential string) {
+func (b *recordingBinder) TakesCallerCredential(actorJWTHosts []string) bool {
+	return b.actorJWTHost == "" || !slices.Contains(actorJWTHosts, b.actorJWTHost)
+}
+
+func (b *recordingBinder) Bind(credential string, actorJWTHosts []string) {
 	b.mu.Lock()
-	b.events = append(b.events, "bind:"+credential)
+	event := "bind:" + credential
+	if len(actorJWTHosts) != 0 {
+		event += "@" + strings.Join(actorJWTHosts, ";")
+	}
+	b.events = append(b.events, event)
 	b.mu.Unlock()
 }
 
@@ -440,9 +451,13 @@ func (b *recordingBinder) Clear() {
 	b.mu.Unlock()
 }
 
-func callerContext(t *testing.T, credential string) context.Context {
+func callerContext(t *testing.T, credential string, actorJWTHosts ...string) context.Context {
 	t.Helper()
-	ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"authorization": {credential}}))
+	params := map[string][]string{"authorization": {credential}}
+	if len(actorJWTHosts) != 0 {
+		params[adk.ActorJWTHostsHeader] = []string{strings.Join(actorJWTHosts, ",")}
+	}
+	ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(params))
 	return ctx
 }
 
@@ -472,11 +487,11 @@ func TestProcessDriverBindsTheCallerCredentialPerTurn(t *testing.T) {
 	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear" {
 		t.Fatalf("a parked turn must hold no credential: binder events = %q", got)
 	}
-	outcome, err = outcome.Pending.Resume(callerContext(t, "Bearer second-sender"), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, &recordingSink{})
+	outcome, err = outcome.Pending.Resume(callerContext(t, "Bearer second-sender", "Muster.Example.svc"), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, &recordingSink{})
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("Resume() = %#v, %v", outcome, err)
 	}
-	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear,bind:Bearer second-sender,clear" {
+	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear,bind:Bearer second-sender@muster.example.svc,clear" {
 		t.Fatalf("the resuming call's credential must replace the first: binder events = %q", got)
 	}
 }

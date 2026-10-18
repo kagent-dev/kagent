@@ -32,7 +32,7 @@ func TestCredentialForwarderRefusesPathsThatLeaveTheServer(t *testing.T) {
 	}, 1<<20)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
-	forwarder.Bind("Bearer person-token")
+	forwarder.Bind("Bearer person-token", nil)
 
 	for _, path := range []string{
 		"/mcp/tools/../../other",

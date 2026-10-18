@@ -15,6 +15,8 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -31,11 +33,22 @@ type RuntimeDialer struct {
 	target        string
 	transport     credentials.TransportCredentials
 	authenticator auth.AuthProvider
+	actorJWT      map[string]egress.ActorJWTProvider
+}
+
+// RuntimeDialerOption configures a RuntimeDialer.
+type RuntimeDialerOption func(*RuntimeDialer)
+
+// WithActorJWTProviders names the provider instances whose hosts receive the
+// session Actor's own JWT from the egress gateway, the same the Session
+// workflow binds: every turn names those of its session to the runtime.
+func WithActorJWTProviders(providers map[string]egress.ActorJWTProvider) RuntimeDialerOption {
+	return func(d *RuntimeDialer) { d.actorJWT = providers }
 }
 
 // NewRuntimeDialer configures private A2A gRPC calls through Substrate's
 // shared Atenet router; ate-target-actor selects the Actor.
-func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*RuntimeDialer, error) {
+func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider, options ...RuntimeDialerOption) (*RuntimeDialer, error) {
 	router, err := url.Parse(routerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse Atenet router URL %q: %w", routerURL, err)
@@ -55,7 +68,11 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 	default:
 		return nil, fmt.Errorf("atenet router URL %q must use http or https", routerURL)
 	}
-	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}, nil
+	dialer := &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}
+	for _, option := range options {
+		option(dialer)
+	}
+	return dialer, nil
 }
 
 func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
@@ -75,7 +92,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) 
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),
-			&upstreamAuthInterceptor{authenticator: d.authenticator, session: session, targetActor: targetActor},
+			&upstreamAuthInterceptor{authenticator: d.authenticator, session: session, targetActor: targetActor, actorJWTHosts: sessionsvc.ActorJWTHosts(d.actorJWT, session.GetProviders())},
 		),
 	)
 }
@@ -88,6 +105,7 @@ type upstreamAuthInterceptor struct {
 	authenticator auth.AuthProvider
 	session       *apiv1alpha1.Session
 	targetActor   string
+	actorJWTHosts []string
 }
 
 func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
@@ -141,6 +159,11 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	}
 	if changed := u.session.GetChanged(); u.session.GetVolumeSource() != nil && len(changed) != 0 {
 		httpRequest.Header.Set(adk.ChangedRepositoriesHeader, strings.Join(changed, ","))
+	}
+	// The hosts the egress gateway hands the session Actor's own JWT, where
+	// the runtime sends a placeholder and holds no caller credential for.
+	if len(u.actorJWTHosts) != 0 {
+		httpRequest.Header.Set(adk.ActorJWTHostsHeader, strings.Join(u.actorJWTHosts, ","))
 	}
 	for key, values := range httpRequest.Header {
 		for _, value := range values {

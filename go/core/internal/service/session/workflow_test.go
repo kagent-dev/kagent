@@ -986,6 +986,27 @@ func TestSessionEgressPolicyBindsTheActorJWTOfAProviderThatVerifiesIt(t *testing
 	}
 }
 
+// The hosts a runtime sends no caller credential to are exactly the hosts the
+// egress gateway hands the Actor's own JWT on every path.
+func TestActorJWTHosts(t *testing.T) {
+	actorJWT := map[string]egress.ActorJWTProvider{"muster": {Hostname: "muster.example.svc", Audience: "https://muster.example.com"}}
+	require.Equal(t, []string{"muster.example.svc"}, ActorJWTHosts(actorJWT, []*apiv1alpha1.SessionProvider{
+		{Hostname: "Muster.example.svc", Scheme: "Bearer", Provider: "muster"},
+		{Hostname: "muster.example.svc", Scheme: "Bearer", Audience: "muster"},
+		{Hostname: "github.com", Scheme: "Basic", Provider: "github"},
+		{Hostname: "gitlab.example.com", Scheme: "Bearer", Provider: "gitlab"},
+	}))
+	for name, providers := range map[string][]*apiv1alpha1.SessionProvider{
+		"no providers":        nil,
+		"a Basic provider":    {{Hostname: "muster.example.svc", Scheme: "Basic", Provider: "muster"}},
+		"under a path prefix": {{Hostname: "muster.example.svc", Scheme: "Bearer", Provider: "muster", PathPrefix: "/mcp/"}},
+		"another instance":    {{Hostname: "muster.example.svc", Scheme: "Bearer", Provider: "github"}},
+	} {
+		require.Empty(t, ActorJWTHosts(actorJWT, providers), name)
+	}
+	require.Empty(t, ActorJWTHosts(nil, []*apiv1alpha1.SessionProvider{{Hostname: "muster.example.svc", Scheme: "Bearer", Provider: "muster"}}), "an installation without actor-JWT providers names none")
+}
+
 func TestActorEgressPolicy(t *testing.T) {
 	policy, err := substrate.ActorEgressPolicy("team-a", []string{"https://API.Example.com.", "https://api.example.com:443", "https://api.example.com:0443", "http://api.example.com:8080"}, nil)
 	require.NoError(t, err)

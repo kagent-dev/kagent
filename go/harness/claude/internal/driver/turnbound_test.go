@@ -188,6 +188,30 @@ func TestProcessDriverDoesNotStartATurnWithAnExpiredBearer(t *testing.T) {
 	}
 }
 
+// A turn whose servers all receive the Actor's JWT forwards no bearer, so the
+// caller's bearer bounds nothing: Claude starts on an expired one.
+func TestProcessDriverIgnoresTheBearerOfAnActorJWTTurn(t *testing.T) {
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\ntouch \"" + started + "\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir, MaxEventBytes: 4096, MaxStderrBytes: 1024,
+		InterruptGrace: 50 * time.Millisecond, CallerCredentials: &recordingBinder{actorJWTHost: "muster.example.svc"},
+	})
+	credential := bearer(`{"exp":` + itoa(time.Now().Add(-time.Minute).Unix()) + `}`)
+	outcome, err := d.Run(callerContext(t, credential, "muster.example.svc"), runtime.Turn{Prompt: "hello"}, &recordingSink{})
+	if err != nil || outcome.Stop != nil {
+		t.Fatalf("Run() = %#v, %v; want a turn the bearer does not bound", outcome, err)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatal("Claude did not start: the bearer it does not forward bounded the turn")
+	}
+}
+
 // Without a caller credential to forward, the bearer bounds nothing: an
 // expired token on the call is not the harness's to judge.
 func TestProcessDriverIgnoresTheBearerItDoesNotForward(t *testing.T) {

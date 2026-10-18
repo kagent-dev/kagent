@@ -362,15 +362,15 @@ func (d *ProcessDriver) prepareAsUser(ctx context.Context, dispatch workspace.Di
 	return workspace.PrepareAs(ctx, dispatch, options, &runAs, d.config.PrepareCommand...)
 }
 
-// bindCallerCredential hands the turn's caller credential to the binder and
-// returns the function that clears it. The credential lives in this process
-// only while a turn runs; a parked turn resumes with the credential of the
-// call that resumes it.
+// bindCallerCredential hands the turn's caller credential and the hosts that
+// receive the session Actor's JWT to the binder and returns the function that
+// clears them. The credential lives in this process only while a turn runs; a
+// parked turn resumes with the credential of the call that resumes it.
 func (d *ProcessDriver) bindCallerCredential(ctx context.Context) func() {
 	if d.config.CallerCredentials == nil {
 		return func() {}
 	}
-	d.config.CallerCredentials.Bind(CallerCredential(ctx))
+	d.config.CallerCredentials.Bind(CallerCredential(ctx), ActorJWTHosts(ctx))
 	return d.config.CallerCredentials.Clear
 }
 
@@ -435,11 +435,12 @@ func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate 
 
 // segmentBound bounds the run of Claude that ctx starts now: by the time
 // limit, and by the caller's bearer expiry when the harness forwards that
-// bearer, since the MCP servers answer 401 once it has expired. It is nil when
+// bearer, since the MCP servers answer 401 once it has expired; a turn whose
+// servers all receive the Actor's JWT instead forwards none. It is nil when
 // nothing bounds the run.
 func (d *ProcessDriver) segmentBound(ctx context.Context) *turnBound {
 	var expiry time.Time
-	if d.config.CallerCredentials != nil {
+	if d.config.CallerCredentials != nil && d.config.CallerCredentials.TakesCallerCredential(ActorJWTHosts(ctx)) {
 		expiry, _ = bearerExpiry(CallerCredential(ctx))
 	}
 	bound, ok := boundTurn(time.Now(), d.config.TurnTimeout, expiry)

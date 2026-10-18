@@ -11,6 +11,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,51 @@ func TestRuntimeDialerForwardsTheResolvedPersonOnly(t *testing.T) {
 				require.Equal(t, tt.want, md.Get(adk.UserHeader))
 				require.Equal(t, []string{"session"}, md.Get(adk.AgentInstanceHeader))
 				require.Equal(t, []string{"Bearer runtime-test"}, md.Get("authorization"))
+			case <-ctx.Done():
+				t.Fatal("runtime did not receive the call")
+			}
+		})
+	}
+}
+
+// A turn names the hosts the egress gateway hands its session's Actor the
+// Actor's own JWT on, so the runtime sends no caller credential there; a
+// session without such a provider names none.
+func TestRuntimeDialerNamesTheActorJWTHosts(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	received := make(chan metadata.MD, 2)
+	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, _ any, _ *grpc.UnaryServerInfo, _ grpc.UnaryHandler) (any, error) {
+		md, _ := metadata.FromIncomingContext(ctx)
+		received <- md
+		return nil, status.Error(codes.Unimplemented, "observed")
+	}))
+	a2apb.RegisterA2AServiceServer(server, &a2apb.UnimplementedA2AServiceServer{})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	dialer, err := NewRuntimeDialer("http://"+listener.Addr().String(), runtimeTestAuth{},
+		WithActorJWTProviders(map[string]egress.ActorJWTProvider{"muster": {Hostname: "muster.example.svc", Audience: "https://muster.example.com"}}))
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		name      string
+		providers []*apiv1alpha1.SessionProvider
+		want      []string
+	}{
+		{name: "muster bound", providers: []*apiv1alpha1.SessionProvider{{Hostname: "muster.example.svc", Scheme: "Bearer", Provider: "muster"}, {Hostname: "github.com", Scheme: "Basic", Provider: "github"}}, want: []string{"muster.example.svc"}},
+		{name: "no providers"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			ctx = auth.AuthSessionTo(ctx, claimsSession{user: "alice@example.com"})
+			client, err := dialer.Dial(ctx, &apiv1alpha1.Session{Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""), Providers: tt.providers})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, client.Destroy()) })
+			_, err = client.GetTask(ctx, &a2atype.GetTaskRequest{ID: "task"})
+			require.Error(t, err)
+			select {
+			case md := <-received:
+				require.Equal(t, tt.want, md.Get(adk.ActorJWTHostsHeader))
 			case <-ctx.Done():
 				t.Fatal("runtime did not receive the call")
 			}

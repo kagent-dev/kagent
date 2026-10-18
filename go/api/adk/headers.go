@@ -46,4 +46,10 @@ const (
 	// every turn of a session with a workspace volume. A runtime fetches exactly
 	// these before the session's first turn; an absent header fetches nothing.
 	ChangedRepositoriesHeader = "x-kagent-changed-repositories"
+	// ActorJWTHostsHeader carries the hosts, comma-separated, on which the
+	// egress gateway replaces the Authorization header of a request from the
+	// session's Actor with the Actor's own JWT, which the controller's gateway
+	// forwards on every turn of a session that binds such a provider. A
+	// runtime sends a placeholder there instead of the caller's credential.
+	ActorJWTHostsHeader = "x-kagent-actor-jwt-hosts"
 )

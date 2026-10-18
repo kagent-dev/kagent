@@ -43,7 +43,11 @@ of each A2A turn is forwarded on MCP calls, as the Go ADK does. The adapter poin
 compiled streamable HTTP MCP server at a private, authenticated loopback endpoint of the
 harness process; that forwarder adds the turn's credential (which wins over a static
 `Authorization` header) and the server's compiled headers, and drops the credential before
-the turn's outcome is returned, so a parked or suspended Actor holds none. The credential
+the turn's outcome is returned, so a parked or suspended Actor holds none. A server on a host
+the turn names in `x-kagent-actor-jwt-hosts`, where the egress gateway hands the Session's
+Actor its own JWT, gets the placeholder bearer `kagent-credential-injected` the gateway
+replaces instead of the caller's credential, and a turn whose every such server is on one
+holds no caller credential at all. The credential
 never enters Claude's environment or `mcp.json`. SSE servers are not fronted: their
 message endpoint is announced by the upstream host. A request whose path holds a `.` or `..`
 segment, decoded or not, an encoded slash or backslash, an encoded `%`, a `;` or a control
@@ -80,7 +84,8 @@ Claude runs between two inputs of the person: a run that reaches it is interrupt
 `KAGENT_PROPAGATE_TOKEN=true`, a run also ends 30 seconds before the `exp` of the caller's JWT
 bearer, since the MCP servers it is forwarded to answer 401 once it has expired; a turn whose
 bearer has already expired does not start Claude. The harness reads `exp` without verifying the
-token, which the MCP server does; an opaque bearer bounds nothing.
+token, which the MCP server does; an opaque bearer bounds nothing, nor does the bearer of a
+turn that forwards none because its servers all receive the Actor's JWT.
 
 A run ended at a bound is a completed turn, not a failure: its final status message says why and
 how to go on, and carries the bound under `kagent.dev/a2a/stop-reason` (`turn_time_limit` or
