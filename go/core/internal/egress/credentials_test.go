@@ -72,6 +72,27 @@ func TestCanonicalCredentials(t *testing.T) {
 	}
 }
 
+func TestParseActorJWTProviders(t *testing.T) {
+	providers, err := ParseActorJWTProviders(`{"muster":{"hostname":"muster.agent-platform.svc","audience":"https://muster.example.com"}}`)
+	require.NoError(t, err)
+	require.Equal(t, map[string]ActorJWTProvider{"muster": {Hostname: "muster.agent-platform.svc", Audience: "https://muster.example.com"}}, providers)
+	providers, err = ParseActorJWTProviders("")
+	require.NoError(t, err)
+	require.Empty(t, providers)
+	for _, invalid := range []string{
+		"muster=aud",
+		`{"muster":{"hostname":"muster.svc"}}`,
+		`{"muster":{"audience":"aud"}}`,
+		`{"Muster":{"hostname":"muster.svc","audience":"aud"}}`,
+		`{"muster":{"hostname":"10.0.0.1","audience":"aud"}}`,
+		`{"muster":{"hostname":"muster.svc","audience":"aud","token":"x"}}`,
+		`{"muster":{"hostname":"muster.svc","audience":"` + strings.Repeat("a", 513) + `"}}`,
+	} {
+		_, err := ParseActorJWTProviders(invalid)
+		require.Error(t, err, "%q", invalid)
+	}
+}
+
 func TestValidPathPrefix(t *testing.T) {
 	for _, prefix := range []string{"/api/", "/gitlab/api/", "/a/", "/api/v4/"} {
 		require.True(t, ValidPathPrefix(prefix), prefix)

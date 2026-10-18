@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -58,6 +59,41 @@ func ProviderCredentialURI(authority, instance, scheme string) string {
 		kind = "git"
 	}
 	return "ate-secret://" + authority + "/" + instance + "/" + kind
+}
+
+// ActorJWTProvider is a provider instance that verifies the Actor's own JWT
+// itself, on Hostname, for Audience: muster serving a Session's person to the
+// Session's own sandbox on the Giant Swarm platform.
+type ActorJWTProvider struct {
+	Hostname string `json:"hostname"`
+	Audience string `json:"audience"`
+}
+
+// ParseActorJWTProviders reads the provider instances that verify the Actor's
+// own JWT themselves, a JSON object of provider instance to ActorJWTProvider.
+// Empty configures none.
+func ParseActorJWTProviders(spec string) (map[string]ActorJWTProvider, error) {
+	providers := map[string]ActorJWTProvider{}
+	if strings.TrimSpace(spec) == "" {
+		return providers, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(spec))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&providers); err != nil {
+		return nil, fmt.Errorf("actor JWT providers are not a JSON object of provider instance to hostname and audience: %w", err)
+	}
+	for instance, provider := range providers {
+		if !ValidProviderInstance(instance) {
+			return nil, fmt.Errorf("actor JWT provider instance %q is not a DNS label", instance)
+		}
+		if _, ipErr := netip.ParseAddr(provider.Hostname); ipErr == nil || len(validation.IsDNS1123Subdomain(provider.Hostname)) != 0 {
+			return nil, fmt.Errorf("actor JWT provider %q needs an exact DNS hostname, got %q", instance, provider.Hostname)
+		}
+		if provider.Audience == "" || len(provider.Audience) > 512 {
+			return nil, fmt.Errorf("actor JWT provider %q needs an audience of at most 512 characters", instance)
+		}
+	}
+	return providers, nil
 }
 
 // ScopeGolden scopes a binding to the golden boot of a revision's

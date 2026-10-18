@@ -42,6 +42,9 @@ data:
   {{- with (.Values.controller.session).credentialAuthority }}
   KAGENT_SESSION_CREDENTIAL_AUTHORITY: {{ . | quote }}
   {{- end }}
+  {{- with (.Values.controller.session).actorJWTProviders }}
+  KAGENT_SESSION_ACTOR_JWT_PROVIDERS: {{ toJson . | quote }}
+  {{- end }}
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}

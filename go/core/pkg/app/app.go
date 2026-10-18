@@ -30,6 +30,7 @@ import (
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
@@ -335,8 +336,12 @@ func Run(ctx context.Context, opts Options) error {
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
 	memory := memoryservice.NewService(store)
 	quiescenceWake := make(chan struct{}, 1)
+	actorJWTProviders, err := egress.ParseActorJWTProviders(kagentenv.SessionActorJWTProviders.Get())
+	if err != nil {
+		return fmt.Errorf("%s: %w", kagentenv.SessionActorJWTProviders.Name(), err)
+	}
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, sessionsvc.WithPausedRuntimeTTL(kagentenv.SessionPausedRuntimeTTL.Get()),
-		sessionsvc.WithCredentialAuthority(kagentenv.SessionCredentialAuthority.Get()),
+		sessionsvc.WithCredentialAuthority(kagentenv.SessionCredentialAuthority.Get()), sessionsvc.WithActorJWTProviders(actorJWTProviders),
 		sessionsvc.WithDirectoryReleaser(sessionsvc.NewEventDirectoryReleaser(manager.GetClient())))
 	runtimeTasks := taskstore.NewService(store, quiescenceWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
@@ -354,7 +359,7 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
 	}
 	sessionOptions := []sessionsvc.Option{sessionsvc.WithShareMaxTTL(shareMaxTTL), sessionsvc.WithAgentReader(manager.GetClient())}
-	volumeAdmission, err := sessionVolumeAdmission(ctx, logger)
+	volumeAdmission, err := sessionVolumeAdmission(ctx, logger, actorJWTProviders)
 	if err != nil {
 		return err
 	}
@@ -600,7 +605,7 @@ func namespaceCache(names []string) map[string]cache.Config {
 // KAGENT_SESSION_ADMISSION_JWT_ALLOW_HTTP is logged and refuses every volume
 // source instead: a consumer that has not set the opt-in yet keeps a running
 // controller and loses only the volume sources.
-func sessionVolumeAdmission(ctx context.Context, logger *slog.Logger) (sessionsvc.VolumeAdmission, error) {
+func sessionVolumeAdmission(ctx context.Context, logger *slog.Logger, actorJWTProviders map[string]egress.ActorJWTProvider) (sessionsvc.VolumeAdmission, error) {
 	config := jwtadmission.Config{
 		JWKSURL:   kagentenv.SessionAdmissionJWTJWKSURL.Get(),
 		AllowHTTP: kagentenv.SessionAdmissionJWTAllowHTTP.Get(),
@@ -608,6 +613,7 @@ func sessionVolumeAdmission(ctx context.Context, logger *slog.Logger) (sessionsv
 		Audience:  kagentenv.SessionAdmissionJWTAudience.Get(),
 
 		CredentialAuthority: kagentenv.SessionCredentialAuthority.Get(),
+		ActorJWTProviders:   actorJWTProviders,
 	}
 	if config.JWKSURL == "" && config.Issuer == "" && config.Audience == "" {
 		return nil, nil

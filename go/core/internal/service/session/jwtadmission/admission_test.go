@@ -12,6 +12,7 @@ import (
 	"time"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/test/grant"
@@ -87,6 +88,59 @@ func (i *issuerKeys) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(keys)
+}
+
+// A provider the installation configures as verifying the Actor's JWT
+// (muster) joins every Session admitted with a grant as a Bearer provider on
+// its host, with or without the grant's own providers and without a
+// credential authority. A grant may not name it, nor take its host on any
+// path.
+func TestAdmitsEverySessionWithTheActorJWTProviders(t *testing.T) {
+	signer := newSigner(t, issuer, audience)
+	keys := &issuerKeys{}
+	keys.publish(signer)
+	server := httptest.NewTLSServer(keys)
+	t.Cleanup(server.Close)
+	const host = "muster.agent-platform.svc"
+	configured := map[string]egress.ActorJWTProvider{"muster": {Hostname: host, Audience: "https://muster.example.test"}}
+	withProviders := func(providers ...grant.Provider) string {
+		g := workspaceGrant()
+		g.Providers = providers
+		return sign(t, signer, person, g, time.Minute)
+	}
+	//nolint:staticcheck // audience mirrors provider for clients that read it before provider existed.
+	musterProvider := &apiv1alpha1.SessionProvider{Hostname: host, Scheme: "Bearer", Provider: "muster", Audience: "muster"}
+
+	admission, err := New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, ActorJWTProviders: configured}, server.Client())
+	require.NoError(t, err)
+	admitted, err := admission.Admit(t.Context(), person, agent(), workspaceSource(), withProviders())
+	require.NoError(t, err)
+	require.Len(t, admitted.Providers, 1)
+	require.True(t, proto.Equal(musterProvider, admitted.Providers[0]), "got %v", admitted.Providers[0])
+
+	_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), withProviders(grant.Provider{Hostname: "github.com", Scheme: "Basic", Provider: "github"}))
+	require.ErrorContains(t, err, "admission grant names providers and this installation configures no credential authority", "the grant's own providers still need the authority")
+
+	admission, err = New(Config{JWKSURL: server.URL + grant.JWKSPath, Issuer: issuer, Audience: audience, CredentialAuthority: authority, ActorJWTProviders: configured}, server.Client())
+	require.NoError(t, err)
+	admitted, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), withProviders(grant.Provider{Hostname: "github.com", Scheme: "Basic", Provider: "github"}))
+	require.NoError(t, err)
+	require.Len(t, admitted.Providers, 2)
+	require.Equal(t, "github", admitted.Providers[0].GetProvider())
+	require.True(t, proto.Equal(musterProvider, admitted.Providers[1]), "got %v", admitted.Providers[1])
+
+	for name, refused := range map[string]struct {
+		provider grant.Provider
+		reason   string
+	}{
+		"the instance":          {grant.Provider{Hostname: "elsewhere.example.test", Scheme: "Bearer", Provider: "muster"}, `admission grant names provider "muster", which this installation configures`},
+		"the host":              {grant.Provider{Hostname: "Muster.Agent-Platform.svc", Scheme: "Bearer", Provider: "github"}, "the host of this installation's provider"},
+		"the host under a path": {grant.Provider{Hostname: host, PathPrefix: "/mcp/", Scheme: "Bearer", Provider: "github"}, "the host of this installation's provider"},
+	} {
+		_, err = admission.Admit(t.Context(), person, agent(), workspaceSource(), withProviders(refused.provider))
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), "%s: Admit() error = %v", name, err)
+		require.ErrorContains(t, err, refused.reason, name)
+	}
 }
 
 // clock is the admission's time, moved by the test.

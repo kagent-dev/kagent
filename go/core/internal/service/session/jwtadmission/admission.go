@@ -10,9 +10,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,12 +53,19 @@ type Config struct {
 	// a provider instance, never an authority, so it cannot point a credential
 	// at a provider of its choosing. Empty refuses every grant with providers.
 	CredentialAuthority string
+	// ActorJWTProviders are the provider instances that verify the Actor's
+	// own JWT themselves, by instance (muster on the Giant Swarm platform):
+	// every Session admitted with a grant gets each as a Bearer provider on
+	// its hostname, which needs no credential authority. They are the
+	// installation's, never a grant's: a grant naming one is refused.
+	ActorJWTProviders map[string]egress.ActorJWTProvider
 }
 
 // Admission verifies workspace grants. It is safe for concurrent use.
 type Admission struct {
 	issuer, audience string
 	authority        string
+	actorJWT         map[string]egress.ActorJWTProvider
 	keys             *keySet
 }
 
@@ -95,7 +104,7 @@ func New(config Config, client *http.Client) (*Admission, error) {
 	if err := egress.ValidCredentialAuthority(config.CredentialAuthority); config.CredentialAuthority != "" && err != nil {
 		return nil, err
 	}
-	return &Admission{issuer: config.Issuer, audience: config.Audience, authority: config.CredentialAuthority, keys: newKeySet(location.String(), client)}, nil
+	return &Admission{issuer: config.Issuer, audience: config.Audience, authority: config.CredentialAuthority, actorJWT: config.ActorJWTProviders, keys: newKeySet(location.String(), client)}, nil
 }
 
 // volume is the grant's volume claim: a CSI volume by its driver and handle.
@@ -173,7 +182,7 @@ func (a *Admission) Admit(ctx context.Context, caller string, agent *apiv1alpha1
 	if err := allows(grant, source); err != nil {
 		return session.Admitted{}, err
 	}
-	return admitted(grant, a.authority)
+	return admitted(grant, a.authority, a.actorJWT)
 }
 
 // refusal maps a failed verification to its named reason, most specific
@@ -230,9 +239,11 @@ func mountAllowed(allowed []mount, requested *apiv1alpha1.SessionVolumeMount) bo
 // admitted is what the grant admits the Session with, refused as malformed
 // when a provider or a changed path is not one a Session can carry, and
 // refused when the grant has providers and the installation configures no
-// credential authority. A host takes one provider per path prefix, so a
-// request has one credential.
-func admitted(grant *claims, authority string) (session.Admitted, error) {
+// credential authority, or names a provider the installation configures as
+// verifying the Actor's JWT (actorJWT). Each of those joins the Session's
+// providers with the Bearer scheme on its own host. A host takes one provider
+// per path prefix, so a request has one credential.
+func admitted(grant *claims, authority string, actorJWT map[string]egress.ActorJWTProvider) (session.Admitted, error) {
 	result := session.Admitted{Changed: grant.Changed}
 	for _, changed := range grant.Changed {
 		if changed == "" || changed != path.Clean(changed) || path.IsAbs(changed) || changed == ".." || strings.HasPrefix(changed, "../") {
@@ -251,6 +262,9 @@ func admitted(grant *claims, authority string) (session.Admitted, error) {
 		if !egress.ValidProviderInstance(instance) {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: provider instance %q is not a DNS label", instance), nil)
 		}
+		if _, configured := actorJWT[instance]; configured {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant names provider %q, which this installation configures", instance), nil)
+		}
 		if granted.PathPrefix != "" && !egress.ValidPathPrefix(granted.PathPrefix) {
 			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant is malformed: provider path prefix %q is not a path below the root starting and ending with /", granted.PathPrefix), nil)
 		}
@@ -261,6 +275,17 @@ func admitted(grant *claims, authority string) (session.Admitted, error) {
 		scopes[scope] = true
 		result.Providers = append(result.Providers, &apiv1alpha1.SessionProvider{
 			Hostname: granted.Hostname, Scheme: granted.Scheme, PathPrefix: granted.PathPrefix,
+			//nolint:staticcheck // audience mirrors provider for clients that read it before provider existed.
+			Provider: instance, Audience: instance,
+		})
+	}
+	for _, instance := range slices.Sorted(maps.Keys(actorJWT)) {
+		hostname := actorJWT[instance].Hostname
+		if slices.ContainsFunc(result.Providers, func(p *apiv1alpha1.SessionProvider) bool { return strings.EqualFold(p.GetHostname(), hostname) }) {
+			return session.Admitted{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("admission grant names %s, the host of this installation's provider %q", hostname, instance), nil)
+		}
+		result.Providers = append(result.Providers, &apiv1alpha1.SessionProvider{
+			Hostname: hostname, Scheme: "Bearer",
 			//nolint:staticcheck // audience mirrors provider for clients that read it before provider existed.
 			Provider: instance, Audience: instance,
 		})

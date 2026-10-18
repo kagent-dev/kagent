@@ -178,9 +178,26 @@ bindings get no such rule, and a provider on a host and header the Agent
 already binds a credential to is refused when the session's policy is
 compiled, whatever its path prefix.
 
+A provider instance may verify the session Actor's own JWT instead of
+answering a credential URI: on the Giant Swarm platform muster, which serves
+the session's person to its own sandbox once the Actor is bound to that person
+with the reserved provider `muster`. The installation configures such
+instances, each with its hostname and audience
+(`KAGENT_SESSION_ACTOR_JWT_PROVIDERS`), and every session admitted with a grant
+gets each of them as a `Bearer` provider on its hostname, stored with the
+grant's own providers; a grant naming such an instance, or a provider on its
+host on any path, is refused. That provider compiles into
+`CredentialHeader.actor_jwt` with the instance's audience and a 15-minute
+lifetime, prefix `Bearer `: the gateway mints the JWT for the Actor that sent
+the request and replaces the `Authorization` header with it, so no credential
+or token is in the sandbox and nothing is fetched. The rule applies on every
+origin of the host the Actor's policy allows, an Agent's in-cluster `http`
+origin of it included. It needs no credential authority. A session without a
+grant gets none, so its calls to that host carry what its sandbox sends.
+
 Every refusal is `PermissionDenied` with its reason (no grant, expired, not yet
 valid, another person's, another volume, a mount it does not allow, an unknown
-issuer, audience or key, providers without a configured credential authority, an invalid signature, a malformed grant) and never
+issuer, audience or key, providers without a configured credential authority, a grant naming an installation's actor JWT provider or its host, an invalid signature, a malformed grant) and never
 key material. The JWKS is fetched on the first grant, trusted for ten minutes,
 and fetched again on a key id it lacks (at most every ten seconds), so a key
 rotation needs no restart. An issuer whose JWKS cannot be fetched refuses

@@ -27,3 +27,7 @@ var (
 // SessionCredentialAuthority is the credential provider a Session's provider
 // credentials resolve through.
 var SessionCredentialAuthority = RegisterStringVar("KAGENT_SESSION_CREDENTIAL_AUTHORITY", "", "Authority of the egress gateway's credential provider that answers a Session's provider credentials (ate-secret://<authority>/<provider instance>/<git|api>), a DNS name other than a Kubernetes Secret provider. Empty refuses every admission grant that names providers.", ComponentController)
+
+// SessionActorJWTProviders are the Session provider instances that verify the
+// Actor's own JWT themselves.
+var SessionActorJWTProviders = RegisterStringVar("KAGENT_SESSION_ACTOR_JWT_PROVIDERS", "", "Session provider instances that verify the Actor's own JWT themselves, a JSON object of provider instance to its hostname and audience ({\"muster\":{\"hostname\":\"muster.example.svc\",\"audience\":\"https://muster.example.com\"}}). Every Session admitted with a grant gets each as a Bearer provider on its hostname, where the egress gateway replaces the Authorization header with the JWT it mints for the Session's Actor, bound to the audience; it needs no credential authority, and a grant naming the instance or its host is refused. Empty configures none.", ComponentController)
