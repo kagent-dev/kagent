@@ -260,7 +260,46 @@ func NewCommandExecutor() *CommandExecutor {
 	return &CommandExecutor{}
 }
 
-// ExecuteCommand executes a shell command.
+// commandEnvNames are the only variables a model-run command inherits, so it
+// cannot read the runtime's API keys, tokens or KAGENT_* config. Proxy vars are
+// left out because their URLs may carry credentials. The CA bundle names must
+// match those set in go/core/internal/substrate/actor_template.go.
+var commandEnvNames = map[string]struct{}{
+	"PATH":    {},
+	"HOME":    {},
+	"USER":    {},
+	"LOGNAME": {},
+	"LANG":    {},
+	"TERM":    {},
+	"TZ":      {},
+	"TMPDIR":  {},
+
+	"SSL_CERT_FILE":       {},
+	"SSL_CERT_DIR":        {},
+	"CURL_CA_BUNDLE":      {},
+	"REQUESTS_CA_BUNDLE":  {},
+	"GIT_SSL_CAINFO":      {},
+	"NODE_EXTRA_CA_CERTS": {},
+	"AWS_CA_BUNDLE":       {},
+}
+
+// commandEnv builds the environment of a model-run command from environ,
+// keeping only commandEnvNames and the LC_* locale variables, with PWD set to
+// the command's working directory. It never returns nil: a nil cmd.Env makes
+// the command inherit the whole environment.
+func commandEnv(environ []string, workingDir string) []string {
+	env := make([]string, 0, len(commandEnvNames)+1)
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, ok := commandEnvNames[name]; ok || strings.HasPrefix(name, "LC_") {
+			env = append(env, entry)
+		}
+	}
+	return append(env, "PWD="+workingDir)
+}
+
+// ExecuteCommand executes a shell command in an environment built by
+// commandEnv, so the command cannot read the runtime's secrets.
 func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
 	timeout := 30 * time.Second
 	if strings.Contains(command, "python") {
@@ -272,6 +311,7 @@ func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, wo
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
+	cmd.Env = commandEnv(os.Environ(), workingDir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
