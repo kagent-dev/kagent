@@ -10,7 +10,6 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from google.protobuf.json_format import Parse, ParseDict
 from kagent.config.v1.adk_pb2 import (
@@ -101,6 +100,7 @@ from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import FoundryOpenAI
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
+from kagent.adk.models._vertex import KAgentClaudeVertexLlm, vertex_client_kwargs
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
 logger = logging.getLogger(__name__)
@@ -583,9 +583,10 @@ def _create_llm_from_model_config(model_config: ModelConfig):
         return KAgentGeminiVertexAILlm(
             model=model_config.model,
             max_output_tokens=optional_field(settings, "max_output_tokens"),
+            client_kwargs=vertex_client_kwargs(),
         )
     if provider == "gemini_anthropic":
-        return ClaudeLLM(model=model_config.model)
+        return KAgentClaudeVertexLlm(model=model_config.model)
     if provider == "ollama":
         ollama_options = _convert_ollama_options(dict(settings.options))
         # api key passthrough is not applicable for ollama

@@ -93,12 +93,11 @@ A `GeminiVertexAI` or `AnthropicVertexAI` ModelConfig with `apiKeySecret` binds
 the Secret holds a short-lived access token. A class that mints access tokens
 lets the Secret hold a service account key instead; the provider owns the
 Secret's format, so the compiler does not inspect it. The runtime never holds
-the Secret: the Go ADK runs with `KAGENT_SKIP_VERTEX_AUTH=true` and Claude Code
-with `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the placeholder
-`Authorization: Bearer kagent-credential-injected` for the gateway to replace,
-since the gateway replaces a header a request carries and adds none. The Python
-ADK authenticates to Vertex AI itself, so a BYO image on it cannot use this
-binding.
+the Secret: the Go and Python ADKs run with `KAGENT_SKIP_VERTEX_AUTH=true` and
+Claude Code with `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, and each sends the
+placeholder `Authorization: Bearer kagent-credential-injected` for the gateway
+to replace, since the gateway replaces a header a request carries and adds
+none.
 
 AWS IAM signing keys and OAuth client credentials require mechanisms beyond
 static header injection and are rejected rather than serialized into runtimes.
