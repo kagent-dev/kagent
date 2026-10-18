@@ -142,10 +142,17 @@ does. Different schemes or ports are separate origins; paths are not.
 Multiple passthrough users of one origin are
 allowed. Discovery-only Authorization creates no gateway binding.
 
-The ADK protobuf carries only the flag, not a token. Go ADK uses a fresh MCP
-session for each listing and tool call, closing it at the operation boundary:
-the ordinary ADK toolset retains its first caller's session context and is not
-safe for this mode. Python creates agents per request and pools MCP sessions
+The ADK protobuf carries only the flag, not a token. Go ADK creates an ordinary
+ADK MCP toolset for each listing and tool call, closing every transport connection
+at the operation boundary, including initialization failures and reconnects.
+Only ADK-generated declarations survive discovery; the native toolset and its
+caller-bound sessions are never shared between operations. Execution adds a
+fresh discovery to recheck selected tools and model visibility, including after
+a call reconnects. ADK owns successful result conversion; the local wrapper
+sanitizes upstream failures. Calls inherit ordinary ADK's single retry on
+connection loss, so they do not provide at-most-once execution if a server
+completes a tool call before the connection fails.
+Python creates agents per request and pools MCP sessions
 by effective headers within that lifetime. Request headers use ADK's
 `temp:headers` state, so credentials are not written to its native SQLite
 conversation or event history. Go ADK and Python passthrough HTTP clients reject
