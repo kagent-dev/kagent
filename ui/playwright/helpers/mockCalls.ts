@@ -31,6 +31,9 @@ import type { Page } from "@playwright/test";
 /** Where `src/mocks/transport.ts` publishes its per-RPC counts. */
 const PROPERTY = "__kagentMockCalls";
 
+/** Where it publishes how many of those calls have been answered. */
+const ANSWERS_PROPERTY = "__kagentMockAnswers";
+
 /**
  * The RPCs the browser suite watches, spelled as the mock backend keys them.
  *
@@ -72,6 +75,26 @@ export async function operationCallCounts<T extends WatchedRpc>(
   page: Page,
   names: readonly T[],
 ): Promise<Record<T, number>> {
+  return readCounts(page, PROPERTY, names);
+}
+
+/**
+ * How many calls to one RPC have been answered since the page loaded.
+ *
+ * A call is counted on arrival and answered a scenario delay later; what the page
+ * shows follows the answer. So a wait for a page to have re-read something waits
+ * on this, not on `operationCalls`.
+ */
+export async function operationAnswers(page: Page, name: WatchedRpc): Promise<number> {
+  const counts = await readCounts(page, ANSWERS_PROPERTY, [name]);
+  return counts[name];
+}
+
+async function readCounts<T extends WatchedRpc>(
+  page: Page,
+  property: string,
+  names: readonly T[],
+): Promise<Record<T, number>> {
   const result = await page.evaluate(
     ({ property, names: wanted }) => {
       const counts = (
@@ -86,12 +109,12 @@ export async function operationCallCounts<T extends WatchedRpc>(
         counts: Object.fromEntries(wanted.map((name) => [name, counts[name]])),
       };
     },
-    { property: PROPERTY, names: [...names] as string[] },
+    { property, names: [...names] as string[] },
   );
 
   if ("error" in result && result.error === "absent") {
     throw new Error(
-      `The mock backend published no call counts on window.${PROPERTY}. ` +
+      `The mock backend published no call counts on window.${property}. ` +
         `Either the app is not running in mock mode, or it had not started when this was read.`,
     );
   }

@@ -244,6 +244,7 @@ export const mockTransport: Transport = {
 
     const result = await fake(message as never, { scenario, headers, rpc });
     const output = create(method.output, result as MessageInitShape<O>);
+    countAnswer(rpc);
 
     return {
       stream: false,
@@ -1568,15 +1569,32 @@ function countCall(rpc: string): void {
   if (rpc in callCounts) callCounts[rpc] += 1;
 }
 
-function publishCallCounts(): void {
-  for (const rpc of fakes.keys()) callCounts[rpc] = 0;
-  if (typeof window === "undefined") return;
-  (window as unknown as Record<string, unknown>)[MOCK_CALLS_PROPERTY] = callCounts;
+/**
+ * How many calls to each RPC have been answered: the same keys as `callCounts`,
+ * counted when a fake's answer is handed back instead of when the call arrives.
+ *
+ * The two differ by the scenario's delay, and what a page shows follows the answer.
+ * A test waiting for a page to have re-read something waits on this one: an arrival
+ * says the read was asked for, an answer that its result is on its way to the screen.
+ */
+const answerCounts: Record<string, number> = {};
+
+/** Where the answered counts live, beside the call counts. */
+export const MOCK_ANSWERS_PROPERTY = "__kagentMockAnswers";
+
+function countAnswer(rpc: string): void {
+  if (rpc in answerCounts) answerCounts[rpc] += 1;
 }
 
-// Runs once, after every fake above has been registered — which is why it is the
-// last thing in the file.
-publishCallCounts();
+function publishCallCounts(): void {
+  for (const rpc of fakes.keys()) {
+    callCounts[rpc] = 0;
+    answerCounts[rpc] = 0;
+  }
+  if (typeof window === "undefined") return;
+  (window as unknown as Record<string, unknown>)[MOCK_CALLS_PROPERTY] = callCounts;
+  (window as unknown as Record<string, unknown>)[MOCK_ANSWERS_PROPERTY] = answerCounts;
+}
 
 // Scheduling fixtures do not run agents. Manual triggers remain pending.
 const scheduledRuns = [1, 2, 3].map((n) => create(ScheduledRunSchema, {
@@ -1746,3 +1764,7 @@ on(AgentService.method.deleteAgent, input => {
   markDeleted(`Agent:${agent.ref}`);
   return {};
 });
+
+// Runs once, after every fake has been registered — which is why it is the last thing
+// in the file. A fake registered below it is served but never counted.
+publishCallCounts();

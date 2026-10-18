@@ -20,7 +20,7 @@ import { clearApiExtensions } from "@/api/extensionPoints";
 import { invoke, operationIds } from "@/api/operations";
 import type { OperationId, OperationInput } from "@/api/operations";
 import { setApiTransport } from "@/api/transport";
-import { mockTransport } from "./transport";
+import { MOCK_ANSWERS_PROPERTY, MOCK_CALLS_PROPERTY, mockTransport } from "./transport";
 import { MOCK_INSTANCE_CREATOR } from "./fixtures";
 import { DISPOSABLE_CHECKPOINT, SEEDED_CHECKPOINT } from "./state";
 
@@ -269,6 +269,29 @@ describe("the fixture backend", () => {
     );
 
     expect(failures.filter(Boolean)).toEqual([]);
+  });
+
+  it("counts the calls and answers of every RPC it serves", async () => {
+    const served = new Set<string>();
+    setApiTransport({
+      ...mockTransport,
+      unary: ((method, ...rest) => {
+        served.add(`${method.parent.typeName}/${method.name}`);
+        return mockTransport.unary(method, ...rest);
+      }) as typeof mockTransport.unary,
+    });
+    try {
+      await Promise.allSettled(operationIds.map((id) => run(id)));
+    } finally {
+      setApiTransport(mockTransport);
+    }
+
+    const published = window as unknown as Record<string, Record<string, number>>;
+    const uncounted = [...served].filter(
+      (rpc) => !(rpc in published[MOCK_CALLS_PROPERTY]) || !(rpc in published[MOCK_ANSWERS_PROPERTY]),
+    );
+    expect(served.size).toBeGreaterThan(0);
+    expect(uncounted).toEqual([]);
   });
 
   it("serves upstream substrate messages through the UI conversions", async () => {
