@@ -18,7 +18,10 @@ func newAgentStatuses(agents krt.Collection[*kagentv1alpha3.Agent], states krt.C
 		if state == nil {
 			return nil, nil
 		}
-		status := statusForAgent(*state, agent.Generation, agent.Status.LatestSuccessfulRevision)
+		// The status describes the generation the reconciliation compiled: the
+		// Agent can be a newer generation whose reconciliation is not derived
+		// yet, and a Ready stamped with it would name a revision it does not run.
+		status := statusForAgent(*state, state.Agent.Generation, agent.Status.LatestSuccessfulRevision)
 		return &status, nil
 	}, opts.WithName("AgentStatuses")...)
 	return statuses
