@@ -113,6 +113,10 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 	}
 }
 
+// pushDeliveryWait bounds a wait for a push callback. PushWorker polls its
+// outbox every 5s when idle, so a wait of one interval races the next poll.
+const pushDeliveryWait = 30 * time.Second
+
 // Exercise the real SDK -> private gRPC -> PostgreSQL path. The public observer
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
@@ -254,8 +258,13 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = gateways[i].Close() })
 		if i == 1 {
+			// One connection per JSON-RPC call: bufconn's SetReadDeadline cannot stop
+			// a deadline timer that already fired, so the past deadline net/http sets
+			// to end a keep-alive request's background read can land on the next
+			// request on that connection and cancel its context mid-handler.
 			httpClient := &http.Client{Transport: &http.Transport{
-				DialContext: func(context.Context, string, string) (net.Conn, error) { return publicListener.Dial() },
+				DisableKeepAlives: true,
+				DialContext:       func(context.Context, string, string) (net.Conn, error) { return publicListener.Dial() },
 			}}
 			t.Cleanup(httpClient.CloseIdleConnections)
 			httpTransport = a2aclient.NewJSONRPCTransport("http://gateway.test"+a2agateway.HTTPPathPrefix+"team-a/assistant", httpClient)
@@ -355,7 +364,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		require.Equal(t, a2a.TaskID(taskID), callback.TaskID)
 		require.Equal(t, id, callback.ContextID)
 		require.Equal(t, a2a.TaskStateCompleted, callback.Status.State)
-	case <-time.After(5 * time.Second):
+	case <-time.After(pushDeliveryWait):
 		t.Fatal("missing callback after observer disconnect")
 	}
 	require.True(t, store.lost.Load())
@@ -457,7 +466,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 		default:
 			return false
 		}
-	}, 5*time.Second, 10*time.Millisecond, "missing managed task callback")
+	}, pushDeliveryWait, 10*time.Millisecond, "missing managed task callback")
 	require.NoError(t, httpTransport.DeleteTaskPushConfig(publicCtx, params, &a2a.DeleteTaskPushConfigRequest{
 		TaskID: a2a.TaskID(parkedID), ID: "managed-json",
 	}))
