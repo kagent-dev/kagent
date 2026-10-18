@@ -119,6 +119,66 @@ func TestTraceEnvironment(t *testing.T) {
 	}
 }
 
+func TestPersonEnvironment(t *testing.T) {
+	person := func(values ...string) context.Context {
+		ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{adk.UserHeader: values}))
+		return ctx
+	}
+	configured := []string{"PATH=/bin", "GIT_AUTHOR_NAME=sandbox", "GIT_COMMITTER_EMAIL=sandbox@localhost", "GIT_CONFIG_COUNT=1"}
+	for _, test := range []struct {
+		name string
+		ctx  context.Context
+		want []string
+	}{
+		{
+			name: "the person of the turn is author and committer",
+			ctx:  person(" person@example.com "),
+			want: []string{
+				"PATH=/bin", "GIT_CONFIG_COUNT=1",
+				"GIT_AUTHOR_NAME=person@example.com", "GIT_AUTHOR_EMAIL=person@example.com",
+				"GIT_COMMITTER_NAME=person@example.com", "GIT_COMMITTER_EMAIL=person@example.com",
+			},
+		},
+		{name: "a turn without a person gets no identity", ctx: person(""), want: []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}},
+		{name: "a call without the header gets no identity", ctx: person(), want: []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}},
+		{name: "no A2A call gets no identity", ctx: t.Context(), want: []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := personEnvironment(test.ctx, configured); !slices.Equal(got, test.want) {
+				t.Fatalf("person environment = %q, want %q", got, test.want)
+			}
+			if want := []string{"PATH=/bin", "GIT_AUTHOR_NAME=sandbox", "GIT_COMMITTER_EMAIL=sandbox@localhost", "GIT_CONFIG_COUNT=1"}; !slices.Equal(configured, want) {
+				t.Fatalf("input environment mutated to %q", configured)
+			}
+		})
+	}
+}
+
+// Claude Code's git commits as the person of each turn.
+func TestProcessDriverCommitsAsThePersonOfTheTurn(t *testing.T) {
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "identity")
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$GIT_AUTHOR_NAME\" \"$GIT_AUTHOR_EMAIL\" \"$GIT_COMMITTER_NAME\" \"$GIT_COMMITTER_EMAIL\" > \"$CAPTURE\"\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: dir, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	for _, person := range []string{"first@example.com", "second@example.com"} {
+		ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{adk.UserHeader: {person}}))
+		if _, err := d.Run(ctx, runtime.Turn{Prompt: "commit"}, &recordingSink{}); err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		identity, err := os.ReadFile(capture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := strings.Repeat(person+"\n", 4); string(identity) != want {
+			t.Errorf("Claude's git identity = %q, want %q", identity, want)
+		}
+	}
+}
+
 func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	dir := t.TempDir()
 	capture := filepath.Join(dir, "args")
