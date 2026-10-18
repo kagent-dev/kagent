@@ -718,8 +718,16 @@ func newInteractionFixtureForHarnessTemplate(t *testing.T, target, harnessName, 
 // create request, such as a volume source and its grant.
 func newInteractionFixtureWith(t *testing.T, target, templateName string, configure func(*apiv1alpha1.CreateSessionRequest)) *interactionFixture {
 	t.Helper()
+	return newInteractionFixtureAs(t, target, templateName, []string{"x-user-id", "e2e"}, configure)
+}
+
+// newInteractionFixtureAs creates the Session as the caller its metadata
+// pairs name, such as an Authorization header under trusted-proxy
+// authentication, and sends and deletes as that caller.
+func newInteractionFixtureAs(t *testing.T, target, templateName string, caller []string, configure func(*apiv1alpha1.CreateSessionRequest)) *interactionFixture {
+	t.Helper()
 	conn := newControllerConn(t, target)
-	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), caller...), 4*time.Minute)
 	t.Cleanup(cancel)
 	sessions := apiv1alpha1.NewSessionServiceClient(conn)
 	request := &apiv1alpha1.CreateSessionRequest{
@@ -744,7 +752,7 @@ func newInteractionFixtureWith(t *testing.T, target, templateName string, config
 	}
 	session := created.GetSession()
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), caller...), time.Minute)
 		defer cleanupCancel()
 		// DeleteSession returns only after its Substrate Actor has been
 		// suspended and deleted, so this cleanup covers both resources.

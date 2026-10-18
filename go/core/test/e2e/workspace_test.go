@@ -92,18 +92,26 @@ func newWorkspaceFixture(t *testing.T) *workspaceFixture {
 // serves anyone, as a public repository does.
 func newWorkspaceFixtureOf(t *testing.T, credentialed bool) *workspaceFixture {
 	t.Helper()
-	kube := interactionKubeClient(t)
-	fixture := &workspaceFixture{Heads: map[string]string{}, Changed: []string{workspaceChanged}}
-	env := []corev1.EnvVar{{Name: "GIT_SSL_CAINFO", Value: "/origin-ca/ca.crt"}}
+	var authorization string
 	if credentialed {
-		credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + workspaceGitToken))
-		fixture.Authorization = "Basic " + credential
+		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+workspaceGitToken))
+	}
+	origin := newGitFixtureOf(t, authorization, workspaceOriginPaths()...)
+	return newWorkspaceFixtureFrom(t, origin, origin.serveThroughEgress(t), authorization)
+}
+
+// newWorkspaceFixtureFrom mirrors the repositories of origin, served at
+// originURL, onto a new workspace volume, fetching them with authorization,
+// a Basic credential or none.
+func newWorkspaceFixtureFrom(t *testing.T, origin *gitFixture, originURL, authorization string) *workspaceFixture {
+	t.Helper()
+	kube := interactionKubeClient(t)
+	fixture := &workspaceFixture{Heads: map[string]string{}, Changed: []string{workspaceChanged}, Origin: origin, OriginURL: originURL, Authorization: authorization}
+	env := []corev1.EnvVar{{Name: "GIT_SSL_CAINFO", Value: "/origin-ca/ca.crt"}, {Name: "ORIGIN", Value: originURL}}
+	if credential, basic := strings.CutPrefix(authorization, "Basic "); basic {
 		secret := createCredentialSecret(t, kube, credential)
 		env = append(env, corev1.EnvVar{Name: "GIT_CREDENTIAL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}}})
 	}
-	fixture.Origin = newGitFixtureOf(t, fixture.Authorization, workspaceOriginPaths()...)
-	fixture.OriginURL = fixture.Origin.serveThroughEgress(t)
-	env = append(env, corev1.EnvVar{Name: "ORIGIN", Value: fixture.OriginURL})
 
 	authority, err := os.ReadFile(kagentenv.E2EEgressCAFile.Get())
 	require.NoError(t, err)

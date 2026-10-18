@@ -428,8 +428,17 @@ func newGitFixture(t *testing.T, authorization string) *gitFixture {
 }
 
 // newGitFixtureOf serves the named bare repositories, each a path ending in
-// .git such as "owner/name.git".
+// .git such as "owner/name.git", to a request with authorization.
 func newGitFixtureOf(t *testing.T, authorization string, names ...string) *gitFixture {
+	t.Helper()
+	return newGitFixtureAuthorizing(t, func(request *http.Request) bool {
+		return request.Header.Get("Authorization") == authorization
+	}, names...)
+}
+
+// newGitFixtureAuthorizing serves the named bare repositories to a request
+// authorized accepts.
+func newGitFixtureAuthorizing(t *testing.T, authorized func(*http.Request) bool, names ...string) *gitFixture {
 	t.Helper()
 	gitPath, err := exec.LookPath("git")
 	require.NoError(t, err, "the git fixture needs git and its http-backend")
@@ -466,7 +475,7 @@ func newGitFixtureOf(t *testing.T, authorization string, names ...string) *gitFi
 			return
 		}
 		recorder.record(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-			if request.Header.Get("Authorization") != authorization {
+			if !authorized(request) {
 				w.Header().Set("WWW-Authenticate", `Basic realm="kagent-e2e"`)
 				http.Error(w, "credential required", http.StatusUnauthorized)
 				return
@@ -514,26 +523,41 @@ func (f *gitFixture) push(t *testing.T, repository, path, content string) string
 
 // serveThroughEgress serves the fixture over HTTPS on the host under a cluster
 // Service name, which a credential binding can match, and returns its base
-// URL. The egress gateway dials the upstream itself, so the certificate comes
-// from the CA it trusts there (atenetEgress.upstreamTrust).
+// URL.
 func (f *gitFixture) serveThroughEgress(t *testing.T) string {
+	t.Helper()
+	listener, port := listenOnHost(t)
+	base, err := url.Parse(reachableServerURL(t, "https://127.0.0.1:"+port, ""))
+	require.NoError(t, err)
+	serveTLSThroughEgress(t, listener, f.handler, base.Hostname())
+	return base.String()
+}
+
+// listenOnHost listens on every interface of the test host, so the cluster
+// reaches the listener through the host address, and returns its port.
+func listenOnHost(t *testing.T) (net.Listener, string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	require.NoError(t, err)
 	_, port, err := net.SplitHostPort(listener.Addr().String())
 	require.NoError(t, err)
-	base, err := url.Parse(reachableServerURL(t, "https://127.0.0.1:"+port, ""))
-	require.NoError(t, err)
-	server := httptest.NewUnstartedServer(f.handler)
-	require.NoError(t, server.Listener.Close())
-	server.Listener = listener
-	server.TLS = &tls.Config{Certificates: []tls.Certificate{egressUpstreamCertificate(t, base.Hostname())}}
-	server.StartTLS()
-	t.Cleanup(server.Close)
-	return base.String()
+	return listener, port
 }
 
-func egressUpstreamCertificate(t *testing.T, hostname string) tls.Certificate {
+// serveTLSThroughEgress serves handler over HTTPS on listener as hostnames.
+// The egress gateway dials the upstream itself, so the certificate comes from
+// the CA it trusts there (atenetEgress.upstreamTrust).
+func serveTLSThroughEgress(t *testing.T, listener net.Listener, handler http.Handler, hostnames ...string) {
+	t.Helper()
+	server := httptest.NewUnstartedServer(handler)
+	require.NoError(t, server.Listener.Close())
+	server.Listener = listener
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{egressUpstreamCertificate(t, hostnames...)}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+}
+
+func egressUpstreamCertificate(t *testing.T, hostnames ...string) tls.Certificate {
 	t.Helper()
 	certificateFile, keyFile := kagentenv.E2EEgressCAFile.Get(), kagentenv.E2EEgressCAKeyFile.Get()
 	if certificateFile == "" || keyFile == "" {
@@ -541,11 +565,14 @@ func egressUpstreamCertificate(t *testing.T, hostname string) tls.Certificate {
 	}
 	authority, err := tls.LoadX509KeyPair(certificateFile, keyFile)
 	require.NoError(t, err)
-	return issueServerCertificate(t, authority, hostname)
+	return issueServerCertificate(t, authority, hostnames...)
 }
 
-func issueServerCertificate(t *testing.T, authority tls.Certificate, hostname string) tls.Certificate {
+// issueServerCertificate issues a certificate for hostnames, the first its
+// common name.
+func issueServerCertificate(t *testing.T, authority tls.Certificate, hostnames ...string) tls.Certificate {
 	t.Helper()
+	require.NotEmpty(t, hostnames)
 	issuer, err := x509.ParseCertificate(authority.Certificate[0])
 	require.NoError(t, err)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -554,7 +581,7 @@ func issueServerCertificate(t *testing.T, authority tls.Certificate, hostname st
 	require.NoError(t, err)
 	now := time.Now()
 	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: hostname}, DNSNames: []string{hostname},
+		SerialNumber: serial, Subject: pkix.Name{CommonName: hostnames[0]}, DNSNames: hostnames,
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(24 * time.Hour),
 		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}, issuer, &key.PublicKey, authority.PrivateKey)

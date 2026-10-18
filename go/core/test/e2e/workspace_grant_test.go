@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/test/grant"
 	"github.com/stretchr/testify/require"
@@ -63,13 +64,22 @@ func startWorkspaceGrantSigner(kube ctrlclient.Client) (*grant.Signer, error) {
 		return nil, err
 	}
 	go func() { _ = http.Serve(listener, signer.Handler()) }()
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
+	if err := exposeOnService(context.Background(), kube, workspaceGrantService, 80, listener); err != nil {
 		return nil, err
 	}
-	number, err := strconv.ParseInt(port, 10, 32)
+	return signer, nil
+}
+
+// exposeOnService points the Service name of namespace kagent, on port, at
+// listener on the test host, so the cluster reaches it under a fixed name.
+func exposeOnService(ctx context.Context, kube ctrlclient.Client, name string, port int32, listener net.Listener) error {
+	_, hostPort, err := net.SplitHostPort(listener.Addr().String())
 	if err != nil {
-		return nil, err
+		return err
+	}
+	number, err := strconv.ParseInt(hostPort, 10, 32)
+	if err != nil {
+		return err
 	}
 	host := kagentenv.KagentLocalHost.Get()
 	if host == "" {
@@ -77,34 +87,30 @@ func startWorkspaceGrantSigner(kube ctrlclient.Client) (*grant.Signer, error) {
 	}
 	address := net.ParseIP(host)
 	if address == nil {
-		return nil, &net.AddrError{Err: "the grant signer's JWKS needs the test host's IP address", Addr: host}
+		return &net.AddrError{Err: "the Service " + name + " needs the test host's IP address", Addr: host}
 	}
 	addressType := discoveryv1.AddressTypeIPv4
 	if address.To4() == nil {
 		addressType = discoveryv1.AddressTypeIPv6
 	}
-	ctx := context.Background()
 	// A run before this one left the Service pointing at its own port.
-	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: workspaceGrantService, Namespace: "kagent"}}
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kagent"}}
 	if err := kube.Delete(ctx, service); err != nil && !apierrors.IsNotFound(err) {
-		return nil, err
+		return err
 	}
-	service.Spec = corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "http", Port: 80, TargetPort: intstr.FromInt32(int32(number))}}}
+	service.Spec = corev1.ServiceSpec{Ports: []corev1.ServicePort{{Name: "port", Port: port, TargetPort: intstr.FromInt32(int32(number))}}}
 	if err := createWhenGone(ctx, kube, service); err != nil {
-		return nil, err
+		return err
 	}
 	endpoints := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{Name: service.Name, Namespace: service.Namespace,
 			Labels:          map[string]string{discoveryv1.LabelServiceName: service.Name, discoveryv1.LabelManagedBy: "kagent-e2e"},
 			OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: service.Name, UID: service.UID}}},
 		AddressType: addressType,
-		Ports:       []discoveryv1.EndpointPort{{Name: new("http"), Port: new(int32(number)), Protocol: new(corev1.ProtocolTCP)}},
+		Ports:       []discoveryv1.EndpointPort{{Name: new("port"), Port: new(int32(number)), Protocol: new(corev1.ProtocolTCP)}},
 		Endpoints:   []discoveryv1.Endpoint{{Addresses: []string{address.String()}, Conditions: discoveryv1.EndpointConditions{Ready: new(true)}}},
 	}
-	if err := createWhenGone(ctx, kube, endpoints); err != nil {
-		return nil, err
-	}
-	return signer, nil
+	return createWhenGone(ctx, kube, endpoints)
 }
 
 // createWhenGone creates object, retrying while a deleted one of its name is
@@ -123,12 +129,35 @@ func createWhenGone(ctx context.Context, kube ctrlclient.Client, object ctrlclie
 // volume with the workspace layout's mounts, on the Agents of namespace kagent.
 func (f *workspaceFixture) workspaceGrant(t *testing.T) string {
 	t.Helper()
-	token, err := workspaceGrantSigner(t).SignGrant(workspaceGrantSubject, grant.Grant{
+	return f.grantFor(t, workspaceGrantSubject)
+}
+
+// grantFor signs the workspace grant for the caller subject, naming providers.
+func (f *workspaceFixture) grantFor(t *testing.T, subject string, providers ...grant.Provider) string {
+	t.Helper()
+	token, err := workspaceGrantSigner(t).SignGrant(subject, grant.Grant{
 		AgentNamespace: "kagent",
 		Volume:         grant.Volume{Driver: f.Volume.Driver, Handle: f.Volume.Handle},
 		Mounts:         []grant.Mount{{SubPath: "sessions/${SESSION_ID}"}, {SubPath: "mirrors", ReadOnly: true}},
 		Changed:        f.Changed,
+		Providers:      providers,
 	}, workspaceGrantTTL)
 	require.NoError(t, err)
 	return token
+}
+
+// admit sets a create request's volume source to the workspace layout on the
+// fixture's volume, the Session's directory at /workspace and the mirrors
+// read-only at /mirrors, admitted with token.
+func (f *workspaceFixture) admit(token string) func(*apiv1alpha1.CreateSessionRequest) {
+	return func(request *apiv1alpha1.CreateSessionRequest) {
+		request.VolumeSource = &apiv1alpha1.SessionVolumeSource{
+			Volume: &apiv1alpha1.SessionVolume{CsiDriver: f.Volume.Driver, VolumeHandle: f.Volume.Handle},
+			Mounts: []*apiv1alpha1.SessionVolumeMount{
+				{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace"},
+				{SubPath: "mirrors", MountPath: "/mirrors", ReadOnly: true},
+			},
+		}
+		request.AdmissionToken = token
+	}
 }

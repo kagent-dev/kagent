@@ -10,7 +10,6 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
@@ -78,17 +77,7 @@ func (a *claudeWorkspaceAgent) session(t *testing.T, target string, fixture *wor
 	if fixture == nil {
 		return newInteractionFixtureWith(t, target, a.template, nil)
 	}
-	token := fixture.workspaceGrant(t)
-	session := newInteractionFixtureWith(t, target, a.template, func(request *apiv1alpha1.CreateSessionRequest) {
-		request.VolumeSource = &apiv1alpha1.SessionVolumeSource{
-			Volume: &apiv1alpha1.SessionVolume{CsiDriver: fixture.Volume.Driver, VolumeHandle: fixture.Volume.Handle},
-			Mounts: []*apiv1alpha1.SessionVolumeMount{
-				{SubPath: "sessions/${SESSION_ID}", MountPath: "/workspace"},
-				{SubPath: "mirrors", MountPath: "/mirrors", ReadOnly: true},
-			},
-		}
-		request.AdmissionToken = token
-	})
+	session := newInteractionFixtureWith(t, target, a.template, fixture.admit(fixture.workspaceGrant(t)))
 	session.retryWindow = workspaceSendRetryWindow
 	return session
 }
