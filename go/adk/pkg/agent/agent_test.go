@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -591,4 +594,37 @@ func TestUsesRawOutputSchema(t *testing.T) {
 			require.Equal(t, test.want, usesRawOutputSchema(test.model))
 		})
 	}
+}
+
+// Under KAGENT_SKIP_VERTEX_AUTH the Gemini Vertex AI client is built without
+// Application Default Credentials and carries the placeholder bearer, since
+// the gateway replaces the Authorization header a request carries and adds
+// none.
+func TestGeminiVertexAIClientConfigSendsGatewayPlaceholder(t *testing.T) {
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "project")
+	t.Setenv("GOOGLE_CLOUD_LOCATION", "europe-west4")
+	t.Setenv("KAGENT_SKIP_VERTEX_AUTH", "true")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent/credentials.json")
+	var got *http.Request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	model := &configv1.ADKModelConfig{Model: "gemini-2.5-flash", Provider: &configv1.ADKModelConfig_GeminiVertexAi{GeminiVertexAi: &configv1.ADKGeminiVertexAI{}}}
+	llm, err := CreateLLM(t.Context(), model)
+	require.NoError(t, err)
+	require.NotNil(t, llm)
+
+	clientConfig, err := geminiVertexAIClientConfig(model)
+	require.NoError(t, err)
+	clientConfig.HTTPOptions.BaseURL = server.URL
+	client, err := genai.NewClient(t.Context(), clientConfig)
+	require.NoError(t, err)
+	_, err = client.Models.GenerateContent(t.Context(), "gemini-2.5-flash", genai.Text("hi"), nil)
+	require.NoError(t, err)
+	require.Equal(t, "/v1beta1/projects/project/locations/europe-west4/publishers/google/models/gemini-2.5-flash:generateContent", got.URL.Path)
+	require.Equal(t, "Bearer "+models.VertexGatewayToken, got.Header.Get("Authorization"))
 }

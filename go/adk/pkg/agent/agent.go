@@ -319,23 +319,15 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 		})
 
 	case *configv1.ADKModelConfig_GeminiVertexAi:
-		project := env.GoogleCloudProject.Get()
-		location := env.GoogleCloudLocation.Get()
-		if location == "" {
-			location = env.GoogleCloudRegion.Get()
-		}
-		if project == "" || location == "" {
-			return nil, fmt.Errorf("GeminiVertexAI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_CLOUD_REGION) environment variables")
-		}
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
-			Backend:  genai.BackendVertexAI,
-			Project:  project,
-			Location: location,
-		})
+		clientConfig, err := geminiVertexAIClientConfig(m)
+		if err != nil {
+			return nil, err
+		}
+		return adkgemini.NewModel(ctx, modelName, clientConfig)
 
 	case *configv1.ADKModelConfig_Anthropic:
 		modelName := m.Model
@@ -426,7 +418,8 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 
 	case *configv1.ADKModelConfig_GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
-		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
+		// Uses the Anthropic SDK's built-in Vertex AI support with Application
+		// Default Credentials, or with the egress gateway's access token.
 		project := env.GoogleCloudProject.Get()
 		region := env.GoogleCloudLocation.Get()
 		if region == "" {
@@ -479,6 +472,37 @@ func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, e
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", runtimeconfig.ModelType(m))
 	}
+}
+
+// geminiVertexAIClientConfig is the genai client configuration for Gemini on
+// Vertex AI. Under KAGENT_SKIP_VERTEX_AUTH the egress gateway sets the access
+// token on every call: handed an HTTP client, the SDK sends the request as it
+// is and never looks for Application Default Credentials, and the request
+// carries the placeholder bearer, since the gateway replaces the Authorization
+// header a request carries and adds none.
+func geminiVertexAIClientConfig(m *configv1.ADKModelConfig) (*genai.ClientConfig, error) {
+	project := env.GoogleCloudProject.Get()
+	location := env.GoogleCloudLocation.Get()
+	if location == "" {
+		location = env.GoogleCloudRegion.Get()
+	}
+	if project == "" || location == "" {
+		return nil, fmt.Errorf("GeminiVertexAI requires GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_CLOUD_REGION) environment variables")
+	}
+	clientConfig := &genai.ClientConfig{
+		Backend:  genai.BackendVertexAI,
+		Project:  project,
+		Location: location,
+	}
+	if env.SkipVertexAuth.Get() {
+		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m, nil))
+		if err != nil {
+			return nil, fmt.Errorf("failed to build HTTP client for Gemini on Vertex AI: %w", err)
+		}
+		clientConfig.HTTPClient = httpClient
+		clientConfig.HTTPOptions.Headers = http.Header{"Authorization": {"Bearer " + models.VertexGatewayToken}}
+	}
+	return clientConfig, nil
 }
 
 // transportConfigFromBase builds a TransportConfig from the shared model fields.
