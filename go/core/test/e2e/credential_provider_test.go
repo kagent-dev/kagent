@@ -42,6 +42,7 @@ func deployCredentialProvider(t *testing.T, kube ctrlclient.Client, refused ...s
 	if image == "" {
 		t.Fatalf("%s must name the e2e credential provider image", kagentenv.E2ECredentialProviderImage.Name())
 	}
+	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
 	gateway := &appsv1.Deployment{}
 	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: egressGatewayNamespace, Name: egressGatewayDeployment}, gateway))
 	injector := fmt.Sprintf("spiffe://cluster.local/ns/%s/sa/%s", egressGatewayNamespace, gateway.Spec.Template.Spec.ServiceAccountName)
