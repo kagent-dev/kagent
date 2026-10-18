@@ -2,27 +2,12 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"slices"
-	"strconv"
-	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/a2aproject/a2a-go/v2/errordetails"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-)
-
-// sendNotAcceptedReason marks a send the kagent A2A gateway proved it never
-// dispatched, so the same message may be sent again. See "Durable ordering"
-// in docs/architecture/a2a-gateway.md.
-const sendNotAcceptedReason = "KAGENT_SEND_NOT_ACCEPTED"
-
-const (
-	// sendNotAcceptedRetryTimeout bounds how long a busy session can defer a
-	// send, matching the gateway's own client contract tests.
-	sendNotAcceptedRetryTimeout = 30 * time.Second
-	sendNotAcceptedDefaultDelay = 100 * time.Millisecond
 )
 
 // sendMessageWithRetry sends req and resends the identical request, keeping
@@ -30,45 +15,14 @@ const (
 // Every other error, including transport errors after which the remote agent
 // may already have acted on the input, is returned to the caller unchanged.
 func sendMessageWithRetry(ctx context.Context, client *a2aclient.Client, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	deadline := time.Now().Add(sendNotAcceptedRetryTimeout)
-	for {
-		result, err := client.SendMessage(ctx, req)
-		delay, ok := sendNotAcceptedRetryDelay(err)
-		if !ok || time.Until(deadline) < delay {
-			return result, err
+	attempt := 0
+	return kagenta2a.RetryUnacceptedSend(ctx, func() (a2atype.SendMessageResult, error) {
+		if attempt++; attempt > 1 {
+			logging.FromContext(ctx).InfoContext(ctx, "remote agent did not accept the send, retrying",
+				"message_id", req.Message.ID, "attempt", attempt)
 		}
-		logging.FromContext(ctx).InfoContext(ctx, "remote agent did not accept the send, retrying",
-			"message_id", req.Message.ID, "retry_after", delay)
-		select {
-		case <-ctx.Done():
-			return nil, err
-		case <-time.After(delay):
-		}
-	}
-}
-
-// sendNotAcceptedRetryDelay reports whether err is a KAGENT_SEND_NOT_ACCEPTED
-// rejection and, if so, how long to wait before resending.
-func sendNotAcceptedRetryDelay(err error) (time.Duration, bool) {
-	var protocolErr *a2atype.Error
-	if !errors.Is(err, a2atype.ErrUnsupportedOperation) || !errors.As(err, &protocolErr) {
-		return 0, false
-	}
-	i := slices.IndexFunc(protocolErr.TypedDetails, func(d *errordetails.Typed) bool {
-		return d.TypeURL == errordetails.ErrorInfoType
+		return client.SendMessage(ctx, req)
 	})
-	if i < 0 {
-		return 0, false
-	}
-	info := protocolErr.TypedDetails[i].Value
-	metadata, _ := info["metadata"].(map[string]string)
-	if info["domain"] != a2atype.ProtocolDomain || metadata["reason"] != sendNotAcceptedReason {
-		return 0, false
-	}
-	if ms, err := strconv.Atoi(metadata["retryAfterMs"]); err == nil && ms > 0 {
-		return time.Duration(ms) * time.Millisecond, true
-	}
-	return sendNotAcceptedDefaultDelay, true
 }
 
 // recoverResumedTask looks up the task a resume message was sent to after

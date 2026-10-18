@@ -120,13 +120,13 @@ func TestSendMessageWithRetry(t *testing.T) {
 		wantSends int
 		wantErr   bool
 	}{
-		{name: "proven rejection", err: notAccepted(map[string]string{"reason": sendNotAcceptedReason, "retryAfterMs": "1"}), wantSends: 2},
-		{name: "proven rejection without delay", err: notAccepted(map[string]string{"reason": sendNotAcceptedReason}), wantSends: 2},
+		{name: "proven rejection", err: notAccepted(map[string]string{"reason": apia2a.SendNotAcceptedReason, "retryAfterMs": "1"}), wantSends: 2},
+		{name: "proven rejection without delay", err: notAccepted(map[string]string{"reason": apia2a.SendNotAcceptedReason}), wantSends: 2},
 		{name: "other reason", err: notAccepted(map[string]string{"reason": "OTHER"}), wantSends: 1, wantErr: true},
 		{name: "unsupported operation", err: a2atype.ErrUnsupportedOperation, wantSends: 1, wantErr: true},
 		{
 			name:      "reason on wrong error",
-			err:       a2atype.NewError(a2atype.ErrInternalError, "boom").WithErrorInfoMeta(map[string]string{"reason": sendNotAcceptedReason}),
+			err:       a2atype.NewError(a2atype.ErrInternalError, "boom").WithErrorInfoMeta(map[string]string{"reason": apia2a.SendNotAcceptedReason}),
 			wantSends: 1,
 			wantErr:   true,
 		},
@@ -182,7 +182,7 @@ func TestSendMessageWithRetryNeverResendsDeliveredInput(t *testing.T) {
 
 func TestSendMessageWithRetryStopsWhenContextDone(t *testing.T) {
 	agent := &fakeRemoteAgent{send: func(int, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-		return nil, notAccepted(map[string]string{"reason": sendNotAcceptedReason, "retryAfterMs": "10"})
+		return nil, notAccepted(map[string]string{"reason": apia2a.SendNotAcceptedReason, "retryAfterMs": "10"})
 	}}
 	client := newFakeRemoteAgentClient(t, agent, false)
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
