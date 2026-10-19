@@ -272,6 +272,21 @@ class TestConvertOllamaOptions:
 
         assert _convert_ollama_options({"num_ctx": "not-a-number"}) == {"num_ctx": "not-a-number"}
 
+    def test_non_integral_float_is_not_truncated(self):
+        """A fractional value for an int option is a mistake; forward it rather
+        than silently truncating "2048.5" to 2048."""
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"num_ctx": "2048.5"}) == {"num_ctx": "2048.5"}
+
+    @pytest.mark.parametrize("value", ["inf", "-inf", "nan", "1e400"])
+    def test_non_finite_int_value_is_forwarded(self, value):
+        """int(float("inf")) raises OverflowError, so these must fall back to the
+        raw value instead of crashing agent construction."""
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"num_ctx": value}) == {"num_ctx": value}
+
     def test_unknown_option_kept_as_string(self):
         from kagent.adk.types import _convert_ollama_options
 

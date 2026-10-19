@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from typing import Any, Callable, Optional, Union
 
 import httpx
@@ -186,6 +187,26 @@ def _coerce_option_bool(value: str) -> bool:
     raise ValueError(f"invalid boolean option value: {value!r}")
 
 
+def _coerce_option_int(value: str) -> int:
+    """Parse a CRD string into an int.
+
+    Accepts a plain integer ("2048") and a float that is finite and exactly
+    integral ("2048.0"), which JSON/YAML tooling can produce for an int-typed
+    option. Rejects a non-integral float ("2048.5") rather than truncating it,
+    and rejects "inf"/"nan", so the caller falls back and warns instead of
+    silently losing precision or raising OverflowError.
+    """
+    stripped = value.strip()
+    try:
+        return int(stripped)
+    except ValueError:
+        pass
+    number = float(stripped)
+    if not math.isfinite(number) or not number.is_integer():
+        raise ValueError(f"not an integer option value: {value!r}")
+    return int(number)
+
+
 def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
     """Convert Ollama options from string values to their correct types.
 
@@ -231,15 +252,13 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
                 if target_type is bool:
                     converted[key] = _coerce_option_bool(value)
                 elif target_type is int:
-                    # Accept integral floats such as "64000.0" that JSON/YAML
-                    # tooling can produce for an int-typed option.
-                    converted[key] = int(float(value))
+                    converted[key] = _coerce_option_int(value)
                 elif target_type is float:
                     converted[key] = float(value)
                 else:
                     # Keep as string for other types (e.g., Sequence[str])
                     converted[key] = value
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 logger.warning(
                     "Could not convert Ollama option %r=%r to %s; forwarding the raw value.",
                     key,
