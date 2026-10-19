@@ -1236,7 +1236,6 @@ function toActorTemplateEntry(
       ? "Failed"
       : golden?.goldenTag ? "Ready" : "Pending",
     goldenTag: golden?.goldenTag ? `${golden.goldenTag.atespace}/${golden.goldenTag.name}` : undefined,
-    sandboxClass: orUndefined(actorTemplate.sandboxConfig?.sandboxClass),
     workerSelector: orUndefined(
       Object.entries(actorTemplate.workerSelector?.matchLabels ?? {})
         .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))

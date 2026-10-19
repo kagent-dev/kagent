@@ -347,6 +347,9 @@ message RuntimeDefaultsConfig {
   optional int64 max_content_length = 5 [(buf.validate.field).int64.gte = 0];
   TokenPropagationConfig token_propagation = 6;
   SkillToolsConfig skill_tools = 7;
+  // Per-agent runtime limits, in Kubernetes quantity notation.
+  optional string cpu = 8 [(buf.validate.field).string.min_len = 1];
+  optional string memory = 9 [(buf.validate.field).string.min_len = 1];
 }
 
 // SkillToolsConfig configures the built-in tools available with local skills.

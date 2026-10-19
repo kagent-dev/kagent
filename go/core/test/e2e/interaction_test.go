@@ -1462,10 +1462,8 @@ func (r *modelRecorder) Requests(header, value string) []recordedModelRequest {
 	return matched
 }
 
-// Gateway credential rules match DNS names. Give host-based mocks an absolute
-// cluster service name without depending on public DNS or changing the gateway
-// config. The trailing dot prevents musl from trying search-expanded names that
-// Substrate's DNS policy refuses before resolving the allowed hostname.
+// Gateway credential rules match DNS names. Give host-based mocks a full
+// cluster service name without depending on public DNS or changing the gateway.
 func mockOriginService(t *testing.T, address, port string) string {
 	t.Helper()
 	number, err := strconv.ParseInt(port, 10, 32)
@@ -1490,7 +1488,7 @@ func mockOriginService(t *testing.T, address, port string) string {
 	if err := kube.Create(t.Context(), endpoints); err != nil {
 		t.Fatal(err)
 	}
-	return service.Name + "." + service.Namespace + ".svc.cluster.local."
+	return service.Name + "." + service.Namespace + ".svc.cluster.local"
 }
 
 // Exercise first-message creation through the public API, including recovery

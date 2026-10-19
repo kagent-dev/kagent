@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
@@ -317,11 +317,9 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 						require.NotEqual(t, gvisorRevision, state.Target.RevisionID)
 						require.NotEqual(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
 						require.Nil(t, state.ObservedActorTemplate, "a gVisor observation must not satisfy a MicroVM revision")
-						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: "microvm", ConfigName: "microvm"}
 					} else {
 						require.Equal(t, gvisorRevision, state.Target.RevisionID)
 						require.Equal(t, gvisorTemplate.GetMetadata().GetName(), expected.Metadata.Name)
-						expected.SandboxConfig = &ateapipb.SandboxConfig{SandboxClass: "gvisor", ConfigName: "gvisor-default"}
 					}
 					require.True(t, proto.Equal(expected, state.Target.ActorTemplate), "sandbox selection must preserve the rest of the ActorTemplate")
 					require.Equal(t, map[string]string{"kagent.dev/worker-pool-name": "selected", "kagent.dev/worker-pool-namespace": "team-a"}, state.Target.ActorTemplate.GetWorkerSelector().GetMatchLabels())
@@ -532,5 +530,5 @@ func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.H
 }
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
-	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }

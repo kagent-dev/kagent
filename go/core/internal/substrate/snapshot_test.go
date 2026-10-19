@@ -3,8 +3,8 @@ package substrate
 import (
 	"testing"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 )
 
 func TestActorSnapshotGenerationAndDurability(t *testing.T) {

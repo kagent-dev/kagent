@@ -20,10 +20,10 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -353,7 +353,7 @@ func startEgressDestination(t *testing.T) (string, func(string) int) {
 	alias := &corev1.Service{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-origin-", Namespace: "kagent"}, Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: destination.Hostname()}}
 	require.NoError(t, kube.Create(t.Context(), alias))
 	t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
-	destination.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local.", destination.Port())
+	destination.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", destination.Port())
 	return destination.String(), func(phase string) int { mu.Lock(); defer mu.Unlock(); return requests[phase] }
 }
 
@@ -531,7 +531,7 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		}
 		require.NoError(t, kube.Create(t.Context(), alias))
 		t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), alias)) })
-		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local.", denied.Port())
+		denied.Host = net.JoinHostPort(alias.Name+".kagent.svc.cluster.local", denied.Port())
 
 		// First prove the destination is reachable and speaks this harness's
 		// model protocol when explicitly configured.

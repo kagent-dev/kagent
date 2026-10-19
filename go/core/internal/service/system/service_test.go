@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -302,9 +302,8 @@ func TestGetSubstrateSummary(t *testing.T) {
 			// count of one rather than as a passing test.
 			pageSize: 1,
 			templates: []*ateapipb.ActorTemplate{{
-				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
-				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: "gvisor"},
-				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
+				Metadata:   &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
+				Containers: []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 					GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 				}},
@@ -341,7 +340,6 @@ func TestGetSubstrateSummary(t *testing.T) {
 		template := result.ActorTemplates[0]
 		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
 		assert.Equal(t, "golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag().GetName())
-		assert.Equal(t, "gvisor", template.GetSandboxConfig().GetSandboxClass())
 		assert.Empty(t, template.GetContainers())
 		require.Len(t, ateClient.templates[0].GetContainers(), 1)
 		assert.Equal(t, "secret", ateClient.templates[0].GetContainers()[0].GetEnv()[0].GetValue())

@@ -52,10 +52,12 @@ Runtime configuration is supplied through `KAGENT_CONFIG_JSON` and
 The adapter disables Codex's default `unbounded_connection_retries` feature.
 Substrate DNS policy denials appear as connection failures, so retrying them
 indefinitely would leave a task working until canceled. As a temporary workaround
-for [upstream Kubernetes DNS handling](https://github.com/agent-substrate/substrate/issues/2663),
+for [upstream DNS and denial handling](https://github.com/agent-substrate/substrate/issues/2663),
 OpenAI and custom OpenAI-compatible providers also use `request_max_retries=0`
 and `stream_max_retries=0`. Transient failures therefore fail without native
-retries too. Remove these zero budgets once the DNS issue is fixed. Codex's
+retries too. Alpha3 fixes DNS search fallback, but denied connections still
+trigger long native backoffs. TODO: remove these budgets when native retries
+can be restored without delaying denied requests. Codex's
 built-in Bedrock provider rejects retry-budget overrides and retains its bounded
 native retries.
 

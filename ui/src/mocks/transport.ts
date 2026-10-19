@@ -1346,9 +1346,6 @@ function substrateActorTemplateMessage(
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
     },
-    sandboxConfig: {
-      sandboxClass: template.sandboxClass ?? "",
-    },
     workerSelector: {
       matchLabels: template.workerSelector
         ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))

@@ -188,3 +188,28 @@ func TestInstallValuesFilesFollowDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, defaults, string(values))
 }
+
+func TestSubstrateInstallValues(t *testing.T) {
+	for _, namespace := range []string{"kagent", "team-a"} {
+		t.Run(namespace, func(t *testing.T) {
+			var values struct {
+				AteAPI struct {
+					Authorization struct {
+						BootstrapOwners []string `json:"bootstrapOwners"`
+					} `json:"authorization"`
+				} `json:"ateApi"`
+				CredentialProvider struct {
+					NamespacePolicies []struct {
+						Atespace          string   `json:"atespace"`
+						AllowedNamespaces []string `json:"allowedNamespaces"`
+					} `json:"namespacePolicies"`
+				} `json:"credentialProvider"`
+			}
+			require.NoError(t, yaml.Unmarshal([]byte(substrateInstallValues(namespace)), &values))
+			require.Equal(t, []string{"spiffe://cluster.local/ns/" + namespace + "/sa/kagent-controller"}, values.AteAPI.Authorization.BootstrapOwners)
+			require.Len(t, values.CredentialProvider.NamespacePolicies, 1)
+			require.Equal(t, namespace, values.CredentialProvider.NamespacePolicies[0].Atespace)
+			require.Equal(t, []string{namespace}, values.CredentialProvider.NamespacePolicies[0].AllowedNamespaces)
+		})
+	}
+}

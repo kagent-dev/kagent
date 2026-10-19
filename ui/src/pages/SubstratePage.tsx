@@ -888,7 +888,6 @@ export function SubstratePage() {
           template.name,
           template.goldenTag,
           template.phase,
-          template.sandboxClass,
           template.workerSelector,
         ]
           .filter(Boolean)
@@ -993,13 +992,6 @@ export function SubstratePage() {
         width: 130,
         sorter: { compare: byText((t) => t.phase ?? ""), multiple: 4 },
         render: (_, template) => <StatusChip label={template.phase ?? ""} />,
-      },
-      {
-        title: "Sandbox class",
-        key: "sandboxClass",
-        width: 140,
-        sorter: { compare: byText((t) => t.sandboxClass ?? ""), multiple: 3 },
-        render: (_, template) => template.sandboxClass ?? "—",
       },
       {
         title: "Worker selector",

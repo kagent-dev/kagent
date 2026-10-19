@@ -278,7 +278,6 @@ describe("the fixture backend", () => {
     expect(summary.actorTemplates[0]).toMatchObject({
       name: "coder-template",
       phase: "Ready",
-      sandboxClass: "gvisor",
       workerSelector: "pool=kagent-default",
     });
     expect(summary.workerPools[0]).toMatchObject({ namespace: "kagent", name: "kagent-default", replicas: 3, ateomImage: "ghcr.io/ate-dev/ateom:1.4.0" });

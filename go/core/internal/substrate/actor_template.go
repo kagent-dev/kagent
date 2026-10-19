@@ -6,12 +6,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -84,14 +84,14 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
-	sandboxConfig, err := sandboxConfigForClass(spec.SandboxClass)
+	resources, err := actorResources(spec.CPU, spec.Memory)
 	if err != nil {
 		return nil, err
 	}
 
 	template := &ateapipb.ActorTemplate{
-		Metadata:      &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
-		SandboxConfig: sandboxConfig,
+		Metadata:  &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		Resources: resources,
 		Containers: []*ateapipb.Container{{
 			Name:    defaultContainerName,
 			Image:   spec.Image,
@@ -165,7 +165,6 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 		Containers:     template.GetContainers(),
 		Volumes:        template.GetVolumes(),
 		SnapshotConfig: template.GetSnapshotConfig(),
-		SandboxConfig:  template.GetSandboxConfig(),
 		Resources:      template.GetResources(),
 	}
 }
@@ -237,19 +236,13 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 	return result, nil
 }
 
-func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxConfig, error) {
-	switch class {
-	case "", atev1alpha1.SandboxClassGvisor:
-		return &ateapipb.SandboxConfig{
-			SandboxClass: "gvisor",
-			ConfigName:   "gvisor-default",
-		}, nil
-	case atev1alpha1.SandboxClassMicroVM:
-		return &ateapipb.SandboxConfig{
-			SandboxClass: "microvm",
-			ConfigName:   "microvm",
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported sandbox class %q", class)
+// actorResources enforces the required limits at the Substrate boundary.
+func actorResources(cpu, memory string) (*ateapipb.Resources, error) {
+	for _, limit := range []struct{ name, value string }{{"cpu", cpu}, {"memory", memory}} {
+		q, err := resource.ParseQuantity(limit.value)
+		if err != nil || q.Sign() <= 0 || (limit.name == "cpu" && q.Cmp(resource.MustParse("1000")) >= 0) {
+			return nil, fmt.Errorf("invalid runtime %s limit %q", limit.name, limit.value)
+		}
 	}
+	return &ateapipb.Resources{Limits: []*ateapipb.Limits{{Name: "cpu", Quantity: cpu}, {Name: "memory", Quantity: memory}}}, nil
 }

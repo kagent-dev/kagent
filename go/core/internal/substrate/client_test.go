@@ -15,12 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestAteAPITLSConfig(t *testing.T) {
@@ -333,4 +334,72 @@ func TestDeleteTagPassesUIDPrecondition(t *testing.T) {
 			require.Equal(t, uid, fake.request.GetOptions().GetUid())
 		})
 	}
+}
+
+type suspendActorFake struct {
+	ateapipb.ControlClient
+	actor   *ateapipb.Actor
+	request *ateapipb.SuspendActorRequest
+	get     func(context.Context) (*ateapipb.Actor, error)
+}
+
+func (f *suspendActorFake) SuspendActor(_ context.Context, request *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
+	f.request = request
+	return &ateapipb.SuspendActorResponse{Actor: f.actor}, nil
+}
+
+func (f *suspendActorFake) GetActor(ctx context.Context, _ *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	return f.get(ctx)
+}
+
+func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
+	completed := &ateapipb.Snapshot{Generation: 1, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/old"}}}
+	pending := &ateapipb.Snapshot{Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING}}
+	actor := &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Uid: "original"}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Snapshots: []*ateapipb.Snapshot{pending, completed}}}
+	for _, test := range []struct {
+		name      string
+		change    func(*ateapipb.Actor)
+		wantError string
+	}{
+		{name: "upload completed", change: func(a *ateapipb.Actor) {
+			a.Status.Snapshots[0].DurableSnapshot = &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"}}
+		}},
+		{name: "actor replaced", change: func(a *ateapipb.Actor) { a.Metadata.Uid = "replacement" }, wantError: "changed"},
+		{name: "actor crashed", change: func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED }, wantError: "changed"},
+		{name: "generation changed", change: func(a *ateapipb.Actor) { a.Status.Snapshots[0].Generation++ }, wantError: "changed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			next := proto.CloneOf(actor)
+			test.change(next)
+			reads := 0
+			fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { reads++; return next, nil }}
+			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+			got, err := client.SuspendActor(t.Context(), "team", "actor")
+			require.Equal(t, ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS, fake.request.GetOptions().GetMode())
+			require.Equal(t, 1, reads)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "s3://snapshots/new", SnapshotURI(LatestActorSnapshot(got)))
+		})
+	}
+	t.Run("cancel pending upload", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		fake := &suspendActorFake{actor: actor, get: func(context.Context) (*ateapipb.Actor, error) { cancel(); return actor, nil }}
+		client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+		_, err := client.SuspendActor(ctx, "team", "actor")
+		cancel()
+		require.ErrorIs(t, err, context.Canceled)
+	})
+	t.Run("already durable", func(t *testing.T) {
+		durable := proto.CloneOf(actor)
+		durable.Status.Snapshots = []*ateapipb.Snapshot{completed}
+		client := &Client{ControlClient: &suspendActorFake{actor: durable}}
+		got, err := client.SuspendActor(t.Context(), "team", "actor")
+		require.NoError(t, err)
+		require.Same(t, durable, got)
+	})
 }

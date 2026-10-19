@@ -167,7 +167,8 @@ type nativeModelProvider struct {
 	WireAPI string `toml:"wire_api"`
 	EnvKey  string `toml:"env_key"`
 	BaseURL string `toml:"base_url,omitempty"`
-	// TODO: REMOVE these zero retry budgets once upstream fixes Kubernetes DNS:
+	// TODO: REMOVE these zero retry budgets once upstream denial handling permits
+	// bounded native retries. Alpha3 fixes DNS search fallback, not native backoff:
 	// https://github.com/agent-substrate/substrate/issues/2663
 	// Restore native defaults by omitting both fields, not by leaving zeros.
 	RequestMaxRetries uint `toml:"request_max_retries"`

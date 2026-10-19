@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -157,7 +156,7 @@ func compileAgentTarget(ctx krt.HandlerContext, collections translator.Collectio
 		translator.HarnessTypeCodex:  codextranslator.NewCompiler(ctx, collections, settings),
 		translator.HarnessTypeClaude: claudetranslator.NewCompiler(ctx, collections, settings),
 		translator.HarnessTypeBYO:    byotranslator.NewCompiler(ctx, collections, settings),
-	}, images).CompileAgent(context.Background(), agent)
+	}, images, settings).CompileAgent(context.Background(), agent)
 	if err != nil {
 		return nil, nil, compilationFailure(err)
 	}
@@ -468,21 +467,14 @@ func (r *Reconciler) observePreparationError(state AgentReconciliation, err erro
 	if state.PreparationFailure != nil && !state.PreparationFailure.Retryable {
 		return err
 	}
-	r.observePreparation(state, nil, runtimePreparationFailure(err, state.Target.ActorTemplate.GetSandboxConfig().GetConfigName(), state.Target.Revision.SandboxClass))
+	r.observePreparation(state, nil, runtimePreparationFailure(err))
 	return err
 }
 
-func runtimePreparationFailure(err error, configName string, class atev1alpha1.SandboxClass) *ReconciliationFailure {
+func runtimePreparationFailure(err error) *ReconciliationFailure {
 	// Backend errors can contain credentials or infrastructure details. Publish
-	// only the code and expected configuration, never the raw error or details.
+	// only the code, never the raw error or details.
 	message := fmt.Sprintf("Runtime preparation failed (%s); check controller logs for details", status.Code(err))
-	if status.Code(err) == codes.FailedPrecondition {
-		if class == "" {
-			class = atev1alpha1.SandboxClassGvisor
-		}
-		message = fmt.Sprintf("Substrate rejected runtime preparation (FailedPrecondition); verify SandboxConfig %q exists with spec.sandboxClass=%q and the required runtime assets; check controller logs for details",
-			configName, class)
-	}
 	return &ReconciliationFailure{
 		Condition: kagentv1alpha3.AgentConditionReady,
 		Reason:    "RuntimePreparationFailed",

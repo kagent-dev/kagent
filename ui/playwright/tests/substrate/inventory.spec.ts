@@ -114,8 +114,7 @@ test("substrate: the inventory renders, and partial runtime data says so", async
     // The golden Tag identifies the snapshot used to create actors from this template.
     await expect(templates).toContainText("golden: ate-golden/snap-2026-07-28");
 
-    // The rest of what decides where and how a template runs.
-    await expect(templates).toContainText("gvisor");
+    // The worker selector determines placement; the pool owns runtime selection.
     await expect(templates).toContainText("pool=kagent-default");
     await expect(templates.getByRole("columnheader", { name: "Harness", exact: true })).toHaveCount(0);
 

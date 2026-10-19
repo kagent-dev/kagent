@@ -395,7 +395,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: "gvisor" },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
@@ -429,7 +428,6 @@ describe("the cluster", () => {
       name: "tpl",
       phase: "Ready",
       goldenTag: "ate-golden/golden",
-      sandboxClass: "gvisor",
       workerSelector: "pool=agents,zone=east",
     });
     // The request succeeded; the runtime halves may be incomplete. That is a
@@ -588,7 +586,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: "gvisor" },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],

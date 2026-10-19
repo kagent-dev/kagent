@@ -1712,8 +1712,11 @@ type RuntimeDefaultsConfig struct {
 	MaxContentLength *int64                  `protobuf:"varint,5,opt,name=max_content_length,json=maxContentLength,proto3,oneof" json:"max_content_length,omitempty"`
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	SkillTools       *SkillToolsConfig       `protobuf:"bytes,7,opt,name=skill_tools,json=skillTools,proto3" json:"skill_tools,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Per-agent runtime limits, in Kubernetes quantity notation.
+	Cpu           *string `protobuf:"bytes,8,opt,name=cpu,proto3,oneof" json:"cpu,omitempty"`
+	Memory        *string `protobuf:"bytes,9,opt,name=memory,proto3,oneof" json:"memory,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RuntimeDefaultsConfig) Reset() {
@@ -1793,6 +1796,20 @@ func (x *RuntimeDefaultsConfig) GetSkillTools() *SkillToolsConfig {
 		return x.SkillTools
 	}
 	return nil
+}
+
+func (x *RuntimeDefaultsConfig) GetCpu() string {
+	if x != nil && x.Cpu != nil {
+		return *x.Cpu
+	}
+	return ""
+}
+
+func (x *RuntimeDefaultsConfig) GetMemory() string {
+	if x != nil && x.Memory != nil {
+		return *x.Memory
+	}
+	return ""
 }
 
 // SkillToolsConfig configures the built-in tools available with local skills.
@@ -2121,7 +2138,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\xbb\x06\n" +
+	"\t_protocol\"\x94\a\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2132,10 +2149,14 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x12max_content_length\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x02R\x10maxContentLength\x88\x01\x01\x12U\n" +
 	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12C\n" +
 	"\vskill_tools\x18\a \x01(\v2\".kagent.config.v1.SkillToolsConfigR\n" +
-	"skillToolsB\x14\n" +
+	"skillTools\x12\x1e\n" +
+	"\x03cpu\x18\b \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x03R\x03cpu\x88\x01\x01\x12$\n" +
+	"\x06memory\x18\t \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x04R\x06memory\x88\x01\x01B\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
-	"\x13_max_content_length\"\x87\x01\n" +
+	"\x13_max_content_lengthB\x06\n" +
+	"\x04_cpuB\t\n" +
+	"\a_memory\"\x87\x01\n" +
 	"\x10SkillToolsConfig\x12*\n" +
 	"\x11file_search_tools\x18\x01 \x01(\bR\x0ffileSearchTools\x12$\n" +
 	"\x0ebash_venv_path\x18\x02 \x01(\tR\fbashVenvPath\x12!\n" +

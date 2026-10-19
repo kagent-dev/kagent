@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -187,7 +187,6 @@ func (s *Service) substrateActorTemplates(ctx context.Context, atespace string) 
 		templates = append(templates, &ateapipb.ActorTemplate{
 			Metadata:       template.GetMetadata(),
 			Status:         template.GetStatus(),
-			SandboxConfig:  template.GetSandboxConfig(),
 			WorkerSelector: template.GetWorkerSelector(),
 		})
 	}

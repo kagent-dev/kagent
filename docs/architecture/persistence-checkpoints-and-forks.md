@@ -64,7 +64,13 @@ Creating a checkpoint does not suspend the Actor again:
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
-Substrate v0.6.0-alpha1 records snapshot lineage in
+Kagent requests synchronous Substrate suspension before recording a checkpoint.
+If an earlier attempt already suspended the Actor but left a pending durable
+upload, the adapter waits within the request deadline for that same snapshot
+generation. Actor replacement, state changes, and generation changes fail the
+attempt; the existing durable workflow retains retry authority.
+
+Substrate v0.6.0-alpha3 records snapshot lineage in
 `Actor.status.snapshots[].actor_template_uid`. Kagent selects the newest generation
 and requires a COMPLETED durable copy. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.

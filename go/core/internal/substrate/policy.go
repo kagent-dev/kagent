@@ -3,7 +3,7 @@ package substrate
 import (
 	"strconv"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
