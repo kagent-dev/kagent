@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"slices"
@@ -170,18 +171,28 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	return result, nil
 }
 
-// ListSubstrateActors filters one upstream page by atespace and preserves its order and token.
+// ListSubstrateActors returns one page of actors. A cluster-wide controller passes
+// ate-api's page and token through. A controller that watches some namespaces reads
+// each watched atespace with its own scoped list, so no page token names an actor of
+// a namespace it does not watch.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
 	scope, err := s.authorizeSubstrateScope(ctx, input.GetAtespace())
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
-	atespace := ""
-	if len(scope.namespaces) == 1 {
-		atespace = scope.namespaces[0]
+	limit, token := substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken()
+	var actors []*ateapipb.Actor
+	var next string
+	if len(s.observedNamespaces) == 0 {
+		actors, next, err = s.ateClient.ListActorsPage(ctx, input.GetAtespace(), limit, token)
+	} else {
+		start, inner, tokenErr := parseActorPageToken(scope.namespaces, token)
+		if tokenErr != nil {
+			return SubstrateActorPage{}, tokenErr
+		}
+		actors, next, err = s.listScopedActors(ctx, scope.namespaces[start:], inner, limit)
 	}
 	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
-	actors, next, err := s.ateClient.ListActorsPage(ctx, atespace, substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
 	if err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
@@ -194,6 +205,51 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	}
 	result.NextPageToken = next
 	return result, nil
+}
+
+// The longest actor page token accepted. This controller's own tokens are far shorter.
+const maxActorPageTokenBytes = 1024
+
+// actorPageToken is the actor page token of a controller that watches some
+// namespaces: the atespace to read and ate-api's token inside it. An atespace holds no "/".
+func actorPageToken(atespace, inner string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(atespace + "/" + inner))
+}
+
+// parseActorPageToken returns where in atespaces a page starts, and ate-api's token there.
+func parseActorPageToken(atespaces []string, token string) (int, string, error) {
+	if token == "" {
+		return 0, "", nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	atespace, inner, ok := strings.Cut(string(decoded), "/")
+	start := slices.Index(atespaces, atespace)
+	if len(token) > maxActorPageTokenBytes || err != nil || !ok || start < 0 {
+		// The token is the caller's text and can name anything, so the error omits it.
+		return 0, "", serviceerrors.NewInvalidArgument("Invalid page token", nil)
+	}
+	return start, inner, nil
+}
+
+// listScopedActors fills one page from the atespaces in order, each with its own scoped
+// list, starting at ate-api's inner token in the first.
+func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inner string, limit int32) ([]*ateapipb.Actor, string, error) {
+	var actors []*ateapipb.Actor
+	for i, atespace := range atespaces {
+		rows, next, err := s.ateClient.ListActorsPage(ctx, atespace, limit-int32(len(actors)), inner)
+		if err != nil {
+			return nil, "", err
+		}
+		actors = append(actors, rows...)
+		switch {
+		case next != "":
+			return actors, actorPageToken(atespace, next), nil
+		case int32(len(actors)) >= limit && i+1 < len(atespaces):
+			return actors, actorPageToken(atespaces[i+1], ""), nil
+		}
+		inner = ""
+	}
+	return actors, "", nil
 }
 
 // ListSubstrateWorkers filters one upstream page by namespace and preserves its token.
