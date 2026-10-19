@@ -5,8 +5,6 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -15,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestControllerAuthenticator(t *testing.T) {
@@ -98,15 +97,6 @@ func TestControllerAuthenticatorNeedsAServiceAccountTokenAudience(t *testing.T) 
 }
 
 func TestControllerAuthorizer(t *testing.T) {
-	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(`apiVersion: v1
-kind: Config
-clusters: [{name: test, cluster: {server: https://127.0.0.1:6443}}]
-contexts: [{name: test, context: {cluster: test, user: test}}]
-current-context: test
-users: [{name: test, user: {token: test}}]
-`), 0o600))
-	t.Setenv(env.Kubeconfig.Name(), kubeconfig)
 	for _, tt := range []struct {
 		name, mode, selector string
 		want                 any
@@ -120,7 +110,7 @@ users: [{name: test, user: {token: test}}]
 		{name: "empty mode", mode: "", wantErr: env.AuthorizationMode.Name()},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer, err := controllerAuthorizer(tt.mode, authorizationConfig{namespaceSelector: tt.selector})
+			authorizer, err := controllerAuthorizer(tt.mode, authorizationConfig{namespaceSelector: tt.selector}, fake.NewSimpleClientset())
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				require.Nil(t, authorizer)

@@ -42,11 +42,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// The kubernetes mode reviews tokens and callers with the controller's own
+	// client; the noop mode needs none and keeps a cluster it cannot reach out
+	// of startup.
+	var clientset kubernetes.Interface
 	var tokenReviews authimpl.TokenReviewer
 	if env.AuthorizationMode.Get() == env.AuthorizationModeKubernetes {
-		clientset, err := kubernetesClientset()
+		var err error
+		clientset, err = kubernetesClientset()
 		if err != nil {
-			logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
+			logger.ErrorContext(ctx, "invalid controller authorization configuration", "error", err)
 			os.Exit(1)
 		}
 		tokenReviews = clientset.AuthenticationV1().TokenReviews()
@@ -57,7 +62,7 @@ func main() {
 		logger.ErrorContext(ctx, "invalid controller authentication configuration", "error", err)
 		os.Exit(1)
 	}
-	authorizer, err := controllerAuthorizer(env.AuthorizationMode.Get(), authorizationConfigFromEnv())
+	authorizer, err := controllerAuthorizer(env.AuthorizationMode.Get(), authorizationConfigFromEnv(), clientset)
 	if err != nil {
 		logger.ErrorContext(ctx, "invalid controller authorization configuration", "error", err)
 		os.Exit(1)
@@ -111,9 +116,9 @@ func authorizationConfigFromEnv() authorizationConfig {
 }
 
 // controllerAuthorizer selects the authorizer. The kubernetes mode asks the
-// API server, so it needs the controller's own Kubernetes client; the noop
-// mode needs nothing and keeps a cluster it cannot reach out of startup.
-func controllerAuthorizer(mode string, settings authorizationConfig) (auth.CollectionAuthorizer, error) {
+// API server through clientset, the controller's own client; the noop mode
+// needs none.
+func controllerAuthorizer(mode string, settings authorizationConfig, clientset kubernetes.Interface) (auth.CollectionAuthorizer, error) {
 	switch mode {
 	case env.AuthorizationModeNoop:
 		return &auth.NoopAuthorizer{}, nil
@@ -121,10 +126,6 @@ func controllerAuthorizer(mode string, settings authorizationConfig) (auth.Colle
 		selector, err := labels.Parse(settings.namespaceSelector)
 		if err != nil {
 			return nil, fmt.Errorf("invalid %s %q: %w", env.AuthorizationNamespaceSelector.Name(), settings.namespaceSelector, err)
-		}
-		clientset, err := kubernetesClientset()
-		if err != nil {
-			return nil, err
 		}
 		authorizer, err := auth.NewKubernetesAuthorizer(clientset.AuthorizationV1().SubjectAccessReviews(), clientset.CoreV1().Namespaces(), auth.KubernetesConfig{
 			UsernamePrefix: settings.usernamePrefix, GroupsPrefix: settings.groupsPrefix,
