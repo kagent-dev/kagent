@@ -61,6 +61,8 @@ type OpenAIModel struct {
 	Client  openai.Client
 	IsAzure bool
 	Logger  *slog.Logger
+	// StrictOutputSchema sends strict: true with the structured output schema.
+	StrictOutputSchema bool
 }
 
 // NewOpenAIModel creates a new OpenAI model instance.

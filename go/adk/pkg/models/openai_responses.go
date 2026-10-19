@@ -48,6 +48,9 @@ func generateContentResponses(
 		return
 	} else if schema != nil {
 		format := responses.ResponseFormatTextConfigParamOfJSONSchema(structuredOutputName, schema)
+		if m.StrictOutputSchema {
+			format.OfJSONSchema.Strict = param.NewOpt(true)
+		}
 		params.Text.Format = format
 	}
 

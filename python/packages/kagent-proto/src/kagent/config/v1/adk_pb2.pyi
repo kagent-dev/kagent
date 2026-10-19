@@ -462,12 +462,14 @@ class ADKCompressionConfig(_message.Message):
     def __init__(self, compaction_interval: _Optional[int] = ..., overlap_size: _Optional[int] = ..., summarizer_model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., prompt_template: _Optional[str] = ..., token_threshold: _Optional[int] = ..., event_retention_size: _Optional[int] = ...) -> None: ...
 
 class ADKOutputConfig(_message.Message):
-    __slots__ = ("json_schema", "sha256")
+    __slots__ = ("json_schema", "sha256", "strict")
     JSON_SCHEMA_FIELD_NUMBER: _ClassVar[int]
     SHA256_FIELD_NUMBER: _ClassVar[int]
+    STRICT_FIELD_NUMBER: _ClassVar[int]
     json_schema: bytes
     sha256: str
-    def __init__(self, json_schema: _Optional[bytes] = ..., sha256: _Optional[str] = ...) -> None: ...
+    strict: bool
+    def __init__(self, json_schema: _Optional[bytes] = ..., sha256: _Optional[str] = ..., strict: _Optional[bool] = ...) -> None: ...
 
 class ADKAgentPlugins(_message.Message):
     __slots__ = ("skills", "plugins")

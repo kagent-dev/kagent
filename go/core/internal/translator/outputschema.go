@@ -82,6 +82,7 @@ type ResolvedOutputSchema struct {
 	Schema []byte
 	SHA256 string
 	Source *ResolvedConfigMapKeyReference
+	Strict bool
 }
 
 // ResolvedConfigMapKeyReference identifies the exact ConfigMap input used by a
@@ -119,7 +120,7 @@ func (c *Compiler) resolveOutputSchema(_ context.Context, template *TemplateConf
 		return nil, NewValidationError("invalid output schema: %v", err)
 	}
 	digest := sha256.Sum256(canonical)
-	return &ResolvedOutputSchema{Schema: canonical, SHA256: hex.EncodeToString(digest[:]), Source: source}, nil
+	return &ResolvedOutputSchema{Schema: canonical, SHA256: hex.EncodeToString(digest[:]), Source: source, Strict: template.Spec.OutputSchemaStrict}, nil
 }
 
 // validateOutputSchema validates a document against kagent's portable JSON
