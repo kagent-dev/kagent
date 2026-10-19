@@ -1,127 +1,180 @@
-suite: controller configuration
+suite: explicit controller configuration
 templates:
   - controller-configmap.yaml
+  - controller-deployment.yaml
 tests:
-  - it: defaults session idle retention to seven days
-    asserts:
-      - equal:
-          path: data.KAGENT_SESSION_IDLE_TTL
-          value: 168h
-
-  - it: allows session expiration to be disabled
+  - it: forwards the Go ADK bash setting to runtime defaults
+    template: controller-configmap.yaml
     set:
-      controller.sessionIdleTTL: "0"
+      config.runtimeDefaults.skillTools.disableBash: true
     asserts:
-      - equal:
-          path: data.KAGENT_SESSION_IDLE_TTL
-          value: "0"
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'disableBash: true'
 
-  - it: allows a longer session idle lifetime
-    set:
-      controller.sessionIdleTTL: 720h
+  - it: mounts one config document and secret files
+    template: controller-deployment.yaml
     asserts:
-      - equal:
-          path: data.KAGENT_SESSION_IDLE_TTL
-          value: 720h
-
-  - it: leaves session shares unbounded by default
-    asserts:
-      - equal:
-          path: data.KAGENT_SESSION_SHARE_MAX_TTL
-          value: "0"
-
-  - it: allows a session share lifetime ceiling
-    set:
-      controller.sessionShareMaxTTL: 72h
-    asserts:
-      - equal:
-          path: data.KAGENT_SESSION_SHARE_MAX_TTL
-          value: 72h
-
-  - it: defaults to insecure controller authentication
-    asserts:
-      - isSubset:
-          path: data
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --config=/etc/kagent/controller.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            KAGENT_AUTH_MODE: insecure
-            KAGENT_AUTH_USER_ID_CLAIM: ""
+            name: controller-config
+            mountPath: /etc/kagent
+            readOnly: true
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[0].secret.name
+          value: kagent-postgres-readwrite
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[1].secret.name
+          value: kagent-postgres-owner
+      - notExists:
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.name
 
-  - it: configures trusted proxy authentication and the identity claim
+  - it: retains only file references in application config
+    template: controller-configmap.yaml
     set:
-      controller.auth.mode: trusted-proxy
-      controller.auth.userIdClaim: email
+      controller.push.signing.secretName: tenant-signing
     asserts:
-      - isSubset:
-          path: data
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'urlFile: /etc/kagent/secrets/database-readwrite-url'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'urlFile: /etc/kagent/secrets/database-owner-url'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'signingPrivateKeyFile: /etc/kagent/secrets/push-private-key.pem'
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: 'apiVersion:|kind:|KAGENT_|OTEL_'
+
+  - it: preserves explicit false and zero duration
+    template: controller-configmap.yaml
+    set:
+      config.sessions.idleTtl: 0s
+      config.metrics.secure: false
+      config.kubernetes.leaderElection: false
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'idleTtl: 0s'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'secure: false'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'leaderElection: false'
+
+  - it: serializes telemetry for controller and runtimes independently
+    template: controller-configmap.yaml
+    set:
+      config.telemetry.traces.endpoint: http://controller-collector:4317
+      config.runtimeDefaults.telemetry.logs.endpoint: http://runtime-collector:4318/v1/logs
+      config.runtimeDefaults.telemetry.logs.protocol: http/protobuf
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'endpoint: http://controller-collector:4317'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'endpoint: http://runtime-collector:4318/v1/logs'
+
+  - it: uses explicitly configured secret names
+    template: controller-deployment.yaml
+    set:
+      database.postgres.readWriteConnectionStringSecretRef.name: tenant-readwrite
+      database.postgres.readWriteConnectionStringSecretRef.key: url
+      database.postgres.ownerConnectionStringSecretRef.name: tenant-owner
+      database.postgres.ownerConnectionStringSecretRef.key: url
+      controller.push.signing.secretName: tenant-signing
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[0].secret
+          value:
+            name: tenant-readwrite
+            items:
+              - key: url
+                path: database-readwrite-url
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[1].secret
+          value:
+            name: tenant-owner
+            items:
+              - key: url
+                path: database-owner-url
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.name
+          value: tenant-signing
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.items[0]
+          value:
+            key: private-key.pem
+            path: push-private-key.pem
+
+  - it: configures both database logins with their roles
+    template: controller-configmap.yaml
+    set:
+      config.database.owner.role: tenant_owner
+      config.database.readWrite.role: tenant_readwrite
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'owner:\n\s+role: tenant_owner\n\s+urlFile: /etc/kagent/secrets/database-owner-url'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'readWrite:\n\s+role: tenant_readwrite\n\s+urlFile: /etc/kagent/secrets/database-readwrite-url'
+
+  - it: omits the owner login's file when migrations are skipped
+    template: controller-configmap.yaml
+    set:
+      config.database.skipMigrations: true
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: 'database-owner-url'
+
+  - it: leaves push JWT signing disabled by default
+    template: controller-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: 'signingPrivateKeyFile:'
+
+  - it: uses explicit database and extension schemas
+    template: controller-configmap.yaml
+    set:
+      config.database.schema: tenant
+      config.database.vectorSchema: public
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'schema: tenant'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'vectorSchema: public'
+
+  - it: supplies process-local OTEL overrides
+    template: controller-deployment.yaml
+    set:
+      controller.env:
+        - name: OTEL_SDK_DISABLED
+          value: "true"
+      controller.envFrom:
+        - secretRef:
+            name: telemetry-credentials
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
           content:
-            KAGENT_AUTH_MODE: trusted-proxy
-            KAGENT_AUTH_USER_ID_CLAIM: email
-
-  - it: leaves the guest unconfigured and supplies sandbox policy defaults
-    asserts:
-      - isSubset:
-          path: data
+            name: OTEL_SDK_DISABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
           content:
-            KAGENT_SANDBOX_GUEST_IMAGE: ""
-            KAGENT_SANDBOX_CPU: "1"
-            KAGENT_SANDBOX_MEMORY: 1Gi
-            KAGENT_SANDBOX_DEFAULT_TTL: 1h
-            KAGENT_SANDBOX_MAX_TTL: 24h
-
-  - it: applies sandbox policy overrides through the ConfigMap
-    set:
-      controller.sandbox.cpu: "2"
-      controller.sandbox.memory: 2Gi
-      controller.sandbox.defaultTTL: 30m
-      controller.sandbox.maxTTL: 2h
-    asserts:
-      - isSubset:
-          path: data
-          content:
-            KAGENT_SANDBOX_CPU: "2"
-            KAGENT_SANDBOX_MEMORY: 2Gi
-            KAGENT_SANDBOX_DEFAULT_TTL: 30m
-            KAGENT_SANDBOX_MAX_TTL: 2h
-
-  - it: uses the guest image registry repository and digest
-    set:
-      controller.sandbox.guestImage.registry: registry.example.com
-      controller.sandbox.guestImage.repository: team/guest
-      controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    asserts:
-      - equal:
-          path: data.KAGENT_SANDBOX_GUEST_IMAGE
-          value: registry.example.com/team/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-
-  - it: uses the top-level registry when the guest registry is unset
-    set:
-      registry: registry.example.com
-      tag: v3.0.0
-      controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    asserts:
-      - equal:
-          path: data.KAGENT_SANDBOX_GUEST_IMAGE
-          value: registry.example.com/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-
-  - it: respects the global mirror without applying the global tag to the guest
-    set:
-      tag: v3.0.0
-      controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      controller.sandbox.guestImage.registry: registry.example.com
-      global.imageRegistry: mirror.example.com/
-    asserts:
-      - equal:
-          path: data.KAGENT_SANDBOX_GUEST_IMAGE
-          value: mirror.example.com/kagent-dev/kagent/sandbox-guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-
-  - it: preserves a custom guest repository under the global mirror
-    set:
-      tag: v3.0.0
-      controller.sandbox.guestImage.registry: registry.example.com
-      controller.sandbox.guestImage.repository: team/guest
-      controller.sandbox.guestImage.digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      global.imageRegistry: mirror.example.com
-    asserts:
-      - equal:
-          path: data.KAGENT_SANDBOX_GUEST_IMAGE
-          value: mirror.example.com/team/guest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            secretRef:
+              name: telemetry-credentials

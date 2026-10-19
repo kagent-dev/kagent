@@ -2,7 +2,7 @@ name: Upgrade Test Setup
 
 description: >-
   Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: resolve
-  the upgrade-from version, skip redundant and pre-Goose legs, and bring up the
+  the upgrade-from version, skip redundant legs and releases older than the CLI-managed database, and bring up the
   build/cluster toolchain. Exposes the resolved version and skip flag so the
   caller can gate its test step. The caller MUST run actions/checkout (with
   fetch-depth: 0 + fetch-tags) before this action — a local action is loaded
@@ -15,7 +15,7 @@ inputs:
 
 outputs:
   skip:
-    description: '"true" when this leg is redundant or predates Goose and the caller should skip its test step.'
+    description: '"true" when this leg is redundant or predates the CLI-managed database and the caller should skip its test step.'
     value: ${{ steps.resolve.outputs.skip }}
   version:
     description: The resolved upgrade-from version (empty when skip is true).
@@ -69,8 +69,9 @@ runs:
           fi
           V="$(./scripts/upgrade-from-version.sh)"
         fi
-        if [[ "$V" == 0.10.* ]]; then
-          echo "previous release v$V predates Goose; skipping upgrade tests."
+        # Keep in sync with CLI_DATABASE_SENTINEL in the Makefile.
+        if ! git cat-file -e "v$V:go/core/cli/internal/commands/bundled_postgres.yaml" 2>/dev/null; then
+          echo "previous release v$V predates the database kagent install manages; skipping upgrade tests."
           echo "skip=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
@@ -87,7 +88,7 @@ runs:
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
     - name: Set up Docker Buildx
       if: steps.resolve.outputs.skip != 'true'
-      uses: docker/setup-buildx-action@v4
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       with:
         # Builder name/version match the Makefile (BUILDKIT_VERSION) and the other
         # workflows (e.g. tag.yaml); kept as literals for consistency.
@@ -98,12 +99,12 @@ runs:
         driver-opts: network=host
     - name: Set up Helm
       if: steps.resolve.outputs.skip != 'true'
-      uses: azure/setup-helm@v5.0.0
+      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       with:
         version: v3.18.0
     - name: Install Kind
       if: steps.resolve.outputs.skip != 'true'
-      uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+      uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
       with:
         install_only: true
     - name: Create Kind cluster

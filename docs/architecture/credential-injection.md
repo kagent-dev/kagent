@@ -1,16 +1,21 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.4.0-alpha1**. The compiler turns ModelConfig API
-keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
-bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
+Kagent requires Substrate **v0.5.0-alpha2**. The runtime compiler turns
+ModelConfig API keys and Secret-backed RemoteMCPServer headers into pinned
+destination-scoped bindings. Independently, EgressPolicy admission supplies
+additional live bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
 replaces the outgoing HTTP header when the request carries a placeholder. SDKs
 receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
 
-Bindings are persisted with the prepared revision and installed before a
-session becomes ready, including retries and checkpoint forks. Secret names,
-keys, destinations, and headers affect revision identity. Secret values and
-Secret UIDs do not. Rotation is handled by the gateway; its credential cache can
+Inferred integration bindings are persisted with the prepared revision; their
+Secret names, keys, destinations, and headers affect revision identity. Explicit
+EgressPolicy bindings are resolved from current policies and update live actors
+without changing that revision. Conflicts hold new grants and report the
+independent [EgressPoliciesApplied condition](egress-policies.md#preparation-and-lifecycle);
+they do not block runtime compilation. Both are installed before execution, including
+creation retries, resume, and checkpoint forks. Secret values and Secret UIDs
+do not affect revision identity. Rotation is handled by the gateway; its credential cache can
 take up to five minutes to refresh, without recompiling or restarting an agent.
 
 ## Installation
@@ -59,35 +64,53 @@ overrides of these variables are rejected.
 | AgentTemplate `skills[].source.git.authorizationFrom` | `authorization`; Secret contains its full value |
 
 Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
-match its scheme, DNS name, and port; credential bindings remain scoped to the
-hostname and header. Different credentials for the same hostname and header
-are rejected, including conflicts between models, memory embeddings, MCP
-servers, and Git skill sources. Use distinct DNS names for
-origins requiring different credentials. IP-address destinations are unsupported
-by Substrate egress policies.
+and credential bindings both match its scheme, DNS name, and port. Different
+credentials for the same origin and header are rejected, including conflicts
+between models, memory embeddings, MCP servers, and explicit policies. Distinct
+ports on the same DNS name can use different credentials. IP-address destinations
+are unsupported by Substrate egress policies.
+
+The v1alpha3 revision format stores full origins. It assumes a clean installation;
+previously persisted hostname-only credential bindings are rejected rather than
+reinterpreted across every port on that host.
 
 Harness and SandboxTemplate environment entries accept only literal `value`
 strings, including empty strings. Configure Secret-backed credentials on
-ModelConfig or RemoteMCPServer for gateway injection.
+ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway injection.
 
 AWS IAM signing keys, Google service-account keys, and OAuth client credentials
 require mechanisms beyond static header injection and are rejected rather than
 serialized into runtimes.
-Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share a hostname with static gateway credentials, which would override
-the caller's authentication.
+
+Caller-token passthrough is set with `tokenPassthrough` on ModelConfig or
+RemoteMCPServer. It forwards the bearer token from the incoming A2A request
+instead of a gateway credential. A passthrough model or MCP server cannot share
+an origin with static gateway credentials, which would override the caller's
+authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
+`headersFrom`.
+
+RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
+Codex and Claude reject it at compilation, and the Python runtime fails at
+startup. A request without a caller token fails instead of connecting
+anonymously. The runtime discovers tools on first use, because startup has no
+caller token. Controller discovery also has no caller token, so servers that
+require one should set the `kagent.dev/discovery: disabled` label. The runtime
+shares one MCP session per server. The standalone SSE stream and session
+teardown therefore carry the token of the caller that opened the session.
 
 ## Private Git skill sources
 
-A standalone skill may come from a private HTTPS Git repository. The Secret,
-in the AgentTemplate's namespace, holds the complete `Authorization` header
-value for the repository host:
+A standalone skill can use a private HTTPS Git repository. Its Secret must be
+in the AgentTemplate's namespace. The Secret owner grants access to one exact
+HTTPS origin with the `kagent.dev/git-credential-origin` annotation.
 
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
   name: skills-auth
+  annotations:
+    kagent.dev/git-credential-origin: https://github.com
 stringData:
   # GitHub: base64 of "x-access-token:<token>". Other forges may accept "Bearer <token>".
   authorization: Basic eC1hY2Nlc3MtdG9rZW46PHRva2VuPg==
@@ -108,27 +131,51 @@ spec:
             key: authorization
 ```
 
-The compiler allows the repository origin and binds the Secret key to its
-hostname. The runtime fetches with a placeholder `Authorization` header, which
-the gateway replaces; it never holds the token. The binding covers every
-request the Actor makes to that hostname, including requests made by its tools,
-so use a read-only token scoped to the skill repositories. `authorizationFrom`
-requires an `https` URL and is rejected on `plugins[]`, which are still
-fetched while the Actor starts.
+The compiler checks the Secret, its non-empty key, and its authorized origin.
+Missing references or an incorrect grant set `ResolvedRefs=False`.
+Changes to the Secret trigger recompilation, including references from shared
+child templates. HTTPS, DNS name, and port must match the grant.
+Wildcards, IP addresses, URL credentials, and path-scoped grants are unsupported.
+
+The gateway replaces `Authorization` only when the request includes that header.
+The runtime sends a placeholder scoped to the repository URL through Git's
+`http.<url>.extraHeader` setting. Authenticated fetches reject redirects.
+Neither the Git configuration nor the runtime receives the Secret value.
+
+The gateway binding covers the whole origin, not just the repository path.
+Actor tools can also send an authorization header to that origin.
+Use a read-only token restricted to the required repositories.
+Separate permission to write Secrets from permission to write AgentTemplates.
+Template writers cannot grant a Secret to another origin through a template.
+
+The annotation is a compilation-time grant. Removing it prevents new successful
+compilations; it does not revoke credentials from existing pinned Actors.
+Use the platform's credential and egress controls for immediate revocation.
+Do not give the shared golden Actor unrestricted access to namespace Secrets.
+
+`authorizationFrom` is unsupported on `plugins[]`. SSH authentication and
+token exchange are also unsupported.
 
 ### When skills are fetched
 
-Actor networking starts only after the runtime is ready, and the golden Actor
-that produces the template snapshot runs without an egress policy. Runtimes
-therefore fetch standalone skills (Git, OCI, or S3, public or private) before
-the first task of each session Actor, not at startup. Consequences:
+Go ADK, Claude, and Codex attempt standalone Git and S3 fetches at startup.
+The startup attempt has a 30-second limit. A failed attempt logs a warning
+and permits startup to continue.
 
-- The golden snapshot contains neither a credential nor any standalone skill
-  content. Session snapshots contain the fetched files, never the credential.
-- The first task of a session waits for the fetch. Later tasks reuse the files.
-- A fetch failure fails that task with a `skills_unavailable: …` status message
-  and an error log line in the runtime; the next task retries the remaining
-  skills. It no longer prevents the golden snapshot.
+Before each task, the runtime retries skills that are not installed.
+A failed fetch fails the task with `skills_unavailable: …`.
+A later task retries the missing skills. Installed skills need no further
+network access while their files remain available.
+
+OCI sources use worker-mounted image files. The runtime installs these skills
+during preparation and fails preparation if a mounted source is invalid.
+Plugin packages also remain eager.
+
+Golden preparation can lack network access or credential bindings.
+The startup fallback permits preparation without fetching remote skills.
+If startup fetching succeeds, snapshots can contain private skill files.
+Snapshots do not contain the injected credential. Apply snapshot access controls
+that protect the private repository content.
 
 ## Deferred API fields
 

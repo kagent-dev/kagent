@@ -1,4 +1,4 @@
-# Load local overrides (gitignored) — e.g. KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
+# Load local overrides (gitignored) — e.g. HELM_ARGS=--set ui.replicas=0
 -include .env
 
 # Image configuration
@@ -7,6 +7,11 @@ BASE_IMAGE_REGISTRY ?= cgr.dev
 DOCKER_REPO ?= kagent-dev/kagent
 HELM_REPO ?= oci://ghcr.io/kagent-dev
 HELM_DIST_FOLDER ?= dist
+HELM_SOURCE_DIR ?= helm
+RUNTIME_IMAGE_REPOSITORY ?= ghcr.io/kagent-dev/kagent
+# Release packaging requires an explicit metadata directory; local builds have a default.
+RUNTIME_BUILD_METADATA_DIR = $(or $(RUNTIME_IMAGE_METADATA_DIR),$(CURDIR)/build/runtime-images)
+RUNTIME_IMAGE_METADATA_FILE = $(RUNTIME_BUILD_METADATA_DIR)/$(patsubst build-%,%,$@).json
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
@@ -14,6 +19,7 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0
 
 # Local architecture detection to build for the current platform
 LOCALARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+LOCALOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
 KUBECONFIG_PERM ?= $(shell \
   if [ "$$(uname -s | tr '[:upper:]' '[:lower:]')" = "darwin" ]; then \
@@ -40,19 +46,36 @@ ifeq ($(CONTAINER_RUNTIME),podman)
   # Override PODMAN_TLS_VERIFY=true when pushing to a remote TLS registry.
   PODMAN_TLS_VERIFY ?= false
   DOCKER_PUSH = $(CONTAINER_RUNTIME) push --tls-verify=$(PODMAN_TLS_VERIFY)
+  define push-runtime-image
+	$(DOCKER_PUSH) --digestfile "$(RUNTIME_IMAGE_METADATA_FILE).digest" $(1)
+	jq -n --arg digest "$$(cat "$(RUNTIME_IMAGE_METADATA_FILE).digest")" '{"containerimage.digest": $$digest}' > "$(RUNTIME_IMAGE_METADATA_FILE)"
+  endef
 else
   DOCKER_BUILDER ?= $(CONTAINER_RUNTIME) buildx build
   DOCKER_BUILD_ARGS ?= --push --platform linux/$(LOCALARCH)
   # Docker buildx --push handles push inline; no separate push step needed.
   DOCKER_PUSH = @true
+  RUNTIME_METADATA_BUILD_ARGS = --metadata-file "$(RUNTIME_IMAGE_METADATA_FILE)"
+  define push-runtime-image
+	$(DOCKER_PUSH) $(1)
+  endef
 endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
+# Written by use-kind-cluster. CLI installs use it so they always target the Kind
+# cluster, whatever the current kubectl context is.
+KIND_KUBECONFIG ?= /tmp/kind-config
+# Substrate settings for Kind: workers pull localhost:5001 images through the
+# registry container, and templates reconcile at the minimum interval.
+KIND_SUBSTRATE_HELM_ARGS = --set atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000 --set ateApi.extraArgs[0]=--template-resync-interval=250ms
+# A file only releases whose `kagent install` deploys the database contain.
+CLI_DATABASE_SENTINEL = go/core/cli/internal/commands/bundled_postgres.yaml
+KAGENT_POSTGRES_OWNER_SECRET ?= kagent-postgres-owner
+KAGENT_POSTGRES_READWRITE_SECRET ?= kagent-postgres-readwrite
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
-KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 
 CLAUDE_HARNESS_IMAGE_NAME ?= claude-harness
@@ -60,14 +83,12 @@ CODEX_HARNESS_IMAGE_NAME ?= codex-harness
 SANDBOX_GUEST_IMAGE_NAME ?= sandbox-guest
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
-KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 CLAUDE_HARNESS_IMAGE_TAG ?= $(VERSION)
 CODEX_HARNESS_IMAGE_TAG ?= $(VERSION)
 SANDBOX_GUEST_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 CLAUDE_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CLAUDE_HARNESS_IMAGE_NAME):$(CLAUDE_HARNESS_IMAGE_TAG)
 CODEX_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CODEX_HARNESS_IMAGE_NAME):$(CODEX_HARNESS_IMAGE_TAG)
@@ -77,11 +98,13 @@ SANDBOX_GUEST_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SANDBOX_GUEST_IMAGE_NAM
 AWK ?= $(shell command -v gawk || command -v awk)
 TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
+SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod)
 
 # Version information for the build
 LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSION) \
            -X github.com/$(DOCKER_REPO)/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
-           -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE)
+           -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE) \
+           -X github.com/$(DOCKER_REPO)/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
@@ -130,6 +153,11 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
 
 ##@ Protobuf
+
+# Builds regenerate protobuf code so local proto edits take effect. CI builds use
+# the committed output instead: proto-check verifies it, and every regeneration
+# spends Buf Schema Registry remote-plugin requests, which are rate limited.
+BUILD_PROTO_GENERATE := $(if $(filter true,$(CI)),,proto-generate)
 
 .PHONY: proto-generate
 proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
@@ -222,57 +250,54 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 	echo "Git hooks initialized"
 
-# KMCP
-KMCP_ENABLED ?= true
-KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
-
 # Substrate
-SUBSTRATE_ENABLED ?= false
-SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod) # Substrate version defaults to the replace target in go.mod
-SUBSTRATE_REPO ?= oci://ghcr.io/kagent-dev/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
+# Override for local development with locally published charts.
+SUBSTRATE_REPO ?= oci://ghcr.io/kagent-dev/substrate/helm
+SUBSTRATE_PODCERT_REPO ?= $(SUBSTRATE_REPO)
+SUBSTRATE_PODCERT_VERSION ?= $(SUBSTRATE_VERSION)
 
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
-KAGENT_DEFAULT_MODEL_PROVIDER ?= openAI
+MODEL_PROVIDER ?= openAI
 
 
 ##@ Build
 
 .PHONY: check-api-key
 check-api-key: ## Validate required API key for the configured model provider
-	@if [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "openAI" ]; then \
+	@if [ "$(MODEL_PROVIDER)" = "openAI" ]; then \
 		if [ -z "$(OPENAI_API_KEY)" ]; then \
 			echo "Error: OPENAI_API_KEY environment variable is not set for OpenAI provider"; \
 			echo "Please set it with: export OPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "anthropic" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "anthropic" ]; then \
 		if [ -z "$(ANTHROPIC_API_KEY)" ]; then \
 			echo "Error: ANTHROPIC_API_KEY environment variable is not set for Anthropic provider"; \
 			echo "Please set it with: export ANTHROPIC_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "azureOpenAI" ]; then \
 		if [ -z "$(AZURE_OPENAI_API_KEY)" ]; then \
 			echo "Error: AZURE_OPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
 			echo "Please set it with: export AZURE_OPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "gemini" ]; then \
 		if [ -z "$(GOOGLE_API_KEY)" ]; then \
 			echo "Error: GOOGLE_API_KEY environment variable is not set for Gemini provider"; \
 			echo "Please set it with: export GOOGLE_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
-	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "ollama" ]; then \
+	elif [ "$(MODEL_PROVIDER)" = "ollama" ]; then \
 		if [ -z "$$OLLAMA_API_KEY" ]; then \
 			echo "Note: OLLAMA_API_KEY is not set — local Ollama models need no key, and a"; \
 			echo "      ':cloud' model will be proxied by the local daemon instead of"; \
 			echo "      reaching api.ollama.com directly. Export OLLAMA_API_KEY to use the cloud API."; \
 		fi; \
 	else \
-		echo "Warning: Unknown model provider '$(KAGENT_DEFAULT_MODEL_PROVIDER)'. Skipping API key check."; \
+		echo "Warning: Unknown model provider '$(MODEL_PROVIDER)'. Skipping API key check."; \
 	fi
 
 .PHONY: buildx-create
@@ -295,21 +320,19 @@ endif
 .PHONY: build-all
 build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
-build-all: proto-generate buildx-create
+build-all: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/claude/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/harness/codex/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/sandbox/guest/Dockerfile ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
-	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-kagent-adk build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
+build: buildx-create build-ui build-golang-adk build-claude-harness build-codex-harness build-sandbox-guest build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
-	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Claude Harness Image: $(CLAUDE_HARNESS_IMG)"
 	@echo "Codex Harness Image: $(CODEX_HARNESS_IMG)"
@@ -326,12 +349,12 @@ endif
 
 .PHONY: build-cli
 build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
-build-cli: proto-generate
+build-cli: $(BUILD_PROTO_GENERATE)
 	make -C go build
 
 .PHONY: build-cli-local
 build-cli-local: ## Build the kagent CLI binary for the local machine
-build-cli-local: proto-generate
+build-cli-local: $(BUILD_PROTO_GENERATE)
 	make -C go clean
 	make -C go core/bin/kagent-local
 
@@ -339,19 +362,17 @@ build-cli-local: proto-generate
 build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
-	@echo kagent-adk=$(KAGENT_ADK_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo claude-harness=$(CLAUDE_HARNESS_IMG)
 	@echo codex-harness=$(CODEX_HARNESS_IMG)
 	@echo sandbox-guest=$(SANDBOX_GUEST_IMG)
 
 .PHONY: controller-manifests
-controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
+controller-manifests: ## Regenerate CRD manifests in the Helm chart
 	make -C go manifests
-	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: ## Build and push the API v2 controller image
+build-controller: ## Build and push the controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
 		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
@@ -360,21 +381,16 @@ build-controller: buildx-create
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
-build-ui: proto-generate buildx-create
+build-ui: $(BUILD_PROTO_GENERATE) buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
-.PHONY: build-kagent-adk
-build-kagent-adk: ## Build and push the Python kagent ADK image
-build-kagent-adk: proto-generate buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
-	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
-
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
-build-golang-adk: proto-generate buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
-	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
+build-golang-adk: $(BUILD_PROTO_GENERATE) buildx-create
+	mkdir -p "$(RUNTIME_BUILD_METADATA_DIR)"
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(RUNTIME_METADATA_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
+	$(call push-runtime-image,$(GOLANG_ADK_IMG))
 
 .PHONY: build-byo-a2a
 build-byo-a2a: ## Build and push the opaque BYO A2A e2e image
@@ -385,14 +401,16 @@ build-byo-a2a: buildx-create
 .PHONY: build-claude-harness
 build-claude-harness: ## Build and push the native Claude Harness image
 build-claude-harness: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CLAUDE_HARNESS_IMG) -f go/harness/claude/Dockerfile ./go
-	$(DOCKER_PUSH) $(CLAUDE_HARNESS_IMG)
+	mkdir -p "$(RUNTIME_BUILD_METADATA_DIR)"
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(RUNTIME_METADATA_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CLAUDE_HARNESS_IMG) -f go/harness/claude/Dockerfile ./go
+	$(call push-runtime-image,$(CLAUDE_HARNESS_IMG))
 
 .PHONY: build-codex-harness
 build-codex-harness: ## Build and push the native Codex Harness image
 build-codex-harness: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CODEX_HARNESS_IMG) -f go/harness/codex/Dockerfile ./go
-	$(DOCKER_PUSH) $(CODEX_HARNESS_IMG)
+	mkdir -p "$(RUNTIME_BUILD_METADATA_DIR)"
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(RUNTIME_METADATA_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(CODEX_HARNESS_IMG) -f go/harness/codex/Dockerfile ./go
+	$(call push-runtime-image,$(CODEX_HARNESS_IMG))
 
 .PHONY: build-sandbox-guest
 build-sandbox-guest: ## Build and push the standalone sandbox guest image
@@ -401,8 +419,8 @@ build-sandbox-guest: buildx-create
 	$(DOCKER_PUSH) $(SANDBOX_GUEST_IMG)
 
 .PHONY: push
-push: ## Push all component images (controller, ui, ADKs)
-push: push-controller push-ui push-kagent-adk push-golang-adk
+push: ## Push all component images (controller, ui, Go ADK)
+push: push-controller push-ui push-golang-adk
 
 
 ##@ Testing
@@ -423,8 +441,8 @@ create-kind-cluster: ## Create a local kind cluster with MetalLB
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
-	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > /tmp/kind-config
-	KUBECONFIG=~/.kube/config:/tmp/kind-config kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > $(KIND_KUBECONFIG)
+	KUBECONFIG=~/.kube/config:$(KIND_KUBECONFIG) kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
 	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
 
@@ -437,7 +455,7 @@ delete-kind-cluster: ## Delete the local kind cluster
 
 .PHONY: helm-cleanup
 helm-cleanup: ## Remove packaged Helm charts from the dist folder
-	rm -f ./$(HELM_DIST_FOLDER)/*.tgz
+	rm -f "$(HELM_DIST_FOLDER)"/*.tgz
 
 .PHONY: helm-test
 helm-test: ## Render Helm templates for all providers and run helm unittest
@@ -453,31 +471,47 @@ helm-test: helm-version
 
 .PHONY: helm-tools
 helm-tools: ## Package all tool Helm charts into the dist folder
-	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
+	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/tools/grafana-mcp/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/tools/grafana-mcp/Chart.yaml"
+	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/tools/grafana-mcp"
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-tools
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
-	helm dependency update helm/kagent
-	helm dependency update helm/kagent-crds
-	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
-	helm package -d $(HELM_DIST_FOLDER) helm/kagent
+	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
+	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
+	helm dependency update "$(HELM_SOURCE_DIR)/kagent"
+	helm dependency update "$(HELM_SOURCE_DIR)/kagent-crds"
+	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent-crds"
+	helm package -d "$(HELM_DIST_FOLDER)" "$(HELM_SOURCE_DIR)/kagent"
+
+.PHONY: helm-dev
+helm-dev: ## Prepare development charts with the images published by local builds
+	@test -d "$(RUNTIME_BUILD_METADATA_DIR)" || { echo "Missing runtime image metadata. Run make build before preparing development charts." >&2; exit 1; }
+	bash scripts/harness-image-catalog.sh "$(VERSION)" "$(RUNTIME_BUILD_METADATA_DIR)" "$(GOLANG_ADK_IMG)" "$(CLAUDE_HARNESS_IMG)" "$(CODEX_HARNESS_IMG)" > "$(RUNTIME_BUILD_METADATA_DIR)/builtin-harness-images.json"
+	mkdir -p "$(HELM_SOURCE_DIR)/kagent/files"
+	cp "$(RUNTIME_BUILD_METADATA_DIR)/builtin-harness-images.json" "$(HELM_SOURCE_DIR)/kagent/files/builtin-harness-images.json"
+	$(MAKE) helm-version
 
 .PHONY: helm-install-provider
-helm-install-provider: ## Install or upgrade kagent-crds and kagent Helm releases on the kind cluster
-helm-install-provider: helm-version check-api-key
-	helm $(HELM_ACTION) kagent-crds helm/kagent-crds \
+helm-install-provider: ## Install or upgrade with Helm; requires a prepared PostgreSQL Secret
+helm-install-provider: helm-dev check-api-key
+	@case "$(HELM_ACTION)" in \
+		*--dry-run*) ;; \
+		*) for secret in $(KAGENT_POSTGRES_OWNER_SECRET) $(KAGENT_POSTGRES_READWRITE_SECRET); do \
+			kubectl --context kind-$(KIND_CLUSTER_NAME) --namespace kagent get secret $$secret >/dev/null 2>&1 || { \
+				echo "Missing PostgreSQL Secret kagent/$$secret. Use 'make kagent-cli-install' for the bundled development database, or create the owner and read/write Secrets before a direct Helm install." >&2; \
+				exit 1; \
+			}; \
+		done ;; \
+	esac
+	helm $(HELM_ACTION) kagent-crds "$(HELM_SOURCE_DIR)/kagent-crds" \
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
 		--timeout 5m 			\
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--wait \
-		--set kmcp.enabled=$(KMCP_ENABLED)
-	helm $(HELM_ACTION) kagent helm/kagent \
+		--wait
+	helm $(HELM_ACTION) kagent "$(HELM_SOURCE_DIR)/kagent" \
 		--namespace kagent \
 		--create-namespace \
 		--history-max 2    \
@@ -488,7 +522,7 @@ helm-install-provider: helm-version check-api-key
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
-		--set controller.loglevel=debug \
+		--set config.logging.level=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
@@ -496,19 +530,15 @@ helm-install-provider: helm-version check-api-key
 		--set providers.azureOpenAI.apiKey=$(AZURE_OPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
-		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
-		--set kmcp.enabled=$(KMCP_ENABLED) \
-		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set database.postgres.bundled.image.repository=pgvector \
-		--set database.postgres.bundled.image.name=pgvector \
-		--set database.postgres.bundled.image.tag=pg18-trixie \
-		--set database.postgres.vectorEnabled=true \
-		$(KAGENT_HELM_EXTRA_ARGS)
+		--set providers.default=$(MODEL_PROVIDER) \
+		--set database.postgres.ownerConnectionStringSecretRef.name=$(KAGENT_POSTGRES_OWNER_SECRET) \
+		--set database.postgres.readWriteConnectionStringSecretRef.name=$(KAGENT_POSTGRES_READWRITE_SECRET) \
+		$(HELM_ARGS)
 
 .PHONY: helm-install
 helm-install: ## Build all images then install kagent onto the kind cluster
 helm-install: build
-helm-install: helm-install-provider
+	$(MAKE) helm-install-provider
 
 .PHONY: helm-test-install
 helm-test-install: ## Dry-run helm install to validate chart rendering (pipe to tee for inspection)
@@ -520,16 +550,11 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
-# Upgrade tests install a previous Kagent chart and upgrade it to the current build.
+# Upgrade tests install a previous release with that release's own `kagent install`,
+# exactly as a user would, then upgrade it to the current build with kagent-cli-deploy.
 # The tests use a separate cluster because they change the database and deployment.
-# The tests skip releases that do not use Goose.
-# UPGRADE_FROM_VERSION selects the previous release.
-# The previous install pins the bundled Postgres image to whatever the
-# upgrade-from release's own install target shipped (resolved inside
-# install-previous-release), so the baseline matches how that release actually
-# runs rather than a hardcoded guess; the upgrade then exercises the real
-# app/migration (and any DB image) change between that release and the current
-# build.
+# UPGRADE_FROM_VERSION selects the previous release; it must install its database with
+# `kagent install` (see CLI_DATABASE_SENTINEL); earlier releases are rejected.
 #
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
 # cluster (make create-kind-cluster).
@@ -538,48 +563,26 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
 # explicitly (per matrix leg), which bypasses the script entirely.
 UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
+UPGRADE_FROM_CLI = /tmp/kagent-$(UPGRADE_FROM_VERSION)-$(LOCALOS)-$(LOCALARCH)
 
 .PHONY: install-previous-release
-install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
-	# Abort early (rather than let helm fail confusingly) if the upgrade-from
-	# version could not be resolved.
+install-previous-release: use-kind-cluster ## Install the previous release with its own kagent CLI
+	# Abort early (rather than let the download fail confusingly) if the upgrade-from
+	# version could not be resolved or predates the CLI-managed database.
 	[ -n "$(UPGRADE_FROM_VERSION)" ] || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	git cat-file -e "v$(UPGRADE_FROM_VERSION):$(CLI_DATABASE_SENTINEL)" 2>/dev/null || { echo "v$(UPGRADE_FROM_VERSION) predates the database kagent install manages; upgrade tests cannot start from it." >&2; exit 1; }
 	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
-	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
-		--version $(UPGRADE_FROM_VERSION) \
-		--namespace kagent --create-namespace \
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--timeout 5m --wait
-	# The bundled-Postgres image is selected by the install target's --set flags,
-	# not by the chart defaults (the chart ships a non-vector image). So the
-	# previous install must use the exact pins the upgrade-from release shipped —
-	# otherwise the baseline DB would differ from how that release actually runs,
-	# and the upgrade would conflate a DB swap with the migration change under
-	# test. Read those flags straight from that release's own helm-install-provider
-	# target (via its tagged Makefile) rather than hardcoding values that drift as
-	# the bundled image changes. Resolved here in the recipe so the `git show` runs
-	# only when this target runs, and so the flags can be validated before use
-	# (they must be literal — a future release that parameterizes them with a
-	# make/env variable would be rejected rather than passed to helm verbatim).
-	@set -e; \
-	db_flags="$$(git show v$(UPGRADE_FROM_VERSION):Makefile 2>/dev/null | grep -oE '\-\-set[[:space:]]+database\.postgres\.[^[:space:]\\]+' | tr '\n' ' ')"; \
-	[ -n "$$db_flags" ] || { echo "Could not read bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile; the upgrade-from release's install target may have moved or renamed them." >&2; exit 1; }; \
-	case "$$db_flags" in *'$$'*|*'('*|*'{'*) echo "Bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile contain an unexpanded variable and cannot be passed to helm verbatim: $$db_flags" >&2; exit 1;; esac; \
-	echo "    bundled-Postgres flags (from v$(UPGRADE_FROM_VERSION) install target): $$db_flags"; \
-	helm upgrade --install kagent $(HELM_REPO)/kagent/helm/kagent \
-		--version $(UPGRADE_FROM_VERSION) \
-		--namespace kagent --create-namespace \
-		--kube-context kind-$(KIND_CLUSTER_NAME) \
-		--timeout 5m --wait \
-		--set ui.service.type=LoadBalancer \
-		--set controller.service.type=LoadBalancer \
-		--set providers.default=openAI \
-		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
-		$$db_flags $(UPGRADE_PREV_EXTRA_ARGS)
+	curl -fsSL -o $(UPGRADE_FROM_CLI) https://github.com/kagent-dev/kagent/releases/download/v$(UPGRADE_FROM_VERSION)/kagent-$(LOCALOS)-$(LOCALARCH)
+	chmod +x $(UPGRADE_FROM_CLI)
+	KUBECONFIG=$(KIND_KUBECONFIG) \
+	KAGENT_DEFAULT_MODEL_PROVIDER=openAI \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	KAGENT_SUBSTRATE_HELM_EXTRA_ARGS="$(KIND_SUBSTRATE_HELM_ARGS)" \
+	KAGENT_HELM_EXTRA_ARGS="--set ui.service.type=LoadBalancer --set controller.service.type=LoadBalancer $(UPGRADE_PREV_EXTRA_ARGS)" \
+	$(UPGRADE_FROM_CLI) install
 
 # run-upgrade-tests installs the previous release and upgrades it to the current build.
-# The test skips releases that do not use Goose.
-# Later Goose releases test previous-release behavior after the target migrations,
+# It tests previous-release behavior after the target migrations,
 # data survival, schema equality, previous/current controller startup, and a
 # complete application and schema rollback to the previous release.
 # KAGENT_E2E_LOCAL_HOST lets the agent reach the local mock LLM.
@@ -623,18 +626,31 @@ run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release 
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
 	go test ./core/test/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
 
+.PHONY: helm-release
+helm-release: ## Package release charts from RUNTIME_IMAGE_METADATA_DIR without modifying chart sources
+	@test -n "$(RUNTIME_IMAGE_METADATA_DIR)" || { echo "RUNTIME_IMAGE_METADATA_DIR is required for release chart packaging" >&2; exit 1; }
+	bash scripts/package-release-charts.sh "$(VERSION)" "$(RUNTIME_IMAGE_METADATA_DIR)" "$(HELM_SOURCE_DIR)" "$(HELM_DIST_FOLDER)" "$(RUNTIME_IMAGE_REPOSITORY)"
+
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry
-helm-publish: helm-version
-	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
+helm-publish: helm-release
+	helm push "$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
+	helm push "$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
 
 ##@ Dev
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
-kagent-cli-install: use-kind-cluster build-cli-local helm-version helm-install-provider
-	KAGENT_HELM_REPO=./helm/ ./go/core/bin/kagent-local dashboard
+kagent-cli-install: kagent-cli-deploy
+	KUBECONFIG=$(KIND_KUBECONFIG) ./go/core/bin/kagent-local dashboard
+
+.PHONY: kagent-cli-deploy
+kagent-cli-deploy: ## Build CLI locally and install kagent with Substrate and the development database
+kagent-cli-deploy: use-kind-cluster build-cli-local helm-dev
+	printf '%s\n' 'registry: "$(DOCKER_REGISTRY)"' 'tag: "$(VERSION)"' 'imagePullPolicy: Always' 'controller: {image: {pullPolicy: Always}}' 'ui: {image: {pullPolicy: Always}}' > go/core/bin/local-values.yaml
+	printf '%s\n' 'atelet:' '  extraArgs: [--localhost-registry-replacement=kind-registry:5000]' 'ateApi:' '  extraArgs: [--template-resync-interval=250ms]' > go/core/bin/local-substrate-values.yaml
+	printf '%s\n' 'install:' '  defaultModelProvider: $(shell printf "%s" "$(MODEL_PROVIDER)" | awk "{print toupper(substr(\$$0,1,1)) substr(\$$0,2)}")' '  kagent:' '    repository: "$(abspath $(HELM_SOURCE_DIR))/"' '    version: "$(VERSION)"' '    valuesFiles: [local-values.yaml]' '  substrate:' '    repository: "$(SUBSTRATE_REPO)/"' '    version: "$(SUBSTRATE_VERSION)"' '    valuesFiles: [local-substrate-values.yaml]' '  podCertificate:' '    repository: "$(SUBSTRATE_PODCERT_REPO)/"' '    version: "$(SUBSTRATE_PODCERT_VERSION)"' > go/core/bin/local-config.yaml
+	KUBECONFIG=$(KIND_KUBECONFIG) ./go/core/bin/kagent-local --config go/core/bin/local-config.yaml install
 
 .PHONY: kagent-cli-port-forward
 kagent-cli-port-forward: ## Port-forward the kagent controller API to localhost:8083
@@ -670,6 +686,15 @@ otel-local: ## Start a local Jaeger container for OpenTelemetry tracing (UI at l
 	$(CONTAINER_RUNTIME) run -d --name jaeger-desktop --restart=always -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/jaeger:2.7.0
 	@echo "Jaeger UI available at http://localhost:16686/"
 
+OTEL_COLLECTOR_CHART_VERSION ?= 0.175.1
+
+.PHONY: otel-collector-kind
+otel-collector-kind: ## Install the reference OpenTelemetry Collector into the kind cluster with a debug exporter
+	helm upgrade --install kagent-otel opentelemetry-collector --repo https://open-telemetry.github.io/opentelemetry-helm-charts \
+		--version $(OTEL_COLLECTOR_CHART_VERSION) --kube-context kind-$(KIND_CLUSTER_NAME) --namespace observability --create-namespace \
+		-f examples/observability/collector-values.yaml -f examples/observability/collector-local.yaml
+	@echo "Point kagent at it with --set-string config.runtimeDefaults.telemetry.traces.endpoint=http://kagent-otel-opentelemetry-collector.observability.svc.cluster.local:4317"
+
 .PHONY: kind-debug
 kind-debug: ## Install btop/htop inside the kind control-plane container and launch btop
 	@echo "Debugging the kind cluster..."
@@ -694,7 +719,6 @@ report/image-cve: ## Scan built images with grype and write CVE CSV reports to r
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
-	grype $(CONTAINER_RUNTIME):$(KAGENT_ADK_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/kagent-adk-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 
 

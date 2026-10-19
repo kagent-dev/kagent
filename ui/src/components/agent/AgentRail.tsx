@@ -76,6 +76,10 @@ import {
 
 const { Text } = Typography;
 
+// Click-through, since a row's title tooltip opens over that row's menu button.
+// Module-level: an inline object re-renders the ellipsis Text without end.
+const TITLE_TOOLTIP_STYLES = { root: { pointerEvents: "none" as const } };
+
 /** Where the rail's collapsed state is remembered, per reader. */
 const RAIL_COLLAPSED = "kagent.agentRail.collapsed";
 
@@ -201,6 +205,10 @@ export function AgentRail({
   };
 
   const conversations = instances;
+  // A conversation route has only its instance ID. Resolve its Agent from the
+  // already-loaded list while the per-instance read catches up during a switch.
+  const currentAgentName =
+    conversations.data?.find((item) => item.id === ref.id)?.agent ?? instance?.agent;
 
   /**
    * Which agent the switcher is open *for*, rather than whether it is open.
@@ -252,10 +260,10 @@ export function AgentRail({
    */
   const agentPageHref =
     agentHrefFromCaller ??
-    (instance?.agent
+    (currentAgentName
       ? agentPageUrl({
-        namespace: instance.agent.split("/")[0],
-          name: bareName(instance.agent),
+        namespace: currentAgentName.split("/")[0],
+          name: bareName(currentAgentName),
         })
       : undefined);
 
@@ -265,9 +273,9 @@ export function AgentRail({
    * instance — the pages with no conversation open have only the first.
    */
   const agent = agentRef ?? {
-    namespace: instance?.agent?.split("/")[0] ?? "",
-    name: instance?.agent
-      ? bareName(instance.agent)
+    namespace: currentAgentName?.split("/")[0] ?? "",
+    name: currentAgentName
+      ? bareName(currentAgentName)
       : agentTitle?.primary,
   };
 
@@ -335,10 +343,10 @@ export function AgentRail({
      * what left the rail empty on the agent and new-conversation pages: an agent's own
      * navigation showing none of its conversations.
      */
-    const siblings = instance
+    const siblings = currentAgentName
       ? (conversations.data ?? []).filter(
           (candidate) =>
-            candidate.agent === instance.agent,
+            candidate.agent === currentAgentName,
         )
       : (conversations.data ?? []);
     const needle = query.trim().toLowerCase();
@@ -353,7 +361,7 @@ export function AgentRail({
             candidate.name.toLowerCase().includes(needle),
         );
     return [...found].sort(byNewestFirst);
-  }, [conversations.data, instance, query]);
+  }, [conversations.data, currentAgentName, query]);
 
   /*
    * Collapsed, and remembered.
@@ -800,7 +808,7 @@ export function AgentRail({
               being switched. It took them from the instance id, which meant the badge
               changed every time a reader opened a different conversation with the same
               agent — while the menu behind it listed agents that never changed. */}
-          {(instance?.agent ? bareName(instance.agent) : (agentTitle?.primary ?? ref.id ?? ""))
+          {(currentAgentName ? bareName(currentAgentName) : (agentTitle?.primary ?? ref.id ?? ""))
             .slice(0, 2)
             .toUpperCase()}
         </span>
@@ -813,8 +821,8 @@ export function AgentRail({
               recognises the agent by; the id distinguishes this conversation from
               the others with it. Until the instance loads there is only the id. */}
           <Text ellipsis css={{ fontSize: 14, color: theme.color.text }}>
-            {instance?.agent
-              ? bareName(instance.agent)
+            {currentAgentName
+              ? bareName(currentAgentName)
               : (agentTitle?.primary ?? shortInstanceId(ref.id ?? ""))}
           </Text>
           {/* Which conversation, under which agent. Named the way the reader named
@@ -836,7 +844,7 @@ export function AgentRail({
                 named Agent definition. The conversation is named in the list
                 below, where it is one row among its siblings; naming it here made the
                 card describe a conversation while the menu it opens describes agents. */}
-            { (agentTitle?.secondary ?? agentRef?.namespace ?? instance?.agent?.split("/")[0] ?? "")}
+            { (agentTitle?.secondary ?? agentRef?.namespace ?? currentAgentName?.split("/")[0] ?? "")}
           </Text>
         </span>
         <ChevronsUpDown size={14} color={theme.color.textMuted} aria-hidden />
@@ -1537,7 +1545,11 @@ function ChatEntry({
           // row, and what the ellipsis hides is the name. To the right, so it opens
           // into the page rather than back over the list it is explaining one of.
           ellipsis={{
-            tooltip: { title: conversationTitle(instance, autoTitle), placement: "right" },
+            tooltip: {
+              title: conversationTitle(instance, autoTitle),
+              placement: "right",
+              styles: TITLE_TOOLTIP_STYLES,
+            },
           }}
           css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
         >

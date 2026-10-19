@@ -9,18 +9,18 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/pelletier/go-toml/v2"
 )
 
-const (
-	codexHomeEnv       = "CODEX_HOME"
-	otelCompressionEnv = "OTEL_EXPORTER_OTLP_COMPRESSION"
-)
+const codexHomeEnv = "CODEX_HOME"
 
 // Input contains compiler output and Actor-owned locations used to construct
 // the Codex driver.
@@ -41,7 +41,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace and durable directories must be absolute paths")
 	}
 	codexHome := filepath.Join(input.DurableDir, "codex")
-	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), filepath.Join(codexHome, "skills")} {
+	skillsRoot := config.SkillsRoot(input.DurableDir)
+	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), skillsRoot} {
 		if err := utils.EnsurePrivateDir(directory); err != nil {
 			return nil, fmt.Errorf("prepare Codex directory %q: %w", directory, err)
 		}
@@ -49,14 +50,14 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := reconcileGeneratedDir(filepath.Join(codexHome, "agents"), agentFileNames(cfg.Agents)); err != nil {
 		return nil, fmt.Errorf("reconcile Codex agents: %w", err)
 	}
-	if err := reconcileGeneratedDir(filepath.Join(codexHome, "skills"), nil); err != nil {
+	if err := reconcileGeneratedDir(skillsRoot, nil); err != nil {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
 	var ensureSkills func(context.Context) error
 	if cfg.SkillResources != nil {
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
-			Skills:   filepath.Join(codexHome, "skills"),
+			Skills:   skillsRoot,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
@@ -69,6 +70,21 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
 		return nil, err
 	}
+	nativeDefaults := cfg.RuntimeTelemetry
+	if cfg.Telemetry != nil {
+		exporters := nativeDefaults.ExporterConfig()
+		if cfg.Telemetry.Traces != nil {
+			exporters.Traces = &sharedtelemetry.OTLPConfig{Endpoint: cfg.Telemetry.Traces.Endpoint, Protocol: cfg.Telemetry.Traces.Protocol}
+		}
+		if cfg.Telemetry.Logs != nil {
+			exporters.Logs = &sharedtelemetry.OTLPConfig{Endpoint: cfg.Telemetry.Logs.Endpoint, Protocol: cfg.Telemetry.Logs.Protocol}
+		}
+		nativeDefaults.Exporters = &exporters
+		nativeDefaults.CaptureContent = cfg.Telemetry.CaptureContent
+	}
+	environment := nativeEnvironment(input.Environment, codexHome, nativeDefaults)
+	cfg.Telemetry = effectiveTelemetry(cfg.Telemetry, environment)
+	cfg.Telemetry.CaptureContent = nativeDefaults.WithEnvironment(input.Environment).CaptureContent
 	configTOML, err := renderConfig(cfg, codexHome)
 	if err != nil {
 		return nil, err
@@ -76,7 +92,6 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
 		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
 	}
-	environment := nativeEnvironment(input.Environment, codexHome, cfg.RuntimeTelemetry)
 	approvalServers := make(map[string]struct{})
 	for name, server := range cfg.MCPServers {
 		if server.RequireApproval {
@@ -88,7 +103,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		Workspace: input.Workspace, Model: cfg.Model, Provider: nativeProviderName(cfg.Provider.Name),
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
-		ApprovalServers: approvalServers, EnsureSkills: ensureSkills,
+		ApprovalServers: approvalServers,
+		PendingDir:      filepath.Join(input.DurableDir, "adapter"),
+		Tools:           driver.NewMCPCaller(cfg.MCPServers, environment),
+		EnsureSkills:    ensureSkills,
 	}), nil
 }
 
@@ -300,9 +318,9 @@ func reconcileGeneratedDir(directory string, keep map[string]struct{}) error {
 // nativeEnvironment drops OTLP compression: the Codex exporter is built without
 // gzip and refuses to start when asked for it.
 func nativeEnvironment(environment []string, codexHome string, telemetry tracing.RuntimeTelemetry) []string {
-	environment = tracing.ResourceEnvironment(setEnvironment(environment, codexHomeEnv, codexHome), telemetry.ChildResource())
+	environment = tracing.ResourceEnvironment(setEnvironment(sharedtelemetry.Environment(environment, telemetry.ExporterConfig()), codexHomeEnv, codexHome), telemetry.ChildResource())
 	return slices.DeleteFunc(environment, func(item string) bool {
-		return strings.HasPrefix(item, otelCompressionEnv+"=")
+		return strings.HasPrefix(item, env.OTELExporterOTLPCompression.Name()+"=")
 	})
 }
 
@@ -315,4 +333,17 @@ func setEnvironment(environment []string, name, value string) []string {
 		}
 	}
 	return append(result, prefix+value)
+}
+
+func effectiveTelemetry(defaults *config.Telemetry, environment []string) *config.Telemetry {
+	result := &config.Telemetry{}
+	if defaults != nil {
+		result.CaptureContent = defaults.CaptureContent
+	}
+	for signal, target := range map[string]**config.OTLPExporter{"TRACES": &result.Traces, "LOGS": &result.Logs} {
+		if exporter := sharedtelemetry.OTLPExporter(environment, signal); exporter != nil {
+			*target = &config.OTLPExporter{Endpoint: exporter.Endpoint, Protocol: exporter.Protocol}
+		}
+	}
+	return result
 }

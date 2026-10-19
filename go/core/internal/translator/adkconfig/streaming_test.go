@@ -11,15 +11,17 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	adkagent "github.com/kagent-dev/kagent/go/adk/pkg/agent"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"istio.io/istio/pkg/kube/krt"
+
+	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	adkagent "github.com/kagent-dev/kagent/go/adk/pkg/agent"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // Exercise the compiled payload through the real Go ADK executor against an
@@ -67,21 +69,21 @@ func TestNonStreamingModelTurn(t *testing.T) {
 			model.Spec.Stream = new(false)
 			model.Spec.OpenAI.APIFormat = new(tc.format)
 			collections := contextTestCollections(t, model)
-			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &v2translator.HarnessInput{
-				Harness: &v2translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
-				Root: &v2translator.AgentInput{
-					Template: &v2translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &translator.AgentInput{
+					Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
 				},
 			})
 			require.NoError(t, err)
-			payload, err := json.Marshal(result.Config)
+			payload, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: result.Config})
 			require.NoError(t, err)
-			var config adk.AgentConfig
-			require.NoError(t, json.Unmarshal(payload, &config))
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(payload, &config))
 			agent, err := adkagent.CreateGoogleADKAgent(t.Context(), &config, "agent", nil)
 			require.NoError(t, err)
 			executor, err := adka2a.NewKAgentExecutor(adka2a.KAgentExecutorConfig{
-				AppName: "test", Stream: config.GetStream(), Logger: slog.New(slog.DiscardHandler),
+				AppName: "test", Stream: config.Agent.GetStream(), Logger: slog.New(slog.DiscardHandler),
 				SessionService: adksession.InMemoryService(), RunnerConfig: runner.Config{AppName: "test", Agent: agent},
 			})
 			require.NoError(t, err)

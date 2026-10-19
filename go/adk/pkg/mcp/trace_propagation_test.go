@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,8 +14,9 @@ import (
 )
 
 // TestCreateTransport_InjectsTraceContext verifies that the HTTP client behind
-// an HTTP MCP transport carries the W3C traceparent of the active span, so MCP
-// calls stay attached to the invocation trace.
+// an HTTP MCP transport carries the W3C traceparent of the active span on MCP
+// calls, so they stay attached to the invocation trace, and not on the
+// session's own requests.
 func TestCreateTransport_InjectsTraceContext(t *testing.T) {
 	tp := sdktrace.NewTracerProvider()
 	t.Cleanup(func() { _ = tp.Shutdown(t.Context()) })
@@ -50,22 +52,36 @@ func TestCreateTransport_InjectsTraceContext(t *testing.T) {
 
 	ctx, span := tp.Tracer("test").Start(t.Context(), "execute_tool")
 	defer span.End()
+	call, end := startCallScope(ctx)
+	defer end()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, nil)
-	if err != nil {
-		t.Fatal(err)
+	send := func(ctx context.Context) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := streamable.HTTPClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		_ = resp.Body.Close()
 	}
-	resp, err := streamable.HTTPClient.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	_ = resp.Body.Close()
 
+	send(call)
 	if gotStatic != "yes" {
 		t.Fatalf("static header lost through propagation layer: %q", gotStatic)
 	}
 	wantTraceID := span.SpanContext().TraceID().String()
 	if !strings.Contains(gotTraceparent, wantTraceID) {
 		t.Fatalf("traceparent %q does not carry parent trace id %s", gotTraceparent, wantTraceID)
+	}
+
+	send(ctx)
+	if gotTraceparent != "" {
+		t.Fatalf("session request carried traceparent %q", gotTraceparent)
+	}
+	if gotStatic != "yes" {
+		t.Fatalf("static header lost on a session request: %q", gotStatic)
 	}
 }

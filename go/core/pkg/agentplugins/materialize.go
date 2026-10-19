@@ -3,6 +3,7 @@ package agentplugins
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
@@ -82,35 +84,55 @@ func (m Materialization) ClaudeFormatPluginRoots() []string {
 	return roots
 }
 
-// Materialize fetches Agent Plugin packages and copies their selected skills
-// into the runtime directory; Claude-format plugins are kept whole. Standalone
-// skills are only validated here and fetched by EnsureSkills. It does not load
-// runtime configuration.
+// startupSkillFetchTimeout bounds the best-effort standalone skill fetch during
+// startup, which may run before the Actor has egress.
+const startupSkillFetchTimeout = 30 * time.Second
+
+// Materialize fetches Agent Plugin packages, copies their selected skills and
+// mounted standalone skills into the runtime directory, and keeps
+// Claude-format plugins whole. Any of those failures fails preparation.
+// Downloaded standalone skills are then fetched once on a best-effort basis: a
+// failure is logged and EnsureSkills retries before each task. It does not
+// load runtime configuration.
 func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
-	plugins, err := materializeResources(ctx, resources, paths)
+	plugins, deferred, err := materializeResources(ctx, resources, paths)
 	if err != nil {
 		return Materialization{}, err
 	}
-	return Materialization{
+	materialization := Materialization{
 		SkillsDirectory: paths.Skills, plugins: plugins,
-		skills: &standaloneSkills{skills: slices.Clone(resources.Skills), paths: paths},
-	}, nil
+		skills: &standaloneSkills{skills: deferred, paths: paths},
+	}
+	if len(deferred) > 0 {
+		fetchCtx, cancel := context.WithTimeout(ctx, startupSkillFetchTimeout)
+		defer cancel()
+		if err := materialization.EnsureSkills(fetchCtx); err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "standalone skills are unavailable at startup; each task retries them before it runs", "error", err)
+		}
+	}
+	return materialization, nil
 }
 
-// standaloneSkills fetches standalone skills once. A failed fetch keeps the
-// skills already copied and is resumed by the next call.
+// deferredSkill is a downloaded standalone skill and its package cache slot.
+type deferredSkill struct {
+	skill agentplugin.Skill
+	index int
+}
+
+// standaloneSkills installs downloaded standalone skills. Installed state is
+// read from the skills directory, not process memory, so restored snapshots
+// and restarted processes see exactly what is on disk.
 type standaloneSkills struct {
-	mu      sync.Mutex
-	skills  []agentplugin.Skill
-	fetched int
-	paths   Paths
+	mu     sync.Mutex
+	skills []deferredSkill
+	paths  Paths
 }
 
-// EnsureSkills fetches standalone skills into SkillsDirectory and returns once
-// all of them are present. Call it before each task, never during startup: a
-// Substrate Actor has no egress until it is ready, and a golden snapshot is
-// taken before any session's egress policy and gateway credentials apply. It
-// is safe for concurrent use and does no work after the first success.
+// EnsureSkills installs every downloaded standalone skill that is not yet in
+// SkillsDirectory and reports the ones it could not install. Skills already
+// present are not fetched again; a skill becomes visible only once it is
+// complete. Run it before each task: a Substrate Actor may start without
+// egress or gateway credentials. It is safe for concurrent use.
 func (m Materialization) EnsureSkills(ctx context.Context) error {
 	if m.skills == nil {
 		return nil
@@ -118,18 +140,54 @@ func (m Materialization) EnsureSkills(ctx context.Context) error {
 	s := m.skills
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for ; s.fetched < len(s.skills); s.fetched++ {
-		skill := s.skills[s.fetched]
-		root := filepath.Join(s.paths.Packages, fmt.Sprintf("standalone-%d", s.fetched))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
-		if err != nil {
-			return fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+	var errs []error
+	for _, deferred := range s.skills {
+		destination := filepath.Join(s.paths.Skills, deferred.skill.Name)
+		if info, err := os.Stat(filepath.Join(destination, "SKILL.md")); err == nil && info.Mode().IsRegular() {
+			continue
 		}
-		if err := copySkill(sourceRoot, filepath.Join(s.paths.Skills, skill.Name)); err != nil {
-			return fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		root := filepath.Join(s.paths.Packages, fmt.Sprintf("standalone-%d", deferred.index))
+		sourceRoot, err := fetchSource(ctx, deferred.skill.Source, root, "SKILL.md")
+		if err == nil {
+			err = installSkill(sourceRoot, destination)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("materialize skill %q: %w", deferred.skill.Name, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
+}
+
+// pendingSkillManifest holds SKILL.md while a deferred skill is installed.
+// Skill loaders ignore a directory without SKILL.md, so the skill appears
+// only once its final rename completes.
+const pendingSkillManifest = ".SKILL.md.pending"
+
+// installSkill stages a skill in a hidden sibling of destination, on the same
+// filesystem, renames the directory into place, then renames SKILL.md into
+// place last so readers never see a partial skill.
+func installSkill(source, destination string) error {
+	staging := filepath.Join(filepath.Dir(destination), "."+filepath.Base(destination)+".install")
+	if err := os.RemoveAll(staging); err != nil {
+		return err
+	}
+	err := copySkillTree(source, staging, pendingSkillManifest)
+	if err == nil {
+		err = os.RemoveAll(destination)
+	}
+	if err == nil {
+		err = os.Rename(staging, destination)
+	}
+	if err == nil {
+		err = os.Rename(filepath.Join(destination, pendingSkillManifest), filepath.Join(destination, "SKILL.md"))
+		if err != nil {
+			_ = os.RemoveAll(destination)
+		}
+	}
+	if err != nil {
+		_ = os.RemoveAll(staging)
+	}
+	return err
 }
 
 // LoadMCP resolves standard MCP configuration from a materialization. The
@@ -148,7 +206,7 @@ func LoadMCP(ctx context.Context, materialization Materialization, dataRoot stri
 	return result, nil
 }
 
-func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
+func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, []deferredSkill, error) {
 	selectedSkills := make([]string, 0, len(resources.Skills))
 	for _, skill := range resources.Skills {
 		selectedSkills = append(selectedSkills, skill.Name)
@@ -157,14 +215,34 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 		selectedSkills = append(selectedSkills, plugin.Skills...)
 	}
 	if err := validateSkillSelections(selectedSkills); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
-		return nil, fmt.Errorf("create skills directory: %w", err)
+		return nil, nil, fmt.Errorf("create skills directory: %w", err)
 	}
 	if err := os.MkdirAll(paths.Packages, 0o755); err != nil {
-		return nil, fmt.Errorf("create package directory: %w", err)
+		return nil, nil, fmt.Errorf("create package directory: %w", err)
+	}
+
+	var deferred []deferredSkill
+	for i, skill := range resources.Skills {
+		if err := validateSource(skill.Source); err != nil {
+			return nil, nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
+		if skill.Source.Directory == "" {
+			deferred = append(deferred, deferredSkill{skill: skill, index: i})
+			continue
+		}
+		// Mounted artifacts need no egress, so they install now and a broken
+		// mount fails preparation.
+		sourceRoot, err := fetchSource(ctx, skill.Source, "", "SKILL.md")
+		if err != nil {
+			return nil, nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
+		if err := copySkill(sourceRoot, filepath.Join(paths.Skills, skill.Name)); err != nil {
+			return nil, nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
+		}
 	}
 
 	pluginNames := make(map[string]struct{})
@@ -173,27 +251,27 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 		root := filepath.Join(paths.Packages, fmt.Sprintf("plugin-%d", i))
 		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json", claudeManifest)
 		if err != nil {
-			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
+			return nil, nil, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
 		manifest, claudeFormat, err := loadManifest(pluginRoot)
 		if err != nil {
-			return nil, fmt.Errorf("load plugin %d: %w", i, err)
+			return nil, nil, fmt.Errorf("load plugin %d: %w", i, err)
 		}
 		if _, exists := pluginNames[manifest.Name]; exists {
-			return nil, fmt.Errorf("duplicate plugin name %q", manifest.Name)
+			return nil, nil, fmt.Errorf("duplicate plugin name %q", manifest.Name)
 		}
 		pluginNames[manifest.Name] = struct{}{}
 		if !claudeFormat {
 			for _, name := range plugin.Skills {
 				source := filepath.Join(pluginRoot, "skills", name)
 				if err := copySkill(source, filepath.Join(paths.Skills, name)); err != nil {
-					return nil, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
+					return nil, nil, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
 				}
 			}
 		}
 		plugins = append(plugins, materializedPlugin{name: manifest.Name, root: pluginRoot, claudeFormat: claudeFormat})
 	}
-	return plugins, nil
+	return plugins, deferred, nil
 }
 
 func validateSkillSelections(names []string) error {
@@ -219,9 +297,10 @@ func validateSkillName(name string) error {
 
 const claudeManifest = ".claude-plugin/plugin.json"
 
-func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
+// validateSource requires exactly one artifact source.
+func validateSource(source agentplugin.Source) error {
 	selected := 0
-	if source.OCI != "" {
+	if source.Directory != "" {
 		selected++
 	}
 	if source.Git != nil {
@@ -231,13 +310,27 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		selected++
 	}
 	if selected != 1 {
-		return "", fmt.Errorf("exactly one artifact source is required")
+		return fmt.Errorf("exactly one artifact source is required")
+	}
+	return nil
+}
+
+func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
+	if err := validateSource(source); err != nil {
+		return "", err
+	}
+	if source.Directory != "" {
+		if !filepath.IsAbs(source.Directory) {
+			return "", fmt.Errorf("mounted artifact directory %q must be absolute", source.Directory)
+		}
+		root, err := validatedPackageRoot(source.Directory, source.Path)
+		if err != nil {
+			return "", fmt.Errorf("validate mounted artifact: %w", err)
+		}
+		return root, nil
 	}
 	if _, err := os.Stat(destination); err == nil {
-		if err := validatePackage(destination); err != nil {
-			return "", err
-		}
-		root, err := containedPath(destination, source.Path)
+		root, err := validatedPackageRoot(destination, source.Path)
 		if err == nil {
 			for _, requiredFile := range requiredFiles {
 				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
@@ -256,12 +349,8 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		return "", err
 	}
 	switch {
-	case source.OCI != "":
-		if err := skillsinit.FetchOCI(skillsinit.OCIRef{Image: source.OCI, Dest: destination}, false); err != nil {
-			return "", err
-		}
 	case source.Git != nil:
-		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, destination, source.Git.GatewayAuthorization); err != nil {
+		if err := skillsinit.CloneGitCommit(ctx, source.Git.URL, source.Git.Commit, destination, source.Git.GatewayAuthorization); err != nil {
 			return "", err
 		}
 	case source.S3 != nil:
@@ -275,14 +364,18 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 	default:
 		return "", fmt.Errorf("artifact source is required")
 	}
-	if err := validatePackage(destination); err != nil {
-		return "", err
-	}
-	root, err := containedPath(destination, source.Path)
+	return validatedPackageRoot(destination, source.Path)
+}
+
+func validatedPackageRoot(root, relative string) (string, error) {
+	selected, err := containedPath(root, relative)
 	if err != nil {
 		return "", err
 	}
-	return root, nil
+	if err := validatePackage(selected); err != nil {
+		return "", err
+	}
+	return selected, nil
 }
 
 func validatePackage(root string) error {
@@ -291,9 +384,6 @@ func validatePackage(root string) error {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			return filepath.SkipDir
-		}
 		entries++
 		if entries > maxPackageEntries {
 			return fmt.Errorf("artifact contains more than %d filesystem entries", maxPackageEntries)
@@ -301,6 +391,9 @@ func validatePackage(root string) error {
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+		if !info.Mode().IsRegular() && !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("artifact contains unsupported file %q (%s)", path, info.Mode())
 		}
 		if info.Mode().IsRegular() {
 			bytes += info.Size()
@@ -362,6 +455,11 @@ func canonicalPath(path string) string {
 }
 
 func copySkill(source, destination string) error {
+	return copySkillTree(source, destination, "SKILL.md")
+}
+
+// copySkillTree copies a skill and writes its root SKILL.md as manifestName.
+func copySkillTree(source, destination, manifestName string) error {
 	info, err := os.Stat(filepath.Join(source, "SKILL.md"))
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("SKILL.md is required")
@@ -376,6 +474,9 @@ func copySkill(source, destination string) error {
 		relative, err := filepath.Rel(source, path)
 		if err != nil {
 			return err
+		}
+		if relative == "SKILL.md" {
+			relative = manifestName
 		}
 		target := filepath.Join(destination, relative)
 		info, err := entry.Info()

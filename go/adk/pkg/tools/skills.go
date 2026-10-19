@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
@@ -131,7 +130,7 @@ type grepFileInput struct {
 
 // NewSkillExecutionTools creates the filesystem and shell tools used to execute
 // skills. Skill discovery and loading are provided by Go ADK's skilltoolset.
-func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
+func NewSkillExecutionTools(skillsDirectory string, fileSearchEnabled, disableBash bool) ([]tool.Tool, error) {
 	skillsDirectory = strings.TrimSpace(skillsDirectory)
 	if skillsDirectory == "" {
 		return nil, nil
@@ -144,8 +143,6 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	if _, err := os.Stat(absSkillsDir); err != nil {
 		return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
 	}
-
-	commandExecutor := NewCommandExecutor()
 
 	readFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "read_file",
@@ -205,9 +202,7 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	tools := []tool.Tool{readFileTool, writeFileTool, editFileTool}
 
 	// list_files/grep_file are opt-in: they give an agent broad filesystem
-	// visibility, so deployments enable them deliberately. Note this gate is
-	// theirs alone -- bash below is always registered.
-	fileSearchEnabled := env.KagentEnableFileSearchTools.Get()
+	// visibility, so deployments enable them deliberately.
 	if fileSearchEnabled {
 		listFilesTool, err := functiontool.New(functiontool.Config{
 			Name:        "list_files",
@@ -274,6 +269,11 @@ func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 		tools = append(tools, listFilesTool, grepFileTool)
 	}
 
+	if disableBash {
+		return tools, nil
+	}
+
+	commandExecutor := NewCommandExecutor()
 	desc := bashDescription
 	if fileSearchEnabled {
 		desc += fileSearchToolsBashHint

@@ -11,7 +11,7 @@ the shared architecture and component boundaries below still apply.
 
 Kagent is a Kubernetes-native control plane for defining, running, and invoking AI agents.
 
-- `Agent`, `Harness`, and `AgentTemplate` are `api.kagent.dev/v1alpha3` Kubernetes APIs. Agent composes inline or referenced behavior and runtime configuration. AgentTemplate is reusable behavior; Harness selects how it runs.
+- `Agent`, `Harness`, and `AgentTemplate` are `api.kagent.dev/v1alpha3` Kubernetes APIs. Agent composes inline or referenced behavior with a referenced Harness. AgentTemplate is reusable behavior; Harness is platform-managed runtime policy.
 - `Session` is PostgreSQL-backed control-plane state exposed through gRPC. It is not a Kubernetes resource.
 - Upstream A2A owns task, interaction, streaming, and history semantics. Do not create parallel session or task models.
 - Substrate Actors are the compute backend. Durable directories own private runtime state that must survive actor replacement.
@@ -23,7 +23,10 @@ The release-blocking harnesses are kagent, Codex, and Claude. Prefer clean-insta
 ## 2. Sources of Truth
 
 - Current architecture is documented in [docs/architecture](docs/architecture).
-- Development workflows and current architecture notes are in [.claude/skills/kagent-dev/SKILL.md](.claude/skills/kagent-dev/SKILL.md).
+- Development workflows and current architecture notes are in [.agents/skills/kagent-dev/SKILL.md](.agents/skills/kagent-dev/SKILL.md).
+- `.agents/skills/` is the source of truth for repository skills. Keep one
+  relative per-skill symlink under `.claude/skills/` for Claude Code; do not
+  symlink the whole directory.
 - General and language-specific conventions are in [STYLE.md](STYLE.md).
 - Generated code is never the source of truth. Change the API, protobuf, SQL, or schema source and regenerate its outputs.
 
@@ -68,7 +71,7 @@ Every component has a single responsibility. If code reaches into another compon
 | [go/core/internal/grpcserver](go/core/internal/grpcserver/AGENTS.md) | gRPC transport |
 | `go/core/internal/service` | Control-plane services and workflows |
 | [go/core/internal/database](go/core/internal/database/AGENTS.md) | PostgreSQL queries and persistence |
-| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | API v2 execution and A2A gateway |
+| `go/core/internal/{a2agateway,controller,egress,mcp,substrate,translator}` | Control-plane execution and A2A gateway |
 | `go/adk` | Go agent development kit |
 | `python/packages` | Python agent packages and ADK |
 | [proto](proto/AGENTS.md) | gRPC API definitions |
@@ -112,7 +115,7 @@ Common commands:
 | Go lint | `make -C go lint` |
 | Generate Go artifacts | `make -C go generate` |
 | Create a Kind cluster | `make create-kind-cluster` |
-| Install into Kind | `make helm-install` |
+| Install into Kind | `make kagent-cli-install` |
 
 ## 8. Contribution Requirements
 

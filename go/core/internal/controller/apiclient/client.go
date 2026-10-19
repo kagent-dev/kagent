@@ -2,10 +2,11 @@ package apiclient
 
 import (
 	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned"
-	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/kube"
 	"k8s.io/client-go/rest"
+
+	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 )
 
 // Client is the Kubernetes client KRT receives. Embedding the generated

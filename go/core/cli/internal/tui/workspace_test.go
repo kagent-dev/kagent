@@ -8,24 +8,25 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	tea "github.com/charmbracelet/bubbletea"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 )
 
 var testTime = time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 
 // fakeLister serves one canned page per call, so paging is observable.
 type fakeLister struct {
-	pages    []*apiv1alpha1.ListSessionsResponse
+	pages    []*apiv1.ListSessionsResponse
 	err      error
-	requests []*apiv1alpha1.ListSessionsRequest
+	requests []*apiv1.ListSessionsRequest
 }
 
-func (f *fakeLister) ListSessions(_ context.Context, request *apiv1alpha1.ListSessionsRequest) (*apiv1alpha1.ListSessionsResponse, error) {
+func (f *fakeLister) ListSessions(_ context.Context, request *apiv1.ListSessionsRequest) (*apiv1.ListSessionsResponse, error) {
 	f.requests = append(f.requests, request)
 	if f.err != nil {
 		return nil, f.err
@@ -65,25 +66,25 @@ func testWorkspace(t *testing.T, lister sessionLister) *workspaceModel {
 	return m
 }
 
-func workspaceSession(id, template string, state apiv1alpha1.RuntimeState, created time.Time) *apiv1alpha1.Session {
-	return &apiv1alpha1.Session{
+func workspaceSession(id, template string, state apiv1.RuntimeState, created time.Time) *apiv1.Session {
+	return &apiv1.Session{
 		Id: id,
 
-		Agent: &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: template},
+		Agent: &apiv1.ResourceReference{Namespace: "kagent", Name: template},
 
 		State:     state,
 		CreatedAt: timestamppb.New(created),
 	}
 }
 
-func readySession(id, template string) *apiv1alpha1.Session {
-	return workspaceSession(id, template, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, testTime)
+func readySession(id, template string) *apiv1.Session {
+	return workspaceSession(id, template, apiv1.RuntimeState_RUNTIME_STATE_READY, testTime)
 }
 
-func page(nextToken string, sessions ...*apiv1alpha1.Session) *apiv1alpha1.ListSessionsResponse {
-	return &apiv1alpha1.ListSessionsResponse{
+func page(nextToken string, sessions ...*apiv1.Session) *apiv1.ListSessionsResponse {
+	return &apiv1.ListSessionsResponse{
 		Sessions: sessions,
-		Page:     &apiv1alpha1.PageResponse{NextPageToken: nextToken},
+		Page:     &apiv1.PageResponse{NextPageToken: nextToken},
 	}
 }
 
@@ -116,14 +117,14 @@ func TestWorkspaceLoadsSessions(t *testing.T) {
 	}{
 		{
 			name: "follows the next page token",
-			lister: &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{
+			lister: &fakeLister{pages: []*apiv1.ListSessionsResponse{
 				page("token-2", one), page("", readySession("b", "reporter")),
 			}},
 			wantSessions: 2, wantRequests: 2,
 		},
 		{
 			name:         "stops at the page bound rather than looping",
-			lister:       &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("more", one)}},
+			lister:       &fakeLister{pages: []*apiv1.ListSessionsResponse{page("more", one)}},
 			wantSessions: maxSessionPages, wantRequests: maxSessionPages,
 			wantTruncated: true, wantStatus: "more pages are available",
 		},
@@ -155,9 +156,9 @@ func TestWorkspaceLoadsSessions(t *testing.T) {
 }
 
 func TestWorkspaceSortsNewestFirstAndOpensOne(t *testing.T) {
-	older := workspaceSession("old", "a", apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, testTime.Add(-time.Hour))
+	older := workspaceSession("old", "a", apiv1.RuntimeState_RUNTIME_STATE_READY, testTime.Add(-time.Hour))
 	newer := readySession("new", "b")
-	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", older, newer)}})
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", older, newer)}})
 
 	cmd := loaded(m)
 
@@ -170,19 +171,19 @@ func TestWorkspaceSortsNewestFirstAndOpensOne(t *testing.T) {
 func TestWorkspaceSelectSession(t *testing.T) {
 	tests := []struct {
 		name       string
-		state      apiv1alpha1.RuntimeState
+		state      apiv1.RuntimeState
 		wantChat   bool
 		wantStatus string
 	}{
-		{name: "ready opens a chat", state: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, wantChat: true},
+		{name: "ready opens a chat", state: apiv1.RuntimeState_RUNTIME_STATE_READY, wantChat: true},
 		// The gateway rejects every call for a non-READY session, so the workspace must not dial one.
-		{name: "suspended is not dialed", state: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, wantStatus: "SUSPENDED"},
+		{name: "suspended is not dialed", state: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, wantStatus: "SUSPENDED"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := workspaceSession("44444444-4444-4444-4444-444444444444", "reporter", tt.state, testTime)
-			m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", session)}})
+			m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", session)}})
 			loaded(m)
 
 			cmd := m.selectSession(session)
@@ -203,7 +204,7 @@ func TestWorkspaceSelectSession(t *testing.T) {
 
 // Moving the cursor filters immediately; enter only drills down.
 func TestWorkspaceCascadeFiltersOnCursorMove(t *testing.T) {
-	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{
 		page("", readySession("a", "smoke"), readySession("c", "reporter")),
 	}})
 	loaded(m)
@@ -253,7 +254,7 @@ func TestWorkspaceKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("")}})
+			m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("")}})
 			m.focus = tt.focus
 
 			cmd, handled := m.handleKey(tt.key)
@@ -297,7 +298,7 @@ func TestWorkspaceMouse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{
+			m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{
 				page("", readySession("a", "smoke"), readySession("b", "reporter")),
 			}})
 			loaded(m)
@@ -331,9 +332,9 @@ func TestWorkspaceCatalog(t *testing.T) {
 			wantNames: map[string]int{allNames: 1, "smoke": 1, "reporter": 0},
 		},
 		{
-			// Without a kubeconfig the cascade still works, from session data.
+			// When the catalog cannot be read the cascade still works, from session data.
 			name:       "falls back to session names",
-			catalog:    &fakeCatalog{err: errors.New("no kubeconfig")},
+			catalog:    &fakeCatalog{err: errors.New("permission denied")},
 			wantNames:  map[string]int{allNames: 1, "smoke": 1},
 			wantStatus: "only Agents that have sessions",
 		},
@@ -341,13 +342,13 @@ func TestWorkspaceCatalog(t *testing.T) {
 			name:       "a nil catalog is not fatal",
 			catalog:    nil,
 			wantNames:  map[string]int{allNames: 1, "smoke": 1},
-			wantStatus: "no Kubernetes client",
+			wantStatus: "no Agent catalog",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{
+			m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{
 				page("", readySession("a", "smoke")),
 			}})
 			m.catalog = tt.catalog
@@ -393,7 +394,7 @@ func TestWorkspaceNamespacePanel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("")}})
+			m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("")}})
 			m.catalog = tt.catalog
 
 			m.Update(m.loadNamespaces()())
@@ -412,7 +413,7 @@ func TestWorkspaceNamespacePanel(t *testing.T) {
 }
 
 func TestWorkspaceSwitchingNamespaceRefetches(t *testing.T) {
-	lister := &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{
+	lister := &fakeLister{pages: []*apiv1.ListSessionsResponse{
 		page("", readySession("a", "smoke")),
 	}}
 	m := testWorkspace(t, lister)
@@ -439,13 +440,13 @@ func TestWorkspaceRenders(t *testing.T) {
 	const id = "66666666-6666-6666-6666-666666666666"
 	tests := []struct {
 		name     string
-		sessions []*apiv1alpha1.Session
+		sessions []*apiv1.Session
 		render   func(*workspaceModel) string
 		want     []string
 	}{
 		{
 			name:     "rows carry template, short ID, and a state glyph",
-			sessions: []*apiv1alpha1.Session{readySession(id, "smoke")},
+			sessions: []*apiv1.Session{readySession(id, "smoke")},
 			render:   func(m *workspaceModel) string { return m.sessions.View() },
 			want:     []string{"smoke", "66666666", "●"},
 		},
@@ -456,7 +457,7 @@ func TestWorkspaceRenders(t *testing.T) {
 		},
 		{
 			name:     "details keep the full copyable ID",
-			sessions: []*apiv1alpha1.Session{readySession(id, "reporter")},
+			sessions: []*apiv1.Session{readySession(id, "reporter")},
 			render: func(m *workspaceModel) string {
 				m.current = m.all[0]
 				m.renderDetails()
@@ -468,7 +469,7 @@ func TestWorkspaceRenders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", tt.sessions...)}})
+			m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", tt.sessions...)}})
 			loaded(m)
 			m.resize()
 
@@ -483,7 +484,7 @@ func TestWorkspaceRenders(t *testing.T) {
 // Async replies name their session, so a late one must not land in the new chat.
 func TestWorkspaceIgnoresHistoryForAnotherSession(t *testing.T) {
 	first, second := readySession("a", "smoke"), readySession("b", "reporter")
-	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", first, second)}})
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", first, second)}})
 	loaded(m)
 	m.selectSession(second)
 	before := transcript(m.chat)
@@ -498,7 +499,7 @@ func TestWorkspaceIgnoresHistoryForAnotherSession(t *testing.T) {
 
 func TestWorkspaceStopsTheOutgoingStreamOnSwitch(t *testing.T) {
 	first, second := readySession("a", "smoke"), readySession("b", "reporter")
-	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", first, second)}})
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", first, second)}})
 	loaded(m)
 	m.selectSession(first)
 	stopped := false
@@ -513,7 +514,7 @@ func TestWorkspaceStopsTheOutgoingStreamOnSwitch(t *testing.T) {
 func TestChatStreamsUnderTheWorkspaceContext(t *testing.T) {
 	ready := readySession("a", "smoke")
 	ctx, cancel := context.WithCancel(context.Background())
-	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", ready)}})
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", ready)}})
 	m.ctx = ctx
 	loaded(m)
 	m.selectSession(ready)
@@ -544,7 +545,7 @@ func TestChatStreamsUnderTheWorkspaceContext(t *testing.T) {
 // Stream messages must reach the chat even when a panel has focus, or the reply is stranded.
 func TestWorkspaceRoutesStreamMessagesRegardlessOfFocus(t *testing.T) {
 	ready := readySession("a", "smoke")
-	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", ready)}})
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", ready)}})
 	loaded(m)
 	m.selectSession(ready)
 	m.focus = panelSessions
@@ -556,7 +557,7 @@ func TestWorkspaceRoutesStreamMessagesRegardlessOfFocus(t *testing.T) {
 
 func TestWorkspaceRefreshDropsADeletedSession(t *testing.T) {
 	ready := readySession("a", "smoke")
-	lister := &fakeLister{pages: []*apiv1alpha1.ListSessionsResponse{page("", ready), page("")}}
+	lister := &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", ready), page("")}}
 	m := testWorkspace(t, lister)
 	loaded(m)
 	m.selectSession(ready)

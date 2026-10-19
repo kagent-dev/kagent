@@ -275,6 +275,85 @@ describe("A2AGrpcChatClient.send, answering a question", () => {
 });
 
 describe("A2AGrpcChatClient.send", () => {
+  it.each([TaskState.INPUT_REQUIRED, TaskState.AUTH_REQUIRED])(
+    "reads tool approval directly from a task snapshot in state %s",
+    async (state) => {
+      const events = await turn([{
+        payload: {
+          case: "task",
+          value: {
+            id: "task-1",
+            contextId: CONVERSATION.id,
+            status: {
+              state,
+              message: {
+                messageId: "approval-request",
+                role: Role.AGENT,
+                parts: [text("Allow describe?")],
+                extensions: ["https://kagent.dev/extensions/hitl/v1"],
+                metadata: {
+                  "https://kagent.dev/extensions/hitl/v1": {
+                    type: "tool_approval_request",
+                    tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+                  },
+                },
+              },
+            },
+          },
+        },
+      }]);
+      expect(transcript(events)).toEqual([]);
+      expect(events).toContainEqual({
+        type: "status",
+        state: "input_required",
+        taskId: "task-1",
+        awaiting: {
+          kind: "tool_approval",
+          taskId: "task-1",
+          tools: [{ id: "call-1", name: "k8s_describe_resource", args: {} }],
+          hint: undefined,
+          askedBy: undefined,
+        },
+      });
+    },
+  );
+
+  it("reads ask-user choices directly from a task snapshot", async () => {
+    const events = await turn([{
+      payload: {
+        case: "task",
+        value: {
+          id: "task-1",
+          status: {
+            state: TaskState.INPUT_REQUIRED,
+            message: {
+              messageId: "ask-request",
+              role: Role.AGENT,
+              parts: [text("Which database?")],
+              extensions: ["https://kagent.dev/extensions/hitl/v1"],
+              metadata: {
+                "https://kagent.dev/extensions/hitl/v1": {
+                  type: "ask_user_request",
+                  id: "ask-1",
+                  questions: [{ question: "Which database?", choices: ["PostgreSQL"] }],
+                },
+              },
+            },
+          },
+        },
+      },
+    }]);
+    expect(transcript(events)).toEqual([]);
+    expect(events).toContainEqual({
+      type: "status", state: "input_required", taskId: "task-1",
+      awaiting: {
+        kind: "ask_user", taskId: "task-1", requestId: "ask-1",
+        questions: [{ question: "Which database?", choices: ["PostgreSQL"], multiple: false }],
+        askedBy: undefined,
+      },
+    });
+  });
+
   it("shows only the interactive card when ask_user parks the turn", async () => {
     const events = await turn([
       {
@@ -521,6 +600,106 @@ describe("A2AGrpcChatClient.send", () => {
     ).toEqual([" beta", " gamma"]);
   });
 
+  it("delivers appended tool results before the turn completes", async () => {
+    const call = data({ id: "call-1", name: "alerts_list_alerts", args: {} });
+    const result = data({
+      id: "call-1",
+      name: "alerts_list_alerts",
+      response: { result: "disk full", error: null },
+    });
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "call-1", parts },
+          append,
+        },
+      },
+    });
+    // No terminal frame: each update must be visible while the task is working.
+    const events = await turn([frame([call]), frame([result], true)]);
+    const messages = events.filter((event) => event.type === "message");
+    expect(messages).toHaveLength(2);
+    expect(messages[0].message.parts).toHaveLength(1);
+    expect(messages[1].message.parts).toMatchObject([
+      { kind: "data", dataKind: "tool_call" },
+      { kind: "data", dataKind: "tool_result", data: { response: { result: "disk full" } } },
+    ]);
+    expect(transcript(events)).toHaveLength(1);
+  });
+
+  it("preserves structured parts when text is appended to a mixed artifact", async () => {
+    const frame = (parts: unknown[], append = false) => ({
+      payload: {
+        case: "artifactUpdate",
+        value: {
+          taskId: "task-1",
+          artifact: { artifactId: "mixed", parts },
+          append,
+        },
+      },
+    });
+    const events = await turn([
+      frame([text("Checking ")]),
+      frame([data({ id: "call-1", name: "alerts_list_alerts", args: {} })], true),
+      frame([text("done")], true),
+    ]);
+    const messages = transcript(events);
+    expect(messages[0].parts).toMatchObject([
+      { kind: "text", text: "Checking " },
+      { kind: "data", dataKind: "tool_call" },
+      { kind: "text", text: "done" },
+    ]);
+  });
+
+  it.each([{}, { query: { page_size: 10 } }])(
+    "preserves streamed invocation arguments when tool output contains params: %j",
+    async (args) => {
+      const frame = (parts: unknown[], append = false) => ({
+        payload: {
+          case: "artifactUpdate",
+          value: {
+            taskId: "task-1",
+            artifact: { artifactId: "tools", parts },
+            append,
+          },
+        },
+      });
+      const events = await turn([
+        frame([
+          data({ id: "call-1", name: "alerts_list_alerts", args: {} }),
+          data({ id: "call-2", name: "alerts_list_alerts", args }),
+        ]),
+        frame([
+          data({
+            id: "call-2",
+            name: "alerts_list_alerts",
+            response: { data: "observed alert", params: { query: { page_size: 1 } } },
+          }),
+        ], true),
+      ]);
+      const messages = events.filter((event) => event.type === "message");
+      expect(messages[0].message.parts).toMatchObject([
+        { data: { id: "call-1", args: {} } },
+        { data: { id: "call-2", args } },
+      ]);
+      expect(messages[0].message.parts[1]).toHaveProperty("data.args", args);
+      expect(transcript(events)[0].parts).toMatchObject([
+        { data: { id: "call-1", args: {} } },
+        { data: { id: "call-2", args } },
+        {
+          data: {
+            id: "call-2",
+            response: { data: "observed alert", params: { query: { page_size: 1 } } },
+          },
+        },
+      ]);
+      expect(transcript(events)[0].parts[1]).toHaveProperty("data.args", args);
+    },
+  );
+
   it("does not double the answer when the last chunk repeats what was streamed", async () => {
     // The closing frame carries the whole reply rather than the last increment, and
     // is not flagged `append` — so it is a replacement. Appending it instead would
@@ -765,6 +944,41 @@ describe("A2AGrpcChatClient.send", () => {
 });
 
 describe("A2AGrpcChatClient.history", () => {
+  it.each([{}, { query: { page_size: 10 } }])(
+    "preserves saved invocation arguments when tool output contains params: %j",
+    async (args) => {
+      serveTasks([
+        {
+          id: "task-1",
+          contextId: CONVERSATION.id,
+          status: { state: TaskState.COMPLETED },
+          artifacts: [{
+            artifactId: "call-1",
+            parts: [
+              data({ id: "call-1", name: "alerts_list_alerts", args }),
+              data({
+                id: "call-1",
+                name: "alerts_list_alerts",
+                response: { data: "observed alert", params: { query: { page_size: 1 } } },
+              }),
+            ],
+          }],
+        },
+      ]);
+
+      const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+      expect(messages[0].parts[0]).toMatchObject({
+        dataKind: "tool_call",
+        data: { id: "call-1", name: "alerts_list_alerts", args },
+      });
+      expect(messages[0].parts[0]).toHaveProperty("data.args", args);
+      expect(messages[0].parts[1]).toMatchObject({
+        dataKind: "tool_result",
+        data: { response: { data: "observed alert", params: { query: { page_size: 1 } } } },
+      });
+    },
+  );
+
   it("routes history and cancellation to the conversation's Agent", async () => {
     const seen: unknown[] = [];
     serve(({ service }) => {
@@ -852,7 +1066,7 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
   });
 
-  it("orders a canonically positioned approval between its tool call and result", async () => {
+  it("keeps earlier tool activity before a positioned approval on reload", async () => {
     const position = (value: string) => ({ [A2A_METADATA.timelinePosition]: value });
     serveTasks([
       {
@@ -860,6 +1074,12 @@ describe("A2AGrpcChatClient.history", () => {
         contextId: CONVERSATION.id,
         status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
         history: [
+          {
+            messageId: "opening",
+            role: Role.USER,
+            parts: [text("List pods and delete one")],
+            metadata: position("2025-12-31T23:59:59.000000001Z"),
+          },
           {
             messageId: "request",
             role: Role.AGENT,
@@ -889,6 +1109,16 @@ describe("A2AGrpcChatClient.history", () => {
         ],
         artifacts: [
           {
+            artifactId: "list-call",
+            parts: [data({ id: "list-1", name: "list_pods", args: {} })],
+            metadata: position("2025-12-31T23:59:59.000000002Z"),
+          },
+          {
+            artifactId: "list-result",
+            parts: [data({ id: "list-1", name: "list_pods", response: { result: "old" } })],
+            metadata: position("2025-12-31T23:59:59.000000003Z"),
+          },
+          {
             artifactId: "call",
             parts: [data({ id: "call-1", name: "delete_pod", args: {} })],
             metadata: position("2026-01-01T00:00:00.000000001Z"),
@@ -903,7 +1133,9 @@ describe("A2AGrpcChatClient.history", () => {
     ]);
 
     const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
-    expect(messages.map((message) => message.id)).toEqual(["call", "approval", "result"]);
+    expect(messages.map((message) => message.id)).toEqual([
+      "opening", "list-call", "list-result", "call", "approval", "result",
+    ]);
   });
 
   it("replays a completed ask_user exchange as one structured record", async () => {

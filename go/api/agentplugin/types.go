@@ -2,8 +2,9 @@
 // standalone skills and Agent Plugin packages.
 package agentplugin
 
-// Resources describes the skill resources a Harness materializes: plugins
-// before starting an agent, standalone skills before its first task.
+// Resources describes the skill resources a Harness materializes before
+// starting an agent. Downloaded standalone skills that cannot be fetched then
+// are retried before each task.
 type Resources struct {
 	Skills  []Skill  `json:"skills,omitempty"`
 	Plugins []Bundle `json:"plugins,omitempty"`
@@ -23,10 +24,12 @@ type Bundle struct {
 
 // Source selects one immutable artifact and an optional directory within it.
 type Source struct {
-	OCI  string     `json:"oci,omitempty"`
-	Git  *GitSource `json:"git,omitempty"`
-	S3   *S3Source  `json:"s3,omitempty"`
-	Path string     `json:"path,omitempty"`
+	// Directory is the absolute root of an artifact mounted by the platform.
+	// The runtime must not modify it or fall back to downloading its contents.
+	Directory string     `json:"directory,omitempty"`
+	Git       *GitSource `json:"git,omitempty"`
+	S3        *S3Source  `json:"s3,omitempty"`
+	Path      string     `json:"path,omitempty"`
 }
 
 // GitSource identifies one immutable Git commit.

@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -13,7 +13,7 @@ import (
 
 // ShareStore resolves the digest of a Session share token.
 type ShareStore interface {
-	GetSessionShareByTokenHash(context.Context, []byte) (*apiv1alpha1.SessionShare, string, error)
+	GetSessionShareByTokenHash(context.Context, []byte) (*apiv1.SessionShare, string, error)
 }
 
 // ResolveShare validates an optional share token after the caller authenticates.
@@ -35,6 +35,5 @@ func ResolveShare(ctx context.Context, store ShareStore, token string) (*auth.Sh
 	}
 	return &auth.ShareContext{
 		Token: token, UserID: owner, SessionID: share.GetSessionId(),
-		ReadOnly: share.GetPermission() != apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE,
 	}, nil
 }

@@ -42,7 +42,7 @@ tests:
   - it: should derive targetPort from bindAddress
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: ":9443"
+      config.metrics.bindAddress: ":9443"
       controller.metrics.service.port: 9443
     asserts:
       - equal:
@@ -55,7 +55,7 @@ tests:
   - it: should derive targetPort from a host-qualified bindAddress
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: "127.0.0.1:9443"
+      config.metrics.bindAddress: "127.0.0.1:9443"
       controller.metrics.service.port: 9443
     asserts:
       - equal:
@@ -65,7 +65,7 @@ tests:
   - it: should derive targetPort from a bracketed IPv6 bindAddress
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: "[::1]:9443"
+      config.metrics.bindAddress: "[::1]:9443"
       controller.metrics.service.port: 9443
     asserts:
       - equal:
@@ -75,7 +75,7 @@ tests:
   - it: should not render when bindAddress disables metrics
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: "0"
+      config.metrics.bindAddress: "0"
     asserts:
       - hasDocuments:
           count: 0
@@ -83,7 +83,7 @@ tests:
   - it: should not render when bindAddress is empty
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: ""
+      config.metrics.bindAddress: ""
     asserts:
       - hasDocuments:
           count: 0
@@ -91,7 +91,7 @@ tests:
   - it: should rename port when secure serving disabled
     set:
       controller.metrics.enabled: true
-      controller.metrics.secureServing: false
+      config.metrics.secure: false
     asserts:
       - equal:
           path: spec.ports[0].name

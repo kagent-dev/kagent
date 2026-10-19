@@ -20,13 +20,14 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
+	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 func main() {
@@ -57,15 +58,15 @@ func main() {
 	}
 
 	logger.Info("loaded config",
-		"model_type", agentConfig.Model.GetType(),
-		"http_tools", len(agentConfig.HttpTools),
-		"sse_tools", len(agentConfig.SseTools),
-		"stream", agentConfig.GetStream())
+		"model_type", config.ModelType(agentConfig.Agent.Model),
+		"http_tools", len(agentConfig.Agent.HttpTools),
+		"sse_tools", len(agentConfig.Agent.SseTools),
+		"stream", agentConfig.Agent.GetStream())
 
 	// Override stream if flag is set
 	if *stream {
 		t := true
-		agentConfig.Stream = &t
+		agentConfig.Agent.Stream = &t
 	}
 
 	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, "oneshot", nil)
@@ -99,7 +100,7 @@ func main() {
 		Parts: []*genai.Part{{Text: *task}},
 	}
 
-	useStream := agentConfig.GetStream()
+	useStream := agentConfig.Agent.GetStream()
 	streamMode := adkagent.StreamingModeNone
 	if useStream {
 		streamMode = adkagent.StreamingModeSSE

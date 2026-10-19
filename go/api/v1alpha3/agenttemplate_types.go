@@ -23,6 +23,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// GitCredentialOriginAnnotation authorizes a Secret for Git skill fetching at
+// one exact HTTPS origin. Only the Secret owner can grant this authority.
+const GitCredentialOriginAnnotation = "kagent.dev/git-credential-origin"
+
 // AgentTemplatePromptTemplateSpec enables Go template rendering and ConfigMap includes.
 type AgentTemplatePromptTemplateSpec struct {
 	// DataSources are same-namespace ConfigMaps available to include("source/key").
@@ -84,7 +88,7 @@ type SubAgentToolBinding struct {
 }
 
 // ToolBinding selects exactly one MCP or subagent tool source.
-// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.subAgent)",message="exactly one of mcp or subAgent must be specified"
+// +kubebuilder:validation:ExactlyOneOf=mcp;subAgent
 type ToolBinding struct {
 	// +optional
 	MCP *MCPToolBinding `json:"mcp,omitempty"`
@@ -111,13 +115,12 @@ type GitArtifact struct {
 	// +kubebuilder:validation:Pattern=`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`
 	// +required
 	Commit string `json:"commit"`
-	// AuthorizationFrom references a key in a Secret in the AgentTemplate's
-	// namespace whose value is the complete HTTP Authorization header for the
-	// repository host, for example
-	// `Basic <base64 of x-access-token:TOKEN>` for GitHub or `Bearer TOKEN`.
-	// The egress gateway adds the header to the runtime's requests to that
-	// host; the value never enters the runtime, its configuration, or a
-	// snapshot. Supported for skills only.
+	// AuthorizationFrom references a same-namespace Secret key containing the
+	// complete HTTP Authorization header, such as `Basic <base64(user:token)>`.
+	// The Secret must authorize the repository's exact HTTPS origin through
+	// its kagent.dev/git-credential-origin annotation (scheme, DNS name, port).
+	// The gateway replaces matching Authorization headers; the credential
+	// never enters the runtime. Supported for standalone skills only.
 	// +optional
 	AuthorizationFrom *SecretKeyReference `json:"authorizationFrom,omitempty"`
 }
@@ -149,7 +152,7 @@ type BucketArtifact struct {
 }
 
 // ArtifactSource selects exactly one immutable artifact.
-// +kubebuilder:validation:XValidation:rule="(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) + (has(self.bucket) ? 1 : 0) == 1",message="exactly one of oci, git or bucket must be specified"
+// +kubebuilder:validation:ExactlyOneOf=oci;git;bucket
 // +kubebuilder:validation:XValidation:rule="!has(self.path) || (!self.path.startsWith('/') && !self.path.split('/').exists(p, p == '..'))",message="path must be relative and must not contain '..' segments"
 type ArtifactSource struct {
 	// OCI is a digest-pinned image reference.
@@ -180,8 +183,8 @@ type PluginBundle struct {
 }
 
 // AgentTemplateSpec defines portable agent behavior.
-// +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
-// +kubebuilder:validation:XValidation:rule="!(has(self.outputSchema) && has(self.outputSchemaFrom))",message="outputSchema and outputSchemaFrom are mutually exclusive"
+// +kubebuilder:validation:AtMostOneOf=systemPrompt;systemPromptFrom
+// +kubebuilder:validation:AtMostOneOf=outputSchema;outputSchemaFrom
 type AgentTemplateSpec struct {
 	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"

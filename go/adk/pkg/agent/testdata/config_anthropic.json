@@ -1,9 +1,12 @@
 {
-  "model": {
-    "type": "anthropic",
-    "model": "claude-sonnet-4-20250514",
-    "base_url": "{{BASE_URL}}"
-  },
-  "description": "test",
-  "instruction": "Answer concisely."
+  "agent": {
+    "model": {
+      "model": "claude-sonnet-4-20250514",
+      "anthropic": {
+        "base_url": "{{BASE_URL}}"
+      }
+    },
+    "description": "test",
+    "instruction": "Answer concisely."
+  }
 }

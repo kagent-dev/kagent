@@ -6,7 +6,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,28 +21,6 @@ import (
 type ObjectWithModelConfig interface {
 	client.Object
 	GetModelConfigName() string
-}
-
-// GetResourceNamespace returns the namespace for resources,
-// using the KAGENT_NAMESPACE environment variable or defaulting to "kagent".
-func GetResourceNamespace() string {
-	return env.KagentNamespace.Get()
-}
-
-// GetControllerName returns the name for the kagent controller,
-// using the KAGENT_CONTROLLER_NAME environment variable or defaulting to "kagent-controller".
-func GetControllerName() string {
-	return env.KagentControllerName.Get()
-}
-
-// ResourceRefString formats namespace and name as a string reference in "namespace/name" format.
-func ResourceRefString(namespace, name string) string {
-	return fmt.Sprintf("%s/%s", namespace, name)
-}
-
-// GetObjectRef formats a Kubernetes object reference as "namespace/name" string.
-func GetObjectRef(obj client.Object) string {
-	return ResourceRefString(obj.GetNamespace(), obj.GetName())
 }
 
 // containsWhitespace reports whether s contains any Unicode whitespace characters.
@@ -137,20 +114,6 @@ func ParseRefString(ref string, parentNamespace string) (types.NamespacedName, e
 		Namespace: namespace,
 		Name:      name,
 	}, nil
-}
-
-// ConvertToPythonIdentifier converts Kubernetes identifiers to Python-compatible format
-// by replacing hyphens with underscores and slashes with "__NS__".
-func ConvertToPythonIdentifier(name string) string {
-	name = strings.ReplaceAll(name, "-", "_")
-	return strings.ReplaceAll(name, "/", "__NS__") // RFC 1123 will guarantee there will be no conflicts
-}
-
-// ConvertToKubernetesIdentifier converts Python identifiers back to Kubernetes format
-// by replacing "__NS__" with slashes and underscores with hyphens.
-func ConvertToKubernetesIdentifier(name string) string {
-	name = strings.ReplaceAll(name, "__NS__", "/")
-	return strings.ReplaceAll(name, "_", "-")
 }
 
 // ParseStringToFloat64 parses a string to float64, returns nil if empty or invalid

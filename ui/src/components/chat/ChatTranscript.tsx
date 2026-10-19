@@ -53,16 +53,23 @@ const PHASE_LABEL: Partial<Record<ChatTurnPhase, string>> = {
  */
 export function ChatTranscript({
   chat,
+  readOnly = false,
+  isLoading = false,
   sessionId,
   onAnswered,
   onOpenCheckpoint,
   onRenameCheckpoint,
   onFork,
   onDeleteCheckpoint,
+  onManageTaskPush,
   checkpointsById,
   checkpointByMessage,
 }: {
   chat: ChatController;
+  /** Suppresses replies, approvals, cancellation, and retry controls. */
+  readOnly?: boolean;
+  /** Keeps the history skeleton visible while the conversation record is resolving. */
+  isLoading?: boolean;
   /**
    * Opens a saved boundary's record, where its name and the rename live. Absent when
    * read-only, as the two below are, which leaves the line as a mark and nothing more.
@@ -74,6 +81,8 @@ export function ChatTranscript({
   onFork?: (checkpointId: string) => void;
   /** Drops a boundary and the runtime stored with it. */
   onDeleteCheckpoint?: (checkpointId: string) => void;
+  /** Opens active callbacks for one A2A task. */
+  onManageTaskPush?: (taskId: string) => void;
   /** The boundaries the controller has described, for the line to name itself by. */
   checkpointsById?: ReadonlyMap<string, Checkpoint>;
   /** Which boundary each message sits inside, for the messages that sit inside one. */
@@ -101,6 +110,13 @@ export function ChatTranscript({
     () => groupByCheckpoint(chat.messages, checkpointByMessage ?? EMPTY_CHECKPOINTS),
     [chat.messages, checkpointByMessage],
   );
+  const lastMessageByTask = useMemo(() => {
+    const last = new Map<string, string>();
+    for (const message of chat.messages) {
+      if (message.taskId) last.set(message.taskId, message.id);
+    }
+    return last;
+  }, [chat.messages]);
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -224,7 +240,6 @@ export function ChatTranscript({
     // Re-run once the transcript is on screen: on the first render this component is a
     // loading skeleton and the ref is null, so a mount-only effect attached nothing at
     // all and the button never appeared.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.isLoadingHistory, chat.historyError]);
 
   /*
@@ -259,9 +274,10 @@ export function ChatTranscript({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.messages, chat.turnPhase]);
 
-  if (chat.isLoadingHistory) {
+  // Both fill the panel like the transcript does, or the composer jumps up while they show.
+  if (isLoading || chat.isLoadingHistory) {
     return (
-      <div data-testid="chat-loading">
+      <div data-testid="chat-loading" css={{ flex: 1, minHeight: 0 }}>
         <Skeleton active paragraph={{ rows: 4 }} />
       </div>
     );
@@ -269,13 +285,15 @@ export function ChatTranscript({
 
   if (chat.historyError) {
     return (
-      <Alert
-        type="error"
-        showIcon
-        data-testid="chat-history-error"
-        title="Could not load this conversation"
-        description={chat.historyError.message}
-      />
+      <div css={{ flex: 1, minHeight: 0 }}>
+        <Alert
+          type="error"
+          showIcon
+          data-testid="chat-history-error"
+          title="Could not load this conversation"
+          description={chat.historyError.message}
+        />
+      </div>
     );
   }
 
@@ -344,14 +362,22 @@ export function ChatTranscript({
          * render in local state.
          */
         groups.flatMap((group, index) => {
-          const drawn: ReactNode[] = group.messages.map((message) => (
-            <ChatMessageItem
-              key={message.id}
-              message={message}
-              sessionId={sessionId}
-              isCheckpointed={Boolean(group.checkpointId)}
-            />
-          ));
+          const drawn: ReactNode[] = group.messages.map((message) => {
+            const taskId = message.taskId;
+            return (
+              <ChatMessageItem
+                key={message.id}
+                message={message}
+                sessionId={sessionId}
+                isCheckpointed={Boolean(group.checkpointId)}
+                onManagePush={
+                  taskId && lastMessageByTask.get(taskId) === message.id && onManageTaskPush
+                    ? () => onManageTaskPush(taskId)
+                    : undefined
+                }
+              />
+            );
+          });
           const checkpointId = group.checkpointId;
           if (checkpointId) {
             drawn.push(
@@ -392,7 +418,14 @@ export function ChatTranscript({
         </Tag>
       ) : null}
 
-      {chat.pendingQuestion ? (
+      {chat.pendingQuestion && readOnly ? (
+        <Alert
+          type="info"
+          showIcon
+          data-testid="chat-awaiting-owner"
+          title="Waiting for the conversation owner to respond"
+        />
+      ) : chat.pendingQuestion ? (
         /*
          * The conversation is holding a question, and that has to be said.
          *
@@ -420,11 +453,11 @@ export function ChatTranscript({
           data-testid="chat-turn-error"
           title="The agent could not finish this turn"
           description={chat.turnError.message}
-          action={
+          action={!readOnly && (
             <Button size="small" onClick={() => void chat.retry()}>
               Retry
             </Button>
-          }
+          )}
         />
       ) : null}
 

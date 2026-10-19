@@ -7,15 +7,15 @@ from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
+from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
-from kagent.core.tracing import signal_enabled
-from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
+from kagent.core.telemetry import conv, shutdown_lifespan
 
 from crewai import Crew, Flow
 
@@ -49,7 +49,7 @@ class KAgentApp:
     ):
         self._crew = crew
         self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
-        self.config = config or KAgentConfig()
+        self.config = config or KAgentConfig.from_file()
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
 
@@ -72,21 +72,19 @@ class KAgentApp:
 
         faulthandler.enable()
         app = FastAPI(
-            lifespan=controller.lifespan(),
+            lifespan=shutdown_lifespan(controller.lifespan()),
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         if self.tracing:
-            configure_tracing(self.config.name, self.config.namespace, app)
-            # Setup crewAI instrumentor separately as core configure does not include it
-            if signal_enabled("TRACES"):
-                CrewAIInstrumentor().instrument()
+            bootstrap(conv.KagentRuntimeValues.CREWAI, fallback_name=self.agent_card.name, config=self.config.runtime)
+            instrument_app(app)
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)

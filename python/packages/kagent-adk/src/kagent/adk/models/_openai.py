@@ -588,7 +588,7 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     reasoning_effort: Optional[str] = None
     seed: Optional[int] = None
     temperature: Optional[float] = None
-    timeout: Optional[int] = None
+    timeout: Optional[float] = None
     top_p: Optional[float] = None
 
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key

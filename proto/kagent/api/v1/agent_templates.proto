@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "buf/validate/validate.proto";
+import "kagent/api/v1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// AgentTemplateService manages reusable portable agent behavior.
+service AgentTemplateService {
+  rpc ListAgentTemplates(ListAgentTemplatesRequest) returns (ListAgentTemplatesResponse);
+  rpc GetAgentTemplate(GetAgentTemplateRequest) returns (GetAgentTemplateResponse);
+  rpc CreateAgentTemplate(CreateAgentTemplateRequest) returns (CreateAgentTemplateResponse);
+  rpc UpdateAgentTemplate(UpdateAgentTemplateRequest) returns (UpdateAgentTemplateResponse);
+  rpc DeleteAgentTemplate(DeleteAgentTemplateRequest) returns (DeleteAgentTemplateResponse);
+}
+
+message AgentTemplate {
+  ResourceReference ref = 1;
+
+  // Resource is the whole AgentTemplate CR. The spec is rich — model config,
+  // system prompt, tools, skills, plugins — and is carried verbatim rather than
+  // re-modelled here so that a CRD change cannot silently drift from the API.
+  StructuredObject resource = 2;
+
+  // ModelConfigRef is spec.modelConfig resolved into the template's namespace.
+  // Denormalised because it is required on every template and is what a caller
+  // needs to render a list without parsing each spec.
+  ResourceReference model_config_ref = 3;
+
+  string description = 4;
+
+  reserved 5;
+  reserved "admitting_harnesses";
+}
+
+message ListAgentTemplatesRequest {
+  // Empty lists every namespace.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
+  PageRequest page = 2;
+}
+
+message ListAgentTemplatesResponse {
+  repeated AgentTemplate agent_templates = 1;
+  PageResponse page = 2;
+}
+
+message GetAgentTemplateRequest {
+  ResourceReference ref = 1;
+}
+
+message GetAgentTemplateResponse {
+  AgentTemplate agent_template = 1;
+}
+
+message CreateAgentTemplateRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message CreateAgentTemplateResponse {
+  AgentTemplate agent_template = 1;
+}
+
+message UpdateAgentTemplateRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message UpdateAgentTemplateResponse {
+  AgentTemplate agent_template = 1;
+}
+
+message DeleteAgentTemplateRequest {
+  ResourceReference ref = 1;
+}
+
+message DeleteAgentTemplateResponse {}

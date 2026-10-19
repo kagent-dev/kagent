@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"slices"
 
-	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
-	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type Object interface {
@@ -102,7 +103,7 @@ func (s *Service[T, L]) Create(ctx context.Context, object T) (T, error) {
 		case apierrors.IsAlreadyExists(err):
 			return zero, serviceerrors.NewAlreadyExists(s.resource+" already exists", err)
 		case apierrors.IsInvalid(err):
-			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
+			return zero, serviceerrors.NewInvalidArgument(err.Error(), err)
 		default:
 			return zero, serviceerrors.NewInternal("Failed to create "+s.resource, err)
 		}
@@ -122,7 +123,7 @@ func (s *Service[T, L]) Update(ctx context.Context, object T) (T, error) {
 	}
 	if err := s.client.Update(ctx, object); err != nil {
 		if apierrors.IsInvalid(err) {
-			return zero, serviceerrors.NewInvalidArgument("Invalid "+s.resource, err)
+			return zero, serviceerrors.NewInvalidArgument(err.Error(), err)
 		}
 		return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
 	}

@@ -32,9 +32,8 @@ linters:
   settings:
     custom:
       kubeapilinter:
-        path: "bin/kube-api-linter.so"
-        description: Kube API Linter lints Kube like APIs based on API conventions and best practices.
-        original-url: sigs.k8s.io/kube-api-linter
+        type: module
+        description: Kube API Linter lints Kubernetes APIs based on API conventions and best practices.
         settings:
           linters:
             enable:
@@ -54,11 +53,11 @@ linters:
           lintersConfig:
             conflictingmarkers:
               conflicts:
-              - name: "default_vs_required"
-                sets:
-                  - ["default", "kubebuilder:default"]
-                  - ["required", "kubebuilder:validation:Required", "k8s:required"]
-                description: "A field with a default value cannot be required"
+                - name: "default_vs_required"
+                  sets:
+                    - ["default", "kubebuilder:default"]
+                    - ["required", "kubebuilder:validation:Required", "k8s:required"]
+                  description: "A field with a default value cannot be required"
             forbiddenmarkers:
               markers:
                 - identifier: "+kubebuilder:pruning:PreserveUnknownFields"
@@ -169,9 +168,10 @@ linters:
         text: Use a registered accessor from core/pkg/env
         # Unit tests may inspect process state; core/test E2E settings use the registry.
         path: '(^|/)(api|adk|harness|pkg|sandbox|core/(cli|internal|pkg))/.*_test\.go$'
+      # Only apply Kubernetes API conventions to the API types.
       - linters:
           - kubeapilinter
-        path-except: "api/v1alpha"
+        path-except: '^api/v1alpha3/'
       # ST1005 allows proper nouns, but treats single-word Title Case as a sentence start.
       - linters:
           - staticcheck
@@ -182,8 +182,15 @@ issues:
   max-same-issues: 0
 formatters:
   enable:
+    - gci
     - gofmt
-    - goimports
+  settings:
+    gci:
+      custom-order: true
+      sections:
+        - standard
+        - default
+        - prefix(github.com/kagent-dev/kagent)
   exclusions:
     generated: strict
     paths:

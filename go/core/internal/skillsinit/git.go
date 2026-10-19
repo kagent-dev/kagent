@@ -1,52 +1,15 @@
 package skillsinit
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
+	"strconv"
 )
 
 var immutableGitCommit = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
-
-// CloneGit fetches a single git ref into ref.Dest. All user-controlled
-// strings (URL, Ref, SubPath) are passed to git as separate argv entries via
-// exec.Command — they never pass through a shell, so metacharacters in any of
-// them are inert.
-//
-// When ref.Full is true we do a full clone then `git checkout <sha>`,
-// because shallow `--branch` does not accept commit SHAs. When false we use a
-// depth-1 branch/tag clone.
-//
-// SubPath, if set, rewrites the destination so the final layout matches the
-// requested in-repo subdirectory.
-func CloneGit(ref GitRef) error {
-	if ref.Full {
-		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
-			return err
-		}
-		// The trailing `--` separates revisions from pathspecs: without
-		// it, git treats the ref as a pathspec and the checkout fails
-		// for commit SHAs. It does not guard against a ref that looks
-		// like an option — refs are already validated upstream as
-		// 40-char hex when Full is true.
-		if err := runGitIn(ref.Dest, "checkout", ref.Ref, "--"); err != nil {
-			return err
-		}
-	} else {
-		if err := runGit("clone", "--depth", "1", "--branch", ref.Ref, "--", ref.URL, ref.Dest); err != nil {
-			return err
-		}
-	}
-
-	if ref.SubPath != "" {
-		if err := applySubPath(ref.Dest, ref.SubPath); err != nil {
-			return fmt.Errorf("apply subPath %q: %w", ref.SubPath, err)
-		}
-	}
-	return nil
-}
 
 // GatewayAuthorizationPlaceholder is the Authorization header value sent for
 // gateway-authorized sources. Substrate's egress gateway replaces only headers
@@ -55,100 +18,78 @@ func CloneGit(ref GitRef) error {
 const GatewayAuthorizationPlaceholder = "kagent-credential-injected"
 
 // CloneGitCommit fetches only one immutable commit instead of cloning the
-// repository's complete history. When gatewayAuthorization is set, every
-// request carries a placeholder Authorization header for the egress gateway to
-// replace; the credential itself never reaches this process.
-func CloneGitCommit(url, commit, destination string, gatewayAuthorization bool) error {
+// repository's complete history. When gatewayAuthorization is set, requests to
+// url carry a placeholder Authorization header for the egress gateway to
+// replace; the credential itself never reaches this process. A failed or
+// cancelled fetch removes destination.
+func CloneGitCommit(ctx context.Context, url, commit, destination string, gatewayAuthorization bool) (err error) {
 	if !immutableGitCommit.MatchString(commit) {
 		return fmt.Errorf("git commit must be a full SHA")
 	}
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		return err
 	}
-	if err := runGitIn(destination, "init"); err != nil {
-		return err
-	}
-	if err := runGitIn(destination, "remote", "add", "origin", url); err != nil {
-		return err
-	}
-	fetch := []string{"fetch", "--depth", "1", "origin", commit}
-	if gatewayAuthorization {
-		// Passed per command rather than written to .git/config so the
-		// checkout records nothing about how it was authorized.
-		fetch = append([]string{"-c", "http.extraHeader=Authorization: " + GatewayAuthorizationPlaceholder}, fetch...)
-	}
-	if err := runGitIn(destination, fetch...); err != nil {
-		return err
-	}
-	return runGitIn(destination, "checkout", "--detach", "FETCH_HEAD")
-}
-
-func runGit(args ...string) error {
-	return runGitIn("", args...)
-}
-
-func runGitIn(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	// A runtime has no terminal: an authentication failure must fail the
-	// fetch instead of waiting for a username prompt.
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	return cmd.Run()
-}
-
-// applySubPath replaces dest with the contents of dest/subPath. The result is
-// that dest contains only the requested subdirectory. We materialize the
-// content into a sibling tmp dir under the same parent so the final rename is
-// atomic on the same filesystem.
-func applySubPath(dest, subPath string) error {
-	// Defense in depth: filepath.IsLocal rejects absolute paths, ".."
-	// segments, and reserved names — exactly the set we want to refuse.
-	if !filepath.IsLocal(subPath) {
-		return fmt.Errorf("invalid subPath %q", subPath)
-	}
-	clean := filepath.Clean(subPath)
-	src := filepath.Join(dest, clean)
-	info, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("stat subPath: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("subPath %q is not a directory", subPath)
-	}
-
-	parent := filepath.Dir(dest)
-	tmp, err := os.MkdirTemp(parent, ".skill-subpath-*")
-	if err != nil {
-		return fmt.Errorf("mktemp: %w", err)
-	}
-	// Best-effort cleanup if we fail before the rename.
-	cleanupTmp := tmp
 	defer func() {
-		if cleanupTmp != "" {
-			os.RemoveAll(cleanupTmp)
+		if err != nil {
+			_ = os.RemoveAll(destination)
 		}
 	}()
+	if err := runGitIn(ctx, destination, nil, "init", "--quiet"); err != nil {
+		return err
+	}
+	if err := runGitIn(ctx, destination, nil, "remote", "add", "origin", url); err != nil {
+		return err
+	}
+	var config []gitConfig
+	if gatewayAuthorization {
+		config = gatewayAuthorizationConfig(url)
+	}
+	if err := runGitIn(ctx, destination, config, "fetch", "--depth", "1", "origin", commit); err != nil {
+		return err
+	}
+	return runGitIn(ctx, destination, nil, "checkout", "--quiet", "--detach", "FETCH_HEAD")
+}
 
-	// cp -rL: follow symlinks (matches the original behavior); both paths
-	// are constructed by us, never user-supplied, and are passed as argv —
-	// no shell, no metacharacter risk. Trailing "/." copies *contents* of
-	// src into tmp, not src itself.
-	cp := exec.Command("cp", "-rL", "--", src+"/.", tmp)
-	cp.Stdout = os.Stdout
-	cp.Stderr = os.Stderr
-	if err := cp.Run(); err != nil {
-		return fmt.Errorf("cp subPath contents: %w", err)
+type gitConfig struct{ key, value string }
+
+// gatewayAuthorizationConfig scopes the placeholder header to url. Redirects
+// are refused because Git keeps sending configured headers after following
+// one, which would hand the placeholder to a destination the gateway may also
+// authorize, and so let the redirecting server choose who receives the
+// credential.
+func gatewayAuthorizationConfig(url string) []gitConfig {
+	return []gitConfig{
+		{key: "http." + url + ".extraHeader", value: "Authorization: " + GatewayAuthorizationPlaceholder},
+		{key: "http.followRedirects", value: "false"},
 	}
-	if err := os.RemoveAll(dest); err != nil {
-		return err
+}
+
+// gitCommand builds a git command in dir. config is passed through
+// GIT_CONFIG_* for this command only, so nothing is written to .git/config,
+// nothing appears in argv, and URLs containing '=' cannot split the key from
+// the value.
+func gitCommand(ctx context.Context, dir string, config []gitConfig, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	// A runtime has no terminal: an authentication failure must fail the
+	// fetch instead of waiting for a username prompt.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)))
+	for i, entry := range config {
+		index := strconv.Itoa(i)
+		cmd.Env = append(cmd.Env, "GIT_CONFIG_KEY_"+index+"="+entry.key, "GIT_CONFIG_VALUE_"+index+"="+entry.value)
 	}
-	if err := os.Rename(tmp, dest); err != nil {
-		return err
+	return cmd
+}
+
+func runGitIn(ctx context.Context, dir string, config []gitConfig, args ...string) error {
+	cmd := gitCommand(ctx, dir, config, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("git %s: %w", args[0], ctxErr)
+		}
+		return fmt.Errorf("git %s: %w", args[0], err)
 	}
-	cleanupTmp = ""
 	return nil
 }

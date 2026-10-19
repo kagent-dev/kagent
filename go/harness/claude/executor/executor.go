@@ -10,6 +10,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
+
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/claude/internal/adapter"
 	runtimea2a "github.com/kagent-dev/kagent/go/harness/runtime/a2a"

@@ -7,7 +7,7 @@ from unittest import mock
 import httpx2
 import pytest
 from anthropic import AsyncAnthropic
-from anthropic.lib.credentials import AccessToken
+from anthropic.lib.credentials import AccessToken, AccessTokenProvider
 from anthropic.types import Message, TextBlock, ThinkingBlock, Usage
 from google.adk.models.anthropic_llm import content_block_to_part
 from google.adk.models.llm_request import LlmRequest
@@ -21,6 +21,7 @@ from kagent.adk.models._anthropic import (
     mark_prompt_cache_breakpoints,
 )
 from kagent.adk.models._azure import AI_FOUNDRY_SCOPE
+from kagent.adk.types import ModelConfig
 
 
 class TestKAgentAnthropicLlm:
@@ -80,10 +81,8 @@ class TestKAgentAnthropicLlm:
         """Integration: _create_llm_from_model_config returns KAgentAnthropicLlm for anthropic type."""
         from kagent.adk.types import Anthropic, _create_llm_from_model_config
 
-        config = Anthropic(
-            type="anthropic",
-            model="claude-3-sonnet-20240229",
-            base_url="https://api.anthropic.com",
+        config = ModelConfig(
+            model="claude-3-sonnet-20240229", anthropic=Anthropic(base_url="https://api.anthropic.com")
         )
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentAnthropicLlm)
@@ -95,12 +94,13 @@ class TestFoundryAnthropic:
     def test_model_config_dispatches_anthropic_format(self):
         from kagent.adk.types import Foundry, _create_llm_from_model_config
 
-        config = Foundry(
-            type="foundry",
+        config = ModelConfig(
             model="claude-haiku-4-5",
-            endpoint="https://example.services.ai.azure.com/",
-            deployment="claude-haiku-deployment",
-            api_format="anthropic",
+            foundry=Foundry(
+                endpoint="https://example.services.ai.azure.com/",
+                deployment="claude-haiku-deployment",
+                api_format="anthropic",
+            ),
         )
 
         result = _create_llm_from_model_config(config)
@@ -114,11 +114,11 @@ class TestFoundryAnthropic:
         from kagent.adk.types import Foundry, _create_llm_from_model_config
 
         result = _create_llm_from_model_config(
-            Foundry(
-                type="foundry",
+            ModelConfig(
                 model="gpt-4.1",
-                endpoint="https://example.cognitiveservices.azure.com/",
-                deployment="gpt-4.1-deployment",
+                foundry=Foundry(
+                    endpoint="https://example.cognitiveservices.azure.com/", deployment="gpt-4.1-deployment"
+                ),
             )
         )
 
@@ -252,7 +252,9 @@ class TestFoundryAnthropic:
             )
 
         http_client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
-        token_provider = mock.Mock(return_value=AccessToken(token="entra-token", expires_at=4_102_444_800))
+        token_provider = mock.Mock(
+            spec=AccessTokenProvider, return_value=AccessToken(token="entra-token", expires_at=4_102_444_800)
+        )
         with (
             mock.patch.dict("os.environ", {}, clear=True),
             mock.patch.object(FoundryAnthropic, "_create_http_client", return_value=http_client),
@@ -311,7 +313,7 @@ class TestPromptCachingConfig:
     def test_create_llm_forwards_prompt_caching_and_ttl(self):
         from kagent.adk.types import Anthropic, _create_llm_from_model_config
 
-        config = Anthropic(type="anthropic", model="claude-sonnet-4-6", prompt_caching=True, cache_ttl="1h")
+        config = ModelConfig(model="claude-sonnet-4-6", anthropic=Anthropic(prompt_caching=True, cache_ttl="1h"))
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentAnthropicLlm)
         assert result.prompt_caching is True

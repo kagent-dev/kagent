@@ -20,7 +20,7 @@ test("dashboard: recent conversations read as names, not as ids", async ({ page 
   await expect(card).toBeVisible({ timeout: 30_000 });
 
   await test.step("1. the card says what it lists", async () => {
-    await expect(card).toContainText("Recent agent conversations");
+    await expect(card).toContainText("Recent agent chat sessions");
 
     // And Refresh confirms here too — wired up on the page being worked on and
     // forgotten on the four beside it is exactly how this goes wrong. Counted rather
@@ -69,4 +69,18 @@ test("dashboard: recent conversations read as names, not as ids", async ({ page 
       `at least one recent conversation should read as a chosen name; got ${JSON.stringify(labels)}`,
     ).toBe(true);
   });
+});
+
+// The tile counts Agent resources, so it matches the Agents page, not the conversation count.
+test("dashboard: the Agents tile matches the Agents page", async ({ page }) => {
+  await loadPage(page, routes.agents, { title: "Agents" });
+  const summaryText = page.getByTestId("agents-summary");
+  await expect(summaryText).toHaveText(/of [1-9]\d* agents/);
+  const summary = await summaryText.textContent();
+  const total = summary?.match(/of (\d+) agents/)?.[1];
+  expect(total, `unexpected summary ${JSON.stringify(summary)}`).toBeDefined();
+
+  await loadPage(page, routes.dashboard);
+  await expectSettled(page);
+  await expect(page.getByTestId("stat-agents-value")).toHaveText(total!);
 });

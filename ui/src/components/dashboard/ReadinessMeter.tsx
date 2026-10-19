@@ -43,7 +43,7 @@ export function ReadinessMeter({ ready, total }: ReadinessMeterProps) {
           marginBottom: theme.space(2),
         }}
       >
-        <Text css={{ color: theme.color.textMuted }}>Deployments ready</Text>
+        <Text css={{ color: theme.color.textMuted }}>Sessions ready</Text>
         <Text data-testid="agent-readiness-count">
           {ready} of {total}
         </Text>
@@ -53,7 +53,7 @@ export function ReadinessMeter({ ready, total }: ReadinessMeterProps) {
         aria-valuenow={ready}
         aria-valuemin={0}
         aria-valuemax={total}
-        aria-label="Agent deployments ready"
+        aria-label="Sessions ready"
         css={{
           height: 8,
           borderRadius: 999,

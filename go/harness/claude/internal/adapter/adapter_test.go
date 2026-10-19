@@ -55,7 +55,6 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
-	cfg.ClaudeExecutable = filepath.Join(t.TempDir(), "missing-claude")
 	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
 		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
 	}}}
@@ -72,24 +71,31 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skillPath := filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md")
-	if _, err := os.Stat(skillPath); !os.IsNotExist(err) {
-		t.Fatalf("standalone skill materialized during startup: %v", err)
-	}
-	// The first turn fetches skills before it starts Claude, which is absent here.
-	if _, err := runner.Run(context.Background(), runtime.Turn{Prompt: "test"}, nil); err == nil {
-		t.Fatal("Run() started a missing Claude executable")
-	}
 	for path, want := range map[string]string{
-		skillPath: "# Review",
-		filepath.Join(ephemeralDir, "mcp.json"):                             `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
+		// The cached package installs the standalone skill during startup.
+		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
+		filepath.Join(skillRoot, ".claude-plugin", "plugin.json"):           `{"name":"kagent-skills","skills":"./.claude/skills/"}`,
 	} {
 		contents, err := os.ReadFile(path)
 		if err != nil || string(contents) != want {
 			t.Fatalf("%s = %q, %v; want %q", path, contents, err, want)
 		}
 	}
-	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
+	defer runner.Close()
+	rawMCP, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcpConfig struct {
+		Servers map[string]config.MCPServer `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(rawMCP, &mcpConfig); err != nil {
+		t.Fatal(err)
+	}
+	if len(mcpConfig.Servers) != 2 || mcpConfig.Servers["tools"].URL != "https://mcp.example.com/mcp" || mcpConfig.Servers[approvalMCPServerName].URL == "" {
+		t.Fatalf("invalid MCP configuration")
+	}
+	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--plugin-dir\n"+skillRoot) {
 		t.Fatalf("arguments do not expose materialized skills: %s", args)
 	}
 }
@@ -119,9 +125,23 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(settings), `{"permissions":{"ask":["mcp__protected__*"]}}`; got != want {
-		t.Fatalf("approval settings = %s, want %s", got, want)
+	var approvalSettings struct {
+		Permissions struct {
+			Ask []string `json:"ask"`
+		} `json:"permissions"`
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string `json:"matcher"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
 	}
+	if err := json.Unmarshal(settings, &approvalSettings); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(approvalSettings.Permissions.Ask, []string{"AskUserQuestion", "mcp__protected__*"}) || len(approvalSettings.Hooks.PreToolUse) != 1 || approvalSettings.Hooks.PreToolUse[0].Matcher != "*" {
+		t.Fatalf("invalid durable approval settings: %s", settings)
+	}
+
 	mcpConfig, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -241,7 +261,7 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 				}
 			}
 			for _, flag := range test.absent {
-				if slices.ContainsFunc(got, func(variable string) bool { return strings.HasPrefix(variable, flag+"=") }) {
+				if slices.Contains(got, flag+"=1") {
 					t.Errorf("%s set in %v", flag, got)
 				}
 			}

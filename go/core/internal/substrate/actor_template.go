@@ -6,24 +6,26 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
-	workerPoolLabelKey   = "kagent.dev/worker-pool"
-	defaultContainerName = "kagent"
-	durableDataVolume    = "data"
-	durableDataMount     = "/data"
+	workerPoolNameLabelKey      = "kagent.dev/worker-pool-name"
+	workerPoolNamespaceLabelKey = "kagent.dev/worker-pool-namespace"
+	defaultContainerName        = "kagent"
+	durableDataVolume           = "data"
+	durableDataMount            = "/data"
 	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
 	maxEnvironmentValueRunes = 32768
 )
@@ -109,7 +111,6 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
 			StorageLocation: spec.SnapshotLocation,
-			OnPause:         ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
 			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
 		},
 		Volumes: []*ateapipb.Volume{
@@ -127,6 +128,18 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}},
 			}}},
 		},
+	}
+	for i, image := range spec.SkillImages {
+		name := fmt.Sprintf("skill-%d", i)
+		template.Volumes = append(template.Volumes, &ateapipb.Volume{
+			Name: name, Image: &ateapipb.ImageVolumeSource{Reference: string(image)},
+		})
+		template.Containers[0].VolumeMounts = append(template.Containers[0].VolumeMounts, &ateapipb.VolumeMount{
+			Name: name, MountPath: image.MountPath(),
+		})
+	}
+	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
+		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
 	return template, nil
 }
@@ -159,11 +172,14 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 // digests the environment, so the compiler cannot render it.
 func withServiceVersion(environment []corev1.EnvVar, version string) []corev1.EnvVar {
 	for index, variable := range environment {
-		if variable.Name == tracing.ResourceEnvironmentVariable && variable.ValueFrom == nil {
-			environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+		if variable.Name == env.OTELResourceAttributes.Name() {
+			if variable.ValueFrom == nil {
+				environment[index].Value = tracing.MergeResourceAttributes(variable.Value, []attribute.KeyValue{semconv.ServiceVersion(version)})
+			}
+			return environment
 		}
 	}
-	return environment
+	return append(environment, corev1.EnvVar{Name: env.OTELResourceAttributes.Name(), Value: tracing.MergeResourceAttributes("", []attribute.KeyValue{semconv.ServiceVersion(version)})})
 }
 
 func revisionActorTemplateName(agentName string, revision translator.RevisionID) string {
@@ -175,7 +191,13 @@ func revisionActorTemplateName(agentName string, revision translator.RevisionID)
 }
 
 func workerSelectorForPool(pool types.NamespacedName) *ateapipb.Selector {
-	return &ateapipb.Selector{MatchLabels: map[string]string{workerPoolLabelKey: pool.Name}}
+	// Substrate matches worker labels across the entire fleet and never checks
+	// them against the pool's namespace. Placement therefore stays within the
+	// referenced pool's namespace only while every pool's labels name its own.
+	return &ateapipb.Selector{MatchLabels: map[string]string{
+		workerPoolNameLabelKey:      pool.Name,
+		workerPoolNamespaceLabelKey: pool.Namespace,
+	}}
 }
 
 func truncateDNS1123(value string) string {

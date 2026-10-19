@@ -6,15 +6,16 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 type session struct{}
@@ -38,7 +39,7 @@ func (a authorizer) Check(_ context.Context, _ auth.Principal, _ auth.Verb, r au
 
 type missingRequestStore struct{ *database.Client }
 
-func (missingRequestStore) FindScheduledRunRequest(context.Context, string, string, []byte) (*apiv1alpha1.ScheduledRun, error) {
+func (missingRequestStore) FindScheduledRunRequest(context.Context, string, string, []byte) (*apiv1.ScheduledRun, error) {
 	return nil, database.ErrNotFound
 }
 
@@ -68,7 +69,7 @@ func TestTargetPermissionAndExistence(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).Build()
-	request := scheduledrun.CreateRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "template"}, RequestID: "id", Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "run"}}
+	request := scheduledrun.CreateRequest{Agent: &apiv1.ResourceReference{Namespace: "team", Name: "template"}, RequestID: "id", Config: &apiv1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "run"}}
 	for _, denied := range []string{"Agent", "Session"} {
 		svc := scheduledrun.NewService(missingRequestStore{}, kube, authorizer{deny: denied})
 		_, err := svc.Create(owner, request)

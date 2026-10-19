@@ -16,6 +16,7 @@ from typing import Any, List, Optional, Union
 
 import httpx
 import numpy as np
+from kagent.core._runtime_config import optional_field
 
 from kagent.adk._bearer_token import bearer_token
 from kagent.adk.models._ssl import create_ssl_context
@@ -166,12 +167,14 @@ class KAgentEmbedding:
 
     def _tls_http_client(self) -> Optional[httpx.AsyncClient]:
         """httpx client honoring ModelConfig TLS settings, or None when unset."""
-        if not (self.config.tls_disable_verify or self.config.tls_ca_cert_path or self.config.tls_disable_system_cas):
+        if not (
+            self.config.tls_insecure_skip_verify or self.config.tls_ca_cert_path or self.config.tls_disable_system_cas
+        ):
             return None
         return httpx.AsyncClient(
             verify=create_ssl_context(
-                disable_verify=self.config.tls_disable_verify or False,
-                ca_cert_path=self.config.tls_ca_cert_path,
+                disable_verify=self.config.tls_insecure_skip_verify or False,
+                ca_cert_path=optional_field(self.config, "tls_ca_cert_path"),
                 disable_system_cas=self.config.tls_disable_system_cas or False,
             )
         )

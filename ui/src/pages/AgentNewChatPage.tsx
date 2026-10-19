@@ -11,7 +11,7 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { buildPath, paths } from "@/router/routes";
 import { apiClient, useAgentConversations, useAgentTakesFiles } from "@/api";
 import { randomId } from "@/api/randomId";
-import { handOffFiles } from "@/api/chat/attachments";
+import { handOffFirstMessage } from "@/api/chat/attachments";
 
 /**
  * A conversation with an agent that has not been created yet.
@@ -38,7 +38,7 @@ import { handOffFiles } from "@/api/chat/attachments";
  *
  * **The message is handed to the chat page rather than sent here.** Sending would mean
  * a second copy of the turn machinery living on a page that has no transcript to put
- * the result in. The text travels in router state and `AgentChatPage` sends it once on
+ * the result in. The text is handed over in memory and `AgentChatPage` sends it once on
  * arrival — which also means the reader sees their own words in the transcript they
  * will keep reading, rather than watching them disappear from one page and reappear on
  * another.
@@ -86,13 +86,9 @@ export function AgentNewChatPage() {
       // Refreshed before leaving, so the rail on the page being navigated to already
       // lists this conversation rather than filling it in a moment later.
       await conversations.refresh();
-      handOffFiles(created.id, files);
-      navigate(
-        buildPath(paths.agentChat, { id: created.id }),
-        // The message the conversation was created *for*. Sent by the chat page on
-        // arrival; see this file's note on why it is not sent here.
-        { replace: true, state: { initialMessage: text } },
-      );
+      // Sent by the chat page on arrival; see this file's note on why it is not sent here.
+      handOffFirstMessage(created.id, { text, files });
+      navigate(buildPath(paths.agentChat, { id: created.id }), { replace: true });
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause : new Error(String(cause)));
       setCreating(false);
