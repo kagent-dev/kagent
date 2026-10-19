@@ -117,6 +117,8 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[guestpb.FileSystemService_ReadFile_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_WriteFile_FullMethodName] = auth.AccessUpdate
 	maps.Copy(policies, RuntimeMethodPolicies())
+	policies[runtimev1.MemoryService_List_FullMethodName] = auth.AccessRead
+	policies[runtimev1.MemoryService_Delete_FullMethodName] = auth.AccessDelete
 	return policies
 }
 

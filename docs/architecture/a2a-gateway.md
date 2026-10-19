@@ -213,7 +213,11 @@ minute; publish new verification keys at least a minute before using them.
 The service checks the verified actor name against the requested session and
 matches its atespace and recorded Actor UID. Memory derives its agent namespace
 and user from that persisted session binding, ignoring caller-supplied identity
-fields. Public and share credentials cannot grant runtime access. The unsigned identity header is not accepted.
+fields. Users can also list and delete their own memories through the user
+listener. These calls use the requested agent key and the authenticated user ID,
+ignoring the request's user ID, and do not require a live actor or session.
+Public and share credentials cannot grant runtime access. The unsigned identity
+header is not accepted.
 
 Substrate supplies the calling Actor's current identity after restore and fork;
 no token is persisted in a runtime snapshot. Only the projected actor name is

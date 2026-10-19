@@ -15,6 +15,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -126,10 +127,10 @@ func TestListDeleteAndStoreErrors(t *testing.T) {
 	store := &memoryStore{listResult: []database.Memory{{ID: "memory-1"}}}
 	service := NewService(store)
 
-	memories, err := service.List(memoryContext(t))
+	memories, err := service.List(memoryContext(t), "")
 	require.NoError(t, err)
 	assert.Equal(t, "memory-1", memories[0].ID)
-	require.NoError(t, service.Delete(memoryContext(t)))
+	require.NoError(t, service.Delete(memoryContext(t), ""))
 	assert.Equal(t, "team-a/agent", store.deletedAgent)
 	assert.Equal(t, "user", store.deletedUser)
 
@@ -182,10 +183,10 @@ func TestActorMemoryScopeIgnoresCallerIdentity(t *testing.T) {
 		require.Equal(t, "team-a/agent", memory.AgentName)
 		require.Equal(t, "user", memory.UserID)
 	}
-	require.NoError(t, service.Delete(ctx))
+	require.NoError(t, service.Delete(ctx, "other/agent"))
 	require.Equal(t, "team-a/agent", store.deletedAgent)
 	require.Equal(t, "user", store.deletedUser)
-	_, err = service.List(ctx)
+	_, err = service.List(ctx, "other/agent")
 	require.NoError(t, err)
 	require.Equal(t, "team-a/agent", store.readAgent)
 	require.Equal(t, "user", store.readUser)
@@ -218,12 +219,32 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 			require.Equal(t, codes.PermissionDenied, status.Code(err))
 			_, err = service.Search(ctx, SearchRequest{Vector: input.Vector})
 			require.Equal(t, codes.PermissionDenied, status.Code(err))
-			_, err = service.List(ctx)
+			_, err = service.List(ctx, "other/agent")
 			require.Equal(t, codes.PermissionDenied, status.Code(err))
-			err = service.Delete(ctx)
+			err = service.Delete(ctx, "other/agent")
 			require.Equal(t, codes.PermissionDenied, status.Code(err))
 			require.Empty(t, store.stored)
 			require.Empty(t, store.deletedAgent)
 		})
 	}
+}
+
+func TestUserMemoryManagementDoesNotRequireRuntime(t *testing.T) {
+	store := &memoryStore{bindingErr: database.ErrNotFound}
+	service := NewService(store)
+	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "owner"}}})
+
+	for _, agentName := range []string{"team-a/agent", "legacy-display-name"} {
+		_, err := service.List(ctx, agentName)
+		require.NoError(t, err)
+		require.Equal(t, agentName, store.readAgent)
+		require.Equal(t, "owner", store.readUser)
+		require.NoError(t, service.Delete(ctx, agentName))
+		require.Equal(t, agentName, store.deletedAgent)
+		require.Equal(t, "owner", store.deletedUser)
+	}
+
+	_, err := service.List(ctx, "")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
+	require.True(t, serviceerrors.IsCode(service.Delete(ctx, ""), serviceerrors.CodeInvalidArgument))
 }

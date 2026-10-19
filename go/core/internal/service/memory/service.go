@@ -11,6 +11,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 const (
@@ -181,8 +182,8 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchRe
 	return response, nil
 }
 
-func (s *Service) List(ctx context.Context) ([]database.Memory, error) {
-	agentName, userID, err := s.scope(ctx)
+func (s *Service) List(ctx context.Context, agentName string) ([]database.Memory, error) {
+	agentName, userID, err := s.managementScope(ctx, agentName)
 	if err != nil {
 		return nil, err
 	}
@@ -199,8 +200,8 @@ func (s *Service) List(ctx context.Context) ([]database.Memory, error) {
 	return memories, nil
 }
 
-func (s *Service) Delete(ctx context.Context) error {
-	agentName, userID, err := s.scope(ctx)
+func (s *Service) Delete(ctx context.Context, agentName string) error {
+	agentName, userID, err := s.managementScope(ctx, agentName)
 	if err != nil {
 		return err
 	}
@@ -214,6 +215,17 @@ func (s *Service) Delete(ctx context.Context) error {
 		return serviceerrors.NewInternal("failed to delete memory", err)
 	}
 	return nil
+}
+
+// Users can manage their own memories even when the agent or session no longer
+// exists. Actors remain bound to their current session's agent and owner.
+func (s *Service) managementScope(ctx context.Context, agentName string) (string, string, error) {
+	if session, ok := auth.AuthSessionFrom(ctx); ok && session != nil {
+		if userID := session.Principal().User.ID; userID != "" {
+			return agentName, userID, nil
+		}
+	}
+	return s.scope(ctx)
 }
 
 // scope binds memory to the persisted session's agent and owner. Request fields

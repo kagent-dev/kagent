@@ -82,8 +82,8 @@ func (s *memoryServer) Search(ctx context.Context, request *runtimev1.MemoryServ
 	return &runtimev1.MemoryServiceSearchResponse{Memories: memories}, nil
 }
 
-func (s *memoryServer) List(ctx context.Context, _ *runtimev1.MemoryServiceListRequest) (*runtimev1.MemoryServiceListResponse, error) {
-	results, err := s.service.List(ctx)
+func (s *memoryServer) List(ctx context.Context, request *runtimev1.MemoryServiceListRequest) (*runtimev1.MemoryServiceListResponse, error) {
+	results, err := s.service.List(ctx, request.GetAgentName())
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func (s *memoryServer) List(ctx context.Context, _ *runtimev1.MemoryServiceListR
 	return &runtimev1.MemoryServiceListResponse{Memories: memories}, nil
 }
 
-func (s *memoryServer) Delete(ctx context.Context, _ *runtimev1.MemoryServiceDeleteRequest) (*runtimev1.MemoryServiceDeleteResponse, error) {
-	if err := s.service.Delete(ctx); err != nil {
+func (s *memoryServer) Delete(ctx context.Context, request *runtimev1.MemoryServiceDeleteRequest) (*runtimev1.MemoryServiceDeleteResponse, error) {
+	if err := s.service.Delete(ctx, request.GetAgentName()); err != nil {
 		return nil, err
 	}
 	return &runtimev1.MemoryServiceDeleteResponse{Status: "deleted"}, nil
