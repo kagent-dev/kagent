@@ -539,3 +539,29 @@ func TestArgsPassTheSettingsFileOnlyWhenThereIsOne(t *testing.T) {
 	require.NotContains(t, args, "--settings")
 	require.Subset(t, args, []string{"--permission-prompt-tool", "mcp__kagent_hitl__approve"})
 }
+
+// Nothing runs as Claude's user before the turn's MCP configuration is
+// written: the session directory is set up after it.
+func TestProcessDriverWritesTheMCPConfigBeforeTheSessionDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sessionDirectory, mirrors := filepath.Join(dir, "session"), filepath.Join(dir, "mirrors")
+	for _, directory := range []string{sessionDirectory, mirrors} {
+		require.NoError(t, os.MkdirAll(directory, 0o755))
+	}
+	state := filepath.Join(sessionDirectory, workspace.StateFile)
+	var written bool
+	d := NewProcessDriver(ProcessConfig{
+		Executable: filepath.Join(dir, "missing-claude"), Workspace: dir, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+		WriteMCPConfig: func([]string) error {
+			require.NoFileExists(t, state, "the session directory is set up after the MCP configuration is written")
+			written = true
+			return nil
+		},
+	})
+	ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+		adk.WorkingDirectoryHeader: {sessionDirectory}, adk.MirrorsDirectoryHeader: {mirrors},
+	}))
+	_, _ = d.Run(ctx, runtime.Turn{Prompt: "hello"}, &recordingSink{})
+	require.True(t, written)
+	require.FileExists(t, state)
+}

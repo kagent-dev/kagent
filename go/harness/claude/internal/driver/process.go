@@ -213,16 +213,17 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		return runtime.Outcome{}, err
 	}
-	directory, err := d.prepareWorkspace(ctx, sink, turn.ContinuationID != "")
-	if err != nil {
-		return runtime.Outcome{}, err
-	}
 	// Claude reads its MCP configuration once, at its start; a resumed turn
-	// continues the process with the configuration it started with.
+	// continues the process with the configuration it started with. It is
+	// written before anything runs as Claude's user.
 	if d.config.WriteMCPConfig != nil {
 		if err := d.config.WriteMCPConfig(workspace.ActorJWTHosts(ctx)); err != nil {
 			return runtime.Outcome{}, fmt.Errorf("write Claude MCP configuration for the turn: %w", err)
 		}
+	}
+	directory, err := d.prepareWorkspace(ctx, sink, turn.ContinuationID != "")
+	if err != nil {
+		return runtime.Outcome{}, err
 	}
 	// Claude's own git clones and fetches from the mirrors, which belong to
 	// the volume's owner, not to Claude's user.

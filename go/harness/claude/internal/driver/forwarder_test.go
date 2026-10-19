@@ -326,22 +326,3 @@ func TestCredentialForwarderSendsThePlaceholderToActorJWTHosts(t *testing.T) {
 	seen = requests()
 	require.Empty(t, seen[len(seen)-1].Header.Values("Authorization"), "a cleared turn names no host and carries nothing")
 }
-
-func TestCredentialForwarderNamesTheServersClaudeReachesDirectly(t *testing.T) {
-	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
-		"muster":   {URL: "https://Muster.Example.svc/mcp"},
-		"selected": {URL: "https://muster.example.svc/mcp", Tools: []string{"list"}},
-		"static":   {URL: "https://muster.example.svc/mcp", Headers: map[string]string{"authorization": workspace.CredentialPlaceholder}},
-		"tools":    {URL: "https://tools.example.svc/mcp"},
-	}, 1<<20)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = forwarder.Close() })
-
-	hosts := []string{"muster.example.svc"}
-	require.True(t, forwarder.ActorJWTDirect("muster", hosts), "a server on an actor-JWT host needs no forwarder")
-	require.False(t, forwarder.ActorJWTDirect("muster", nil), "a turn without actor-JWT hosts forwards the caller's credential")
-	require.False(t, forwarder.ActorJWTDirect("selected", hosts), "the forwarder enforces a tool selection")
-	require.False(t, forwarder.ActorJWTDirect("static", hosts), "a server that owns Authorization takes no actor JWT")
-	require.False(t, forwarder.ActorJWTDirect("tools", hosts), "another host takes the caller's credential")
-	require.False(t, forwarder.ActorJWTDirect("unknown", hosts))
-}

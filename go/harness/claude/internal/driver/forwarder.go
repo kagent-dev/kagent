@@ -178,16 +178,6 @@ func (f *CredentialForwarder) TakesCallerCredential(actorJWTHosts []string) bool
 	return false
 }
 
-// ActorJWTDirect reports whether Claude reaches the named server without the
-// forwarder in a turn whose actorJWTHosts receive the Actor's JWT: the server
-// takes that JWT (workspace.TakesActorJWT) and has no tool selection. The
-// forwarder would add nothing but the placeholder, which Claude then sends
-// itself (workspace.ActorJWTHeaders).
-func (f *CredentialForwarder) ActorJWTDirect(name string, actorJWTHosts []string) bool {
-	target, ok := f.targets[name]
-	return ok && target.tools == nil && workspace.TakesActorJWT(target.url.String(), target.headers, actorJWTHosts)
-}
-
 // Clear drops the caller's credential and the turn's hosts; requests are
 // forwarded without either.
 func (f *CredentialForwarder) Clear() {

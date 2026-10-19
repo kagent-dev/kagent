@@ -325,24 +325,62 @@ func TestMCPConfigLeavesTheLoopbackTokenOutOfAnActorJWTOnlyTurn(t *testing.T) {
 	forwarder, err := frontMCPServers(&cfg, []string{"muster"}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = forwarder.Close() })
-	file := mcpConfigFile{servers: cfg.MCPServers, compiled: compiled, forwarder: forwarder, files: harnessFiles{dir: t.TempDir()}}
-	read := func(actorJWTHosts []string) string {
-		t.Helper()
-		path, err := file.write(actorJWTHosts)
-		require.NoError(t, err)
-		contents, err := os.ReadFile(path)
-		require.NoError(t, err)
-		return string(contents)
-	}
+	file := mcpConfigFile{servers: cfg.MCPServers, compiled: compiled, files: harnessFiles{dir: t.TempDir()}}
 
 	require.JSONEq(t, `{"mcpServers":{"muster":{"type":"http","url":"https://muster.example.svc/mcp","timeout":180000,
 		"headers":{"X-Muster-Toolset":"preset:read-only","Authorization":"Bearer kagent-credential-injected"}}}}`,
-		read([]string{"muster.example.svc"}))
+		readMCPConfig(t, file, []string{"muster.example.svc"}))
 	require.Empty(t, compiled["muster"].Headers["Authorization"], "the compiled server is left as it was")
 
-	forwarded := read(nil)
+	forwarded := readMCPConfig(t, file, nil)
 	require.Contains(t, forwarded, forwarder.URL("muster"), "a turn that forwards the caller's credential goes through the forwarder")
 	require.Contains(t, forwarded, forwarder.Headers()["Authorization"])
+}
+
+// Without the caller's credential no server is fronted, and a server on an
+// actor-JWT host still needs the placeholder: the gateway replaces only an
+// Authorization the request carries.
+func TestMCPConfigSendsThePlaceholderWithoutTheForwarder(t *testing.T) {
+	compiled := map[string]config.MCPServer{
+		"muster": {Type: "http", URL: "https://muster.example.svc/mcp"},
+		"tools":  {Type: "http", URL: "https://tools.example.svc/mcp"},
+	}
+	file := mcpConfigFile{servers: compiled, compiled: compiled, files: harnessFiles{dir: t.TempDir()}}
+
+	require.JSONEq(t, `{"mcpServers":{
+		"muster":{"type":"http","url":"https://muster.example.svc/mcp","headers":{"Authorization":"Bearer kagent-credential-injected"}},
+		"tools":{"type":"http","url":"https://tools.example.svc/mcp"}}}`,
+		readMCPConfig(t, file, []string{"muster.example.svc"}))
+	require.JSONEq(t, `{"mcpServers":{
+		"muster":{"type":"http","url":"https://muster.example.svc/mcp"},
+		"tools":{"type":"http","url":"https://tools.example.svc/mcp"}}}`,
+		readMCPConfig(t, file, nil))
+}
+
+// The forwarder enforces a tool selection, so such a server stays on loopback
+// on an actor-JWT host too.
+func TestMCPConfigKeepsASelectionOnTheForwarder(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	compiled := map[string]config.MCPServer{
+		"muster": {Type: "http", URL: "https://muster.example.svc/mcp", Tools: []string{"list"}},
+	}
+	cfg.MCPServers = compiled
+	forwarder, err := frontMCPServers(&cfg, []string{"muster"}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+	file := mcpConfigFile{servers: cfg.MCPServers, compiled: compiled, files: harnessFiles{dir: t.TempDir()}}
+
+	written := readMCPConfig(t, file, []string{"muster.example.svc"})
+	require.Contains(t, written, forwarder.URL("muster"))
+	require.NotContains(t, written, "muster.example.svc")
+}
+
+func readMCPConfig(t *testing.T, file mcpConfigFile, actorJWTHosts []string) string {
+	t.Helper()
+	require.NoError(t, file.write(actorJWTHosts))
+	contents, err := os.ReadFile(file.files.path("mcp.json"))
+	require.NoError(t, err)
+	return string(contents)
 }
 
 func TestFrontedServersSelectToolsWithoutCallerCredential(t *testing.T) {
