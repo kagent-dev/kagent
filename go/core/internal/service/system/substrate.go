@@ -11,7 +11,9 @@ import (
 	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -20,6 +22,11 @@ import (
 
 // How many rows a list call asks ate-api for when the caller names no page size.
 const defaultSubstratePageSize int32 = 50
+
+const (
+	workerPoolResource = "WorkerPool"
+	substrateResource  = "Substrate"
+)
 
 // How many ate-api pages a walk will read before giving up. Each page carries its own
 // timeout, so nothing else bounds the loop against a cyclic next_page_token. At
@@ -76,10 +83,18 @@ type SubstrateActorStatusCount struct {
 // ate-api reports no totals, so every count costs a walk of its pages. The walk holds
 // one page at a time and keeps only tallies.
 func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, atespace string) (SubstrateSummary, error) {
-	namespaces, err := s.substrateScope(ctx, requestedNamespace)
+	poolMatcher, err := kubeauth.CollectionMatcher(ctx, s.authorizer, workerPoolResource)
 	if err != nil {
 		return SubstrateSummary{}, err
 	}
+	inventoryAllowed, err := s.summaryInventoryAllowed(ctx)
+	if err != nil {
+		return SubstrateSummary{}, err
+	}
+	// Pool configuration and ATE inventory are separate authorization domains.
+	// Keep the legacy ATE namespace behavior until that inventory has its own
+	// object contract; it cannot widen the Kubernetes pool read boundary.
+	namespaces := s.substrateNamespaces(requestedNamespace)
 
 	result := SubstrateSummary{
 		WorkerPools:       []atev1alpha1.WorkerPool{},
@@ -88,16 +103,28 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 		ComputedAt:        time.Now().UTC(),
 	}
 
-	for _, namespace := range namespaces {
+	poolNamespaces := s.workerPoolNamespaces(requestedNamespace)
+	if poolMatcher.Empty() {
+		poolNamespaces = nil
+	}
+	for _, namespace := range poolNamespaces {
 		workerPools, err := s.listWorkerPools(ctx, namespace)
 		if err != nil {
 			return SubstrateSummary{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", err)
 		}
-		result.WorkerPools = append(result.WorkerPools, workerPools...)
+		for index := range workerPools {
+			if poolMatcher.Matches(&workerPools[index]) {
+				result.WorkerPools = append(result.WorkerPools, workerPools[index])
+			}
+		}
 	}
 	slices.SortStableFunc(result.WorkerPools, func(left, right atev1alpha1.WorkerPool) int {
 		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
 	})
+
+	if !inventoryAllowed {
+		return result, nil
+	}
 
 	allowAll, allowed := substrateScopeFilter(namespaces)
 
@@ -147,7 +174,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 
 // ListSubstrateActors returns one upstream page without changing its order or token.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: substrateResource}); err != nil {
 		return SubstrateActorPage{}, err
 	}
 	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
@@ -228,7 +255,7 @@ func walkSubstrate[Row any](
 // substrateScope authorizes the caller and resolves the namespaces a read covers.
 // ATE-only actor reads authorize independently of Kubernetes scope.
 func (s *Service) substrateScope(ctx context.Context, requestedNamespace string) ([]string, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: substrateResource}); err != nil {
 		return nil, err
 	}
 	return s.substrateNamespaces(requestedNamespace), nil
@@ -262,4 +289,36 @@ func substratePageSize(requested int32) int32 {
 		return defaultSubstratePageSize
 	}
 	return requested
+}
+
+// The mixed summary must distinguish a denied section from an evaluator failure.
+// Substrate remains a whole-inventory capability here: accepting object clauses
+// would claim isolation that these ATE reads cannot yet enforce.
+func (s *Service) summaryInventoryAllowed(ctx context.Context) (bool, error) {
+	principal, err := authenticatedPrincipal(ctx)
+	if err != nil {
+		return false, err
+	}
+	scope, err := s.authorizer.Scope(ctx, principal, auth.VerbGet, substrateResource)
+	if err != nil {
+		return false, serviceerrors.NewUnavailable("Failed to read the Substrate authorization scope", err)
+	}
+	if len(scope.AnyOf) != 0 {
+		return false, serviceerrors.NewInternal("Substrate inventory does not support object scopes", nil)
+	}
+	switch scope.Kind {
+	case apiauthorization.ScopeAll:
+		return true, nil
+	case apiauthorization.ScopeNone:
+		return false, nil
+	default:
+		return false, serviceerrors.NewInternal("Invalid Substrate authorization scope", nil)
+	}
+}
+
+func (s *Service) workerPoolNamespaces(requested string) []string {
+	if requested != "" && len(s.observedNamespaces) != 0 && !slices.Contains(s.observedNamespaces, requested) {
+		return nil
+	}
+	return s.substrateNamespaces(requested)
 }

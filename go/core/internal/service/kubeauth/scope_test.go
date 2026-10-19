@@ -1,12 +1,18 @@
 package kubeauth_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func TestMatcher(t *testing.T) {
@@ -114,4 +120,58 @@ func TestCompileScopeRejectsInvalidScopes(t *testing.T) {
 			}
 		})
 	}
+}
+
+type collectionAuthorizer struct {
+	auth.NoopAuthorizer
+	scope     apiauthorization.AuthorizationScope
+	err       error
+	principal auth.Principal
+	verb      auth.Verb
+	resource  string
+}
+
+func (a *collectionAuthorizer) Scope(_ context.Context, principal auth.Principal, verb auth.Verb, resource string) (apiauthorization.AuthorizationScope, error) {
+	a.principal, a.verb, a.resource = principal, verb, resource
+	return a.scope, a.err
+}
+
+func TestCollectionMatcher(t *testing.T) {
+	principal := auth.Principal{User: auth.User{ID: "reader"}}
+	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: principal})
+	for _, test := range []struct {
+		name    string
+		scope   apiauthorization.AuthorizationScope
+		err     error
+		code    serviceerrors.Code
+		matches bool
+	}{
+		{name: "all", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, matches: true},
+		{name: "none", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}},
+		{name: "invalid", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}, code: serviceerrors.CodeInternal},
+		{name: "unavailable", err: errors.New("evaluator unavailable"), code: serviceerrors.CodeUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authorizer := &collectionAuthorizer{scope: test.scope, err: test.err}
+			matcher, err := kubeauth.CollectionMatcher(ctx, authorizer, "WorkerPool")
+			if test.code != "" {
+				require.True(t, serviceerrors.IsCode(err, test.code))
+				require.False(t, matcher.Matches(&metav1.ObjectMeta{Namespace: "team", Name: "pool"}))
+				if test.err != nil {
+					require.ErrorIs(t, err, test.err)
+				}
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, test.matches, matcher.Matches(&metav1.ObjectMeta{Namespace: "team", Name: "pool"}))
+				require.Equal(t, test.scope.Kind == apiauthorization.ScopeNone, matcher.Empty())
+			}
+			require.Equal(t, principal, authorizer.principal)
+			require.Equal(t, auth.VerbList, authorizer.verb)
+			require.Equal(t, "WorkerPool", authorizer.resource)
+		})
+	}
+	_, err := kubeauth.CollectionMatcher(t.Context(), auth.NoopAuthorizer{}, "WorkerPool")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
+	_, err = kubeauth.CollectionMatcher(ctx, nil, "WorkerPool")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
 }

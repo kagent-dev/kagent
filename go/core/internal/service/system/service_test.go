@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -30,15 +31,20 @@ import (
 
 type systemDenyAuthorizer struct{}
 
+func (systemDenyAuthorizer) Scope(context.Context, pkgAuth.Principal, pkgAuth.Verb, string) (apiauthorization.AuthorizationScope, error) {
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, nil
+}
+
 func (systemDenyAuthorizer) Check(context.Context, pkgAuth.Principal, pkgAuth.Verb, pkgAuth.Resource) error {
 	return errors.New("denied")
 }
 
 type fakeATEClient struct {
-	templates []*ateapipb.ActorTemplate
-	actors    []*ateapipb.Actor
-	workers   []*ateapipb.Worker
-	err       error
+	templates     []*ateapipb.ActorTemplate
+	templateReads int
+	actors        []*ateapipb.Actor
+	workers       []*ateapipb.Worker
+	err           error
 	// The number of rows a page answers with, whatever the caller asked for. Zero
 	// means "everything in one page". ate-api may answer with fewer rows than asked
 	// for, so a fake that always fills the request would hide a caller that stops
@@ -51,6 +57,7 @@ type fakeATEClient struct {
 }
 
 func (client *fakeATEClient) ListActorTemplates(_ context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
+	client.templateReads++
 	templates := []*ateapipb.ActorTemplate{}
 	for _, template := range client.templates {
 		if atespace == "" || template.GetMetadata().GetAtespace() == atespace {
@@ -603,4 +610,104 @@ func TestSubstrateEmptyPagesPreserveUpstreamTokens(t *testing.T) {
 	assert.Empty(t, workers.Workers)
 	assert.Empty(t, workers.ATEAPIError)
 	assert.Equal(t, "upstream:next/cursor=", workers.NextPageToken)
+}
+
+type summaryAuthorizer struct {
+	pkgAuth.NoopAuthorizer
+	pools     apiauthorization.AuthorizationScope
+	inventory apiauthorization.AuthorizationScope
+	failType  string
+	calls     []string
+}
+
+func (a *summaryAuthorizer) Scope(_ context.Context, _ pkgAuth.Principal, verb pkgAuth.Verb, resource string) (apiauthorization.AuthorizationScope, error) {
+	a.calls = append(a.calls, string(verb)+" "+resource)
+	if resource == a.failType {
+		return apiauthorization.AuthorizationScope{}, errors.New("policy unavailable")
+	}
+	if resource == "WorkerPool" {
+		return a.pools, nil
+	}
+	return a.inventory, nil
+}
+
+func TestSummaryAuthorizesPoolAndInventorySectionsIndependently(t *testing.T) {
+	all := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}
+	none := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}
+	constrained := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+		{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team"}},
+		{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"allowed"}},
+	}}}}
+	for _, test := range []struct {
+		name      string
+		pools     apiauthorization.AuthorizationScope
+		inventory apiauthorization.AuthorizationScope
+		observed  []string
+		requested string
+		failType  string
+		wantPools int
+		wantATE   bool
+		code      serviceerrors.Code
+	}{
+		{name: "pool only", pools: constrained, inventory: none, wantPools: 1},
+		{name: "all pools", pools: all, inventory: none, wantPools: 3},
+		{name: "inventory only", pools: none, inventory: all, wantATE: true},
+		{name: "neither", pools: none, inventory: none},
+		{name: "configured intersection", pools: all, inventory: none, observed: []string{"team"}, wantPools: 2},
+		{name: "request cannot escape configuration", pools: all, inventory: none, observed: []string{"team"}, requested: "other"},
+		{name: "request cannot escape policy", pools: constrained, inventory: none, requested: "other"},
+		{name: "pool lookup failure", failType: "WorkerPool", inventory: all, code: serviceerrors.CodeUnavailable},
+		{name: "inventory lookup failure", pools: all, failType: "Substrate", code: serviceerrors.CodeUnavailable},
+		{name: "invalid pool scope", pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}, inventory: all, code: serviceerrors.CodeInternal},
+		{name: "unsupported inventory scope", pools: all, inventory: constrained, code: serviceerrors.CodeInternal},
+		{name: "invalid inventory scope", pools: all, code: serviceerrors.CodeInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, atev1alpha1.AddToScheme(scheme))
+			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "allowed"}},
+				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden"}},
+				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "allowed"}},
+			).Build()
+			authorizer := &summaryAuthorizer{pools: test.pools, inventory: test.inventory, failType: test.failType}
+			ate := &fakeATEClient{actors: []*ateapipb.Actor{substrateActor("actor", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker")}}
+			service := system.NewService(kube, test.observed, authorizer, ate)
+			ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+			result, err := service.GetSubstrateSummary(ctx, test.requested, "team")
+			if test.code != "" {
+				require.True(t, serviceerrors.IsCode(err, test.code))
+			} else {
+				require.NoError(t, err)
+				require.Len(t, result.WorkerPools, test.wantPools)
+				require.Equal(t, []string{"list WorkerPool", "get Substrate"}, authorizer.calls)
+				if test.wantATE {
+					require.EqualValues(t, 1, result.ActorCount)
+				} else {
+					require.Zero(t, result.ActorCount)
+					require.Empty(t, result.ActorTemplates)
+				}
+			}
+			if test.wantATE {
+				require.Positive(t, ate.actorReads)
+				require.Positive(t, ate.workerReads)
+				require.Positive(t, ate.templateReads)
+			} else {
+				require.Zero(t, ate.actorReads)
+				require.Zero(t, ate.workerReads)
+				require.Zero(t, ate.templateReads)
+			}
+		})
+	}
+}
+
+func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
+	authorizer := &summaryAuthorizer{pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, inventory: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}}
+	service := system.NewService(nil, nil, authorizer, &fakeATEClient{})
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+	result, err := service.GetSubstrateSummary(ctx, "", "")
+	require.NoError(t, err)
+	require.Empty(t, result.WorkerPools)
+	_, err = service.GetSubstrateSummary(t.Context(), "", "")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
 }
