@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -24,7 +24,7 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 	}
 	actor := actorRef(atespace, name)
 	for range 5 {
-		existing, err := c.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: actor})
+		existing, err := c.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: actor, Name: "default"})
 		if err != nil && status.Code(err) != codes.NotFound {
 			return err
 		}

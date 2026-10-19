@@ -300,7 +300,6 @@ export const mockSubstrateInventory: {
       name: "coder-template",
       phase: "Ready",
       goldenTag: "ate-golden/snap-2026-07-28",
-      sandboxClass: "gvisor",
       workerSelector: "pool=kagent-default",
     },
     {

@@ -8,7 +8,7 @@ import (
 	"reflect"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 
@@ -49,6 +49,8 @@ type Revision struct {
 	Command     []string
 	Args        []string
 	Environment []corev1.EnvVar
+	CPU         string
+	Memory      string
 	// ConfigJSON is injected into the runtime container verbatim.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
 	ConfigJSON  []byte
@@ -96,6 +98,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentName               string                   `json:"agentName"`
 		AgentUID                string                   `json:"agentUID"`
 		Namespace               string                   `json:"namespace"`
+		CPU                     string                   `json:"cpu"`
+		Memory                  string                   `json:"memory"`
 		Image                   string                   `json:"image"`
 		Command                 []string                 `json:"command,omitempty"`
 		Args                    []string                 `json:"args,omitempty"`
@@ -114,6 +118,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		WorkerPoolNamespace string `json:"workerPoolNamespace"`
 	}{
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
+		CPU: r.CPU, Memory: r.Memory,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,

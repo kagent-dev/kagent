@@ -20,6 +20,10 @@ metadata:
   namespace: kagent
 spec:
   codex: {}
+  # TODO: Remove when Substrate denial handling permits native retries (#2663).
+  env:
+  - name: KAGENT_TEST_CODEX_DISABLE_RETRIES
+    value: "true"
   workload:
     image: ${KAGENT_E2E_CODEX_IMAGE}
   substrate:
@@ -67,6 +71,10 @@ metadata:
   namespace: kagent
 spec:
   claude: {}
+  # TODO: Remove when Substrate denial handling permits native retries (#2663).
+  env:
+  - name: KAGENT_TEST_CLAUDE_DISABLE_RETRIES
+    value: "true"
   workload:
     image: ${KAGENT_E2E_CLAUDE_IMAGE}
   substrate:

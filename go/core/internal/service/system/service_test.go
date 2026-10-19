@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -197,7 +197,7 @@ func TestListSubstrateActors(t *testing.T) {
 	t.Run("answers with one page and the token for the next", func(t *testing.T) {
 		ateClient := &fakeATEClient{pageSize: 2, actors: []*ateapipb.Actor{
 			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 			substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-1"),
 		}}
 
@@ -307,9 +307,8 @@ func TestGetSubstrateSummary(t *testing.T) {
 			// count of one rather than as a passing test.
 			pageSize: 1,
 			templates: []*ateapipb.ActorTemplate{{
-				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
-				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
-				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
+				Metadata:   &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
+				Containers: []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 					GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 				}},
@@ -317,7 +316,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 			actors: []*ateapipb.Actor{
 				substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 				substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-				substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+				substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 				substrateActor("actor-4", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-9"),
 			},
 			workers: []*ateapipb.Worker{
@@ -339,14 +338,13 @@ func TestGetSubstrateSummary(t *testing.T) {
 		assert.Equal(t, int64(1), result.BusyWorkerCount)
 		assert.Equal(t, []system.SubstrateActorStatusCount{
 			{State: ateapipb.ActorState_ACTOR_STATE_RUNNING, Count: 2},
-			{State: ateapipb.ActorState_ACTOR_STATE_PAUSED, Count: 1},
+			{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Count: 1},
 		}, result.ActorStatusCounts)
 		require.Len(t, result.WorkerPools, 1)
 		require.Len(t, result.ActorTemplates, 1)
 		template := result.ActorTemplates[0]
 		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
 		assert.Equal(t, "golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag().GetName())
-		assert.Equal(t, ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, template.GetSandboxConfig().GetSandboxClass())
 		assert.Empty(t, template.GetContainers())
 		require.Len(t, ateClient.templates[0].GetContainers(), 1)
 		assert.Equal(t, "secret", ateClient.templates[0].GetContainers()[0].GetEnv()[0].GetValue())
@@ -375,7 +373,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 
 	actors := []*ateapipb.Actor{
 		substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-		substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+		substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 	}
 	workers := []*ateapipb.Worker{{WorkerNamespace: "team", WorkerPool: "pool", WorkerPod: "worker-0", Status: &ateapipb.WorkerStatus{Allocated: &ateapipb.WorkerResources{Actors: 2}}}}
 
@@ -527,7 +525,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 	actor.ActorTemplate.Atespace = "shared"
 	ateClient := &fakeATEClient{
 		pageSize: 1,
-		actors:   []*ateapipb.Actor{actor, substrateActor("same-name", "shared", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", "")},
+		actors:   []*ateapipb.Actor{actor, substrateActor("same-name", "shared", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", "")},
 		templates: []*ateapipb.ActorTemplate{
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "shared", Name: "template"}},
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "own-template"}},
@@ -621,7 +619,7 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 			substrateActor("session-b", "tenant-b", ateapipb.ActorState_ACTOR_STATE_RUNNING, "tenant-b", "pod-b"),
 			substrateActor("session-a", "tenant-a", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 			substrateActor("session-c", "tenant-c", ateapipb.ActorState_ACTOR_STATE_RUNNING, "tenant-c", "pod-c"),
-			substrateActor("session-b2", "tenant-b", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+			substrateActor("session-b2", "tenant-b", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 		},
 		templates: []*ateapipb.ActorTemplate{
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-a", Name: "agent-a"}},

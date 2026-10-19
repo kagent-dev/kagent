@@ -129,7 +129,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 			require.NoError(t, err)
 			task.Status.State = a2a.TaskStateCompleted
 			require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
-				&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", ContentScope: "FULL"}))
+				&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}))
 			checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 				Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
 			}, "alice", "checkpoint")

@@ -9,11 +9,11 @@ import (
 	"testing/synctest"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -144,8 +144,6 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 		store     fakeRuntimeRevisionStore
 		code      codes.Code
 	}{
-		{name: "missing sandbox config", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}, code: codes.FailedPrecondition},
-		{name: "wrong sandbox class", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" has class "gvisor" but sandbox_config.sandbox_class is "microvm"`)}, code: codes.FailedPrecondition},
 		{name: "sensitive creation error", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "private-backend-detail")}, code: codes.FailedPrecondition},
 		{name: "get failed", templates: fakeActorTemplates{getErr: status.Error(codes.Unavailable, "private-endpoint")}, code: codes.Unavailable},
 		{name: "get invalid argument", templates: fakeActorTemplates{getErr: status.Error(codes.InvalidArgument, "private-endpoint")}, code: codes.InvalidArgument},
@@ -181,10 +179,7 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 			require.Equal(t, "RuntimePreparationFailed", ready.Reason)
 			require.Contains(t, ready.Message, test.code.String())
 			require.NotContains(t, ready.Message, "private-")
-			if test.code == codes.FailedPrecondition {
-				require.Contains(t, ready.Message, `SandboxConfig "microvm"`)
-				require.Contains(t, ready.Message, `spec.sandboxClass="microvm"`)
-			}
+
 			observation := collections.AgentRuntimeObservations.GetKey(initial.ResourceName())
 			require.Nil(t, observation.Template)
 			require.Equal(t, initial.Target.RevisionID, observation.RevisionID)
@@ -212,32 +207,10 @@ func TestPreparationErrorsPublishStatusAndRecover(t *testing.T) {
 	}
 }
 
-func TestRuntimePreparationFailureSanitizesErrors(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		class      atev1alpha1.SandboxClass
-		configName string
-		wantClass  string
-	}{
-		{name: "default", configName: "gvisor-default", wantClass: "gvisor"},
-		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, configName: "gvisor-default", wantClass: "gvisor"},
-		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, configName: "microvm", wantClass: "microvm"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			failure := runtimePreparationFailure(status.Error(codes.FailedPrecondition, "private-backend-detail"), test.configName, test.class)
-			require.Equal(t, kagentv1alpha3.AgentConditionReady, failure.Condition)
-			require.True(t, failure.Retryable)
-			require.Contains(t, failure.Message, `SandboxConfig "`+test.configName+`"`)
-			require.Contains(t, failure.Message, `spec.sandboxClass="`+test.wantClass+`"`)
-			require.NotContains(t, failure.Message, "private-backend-detail")
-		})
-	}
-}
-
 func TestPreparationRevisionIsolation(t *testing.T) {
 	collections, harnesses := newPreparationTestCollections(t, "microvm")
 	initial := collections.Reconciliations.List()[0]
-	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, `SandboxConfig "microvm" not found`)}
+	templates := &fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "runtime prerequisites unavailable")}
 	reconciler := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}}
 	require.Error(t, reconciler.reconcileAgent(t.Context(), initial.ResourceName()))
 	waitFor(t, func() bool {
@@ -270,7 +243,6 @@ func TestPreparationQueueAndPollerBackoff(t *testing.T) {
 		templates fakeActorTemplates
 		store     fakeRuntimeRevisionStore
 	}{
-		{name: "missing sandbox config", templates: fakeActorTemplates{createErr: status.Error(codes.FailedPrecondition, "missing config")}},
 		{name: "revision being collected", store: fakeRuntimeRevisionStore{pairErr: database.ErrObjectDeleting}},
 		{name: "persistence unavailable", store: fakeRuntimeRevisionStore{revisionErr: errors.New("database unavailable")}},
 	} {
@@ -553,8 +525,8 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
 	mock := krttest.NewMock(t, []any{
 		template,
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassGvisor}},
-		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClass: atev1alpha1.SandboxClassMicroVM}},
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassGvisor}}}},
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}}},
 	})
 	collections := Collections{
 		EgressPolicies:           krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...),

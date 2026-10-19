@@ -25,6 +25,7 @@ import {
 } from "@/generated/a2a_pb";
 import { setApiTransport } from "../transport";
 import { A2AGrpcChatClient } from "./a2aGrpcChatClient";
+import { LinkFile } from "./attachments";
 import { A2A_METADATA } from "./a2aMetadata";
 import type { ChatEvent, ChatMessage } from "./types";
 
@@ -1640,6 +1641,52 @@ describe("A2AGrpcChatClient files", () => {
     expect(new TextDecoder().decode(part?.content.value as Uint8Array)).toBe("# hi");
   });
 
+  it("sends a link from the text as a url part after the text, with no bytes", async () => {
+    let captured: SendMessageRequest | undefined;
+    serve(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* (request) {
+          captured = request;
+        },
+      });
+    });
+    const link = "https://files.example/a/report.pdf?sig=abc";
+    for await (const event of new A2AGrpcChatClient().send({
+      conversation: CONVERSATION,
+      text: `summarize ${link}`,
+      files: [new LinkFile(link)],
+    })) {
+      void event;
+    }
+    const [text, part] = captured?.message?.parts ?? [];
+    expect(text?.content).toEqual({ case: "text", value: `summarize ${link}` });
+    expect(part?.content).toEqual({ case: "url", value: link });
+    expect(part?.filename).toBe("report.pdf");
+    expect(part?.mediaType).toBe("application/pdf");
+  });
+
+  it("keeps the chip of an agent-sent link that its text also names", async () => {
+    const link = "https://files.example/out/report.pdf";
+    const events = await turn([
+      statusFrame({
+        state: TaskState.WORKING,
+        message: {
+          messageId: "m-agent-link",
+          role: Role.AGENT,
+          parts: [
+            { content: { case: "text" as const, value: `Your report is ready: ${link}` } },
+            { content: { case: "url" as const, value: link }, filename: "report.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([
+      { kind: "text", text: `Your report is ready: ${link}` },
+      { kind: "file", name: "report.pdf", mediaType: "application/pdf", url: link },
+    ]);
+  });
+
   it("renders a file the agent sent rather than dropping it", async () => {
     const events = await turn([
       statusFrame({
@@ -1666,6 +1713,23 @@ describe("A2AGrpcChatClient files", () => {
         blob: expect.any(Blob),
       },
     ]);
+  });
+
+  it("shows no chip for a link whose URL is in the message text", async () => {
+    const link = "https://files.example/a.pdf";
+    const events = await turn([
+      statusFrame({
+        message: {
+          messageId: "m-text-link",
+          role: Role.USER,
+          parts: [
+            { content: { case: "text" as const, value: `summarize ${link}` } },
+            { content: { case: "url" as const, value: link }, filename: "a.pdf", mediaType: "application/pdf" },
+          ],
+        },
+      }),
+    ]);
+    expect(transcript(events)[0]?.parts).toEqual([{ kind: "text", text: `summarize ${link}` }]);
   });
 
   it("names a linked file by its path and drops non-http links", async () => {

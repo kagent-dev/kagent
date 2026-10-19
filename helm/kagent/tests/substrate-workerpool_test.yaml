@@ -7,7 +7,7 @@ set:
   controller.substrateClientCertificate.enabled: true
   substrateWorkerPool.create: true
   substrateWorkerPool.name: selected-pool
-  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
+  substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.6.0-alpha3
 tests:
   - it: should default to gvisor and label the selected pool
     asserts:
@@ -30,18 +30,24 @@ tests:
       - notExists:
           path: metadata.labels["kagent.dev/worker-pool"]
       - equal:
-          path: spec.sandboxClass
+          path: spec.sandboxClasses[0].name
           value: gvisor
       - equal:
+          path: spec.sandboxClasses[0].configRef.name
+          value: gvisor-default
+      - equal:
           path: spec.workerImage
-          value: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.3.0-alpha1
+          value: ghcr.io/kagent-dev/substrate/ateworker-gvisor:v0.6.0-alpha3
   - it: should preserve gvisor when the class is empty
     set:
       substrateWorkerPool.sandboxClass: ""
     asserts:
       - equal:
-          path: spec.sandboxClass
+          path: spec.sandboxClasses[0].name
           value: gvisor
+      - equal:
+          path: spec.sandboxClasses[0].configRef.name
+          value: gvisor-default
   - it: should scope a same-named pool to its release namespace
     release:
       namespace: tenant-b
@@ -101,14 +107,17 @@ tests:
   - it: should render microvm with the selected image and worker selector label
     set:
       substrateWorkerPool.sandboxClass: microvm
-      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
+      substrateWorkerPool.workerImage: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.6.0-alpha3
     asserts:
       - equal:
-          path: spec.sandboxClass
+          path: spec.sandboxClasses[0].name
+          value: microvm
+      - equal:
+          path: spec.sandboxClasses[0].configRef.name
           value: microvm
       - equal:
           path: spec.workerImage
-          value: ghcr.io/kagent-dev/substrate/ateom-microvm:v0.3.0-alpha1
+          value: ghcr.io/kagent-dev/substrate/ateworker-microvm:v0.6.0-alpha3
       - equal:
           path: metadata.labels["kagent.dev/worker-pool-name"]
           value: selected-pool

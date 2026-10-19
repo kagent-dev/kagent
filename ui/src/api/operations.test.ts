@@ -1,5 +1,5 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
-import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -395,7 +395,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
@@ -412,8 +411,10 @@ describe("the cluster", () => {
                 workerPool: "pool",
                 workerPodIps: ["10.0.0.1", "fd00::1"],
               },
-              externalSnapshot: { snapshotUri: "s3://snapshot" },
-              inProgressLocalSnapshotName: "next-snapshot",
+              snapshots: [
+                { generation: 2, uuid: "next-snapshot", durableSnapshot: { status: SnapshotStorageStatus.PENDING } },
+                { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://snapshot" } } },
+              ],
             },
           }],
         }),
@@ -427,7 +428,6 @@ describe("the cluster", () => {
       name: "tpl",
       phase: "Ready",
       goldenTag: "ate-golden/golden",
-      sandboxClass: "gvisor",
       workerSelector: "pool=agents,zone=east",
     });
     // The request succeeded; the runtime halves may be incomplete. That is a
@@ -486,8 +486,6 @@ describe("the cluster", () => {
     [ActorState.RUNNING, "Running"],
     [ActorState.SUSPENDING, "Suspending"],
     [ActorState.SUSPENDED, "Suspended"],
-    [ActorState.PAUSING, "Pausing"],
-    [ActorState.PAUSED, "Paused"],
     [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
     [ActorState.DELETING, "ACTOR_STATE_DELETING"],
     [ActorState.REVERTING, "Reverting"],
@@ -512,6 +510,28 @@ describe("the cluster", () => {
       service(SystemService, { getSubstrateSummary: inventory });
     });
     await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
+  });
+
+  it.each([
+    [ActorState.SUSPENDED, "Paused"],
+    [ActorState.RUNNING, "Running"],
+  ])("derives pause from snapshot locality only while suspended (%s)", async (state, label) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: () => ({
+          actors: [{ metadata: { name: "a1" }, status: {
+            state,
+            snapshots: [
+              { generation: 2, locality: "node-1" },
+              { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://old" } } },
+            ],
+          } }],
+        }),
+      });
+    });
+    const page = await apiClient.substrate.actors({});
+    expect(page.actors[0].status).toBe(label);
+    expect(page.actors[0].inProgressSnapshot).toBeUndefined();
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
@@ -566,7 +586,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],

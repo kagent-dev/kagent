@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -158,7 +158,7 @@ func TestSandboxKRTInformerQueueAndRestartCleanup(t *testing.T) {
 
 	// A dependency update alone must change the persisted revision.
 	changedPool := pool.DeepCopy()
-	changedPool.Spec.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	changedPool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
 	pools.UpdateObject(changedPool)
 	require.Eventually(t, func() bool {
 		store.mu.Lock()

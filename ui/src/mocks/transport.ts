@@ -2,7 +2,7 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
-import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
@@ -1346,11 +1346,6 @@ function substrateActorTemplateMessage(
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
     },
-    sandboxConfig: {
-      sandboxClass:
-        SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
-        ?? SandboxClass.UNSPECIFIED,
-    },
     workerSelector: {
       matchLabels: template.workerSelector
         ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))
@@ -1373,7 +1368,7 @@ function substrateActorMessage(
       name: actor.actorTemplateName ?? "",
     },
     status: {
-      state: ActorState[
+      state: actor.status === "Paused" ? ActorState.SUSPENDED : ActorState[
         actor.status.replace(/^ACTOR_STATE_/, "").toUpperCase() as keyof typeof ActorState
       ] ?? ActorState.UNSPECIFIED,
       workerAssignment: actor.ateomPodName ? {
@@ -1382,10 +1377,18 @@ function substrateActorMessage(
         workerPodIps: actor.ateomPodIp ? [actor.ateomPodIp] : [],
         workerPool: actor.workerPoolName ?? "",
       } : undefined,
-      externalSnapshot: actor.latestSnapshot
-        ? { snapshotUri: actor.latestSnapshot }
-        : undefined,
-      inProgressLocalSnapshotName: actor.inProgressSnapshot ?? "",
+      snapshots: [
+        ...(actor.latestSnapshot ? [{
+          generation: 1,
+          durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: actor.latestSnapshot } },
+        }] : []),
+        ...(actor.status === "Paused" ? [{ generation: 2, locality: "worker-node" }] : []),
+        ...(actor.inProgressSnapshot ? [{
+          generation: 3,
+          uuid: actor.inProgressSnapshot,
+          durableSnapshot: { status: SnapshotStorageStatus.PENDING },
+        }] : []),
+      ],
     },
   };
 }

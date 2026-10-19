@@ -49,7 +49,7 @@ func TestRuntimeGenAIBaggage(t *testing.T) {
 			require.NoError(t, err)
 			prompt := "Add 3 and 5 using the configured MCP server."
 			require.NoError(t, json.Unmarshal([]byte(`{"role":"user","content":"`+prompt+`"}`), &cfg.OpenAI[0].Match.Message))
-			recorder := startModelRecorder(t, startMockLLMConfig(t, cfg), nil)
+			recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMConfig(t, cfg)), nil)
 			model := createInteractionModel(t, kube, reachableModelURL(t, recorder.URL), map[string]string{"X-Kagent-E2E-Model": "agent"})
 
 			harness := createPropagatorsHarness(t, kube, tc.propagators)
