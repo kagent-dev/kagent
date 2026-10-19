@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: to-file
   refs: []
-  exit: with row 201
+  exit: with the upstream branch
 depends_on: [codex-accept-a-chatgpt-subscription-login-as]
 commit: 5243067d4
 verified: 2026-10-19

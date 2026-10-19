@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: to-file
   refs: []
-  exit: 'with #38476 row 210'
+  exit: with the upstream branch
 depends_on: [egress-a-sessions-actor-jwt-on-its-bearer, egress-a-sessions-provider-credentials-by]
 commit: 7739e8021
 verified: 2026-10-19

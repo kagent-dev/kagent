@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: to-file
   refs: []
-  exit: 'with #38476 row 210'
+  exit: with the upstream branch
 depends_on: [egress-a-sessions-provider-credentials-by]
 commit: 0e5249a10
 verified: 2026-10-19

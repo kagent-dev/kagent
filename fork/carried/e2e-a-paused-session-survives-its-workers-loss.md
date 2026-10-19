@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: fork-only
   refs: []
-  exit: with T4 upstream
+  exit: with the upstream design
 depends_on: []
 commit: 8e6fc97e0
 verified: 2026-10-19

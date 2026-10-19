@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: none
   refs: []
-  exit: with the T4 design issue
+  exit: with the upstream design issue
 depends_on: [session-fence-a-frozen-quiescence-holders-late-pause]
 commit: 4dfa1d349
 verified: 2026-10-19

@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: to-file
   refs: []
-  exit: 'with #38476 row 209'
+  exit: with the upstream branch
 depends_on: [session-the-sessions-actor-with-its-workspace-directory]
 commit: 3dde1e504
 verified: 2026-10-19

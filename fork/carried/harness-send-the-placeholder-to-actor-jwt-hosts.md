@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3018]
-  exit: 'with #3018 / row 210'
+  exit: 'with #3018'
 depends_on: [egress-the-actor-jwt-on-the-installations-providers, harness-forward-the-callers-credential-on-mcp-calls]
 commit: 6fd246162
 verified: 2026-10-19

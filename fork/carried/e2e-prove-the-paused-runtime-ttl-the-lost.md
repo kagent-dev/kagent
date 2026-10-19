@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: fork-only
   refs: [kagent-dev/kagent#3018]
-  exit: with T1 upstream
+  exit: with the upstream design
 depends_on: [api-withdraw-the-harness-turn-limits, session-end-a-turn-whose-runtime-is-lost, session-suspend-a-runtime-paused-for-input-once]
 commit: ad03bb0d1
 verified: 2026-10-19

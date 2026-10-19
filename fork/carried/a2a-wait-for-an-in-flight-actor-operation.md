@@ -7,7 +7,7 @@ status: carried
 upstream:
   outcome: to-file
   refs: []
-  exit: Substrate router answers a typed status (S row 137); then the retry drops
+  exit: Substrate router answers a typed status; then the retry drops
 depends_on: [session-resume-again-while-substrate-has-no-free-worker]
 commit: 19a955da7
 verified: 2026-10-19
