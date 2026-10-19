@@ -29,7 +29,11 @@ def add_builtin_tools_to_agent(
     skills_directory = Path(skills_directory).resolve() if skills_directory else None
     existing_tool_names = {getattr(t, "name", None) for t in agent.tools}
 
-    if skills_directory is not None and skills_directory.is_dir():
+    if (
+        skills_directory is not None
+        and skills_directory.is_dir()
+        and not any(isinstance(tool, SkillToolset) for tool in agent.tools)
+    ):
         skills = load_skills_from_dir(skills_directory)
         if skills:
             # Skills describe behavior; scripts execute through the common bash tool.

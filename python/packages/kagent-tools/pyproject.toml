@@ -18,8 +18,9 @@ dev = [
 requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/kagent"]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kagent.tools*"]
 
 [tool.black]
 line-length = 120

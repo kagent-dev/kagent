@@ -91,17 +91,17 @@ func readFileContent(ctx context.Context, path string, offset, limit int) (strin
 		if lineNum < start {
 			return true
 		}
-		if count == lineLimit {
-			if limit <= 0 {
-				fmt.Fprintf(&result, "[read limited to %d lines; continue with offset=%d]", lineLimit, lineNum)
-			}
-			return false
-		}
 		count++
 		if !appendResultLine(&result, fmt.Sprintf("%6d|%s", lineNum, truncateRunes(line, maxLineRunes))) {
 			return false
 		}
-		return limit <= 0 || count < lineLimit
+		if count == lineLimit {
+			if limit <= 0 {
+				fmt.Fprintf(&result, "[read limited to %d lines; continue with offset=%d]", lineLimit, lineNum+1)
+			}
+			return false
+		}
+		return true
 	})
 	if err != nil {
 		return "", err

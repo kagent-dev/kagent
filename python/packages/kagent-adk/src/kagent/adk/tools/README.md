@@ -5,7 +5,7 @@ and `bash` independently of skills. Set `runtime.builtin_tools.disable_file_sear
 or `disable_bash` to omit the corresponding tools.
 
 The default working directory is `/data/workspace`. It belongs to the Actor,
-is shared by its root agent and subagents, and survives DATA snapshots and resume.
+is shared by its root agent and subagents, and survives VOLUMES snapshots and resume.
 Go and Python use the same workspace layout; subdirectories are created as needed.
 Paths follow normal filesystem semantics; Substrate is the security boundary.
 Skills are discovered separately and use their configured absolute paths.
@@ -27,7 +27,7 @@ engine. Recursive searches do not follow symlinked subdirectories.
 
 File reads default to 2000 lines. Read, list, and grep results are capped at
 64 KiB; use read offsets or narrower searches for additional content. Edits
-require a unique, nonempty `old_string` unless `replace_all=true`.
+require a nonempty `old_string`, which must be unique unless `replace_all=true`.
 
 ## Skills and artifacts
 

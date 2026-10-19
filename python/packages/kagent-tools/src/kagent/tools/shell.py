@@ -89,12 +89,12 @@ def read_file_content(file_path: Path, offset: int | None = None, limit: int | N
     for line_num, line in _file_lines(file_path):
         if line_num < start:
             continue
+        count += 1
+        if not result.append(f"{line_num:6d}|{_truncate_line(line)}"):
+            break
         if count == line_limit:
             if not limit or limit < 0:
-                result.append(f"[read limited to {line_limit} lines; continue with offset={line_num}]")
-            break
-        count += 1
-        if not result.append(f"{line_num:6d}|{_truncate_line(line)}") or (limit and limit > 0 and count >= line_limit):
+                result.append(f"[read limited to {line_limit} lines; continue with offset={line_num + 1}]")
             break
     return result.text() or "File is empty."
 

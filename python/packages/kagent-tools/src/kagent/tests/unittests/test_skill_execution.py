@@ -162,11 +162,11 @@ def test_get_bash_description_mentions_file_search_tools_when_enabled():
     assert "list_files and grep_file" in desc
 
 
-# --- Path traversal tests ---
+# --- File reads ---
 
 
 def test_read_file_allows_path_inside_root(tmp_path):
-    """Files inside the allowed root should work normally."""
+    """Read an ordinary file inside the sandbox."""
     f = tmp_path / "hello.txt"
     f.write_text("hello world")
     result = read_file_content(f)
