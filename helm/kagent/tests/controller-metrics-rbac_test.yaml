@@ -100,7 +100,7 @@ tests:
   - it: should skip auth role when secure serving disabled
     set:
       controller.metrics.enabled: true
-      controller.metrics.secureServing: false
+      config.metrics.secure: false
     asserts:
       - hasDocuments:
           count: 1
@@ -115,7 +115,7 @@ tests:
   - it: should skip all metrics rbac when bindAddress disables metrics
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: "0"
+      config.metrics.bindAddress: "0"
     asserts:
       - hasDocuments:
           count: 0

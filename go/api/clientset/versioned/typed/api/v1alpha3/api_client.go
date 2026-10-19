@@ -14,6 +14,7 @@ type ApiV1alpha3Interface interface {
 	RESTClient() rest.Interface
 	AgentsGetter
 	AgentTemplatesGetter
+	EgressPoliciesGetter
 	HarnessesGetter
 	ModelConfigsGetter
 	RemoteMCPServersGetter
@@ -31,6 +32,10 @@ func (c *ApiV1alpha3Client) Agents(namespace string) AgentInterface {
 
 func (c *ApiV1alpha3Client) AgentTemplates(namespace string) AgentTemplateInterface {
 	return newAgentTemplates(c, namespace)
+}
+
+func (c *ApiV1alpha3Client) EgressPolicies(namespace string) EgressPolicyInterface {
+	return newEgressPolicies(c, namespace)
 }
 
 func (c *ApiV1alpha3Client) Harnesses(namespace string) HarnessInterface {

@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ollama/ollama/api"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/ollama/ollama/api"
 )
 
 // OllamaConfig holds Ollama configuration

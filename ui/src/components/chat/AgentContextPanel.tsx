@@ -51,12 +51,12 @@ export function AgentContextPanel({
   const namespace = instance?.agent?.split("/")[0] ?? agentRef?.namespace ?? "";
   const name = instance?.agent ? bareName(instance.agent) : agentRef?.name;
   const definition = useAgent(namespace, name);
-  const templateName = definition.data?.resource.spec.templateRef?.name;
+  const templateName = definition.data?.resource.spec.template.ref?.name;
   const template = useAgentTemplate(namespace, templateName);
   const templateNamespace = namespace;
   const templateRef = templateName;
-  const harnessRef = definition.data?.resource.spec.harnessRef?.name ?? (definition.data?.resource.spec.harness ? "Inline" : undefined);
-  const spec = definition.data?.resource.spec.template ?? template.data?.resource.spec;
+  const harnessRef = definition.data?.resource.spec.harnessRef.name;
+  const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
   const tools = spec?.tools ?? [];
 
@@ -76,7 +76,7 @@ export function AgentContextPanel({
             </Text>
           </Link>
         ) : (
-          <Text css={{ color: theme.color.textMuted }}>{definition.data?.resource.spec.template ? "Inline" : "Not reported"}</Text>
+          <Text css={{ color: theme.color.textMuted }}>{definition.data?.resource.spec.template.inline ? "Inline" : "Not reported"}</Text>
         )}
       </Field>
 

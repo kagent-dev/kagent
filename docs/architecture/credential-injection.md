@@ -1,16 +1,21 @@
 # Runtime credential injection
 
-Kagent requires Substrate **v0.3.0-alpha1**. The compiler turns ModelConfig API
-keys and Secret-backed RemoteMCPServer headers into destination-scoped egress
-bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
-overwrites the outgoing HTTP header. SDKs receive an inert placeholder where
-they require an API key; real credentials never enter compiled environments,
+Kagent requires Substrate **v0.5.0-alpha2**. The runtime compiler turns
+ModelConfig API keys and Secret-backed RemoteMCPServer headers into pinned
+destination-scoped bindings. Independently, EgressPolicy admission supplies
+additional live bindings. Substrate's gateway fetches the referenced Kubernetes Secret and
+replaces the outgoing HTTP header when the request carries a placeholder. SDKs
+receive an inert placeholder where they require an API key; real credentials never enter compiled environments,
 runtime configuration, or revision provenance.
 
-Bindings are persisted with the prepared revision and installed before an
-session becomes ready, including retries and checkpoint forks. Secret names,
-keys, destinations, and headers affect revision identity. Secret values and
-Secret UIDs do not. Rotation is handled by the gateway; its credential cache can
+Inferred integration bindings are persisted with the prepared revision; their
+Secret names, keys, destinations, and headers affect revision identity. Explicit
+EgressPolicy bindings are resolved from current policies and update live actors
+without changing that revision. Conflicts hold new grants and report the
+independent [EgressPoliciesApplied condition](egress-policies.md#preparation-and-lifecycle);
+they do not block runtime compilation. Both are installed before execution, including
+creation retries, resume, and checkpoint forks. Secret values and Secret UIDs
+do not affect revision identity. Rotation is handled by the gateway; its credential cache can
 take up to five minutes to refresh, without recompiling or restarting an agent.
 
 ## Installation
@@ -57,16 +62,55 @@ overrides of these variables are rejected.
 | Bedrock bearer token | `authorization: Bearer <token>` |
 | RemoteMCPServer Secret-backed header | Configured header; Secret contains its full value |
 
-Provider endpoint overrides determine the injection destination. Substrate
-matches exact DNS hostnames, without path, port, or scheme scoping. Different
-credentials for the same hostname and header are rejected, including conflicts
-between models, memory embeddings, and MCP servers. Use distinct DNS names for
-origins requiring different credentials. IP-address destinations cannot carry
-credential injection rules.
+Provider endpoint overrides determine the allowed HTTP(S) origin. Egress rules
+and credential bindings both match its scheme, DNS name, and port. Different
+credentials for the same origin and header are rejected, including conflicts
+between models, memory embeddings, MCP servers, and explicit policies. Distinct
+ports on the same DNS name can use different credentials. IP-address destinations
+are unsupported by Substrate egress policies.
 
-AWS IAM signing keys, Google service-account keys, OAuth client credentials, and
-arbitrary Harness `credentialRef` environment values require mechanisms beyond
-static header injection and are rejected rather than serialized into runtimes.
-Caller-token passthrough retains its existing behavior. A passthrough model
-cannot share a hostname with static gateway credentials, which would override
-the caller's authentication.
+The v1alpha3 revision format stores full origins. It assumes a clean installation;
+previously persisted hostname-only credential bindings are rejected rather than
+reinterpreted across every port on that host.
+
+Harness and SandboxTemplate environment entries accept only literal `value`
+strings, including empty strings. Configure Secret-backed credentials on
+ModelConfig, RemoteMCPServer, or [EgressPolicy](egress-policies.md) for gateway injection.
+
+AWS IAM signing keys, Google service-account keys, and OAuth client credentials
+require mechanisms beyond static header injection and are rejected rather than
+serialized into runtimes.
+
+Caller-token passthrough is set with `tokenPassthrough` on ModelConfig or
+RemoteMCPServer. It forwards the bearer token from the incoming A2A request
+instead of a gateway credential. A passthrough model or MCP server cannot share
+an origin with static gateway credentials, which would override the caller's
+authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
+`headersFrom`.
+
+RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
+Codex and Claude reject it at compilation, and the Python runtime fails at
+startup. A request without a caller token fails instead of connecting
+anonymously. The runtime discovers tools on first use, because startup has no
+caller token. Controller discovery also has no caller token, so servers that
+require one should set the `kagent.dev/discovery: disabled` label. The runtime
+shares one MCP session per server. The standalone SSE stream and session
+teardown therefore carry the token of the caller that opened the session.
+
+## Deferred API fields
+
+The source retains commented declarations for Harness and SandboxTemplate
+`env[].credentialRef`, ModelConfig `openAI.tokenExchange`, and TLS
+`caCertSecretRef`, `caCertSecretKey`, and `disableSystemCAs`. These fields are
+absent from the served CRDs until their runtime paths are implemented. The
+RemoteMCPServer TLS rotation `status.secretHash` is deferred with custom CAs.
+
+ModelConfig and RemoteMCPServer TLS settings currently expose only
+`disableVerify`, supported by the kagent compiler. Codex and Claude reject model
+TLS settings and warn when ignoring RemoteMCPServer TLS settings. Runtime trust
+for gateway injection is configured by the platform.
+
+`apiKeySecret` remains available for supported gateway credentials. Secret-backed
+AWS IAM signing, Vertex service-account, and SAP OAuth credentials still fail
+compilation; sharing this field with supported providers does not enable those
+credential modes.

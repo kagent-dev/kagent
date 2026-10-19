@@ -7,9 +7,10 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	adkagent "google.golang.org/adk/v2/agent"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	adkagent "google.golang.org/adk/v2/agent"
 )
 
 // newReq returns an empty outbound client Request with initialized service params.

@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: sandboxtemplates.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -51,38 +51,42 @@ spec:
             description: SandboxTemplateSpec defines standalone sandbox environment
               configuration.
             properties:
+              egressPolicyRefs:
+                description: |-
+                  EgressPolicyRefs grants additional access in this template's namespace.
+                  Changes update the access of existing sandboxes without restarting them.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: egressPolicyRefs requires non-empty names
+                  rule: self.all(ref, has(ref.name) && ref.name != '')
               env:
                 description: |-
                   Env supplies runtime environment defaults.
                   Credential references do not grant permission to read the referenced Secret.
                 items:
-                  description: RuntimeEnvVar configures one runtime environment variable.
+                  description: RuntimeEnvVar configures one literal runtime environment
+                    variable.
                   properties:
-                    credentialRef:
-                      description: CredentialRef references a key in a same-namespace
-                        Secret.
-                      properties:
-                        key:
-                          description: The key of the secret to select from.  Must
-                            be a valid secret key.
-                          type: string
-                        name:
-                          default: ""
-                          description: |-
-                            Name of the referent.
-                            This field is effectively required, but due to backwards compatibility is
-                            allowed to be empty. Instances of this type with an empty value here are
-                            almost certainly wrong.
-                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                          type: string
-                        optional:
-                          description: Specify whether the Secret or its key must
-                            be defined
-                          type: boolean
-                      required:
-                      - key
-                      type: object
-                      x-kubernetes-map-type: atomic
                     name:
                       minLength: 1
                       type: string
@@ -91,13 +95,8 @@ spec:
                       type: string
                   required:
                   - name
+                  - value
                   type: object
-                  x-kubernetes-validations:
-                  - message: exactly one of value or credentialRef must be specified
-                    rule: has(self.value) != has(self.credentialRef)
-                  - message: credentialRef name must not be empty
-                    rule: '!has(self.credentialRef) || self.credentialRef.name.size()
-                      > 0'
                 maxItems: 100
                 type: array
                 x-kubernetes-list-map-keys:
@@ -161,7 +160,11 @@ spec:
               template inputs.
             properties:
               conditions:
-                description: Conditions describe whether a prepared revision is available.
+                description: |-
+                  Conditions report runtime readiness and independent egress grant admission.
+                  EgressPoliciesApplied is False for EgressPolicyNotFound, InvalidEgressPolicy,
+                  or EgressGrantConflict; Applied means all grants are admitted. Grant issues
+                  do not affect Ready.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

@@ -63,13 +63,8 @@ def get_ssl_troubleshooting_message(
 
     troubleshooting_steps.extend(
         [
-            "6. Check Kubernetes Secret contents:",
-            "   kubectl get secret <secret-name> -o yaml",
-            "   # Verify the certificate data is base64-encoded PEM format",
-            "",
-            "7. Verify the ModelConfig TLS configuration:",
-            "   kubectl get modelconfig <name> -o yaml",
-            "   # Check spec.tls.caCertSecretRef and spec.tls.caCertSecretKey",
+            "6. Verify the runtime TLS configuration:",
+            "   # Check tls_ca_cert_path and that the CA file exists in the runtime",
             "",
             "For more information, see:",
             "   https://kagent.dev/docs",

@@ -1,13 +1,11 @@
 package logging
 
 import (
-	"cmp"
 	"context"
 	"io"
 	"log/slog"
 
 	"github.com/go-logr/logr"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -41,11 +39,6 @@ func (h traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h traceHandler) WithGroup(name string) slog.Handler {
 	return traceHandler{h.Handler.WithGroup(name)}
-}
-
-// NewFromEnv returns a JSON logger using KAGENT_LOG_LEVEL, defaulting to info.
-func NewFromEnv(w io.Writer) (*slog.Logger, error) {
-	return New(w, cmp.Or(env.LogLevel.Get(), env.LogLevel.DefaultValue()))
 }
 
 // IntoContext stores logger in the logr context slot used by controller-runtime.

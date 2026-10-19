@@ -4,9 +4,10 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestAssemblerAppliesArtifactReplacement(t *testing.T) {

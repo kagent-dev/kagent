@@ -1,48 +1,48 @@
 package adkconfig
 
 import (
-	"github.com/kagent-dev/kagent/go/api/adk"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
 // This path intentionally has no proxy URL or egress-gateway indirection.
-func (c *Builder) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRuntime, server *v1alpha3.RemoteMCPServer, tools []string, requireApproval bool, headers map[string]string) error {
+func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1alpha3.RemoteMCPServer, tools []string, requireApproval bool, headers map[string]string) error {
 	targetURL := server.Spec.URL
 
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:
-		params := adk.SseConnectionParams{Url: targetURL, Headers: headers}
+		params := &configv1.ADKSSEConnectionParams{Url: targetURL, Headers: headers}
 		if server.Spec.Timeout != nil {
-			params.Timeout = new(server.Spec.Timeout.Seconds())
+			params.Timeout = durationpb.New(server.Spec.Timeout.Duration)
 		}
 		if server.Spec.SseReadTimeout != nil {
-			params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
+			params.SseReadTimeout = durationpb.New(server.Spec.SseReadTimeout.Duration)
 		}
-		params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
-		config.SseTools = append(config.SseTools, adk.SseMcpServerConfig{
+		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
+		config.SseTools = append(config.SseTools, &configv1.ADKSSEMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
+			TokenPassthrough: server.Spec.TokenPassthrough,
 		})
 	default:
-		params := adk.StreamableHTTPConnectionParams{Url: targetURL, Headers: headers}
+		params := &configv1.ADKHTTPConnectionParams{Url: targetURL, Headers: headers}
 		if server.Spec.Timeout != nil {
-			params.Timeout = new(server.Spec.Timeout.Seconds())
+			params.Timeout = durationpb.New(server.Spec.Timeout.Duration)
 		}
 		if server.Spec.SseReadTimeout != nil {
-			params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
+			params.SseReadTimeout = durationpb.New(server.Spec.SseReadTimeout.Duration)
 		}
 		if server.Spec.TerminateOnClose != nil {
 			params.TerminateOnClose = server.Spec.TerminateOnClose
 		}
-		params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
-		config.HttpTools = append(config.HttpTools, adk.HttpMcpServerConfig{
+		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
+		config.HttpTools = append(config.HttpTools, &configv1.ADKHTTPMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
+			TokenPassthrough: server.Spec.TokenPassthrough,
 		})
 	}
 
-	// Reuse the model deployment accumulator so TLS assets from every MCP server
-	// are considered together when checking Substrate volume compatibility.
-	addTLSConfiguration(runtime.data, server.Spec.TLS)
-	runtime.HasUnsupportedVolumes = len(runtime.data.Volumes) > 0 || len(runtime.data.VolumeMounts) > 0
 	return nil
 }

@@ -310,3 +310,27 @@ func TestAdvancePageTokenAllowsTheLastPageAndARealMove(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, next)
 }
+
+type deleteTagFake struct {
+	ateapipb.ControlClient
+	request *ateapipb.DeleteTagRequest
+	err     error
+}
+
+func (f *deleteTagFake) DeleteTag(_ context.Context, request *ateapipb.DeleteTagRequest, _ ...grpc.CallOption) (*ateapipb.Tag, error) {
+	f.request = request
+	return nil, f.err
+}
+
+func TestDeleteTagPassesUIDPrecondition(t *testing.T) {
+	for _, uid := range []string{"retained-uid", ""} {
+		t.Run(uid, func(t *testing.T) {
+			fake := &deleteTagFake{err: status.Error(codes.Aborted, "tag replaced")}
+			client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+			require.ErrorIs(t, client.DeleteTag(t.Context(), "team-a", "checkpoint", uid), fake.err)
+			require.Equal(t, "team-a", fake.request.GetTag().GetAtespace())
+			require.Equal(t, "checkpoint", fake.request.GetTag().GetName())
+			require.Equal(t, uid, fake.request.GetOptions().GetUid())
+		})
+	}
+}

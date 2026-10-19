@@ -38,7 +38,7 @@ tests:
         - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
-      controller.metrics.secureServing: false
+      config.metrics.secure: false
       controller.metrics.serviceMonitor.enabled: true
       controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
     asserts:
@@ -51,7 +51,7 @@ tests:
         - monitoring.coreos.com/v1
     set:
       controller.metrics.enabled: true
-      controller.metrics.bindAddress: "0"
+      config.metrics.bindAddress: "0"
       controller.metrics.serviceMonitor.enabled: true
       controller.metrics.serviceMonitor.prometheusServiceAccount.name: prometheus-k8s
     asserts:

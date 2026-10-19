@@ -196,16 +196,6 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
-func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
-	ctx, cancel := c.callCtx(ctx)
-	defer cancel()
-	resp, err := c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID)})
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetActor(), nil
-}
-
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
@@ -234,10 +224,13 @@ func (c *Client) CreateTag(ctx context.Context, atespace, name, actorName string
 	})
 }
 
-func (c *Client) DeleteTag(ctx context.Context, atespace, name string) error {
+func (c *Client) DeleteTag(ctx context.Context, atespace, name, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{Tag: actorRef(atespace, name)})
+	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{
+		Tag:     actorRef(atespace, name),
+		Options: &ateapipb.DeleteOptions{Uid: uid},
+	})
 	return err
 }
 

@@ -4,16 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"log/slog"
-
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 func TestEmbeddingHTTPClientTLS(t *testing.T) {
@@ -23,7 +22,7 @@ func TestEmbeddingHTTPClientTLS(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// Without the TLS override the self-signed server must be rejected.
-	strict, err := embeddingHTTPClient(&adk.EmbeddingConfig{})
+	strict, err := embeddingHTTPClient(&configv1.ADKEmbeddingConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +32,7 @@ func TestEmbeddingHTTPClientTLS(t *testing.T) {
 	}
 
 	insecure := true
-	client, err := embeddingHTTPClient(&adk.EmbeddingConfig{TLSInsecureSkipVerify: &insecure})
+	client, err := embeddingHTTPClient(&configv1.ADKEmbeddingConfig{TlsInsecureSkipVerify: &insecure})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +84,7 @@ func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 	_ = auth.NewHTTPClientWithToken(tokenSvc)
 
 	client, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider: "openai",
 			Model:    "text-embedding-3-small",
 			BaseUrl:  srv.URL,
@@ -122,11 +121,11 @@ func TestOpenAIProvider_APIKeyPassthrough(t *testing.T) {
 	defer srv.Close()
 
 	client, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider:          "openai",
 			Model:             "text-embedding-3-small",
 			BaseUrl:           srv.URL,
-			APIKeyPassthrough: true,
+			ApiKeyPassthrough: true,
 		},
 	})
 	if err != nil {
@@ -154,7 +153,7 @@ func TestOpenAIProvider_APIKeyPassthroughDisabled_IgnoresContextToken(t *testing
 	defer srv.Close()
 
 	client, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider: "openai",
 			Model:    "text-embedding-3-small",
 			BaseUrl:  srv.URL,
@@ -267,7 +266,7 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			cfg := &adk.EmbeddingConfig{
+			cfg := &configv1.ADKEmbeddingConfig{
 				Provider:   "azure_openai",
 				Model:      deployment,
 				Deployment: tt.deployment,
@@ -317,11 +316,11 @@ func TestAzureOpenAIProvider_APIKeyPassthrough(t *testing.T) {
 	defer srv.Close()
 
 	client, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider:          "azure_openai",
 			Model:             "text-embedding-3-small",
 			Endpoint:          srv.URL,
-			APIKeyPassthrough: true,
+			ApiKeyPassthrough: true,
 		},
 	})
 	if err != nil {
@@ -352,11 +351,11 @@ func TestAzureOpenAIProvider_APIKeyPassthroughOverridesStaticKey(t *testing.T) {
 	defer srv.Close()
 
 	client, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider:          "azure_openai",
 			Model:             "text-embedding-3-small",
 			Endpoint:          srv.URL,
-			APIKeyPassthrough: true,
+			ApiKeyPassthrough: true,
 		},
 	})
 	if err != nil {
@@ -375,7 +374,7 @@ func TestAzureOpenAIProvider_APIKeyPassthroughOverridesStaticKey(t *testing.T) {
 func TestAzureOpenAIProvider_MissingEndpoint(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_ENDPOINT", "")
 	_, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider: "azure_openai",
 			Model:    "text-embedding-3-small",
 		},
@@ -441,7 +440,7 @@ func TestOllamaProvider_RequestShape(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			cfg := &adk.EmbeddingConfig{
+			cfg := &configv1.ADKEmbeddingConfig{
 				Provider: "ollama",
 				Model:    model,
 			}
@@ -478,7 +477,7 @@ func TestOllamaProvider_RequestShape(t *testing.T) {
 func TestOllamaProvider_InvalidHost(t *testing.T) {
 	t.Setenv("OLLAMA_API_BASE", "")
 	_, err := New(Config{
-		EmbeddingConfig: &adk.EmbeddingConfig{
+		EmbeddingConfig: &configv1.ADKEmbeddingConfig{
 			Provider: "ollama",
 			Model:    "nomic-embed-text",
 			BaseUrl:  "://bad-url",

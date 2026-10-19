@@ -10,10 +10,11 @@ the agent processes.
 
 | Resource                      | Owner                                    | Purpose                                                                       |
 | ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Explicit inline-or-reference template/Harness pairing, readiness, and revision selection |
+| `Agent` | Kubernetes (`api.kagent.dev/v1alpha3`) | Inline-or-reference behavior paired with a referenced Harness, readiness, and revision selection |
 | `Harness`                     | Kubernetes (`api.kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
 | `AgentTemplate`               | Kubernetes (`api.kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | `SandboxTemplate` | Kubernetes (`api.kagent.dev/v1alpha3`) | Tools image, environment, and preparation policy for standalone sandboxes |
+| `EgressPolicy` | Kubernetes (`api.kagent.dev/v1alpha3`) | Additional HTTP(S) origins and gateway credentials selected by Agents and SandboxTemplates |
 | prepared revision             | PostgreSQL and ate-api                   | Immutable compiled runtime input and its Substrate ActorTemplate              |
 | `Session`               | PostgreSQL, exposed by gRPC              | Stable conversation identity and runtime lifecycle                                      |
 | `Sandbox` | PostgreSQL, exposed by gRPC and MCP | Owner-scoped scratch environment with process/file access and expiration |
@@ -33,12 +34,28 @@ semantics; kagent does not maintain a parallel session or task API.
 | A2A             | Invoke agents and manage durable tasks and streams                          |
 | MCP             | Discover, invoke, checkpoint, and fork Sessions; create and use standalone sandboxes |
 
+Public control-plane protobuf contracts use `kagent.api.v1` under
+[`proto/kagent/api/v1`](../../proto/kagent/api/v1). TaskStore and Memory contracts for
+agent runtimes use `kagent.runtime.v1` under
+[`proto/kagent/runtime/v1`](../../proto/kagent/runtime/v1). CLI, controller, and ADK
+configuration use `kagent.config.v1` under
+[`proto/kagent/config/v1`](../../proto/kagent/config/v1). All three use compatible
+field changes, deprecation, and reservation of removed field names and numbers. Kubernetes
+resources retain their separate API versions. See the
+[protobuf API conventions](../protobuf-api.md) for compatibility and generation rules.
+
+The public and runtime APIs share a gRPC listener and retain method-level authentication policies.
+TaskStore requires workload authority; Memory currently uses ordinary controller
+authentication. The runtime namespace identifies its consumers, not an additional
+access restriction. Configuration messages are process inputs, with no RPC services.
+Browser bindings exclude runtime and configuration contracts.
+
 ## End-to-end flow
 
 ```mermaid
 flowchart LR
-    AGENT[Agent] --> AT[template or templateRef]
-    AGENT --> H[harness or harnessRef]
+    AGENT[Agent] --> AT[template: inline or ref]
+    AGENT --> H[harnessRef]
     AT --> R[resolve tree]
     H --> R
     R --> B[build harness inputs]
@@ -67,7 +84,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 ## Component boundaries
 
 - API types describe agent behavior without exposing backend mechanics.
-- The v2 translator resolves references and compiles explicit runtime inputs.
+- The translator resolves references and compiles explicit runtime inputs.
 - The controller reconciles compiled revisions to ate-api ActorTemplates.
 - Session and Sandbox services own their respective lifecycle orchestration.
 - The apiserver handles sandbox lifecycle and guest operations through one
@@ -79,17 +96,21 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 
 ## Documents
 
+- [Egress policies](egress-policies.md)
+- [Runtime credential injection](credential-injection.md)
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [Client lifecycle retries](../lifecycle-retries.md)
 - [Standalone sandboxes](sandboxes.md)
 - [A2A gateway](a2a-gateway.md)
+- [A2A push notifications](a2a-push-notifications.md)
 - [A2A metadata](a2a-metadata.md)
 - [OIDC proxy authentication](oidc-proxy-authentication.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)
 - [MCP](mcp.md)
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
+- [Token usage](usage-extension.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
 - [Caller context in traces](trace-context.md)

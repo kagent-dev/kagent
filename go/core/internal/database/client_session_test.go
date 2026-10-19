@@ -10,13 +10,15 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	for _, test := range []struct {
 		name string
@@ -27,7 +29,7 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 		{"delete session", func() error { return deleteSession(ctx, client, "invalid") }},
 		{"get checkpoint", func() error { _, err := client.GetSessionCheckpoint(ctx, "invalid", "alice"); return err }},
 		{"reserve checkpoint", func() error {
-			_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{SessionId: "invalid", HeadTaskId: "task-1"}, "alice", "request")
+			_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{SessionId: "invalid", HeadTaskId: "task-1"}, "alice", "request")
 			return err
 		}},
 		{"fork", func() error {
@@ -35,7 +37,7 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 			return err
 		}},
 		{"create share", func() error {
-			_, err := client.CreateSessionShare(ctx, &apiv1alpha1.SessionShare{Id: uuid.NewString(), SessionId: "invalid", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY}, []byte("token"), "alice")
+			_, err := client.CreateSessionShare(ctx, &apiv1.SessionShare{Id: uuid.NewString(), SessionId: "invalid"}, []byte("token"), "alice")
 			return err
 		}},
 		{"create task", func() error {
@@ -48,23 +50,23 @@ func TestMalformedDatabaseIDsReturnErrors(t *testing.T) {
 }
 
 func TestToSessionUsesIndexedLifecycleColumns(t *testing.T) {
-	data, err := proto.Marshal(&apiv1alpha1.Session{
+	data, err := proto.Marshal(&apiv1.Session{
 		Id: "11111111-1111-4111-8111-111111111111", Name: "Renamed later",
-		State:     apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
-		Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+		State:     apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	session, err := toSession(sessionRow{
-		runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED.String(), Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME.String()}, Data: data,
+		runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED.String(), Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME.String()}, Data: data,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
-		session.GetOperation() != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
+	if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
+		session.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", session.GetState(), session.GetOperation())
 	}
 	// Display metadata stays in the protobuf.
@@ -76,14 +78,14 @@ func TestToSessionUsesIndexedLifecycleColumns(t *testing.T) {
 // TestToSessionLeavesAnEmptyNameEmpty preserves unnamed sessions without
 // substituting their ID or a placeholder.
 func TestToSessionLeavesAnEmptyNameEmpty(t *testing.T) {
-	data, err := proto.Marshal(&apiv1alpha1.Session{
+	data, err := proto.Marshal(&apiv1.Session{
 		Id:    "session-1",
-		State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		State: apiv1.RuntimeState_RUNTIME_STATE_READY,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := toSession(sessionRow{runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY.String(), Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()}, Data: data})
+	session, err := toSession(sessionRow{runtimeInstanceRow: runtimeInstanceRow{ID: uuid.MustParse("11111111-1111-4111-8111-111111111111"), State: apiv1.RuntimeState_RUNTIME_STATE_READY.String(), Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String()}, Data: data})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +98,7 @@ func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	insertReadySessionFixture(t, db, "11111111-1111-4111-8111-111111111111", "request-1", []byte{})
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	now := time.Now()
 	first := &a2a.Task{
 		ID: "task-1", ContextID: "11111111-1111-4111-8111-111111111111",
@@ -171,7 +173,7 @@ func TestSessionTasksAreDurableAndExclusive(t *testing.T) {
 }
 
 func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
@@ -190,7 +192,8 @@ func TestSessionReplyArchivesStatusMessageAtomically(t *testing.T) {
 	require.NoError(t, client.SettleSessionTask(ctx, sessionID, string(parked.ID), version))
 	boundary, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
-	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, nil))
+	require.Error(t, client.FinishSessionQuiescence(ctx, boundary, nil))
+	require.NoError(t, client.FinishSessionQuiescence(ctx, boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/waiting", ContentScope: "DATA"}))
 
 	answer := &a2a.Message{ID: "answer-1", Role: a2a.MessageRoleUser, TaskID: "task-1", ContextID: session.ContextId}
 	resumed := *parked
@@ -217,16 +220,16 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	sessionID := "11111111-1111-4111-8111-111111111111"
-	session := &apiv1alpha1.Session{
+	session := &apiv1.Session{
 		Id: sessionID, Creator: "alice",
-		State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		State: apiv1.RuntimeState_RUNTIME_STATE_READY,
 	}
 	sessionData, err := proto.Marshal(session)
 	if err != nil {
 		t.Fatal(err)
 	}
 	insertReadySessionFixture(t, db, sessionID, "session-request", sessionData)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	task := newSessionTask("task-1", "message-1")
 	if _, err := client.CreateRuntimeTask(ctx, sessionID, taskMutationHash("message-request"), task, ""); err != nil {
 		t.Fatal(err)
@@ -237,7 +240,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checkpoint, snapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "22222222-2222-4222-8222-222222222222", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	checkpoint, snapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "22222222-2222-4222-8222-222222222222", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil {
 		t.Fatalf("ReserveSessionCheckpoint() = %+v, error %v", checkpoint, err)
 	}
@@ -266,14 +269,14 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	} else {
 		require.ErrorContains(t, err, "checkpoint being created")
 	}
-	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	_, err = client.BeginSessionOperation(ctx, sessionID, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.ErrorIs(t, err, ErrConflict)
-	replayed, replayedSnapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	replayed, replayedSnapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "33333333-3333-4333-8333-333333333333", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *snapshot {
 		t.Fatalf("replayed checkpoint = %+v, error %v", replayed, err)
 	}
 	ready, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", "")
-	if err != nil || ready.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
+	if err != nil || ready.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
 	}
 	if _, _, err := client.ForkSession(ctx, checkpoint.GetId(), "mallory", "unauthorized-fork", uuid.NewString()); !errors.Is(err, ErrNotFound) {
@@ -295,15 +298,15 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || tagUID != "tag-uid" || retained.URI != "s3://tags/checkpoint" || retained.ContentScope != snapshot.ContentScope {
 		t.Fatalf("checkpoint tag = %q, error %v", tagUID, err)
 	}
-	if replayed, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", ""); err != nil || replayed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY {
+	if replayed, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid", "s3://tags/checkpoint", ""); err != nil || replayed.State != apiv1.CheckpointState_CHECKPOINT_STATE_READY {
 		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
 	}
-	failed, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "failed-checkpoint-request")
+	failed, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "44444444-4444-4444-8444-444444444444", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "failed-checkpoint-request")
 	if err != nil {
 		t.Fatal(err)
 	}
 	failed, err = client.FinalizeSessionCheckpoint(ctx, failed.GetId(), "", "", "tag creation failed")
-	if err != nil || failed.State != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
+	if err != nil || failed.State != apiv1.CheckpointState_CHECKPOINT_STATE_FAILED || failed.GetFailure().GetMessage() != "tag creation failed" {
 		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
 	}
 	if _, err := client.UpdateCheckpointName(ctx, failed.GetId(), "alice", "doomed"); !errors.Is(err, ErrNotFound) {
@@ -312,7 +315,7 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err := deleteSession(ctx, client, sessionID); err != nil {
 		t.Fatal(err)
 	}
-	replayed, replayedSnapshot, err = client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
+	replayed, replayedSnapshot, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "55555555-5555-4555-8555-555555555555", SessionId: sessionID, HeadTaskId: "task-1"}, "alice", "checkpoint-request")
 	if err != nil || replayed.Id != checkpoint.Id || replayedSnapshot == nil || *replayedSnapshot != *retained {
 		t.Fatalf("checkpoint replay after source deletion = %+v, error %v", replayed, err)
 	}
@@ -345,16 +348,16 @@ func TestSessionCheckpointRetainsRecordedBoundary(t *testing.T) {
 func TestReserveSessionCheckpointRejectsCorruptSource(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	sessionID := "99999999-9999-4999-8999-999999999999"
 	insertReadySessionFixture(t, db, sessionID, "session-request", []byte{0xff})
-	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
+	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: sessionID}, "alice", "checkpoint-request")
 	require.ErrorContains(t, err, "decode Session")
 }
 
 func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := context.Background()
 	sourceID := "66666666-6666-4666-8666-666666666666"
 	forkID := "77777777-7777-4777-8777-777777777777"
@@ -374,14 +377,14 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 
-	source, _, err := client.CreateSession(ctx, &apiv1alpha1.Session{
+	source, _, err := client.CreateSession(ctx, &apiv1.Session{
 		Id: sourceID, Creator: "alice", Name: "Namespace explanation",
 
-		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}, "source-request")
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +406,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "hitl-checkpoint-request")
+	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "hitl-checkpoint-request")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	first.Status.State = a2a.TaskStateCompleted
@@ -411,7 +414,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/snapshot-1", ContentScope: "DATA"}); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "checkpoint-request-1")
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "99999999-9999-4999-8999-999999999999", SessionId: source.GetId(), HeadTaskId: "task-1"}, "alice", "checkpoint-request-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +450,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 		t.Fatalf("ForkSession() = %+v, created %v, error %v", fork, created, err)
 	}
 	if fork.GetId() != forkID || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
-		fork.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING ||
+		fork.GetState() != apiv1.RuntimeState_RUNTIME_STATE_CREATING ||
 		fork.GetAgent().GetName() != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
@@ -489,7 +492,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if _, err := markSessionReady(ctx, client, fork.GetId(), "fork.example"); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint2, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", SessionId: fork.GetId(), HeadTaskId: string(copied.ID)}, "alice", "checkpoint-request-2")
+	checkpoint2, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", SessionId: fork.GetId(), HeadTaskId: string(copied.ID)}, "alice", "checkpoint-request-2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +519,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 }
 
 func TestSessionCreateAndTransitions(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := context.Background()
 	revision := RuntimeRevision{
 		Revision: "revision-1", Namespace: "team-a",
@@ -533,7 +536,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -545,10 +548,10 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
 	}
 
-	request := &apiv1alpha1.Session{
+	request := &apiv1.Session{
 		Id: "11111111-1111-4111-8111-111111111111", Creator: "alice",
 
-		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}
 	created, wasCreated, err := client.CreateSession(ctx, request, "request-1")
 	if err != nil || !wasCreated {
@@ -572,9 +575,9 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	suspend, err := client.BeginSessionOperation(ctx, ready.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	suspend, err := client.BeginSessionOperation(ctx, ready.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.NoError(t, err)
-	_, err = client.BeginSessionOperation(ctx, ready.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
+	_, err = client.BeginSessionOperation(ctx, ready.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME)
 	require.ErrorIs(t, err, ErrConflict)
 	executor := uuid.New()
 	claimed, err := client.ClaimSessionOperation(ctx, ready.Id, suspend.ID, executor)
@@ -582,7 +585,7 @@ func TestSessionCreateAndTransitions(t *testing.T) {
 	require.True(t, claimed)
 	suspended, err := client.FinishSessionOperation(ctx, ready.Id, suspend.ID, executor, "", "", "")
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, suspended.State)
 
 	request.Agent.Name = "different"
 	if _, _, err := client.CreateSession(ctx, request, "request-1"); !errors.Is(err, ErrIdempotencyConflict) {
@@ -635,21 +638,21 @@ func sessionFixture(t *testing.T, client *Client, ctx context.Context, namespace
 	if err := client.UpsertAgentDefinition(ctx, pair); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.RecordRuntimeRevision(ctx, revision, true); err != nil {
+	if err := client.RecordRuntimeRevision(ctx, revision, RecordRevisionOptions{Ready: true}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func newSessionRequest(id, template, harness, name string) *apiv1alpha1.Session {
-	return &apiv1alpha1.Session{
+func newSessionRequest(id, template, harness, name string) *apiv1.Session {
+	return &apiv1.Session{
 		Id: id, Creator: "alice", Name: name,
 
-		Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: template},
+		Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: template},
 	}
 }
 
 func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	for _, namespace := range []string{"team-a", "team-b"} {
 		sessionFixture(t, c, ctx, namespace, namespace+"-revision", "assistant", "kagent")
@@ -679,7 +682,7 @@ func TestSessionsUseOwnerAndIDAcrossTargetNamespaces(t *testing.T) {
 }
 
 func TestSessionNameRoundTripsAndRenames(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := context.Background()
 	sessionFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
 	namedID := "11111111-1111-4111-8111-111111111111"
@@ -735,7 +738,7 @@ func TestSessionNameRoundTripsAndRenames(t *testing.T) {
 }
 
 func TestListSessionsFiltersByAgent(t *testing.T) {
-	c := NewClient(setupTestDB(t))
+	c := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	for _, name := range []string{"reviewer", "researcher"} {
 		sessionFixture(t, c, ctx, "team-a", name+"-revision", name, "")
@@ -743,7 +746,7 @@ func TestListSessionsFiltersByAgent(t *testing.T) {
 		require.NoError(t, err)
 	}
 	for _, name := range []string{"reviewer", "researcher", "missing"} {
-		got, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: name}})
+		got, err := c.ListSessions(ctx, SessionQuery{UserID: "alice", Limit: 10, Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: name}})
 		require.NoError(t, err)
 		if name == "missing" {
 			require.Empty(t, got)
@@ -755,7 +758,7 @@ func TestListSessionsFiltersByAgent(t *testing.T) {
 }
 
 func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	source, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", "Source"), uuid.NewString())
@@ -780,7 +783,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		require.NoError(t, saveRuntimeTask(t, client, source.GetId(), task, task,
 			&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot-" + id, ContentScope: "DATA"}))
 	}
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: source.GetId(), HeadTaskId: "a-second",
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
@@ -802,7 +805,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	require.NotEqual(t, sourceRow.HistoryID, forkRow.HistoryID)
 
 	var forkHead string
-	for _, session := range []*apiv1alpha1.Session{source, fork} {
+	for _, session := range []*apiv1.Session{source, fork} {
 		page, total, err := client.ListSessionTasks(ctx, session.GetId(), "", a2a.TaskStateUnspecified, nil, 1, nil)
 		require.NoError(t, err)
 		require.Equal(t, 2, total)
@@ -817,7 +820,7 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 		}
 	}
 	// A fork can itself be checkpointed without losing task chronology.
-	nested, snapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1alpha1.Checkpoint{
+	nested, snapshot, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: fork.GetId(), HeadTaskId: forkHead,
 	}, "alice", uuid.NewString())
 	require.NoError(t, err)
@@ -839,19 +842,18 @@ func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 }
 
 // markSessionReady completes creation through the lifecycle operations.
-func markSessionReady(ctx context.Context, client *Client, id, authority string) (*apiv1alpha1.Session, error) {
-	return finishSessionOperation(ctx, client, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE, authority)
+func markSessionReady(ctx context.Context, client *Client, id, authority string) (*apiv1.Session, error) {
+	return finishSessionOperation(ctx, client, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, authority)
 }
 
 func TestSessionShareCreationRequiresOwner(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
 	require.NoError(t, err)
-	share := &apiv1alpha1.SessionShare{
+	share := &apiv1.SessionShare{
 		Id: uuid.NewString(), SessionId: session.Id,
-		Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY,
 	}
 	_, err = client.CreateSessionShare(ctx, share, []byte("token"), "bob")
 	require.ErrorIs(t, err, ErrNotFound)
@@ -870,8 +872,40 @@ func TestSessionShareCreationRequiresOwner(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestSessionShareExpiry(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
+	require.NoError(t, err)
+	newShare := func(expiresAt time.Time) *apiv1.SessionShare {
+		return &apiv1.SessionShare{
+			Id: uuid.NewString(), SessionId: session.Id,
+			ExpiresAt: timestamppb.New(expiresAt),
+		}
+	}
+
+	live, err := client.CreateSessionShare(ctx, newShare(time.Now().Add(time.Hour)), []byte("live"), "alice")
+	require.NoError(t, err)
+	resolved, owner, err := client.GetSessionShareByTokenHash(ctx, []byte("live"))
+	require.NoError(t, err)
+	require.Equal(t, "alice", owner)
+	require.True(t, proto.Equal(live, resolved), "the expiry survives the round trip")
+
+	expired, err := client.CreateSessionShare(ctx, newShare(time.Now().Add(-time.Second)), []byte("expired"), "alice")
+	require.NoError(t, err)
+	_, _, err = client.GetSessionShareByTokenHash(ctx, []byte("expired"))
+	require.ErrorIs(t, err, ErrNotFound, "an expired share's token grants nothing")
+
+	listed, err := client.ListSessionShares(ctx, session.Id, "alice", "", 10)
+	require.NoError(t, err)
+	require.Len(t, listed, 2, "the owner still sees an expired share, to revoke it")
+	require.ElementsMatch(t, []string{live.GetId(), expired.GetId()}, []string{listed[0].GetId(), listed[1].GetId()})
+	require.NoError(t, client.DeleteSessionShare(ctx, expired.GetId(), "alice"))
+}
+
 func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	request := newSessionRequest(uuid.NewString(), "assistant", "kagent", "original")
@@ -885,7 +919,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	require.NoError(t, err)
 	task.Status.State = a2a.TaskStateInputRequired
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
-	share := &apiv1alpha1.SessionShare{Id: uuid.NewString(), SessionId: session.Id, Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}
+	share := &apiv1.SessionShare{Id: uuid.NewString(), SessionId: session.Id}
 	_, err = client.CreateSessionShare(ctx, share, []byte("token"), "alice")
 	require.NoError(t, err)
 	require.NoError(t, deleteSession(ctx, client, session.Id))
@@ -918,7 +952,7 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 	_, _, err = client.CreateSession(ctx, request, "stable-request")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 	// Tombstones release the revision FK and no longer block runtime cleanup.
-	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant", nil))
+	require.NoError(t, client.RetireAgentIdentities(ctx, "team-a", "assistant"))
 	revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 	require.NoError(t, err)
 	require.Len(t, revisions, 1)
@@ -928,14 +962,14 @@ func TestDeletedSessionPreservesRequestIdentityAndHidesAccess(t *testing.T) {
 }
 
 func TestShareCreationRacesSessionDeletion(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	for range 8 {
 		session, _, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 		require.NoError(t, err)
 		token := []byte(uuid.NewString())
-		share := &apiv1alpha1.SessionShare{Id: uuid.NewString(), SessionId: session.Id, Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY}
+		share := &apiv1.SessionShare{Id: uuid.NewString(), SessionId: session.Id}
 		start := make(chan struct{})
 		shared, deleted := make(chan error, 1), make(chan error, 1)
 		go func() {

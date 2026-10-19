@@ -3,20 +3,22 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"golang.org/x/sync/errgroup"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"golang.org/x/sync/errgroup"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 // run executes one attempt inline. Errors retain durable intent; only another
 // lifecycle request retries it. Expiration independently requests deletion.
-func (s *Service) run(ctx context.Context, id string, kind apiv1alpha1.RuntimeOperation) (_ *apiv1alpha1.Sandbox, err error) {
+func (s *Service) run(ctx context.Context, id string, kind apiv1.RuntimeOperation) (_ *apiv1.Sandbox, err error) {
 	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
 	defer cancel()
 	op, err := s.config.Store.BeginSandboxOperation(ctx, id, kind)
@@ -37,15 +39,11 @@ func (s *Service) run(ctx context.Context, id string, kind apiv1alpha1.RuntimeOp
 	if err != nil {
 		return nil, sandboxError(err)
 	}
-	binding := substrate.ActorBinding{Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(id),
+	binding := substrate.ActorBinding{Revision: revision.Revision, Atespace: revision.ActorTemplateAtespace, Name: substrate.ActorName(id),
 		TemplateAtespace: revision.ActorTemplateAtespace, TemplateName: revision.ActorTemplateName}
 	var creation *substrate.ActorCreation
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
-		policy, err := substrate.ActorEgressPolicy(binding.Atespace, nil, nil)
-		if err != nil {
-			return nil, sandboxError(err)
-		}
-		creation = &substrate.ActorCreation{EgressPolicy: policy, Resume: true}
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+		creation = &substrate.ActorCreation{Resume: true}
 	}
 	prepare := substrate.PrepareActorTransition
 	if op.ExecutorID != uuid.Nil {
@@ -90,7 +88,10 @@ func (s *Service) NeedLeaderElection() bool { return false }
 // Start only deletes expired sandboxes. Ordinary pending lifecycle operations
 // are client-driven. Database claims coordinate expiration with inline callers.
 func (s *Service) Start(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
+	if s.config.ExpirationPollInterval <= 0 {
+		return fmt.Errorf("sandbox expiration poll interval must be positive")
+	}
+	ticker := time.NewTicker(s.config.ExpirationPollInterval)
 	defer ticker.Stop()
 	var afterID string
 	for {
@@ -102,7 +103,7 @@ func (s *Service) Start(ctx context.Context) error {
 			group.SetLimit(4)
 			for _, id := range ids {
 				group.Go(func() error {
-					if _, err := s.run(ctx, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE); err != nil && !errors.Is(err, database.ErrConflict) && ctx.Err() == nil {
+					if _, err := s.run(ctx, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE); err != nil && !errors.Is(err, database.ErrConflict) && ctx.Err() == nil {
 						logging.FromContext(ctx).ErrorContext(ctx, "expire sandbox", "sandbox_id", id, "error", err)
 					}
 					return nil

@@ -15,8 +15,8 @@ export function useAgentInstances(
 export interface AgentConversations {
   /** Every conversation with this agent the caller was allowed to see. */
   all: AgentInstance[];
-  /** The ids the caller created, which are the ones that will open. */
-  openableIds: Set<string>;
+  /** Conversations created by the caller. */
+  own: AgentInstance[];
   /**
    * Why the list is only the caller's own, when it is.
    *
@@ -73,7 +73,7 @@ export function useAgentConversations(
 
       return {
         all: wide.rows ?? own,
-        openableIds: new Set(own.map((row) => row.id)),
+        own,
         widerReadRefused: wide.refused,
       };
     },

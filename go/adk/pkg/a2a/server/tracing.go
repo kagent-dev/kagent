@@ -7,9 +7,12 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 // invocationScope is the instrumentation scope of the invocation span.
@@ -42,6 +45,9 @@ type invocationInterceptor struct {
 	// once rather than on every request.
 	name   string
 	static []attribute.KeyValue
+
+	duration           metric.Float64Histogram
+	durationAttributes []attribute.KeyValue
 }
 
 // newInvocationInterceptor prepares the span name and static attributes. A
@@ -52,16 +58,34 @@ func newInvocationInterceptor(logger *slog.Logger, telemetry tracing.RuntimeTele
 	if telemetry.Runtime.NativeHarness() {
 		interceptor.name = tracing.OperationInvokeAgent + " " + telemetry.AgentName
 		interceptor.static = append(interceptor.static, attribute.String(tracing.AttributeOperationName, tracing.OperationInvokeAgent))
+		duration, err := tracing.InvocationDuration(tracing.Meter(invocationScope))
+		if err != nil {
+			logger.Error("failed to create the invoke_agent duration histogram", "error", err)
+		}
+		interceptor.duration = duration
+		interceptor.durationAttributes = []attribute.KeyValue{attribute.String(tracing.AttributeAgentName, telemetry.AgentName)}
+		if telemetry.Model != "" {
+			interceptor.durationAttributes = append(interceptor.durationAttributes, attribute.String(tracing.AttributeRequestModel, telemetry.Model))
+		}
 	}
 	interceptor.static = append(interceptor.static, telemetry.Identity()...)
 	return interceptor
 }
 
-func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
+func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
 	method := callCtx.Method()
 	if method != "SendMessage" && method != "SendStreamingMessage" {
 		return ctx, nil, nil
 	}
+	var metadata map[string]any
+	if request != nil {
+		if params, ok := request.Payload.(*a2atype.SendMessageRequest); ok && params != nil && params.Message != nil {
+			metadata = params.Message.Metadata
+		}
+	}
+	// Promote before the invocation starts, so the same baggage processor
+	// covers the invocation and every descendant span.
+	ctx = telemetry.ContextWithPromotedMetadata(ctx, metadata)
 	attributes := make([]attribute.KeyValue, 0, len(i.static)+2)
 	attributes = append(attributes, attribute.String(tracing.AttributeMethod, method))
 	attributes = append(attributes, i.static...)
@@ -71,6 +95,9 @@ func (i *invocationInterceptor) Before(ctx context.Context, callCtx *a2asrv.Call
 		attributes = append(attributes, attribute.String(tracing.AttributeUserID, userID))
 	}
 	ctx, invocation := tracing.StartInvocation(ctx, tracing.Tracer(invocationScope), i.name, i.flush, attributes...)
+	// Runtime identity remains authoritative after baggagecopy runs.
+	invocation.SetAttributes(attributes...)
+	invocation.MeasureDuration(i.duration, i.durationAttributes...)
 	// a2a-go runs no final After callback when a streaming consumer stops
 	// reading, so an invocation the transport still owns would otherwise never
 	// end and never export. The request context ends in that case, and

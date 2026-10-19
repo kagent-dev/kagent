@@ -532,7 +532,7 @@ than keeping a copy that drifts as pages are added.
 ## Chat message parts
 
 `chatPartRenderers` replaces the component that draws one part of a chat message.
-Keys are the part's `kind` (`text`, `tool_approval`, `ask_user`), or the
+Keys are the part's `kind` (`text`, `file`, `tool_approval`, `ask_user`), or the
 `dataKind` for a data part (`tool_call`, `tool_result`, `tool_not_run`,
 `structured_output`, `unknown`). A key you leave out keeps the core renderer.
 The keys come from the part types themselves, so a new kind is overridable as

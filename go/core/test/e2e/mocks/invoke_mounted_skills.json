@@ -1,0 +1,408 @@
+{
+  "openai": [
+    {
+      "name": "skill_PHASE_discover",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": "Run mounted skills PHASE."
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_discover",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_load_standalone_PHASE",
+                  "type": "function",
+                  "function": {
+                    "name": "load_skill",
+                    "arguments": "{\"name\": \"standalone\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skill_PHASE_load_selected",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "tool",
+          "content": "SKILL_BODY_STANDALONE"
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_load_selected",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_load_selected_PHASE",
+                  "type": "function",
+                  "function": {
+                    "name": "load_skill",
+                    "arguments": "{\"name\": \"selected\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skill_PHASE_execute",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "tool",
+          "content": "SKILL_BODY_SELECTED"
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_execute",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_skill_PHASE",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "COMMAND_ARGUMENTS"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skill_PHASE_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "tool",
+          "content": "mounted-standalone-volume-PHASE:mounted-standalone-PHASE:mounted-selected-PHASE",
+          "tool_call_id": "call_skill_PHASE"
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_result",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "SKILLS_PHASE_DONE"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ],
+  "openai_response": [
+    {
+      "name": "skill_PHASE_discover",
+      "match": {
+        "match_type": "contains",
+        "input": "Run mounted skills PHASE."
+      },
+      "response": {
+        "id": "skill_PHASE_discover",
+        "object": "response",
+        "created_at": 1677652290,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "fc_load_standalone_PHASE",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_load_standalone_PHASE",
+            "name": "exec_command",
+            "arguments": "{\"cmd\": \"cat ROOT/standalone/SKILL.md\"}"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 8,
+          "total_tokens": 18
+        }
+      }
+    },
+    {
+      "name": "skill_PHASE_load_selected",
+      "match": {
+        "match_type": "contains",
+        "input": "SKILL_BODY_STANDALONE"
+      },
+      "response": {
+        "id": "skill_PHASE_load_selected",
+        "object": "response",
+        "created_at": 1677652290,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "fc_load_selected_PHASE",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_load_selected_PHASE",
+            "name": "exec_command",
+            "arguments": "{\"cmd\": \"cat ROOT/selected/SKILL.md\"}"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 8,
+          "total_tokens": 18
+        }
+      }
+    },
+    {
+      "name": "skill_PHASE_execute",
+      "match": {
+        "match_type": "contains",
+        "input": "SKILL_BODY_SELECTED"
+      },
+      "response": {
+        "id": "skill_PHASE_execute",
+        "object": "response",
+        "created_at": 1677652290,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "fc_skill_PHASE",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_skill_PHASE",
+            "name": "exec_command",
+            "arguments": "CODEX_COMMAND_ARGUMENTS"
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 8,
+          "total_tokens": 18
+        }
+      }
+    },
+    {
+      "name": "skill_PHASE_result",
+      "match": {
+        "match_type": "contains",
+        "input": "mounted-standalone-volume-PHASE:mounted-standalone-PHASE:mounted-selected-PHASE"
+      },
+      "response": {
+        "id": "skill_PHASE_result",
+        "object": "response",
+        "created_at": 1677652291,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "msg_skill_PHASE_done",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "SKILLS_PHASE_DONE",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 14,
+          "output_tokens": 5,
+          "total_tokens": 19
+        }
+      }
+    }
+  ],
+  "anthropic": [
+    {
+      "name": "skill_PHASE_discover",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Run mounted skills PHASE."
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_discover",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_load_standalone_PHASE",
+            "name": "Skill",
+            "input": {
+              "skill": "standalone"
+            }
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4
+        }
+      }
+    },
+    {
+      "name": "skill_PHASE_load_selected",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "SKILL_BODY_STANDALONE"
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_load_selected",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_load_selected_PHASE",
+            "name": "Skill",
+            "input": {
+              "skill": "selected"
+            }
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4
+        }
+      }
+    },
+    {
+      "name": "skill_PHASE_execute",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "SKILL_BODY_SELECTED"
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_execute",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_skill_PHASE",
+            "name": "Bash",
+            "input": {
+              "command": "COMMAND"
+            }
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 4
+        }
+      }
+    },
+    {
+      "name": "skill_PHASE_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_skill_PHASE"
+            }
+          ]
+        }
+      },
+      "response": {
+        "id": "skill_PHASE_result",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "SKILLS_PHASE_DONE"
+          }
+        ],
+        "model": "claude-sonnet-4-5",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 14,
+          "output_tokens": 4
+        }
+      }
+    }
+  ]
+}

@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
+
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 const invokeE2ETest = "^TestSessionInteraction$"
@@ -43,7 +44,7 @@ func checkoutPreviousRelease(t *testing.T, env upgradeEnv) string {
 // runInvokeE2E runs the invoke e2e slice from treeGoDir against the controller
 // currently serving in the cluster. treeGoDir is the `go/` module dir of the
 // matching-version tree (repo root for HEAD, the worktree for the prior
-// release). It port-forwards the controller for KAGENT_API_URL — re-established per
+// release). It port-forwards the controller for KAGENT_E2E_API_URL — re-established per
 // state, so it survives the controller being reinstalled between states — and
 // relies on KAGENT_E2E_LOCAL_HOST (kind gateway IP, set by the make target) for the
 // agent→host mock-LLM callback. label identifies the state in messages.
@@ -75,9 +76,8 @@ func upgradeE2EEnv(t *testing.T, env upgradeEnv, port int) []string {
 	require.NoError(t, os.WriteFile(kubeconfigPath, []byte(kubeconfig), 0o600))
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)
 	return append(os.Environ(),
-		"KAGENT_E2E_API_URL="+endpoint,
-		"KAGENT_GATEWAY_URL="+endpoint,
-		"KUBECONFIG="+kubeconfigPath,
+		kagentenv.E2EAPIURL.Name()+"="+endpoint,
+		kagentenv.Kubeconfig.Name()+"="+kubeconfigPath,
 	)
 }
 

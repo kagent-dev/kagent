@@ -10,7 +10,7 @@ import (
 
 func TestDeleteAgentMemoryAliasesAreAtomicAndScoped(t *testing.T) {
 	db := setupTestDB(t)
-	client := NewClient(db)
+	client := NewClient(db, "public")
 	ctx := t.Context()
 	for _, memory := range []*Memory{
 		{AgentName: "my-agent", UserID: "owner"},
@@ -52,7 +52,7 @@ func TestDeleteAgentMemoryAliasesAreAtomicAndScoped(t *testing.T) {
 }
 
 func TestStoreAgentMemoriesCommitsIDsWithBatch(t *testing.T) {
-	client := NewClient(setupTestDB(t))
+	client := NewClient(setupTestDB(t), "public")
 	first := &Memory{ID: "original", AgentName: "agent", UserID: "owner", Content: "first", Embedding: makeEmbedding(0.5)}
 	invalid := &Memory{AgentName: "agent", UserID: "owner", Content: "second", Embedding: pgvector.NewVector([]float32{1})}
 	require.Error(t, client.StoreAgentMemories(t.Context(), first, invalid))

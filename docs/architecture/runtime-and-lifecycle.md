@@ -6,10 +6,25 @@ Kubernetes resource.
 
 ## Creation and state
 
-Creation selects the latest successful revision for the Agent, creates a deterministic Actor initially suspended, and marks the session
+Fresh creation pins the Agent's latest successful runtime revision. Pending or
+failed edits leave that revision available; an Agent with no successful revision
+cannot create sessions. Creation retries retain the existing session's pinned
+revision. Explicit egress grants are applied from the controller's persisted
+intended policy before execution. Lifecycle
+operations do not read or translate Kubernetes policy.
+
+The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
+
+Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
+each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
+replaces credential headers in that destination's deciding rule. Conflicting
+protocols on the same host and port are rejected before Actor creation. Literal
+IP allowlists are unsupported by this Substrate release; model, MCP, and telemetry endpoints
+must use DNS names. Host-based test services use Kubernetes Services and
+EndpointSlices to provide those names.
 
 Create (including forks), explicit Suspend, Resume, and Delete keep their current
 operation UUID and executor claim on the session row. Fork creation loads its
@@ -78,9 +93,9 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 ## Idle expiration
 
 Sessions expire after seven days without task activity by default, using the same
-bounded deletion workflow as Sandboxes. `controller.sessionIdleTTL` in Helm sets
-`KAGENT_SESSION_IDLE_TTL` on the controller. Values use Go durations (`168h` for seven days,
-`720h` for thirty); `0` disables the worker, including retries, and negative values
+bounded deletion workflow as Sandboxes. `config.sessions.idleTtl` in Helm configures
+the controller. Values use protobuf durations (`604800s` for seven days,
+`2592000s` for thirty); `0s` disables the worker, including retries, and negative values
 are rejected. There is no per-agent override or maximum TTL.
 
 Idle time is measured from the later of session creation and the latest stored
@@ -107,6 +122,16 @@ the session, shares, runtime row, and creation receipt. GetSession returns NotFo
 CreateSession or ForkSession with the same caller/request ID can create a fresh
 session. Explicit client deletion still retains its tombstone and request ID.
 
+A2A continuation using a missing or expired context ID returns `TaskNotFound`
+(JSON-RPC `-32001`, gRPC `NOT_FOUND`), matching continuation using an old task ID.
+Ownership-filtered lookup gives the same response for another user's Session;
+the response does not distinguish expiry from absence or hidden ownership.
+Authorization-check failures still return permission denied. Clients can start a
+new conversation after `TaskNotFound` by sending without a context or task ID.
+Service-level not-found errors use this same A2A mapping, including missing Agents.
+Agent-card HTTP discovery returns 404 for not-found errors and 403 for permission
+denials. Starting a new conversation requires an existing, authorized Agent.
+
 The retention rule preserves the existing audit policy: A2A context, tasks, event
 history, and explicit checkpoints remain in PostgreSQL. Retained checkpoints can
 still be forked after the source session expires and retain their own snapshot
@@ -124,9 +149,9 @@ level with `session_id` and `idle_time`.
 
 The runtime stages a final task update and acknowledges it after native cleanup.
 That acknowledgement publishes task state and history atomically, without waiting
-for pause/suspend. A Session lifecycle worker independently claims the idle
-boundary in PostgreSQL. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
-terminal work suspends it and records the exact external snapshot. Waiting tasks
+for suspension. A Session lifecycle worker independently claims the idle
+boundary in PostgreSQL. Both INPUT_REQUIRED/AUTH_REQUIRED and terminal work
+suspend the Actor and record the exact external DATA snapshot. Waiting tasks
 are not forkable. The Session stays logically READY, and Substrate ingress
 resumes it when another authorized interaction arrives.
 
@@ -137,6 +162,25 @@ capture until its outcome is recorded. The worker performs runtime I/O outside t
 database transaction. Successful snapshot references are retried on database failure
 without repeating the Substrate operation. Checkpoint creation requires the matching
 snapshot and can return FailedPrecondition after task completion while it is pending.
+
+After settlement commits, a bounded, nonblocking in-memory signal wakes the local
+workers. Signals coalesce; four workers drain durable claims, handing off a wake-up
+before runtime I/O so a burst can use all four workers. PostgreSQL claims coordinate
+replicas. Each worker scans at startup and, when idle, every minute by default
+(`sessions.quiescenceRecoveryInterval` in controller config). A crash between commit and signaling can
+leave an actor running until a surviving replica's next recovery scan; increasing
+the interval increases that delay and the time until its snapshot is available.
+Ordinary committed settlements do not wait for the recovery interval.
+
+An empty claim is followed by a check for unclaimed work on ready sessions. If
+dispatch, checkpoint creation, a lifecycle operation, or a row lock blocks that
+work, workers retry within one second until it becomes eligible or is superseded.
+Database errors also use this short retry. Explicit lifecycle completion wakes
+workers when it returns a session to READY. Suspended/deleted sessions and claimed
+work do not keep the short retry active. Idle workers make one claim attempt and
+one pending-work check per recovery interval, rather than querying every second.
+Other background workers and connection-pool idle settings still affect whether
+PostgreSQL can become idle.
 
 Unclaimed idle work survives API restarts. A claim for possibly issued runtime work
 never expires: losing the worker does not prove that the suspend stopped. Uncertain
@@ -159,14 +203,15 @@ sequenceDiagram
     API-->>Actor: committed version
     Actor->>API: settle after native cleanup
     API->>DB: publish task/history atomically
+    API-->>Worker: nonblocking local wake-up
     Actor-->>Gateway: final event
     Gateway->>Actor: close observer connection
     Gateway->>DB: observe publication
     Gateway-->>Client: current public task
     Note over Worker,DB: Idle lifecycle runs independently of the client response
     Worker->>DB: claim idle boundary unless new execution superseded it
-    Worker->>Actor: pause or suspend
-    Actor-->>Worker: settled native boundary
+    Worker->>Actor: suspend with DATA snapshot
+    Actor-->>Worker: suspended Actor and external DATA snapshot
     Worker->>DB: record snapshot and finish idle claim
 ```
 
@@ -184,3 +229,50 @@ Every Actor mounts a Substrate `DurableDir` at `/data`. Harnesses keep private
 state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
+
+Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
+both the node-local snapshot taken on pause and the one uploaded on suspend.
+Agent and standalone sandbox templates use DATA. Resume starts fresh containers
+from the OCI image with the saved durable directories. Harnesses recover pending
+approvals and user input from their durable state; sandbox guests start with a
+fresh process registry. Agent checkpoints can be forked without carrying the
+source session's process memory or runtime identity into the new session.
+
+Codex and Claude record failed deferred continuations as `abandoned` in their
+existing input journals. Admission rejects abandoned or restored unfinished
+execution phases with an error requiring a new session, instead of restoring a
+pending interaction for a failed task. Failures known to precede execution keep
+the existing retry behavior. This rule is limited to durable deferred input;
+general crash recovery and remote tool outcome reconciliation are follow-up work.
+
+The Go ADK opens and migrates its SQLite session store before readiness, but
+retains no idle database connections. Full and golden restores preserve guest
+memory while rematerializing `/data`, so a connection opened before the snapshot
+can retain a stale file identity and reject writes with `SQLITE_READONLY_DBMOVED`.
+Closing connections when returned to the pool keeps quiescent snapshots free of
+database handles; each later operation opens the current backing file.
+
+## Runtime revision cleanup metrics
+
+GC uses the controller's shared OpenTelemetry provider and configured OTLP export.
+Prometheus scraping is opt-in through `controller.metrics.enabled`.
+
+| OTel metric | Instrument / unit | Prometheus name | Meaning |
+| --- | --- | --- | --- |
+| `kagent.runtime_revision.gc.pending` | Observable integer gauge / `{revision}` | `kagent_runtime_revision_gc_pending` | Eligible persisted revisions from the last successful discovery. No application attributes. |
+| `kagent.runtime_revision.gc.duration` | Histogram / `s` | `kagent_runtime_revision_gc_duration_seconds` | Each discovery or collection attempt, including claim, Substrate read/delete, and finalization. `kagent.gc.stage=discovery\|collection`; `error.type` only on failure: a Substrate gRPC code name or `_OTHER`. Parent cancellation is excluded; operation deadlines count as failures. |
+
+Pending is absent before successful discovery, on standby replicas, and after GC
+stops. Do not fill absence with zero: zero means a successful empty discovery.
+Discovery errors retain the last count. Scrapes only read the cache; restart
+reconstructs pending from PostgreSQL and resets process-local histogram totals.
+
+- **Growing pending:** compare attempt rates, failure ratios, and latency on the
+  active controller before diagnosing churn versus slow or failing cleanup.
+  Let GC retry; never bypass reference/UID protections or clear deletion markers.
+- **Rising failure ratio or latency:** use reset-aware `rate` on histogram
+  `_count` (failed attempts have `error_type`), grouped by `kagent_gc_stage`,
+  and `_bucket` quantiles. Discovery errors point to the database; collection
+  errors require checking the bounded error type and logs (`revision`,
+  `actor_template_atespace`, `actor_template_name`, `error`) to identify the
+  failing dependency and repeated same-object failures.

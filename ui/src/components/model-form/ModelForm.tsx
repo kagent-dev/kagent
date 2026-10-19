@@ -771,48 +771,8 @@ export function ModelForm({
                       </Space>
                     </Form.Item>
 
-                    <Form.Item
-                      label="CA certificate secret"
-                      help="Name of a Kubernetes Secret holding a custom CA. Leave blank to use the system trust store."
-                    >
-                      <Input
-                        data-testid="model-tls-ca-ref"
-                        placeholder="my-ca-secret"
-                        value={draft.tls.caCertSecretRef}
-                        onChange={(event) =>
-                          setTls("caCertSecretRef", event.target.value)
-                        }
-                      />
-                    </Form.Item>
-                    <Form.Item label="CA certificate secret key">
-                      <Input
-                        data-testid="model-tls-ca-key"
-                        placeholder="ca.crt"
-                        value={draft.tls.caCertSecretKey}
-                        onChange={(event) =>
-                          setTls("caCertSecretKey", event.target.value)
-                        }
-                      />
-                    </Form.Item>
                     <Form.Item>
                       <Space size={16} wrap>
-                        <label
-                          css={{
-                            display: "inline-flex",
-                            gap: 6,
-                            alignItems: "center",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            data-testid="model-tls-disable-system-cas"
-                            checked={draft.tls.disableSystemCAs}
-                            onChange={(event) =>
-                              setTls("disableSystemCAs", event.target.checked)
-                            }
-                          />
-                          Trust only the CA above (disable system CAs)
-                        </label>
                         <label
                           css={{
                             display: "inline-flex",

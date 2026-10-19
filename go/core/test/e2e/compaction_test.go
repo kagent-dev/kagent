@@ -9,12 +9,13 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 //go:embed mocks/invoke_golang_compaction.json

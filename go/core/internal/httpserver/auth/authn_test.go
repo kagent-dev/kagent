@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
+
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )

@@ -15,17 +15,15 @@ allowlist.
 
 | Setting | Default | Description |
 |---|---|---|
-| Helm `otel.traces.contextKeys` | `[]` | List of baggage keys, or `{from, to}` mappings, to copy onto spans |
+| Helm `controller.traceContextKeys` | `[]` | List of baggage keys, or `{from, to}` mappings, to copy onto spans |
 | Env `KAGENT_TRACE_CONTEXT_KEYS` | `""` | Comma-separated keys, or a JSON array of the same mappings |
 
 ```yaml
-otel:
-  traces:
-    enabled: true
-    contextKeys:
-      - {from: sub, to: user.id}
-      - thread_id
-      - gen_ai.conversation.id
+controller:
+  traceContextKeys:
+    - {from: sub, to: user.id}
+    - thread_id
+    - gen_ai.conversation.id
 ```
 
 Prefer an opaque identifier such as an OIDC `sub` for `user.id`. Do not put
@@ -47,7 +45,7 @@ Both runtimes install the upstream baggage-to-span-attribute processor
 (`baggagecopy` in Go, `BaggageSpanProcessor` in Python) with a predicate that
 copies only allowlisted destination keys.
 
-A2A `message.metadata` is promoted *into baggage* at the executor boundary when
+A2A `message.metadata` is promoted *into baggage* at the request boundary when
 the destination key is not already set. That is what lets callers that cannot
 set a transport header still reach every span — including sub-agent hops —
 without a second merge path or a request-scoped attribute bag.
@@ -55,14 +53,22 @@ without a second merge path or a request-scoped attribute bag.
 | Source | Set by | How it reaches spans |
 |---|---|---|
 | W3C baggage (`baggage` header) | Any client or proxy on the request path | Copied by the baggage span processor |
-| A2A `message.metadata` | The A2A caller, per message | Written into baggage at the executor if the destination key is absent |
+| A2A `message.metadata` | The A2A caller, per message | Written into baggage at the request boundary if the destination key is absent |
 
 Empty or non-scalar metadata does not wipe baggage. `{from, to}` remaps a
 source key onto the destination baggage member; the processor then copies
 `to`. Destination names are used as-is, so `user.id` and
 `gen_ai.conversation.id` are reachable without a hardcoded unprefixed set.
 
-A key absent from both sources is simply not emitted.
+A key absent from both sources is simply not emitted. Metadata is promoted
+before the invocation span starts, so the allowlist also covers that span.
+
+Baggage propagation across processes is separately opt-in on current kagent.
+Set `OTEL_PROPAGATORS=tracecontext,baggage` on the controller and each runtime
+that should exchange baggage. Use `controller.env` for the controller and the
+Harness workload environment for runtimes. Controller `OTEL_*` overrides are
+process-local; they are not forwarded to managed runtimes. Metadata promotion
+and local span attributes do not require outbound baggage propagation.
 
 ---
 
@@ -75,8 +81,8 @@ metadata: {"thread_id": "1717171.42"} →  thread_id                = "1717171.4
 ```
 
 The request-scoped kagent attribute bag still carries runtime values
-(`kagent.user_id`, `gen_ai.conversation.id`, …). That processor runs after
-baggagecopy, so caller baggage cannot override attributes the runtime already
+(`enduser.id`, `gen_ai.conversation.id`, `a2a.task.id`, …). That processor runs after the
+baggage processor, so caller baggage cannot override attributes the runtime already
 stamped.
 
 This is deliberate: Langfuse v4 and comparable backends resolve trace-level
@@ -142,10 +148,7 @@ processors:
 | Component | Path |
 |---|---|
 | Go ADK | `go/adk/pkg/telemetry/context_attributes.go` |
-| Python core | `python/packages/kagent-core/src/kagent/core/tracing/_context_attributes.py` |
-| Python ADK | `python/packages/kagent-adk/src/kagent/adk/_agent_executor.py` |
-| Python LangGraph | `python/packages/kagent-langgraph/src/kagent/langgraph/_executor.py` |
-| Python CrewAI | `python/packages/kagent-crewai/src/kagent/crewai/_executor.py` |
-| Python OpenAI | `python/packages/kagent-openai/src/kagent/openai/_agent_executor.py` |
+| Python core | `python/packages/kagent-core/src/kagent/core/telemetry/_context_attributes.py` |
+| Python A2A boundary (all runtimes) | `python/packages/kagent-core/src/kagent/core/a2a/_telemetry.py` |
 | Controller forwarding | `go/core/internal/translator/kagent/compiler.go` |
-| Helm | `helm/kagent/templates/controller-configmap.yaml` |
+| Helm | `helm/kagent/templates/controller-deployment.yaml` |

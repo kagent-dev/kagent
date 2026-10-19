@@ -65,8 +65,7 @@ type MCPToolBinding struct {
 	RequireApproval bool `json:"requireApproval,omitempty"`
 }
 
-// SubAgentToolBinding exposes a same-namespace AgentTemplate or Agent as a logical tool.
-// +kubebuilder:validation:XValidation:rule="has(self.templateRef) != has(self.agentRef)",message="exactly one of templateRef or agentRef must be specified"
+// SubAgentToolBinding exposes a same-namespace AgentTemplate as a logical tool.
 type SubAgentToolBinding struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -77,17 +76,15 @@ type SubAgentToolBinding struct {
 	Description string `json:"description"`
 	// TemplateRef selects a Shared subagent compiled into the parent's runtime using its Harness.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="templateRef.name must not be empty"
-	// +optional
-	TemplateRef *corev1.LocalObjectReference `json:"templateRef,omitempty"`
-	// AgentRef selects a Dedicated subagent with its own Harness and Session, invoked over A2A.
-	// Dedicated execution is not supported yet; compilation rejects bindings with agentRef.
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="agentRef.name must not be empty"
-	// +optional
-	AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
+	// +required
+	TemplateRef *corev1.LocalObjectReference `json:"templateRef"`
+
+	// Deferred until Dedicated subagents can create and invoke their own Session.
+	// AgentRef *corev1.LocalObjectReference `json:"agentRef,omitempty"`
 }
 
 // ToolBinding selects exactly one MCP or subagent tool source.
-// +kubebuilder:validation:XValidation:rule="has(self.mcp) != has(self.subAgent)",message="exactly one of mcp or subAgent must be specified"
+// +kubebuilder:validation:ExactlyOneOf=mcp;subAgent
 type ToolBinding struct {
 	// +optional
 	MCP *MCPToolBinding `json:"mcp,omitempty"`
@@ -142,7 +139,7 @@ type BucketArtifact struct {
 }
 
 // ArtifactSource selects exactly one immutable artifact.
-// +kubebuilder:validation:XValidation:rule="(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) + (has(self.bucket) ? 1 : 0) == 1",message="exactly one of oci, git or bucket must be specified"
+// +kubebuilder:validation:ExactlyOneOf=oci;git;bucket
 // +kubebuilder:validation:XValidation:rule="!has(self.path) || (!self.path.startsWith('/') && !self.path.split('/').exists(p, p == '..'))",message="path must be relative and must not contain '..' segments"
 type ArtifactSource struct {
 	// OCI is a digest-pinned image reference.
@@ -172,8 +169,8 @@ type PluginBundle struct {
 }
 
 // AgentTemplateSpec defines portable agent behavior.
-// +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
-// +kubebuilder:validation:XValidation:rule="!(has(self.outputSchema) && has(self.outputSchemaFrom))",message="outputSchema and outputSchemaFrom are mutually exclusive"
+// +kubebuilder:validation:AtMostOneOf=systemPrompt;systemPromptFrom
+// +kubebuilder:validation:AtMostOneOf=outputSchema;outputSchemaFrom
 type AgentTemplateSpec struct {
 	// ModelConfig is required by managed harnesses and optional for BYO harnesses.
 	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"

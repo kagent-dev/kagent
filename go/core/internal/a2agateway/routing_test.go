@@ -4,19 +4,19 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
-
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 const gatewayTestAgent = "team-a/assistant"
@@ -45,7 +45,7 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 
 type gatewayTestWorkflow struct{ *sessionsvc.ActorWorkflow }
 
-func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 
@@ -54,7 +54,7 @@ func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessi
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
-	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer))
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false)
 	return New(interactions, dialer, url)
 }
 
@@ -126,7 +126,7 @@ func TestInitialStreamingRetrySubscribesWithoutRedispatch(t *testing.T) {
 func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
 	store := &gatewayTestStore{session: gatewayTestSession()}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, "")
-	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice", ReadOnly: true})
+	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice"})
 	_, err := gateway.ListTasks(ctx, &a2a.ListTasksRequest{Tenant: gatewayTestAgent})
 	require.NoError(t, err)
 	require.Equal(t, []string{gatewayTestID}, store.listedIDs)

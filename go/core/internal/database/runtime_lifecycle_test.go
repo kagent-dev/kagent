@@ -10,7 +10,7 @@ import (
 
 func TestRuntimeLifecycleStoresSharedValues(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
 	instance, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "create")
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestRuntimeLifecycleRejectsUnknownStoredValues(t *testing.T) {
 
 func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	pool := setupTestDB(t)
-	client := NewClient(pool)
+	client := NewClient(pool, "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	_, err := pool.Exec(ctx, `
@@ -69,7 +69,9 @@ func TestAgentWritesRejectSandboxRevisions(t *testing.T) {
 	revision, err := client.GetRuntimeRevision(ctx, "revision")
 	require.NoError(t, err)
 	revision.Revision, revision.ActorTemplateUID = "sandbox-revision", "replacement-uid"
-	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, true), ErrConflict)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{}), ErrConflict)
+	require.ErrorIs(t, client.RecordRuntimeRevision(ctx, *revision, RecordRevisionOptions{Ready: true}), ErrConflict)
+	require.ErrorIs(t, client.RecordSandboxRevision(ctx, SandboxRevision{RuntimeArtifact: RuntimeArtifact{Revision: "revision", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "scratch"}, SandboxTemplateName: "scratch", SandboxTemplateUID: "scratch-uid", SourceSnapshot: []byte(`{}`)}, RecordRevisionOptions{Ready: true}), ErrConflict)
 	var uid string
 	require.NoError(t, pool.QueryRow(ctx, "SELECT actor_template_uid FROM runtime_revision WHERE revision = 'sandbox-revision'").Scan(&uid))
 	require.Equal(t, "original-uid", uid)

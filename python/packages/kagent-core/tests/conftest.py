@@ -1,6 +1,6 @@
 import pytest
 
-from kagent.core.tracing._context_attributes import _allowed_context_mappings
+from kagent.core.telemetry._context_attributes import _allowed_context_mappings
 
 
 @pytest.fixture(autouse=True)

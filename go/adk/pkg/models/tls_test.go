@@ -125,13 +125,13 @@ func TestBuildHTTPClient_CustomCA_DisableSystemCAs(t *testing.T) {
 
 // Should set timeout if specified
 func TestBuildHTTPClient_Timeout(t *testing.T) {
-	seconds := 42
-	client, err := BuildHTTPClient(TransportConfig{Timeout: &seconds})
+	timeout := 250 * time.Millisecond
+	client, err := BuildHTTPClient(TransportConfig{Timeout: &timeout})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if client.Timeout != 42*time.Second {
-		t.Errorf("expected timeout 42s, got %v", client.Timeout)
+	if client.Timeout != timeout {
+		t.Errorf("expected timeout 250ms, got %v", client.Timeout)
 	}
 }
 
@@ -144,13 +144,13 @@ func TestBuildHTTPClient_ConnectTimeout(t *testing.T) {
 	}
 	origDial := fmt.Sprintf("%p", def.DialContext)
 
-	seconds := 7
-	if _, err := BuildHTTPClient(TransportConfig{ConnectTimeout: &seconds}); err != nil {
+	timeout := 750 * time.Millisecond
+	if _, err := BuildHTTPClient(TransportConfig{ConnectTimeout: &timeout}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// BuildHTTPClient wraps the transport in a trace-propagating layer, so the
 	// clone/dialer assertions are made against the connect-timeout step itself.
-	rt, err := withConnectTimeout(http.DefaultTransport, time.Duration(seconds)*time.Second)
+	rt, err := withConnectTimeout(http.DefaultTransport, timeout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

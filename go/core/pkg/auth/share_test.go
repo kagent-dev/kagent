@@ -22,17 +22,6 @@ func TestShareContext(t *testing.T) {
 				Token:     "tok-abc",
 				SessionID: "sess-123",
 				UserID:    "user-456",
-				ReadOnly:  true,
-			},
-			wantOK: true,
-		},
-		{
-			name: "store and retrieve read-write context",
-			stored: &ShareContext{
-				Token:     "tok-xyz",
-				SessionID: "sess-789",
-				UserID:    "user-001",
-				ReadOnly:  false,
 			},
 			wantOK: true,
 		},
@@ -74,9 +63,6 @@ func TestShareContext(t *testing.T) {
 			}
 			if got.UserID != tt.stored.UserID {
 				t.Errorf("UserID = %q, want %q", got.UserID, tt.stored.UserID)
-			}
-			if got.ReadOnly != tt.stored.ReadOnly {
-				t.Errorf("ReadOnly = %v, want %v", got.ReadOnly, tt.stored.ReadOnly)
 			}
 		})
 	}

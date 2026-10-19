@@ -7,21 +7,19 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv/limiter"
+	adkagent "google.golang.org/adk/v2/agent"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	adkagent "google.golang.org/adk/v2/agent"
 )
 
 const (
@@ -33,20 +31,21 @@ const (
 // AppConfig holds configuration for a KAgent A2A application.
 type AppConfig struct {
 	// ControllerClient shares the existing controller channel with the TaskStore.
-	// When nil, KAGENT_API_URL must configure a channel owned by this app.
+	// When nil, ControlPlaneURL configures a channel owned by this app.
 	ControllerClient *controllerclient.Client
+	ControlPlaneURL  string
+	MaxContentLength *int64
 	// AgentCard describes the agent's capabilities for A2A discovery.
 	AgentCard a2atype.AgentCard
 
 	// Host is the address to bind to. Empty string binds to all interfaces.
 	Host string
 
-	// Port is the port to listen on. Defaults to the KAGENT_PORT env var, then "8080".
+	// Port is the port to listen on. Defaults to "8080".
 	Port string
 
 	// AppName identifies this application for session and tracing purposes.
-	// Defaults to KAGENT_NAMESPACE__NS__KAGENT_NAME from env, then AgentCard.Name,
-	// then "go-adk-agent".
+	// Defaults to AgentCard.Name, then "go-adk-agent".
 	AppName string
 
 	// ShutdownTimeout is the graceful shutdown timeout. Defaults to 5 seconds.
@@ -88,9 +87,9 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		return nil, fmt.Errorf("executor must not be nil")
 	}
 	if cfg.Logger == nil {
-		logger, err := logging.NewFromEnv(os.Stderr)
+		logger, err := logging.New(os.Stderr, "info")
 		if err != nil {
-			return nil, fmt.Errorf("parse KAGENT_LOG_LEVEL: %w", err)
+			return nil, fmt.Errorf("create logger: %w", err)
 		}
 		cfg.Logger = logger
 	}
@@ -102,9 +101,9 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	app := &KAgentApp{logger: log}
 	controller := cfg.ControllerClient
 	if controller == nil {
-		apiURL := env.KagentAPIURL.Get()
+		apiURL := cfg.ControlPlaneURL
 		if apiURL == "" {
-			return nil, fmt.Errorf("ControllerClient or %s is required", env.KagentAPIURL.Name())
+			return nil, fmt.Errorf("ControllerClient or ControlPlaneURL is required")
 		}
 		var err error
 		controller, err = controllerclient.New(controllerclient.Config{APIURL: apiURL, AgentName: cfg.AppName})
@@ -116,29 +115,18 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	tasks := runtimetaskstore.New(controller, apia2a.RuntimeIdentityPath)
 	runtimeExecutor := tasks.WrapExecutor(executor, cfg.Telemetry.Runtime, cfg.Flush)
 	executor = runtimeExecutor
-	handlerOpts := []a2asrv.RequestHandlerOption{
-		a2asrv.WithTaskStore(tasks),
-		a2asrv.WithConcurrencyConfig(limiter.ConcurrencyConfig{MaxExecutions: 1}),
-	}
-
-	// Coordinate native execution with ordinary SDK persistence and cleanup.
-	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
-		a2a.HITLActivationInterceptor(),
-		a2a.UserIDCallInterceptor(),
-		runtimeExecutor,
-	))
-
 	// Append any caller-supplied handler options.
-	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
+	handlerOpts := append(handlerOptions(tasks, runtimeExecutor), cfg.HandlerOpts...)
 
 	serverConfig := server.ServerConfig{
-		Host:            cfg.Host,
-		Port:            cfg.Port,
-		ShutdownTimeout: cfg.ShutdownTimeout,
-		HealthPaths:     cfg.HealthPaths,
-		HealthHandler:   cfg.HealthHandler,
-		Telemetry:       cfg.Telemetry,
-		Flush:           cfg.Flush,
+		Host:             cfg.Host,
+		Port:             cfg.Port,
+		ShutdownTimeout:  cfg.ShutdownTimeout,
+		HealthPaths:      cfg.HealthPaths,
+		HealthHandler:    cfg.HealthHandler,
+		Telemetry:        cfg.Telemetry,
+		Flush:            cfg.Flush,
+		MaxContentLength: cfg.MaxContentLength,
 	}
 
 	a2aServer, err := server.NewA2AServer(buildAgentCard(cfg), executor, log, serverConfig, handlerOpts...)
@@ -153,11 +141,26 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	return app, nil
 }
 
-// buildAgentCard returns the card the server serves. The HITL extension is declared
-// for every app, whether or not an ADK agent was supplied for skill derivation.
+// handlerOptions coordinates native execution with SDK persistence and cleanup.
+// The runtime interceptor admits one send; the SDK limiter frees only after settlement.
+func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallInterceptor) []a2asrv.RequestHandlerOption {
+	return []a2asrv.RequestHandlerOption{
+		a2asrv.WithTaskStore(tasks),
+		a2asrv.WithCallInterceptors(
+			a2a.HITLActivationInterceptor(),
+			a2a.UsageActivationInterceptor(),
+			a2a.UserIDCallInterceptor(),
+			runtime,
+		),
+	}
+}
+
+// buildAgentCard returns the card the server serves. The HITL and usage extensions
+// are declared for every app, whether or not an ADK agent was supplied for skill derivation.
 func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
 	card := cfg.AgentCard
 	a2a.EnsureHITLExtension(&card)
+	a2a.EnsureUsageExtension(&card)
 	if cfg.Agent != nil {
 		a2a.EnrichAgentCard(&card, cfg.Agent)
 	}
@@ -181,9 +184,6 @@ func (a *KAgentApp) Logger() *slog.Logger {
 // applyDefaults fills in zero-value fields with sensible defaults.
 func applyDefaults(cfg AppConfig) AppConfig {
 	if cfg.Port == "" {
-		cfg.Port = env.KagentPort.Get()
-	}
-	if cfg.Port == "" {
 		cfg.Port = defaultPort
 	}
 
@@ -206,18 +206,8 @@ func applyDefaults(cfg AppConfig) AppConfig {
 	return cfg
 }
 
-// buildAppName derives the app name from environment variables or agent card,
-// following the same convention as the Python KAgentConfig.
+// buildAppName supplies an identity for standalone applications.
 func buildAppName(agentCard *a2atype.AgentCard) string {
-	kagentName := env.KagentName.Get()
-	kagentNamespace, namespaceSet := env.KagentNamespace.Lookup()
-
-	if namespaceSet && kagentNamespace != "" && kagentName != "" {
-		namespace := strings.ReplaceAll(kagentNamespace, "-", "_")
-		name := strings.ReplaceAll(kagentName, "-", "_")
-		return namespace + "__NS__" + name
-	}
-
 	if agentCard != nil && agentCard.Name != "" {
 		return agentCard.Name
 	}

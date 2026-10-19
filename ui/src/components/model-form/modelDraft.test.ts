@@ -67,7 +67,7 @@ describe("buildModelPayload — authentication modes", () => {
     const req = buildModelPayload(draft({ authType: "apiKey", apiKey: "sk-123" }));
     expect(req.apiKey).toBe("sk-123");
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("secret: references an existing Secret and sends no inline key", () => {
@@ -83,9 +83,9 @@ describe("buildModelPayload — authentication modes", () => {
     expect(req.spec.apiKeySecretKey).toBe("OPENAI_API_KEY");
   });
 
-  it("passthrough: sets apiKeyPassthrough and stores nothing", () => {
+  it("passthrough: sets tokenPassthrough and stores nothing", () => {
     const req = buildModelPayload(draft({ authType: "passthrough" }));
-    expect(req.spec.apiKeyPassthrough).toBe(true);
+    expect(req.spec.tokenPassthrough).toBe(true);
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
   });
@@ -94,7 +94,7 @@ describe("buildModelPayload — authentication modes", () => {
     const req = buildModelPayload(draft({ authType: "none", apiKey: "ignored" }));
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("Ollama sends no inline key even when the mode says apiKey", () => {
@@ -105,7 +105,7 @@ describe("buildModelPayload — authentication modes", () => {
     );
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("Ollama names a Secret, which is what authenticates an Ollama Cloud model", () => {
@@ -122,7 +122,7 @@ describe("buildModelPayload — authentication modes", () => {
     expect(req.spec.apiKeySecretKey).toBe("OLLAMA_API_KEY");
     // The key is mounted for the runtime, never serialized into the request.
     expect(req.apiKey).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 
   it("Ollama defaults the Secret key when only the Secret is named", () => {
@@ -157,7 +157,7 @@ describe("buildModelPayload — authentication modes", () => {
     );
     expect(req.apiKey).toBeUndefined();
     expect(req.spec.apiKeySecret).toBeUndefined();
-    expect(req.spec.apiKeyPassthrough).toBeUndefined();
+    expect(req.spec.tokenPassthrough).toBeUndefined();
   });
 });
 
@@ -178,16 +178,11 @@ describe("buildModelPayload — headers, TLS, Ollama tag", () => {
     const req = buildModelPayload(
       draft({
         tls: {
-          caCertSecretRef: "my-ca",
-          caCertSecretKey: "ca.crt",
-          disableSystemCAs: false,
           disableVerify: true,
         },
       }),
     );
     expect(req.spec.tls).toEqual({
-      caCertSecretRef: "my-ca",
-      caCertSecretKey: "ca.crt",
       disableVerify: true,
     });
   });
@@ -215,7 +210,7 @@ describe("modelDraftFrom — round trip", () => {
         apiKeySecret: "gpt-secret",
         apiKeySecretKey: "OPENAI_API_KEY",
         defaultHeaders: { "X-Trace": "on" },
-        tls: { caCertSecretRef: "ca", disableVerify: true },
+        tls: { disableVerify: true },
       },
     };
     const d = modelDraftFrom(config);
@@ -223,7 +218,6 @@ describe("modelDraftFrom — round trip", () => {
     expect(d.apiKeySecret).toBe("gpt-secret");
     expect(d.params).toEqual({ maxTokens: "1024" });
     expect(d.defaultHeaders.map((h) => [h.key, h.value])).toEqual([["X-Trace", "on"]]);
-    expect(d.tls.caCertSecretRef).toBe("ca");
     expect(d.tls.disableVerify).toBe(true);
   });
 
@@ -231,7 +225,7 @@ describe("modelDraftFrom — round trip", () => {
     expect(
       modelDraftFrom({
         ref: "kagent/x",
-        spec: { provider: "OpenAI", model: "gpt-4.1", apiKeyPassthrough: true },
+        spec: { provider: "OpenAI", model: "gpt-4.1", tokenPassthrough: true },
       }).authType,
     ).toBe("passthrough");
 

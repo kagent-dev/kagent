@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -6,24 +6,18 @@ import {
   Form,
   Input,
   Segmented,
-  Select,
   Space,
   Tooltip,
   Typography,
-  Upload,
 } from "antd";
 import { useTheme } from "@emotion/react";
 import { Link, useNavigate } from "react-router-dom";
-import { Info, Plus, Trash2, Upload as UploadIcon } from "lucide-react";
+import { Info } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { SubmitError } from "@/components/common/SubmitError";
 import {
-  COMMAND_EXECUTORS,
-  type CommandExecutor,
-  type EnvRow,
   type McpServerFormValues,
   emptyMcpServerForm,
-  previewCommand,
   schemeFor,
   stripScheme,
   suggestName,
@@ -35,12 +29,6 @@ import { apiClient, useInvalidateMcpServers } from "@/api";
 
 const { Text } = Typography;
 
-let envCounter = 0;
-const newEnvRow = (): EnvRow => {
-  envCounter += 1;
-  return { id: `env-${envCounter}`, name: "", value: "" };
-};
-
 export function McpServerNewPage() {
   const theme = useTheme();
   const [values, setValues] = useState<McpServerFormValues>(emptyMcpServerForm);
@@ -50,10 +38,6 @@ export function McpServerNewPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
-  // The uploaded CA file's name and any problem reading it live here; its
-  // contents live in `values.caCertPem`.
-  const [caCertFileName, setCaCertFileName] = useState<string>();
-  const [caCertError, setCaCertError] = useState<string>();
   const navigate = useNavigate();
   const invalidateServers = useInvalidateMcpServers();
 
@@ -106,41 +90,9 @@ export function McpServerNewPage() {
     setFailure(undefined);
   };
 
-  /**
-   * Loads a PEM CA bundle from the chosen file into the form.
-   *
-   * Read in the browser rather than uploaded: the certificate is public material
-   * that only becomes a Secret when the server is created, so there is nothing to
-   * send until then. Returning `false` stops antd from trying to upload it.
-   */
-  const readCaCert = (file: File): boolean => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "");
-      if (!text.includes("-----BEGIN CERTIFICATE-----")) {
-        setCaCertError("That file is not a PEM-encoded certificate.");
-        return;
-      }
-      setCaCertError(undefined);
-      setCaCertFileName(file.name);
-      set("caCertPem", text);
-    };
-    reader.onerror = () => setCaCertError("That file could not be read.");
-    reader.readAsText(file);
-    return false;
-  };
-
-  const clearCaCert = () => {
-    setCaCertError(undefined);
-    setCaCertFileName(undefined);
-    set("caCertPem", "");
-  };
-
   const issues = useMemo(() => validateMcpServerForm(values), [values]);
   const issueFor = (field: keyof McpServerFormValues) =>
     submitted ? issues.find((issue) => issue.field === field)?.message : undefined;
-
-  const command = previewCommand(values);
 
   const submit = async () => {
     setSubmitted(true);
@@ -179,25 +131,8 @@ export function McpServerNewPage() {
         size="middle"
         css={{ display: "flex", maxWidth: 720 }}
       >
-        <Segmented<string>
-          data-testid="mcp-kind"
-          value={values.kind}
-          onChange={(value) => {
-            // The other branch's fields have never been submitted, so carrying
-            // the flag over would greet the user with errors on inputs they have
-            // not had the chance to fill in yet.
-            setSubmitted(false);
-            set("kind", value as McpServerFormValues["kind"]);
-          }}
-          options={[
-            { label: "Remote URL", value: "url" },
-            { label: "Command", value: "command" },
-          ]}
-        />
         <Text css={{ color: theme.color.textMuted }}>
-          {values.kind === "url"
-            ? "A RemoteMCPServer: the controller connects out to a URL you already host."
-            : "An MCPServer: the controller runs the server itself as a Deployment and talks to it over stdio."}
+          The controller connects to an MCP endpoint you already host.
         </Text>
 
         <Form layout="vertical" component="div">
@@ -228,12 +163,6 @@ export function McpServerNewPage() {
             />
           </Form.Item>
 
-          {/* Keyed so switching kind unmounts one branch and mounts the other.
-              Without distinct keys React pairs the two branches' Form.Items by
-              position and reuses the DOM: the URL field's help text and error
-              styling survive onto whichever Command field lands in that slot. */}
-          {values.kind === "url" ? (
-            <Fragment key="url-fields">
               <Form.Item
                 label="Server URL"
                 required
@@ -284,56 +213,6 @@ export function McpServerNewPage() {
                   ]}
                 />
               </Form.Item>
-
-              {/* Only over TLS is a CA bundle meaningful, so the field appears
-                  only for HTTPS. With one the upstream is verified against it;
-                  without one the system trust store is used. */}
-              {values.tlsEnabled ? (
-                <Form.Item
-                  label="CA certificate"
-                  validateStatus={caCertError ? "error" : undefined}
-                  help={
-                    caCertError ??
-                    "Optional. Upload a PEM CA bundle to verify the upstream against a private CA. Leave blank to use the system trust store."
-                  }
-                >
-                  <Upload.Dragger
-                    accept=".crt,.cer,.pem"
-                    maxCount={1}
-                    beforeUpload={readCaCert}
-                    onRemove={clearCaCert}
-                    fileList={
-                      caCertFileName
-                        ? [
-                            {
-                              uid: "ca-cert",
-                              name: caCertFileName,
-                              status: "done" as const,
-                            },
-                          ]
-                        : []
-                    }
-                  >
-                    <p
-                      className="ant-upload-drag-icon"
-                      css={{ marginBottom: theme.space(2) }}
-                    >
-                      <UploadIcon
-                        size={24}
-                        aria-hidden
-                        css={{ color: theme.color.textMuted }}
-                      />
-                    </p>
-                    <p
-                      data-testid="mcp-ca-upload"
-                      className="ant-upload-text"
-                    >
-                      Drop a CA certificate here, or click to browse
-                    </p>
-                    <p className="ant-upload-hint">PEM, CRT or CER</p>
-                  </Upload.Dragger>
-                </Form.Item>
-              ) : null}
 
               <Form.Item>
                 <Space size={6}>
@@ -410,166 +289,6 @@ export function McpServerNewPage() {
                   Terminate the connection when the session closes
                 </Checkbox>
               </Form.Item>
-            </Fragment>
-          ) : (
-            <Fragment key="command-fields">
-              <Form.Item label="Executor">
-                <Select<CommandExecutor>
-                  data-testid="mcp-executor"
-                  value={values.executor}
-                  onChange={(value) => set("executor", value)}
-                  options={Object.entries(COMMAND_EXECUTORS).map(([value, meta]) => ({
-                    value: value as CommandExecutor,
-                    label: `${meta.label} — ${meta.image}`,
-                  }))}
-                />
-              </Form.Item>
-
-              <Form.Item
-                label="Package"
-                required
-                validateStatus={issueFor("packageName") ? "error" : undefined}
-                help={issueFor("packageName")}
-              >
-                <Input
-                  data-testid="mcp-package"
-                  placeholder="@modelcontextprotocol/server-filesystem"
-                  value={values.packageName}
-                  onChange={(event) => set("packageName", event.target.value)}
-                />
-              </Form.Item>
-
-              <Form.Item
-                label="Arguments before the package"
-                help="Split on spaces, for example -y."
-              >
-                <Input
-                  data-testid="mcp-command-prefix"
-                  value={values.commandPrefix}
-                  onChange={(event) => set("commandPrefix", event.target.value)}
-                />
-              </Form.Item>
-
-              <Form.Item label="Arguments">
-                <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-                  {values.args.map((arg, index) => (
-                    <Space key={index} size={8} css={{ display: "flex" }}>
-                      <Input
-                        data-testid="mcp-arg"
-                        aria-label={`Argument ${index + 1}`}
-                        value={arg}
-                        onChange={(event) =>
-                          set(
-                            "args",
-                            values.args.map((existing, at) =>
-                              at === index ? event.target.value : existing,
-                            ),
-                          )
-                        }
-                      />
-                      <Button
-                        aria-label={`Remove argument ${index + 1}`}
-                        icon={<Trash2 size={14} />}
-                        onClick={() =>
-                          set(
-                            "args",
-                            values.args.filter((_, at) => at !== index),
-                          )
-                        }
-                      />
-                    </Space>
-                  ))}
-                  <Button
-                    data-testid="mcp-add-arg"
-                    icon={<Plus size={14} />}
-                    onClick={() => set("args", [...values.args, ""])}
-                  >
-                    Add argument
-                  </Button>
-                </Space>
-              </Form.Item>
-
-              <Form.Item label="Environment variables">
-                <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-                  {values.env.map((row, index) => (
-                    <Space key={row.id} size={8} css={{ display: "flex" }}>
-                      <Input
-                        data-testid="mcp-env-name"
-                        aria-label={`Environment variable ${index + 1} name`}
-                        placeholder="NAME"
-                        value={row.name}
-                        onChange={(event) =>
-                          set(
-                            "env",
-                            values.env.map((existing) =>
-                              existing.id === row.id
-                                ? { ...existing, name: event.target.value }
-                                : existing,
-                            ),
-                          )
-                        }
-                      />
-                      <Input
-                        data-testid="mcp-env-value"
-                        aria-label={`Environment variable ${index + 1} value`}
-                        placeholder="value"
-                        value={row.value}
-                        onChange={(event) =>
-                          set(
-                            "env",
-                            values.env.map((existing) =>
-                              existing.id === row.id
-                                ? { ...existing, value: event.target.value }
-                                : existing,
-                            ),
-                          )
-                        }
-                      />
-                      <Button
-                        aria-label={`Remove environment variable ${index + 1}`}
-                        icon={<Trash2 size={14} />}
-                        onClick={() =>
-                          set(
-                            "env",
-                            values.env.filter((existing) => existing.id !== row.id),
-                          )
-                        }
-                      />
-                    </Space>
-                  ))}
-                  <Button
-                    data-testid="mcp-add-env"
-                    icon={<Plus size={14} />}
-                    onClick={() => set("env", [...values.env, newEnvRow()])}
-                  >
-                    Add variable
-                  </Button>
-                </Space>
-              </Form.Item>
-
-              {/* What will actually run, assembled in the order the executor
-                  expects — the part that is easy to get wrong and hard to debug
-                  once it is only visible in a crashing pod. */}
-              <Form.Item label="Command preview">
-                <pre
-                  data-testid="mcp-command-preview"
-                  css={{
-                    margin: 0,
-                    padding: theme.space(3),
-                    background: theme.color.bgElevated,
-                    border: `1px solid ${theme.color.border}`,
-                    borderRadius: theme.radius.md,
-                    fontFamily: theme.font.mono,
-                    color: command ? theme.color.text : theme.color.textMuted,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-all",
-                  }}
-                >
-                  {command || "Enter a package to see the command."}
-                </pre>
-              </Form.Item>
-            </Fragment>
-          )}
         </Form>
 
         {submitted && issues.length > 0 ? (

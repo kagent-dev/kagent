@@ -1,6 +1,41 @@
 {
   "openai_response": [
     {
+      "name": "codex_resource_denied",
+      "match": {
+        "match_type": "contains",
+        "input": "production is serving traffic"
+      },
+      "response": {
+        "id": "resp_codex_denied",
+        "object": "response",
+        "created_at": 1677652294,
+        "model": "gpt-5.2-codex",
+        "output": [
+          {
+            "id": "msg_codex_denied",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "MCP_TOOL_DENIED",
+                "annotations": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {
+          "input_tokens": 16,
+          "output_tokens": 7,
+          "total_tokens": 23
+        }
+      }
+    },
+    {
       "name": "codex_resource_start",
       "match": {
         "match_type": "contains",
@@ -62,6 +97,33 @@
         "model": "gpt-5.2-codex",
         "output": [{
           "id": "msg_codex_resource_done",
+          "type": "message",
+          "status": "completed",
+          "role": "assistant",
+          "content": [{
+            "type": "output_text",
+            "text": "CODEX_MCP_DONE result is 8",
+            "annotations": []
+          }]
+        }],
+        "parallel_tool_calls": false,
+        "tools": [],
+        "usage": {"input_tokens": 16, "output_tokens": 7, "total_tokens": 23}
+      }
+    },
+    {
+      "name": "codex_resource_deferred_result",
+      "match": {
+        "match_type": "contains",
+        "input": "\\\"text\\\":\\\"8\\\""
+      },
+      "response": {
+        "id": "resp_codex_resource_deferred_done",
+        "object": "response",
+        "created_at": 1677652294,
+        "model": "gpt-5.2-codex",
+        "output": [{
+          "id": "msg_codex_resource_deferred_done",
           "type": "message",
           "status": "completed",
           "role": "assistant",

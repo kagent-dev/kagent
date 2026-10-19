@@ -10,21 +10,18 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from kagent.core.tracing import (
+from kagent.core.telemetry._context_attributes import (
+    MAX_CONTEXT_KEYS,
+    TRACE_CONTEXT_KEYS_ENV_VAR,
+    _allowed_context_mappings,
     allowed_baggage_key_predicate,
     context_with_promoted_metadata,
     detach_promoted_metadata,
     promote_message_metadata_to_baggage,
 )
-from kagent.core.tracing._context_attributes import (
-    MAX_CONTEXT_KEYS,
-    TRACE_CONTEXT_KEYS_ENV_VAR,
-    _allowed_context_mappings,
-)
-from kagent.core.tracing._span_processor import (
+from kagent.core.telemetry._span_processor import (
+    KAGENT_ATTRIBUTES_KEY,
     KagentAttributesSpanProcessor,
-    clear_kagent_span_attributes,
-    set_kagent_span_attributes,
 )
 
 
@@ -160,7 +157,7 @@ class TestContextWithPromotedMetadata:
     def test_skips_message_decode_when_allowlist_empty(self, monkeypatch):
         set_allowlist(monkeypatch, "")
         decode = MagicMock(return_value={"thread_id": "T1"})
-        monkeypatch.setattr("kagent.core.tracing._context_attributes.MessageToDict", decode)
+        monkeypatch.setattr("kagent.core.telemetry._context_attributes.MessageToDict", decode)
         assert baggage_values(context_with_promoted_metadata(message=MagicMock())) == {}
         decode.assert_not_called()
 
@@ -168,7 +165,7 @@ class TestContextWithPromotedMetadata:
         set_allowlist(monkeypatch, "thread_id")
         message = MagicMock()
         monkeypatch.setattr(
-            "kagent.core.tracing._context_attributes.MessageToDict",
+            "kagent.core.telemetry._context_attributes.MessageToDict",
             lambda _message: {"thread_id": "T1"},
         )
         assert baggage_values(context_with_promoted_metadata(message=message)) == {"thread_id": "T1"}
@@ -214,7 +211,7 @@ def test_caller_context_lands_on_every_span(monkeypatch):
         metadata=None,
         context=baggage_context({"user.id": "opaque-subject"}),
     )
-    attrs_token = set_kagent_span_attributes({"kagent.user_id": "runtime-user"})
+    attrs_token = otel_context.attach(otel_context.set_value(KAGENT_ATTRIBUTES_KEY, {"kagent.user_id": "runtime-user"}))
     try:
         tracer = provider.get_tracer("test")
         with tracer.start_as_current_span("invocation"):
@@ -222,7 +219,7 @@ def test_caller_context_lands_on_every_span(monkeypatch):
                 with tracer.start_as_current_span("generate_content"):
                     pass
     finally:
-        clear_kagent_span_attributes(attrs_token)
+        otel_context.detach(attrs_token)
         detach_promoted_metadata(token)
         provider.shutdown()
 
@@ -241,13 +238,15 @@ def test_runtime_attributes_win_over_allowlisted_baggage(monkeypatch):
     provider.add_span_processor(KagentAttributesSpanProcessor())
 
     token = otel_context.attach(baggage_context({"gen_ai.conversation.id": "from-caller"}))
-    attrs_token = set_kagent_span_attributes({"gen_ai.conversation.id": "from-runtime"})
+    attrs_token = otel_context.attach(
+        otel_context.set_value(KAGENT_ATTRIBUTES_KEY, {"gen_ai.conversation.id": "from-runtime"})
+    )
     try:
         tracer = provider.get_tracer("test")
         with tracer.start_as_current_span("generate_content"):
             pass
     finally:
-        clear_kagent_span_attributes(attrs_token)
+        otel_context.detach(attrs_token)
         otel_context.detach(token)
         provider.shutdown()
 

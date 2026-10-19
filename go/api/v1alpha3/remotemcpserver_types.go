@@ -39,7 +39,7 @@ const (
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
 //
 // +kubebuilder:validation:XValidation:message="spec.tls must be unset when spec.url has http:// scheme: a TLS opinion contradicts a plaintext URL. Either drop spec.tls, or use https:// / a scheme-less URL.",rule="!self.url.startsWith('http://') || !has(self.tls)"
-// +kubebuilder:validation:XValidation:message="spec.allowedNamespaces must not permit cross-namespace access (from: All or from: Selector) when spec.tls.caCertSecretRef is set: a pinned CA Secret is mounted onto the consuming agent's pod and Kubernetes resolves it in the agent's namespace, not this RemoteMCPServer's. Use from: Same (the default), or remove the CA Secret reference.",rule="!(has(self.allowedNamespaces) && has(self.allowedNamespaces.from) && (self.allowedNamespaces.from == 'All' || self.allowedNamespaces.from == 'Selector') && has(self.tls) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0)"
+// +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when tokenPassthrough is enabled",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
 type RemoteMCPServerSpec struct {
 	// +required
 	Description string `json:"description"`
@@ -49,12 +49,26 @@ type RemoteMCPServerSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	URL string `json:"url"`
+	// HeadersFrom supplies request headers. Secret-backed headers are injected by
+	// the egress gateway and cannot use routing, framing, hop-by-hop,
+	// proxy-authentication, or Cookie headers. At most 64 headers may be supplied.
 	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || self.name.matches('^[!#$%&\\\\x27*+.^_`|~0-9A-Za-z-]+$')",message="Secret-backed headers require a valid HTTP header name",fieldPath=".name"
+	// +kubebuilder:validation:items:XValidation:rule="!has(self.valueFrom) || self.valueFrom.type != 'Secret' || !(self.name.lowerAscii() in ['host', 'connection', 'content-length', 'transfer-encoding', 'te', 'trailer', 'upgrade', 'keep-alive', 'proxy-authorization', 'proxy-authenticate', 'cookie'])",message="this header cannot carry an egress credential",fieldPath=".name"
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
+	// TokenPassthrough forwards the bearer token from the incoming A2A request
+	// to this server as its Authorization header. Requests without a caller
+	// token fail. Controller tool discovery has no caller token, so servers that
+	// require one should disable discovery with the kagent.dev/discovery label.
+	// +optional
+	TokenPassthrough bool `json:"tokenPassthrough,omitempty"`
 	// +optional
 	// +kubebuilder:default="30s"
+	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="timeout must be positive and at most 9223372036s"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="duration(self) > duration('0s') && duration(self) <= duration('9223372036s')",message="sseReadTimeout must be positive and at most 9223372036s"
 	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`
 	// +optional
 	// +kubebuilder:default=true
@@ -64,29 +78,12 @@ type RemoteMCPServerSpec struct {
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
-	//
-	// A cross-namespace-permitting value (from: All or from: Selector) is
-	// mutually exclusive with spec.tls.caCertSecretRef (enforced by a spec-level
-	// XValidation rule): a pinned CA Secret is mounted onto the consuming agent's
-	// pod by bare name and Kubernetes resolves it in the agent's namespace, not
-	// this RemoteMCPServer's, so a CA-pinning RemoteMCPServer cannot be referenced
-	// cross-namespace. from: Same (the default) is always allowed.
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 
 	// TLS configuration for the upstream MCP server connection.
-	// Use this for HTTPS upstreams that present a certificate the agent's
-	// system trust store does not include (corporate CA, self-signed cert
-	// on a test fixture, internal MCP gateway). Reuses the same TLSConfig
-	// type as ModelConfig.spec.tls — disableVerify turns off certificate
-	// validation entirely, caCertSecretRef + caCertSecretKey point at a
-	// PEM bundle Secret in the same namespace, and disableSystemCAs
-	// trusts only the named bundle.
-	//
-	// Note one asymmetry with ModelConfig: a spec-level XValidation rule
-	// on RemoteMCPServer rejects spec.tls when spec.url has the http://
-	// scheme (a TLS opinion contradicts a plaintext URL). ModelConfig has
-	// no equivalent rule, so a TLS block can sit alongside any baseUrl.
+	// DisableVerify turns off certificate validation for development or testing.
+	// Custom CA bundles are not supported. TLS must be unset for HTTP URLs.
 	// +optional
 	TLS *TLSConfig `json:"tls,omitempty"`
 }
@@ -117,11 +114,8 @@ type RemoteMCPServerStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// +optional
 	DiscoveredTools []*MCPTool `json:"discoveredTools,omitempty"`
-	// SecretHash stores a hash of the TLS Secret referenced by spec.tls so
-	// agents that consume this RemoteMCPServer can detect cert rotation and
-	// roll on the next reconcile. Empty when spec.tls.caCertSecretRef is unset.
-	// +optional
-	SecretHash string `json:"secretHash,omitempty"`
+	// Deferred with custom CA Secret references and rotation handling.
+	// SecretHash string `json:"secretHash,omitempty"`
 }
 
 type MCPTool struct {

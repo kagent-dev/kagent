@@ -3,14 +3,14 @@ package telemetry
 import (
 	"context"
 
-	kagenttelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	kagenttelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-// Init boots the process telemetry. Baggagecopy runs before the request
-// attribute processor so runtime identity still wins when both set a key.
+// Init installs caller baggage promotion before the authoritative request attributes.
 func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (*kagenttelemetry.Providers, error) {
 	processors := make([]sdktrace.SpanProcessor, 0, 2)
 	if filter := AllowedBaggageCopyFilter(); filter != nil {
@@ -18,7 +18,8 @@ func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (*kagenttelem
 	}
 	processors = append(processors, requestAttributesSpanProcessor{})
 	return kagenttelemetry.Init(ctx, kagenttelemetry.Options{
-		Runtime:        string(telemetry.Runtime),
+		Identity:       telemetry.ResourceIdentity(),
+		Config:         telemetry.ExporterConfig(),
 		Defaults:       telemetry.ResourceDefaults(""),
 		SpanProcessors: processors,
 	})

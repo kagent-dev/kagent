@@ -6,22 +6,23 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 func equalityTestReconciliation() AgentReconciliation {
 	return AgentReconciliation{
 		Agent: &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "agent"}},
-		Target: &compiledTarget{Revision: v2translator.Revision{
+		Target: &compiledTarget{Revision: translator.Revision{
 			Namespace: "test", AgentName: "agent",
 			AgentCard: &a2apb.AgentCard{Name: "agent"},
 		},
-			RevisionID: v2translator.RevisionID{1},
+			RevisionID: translator.RevisionID{1},
 			ActorTemplate: &ateapipb.ActorTemplate{
 				Metadata: &ateapipb.ResourceMetadata{Atespace: "test", Name: "runtime"},
 			},
@@ -54,6 +55,9 @@ func TestAgentReconciliationEquality(t *testing.T) {
 			proto.Size(r.ObservedActorTemplate)
 		}, equal: true},
 		{name: "template source", change: func(r *AgentReconciliation) { r.Agent.Generation++ }},
+		{name: "live grants", change: func(r *AgentReconciliation) {
+			r.EgressGrant.Destinations = []string{"https://tickets.example.com:443"}
+		}},
 		{name: "revision identity", change: func(r *AgentReconciliation) { r.Target.RevisionID[0]++ }},
 		{name: "revision inputs", change: func(r *AgentReconciliation) { r.Target.Revision.SandboxClass = "microvm" }},
 		{name: "agent card", change: func(r *AgentReconciliation) { r.Target.Revision.AgentCard.Name = "changed" }},

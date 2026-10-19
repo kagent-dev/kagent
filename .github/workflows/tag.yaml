@@ -1,30 +1,47 @@
-name: Tag and Push
+name: Release
 
 on:
-  push:
-    tags:
-    - "v*.*.*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version number'
+        description: 'Release tag to create (v prefix required, e.g. v0.1.0)'
+        required: true
+        type: string
 
-# https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#release
-# GITHUB_SHA = Last commit in the tagged release
-# GITHUB_REF = Tag ref of release refs/tags/<tag_name>
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Build the selected workflow ref's commit; create its tag only when publishing the release.
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
     - name: Resolve version
       id: version
       env:
-        VERSION: ${{ inputs.version || github.ref_name }}
-      run: echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+        TAG: ${{ inputs.version }}
+      run: |
+        if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          echo '::error::Expected a release tag with a v prefix, such as v0.1.0 or v0.1.0-rc.1.'
+          exit 1
+        fi
+        git check-ref-format "refs/tags/$TAG"
+        if git show-ref --verify --quiet "refs/tags/$TAG"; then
+          echo "::error::Tag $TAG already exists. Choose a new release version."
+          exit 1
+        fi
+        echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
   push-images:
     needs: setup
@@ -33,7 +50,6 @@ jobs:
         image:
           - controller
           - ui
-          - kagent-adk
           - golang-adk
           - claude-harness
           - codex-harness
@@ -44,7 +60,7 @@ jobs:
       packages: write
     steps:
     - name: 'Checkout GitHub Action'
-      uses: actions/checkout@v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - uses: ./.github/actions/publish-image
       with:
@@ -56,13 +72,13 @@ jobs:
     needs:
     - setup
     - push-images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
     - name: 'Checkout GitHub Action'
-      uses: actions/checkout@v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - uses: ./.github/actions/publish-helm
       with:
@@ -73,15 +89,15 @@ jobs:
     needs: setup
     env:
       VERSION: ${{ needs.setup.outputs.version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
     - name: 'Checkout GitHub Action'
-      uses: actions/checkout@v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
     - name: 'Release Python Packages'
       working-directory: python
       run: |
@@ -116,40 +132,46 @@ jobs:
 
   build-release-artifacts:
     needs: setup
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: ./.github/actions/build-release-artifacts
       with:
         version: ${{ needs.setup.outputs.version }}
-    - uses: actions/upload-artifact@v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: release-artifacts
         path: |
           go/core/bin/kagent-*
-          dist/kagent-*.tgz
         if-no-files-found: error
 
   release:
-    # Publish after all packages and release artifacts are ready.
+    # Create the tag and publish after all packages and release artifacts are ready.
     needs:
+    - setup
     - build-release-artifacts
     - push-helm-chart
     - release-python-packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-    - uses: actions/download-artifact@v8
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: release-artifacts
-    - name: Release
-      uses: softprops/action-gh-release@v3
-      if: startsWith(github.ref, 'refs/tags/')
+        path: go/core/bin
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
+        name: release-charts
+        path: dist
+    - name: Release
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      with:
+        tag_name: ${{ needs.setup.outputs.tag }}
+        target_commitish: ${{ github.sha }}
         generate_release_notes: true
         files: |
           go/core/bin/kagent-*

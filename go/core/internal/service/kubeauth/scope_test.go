@@ -3,9 +3,10 @@ package kubeauth_test
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestMatcher(t *testing.T) {

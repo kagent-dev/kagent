@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.types import Artifact, Message, Part, Role, SendMessageRequest, TaskArtifactUpdateEvent
 from google.adk.a2a.converters.request_converter import AgentRunRequest
+from google.adk.agents.base_agent import BaseAgent
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.runners import InMemoryRunner
 from google.protobuf.json_format import ParseDict
 from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
@@ -122,7 +124,7 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
     if caller:
         context.call_context.user = KAgentUser(caller)
     event_queue = object()
-    runner = object()
+    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
     run_request = AgentRunRequest(
         user_id="user-1",
         session_id="context-1",
@@ -156,50 +158,8 @@ async def test_execute_delegates_to_adk_2_executor_and_closes_request_runner(mon
     assert calls["runner"] is runner
     assert calls["force_new_version"] is True
     assert calls["context"] is context
-    assert calls["event_queue"] is event_queue
+    assert calls["event_queue"]._queue is event_queue
     assert calls["config"].request_converter == executor._convert_request
     assert calls["config"].a2a_part_converter == executor_module._convert_public_a2a_part_to_genai_part
     executor._prepare_session.assert_awaited_once_with(context, run_request, runner)
     executor._safe_close_runner.assert_awaited_once_with(runner)
-
-
-@pytest.mark.asyncio
-async def test_execute_promotes_message_metadata_to_baggage(monkeypatch):
-    context = _request_context()
-    event_queue = object()
-    runner = object()
-    run_request = AgentRunRequest(
-        user_id="user-1",
-        session_id="context-1",
-        run_config=RunConfig(),
-    )
-    executor = A2aAgentExecutor(runner=lambda: None)
-    executor._resolve_runner = AsyncMock(return_value=runner)
-    executor._convert_request = lambda request_context, part_converter: run_request
-    executor._prepare_session = AsyncMock()
-    executor._safe_close_runner = AsyncMock()
-
-    recorded = {}
-
-    def fake_promote(*, metadata=None, context=None, message=None):
-        recorded["message"] = message
-        return None
-
-    monkeypatch.setattr(executor_module, "promote_message_metadata_to_baggage", fake_promote)
-    decode = MagicMock(return_value={"thread_id": "T1"})
-    if hasattr(executor_module, "read_message_metadata"):
-        monkeypatch.setattr(executor_module, "read_message_metadata", decode)
-
-    class FakeUpstreamExecutor:
-        def __init__(self, *, runner, config, force_new_version):
-            pass
-
-        async def execute(self, request_context, queue):
-            return None
-
-    monkeypatch.setattr(executor_module, "UpstreamA2aAgentExecutor", FakeUpstreamExecutor)
-
-    await executor.execute(context, event_queue)
-
-    assert recorded["message"] is context.message
-    decode.assert_not_called()

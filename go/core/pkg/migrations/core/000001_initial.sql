@@ -34,6 +34,7 @@ CREATE TABLE runtime_revision (
     source_snapshot          JSONB       NOT NULL,
     egress_destinations      TEXT[]      NOT NULL DEFAULT '{}',
     credentials              JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(credentials) = 'array'),
+    token_passthrough_origins TEXT[]      NOT NULL DEFAULT '{}',
     actor_template_atespace  TEXT        CONSTRAINT runtime_revision_actor_template_namespace_not_null NOT NULL,
     actor_template_name      TEXT        NOT NULL,
     actor_template_uid       TEXT        NOT NULL DEFAULT '',
@@ -52,6 +53,7 @@ CREATE TABLE agent_revision (
     agent_card BYTEA NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
+CREATE INDEX agent_revision_source_idx ON agent_revision (agent_name, revision);
 
 CREATE TABLE sandbox_revision (
     revision TEXT PRIMARY KEY,
@@ -59,11 +61,14 @@ CREATE TABLE sandbox_revision (
     sandbox_template_uid TEXT NOT NULL,
     FOREIGN KEY (revision) REFERENCES runtime_revision(revision) ON DELETE CASCADE
 );
+CREATE INDEX sandbox_revision_source_idx ON sandbox_revision (sandbox_template_name, revision);
 
 CREATE TABLE agent_definition (
     namespace                    TEXT        NOT NULL,
     agent_name                   TEXT        NOT NULL,
     agent_uid                    TEXT        NOT NULL,
+    grant_destinations           TEXT[]      NOT NULL DEFAULT '{}',
+    grant_credentials            JSONB       NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     desired_revision             TEXT        NOT NULL,
     latest_successful_revision   TEXT        REFERENCES agent_revision(revision) ON DELETE RESTRICT,
     retired_at                   TIMESTAMPTZ,
@@ -78,6 +83,8 @@ CREATE TABLE sandbox_template_definition (
     namespace TEXT NOT NULL,
     sandbox_template_name TEXT NOT NULL,
     sandbox_template_uid TEXT NOT NULL,
+    grant_destinations TEXT[] NOT NULL DEFAULT '{}',
+    grant_credentials JSONB NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(grant_credentials) = 'array'),
     desired_revision TEXT NOT NULL,
     latest_successful_revision TEXT REFERENCES sandbox_revision(revision) ON DELETE RESTRICT,
     retired_at TIMESTAMPTZ,
@@ -135,6 +142,8 @@ CREATE TABLE runtime_instance (
 );
 CREATE INDEX runtime_instance_owner_idx ON runtime_instance (kind, user_id, id)
     WHERE state <> 'RUNTIME_STATE_DELETED';
+CREATE INDEX runtime_instance_revision_idx ON runtime_instance (prepared_revision, id)
+    WHERE state <> 'RUNTIME_STATE_DELETED' AND operation <> 'RUNTIME_OPERATION_DELETE';
 
 CREATE TABLE session (
     id                   UUID        PRIMARY KEY,
@@ -173,10 +182,9 @@ CREATE INDEX sandbox_expiration_idx ON sandbox (expires_at, id);
 CREATE TABLE session_share (
     id          UUID        PRIMARY KEY,
     session_id  UUID        NOT NULL REFERENCES session(id) ON DELETE CASCADE,
-    permission  TEXT        NOT NULL CHECK (permission IN (
-        'SESSION_SHARE_PERMISSION_READ_ONLY', 'SESSION_SHARE_PERMISSION_READ_WRITE')),
     token_hash  BYTEA       NOT NULL UNIQUE,
-    data        BYTEA       NOT NULL
+    data        BYTEA       NOT NULL,
+    expires_at  TIMESTAMPTZ
 );
 CREATE INDEX session_share_session_idx
     ON session_share (session_id, id);
@@ -329,7 +337,48 @@ AND NOT EXISTS (SELECT 1 FROM sandbox_template_definition p WHERE p.retired_at I
 AND NOT EXISTS (SELECT 1 FROM runtime_instance i WHERE i.prepared_revision = r.revision)
 AND NOT EXISTS (SELECT 1 FROM session_checkpoint c WHERE c.prepared_revision = r.revision);
 
+CREATE UNIQUE INDEX session_task_event_push_source ON session_task_event (sequence, history_id, task_id);
+
+CREATE TABLE session_push_registration (
+    id UUID PRIMARY KEY,
+    history_id UUID NOT NULL REFERENCES session(history_id) ON DELETE CASCADE,
+    initial_message_id TEXT CHECK (initial_message_id <> ''),
+    initial_request_hash BYTEA CHECK (octet_length(initial_request_hash) = 32),
+    config_id TEXT NOT NULL CHECK (config_id <> ''),
+    url TEXT NOT NULL CHECK (url <> ''),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    task_id TEXT,
+    closed_at TIMESTAMPTZ,
+    pending_event_sequence BIGINT,
+    attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    next_attempt_at TIMESTAMPTZ,
+    claim_token UUID,
+    lease_until TIMESTAMPTZ,
+    FOREIGN KEY (pending_event_sequence, history_id, task_id)
+        REFERENCES session_task_event(sequence, history_id, task_id),
+    CHECK (pending_event_sequence IS NULL OR (task_id IS NOT NULL AND closed_at IS NULL)),
+    CHECK ((pending_event_sequence IS NULL AND attempt_count = 0 AND next_attempt_at IS NULL
+            AND claim_token IS NULL AND lease_until IS NULL)
+        OR (pending_event_sequence IS NOT NULL AND next_attempt_at IS NOT NULL)),
+    CHECK ((claim_token IS NULL AND lease_until IS NULL)
+        OR (claim_token IS NOT NULL AND lease_until IS NOT NULL AND attempt_count > 0)),
+    FOREIGN KEY (history_id, task_id) REFERENCES session_task(history_id, id) ON DELETE CASCADE,
+    CHECK (initial_message_id IS NOT NULL OR task_id IS NOT NULL),
+    CHECK ((initial_message_id IS NULL) = (initial_request_hash IS NULL))
+);
+CREATE UNIQUE INDEX session_push_registration_initial ON session_push_registration (history_id, initial_message_id)
+    WHERE initial_message_id IS NOT NULL;
+CREATE UNIQUE INDEX session_push_registration_task_config ON session_push_registration (history_id, task_id, config_id)
+    WHERE task_id IS NOT NULL AND closed_at IS NULL;
+CREATE INDEX session_push_registration_unbound ON session_push_registration (created_at, id)
+    WHERE closed_at IS NULL AND task_id IS NULL;
+CREATE INDEX session_push_registration_due ON session_push_registration (next_attempt_at, id)
+    WHERE pending_event_sequence IS NOT NULL AND claim_token IS NULL;
+CREATE INDEX session_push_registration_lease ON session_push_registration (lease_until, id)
+    WHERE claim_token IS NOT NULL;
+
 -- +goose Down
+DROP TABLE session_push_registration;
 
 DROP VIEW unreferenced_runtime_revision;
 DROP VIEW sandbox_record;

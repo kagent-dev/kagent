@@ -12,15 +12,16 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
@@ -37,30 +38,33 @@ const (
 var ownedEnvironment = map[string]struct{}{
 	codexHomeEnv: {}, openAIAPIKeyEnv: {}, awsRegionEnv: {}, awsBedrockTokenEnv: {},
 	awsAccessKeyEnv: {}, awsSecretKeyEnv: {}, awsSessionTokenEnv: {},
-	"KAGENT_NAME": {}, "KAGENT_NAMESPACE": {}, "KAGENT_API_URL": {},
 }
 
 type Compiler struct {
+	settings    *configv1.RuntimeDefaultsConfig
 	ctx         krt.HandlerContext
-	collections v2translator.Collections
+	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections v2translator.Collections) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections}
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
-func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.CompileResult, error) {
+func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) (*translator.CompileResult, error) {
 	if input == nil || input.Harness == nil || input.Root == nil || input.Root.Template == nil || input.Root.ResolvedModelConfig == nil || input.Root.ResolvedModelConfig.Config == nil {
 		return nil, fmt.Errorf("codex compiler requires a resolved Harness, AgentTemplate, and ModelConfig")
 	}
 	model := input.Root.ResolvedModelConfig.Config
 	if strings.TrimSpace(model.Spec.Model) == "" {
-		return nil, v2translator.NewValidationError("Codex ModelConfig model is required")
+		return nil, translator.NewValidationError("Codex ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
-		return nil, v2translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.TokenPassthrough {
+		return nil, translator.NewValidationError("Codex does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough")
 	}
-	telemetryConfig, _ := v2translator.TelemetryConfigFromProcess()
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
+	if err != nil {
+		return nil, err
+	}
 	traceConfig, logConfig := telemetryConfig.Traces, telemetryConfig.Logs
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
@@ -72,7 +76,7 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := v2translator.CompileSkillResources(input.Root.Template)
+	skills, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -81,32 +85,14 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 		return nil, err
 	}
 	environment := append(providerEnvironment, mcp.environment...)
-	harnessAttributes, err := v2translator.HarnessResourceAttributes(input.Harness)
-	if err != nil {
-		return nil, err
-	}
 	for _, variable := range input.Harness.Spec.Env {
-		if v2translator.IsResourceAttributesVariable(variable.Name) {
-			continue
-		}
 		_, reserved := ownedEnvironment[variable.Name]
-		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) || v2translator.OwnsTelemetryEnvironment(variable.Name) {
-			return nil, v2translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
+		if reserved || strings.HasPrefix(variable.Name, mcpCredentialPrefix) {
+			return nil, translator.NewValidationError("Harness env %q conflicts with Codex's compiled configuration", variable.Name)
 		}
-		envVar := corev1.EnvVar{Name: variable.Name}
-		if variable.Value != nil {
-			envVar.Value = *variable.Value
-		} else {
-			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: variable.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, envVar)
+		environment = append(environment, corev1.EnvVar{Name: variable.Name, Value: variable.Value})
 	}
-	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: input.AgentName},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentAPIURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-	)
-	environment = append(environment, telemetryConfig.TelemetryEnvironment(runtimeTelemetry, harnessAttributes)...)
+
 	agents, err := compileAgents(input.Root)
 	if err != nil {
 		return nil, err
@@ -114,8 +100,11 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	cfg := codexconfig.Production(model.Spec.Model, input.Root.Instruction)
 	cfg.Provider, cfg.Agents, cfg.MCPServers = provider, agents, mcp.servers
 	cfg.RuntimeTelemetry = runtimeTelemetry
+	cfg.ControlPlaneURL = c.settings.GetControlPlaneUrl()
+	cfg.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
+	cfg.LogLevel = c.settings.GetLogging().GetLevel()
 	if traceConfig.Enabled || logConfig.Enabled {
-		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.CaptureSensitiveContent}
+		cfg.Telemetry = &codexconfig.Telemetry{CaptureContent: telemetryConfig.Runtime.CaptureContent}
 		if traceConfig.Enabled {
 			cfg.Telemetry.Traces = &codexconfig.OTLPExporter{Endpoint: traceConfig.Endpoint, Protocol: traceConfig.Protocol}
 		}
@@ -123,17 +112,17 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 			cfg.Telemetry.Logs = &codexconfig.OTLPExporter{Endpoint: logConfig.Endpoint, Protocol: logConfig.Protocol}
 		}
 	}
-	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
-		cfg.SkillResources = &skillResources
+	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
+		cfg.SkillResources = &skills.Resources
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, v2translator.NewValidationError("invalid compiled Codex configuration: %v", err)
+		return nil, translator.NewValidationError("invalid compiled Codex configuration: %v", err)
 	}
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal Codex config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(v2translator.ManagedAgentCard(input.AgentName, input.Root.Template))
+	card, err := pbconv.ToProtoAgentCard(translator.ManagedAgentCard(input.AgentName, input.Root.Template))
 	if err != nil {
 		return nil, fmt.Errorf("convert Codex agent card: %w", err)
 	}
@@ -141,22 +130,23 @@ func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput
 	if err != nil {
 		return nil, fmt.Errorf("build Codex revision provenance: %w", err)
 	}
-	environment, credentials, err := v2translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
-	egress = append(egress, skillEgress...)
+	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
-	egress = append(egress, telemetryConfig.Destinations()...)
-	egress = append(egress, utils.GetControllerName()+"."+utils.GetResourceNamespace())
+	egress = append(egress, telemetryConfig.Destinations(environment)...)
+	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
-	return &v2translator.CompileResult{
-		Revision: v2translator.Revision{
-			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+	return &translator.CompileResult{
+		Revision: translator.Revision{
+			Namespace:   template.Namespace,
+			SkillImages: skills.Images,
+			Environment: environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
+			TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -166,45 +156,45 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
 		if model.Spec.OpenAI == nil || model.Spec.OpenAI.APIFormat == nil || *model.Spec.OpenAI.APIFormat != v1alpha3.OpenAIAPIFormatResponses {
-			return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex OpenAI requires openAI.apiFormat responses")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex OpenAI requires openAI.apiFormat responses")
 		}
 		options := *model.Spec.OpenAI
 		baseURL := strings.TrimSpace(options.BaseURL)
 		options.BaseURL, options.APIFormat = "", nil
 		if !reflect.DeepEqual(options, v1alpha3.OpenAIConfig{}) {
-			return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl and apiFormat responses")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support OpenAI provider options beyond baseUrl and apiFormat responses")
 		}
 		if err := c.requireSecretKey(ctx, model.Namespace, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey); err != nil {
 			return codexconfig.Provider{}, nil, nil, err
 		}
 		provider := codexconfig.Provider{Name: "openai", BaseURL: baseURL}
-		egress := []string{"api.openai.com"}
+		egress := []string{"https://api.openai.com:443"}
 		if baseURL != "" {
-			host, err := absoluteHTTPHostname(baseURL)
+			host, err := absoluteHTTPOrigin(baseURL)
 			if err != nil {
-				return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex OpenAI baseUrl %v", err)
+				return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex OpenAI baseUrl %v", err)
 			}
 			egress = []string{host}
 		}
 		return provider, []corev1.EnvVar{secretEnvironment(openAIAPIKeyEnv, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey)}, egress, nil
 	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil || strings.TrimSpace(model.Spec.Bedrock.Region) == "" {
-			return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex Bedrock requires bedrock.region")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock requires bedrock.region")
 		}
 		options := *model.Spec.Bedrock
 		region := strings.TrimSpace(options.Region)
 		if !strings.HasPrefix(model.Spec.Model, "gpt-") {
-			return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex Bedrock supports only OpenAI gpt-* model IDs")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock supports only OpenAI gpt-* model IDs")
 		}
 		options.Region = ""
 		if options.CacheTTL == "5m" {
 			options.CacheTTL = ""
 		}
 		if !reflect.DeepEqual(options, v1alpha3.BedrockConfig{}) {
-			return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex does not support Bedrock provider options beyond region")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support Bedrock provider options beyond region")
 		}
 		if model.Spec.APIKeySecret == "" || model.Spec.APIKeySecretKey != "" {
-			return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex Bedrock requires apiKeySecret and an empty apiKeySecretKey")
+			return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock requires apiKeySecret and an empty apiKeySecretKey")
 		}
 		secret, err := c.secret(ctx, model.Namespace, model.Spec.APIKeySecret)
 		if err != nil {
@@ -216,7 +206,7 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 		} else {
 			for _, key := range []string{awsAccessKeyEnv, awsSecretKeyEnv} {
 				if len(secret.Data[key]) == 0 {
-					return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex Bedrock Secret %q requires %s and %s, or %s", secret.Name, awsAccessKeyEnv, awsSecretKeyEnv, awsBedrockTokenEnv)
+					return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex Bedrock Secret %q requires %s and %s, or %s", secret.Name, awsAccessKeyEnv, awsSecretKeyEnv, awsBedrockTokenEnv)
 				}
 				environment = append(environment, secretEnvironment(key, secret.Name, key))
 			}
@@ -224,13 +214,13 @@ func (c *Compiler) compileProvider(ctx context.Context, model *v1alpha3.ModelCon
 				environment = append(environment, secretEnvironment(awsSessionTokenEnv, secret.Name, awsSessionTokenEnv))
 			}
 		}
-		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"bedrock-runtime." + region + ".amazonaws.com"}, nil
+		return codexconfig.Provider{Name: "amazon-bedrock"}, environment, []string{"https://bedrock-runtime." + region + ".amazonaws.com:443"}, nil
 	default:
-		return codexconfig.Provider{}, nil, nil, v2translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
+		return codexconfig.Provider{}, nil, nil, translator.NewValidationError("Codex does not support ModelConfig provider %q", model.Spec.Provider)
 	}
 }
 
-func compileAgents(root *v2translator.AgentInput) (map[string]codexconfig.Agent, error) {
+func compileAgents(root *translator.AgentInput) (map[string]codexconfig.Agent, error) {
 	if len(root.Shared) == 0 {
 		return nil, nil
 	}
@@ -241,13 +231,13 @@ func compileAgents(root *v2translator.AgentInput) (map[string]codexconfig.Agent,
 			return nil, fmt.Errorf("codex Shared agent %q is not fully resolved", binding.Name)
 		}
 		if len(child.MCPTools) != 0 || len(child.Shared) != 0 || len(child.Template.Spec.Tools) != 0 || len(child.Template.Spec.Skills) != 0 || len(child.Template.Spec.Plugins) != 0 {
-			return nil, v2translator.NewValidationError("Codex Shared agent %q cannot contain tools, skills, plugins, or nested agents", binding.Name)
+			return nil, translator.NewValidationError("Codex Shared agent %q cannot contain tools, skills, plugins, or nested agents", binding.Name)
 		}
 		if !sameProviderConfiguration(root.ResolvedModelConfig.Config.Spec, child.ResolvedModelConfig.Config.Spec) {
-			return nil, v2translator.NewValidationError("Codex Shared agent %q must use the root provider and authentication configuration", binding.Name)
+			return nil, translator.NewValidationError("Codex Shared agent %q must use the root provider and authentication configuration", binding.Name)
 		}
 		if _, exists := agents[binding.Name]; exists {
-			return nil, v2translator.NewValidationError("duplicate Codex Shared agent name %q", binding.Name)
+			return nil, translator.NewValidationError("duplicate Codex Shared agent name %q", binding.Name)
 		}
 		agents[binding.Name] = codexconfig.Agent{Description: binding.Description, Instruction: child.Instruction, Model: child.ResolvedModelConfig.Config.Spec.Model}
 	}
@@ -261,14 +251,14 @@ func sameProviderConfiguration(root, child v1alpha3.ModelConfigSpec) bool {
 
 func (c *Compiler) requireSecretKey(ctx context.Context, namespace, name, key string) error {
 	if name == "" || key == "" {
-		return v2translator.NewValidationError("Codex OpenAI requires apiKeySecret and apiKeySecretKey")
+		return translator.NewValidationError("Codex OpenAI requires apiKeySecret and apiKeySecretKey")
 	}
 	secret, err := c.secret(ctx, namespace, name)
 	if err != nil {
 		return err
 	}
 	if len(secret.Data[key]) == 0 {
-		return v2translator.NewValidationError("Codex credential Secret %q does not contain a non-empty key %q", name, key)
+		return translator.NewValidationError("Codex credential Secret %q does not contain a non-empty key %q", name, key)
 	}
 	return nil
 }
@@ -287,12 +277,12 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	}}}
 }
 
-func absoluteHTTPHostname(raw string) (string, error) {
+func absoluteHTTPOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return "", fmt.Errorf("must be an absolute HTTP(S) URL without credentials or fragment")
 	}
-	return parsed.Hostname(), nil
+	return egress.Origin(parsed), nil
 }
 
 type provenanceEntry struct {
@@ -305,12 +295,11 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
+func (c *Compiler) buildProvenance(ctx context.Context, input *translator.HarnessInput, environment []corev1.EnvVar) ([]byte, error) {
 	var entries []provenanceEntry
-	// Inline configuration is recorded by the enclosing Agent provenance.
-	if input.Harness.Source != nil {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
-	}
+	// The Harness is always a standalone resource. Inline template configuration
+	// is recorded by the enclosing Agent provenance below.
+	entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "Harness", input.Harness.Name, input.Harness.Source.UID, input.Harness.Source.Generation, input.Harness.Spec))
 	seenObjects := map[string]struct{}{}
 	addObject := func(kind, name string, uid types.UID, generation int64, value any) {
 		identity := kind + "\x00" + name
@@ -320,8 +309,8 @@ func (c *Compiler) buildProvenance(ctx context.Context, input *v2translator.Harn
 		}
 	}
 	configMaps := map[string]struct{}{}
-	var addAgent func(*v2translator.AgentInput)
-	addAgent = func(agent *v2translator.AgentInput) {
+	var addAgent func(*translator.AgentInput)
+	addAgent = func(agent *translator.AgentInput) {
 		model := agent.ResolvedModelConfig.Config
 		if source := agent.Template.Source; source != nil {
 			addObject("AgentTemplate", source.Name, source.UID, source.Generation, agent.Template.Spec)
@@ -393,4 +382,4 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
 }
 
-var _ v2translator.HarnessCompiler = (*Compiler)(nil)
+var _ translator.HarnessCompiler = (*Compiler)(nil)

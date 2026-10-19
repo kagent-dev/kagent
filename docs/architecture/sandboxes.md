@@ -97,26 +97,33 @@ finalizer, including when deletion starts while the controller is offline.
 The controller advances the latest-successful revision only after the golden
 snapshot is ready and reports preparation through the template's `Ready`
 condition and observed generation. Failed preparation preserves the previous
-successful revision. Existing Sandboxes retain their revision when a template
-changes. Template deletion retires preparation; retained instances continue to
+successful revision, which remains available for fresh creation while edits
+are unresolved, pending, or failed. Initial creation requires a successful
+revision. Existing Sandboxes and
+creation retries retain their revision when a template changes.
+Template deletion retires preparation; retained instances continue to
 pin the runtime artifacts they need.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API
 replica; expiration workers coordinate through PostgreSQL.
-Configure `KAGENT_SANDBOX_GUEST_IMAGE` with an `image@sha256:...` reference, or set
-`controller.sandbox.guestImage.digest` in Helm alongside its registry and
-repository. The guest image is required for sandbox preparation and passes
-unchanged to Substrate. The controller does not resolve tags or contact image
-registries. Helm applies the normal registry overrides; the global image tag
-does not affect the guest digest.
+Configure `config.sandboxes.guestImage` in Helm with an
+`image@sha256:...` reference. The guest image is required for sandbox preparation
+and passes unchanged to Substrate. The controller does not resolve tags or
+contact image registries.
 
-The remaining `controller.sandbox` settings configure CPU, memory, and default/max
+The remaining `config.sandboxes` settings configure CPU, memory, and default/max
 TTL. Helm supplies these through the controller ConfigMap. Defaults are one CPU,
 1 GiB memory, a one-hour TTL, and a 24-hour maximum TTL. Activity does not extend
 expiration.
 
-Sandboxes have no allowed egress destinations. A follow-up will add destination
-configuration to `SandboxTemplate` and pin it with each prepared revision.
+Sandboxes have no allowed egress destinations by default. Select same-namespace
+[EgressPolicy resources](egress-policies.md) through `SandboxTemplate.spec.egressPolicyRefs`
+to grant additional HTTP(S) origins and static gateway credentials. The controller
+persists current grants on the source definition; effective policy is merged with
+pinned revision access when read.
+Policy edits update running and suspended sandboxes without replacing their Actor.
+Creation and resume apply that effective policy before execution, without
+translating Kubernetes inputs.
 
 ## Lifecycle and recovery
 
@@ -166,6 +173,11 @@ prevent old results from overwriting newer database state.
 Creation must finish before suspend/resume; deletion can supersede creation or
 other operations and cannot be canceled into a live sandbox. Resume preserves
 durable files; process handles last only as long as the guest's in-memory registry.
+Sandboxes take DATA snapshots (see
+[Runtime and lifecycle](runtime-and-lifecycle.md)). Resume starts a fresh guest
+with the saved durable directories. Running processes stop during suspension,
+and old process handles become unavailable after resume. Commands are not replayed;
+callers can start new processes against the restored files.
 Expiration immediately rejects new guest requests and lets the worker supersede
 unfinished lifecycle work with deletion. Deletion finishes after backend cleanup,
 releases runtime-artifact pins, and retains a tombstone and creation receipt so
@@ -194,7 +206,7 @@ The apiserver registers three services on the same listener:
 
 | Service | Operations |
 | --- | --- |
-| `kagent.api.v1alpha1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
+| `kagent.api.v1.SandboxService` | Create, Get, List, Suspend, Resume, Delete |
 | `ateenv.v1alpha.ProcessService` | StartProcess, GetProcess, KillProcess, StreamProcessOutputs |
 | `ateenv.v1alpha.FileSystemService` | ReadFile, WriteFile |
 
@@ -231,15 +243,19 @@ Resource authorization and owner checks apply before routing guest traffic. Agen
 share tokens grant no sandbox access. An agent calling MCP operates under the
 identity authenticated by that MCP connection; acting for the invoking user
 requires the existing credential-propagation configuration. For the Go kagent
-runtime, `KAGENT_PROPAGATE_TOKEN=true` opts trusted configured MCP servers into
+runtime, `runtime.token_propagation.enabled=true` opts trusted configured MCP servers into
 receiving the caller's credentials and identity.
 
 The existing `/mcp` endpoint exposes template discovery, sandbox lifecycle,
 process execution, output reads, and file transfer. All sandbox tools call the
 same sandbox service as the gRPC handlers.
 There is no separate lifecycle or guest tool server. gRPC file transfers are
-bounded at 64 MiB. MCP file transfers and output reads are bounded at 1 MiB,
-use base64 for bytes, and expose continuation offsets for output reads.
+bounded at 64 MiB. MCP writes and output reads are bounded at 1 MiB and use
+base64; output reads expose continuation offsets. MCP file reads return content
+a model can read directly: text files as numbered pages of lines, and images
+up to 10 MiB unchanged, matching the chat attachment limit. Claude Code and
+Codex resize images for their models; larger images ask the agent to write a
+smaller copy.
 
 Helm installs a `RemoteMCPServer` named `<fullname>-api` (`kagent-api` for the
 standard release) in the controller namespace. It points at the controller's
@@ -329,8 +345,8 @@ resource applies its policy in the same transaction as its lifecycle transition.
 
 ## Implementation boundaries
 
-- [API contracts](../../proto/kagent/api/v1alpha1/sandboxes.proto) and
-  [template catalog](../../proto/kagent/api/v1alpha1/sandbox_templates.proto)
+- [API contracts](../../proto/kagent/api/v1/sandboxes.proto) and
+  [template catalog](../../proto/kagent/api/v1/sandbox_templates.proto)
   define lifecycle/catalog shapes and request-intrinsic validation. Execution
   uses the upstream [env contract](../../proto/ateenv/v1alpha/guest.proto) and
   [sandbox routing metadata](../../go/api/sandbox/metadata.go).

@@ -1,13 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
 import { expectNoLoadFailure, liveRoutes, loadLive, rowNamed } from "./helpers/live";
-import { liveApi, type HarnessSpecShape } from "./helpers/api";
+import { liveApi } from "./helpers/api";
 
 /**
- * Agent CRUD on a real cluster, through the UI, for each template/harness source.
+ * Agent CRUD on a real cluster, through the UI, for each template source.
  *
  * Needs the `assistant` Agent and AgentTemplate, the `kagent` Harness and
- * `default-model-config` in `kagent`. Inline harnesses copy that harness's image,
- * pool and snapshot store.
+ * `default-model-config` in `kagent`.
  */
 
 const NAMESPACE = "kagent";
@@ -18,19 +17,12 @@ const RUN = Date.now().toString(36);
 const READY_TIMEOUT = 180_000;
 
 type Source = "reference" | "inline";
-const CASES: { template: Source; harness: Source; slug: string }[] = [
-  { template: "reference", harness: "reference", slug: "rr" },
-  { template: "inline", harness: "reference", slug: "ir" },
-  { template: "reference", harness: "inline", slug: "ri" },
-  { template: "inline", harness: "inline", slug: "ii" },
+const CASES: { template: Source; slug: string }[] = [
+  { template: "reference", slug: "r" },
+  { template: "inline", slug: "i" },
 ];
 
 const created = new Set<string>();
-let harnessSpec: HarnessSpecShape;
-
-test.beforeAll(async ({ baseURL }) => {
-  harnessSpec = await liveApi(baseURL!).harnessSpec(NAMESPACE, HARNESS);
-});
 
 // Through the API, not the UI: teardown runs after failures, when the page may be anywhere.
 test.afterAll(async ({ baseURL }) => {
@@ -43,34 +35,27 @@ async function pick(page: Page, testId: string, title: string) {
   await page.locator(`.ant-select-dropdown:visible .ant-select-item-option[title="${title}"]`).click();
 }
 
-async function chooseSource(page: Page, kind: "template" | "harness", source: Source) {
+async function chooseTemplateSource(page: Page, source: Source) {
   await page
-    .getByTestId(`agent-form-${kind}-source`)
+    .getByTestId("agent-form-template-source")
     .getByText(source === "inline" ? "Inline" : "Reference", { exact: true })
     .click();
 }
 
 async function fillInlineTemplate(page: Page, description: string) {
-  await chooseSource(page, "template", "inline");
+  await chooseTemplateSource(page, "inline");
   await pick(page, "template-form-model", MODEL);
   await page.getByTestId("template-form-description").fill(description);
   await page.getByTestId("template-form-prompt").fill("You are a concise assistant. Answer in one sentence.");
 }
 
-async function createAgent(page: Page, name: string, template: Source, harness: Source) {
+async function createAgent(page: Page, name: string, template: Source) {
   await loadLive(page, liveRoutes.agentNew);
   await expectNoLoadFailure(page);
   await page.getByTestId("agent-form-name").fill(name);
   if (template === "inline") await fillInlineTemplate(page, `Live ${name}`);
   else await pick(page, "agent-form-template-ref", TEMPLATE);
-  if (harness === "inline") {
-    await chooseSource(page, "harness", "inline");
-    await page.getByTestId("harness-image").fill(harnessSpec.workload.image);
-    await page.getByTestId("harness-worker-pool").fill(harnessSpec.substrate.workerPoolRef.name);
-    await page.getByTestId("harness-snapshot").fill(`${harnessSpec.substrate.snapshotPolicy.location.replace(/\/$/, "")}/e2e-${name}`);
-  } else {
-    await pick(page, "agent-form-harness-ref", HARNESS);
-  }
+  await pick(page, "agent-form-harness-ref", HARNESS);
   created.add(name);
   await page.getByTestId("agent-form-submit").click();
   await expect(page).toHaveURL(/\/agents\?tab=agents$/, { timeout: 60_000 });
@@ -90,20 +75,20 @@ async function expectReady(page: Page, name: string) {
     .toBe("ready");
 }
 
-for (const { template, harness, slug } of CASES) {
+for (const { template, slug } of CASES) {
   const name = `e2e-${slug}-${RUN}`;
 
-  test(`live: agent CRUD with a ${template} template and a ${harness} harness`, async ({ page, baseURL }) => {
+  test(`live: agent CRUD with ${template === "inline" ? "an" : "a"} ${template} template and referenced harness`, async ({ page, baseURL }) => {
     test.setTimeout(READY_TIMEOUT * 2 + 120_000);
 
     await test.step("1. create it through the form", async () => {
-      await createAgent(page, name, template, harness);
+      await createAgent(page, name, template);
     });
 
     await test.step("2. it is listed with its sources and becomes Ready", async () => {
       await expect(rowNamed(page, name)).toHaveCount(1, { timeout: 60_000 });
       await expect(page.getByTestId(`agent-template-${NAMESPACE}/${name}`)).toHaveAttribute("data-source", template);
-      await expect(page.getByTestId(`agent-harness-${NAMESPACE}/${name}`)).toHaveAttribute("data-source", harness);
+      await expect(page.getByTestId(`agent-harness-${NAMESPACE}/${name}`)).toHaveAttribute("data-source", "reference");
       await expectReady(page, name);
     });
 
@@ -145,8 +130,8 @@ test("live: two agents with the same template and harness keep separate conversa
   let chatId = "";
 
   await test.step("1. create both from the same refs", async () => {
-    await createAgent(page, first, "reference", "reference");
-    await createAgent(page, second, "reference", "reference");
+    await createAgent(page, first, "reference");
+    await createAgent(page, second, "reference");
     await expectReady(page, first);
     await expectReady(page, second);
   });

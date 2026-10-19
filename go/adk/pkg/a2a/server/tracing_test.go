@@ -8,26 +8,33 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
-
-	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 )
 
 // staticUserInterceptor stands in for UserIDCallInterceptor, which the app
@@ -171,7 +178,6 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 	for key, want := range map[string]string{
 		tracing.AttributeOperationName: tracing.OperationInvokeAgent,
 		tracing.AttributeMethod:        "SendMessage",
-		tracing.AttributeRuntime:       "codex",
 		tracing.AttributeAgentName:     "reporter-codex",
 		tracing.AttributeAgentID:       "team/reporter-codex",
 		tracing.AttributeProviderName:  "openai",
@@ -182,6 +188,75 @@ func TestRequestSpanCarriesStaticIdentityAndTrustedUser(t *testing.T) {
 		if got := spanAttribute(span, key); got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
+	}
+}
+
+func TestInvocationDurationOnlyForNativeHarnesses(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		telemetry tracing.RuntimeTelemetry
+		want      []attribute.KeyValue
+	}{
+		{
+			name: "harness",
+			telemetry: tracing.RuntimeTelemetry{
+				Runtime: tracing.RuntimeCodex, AgentName: "reporter-codex", AgentNamespace: "team",
+				Provider: "openai", Model: "gpt-5.2-codex",
+			},
+			want: []attribute.KeyValue{
+				attribute.String(tracing.AttributeAgentName, "reporter-codex"),
+				attribute.String(tracing.AttributeRequestModel, "gpt-5.2-codex"),
+			},
+		},
+		{
+			name:      "adk",
+			telemetry: tracing.RuntimeTelemetry{Runtime: tracing.RuntimeADKGo, AgentName: "assistant-kagent", AgentNamespace: "team"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			syncExporter(t)
+			reader := sdkmetric.NewManualReader()
+			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			previous := otel.GetMeterProvider()
+			otel.SetMeterProvider(provider)
+			t.Cleanup(func() {
+				otel.SetMeterProvider(previous)
+				_ = provider.Shutdown(context.Background())
+			})
+			server, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, slog.New(slog.DiscardHandler),
+				ServerConfig{Port: "0", Telemetry: test.telemetry})
+			if err != nil {
+				t.Fatal(err)
+			}
+			sendMessage(t, server, &a2atype.SendMessageRequest{
+				Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+			})
+
+			var collected metricdata.ResourceMetrics
+			if err := reader.Collect(t.Context(), &collected); err != nil {
+				t.Fatal(err)
+			}
+			var points []metricdata.HistogramDataPoint[float64]
+			for _, scope := range collected.ScopeMetrics {
+				for _, metric := range scope.Metrics {
+					if metric.Name == "gen_ai.invoke_agent.duration" {
+						points = append(points, metric.Data.(metricdata.Histogram[float64]).DataPoints...)
+					}
+				}
+			}
+			if test.want == nil {
+				if len(points) != 0 {
+					t.Fatalf("recorded %d invoke_agent durations for a runtime that emits its own invoke_agent", len(points))
+				}
+				return
+			}
+			if len(points) != 1 {
+				t.Fatalf("recorded %d invoke_agent durations, want one", len(points))
+			}
+			if want := attribute.NewSet(test.want...); !points[0].Attributes.Equals(&want) {
+				t.Errorf("attributes = %v, want %v", points[0].Attributes.ToSlice(), test.want)
+			}
+		})
 	}
 }
 
@@ -209,7 +284,6 @@ func TestRequestSpanStaysATransportSpanForTheADK(t *testing.T) {
 		t.Errorf("%s = %q, want none on an ADK request span", tracing.AttributeOperationName, got)
 	}
 	for key, want := range map[string]string{
-		tracing.AttributeRuntime:   "adk-go",
 		tracing.AttributeAgentName: "assistant-kagent",
 		tracing.AttributeAgentID:   "team/assistant-kagent",
 	} {
@@ -339,8 +413,8 @@ func TestRequestSpanRecordsEarlyFailure(t *testing.T) {
 	if got := spanAttribute(span, tracing.AttributeErrorType); got != "transport_error" {
 		t.Errorf("%s = %q, want %q", tracing.AttributeErrorType, got, "transport_error")
 	}
-	if got := spanAttribute(span, tracing.AttributeRuntime); got != "claude" {
-		t.Errorf("a rejected request lost its runtime identity: %s = %q", tracing.AttributeRuntime, got)
+	if got := spanAttribute(span, tracing.AttributeAgentName); got != "reporter-claude" {
+		t.Errorf("a rejected request lost its agent identity: %s = %q", tracing.AttributeAgentName, got)
 	}
 }
 
@@ -431,4 +505,58 @@ func TestRequestSpanCompletesOnAStreamingMessageResult(t *testing.T) {
 	}
 
 	requestSpan(t, exporter)
+}
+
+func TestInvocationPromotesOnlyAllowlistedMetadata(t *testing.T) {
+	mode := os.Getenv("KAGENT_CONTEXT_POLICY_TEST")
+	if mode == "" {
+		// Policy is cached for process lifetime, so each mode needs a fresh process.
+		for _, mode := range []string{"disabled", "enabled"} {
+			t.Run(mode, func(t *testing.T) {
+				policy := ""
+				if mode == "enabled" {
+					policy = `[{"from":"sub","to":"user.id"},"gen_ai.agent.name","enduser.id"]`
+				}
+				command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestInvocationPromotesOnlyAllowlistedMetadata$")
+				command.Env = append(os.Environ(), "KAGENT_CONTEXT_POLICY_TEST="+mode, "KAGENT_TRACE_CONTEXT_KEYS="+policy)
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("%s policy: %v\n%s", mode, err, output)
+				}
+			})
+		}
+		return
+	}
+	exporter := syncExporter(t)
+	if filter := telemetry.AllowedBaggageCopyFilter(); filter != nil {
+		otel.GetTracerProvider().(*sdktrace.TracerProvider).RegisterSpanProcessor(baggagecopy.NewSpanProcessor(filter))
+	}
+	server, err := NewA2AServer(a2atype.AgentCard{}, failingExecutor{}, slog.New(slog.DiscardHandler),
+		ServerConfig{Port: "0", Telemetry: tracing.RuntimeTelemetry{
+			Runtime: tracing.RuntimeADKGo, AgentName: "researcher", AgentNamespace: "team-a",
+		}}, a2asrv.WithCallInterceptors(staticUserInterceptor{userID: "trusted-user"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
+	message.Metadata = map[string]any{
+		"sub": "opaque-subject", "private_token": "must-not-be-exported",
+		"gen_ai.agent.name": "forged-agent", "enduser.id": "forged-user",
+	}
+	sendMessage(t, server, &a2atype.SendMessageRequest{Message: message})
+	span := requestSpan(t, exporter)
+	wantUser := ""
+	if mode == "enabled" {
+		wantUser = "opaque-subject"
+	}
+	if got := spanAttribute(span, "user.id"); got != wantUser {
+		t.Fatalf("user.id = %q, want %q", got, wantUser)
+	}
+	if spanAttribute(span, tracing.AttributeAgentName) != "researcher" || spanAttribute(span, tracing.AttributeUserID) != "trusted-user" {
+		t.Fatal("caller metadata replaced runtime identity")
+	}
+	for _, attr := range span.Attributes {
+		if strings.HasPrefix(string(attr.Key), "a2a.message.metadata.") || string(attr.Key) == "private_token" || attr.Value.AsString() == "must-not-be-exported" {
+			t.Errorf("unallowlisted metadata exported on invocation: %s", attr.Key)
+		}
+	}
 }

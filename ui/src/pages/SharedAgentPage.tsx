@@ -1,8 +1,7 @@
 import { Alert, Skeleton, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { useAgentInstanceShareToken } from "@/api/shareToken";
 import { useAgentInstance } from "@/api";
@@ -27,22 +26,6 @@ const { Text } = Typography;
  * The gRPC interceptor validates the instance share token, and the A2A gateway reads
  * that instance as the share's owner. That is required because instances are scoped
  * to their creator; reading one as the visitor would find nothing.
- *
- * ## Replying, when the share allows it
- *
- * A share is `READ_ONLY` or `READ_WRITE`, and the backend accepts a send from the
- * visitor only on the second. This page used to offer no composer at all, on the
- * reasoning that one which worked for some links and not others would fail invisibly.
- * The cost of that was worse: the owner could tick "Also allow replies", hand over a
- * link, and the person opening it had no way to reply — a permission granted and
- * silently ignored.
- *
- * So the link a read-write share produces carries `?reply`, and this page offers a
- * composer when it sees it. **That is a hint about what to draw, never a permission.**
- * The controller resolves the token and refuses a send the share does not allow, so a
- * hand-edited address gets a composer whose first message is refused in the
- * controller's own words — which is the same thing that would happen without the hint,
- * only now it is the forger who sees it rather than the invited guest.
  */
 export function SharedAgentPage() {
   const theme = useTheme();
@@ -56,23 +39,13 @@ export function SharedAgentPage() {
   // request has gone means an unauthenticated read that looks like success.
   useAgentInstanceShareToken(id, token);
 
-  // Present, not truthy: `?reply` carries no value.
-  const [searchParams] = useSearchParams();
-  const mayReply = searchParams.has("reply");
-
   const instance = useAgentInstance(id);
   const conversation = id && instance.data?.agent ? { id, agent: instance.data.agent } : undefined;
 
   const chat = useChat(conversation);
   const error = instance.error ?? chat.historyError;
 
-  /*
-   * The owner is writing to this conversation too, so it has to keep up.
-   *
-   * A visitor sending through a share and the owner sending from their own page are two
-   * people in one conversation, and neither was told about the other: each side read the
-   * transcript once and then showed it unchanged until a reload.
-   */
+  // Keep up with messages the owner sends while this page is open.
   useLiveTranscript(chat.refreshTranscript, {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
@@ -90,12 +63,8 @@ export function SharedAgentPage() {
         type="info"
         showIcon
         data-testid="shared-agent-notice"
-        title={mayReply ? "Shared with you" : "Shared with you, read-only"}
-        description={
-          mayReply
-            ? "You are reading this conversation through a share link that allows replies. Anything you send is recorded as the owner's, because a share answers as them."
-            : "You are reading this conversation through a share link. This one does not allow replies."
-        }
+        title="Shared with you, read-only"
+        description="You are reading this conversation through a share link. Shared links do not allow replies."
         css={{ marginBottom: theme.space(4) }}
       />
 
@@ -113,9 +82,7 @@ export function SharedAgentPage() {
       ) : instance.isLoading || chat.isLoadingHistory ? (
         <Skeleton active paragraph={{ rows: 6 }} data-testid="shared-agent-loading" />
       ) : (
-        // A column with a bounded height, so the transcript inside it has something to
-        // scroll within and the composer stays at the foot rather than being pushed
-        // down the page by a long conversation.
+        // Bound the transcript height so long conversations scroll within it.
         <div
           data-testid="shared-agent-transcript"
           css={{
@@ -125,17 +92,7 @@ export function SharedAgentPage() {
             height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(48)})`,
           }}
         >
-          <ChatTranscript chat={chat} sessionId={id} />
-          {mayReply ? (
-            <div css={{ marginTop: theme.space(4), display: "grid", gap: theme.space(1) }}>
-              <ChatComposer
-                send={chat.send}
-                isStreaming={chat.phase === "streaming"}
-                onCancel={chat.cancel}
-              />
-
-            </div>
-          ) : null}
+          <ChatTranscript chat={chat} sessionId={id} readOnly />
         </div>
       )}
 

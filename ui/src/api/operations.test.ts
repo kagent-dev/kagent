@@ -1,4 +1,4 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
@@ -29,15 +29,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
+} from "@/generated/kagent/api/v1/system_pb";
 import {
   SessionService,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
+} from "@/generated/kagent/api/v1/sessions_pb";
 import { ApiError, isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
@@ -275,36 +275,6 @@ describe("tool servers and tools", () => {
     expect(created.discoveredTools).toEqual([]);
   });
 
-  it("keeps KMCP servers in their own API group", async () => {
-    let received: unknown;
-    serve(({ service }) => {
-      service(ToolService, {
-        createToolServer: (request) => {
-          received = request;
-          return { resource: request.resource };
-        },
-      });
-    });
-
-    const created = await apiClient.mcpServers.create({
-      type: "MCPServer",
-      mcpServer: {
-        metadata: { name: "local", namespace: "kagent" },
-        spec: {
-          deployment: { image: "example.com/mcp:latest", port: 8080 },
-          transportType: "stdio",
-          stdioTransport: {},
-        },
-      },
-    });
-
-    expect(received).toMatchObject({
-      type: "MCPServer",
-      resource: { kind: "MCPServer", apiVersion: "kagent.dev/v1alpha1" },
-    });
-    expect(created.groupKind).toBe("MCPServer.kagent.dev");
-  });
-
   /**
    * The tool rows are `database.Tool` marshalled to JSON and carried through the
    * envelope untouched — which is why their field names are snake-cased, and why
@@ -317,7 +287,7 @@ describe("tool servers and tools", () => {
           tools: [
             {
               resource: {
-                apiVersion: "kagent.api/v1alpha1",
+                apiVersion: "kagent.api/v1",
                 kind: "Tool",
                 value: {
                   id: "k8s_get_resources",
@@ -440,7 +410,7 @@ describe("the cluster", () => {
                 workerNamespace: "kagent",
                 workerPod: "worker-0",
                 workerPool: "pool",
-                workerPodIp: "10.0.0.1",
+                workerPodIps: ["10.0.0.1", "fd00::1"],
               },
               externalSnapshot: { snapshotUri: "s3://snapshot" },
               inProgressLocalSnapshotName: "next-snapshot",
@@ -671,6 +641,23 @@ describe("the cluster", () => {
     expect(page.actors[0].version).toBe(3);
     expect(page.actors[0].ateomPodName).toBeUndefined();
     expect(page.nextPageToken).toBe("cursor-2");
+  });
+
+  it.each([
+    { ips: ["10.0.0.1", "fd00::1"], primary: "10.0.0.1" },
+    { ips: ["fd00::1", "10.0.0.1"], primary: "fd00::1" },
+    { ips: [], primary: undefined },
+  ])("reads the worker's primary IP from $ips", async ({ ips, primary }) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateWorkers: () => ({
+          workers: [{ workerNamespace: "kagent", workerPool: "pool", workerPod: "w0", ips }],
+        }),
+      });
+    });
+
+    const page = await apiClient.substrate.workers({});
+    expect(page.workers[0].ip).toBe(primary);
   });
 
   // Absent rather than empty, so "there is more" is a question about presence: an
@@ -1049,5 +1036,29 @@ describe("agent instances", () => {
     expect((failure as ApiError).url).toBe(
       "SessionService/SuspendSession",
     );
+  });
+});
+
+describe("session shares", () => {
+  it("creates a read-only share", async () => {
+    serve(({ service }) => {
+      service(SessionService, {
+        createSessionShare: (request) => {
+          expect(request.sessionId).toBe("session");
+          return {
+            share: { id: "share", sessionId: request.sessionId },
+            token: "token",
+          };
+        },
+      });
+    });
+
+    const created = await apiClient.agentInstances.shares.create("session");
+    expect(created.share).toEqual({
+      id: "share",
+      agentInstanceId: "session",
+      createdAt: "",
+    });
+    expect(created.token).toBe("token");
   });
 });

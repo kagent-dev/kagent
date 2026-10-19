@@ -10,7 +10,7 @@ import pytest
 from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
-from kagent.adk.types import PROXY_HOST_HEADER, AgentConfig, OpenAI, RemoteAgentConfig
+from kagent.adk.types import PROXY_HOST_HEADER, AgentConfig, ModelConfig, OpenAI, RemoteAgentConfig, create_agent
 
 
 class RequestRecordingHandler(BaseHTTPRequestHandler):
@@ -106,7 +106,7 @@ async def test_remote_agent_with_proxy_url():
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
-            model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+            model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
             description="Test agent",
             instruction="You are a test agent",
             remote_agents=[
@@ -119,7 +119,7 @@ async def test_remote_agent_with_proxy_url():
             ],
         )
 
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
 
         # Find the KAgentRemoteA2AToolset
         remote_agent_toolset = None
@@ -148,7 +148,7 @@ async def test_remote_agent_with_proxy_url():
 
 def test_remote_agent_isolate_sessions_is_forwarded_to_toolset():
     config = AgentConfig(
-        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
         description="Test agent",
         instruction="You are a test agent",
         remote_agents=[
@@ -160,7 +160,7 @@ def test_remote_agent_isolate_sessions_is_forwarded_to_toolset():
         ],
     )
 
-    agent = config.to_agent("test_agent")
+    agent = create_agent(config, "test_agent")
 
     remote_agent_toolset = next(tool for tool in agent.tools if isinstance(tool, KAgentRemoteA2AToolset))
     assert remote_agent_toolset._tool._isolate_sessions is True
@@ -170,7 +170,7 @@ def test_remote_agent_no_proxy_when_not_configured():
     """Test that KAgentRemoteA2AToolset HTTP client works without proxy."""
 
     config = AgentConfig(
-        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
         description="Test agent",
         instruction="You are a test agent",
         remote_agents=[
@@ -182,7 +182,7 @@ def test_remote_agent_no_proxy_when_not_configured():
         ],
     )
 
-    agent = config.to_agent("test_agent")
+    agent = create_agent(config, "test_agent")
 
     # Find the KAgentRemoteA2AToolset
     remote_agent_toolset = None
@@ -205,7 +205,7 @@ async def test_remote_agent_direct_url_no_proxy():
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
-            model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+            model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
             description="Test agent",
             instruction="You are a test agent",
             remote_agents=[
@@ -217,7 +217,7 @@ async def test_remote_agent_direct_url_no_proxy():
             ],
         )
 
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
 
         # Find the KAgentRemoteA2AToolset
         remote_agent_toolset = None
@@ -252,7 +252,7 @@ async def test_remote_agent_with_headers():
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
-            model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+            model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
             description="Test agent",
             instruction="You are a test agent",
             remote_agents=[
@@ -268,7 +268,7 @@ async def test_remote_agent_with_headers():
             ],
         )
 
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
 
         # Find the KAgentRemoteA2AToolset
         remote_agent_toolset = None
@@ -304,7 +304,7 @@ async def test_remote_agent_url_rewrite_event_hook():
 
     with TestHTTPServer() as test_server:
         config = AgentConfig(
-            model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+            model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
             description="Test agent",
             instruction="You are a test agent",
             remote_agents=[
@@ -317,7 +317,7 @@ async def test_remote_agent_url_rewrite_event_hook():
             ],
         )
 
-        agent = config.to_agent("test_agent")
+        agent = create_agent(config, "test_agent")
 
         # Find the KAgentRemoteA2AToolset
         remote_agent_toolset = None
@@ -357,14 +357,14 @@ def test_mcp_tool_with_proxy_url():
     internally to create its HTTP client, so verifying them ensures our configuration
     is correctly applied.
     """
-    from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
 
     # Configuration with proxy URL and proxy host header
     config = AgentConfig(
-        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
         description="Test agent",
         instruction="You are a test agent",
         http_tools=[
@@ -378,7 +378,7 @@ def test_mcp_tool_with_proxy_url():
         ],
     )
 
-    agent = config.to_agent("test_agent")
+    agent = create_agent(config, "test_agent")
 
     # Find the McpToolset
     mcp_tool = None
@@ -406,13 +406,13 @@ def test_mcp_tool_without_proxy():
     a public API to verify connection setup. The connection_params are what McpToolset uses
     internally to create its HTTP client.
     """
-    from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import HttpMcpServerConfig
 
     config = AgentConfig(
-        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
         description="Test agent",
         instruction="You are a test agent",
         http_tools=[
@@ -426,7 +426,7 @@ def test_mcp_tool_without_proxy():
         ],
     )
 
-    agent = config.to_agent("test_agent")
+    agent = create_agent(config, "test_agent")
 
     # Find the McpToolset
     mcp_tool = None
@@ -454,14 +454,14 @@ def test_sse_mcp_tool_with_proxy_url():
     internally to create its HTTP client, so verifying them ensures our configuration
     is correctly applied.
     """
-    from google.adk.tools.mcp_tool import SseConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import SseMcpServerConfig
 
     # Configuration with proxy URL and proxy host header
     config = AgentConfig(
-        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
         description="Test agent",
         instruction="You are a test agent",
         sse_tools=[
@@ -475,7 +475,7 @@ def test_sse_mcp_tool_with_proxy_url():
         ],
     )
 
-    agent = config.to_agent("test_agent")
+    agent = create_agent(config, "test_agent")
 
     # Find the McpToolset
     mcp_tool = None
@@ -501,13 +501,13 @@ def test_sse_mcp_tool_without_proxy():
     a public API to verify connection setup. The connection_params are what McpToolset uses
     internally to create its HTTP client.
     """
-    from google.adk.tools.mcp_tool import SseConnectionParams
+    from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
     from kagent.adk._mcp_toolset import KAgentMcpToolset
     from kagent.adk.types import SseMcpServerConfig
 
     config = AgentConfig(
-        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
         description="Test agent",
         instruction="You are a test agent",
         sse_tools=[
@@ -521,7 +521,7 @@ def test_sse_mcp_tool_without_proxy():
         ],
     )
 
-    agent = config.to_agent("test_agent")
+    agent = create_agent(config, "test_agent")
 
     # Find the McpToolset
     mcp_tool = None
@@ -536,3 +536,25 @@ def test_sse_mcp_tool_without_proxy():
     connection_params = getattr(mcp_tool, "_connection_params", None) or getattr(mcp_tool, "connection_params", None)
     assert connection_params is not None
     assert connection_params.url == "http://test-sse-mcp-server.kagent:8084/mcp"
+
+
+def test_mcp_token_passthrough_not_implemented():
+    """Python ADK must refuse passthrough servers rather than connect without the caller's token."""
+    from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
+
+    from kagent.adk.types import HttpMcpServerConfig
+
+    config = AgentConfig(
+        model=ModelConfig(model="gpt-3.5-turbo", openai=OpenAI()),
+        description="Test agent",
+        instruction="You are a test agent",
+        http_tools=[
+            HttpMcpServerConfig(
+                params=StreamableHTTPConnectionParams(url="http://test-mcp-server.kagent:8084/mcp"),
+                token_passthrough=True,
+            )
+        ],
+    )
+
+    with pytest.raises(NotImplementedError, match="token passthrough"):
+        create_agent(config, "test_agent")

@@ -8,18 +8,19 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 )
 
 type controllerTestStore struct {
 	controllerStore
-	session *apiv1alpha1.Session
+	session *apiv1.Session
 }
 
-func (s controllerTestStore) GetSession(context.Context, string, string) (*apiv1alpha1.Session, error) {
+func (s controllerTestStore) GetSession(context.Context, string, string) (*apiv1.Session, error) {
 	if s.session == nil {
 		return nil, database.ErrNotFound
 	}
@@ -30,11 +31,12 @@ type controllerTestCleanup struct {
 	controllerWorkflow
 	a2asrv.RequestHandler
 	task             *a2atype.Task
+	canceledTask     *a2atype.Task
 	err              error
 	deletes, expires int
 }
 
-func (c *controllerTestCleanup) Delete(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (c *controllerTestCleanup) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	c.deletes++
 	return session, c.err
 }
@@ -43,6 +45,9 @@ func (c *controllerTestCleanup) CancelTask(_ context.Context, request *a2atype.C
 	c.expires++
 	if c.err != nil {
 		return nil, c.err
+	}
+	if c.canceledTask != nil {
+		return c.canceledTask, nil
 	}
 	if c.task != nil {
 		return c.task, nil
@@ -58,7 +63,7 @@ func (c *controllerTestCleanup) GetTask(context.Context, *a2atype.GetTaskRequest
 	return nil, a2atype.ErrTaskNotFound
 }
 
-func (c *controllerTestCleanup) Suspend(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (c *controllerTestCleanup) Suspend(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	c.expires++
 	return session, c.err
 }
@@ -66,41 +71,72 @@ func (c *controllerTestCleanup) Suspend(_ context.Context, session *apiv1alpha1.
 func TestControllerRecoversCleanupWithoutReplacingSession(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
-		state apiv1alpha1.RuntimeState
+		state apiv1.RuntimeState
 	}{
-		{"creating timeout", apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING},
-		{"running timeout", apiv1alpha1.RuntimeState_RUNTIME_STATE_READY},
+		{"creating timeout", apiv1.RuntimeState_RUNTIME_STATE_CREATING},
+		{"running timeout", apiv1.RuntimeState_RUNTIME_STATE_READY},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deadline := time.Now().Add(-time.Minute)
-			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(deadline)}
-			store := controllerTestStore{session: &apiv1alpha1.Session{Id: "original", State: tc.state}}
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(deadline)}
+			store := controllerTestStore{session: &apiv1.Session{Id: "original", State: tc.state}}
 			cleanup := &controllerTestCleanup{err: errors.New("Substrate unavailable")}
-			controller := NewController(store, cleanup, cleanup)
+			controller := NewController(store, cleanup, cleanup, time.Second)
 			require.Error(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
-			require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
+			require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
 			cleanup.err = nil
 			require.NoError(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
-			require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, execution.State)
+			require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, execution.State)
 			require.Equal(t, "original", execution.SessionId)
 			require.Equal(t, 2, cleanup.deletes+cleanup.expires)
 		})
 	}
 	// No reserve method is supplied: a missing historical session must never
 	// call it, even when the execution was still PENDING when deletion happened.
-	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
-	require.NoError(t, NewController(controllerTestStore{}, nil, nil).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, execution.State)
+	execution := &apiv1.ScheduledRunExecution{Id: "execution", SessionId: "deleted", Deadline: timestamppb.New(time.Now().Add(time.Minute))}
+	require.NoError(t, NewController(controllerTestStore{}, nil, nil, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, execution.State)
 	require.Equal(t, "deleted", execution.SessionId)
 }
 
 func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	completedAt := time.Now().Add(-2 * time.Minute)
-	execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
-	store := controllerTestStore{session: &apiv1alpha1.Session{Id: "original"}}
+	execution := &apiv1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(completedAt.Add(time.Minute))}
+	store := controllerTestStore{session: &apiv1.Session{Id: "original"}}
 	gateway := &controllerTestCleanup{task: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &completedAt}}}
-	require.NoError(t, NewController(store, nil, gateway).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
+	require.NoError(t, NewController(store, nil, gateway, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
+}
+
+func TestControllerDeadlineCancellationOutcome(t *testing.T) {
+	deadline := time.Now().Add(-time.Minute)
+	before := deadline.Add(-time.Second)
+	after := deadline.Add(time.Second)
+	for _, tc := range []struct {
+		name      string
+		state     a2atype.TaskState
+		timestamp *time.Time
+		want      apiv1.ScheduledRunExecutionState
+	}{
+		{"canceled with a slow runtime clock", a2atype.TaskStateCanceled, &before, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"canceled at deadline", a2atype.TaskStateCanceled, &deadline, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"canceled after deadline", a2atype.TaskStateCanceled, &after, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"canceled without timestamp", a2atype.TaskStateCanceled, nil, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+		{"completed before cancellation", a2atype.TaskStateCompleted, &before, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED},
+		{"completed after deadline", a2atype.TaskStateCompleted, &after, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", SessionId: "original", TaskId: "original-task", Deadline: timestamppb.New(deadline)}
+			store := controllerTestStore{session: &apiv1.Session{Id: "original"}}
+			gateway := &controllerTestCleanup{
+				task:         &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
+				canceledTask: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: tc.state, Timestamp: tc.timestamp}},
+			}
+			require.NoError(t, NewController(store, nil, gateway, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+			require.Equal(t, 1, gateway.expires)
+			require.Equal(t, tc.want, execution.State)
+		})
+	}
 }
 
 type taskLookupGateway struct {
@@ -141,8 +177,8 @@ func TestExecutionTaskUsesLinkedIdentity(t *testing.T) {
 			}}
 			// ListTasks is deliberately absent: linked tasks, including missing
 			// ones, must never fall back to scanning for a different identity.
-			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution", TaskId: string(task.ID)}
-			got, err := NewController(nil, nil, gateway).executionTask(t.Context(), execution)
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", TaskId: string(task.ID)}
+			got, err := NewController(nil, nil, gateway, time.Second).executionTask(t.Context(), execution)
 			require.ErrorIs(t, err, tc.wantErr)
 			require.Equal(t, tc.task, got)
 			require.Equal(t, 1, calls)
@@ -186,8 +222,8 @@ func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
 				}
 				return page, nil
 			}}
-			execution := &apiv1alpha1.ScheduledRunExecution{Id: "execution"}
-			got, err := NewController(nil, nil, gateway).executionTask(t.Context(), execution)
+			execution := &apiv1.ScheduledRunExecution{Id: "execution"}
+			got, err := NewController(nil, nil, gateway, time.Second).executionTask(t.Context(), execution)
 			require.ErrorIs(t, err, tc.err)
 			require.Equal(t, tc.task, got)
 			require.Equal(t, 2, calls)
@@ -196,14 +232,14 @@ func TestExecutionTaskRecoversUnlinkedIdentity(t *testing.T) {
 }
 
 func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
-	execution := &apiv1alpha1.ScheduledRunExecution{
+	execution := &apiv1.ScheduledRunExecution{
 		Id: "execution", SessionId: "session",
-		State:    apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING,
+		State:    apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING,
 		Deadline: timestamppb.New(time.Now().Add(time.Minute)),
 	}
-	store := controllerTestStore{session: &apiv1alpha1.Session{
-		Id: "session", State: apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
-		Operation: apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+	store := controllerTestStore{session: &apiv1.Session{
+		Id: "session", State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
 	}}
 	reads := 0
 	gateway := taskLookupGateway{listTasks: func(*a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
@@ -212,9 +248,9 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 	}}
 	// Neither dispatch nor workflow methods are supplied: even an empty history
 	// after a lost response must never trigger another send.
-	controller := NewController(store, nil, gateway)
+	controller := NewController(store, nil, gateway, time.Second)
 	require.NoError(t, controller.reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 	require.Equal(t, 1, reads)
 	require.Empty(t, execution.TaskId)
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
 }

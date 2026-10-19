@@ -2,20 +2,48 @@ package substrate
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
+
+func TestActorTemplateSkillVolumeLimit(t *testing.T) {
+	for _, count := range []int{0, 29, 30} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			spec := &translator.Revision{Namespace: "test", AgentName: "skills", AgentCard: &a2apb.AgentCard{
+				Name: "skills", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+				DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
+				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			}}
+			for i := range count {
+				spec.SkillImages = append(spec.SkillImages, translator.SkillImage(fmt.Sprintf("example.com/skills-%d@sha256:%064x", i, i)))
+			}
+			id, err := spec.Digest()
+			require.NoError(t, err)
+			actor, err := ActorTemplateForRevision(spec, id)
+			if count > 29 {
+				require.ErrorContains(t, err, "33 volumes and 33 container mounts")
+				require.ErrorContains(t, err, "at most 32 volumes and 32 mounts per container")
+				require.Nil(t, actor)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, actor.Volumes, count+3)
+			require.Len(t, actor.Containers[0].VolumeMounts, count+3)
+		})
+	}
+}
 
 func TestActorTemplateSandboxClass(t *testing.T) {
 	for _, tt := range []struct {
@@ -52,9 +80,19 @@ func TestActorTemplateSandboxClass(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
 			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
-			require.Equal(t, map[string]string{workerPoolLabelKey: "pool"}, template.GetWorkerSelector().GetMatchLabels())
+			testWorkerPoolSelection(t, template, "agents", "pool")
 		})
 	}
+}
+
+// The keys are literals because the Helm chart and externally managed pools
+// set them by name; changing a key constant must fail here.
+func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, namespace, pool string) {
+	t.Helper()
+	require.Equal(t, map[string]string{
+		"kagent.dev/worker-pool-name":      pool,
+		"kagent.dev/worker-pool-namespace": namespace,
+	}, template.GetWorkerSelector().GetMatchLabels())
 }
 
 func TestActorTemplateForRevision(t *testing.T) {
@@ -86,12 +124,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	if template.GetSnapshotConfig().GetOnResume().GetFromData() != ateapipb.ResumeSource_RESUME_SOURCE_GOLDEN {
-		t.Fatalf("unexpected snapshot resume default: %+v", template.GetSnapshotConfig().GetOnResume())
-	}
-	if template.GetSnapshotConfig().GetOnPause() != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL {
-		t.Fatalf("unexpected pause snapshot scope: %s", template.GetSnapshotConfig().GetOnPause())
-	}
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, template.GetSnapshotConfig().GetOnCommit())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
@@ -102,7 +135,7 @@ func TestActorTemplateForRevision(t *testing.T) {
 		}
 	}
 	trust := template.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
-	if trust.GetName() != "egress-mitm.ate.dev" || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
+	if !slices.Equal(trust.GetNames(), []string{"egress-mitm.ate.dev"}) || trust.GetPath() != "trust-bundle.pem" || container.VolumeMounts[1].GetMountPath() != egressTrustMount {
 		t.Fatal("gateway trust bundle was not projected")
 	}
 	identity := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
@@ -122,33 +155,37 @@ func TestActorTemplateForRevision(t *testing.T) {
 }
 
 func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
-	spec := &translator.Revision{
-		Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
-		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
-			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
-			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
-		Environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.agent.name=helper-kagent,service.version=forged"}},
-	}
-	revisionID, err := spec.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	template, err := ActorTemplateForRevision(spec, revisionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, variable := range template.GetContainers()[0].Env {
-		if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
-			if want := "gen_ai.agent.name=helper-kagent,service.version=" + revisionID.Short(); variable.Value != want {
-				t.Fatalf("resource attributes = %q, want %q", variable.Value, want)
+	for _, test := range []struct {
+		name        string
+		environment []corev1.EnvVar
+		wantPrefix  string
+	}{
+		{name: "no resource environment"},
+		{name: "preserves attributes", environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "team=platform"}}, wantPrefix: "team=platform,"},
+		{name: "replaces forged version", environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.main_agent.name=helper-kagent,service.version=forged"}}, wantPrefix: "gen_ai.main_agent.name=helper-kagent,"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := &translator.Revision{
+				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
+				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+				Environment: slices.Clone(test.environment),
 			}
-			if spec.Environment[0].Value != "gen_ai.agent.name=helper-kagent,service.version=forged" {
-				t.Fatal("stamping the revision changed the compiled revision")
+			revisionID, err := spec.Digest()
+			require.NoError(t, err)
+			template, err := ActorTemplateForRevision(spec, revisionID)
+			require.NoError(t, err)
+			require.Equal(t, test.environment, spec.Environment, "stamping the revision must not change the compiled revision")
+			for _, variable := range template.GetContainers()[0].Env {
+				if variable.Name == "OTEL_RESOURCE_ATTRIBUTES" {
+					require.Equal(t, test.wantPrefix+"service.version="+revisionID.Short(), variable.Value)
+					return
+				}
 			}
-			return
-		}
+			t.Fatal("resource attributes missing from the actor")
+		})
 	}
-	t.Fatal("resource attributes missing from the actor")
 }
 
 func TestActorTemplateSpecEqualIgnoresServerFields(t *testing.T) {

@@ -1,46 +1,43 @@
 package adkconfig
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"path"
-	"regexp"
+	"slices"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"google.golang.org/protobuf/types/known/durationpb"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // modelDeploymentData collects the Kubernetes inputs required by a provider.
 // Volumes are retained even though the current Substrate ActorTemplate path
 // rejects them, so the compiler can report incompatibility instead of silently
-// dropping credentials or custom CAs.
+// dropping credentials.
 type modelDeploymentData struct {
 	EnvVars      []corev1.EnvVar
 	Volumes      []corev1.Volume
 	VolumeMounts []corev1.VolumeMount
 }
 
-// modelRuntime is the provider-neutral result consumed by the rest of the v2
-// compiler. data remains attached so MCP TLS requirements can be accumulated
-// before the final Substrate compatibility check.
+// modelRuntime is the provider-neutral result consumed by the rest of the
+// compiler.
 type modelRuntime struct {
-	Model                 adk.Model
+	Model                 *configv1.ADKModelConfig
 	Environment           []corev1.EnvVar
 	HasUnsupportedVolumes bool
-	data                  *modelDeploymentData
 }
 
 // resolveModel collapses provider-specific translation output into the subset
 // needed to compile a runtime revision.
-func resolveModel(resolved *v2translator.ResolvedModelConfig) (*modelRuntime, error) {
+func resolveModel(resolved *translator.ResolvedModelConfig) (*modelRuntime, error) {
 	model, data, err := translateModel(resolved)
 	if err != nil {
 		return nil, err
@@ -48,180 +45,36 @@ func resolveModel(resolved *v2translator.ResolvedModelConfig) (*modelRuntime, er
 	return &modelRuntime{
 		Model: model, Environment: data.EnvVars,
 		HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
-		data:                  data,
 	}, nil
 }
 
-const (
-	googleCredsVolumeName = "google-creds"
-	tlsCAVolumePrefix     = "tls-ca-"
-	tlsCAMountRoot        = "/etc/ssl/certs/custom"
-	maxDNS1123LabelLen    = 63
-	gdchCredsVolumeName   = "gdch-creds"
-	gdchCredsMountPath    = "/gdch-creds"
-)
+const googleCredsVolumeName = "google-creds"
 
-// dns1123LabelRE matches RFC 1123 labels (lowercase alphanumeric + dashes,
-// must start and end with alphanumeric). K8s volume names require this
-// grammar — but K8s Secret names follow the looser DNS_SUBDOMAIN grammar
-// (dots allowed, up to 253 chars), so a literal Secret name like
-// `corp.ca` or cert-manager-style `mcp.example.com-tls` would fail volume
-// name validation if embedded verbatim. tlsCAPaths hashes the name when
-// it would violate this regex (or the length limit) for that reason.
-var dns1123LabelRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
-
-// tlsCAPaths returns deterministic volume name, mount path, and cert file
-// path for the given Secret reference. Per-Secret naming lets multiple TLS
-// sources (the ModelConfig and RemoteMCPServers) in the same revision coexist
-// without colliding. Repeated references to the same Secret reuse the same
-// deterministic name and path.
-func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string) {
-	candidate := tlsCAVolumePrefix + secretName
-	id := secretName
-	if len(candidate) > maxDNS1123LabelLen || !dns1123LabelRE.MatchString(candidate) {
-		h := sha256.Sum256([]byte(secretName))
-		id = hex.EncodeToString(h[:])[:8]
-	}
-	volumeName = tlsCAVolumePrefix + id
-	mountPath = path.Join(tlsCAMountRoot, id)
-	certPath = path.Join(mountPath, key)
-	return
-}
-
-// deriveTLSFields turns a v1alpha3.TLSConfig into the three pointer fields
-// that every TLS-aware adk wire type carries (BaseModel,
-// StreamableHTTPConnectionParams, SseConnectionParams). Returns nils for
-// nil or all-zero configs so the caller can assign-through to all three
-// fields in a single statement. Emitting explicit `false` booleans on
-// an empty struct would flip the Python runtime out of its no-op
-// short-circuit and silently swap google-adk's default httpx client for
-// kagent's, which has the same SSL behavior but different
-// timeout/redirect defaults.
-func deriveTLSFields(tlsConfig *v1alpha3.TLSConfig) (*bool, *string, *bool) {
+// tlsInsecureSkipVerify leaves empty configs unset to preserve SDK client defaults.
+func tlsInsecureSkipVerify(tlsConfig *v1alpha3.TLSConfig) *bool {
 	if tlsConfig.IsEmpty() {
-		return nil, nil, nil
+		return nil
 	}
-	insecureSkipVerify := &tlsConfig.DisableVerify
-	disableSystemCAs := &tlsConfig.DisableSystemCAs
-	var caCertPath *string
-	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
-		_, _, p := tlsCAPaths(tlsConfig.CACertSecretRef, tlsConfig.CACertSecretKey)
-		caCertPath = &p
-	}
-	return insecureSkipVerify, caCertPath, disableSystemCAs
+	return &tlsConfig.DisableVerify
 }
 
-// populateTLSFields writes the derived TLS fields onto an adk.BaseModel.
-// Each provider embeds BaseModel, so this keeps the three TLS fields consistent
-// across translateModel branches. MCP connection params carry the same fields
-// but do not embed BaseModel, so those callers use deriveTLSFields directly.
-func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) {
-	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
+func populateTLSFields(baseModel *configv1.ADKModelConfig, tlsConfig *v1alpha3.TLSConfig) {
+	baseModel.TlsInsecureSkipVerify = tlsInsecureSkipVerify(tlsConfig)
 }
 
-// addTLSConfiguration mounts a CA Secret as a per-Secret read-only volume on
-// modelDeploymentData. Safe to call multiple times for the same agent with
-// the same OR different TLSConfigs:
-//   - different Secrets produce different volume names + paths and accumulate.
-//   - the same Secret referenced from multiple sources is idempotent because a
-//     volume with the same deterministic name is appended only once.
-//
-// ModelConfig and RemoteMCPServer reconciliation validate that the Secret and
-// key exist. Translation preserves the requested mount and lets the public
-// resources surface configuration errors through their Accepted conditions.
-func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha3.TLSConfig) {
-	if tlsConfig == nil {
-		return
-	}
-
-	// A CA bundle requires both the Secret name and the key within it; with
-	// either missing there is no file to mount (system-trust or disableVerify
-	// paths set neither and fall through as a no-op).
-	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
-		volumeName, mountPath, _ := tlsCAPaths(tlsConfig.CACertSecretRef, tlsConfig.CACertSecretKey)
-
-		for _, v := range modelDeploymentData.Volumes {
-			if v.Name == volumeName {
-				return
-			}
-		}
-
-		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-			Name: volumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName:  tlsConfig.CACertSecretRef,
-					DefaultMode: new(int32(0444)), // Read-only for all users
-				},
-			},
-		})
-
-		modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: mountPath,
-			ReadOnly:  true,
-		})
-	}
-}
-
-// addTokenExchangeConfiguration adds token exchange configuration to the OpenAI
-// model and mounts the service account secret (referenced by the top-level
-// apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
-// Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
-func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha3.ModelConfigSpec) {
-	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
-		return
-	}
-	tokenExchange := spec.OpenAI.TokenExchange
-	switch tokenExchange.Type {
-	case v1alpha3.TokenExchangeTypeGDCH:
-		cfg := tokenExchange.GDCHServiceAccount
-		if cfg == nil {
-			return
-		}
-		saPath := fmt.Sprintf("%s/%s", gdchCredsMountPath, spec.APIKeySecretKey)
-		openai.TokenExchange = &adk.TokenExchangeConfig{
-			Type: string(tokenExchange.Type),
-			GDCHServiceAccount: &adk.GDCHTokenExchangeConfig{
-				ServiceAccountPath: saPath,
-				Audience:           cfg.Audience,
-			},
-		}
-		mdd.Volumes = append(mdd.Volumes, corev1.Volume{
-			Name: gdchCredsVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName:  spec.APIKeySecret,
-					DefaultMode: new(int32(0444)), // Read-only for all users
-				},
-			},
-		})
-		mdd.VolumeMounts = append(mdd.VolumeMounts, corev1.VolumeMount{
-			Name:      gdchCredsVolumeName,
-			MountPath: gdchCredsMountPath,
-			ReadOnly:  true,
-		})
-	}
-}
-
-// translateModel owns the v2 ModelConfig-to-ADK mapping. The provider branches
-// are intentionally local rather than calling the legacy translator: v2 can
-// now evolve and eventually replace that code without a compatibility layer.
+// translateModel owns the ModelConfig-to-ADK mapping. The provider branches
+// are intentionally local so runtime-specific requirements stay explicit.
 // It returns the ADK wire model and its Kubernetes runtime requirements.
-func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *modelDeploymentData, error) {
+func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKModelConfig, *modelDeploymentData, error) {
 	if resolved == nil || resolved.Config == nil {
 		return nil, nil, fmt.Errorf("resolved model config is required")
 	}
 	model := resolved.Config
 	modelDeploymentData := &modelDeploymentData{}
 
-	// Add TLS configuration if present
-	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
-
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
-		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -234,46 +87,43 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				},
 			})
 		}
-		openai := &adk.OpenAI{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		openai := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
-		// Populate TokenExchange fields (OpenAI-specific)
-		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
-		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(openai, model.Spec.TLS)
+		openai.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.OpenAI != nil {
-			openai.BaseUrl = model.Spec.OpenAI.BaseURL
-			openai.Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
-			openai.TopP = utils.ParseStringToFloat64(model.Spec.OpenAI.TopP)
-			openai.FrequencyPenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.FrequencyPenalty)
-			openai.PresencePenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.PresencePenalty)
+			openai.GetOpenai().BaseUrl = model.Spec.OpenAI.BaseURL
+			openai.GetOpenai().Temperature = utils.ParseStringToFloat64(model.Spec.OpenAI.Temperature)
+			openai.GetOpenai().TopP = utils.ParseStringToFloat64(model.Spec.OpenAI.TopP)
+			openai.GetOpenai().FrequencyPenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.FrequencyPenalty)
+			openai.GetOpenai().PresencePenalty = utils.ParseStringToFloat64(model.Spec.OpenAI.PresencePenalty)
 
 			if model.Spec.OpenAI.MaxTokens > 0 {
-				openai.MaxTokens = &model.Spec.OpenAI.MaxTokens
+				openai.GetOpenai().MaxTokens = runtimeInt(&model.Spec.OpenAI.MaxTokens)
 			}
 			if model.Spec.OpenAI.MaxCompletionTokens > 0 {
-				openai.MaxCompletionTokens = &model.Spec.OpenAI.MaxCompletionTokens
+				openai.GetOpenai().MaxCompletionTokens = runtimeInt(&model.Spec.OpenAI.MaxCompletionTokens)
 			}
 			if model.Spec.OpenAI.Seed != nil {
-				openai.Seed = model.Spec.OpenAI.Seed
+				openai.GetOpenai().Seed = runtimeInt(model.Spec.OpenAI.Seed)
 			}
 			if model.Spec.OpenAI.N != nil {
-				openai.N = model.Spec.OpenAI.N
+				openai.GetOpenai().N = runtimeInt(model.Spec.OpenAI.N)
 			}
 			if model.Spec.OpenAI.Timeout != nil {
-				openai.Timeout = model.Spec.OpenAI.Timeout
+				openai.GetOpenai().Timeout = runtimeDuration(model.Spec.OpenAI.Timeout)
 			}
 			if model.Spec.OpenAI.ReasoningEffort != nil {
 				effort := string(*model.Spec.OpenAI.ReasoningEffort)
-				openai.ReasoningEffort = &effort
+				openai.GetOpenai().ReasoningEffort = &effort
 			}
 			if model.Spec.OpenAI.APIFormat != nil && *model.Spec.OpenAI.APIFormat != "" {
-				openai.APIFormat = string(*model.Spec.OpenAI.APIFormat)
+				openai.GetOpenai().ApiFormat = string(*model.Spec.OpenAI.APIFormat)
 			}
 
 			if model.Spec.OpenAI.Organization != "" {
@@ -285,7 +135,7 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 		}
 		return openai, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAnthropic:
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AnthropicAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -298,34 +148,35 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				},
 			})
 		}
-		anthropic := &adk.Anthropic{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		anthropic := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Anthropic{Anthropic: &configv1.ADKAnthropic{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
-		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(anthropic, model.Spec.TLS)
+		anthropic.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.Anthropic != nil {
 			spec := model.Spec.Anthropic
-			anthropic.BaseUrl = spec.BaseURL
-			anthropic.Temperature = utils.ParseStringToFloat64(spec.Temperature)
-			anthropic.TopP = utils.ParseStringToFloat64(spec.TopP)
+			anthropic.GetAnthropic().BaseUrl = spec.BaseURL
+			anthropic.GetAnthropic().Temperature = utils.ParseStringToFloat64(spec.Temperature)
+			anthropic.GetAnthropic().TopP = utils.ParseStringToFloat64(spec.TopP)
 			if spec.MaxTokens > 0 {
-				anthropic.MaxTokens = &spec.MaxTokens
+				anthropic.GetAnthropic().MaxTokens = runtimeInt(&spec.MaxTokens)
 			}
 			if spec.TopK > 0 {
-				anthropic.TopK = &spec.TopK
+				anthropic.GetAnthropic().TopK = runtimeInt(&spec.TopK)
 			}
+			anthropic.GetAnthropic().PromptCaching = spec.PromptCaching
+			anthropic.GetAnthropic().CacheTtl = spec.CacheTTL
 		}
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AzureOpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -356,21 +207,24 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				Value: model.Spec.AzureOpenAI.Endpoint,
 			})
 		}
-		azureOpenAI := &adk.AzureOpenAI{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.AzureOpenAI.DeploymentName,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Endpoint:    model.Spec.AzureOpenAI.Endpoint,
-			Deployment:  model.Spec.AzureOpenAI.DeploymentName,
-			APIVersion:  model.Spec.AzureOpenAI.APIVersion,
-			Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
-			TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
-			MaxTokens:   model.Spec.AzureOpenAI.MaxTokens,
+		azureOpenAI := &configv1.ADKModelConfig{
+			Model:   model.Spec.AzureOpenAI.DeploymentName,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{
+				Endpoint:    model.Spec.AzureOpenAI.Endpoint,
+				Deployment:  model.Spec.AzureOpenAI.DeploymentName,
+				ApiVersion:  model.Spec.AzureOpenAI.APIVersion,
+				Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
+				TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
+				MaxTokens:   runtimeInt(model.Spec.AzureOpenAI.MaxTokens),
+			}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
-		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(azureOpenAI, model.Spec.TLS)
+		azureOpenAI.ApiKeyPassthrough = model.Spec.TokenPassthrough
+		if model.Spec.AzureOpenAI.APIFormat != nil && *model.Spec.AzureOpenAI.APIFormat != "" {
+			azureOpenAI.GetAzureOpenai().ApiFormat = string(*model.Spec.AzureOpenAI.APIFormat)
+		}
 
 		return azureOpenAI, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGeminiVertexAI:
@@ -407,18 +261,17 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				MountPath: "/creds",
 			})
 		}
-		gemini := &adk.GeminiVertexAI{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		gemini := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_GeminiVertexAi{GeminiVertexAi: &configv1.ADKGeminiVertexAI{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
-		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(gemini, model.Spec.TLS)
+		gemini.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
-			gemini.MaxOutputTokens = &model.Spec.GeminiVertexAI.MaxOutputTokens
+			gemini.GetGeminiVertexAi().MaxOutputTokens = runtimeInt(&model.Spec.GeminiVertexAI.MaxOutputTokens)
 		}
 
 		return gemini, modelDeploymentData, nil
@@ -452,15 +305,14 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				MountPath: "/creds",
 			})
 		}
-		anthropic := &adk.GeminiAnthropic{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		anthropic := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_GeminiAnthropic{GeminiAnthropic: &configv1.ADKGeminiAnthropic{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
-		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(anthropic, model.Spec.TLS)
+		anthropic.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return anthropic, modelDeploymentData, nil
 	case v1alpha3.ModelProviderOllama:
@@ -482,7 +334,7 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 		// placeholder. The same predicate decides the credential binding.
 		// Local models and operator-supplied daemon hosts have no cloud
 		// binding, so they must not receive a Secret-backed environment ref.
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" &&
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" &&
 			models.OllamaReachesCloud(model.Spec.Model, model.Spec.Ollama.Host, true) {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.OllamaAPIKey.Name(),
@@ -496,16 +348,16 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				},
 			})
 		}
-		ollama := &adk.Ollama{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Options: model.Spec.Ollama.Options,
+		ollama := &configv1.ADKModelConfig{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Ollama{Ollama: &configv1.ADKOllama{
+				Options: model.Spec.Ollama.Options,
+			}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
-		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(ollama, model.Spec.TLS)
+		ollama.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return ollama, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGemini:
@@ -520,16 +372,15 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				},
 			},
 		})
-		gemini := &adk.Gemini{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		gemini := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{}},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		// Populate shared transport settings.
+		populateTLSFields(gemini, model.Spec.TLS)
 		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
-			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
+			gemini.GetGemini().MaxOutputTokens = runtimeInt(&model.Spec.Gemini.MaxOutputTokens)
 		}
 		return gemini, modelDeploymentData, nil
 	case v1alpha3.ModelProviderBedrock:
@@ -545,7 +396,7 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 
 		// If AWS_BEARER_TOKEN_BEDROCK key exists: use bearer token auth
 		// Otherwise, use IAM credentials
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			secret := types.NamespacedName{Namespace: model.Namespace, Name: model.Spec.APIKeySecret}
 			hasSecretKey := func(key string) bool {
 				for _, ref := range resolved.References {
@@ -603,35 +454,33 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				}
 			}
 		}
-		var additionalFields map[string]any
+		var additionalFields []byte
 		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
-			if err := json.Unmarshal(model.Spec.Bedrock.AdditionalModelRequestFields.Raw, &additionalFields); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
-			}
+			additionalFields = slices.Clone(model.Spec.Bedrock.AdditionalModelRequestFields.Raw)
 		}
-		bedrock := &adk.Bedrock{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Region:                       model.Spec.Bedrock.Region,
-			AdditionalModelRequestFields: additionalFields,
-			PromptCaching:                model.Spec.Bedrock.PromptCaching,
-			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
-			ReadTimeout:                  model.Spec.Bedrock.ReadTimeout,
-			ConnectTimeout:               model.Spec.Bedrock.ConnectTimeout,
+		bedrock := &configv1.ADKModelConfig{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{
+				Region:                       model.Spec.Bedrock.Region,
+				AdditionalModelRequestFields: additionalFields,
+				PromptCaching:                model.Spec.Bedrock.PromptCaching,
+				CacheTtl:                     model.Spec.Bedrock.CacheTTL,
+				ReadTimeout:                  runtimeDuration(model.Spec.Bedrock.ReadTimeout),
+				ConnectTimeout:               runtimeDuration(model.Spec.Bedrock.ConnectTimeout),
+			}},
 		}
 		if model.Spec.Bedrock.Guardrail != nil {
-			bedrock.Guardrail = &adk.BedrockGuardrail{
+			bedrock.GetBedrock().Guardrail = &configv1.ADKBedrockGuardrail{
 				Identifier: model.Spec.Bedrock.Guardrail.Identifier,
 				Version:    model.Spec.Bedrock.Guardrail.Version,
 				Trace:      model.Spec.Bedrock.Guardrail.Trace,
 			}
 		}
 
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)
-		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		// Populate shared transport settings.
+		populateTLSFields(bedrock, model.Spec.TLS)
+		bedrock.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return bedrock, modelDeploymentData, nil
 	case v1alpha3.ModelProviderSAPAICore:
@@ -639,7 +488,7 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 			return nil, nil, fmt.Errorf("sapAICore model config is required")
 		}
 
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.SAPAICoreClientID.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -664,18 +513,18 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 			})
 		}
 
-		sapAICore := &adk.SAPAICore{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			BaseUrl:       model.Spec.SAPAICore.BaseURL,
-			ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
-			AuthUrl:       model.Spec.SAPAICore.AuthURL,
+		sapAICore := &configv1.ADKModelConfig{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_SapAiCore{SapAiCore: &configv1.ADKSAPAICore{
+				BaseUrl:       model.Spec.SAPAICore.BaseURL,
+				ResourceGroup: model.Spec.SAPAICore.ResourceGroup,
+				AuthUrl:       model.Spec.SAPAICore.AuthURL,
+			}},
 		}
 
-		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
-		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		populateTLSFields(sapAICore, model.Spec.TLS)
+		sapAICore.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return sapAICore, modelDeploymentData, nil
 	case v1alpha3.ModelProviderFoundry:
@@ -689,7 +538,7 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 		// Implicit auth: mount the API key only when a secret is provided and
 		// passthrough is off; otherwise the runtime uses DefaultAzureCredential
 		// (Workload Identity) or the passed-through caller token.
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.FoundryAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -723,27 +572,27 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 		// Map the CRD API format (OpenAI default | Anthropic) to the ADK wire
 		// surface. Anthropic-format Foundry models are served over the Claude
 		// Messages API instead of the OpenAI-compatible surface.
-		apiFormat := adk.FoundryAPIFormatOpenAI
+		apiFormat := runtimeconfig.FoundryAPIFormatOpenAI
 		if cfg.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
-			apiFormat = adk.FoundryAPIFormatAnthropic
+			apiFormat = runtimeconfig.FoundryAPIFormatAnthropic
 		}
 
-		foundry := &adk.Foundry{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
-			Endpoint:   endpoint,
-			Deployment: cfg.Deployment,
-			APIVersion: cfg.APIVersion,
-			APIFormat:  apiFormat,
+		foundry := &configv1.ADKModelConfig{
+			Model:   model.Spec.Model,
+			Headers: model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{
+				Endpoint:   endpoint,
+				Deployment: cfg.Deployment,
+				ApiVersion: cfg.APIVersion,
+				ApiFormat:  apiFormat,
+			}},
 		}
-		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
-		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		populateTLSFields(foundry, model.Spec.TLS)
+		foundry.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return foundry, modelDeploymentData, nil
 	case v1alpha3.ModelProviderMistral:
-		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+		if !model.Spec.TokenPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.MistralAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -756,31 +605,30 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 				},
 			})
 		}
-		mistral := &adk.Mistral{
-			BaseModel: adk.BaseModel{
-				Model:   model.Spec.Model,
-				Headers: model.Spec.DefaultHeaders,
-			},
+		mistral := &configv1.ADKModelConfig{
+			Model:    model.Spec.Model,
+			Headers:  model.Spec.DefaultHeaders,
+			Provider: &configv1.ADKModelConfig_Mistral{Mistral: &configv1.ADKMistral{}},
 		}
-		populateTLSFields(&mistral.BaseModel, model.Spec.TLS)
-		mistral.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+		populateTLSFields(mistral, model.Spec.TLS)
+		mistral.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		if model.Spec.Mistral != nil {
 			spec := model.Spec.Mistral
 			if spec.BaseURL != nil {
-				mistral.BaseUrl = *spec.BaseURL
+				mistral.GetMistral().BaseUrl = *spec.BaseURL
 			}
 			if spec.Temperature != nil {
-				mistral.Temperature = utils.ParseStringToFloat64(*spec.Temperature)
+				mistral.GetMistral().Temperature = utils.ParseStringToFloat64(*spec.Temperature)
 			}
 			if spec.TopP != nil {
-				mistral.TopP = utils.ParseStringToFloat64(*spec.TopP)
+				mistral.GetMistral().TopP = utils.ParseStringToFloat64(*spec.TopP)
 			}
 			if spec.MaxTokens != nil {
-				mistral.MaxTokens = spec.MaxTokens
+				mistral.GetMistral().MaxTokens = runtimeInt(spec.MaxTokens)
 			}
 			if spec.Timeout != nil {
-				mistral.Timeout = spec.Timeout
+				mistral.GetMistral().Timeout = runtimeDuration(spec.Timeout)
 			}
 		}
 
@@ -788,4 +636,19 @@ func translateModel(resolved *v2translator.ResolvedModelConfig) (adk.Model, *mod
 	default:
 		return nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
+}
+
+func runtimeInt(value *int) *int64 {
+	if value == nil {
+		return nil
+	}
+	return new(int64(*value))
+}
+
+func runtimeDuration(seconds *int) *durationpb.Duration {
+	if seconds == nil {
+		return nil
+	}
+	// Validate the protobuf before converting seconds to a native duration.
+	return &durationpb.Duration{Seconds: int64(*seconds)}
 }

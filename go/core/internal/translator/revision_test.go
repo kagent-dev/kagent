@@ -38,7 +38,18 @@ func TestRevisionDigestIncludesSandboxClass(t *testing.T) {
 	require.True(t, invalid.IsZero())
 }
 
-func TestRevisionDigestIncludesProvenance(t *testing.T) {
+func TestRevisionDigestReplacesNameOnlyWorkerPoolTemplate(t *testing.T) {
+	revision := &Revision{Namespace: "tenant-a", AgentName: "helper", WorkerPoolName: "kagent-default"}
+	id, err := revision.Digest()
+	require.NoError(t, err)
+	require.NotEqual(t, "01d0e398a0a585b884d12b7d9ae7924437ca21d6c44c7461ac869e396980a75e", id.String(),
+		"namespace-scoped placement must create a fresh immutable ActorTemplate")
+	repeated, err := revision.Digest()
+	require.NoError(t, err)
+	require.Equal(t, id, repeated)
+}
+
+func TestRevisionDigestExcludesProvenance(t *testing.T) {
 	revision := &Revision{Namespace: "agents", AgentName: "helper", Provenance: []byte(`[{"kind":"ConfigMap","hash":"first"}]`)}
 	first, err := revision.Digest()
 	if err != nil {
@@ -49,8 +60,8 @@ func TestRevisionDigestIncludesProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first == second {
-		t.Fatal("configuration change did not change runtime revision")
+	if first != second {
+		t.Fatal("source-only change altered runtime revision")
 	}
 	if len(first.Short()) != 12 || !strings.HasPrefix(first.String(), first.Short()) {
 		t.Fatalf("short revision %q is not a prefix of %q", first.Short(), first.String())

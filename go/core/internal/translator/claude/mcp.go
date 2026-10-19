@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	v2translator "github.com/kagent-dev/kagent/go/core/internal/translator"
-	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/internal/translator"
+	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 )
 
 type mcpCompilation struct {
@@ -27,7 +29,7 @@ type mcpCompilation struct {
 func (c *Compiler) compileMCP(
 	ctx context.Context,
 	namespace string,
-	tools []v2translator.ResolvedMCPTool,
+	tools []translator.ResolvedMCPTool,
 ) (mcpCompilation, error) {
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
@@ -39,13 +41,16 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
+		if server.Spec.TokenPassthrough {
+			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
+		}
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, exists := identities[name]; exists {
-			return mcpCompilation{}, v2translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
+			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
 		}
 		identities[name] = server.Name
 		if _, exists := result.servers[name]; exists {
-			return mcpCompilation{}, v2translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
+			return mcpCompilation{}, translator.NewValidationError("RemoteMCPServer %q is bound more than once", server.Name)
 		}
 
 		if warning := mcpSelectionWarning(tool.Binding.Tools, server); warning != "" {
@@ -58,7 +63,7 @@ func (c *Compiler) compileMCP(
 		if compatibilityWarning != "" {
 			result.warnings = append(result.warnings, compatibilityWarning)
 		}
-		hostname, err := mcpHostname(server.Spec.URL)
+		hostname, err := mcpOrigin(server.Spec.URL)
 		if err != nil {
 			return mcpCompilation{}, err
 		}
@@ -138,16 +143,16 @@ func claudeMCPTransport(server *v1alpha3.RemoteMCPServer) (string, string, error
 	case "", v1alpha3.RemoteMCPServerProtocolStreamableHttp:
 		return "http", warning, nil
 	default:
-		return "", "", v2translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
+		return "", "", translator.NewValidationError("Claude RemoteMCPServer %q has unsupported protocol %q", server.Name, server.Spec.Protocol)
 	}
 }
 
-func mcpHostname(raw string) (string, error) {
+func mcpOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
-		return "", v2translator.NewValidationError("Claude RemoteMCPServer URL must be absolute HTTP(S) without credentials or fragment")
+		return "", translator.NewValidationError("Claude RemoteMCPServer URL must be absolute HTTP(S) without credentials or fragment")
 	}
-	return parsed.Hostname(), nil
+	return egress.Origin(parsed), nil
 }
 
 func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
@@ -158,10 +163,10 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 	var environment []corev1.EnvVar
 	for _, ref := range refs {
 		if strings.TrimSpace(ref.Name) == "" {
-			return nil, nil, v2translator.NewValidationError("MCP header name is required")
+			return nil, nil, translator.NewValidationError("MCP header name is required")
 		}
 		if _, exists := headers[ref.Name]; exists {
-			return nil, nil, v2translator.NewValidationError("duplicate MCP header %q", ref.Name)
+			return nil, nil, translator.NewValidationError("duplicate MCP header %q", ref.Name)
 		}
 		switch {
 		case ref.ValueFrom == nil:
@@ -184,7 +189,7 @@ func (c *Compiler) compileMCPHeaders(ctx context.Context, namespace string, refs
 			headers[ref.Name] = "${" + name + "}"
 			environment = append(environment, secretEnvironment(name, ref.ValueFrom.Name, ref.ValueFrom.Key))
 		default:
-			return nil, nil, v2translator.NewValidationError("unsupported MCP header value source %q", ref.ValueFrom.Type)
+			return nil, nil, translator.NewValidationError("unsupported MCP header value source %q", ref.ValueFrom.Type)
 		}
 	}
 	return headers, environment, nil

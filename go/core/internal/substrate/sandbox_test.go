@@ -1,14 +1,17 @@
 package substrate
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
@@ -19,13 +22,27 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	policy := SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}
 	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy)
 	require.NoError(t, err)
+	require.NotEqual(t, "5bf14bc98818a54bf4e59e5aca83de9bde5df22e9efa206b65e1389069a188c3", digest,
+		"namespace-scoped placement must create a fresh immutable ActorTemplate")
+	testWorkerPoolSelection(t, actor, template.Namespace, template.Spec.Substrate.WorkerPoolRef.Name)
 	require.Contains(t, string(snapshot), policy.GuestImage)
 	require.Equal(t, []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"}, actor.Containers[0].Command)
 	require.Equal(t, policy.GuestImage, actor.Volumes[1].Image.Reference)
 	require.Equal(t, "1Gi", actor.Resources.Limits[1].Quantity)
+	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA, actor.GetSnapshotConfig().GetOnCommit())
+	trust := actor.Volumes[2].GetSystemInfo().GetDataSources()[0].GetTrustBundle()
+	require.Equal(t, []string{"egress-mitm.ate.dev"}, trust.GetNames())
+	require.Equal(t, "trust-bundle.pem", trust.GetPath())
 	_, same, _, err := SandboxActorTemplate(template, atev1alpha1.SandboxClassGvisor, policy)
 	require.NoError(t, err)
 	require.Equal(t, digest, same)
+	template.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "live"}}
+	_, unchanged, source, err := SandboxActorTemplate(template, "", policy)
+	require.NoError(t, err)
+	require.Equal(t, digest, unchanged, "policy references are live authorization")
+	var recorded sandboxInputs
+	require.NoError(t, json.Unmarshal(source, &recorded))
+	require.Equal(t, template.Spec, recorded.Spec, "provenance retains the complete source spec")
 	for _, change := range []struct {
 		name   string
 		mutate func(*v1alpha3.SandboxTemplate, *SandboxPolicy)
@@ -46,11 +63,7 @@ func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 			require.NotEqual(t, digest, changed)
 		})
 	}
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "TOKEN", CredentialRef: &corev1.SecretKeySelector{}}}
-	actor, _, _, err = SandboxActorTemplate(template, "", policy)
-	require.ErrorContains(t, err, "credential")
-	require.Nil(t, actor)
-	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: new("/untrusted")}}
+	template.Spec.Env = []v1alpha3.RuntimeEnvVar{{Name: "SSL_CERT_FILE", Value: "/untrusted"}}
 	actor, _, _, err = SandboxActorTemplate(template, "", policy)
 	require.ErrorContains(t, err, "reserved")
 	require.Nil(t, actor)
