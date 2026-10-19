@@ -93,7 +93,11 @@ export interface Timed {
   computedAt?: string;
 }
 
-/** One upstream page; an empty page may still have a continuation token. */
+/**
+ * One page. Only a last page is empty, except a workers page from a controller that
+ * watches all namespaces: it filters one upstream page, so it can be empty and still
+ * have a continuation token.
+ */
 interface SubstratePage extends Timed {
   /** Upstream read failure. No rows or continuation token accompany it. */
   ateApiError?: string;

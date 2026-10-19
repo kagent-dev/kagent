@@ -1206,7 +1206,7 @@ export function SubstratePage() {
             key={atespace}
             defaultValue={atespace}
             aria-label="ATE atespace"
-            placeholder="All atespaces"
+            placeholder="All watched atespaces"
             maxLength={63}
             allowClear
             css={{ width: 240 }}
