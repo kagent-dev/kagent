@@ -76,10 +76,7 @@ type SubstrateActorStatusCount struct {
 // ate-api reports no totals, so every count costs a walk of its pages. The walk holds
 // one page at a time and keeps only tallies.
 func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, atespace string) (SubstrateSummary, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
-		return SubstrateSummary{}, err
-	}
-	workerScope, err := s.resolveSubstrateScope(requestedNamespace)
+	workerScope, err := s.authorizeSubstrateScope(ctx, requestedNamespace)
 	if err != nil {
 		return SubstrateSummary{}, err
 	}
@@ -129,7 +126,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	}
 
 	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
-		if !workerScope.containsWorker(worker) {
+		if worker == nil || !workerScope.contains(worker.GetWorkerNamespace()) {
 			return
 		}
 		result.WorkerCount++
@@ -156,8 +153,12 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
+	atespace := ""
+	if len(scope.namespaces) == 1 {
+		atespace = scope.namespaces[0]
+	}
 	result := SubstrateActorPage{ComputedAt: time.Now().UTC()}
-	actors, next, err := s.ateClient.ListActorsPage(ctx, scope.atespace(), substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
+	actors, next, err := s.ateClient.ListActorsPage(ctx, atespace, substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
 	if err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api actors", "error", err)
@@ -187,7 +188,7 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 		return result, nil
 	}
 	for _, worker := range workers {
-		if scope.containsWorker(worker) {
+		if worker != nil && scope.contains(worker.GetWorkerNamespace()) {
 			result.Workers = append(result.Workers, worker)
 		}
 	}
@@ -195,16 +196,16 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	return result, nil
 }
 
-// walkActors visits every actor in scope, one page at a time.
 func (s *Service) walkActors(ctx context.Context, scope substrateScope, visit func(*ateapipb.Actor)) error {
-	read := func(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
-		return s.ateClient.ListActorsPage(ctx, scope.atespace(), pageSize, pageToken)
-	}
-	return walkSubstrate(ctx, read, func(actor *ateapipb.Actor) {
-		if actor != nil && scope.contains(actor.GetMetadata().GetAtespace()) {
-			visit(actor)
+	for _, atespace := range scope.listNamespaces() {
+		read := func(ctx context.Context, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
+			return s.ateClient.ListActorsPage(ctx, atespace, pageSize, pageToken)
 		}
-	})
+		if err := walkSubstrate(ctx, read, visit); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // walkWorkers calls visit for every worker ate-api holds, one page at a time.
@@ -238,14 +239,11 @@ func walkSubstrate[Row any](
 	return fmt.Errorf("ate-api did not finish paging after %d pages", maxATEPagesPerWalk)
 }
 
-// substrateScope is the set of namespaces a Substrate read covers. An atespace is named
-// after the namespace of the agent it serves, so the same set bounds actors and templates.
 type substrateScope struct {
 	all        bool
 	namespaces []string
 }
 
-// authorizeSubstrateScope authorizes the caller and resolves the scope of a read.
 func (s *Service) authorizeSubstrateScope(ctx context.Context, requested string) (substrateScope, error) {
 	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Substrate"}); err != nil {
 		return substrateScope{}, err
@@ -253,8 +251,6 @@ func (s *Service) authorizeSubstrateScope(ctx context.Context, requested string)
 	return s.resolveSubstrateScope(requested)
 }
 
-// resolveSubstrateScope narrows the watched namespaces to the requested one. A
-// controller that watches only some namespaces refuses any other.
 func (s *Service) resolveSubstrateScope(requested string) (substrateScope, error) {
 	switch {
 	case requested == "" && len(s.observedNamespaces) == 0:
@@ -264,7 +260,7 @@ func (s *Service) resolveSubstrateScope(requested string) (substrateScope, error
 	case len(s.observedNamespaces) == 0 || slices.Contains(s.observedNamespaces, requested):
 		return substrateScope{namespaces: []string{requested}}, nil
 	default:
-		return substrateScope{}, serviceerrors.NewPermissionDenied("Not authorized", fmt.Errorf("namespace %q is not watched by this controller", requested))
+		return substrateScope{}, serviceerrors.NewPermissionDenied(fmt.Sprintf("Namespace %q is not watched by this controller", requested), nil)
 	}
 }
 
@@ -272,25 +268,6 @@ func (scope substrateScope) contains(namespace string) bool {
 	return scope.all || slices.Contains(scope.namespaces, namespace)
 }
 
-// containsWorker also admits a worker that reports no namespace.
-func (scope substrateScope) containsWorker(worker *ateapipb.Worker) bool {
-	if worker == nil {
-		return false
-	}
-	namespace := strings.TrimSpace(worker.GetWorkerNamespace())
-	return namespace == "" || scope.contains(namespace)
-}
-
-// atespace is the atespace to ask ate-api for: the only one in scope, or every
-// atespace ("") for the caller to filter.
-func (scope substrateScope) atespace() string {
-	if len(scope.namespaces) == 1 {
-		return scope.namespaces[0]
-	}
-	return ""
-}
-
-// listNamespaces is the namespaces to list Kubernetes objects in, "" meaning all.
 func (scope substrateScope) listNamespaces() []string {
 	if scope.all {
 		return []string{""}
