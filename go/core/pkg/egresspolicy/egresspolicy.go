@@ -21,9 +21,8 @@ type Input struct {
 	GatewayTargets []GatewayTarget
 }
 
-// Compiler adds a ReplaceHeaders entry with the target's header, prefix and an
-// ate-secret credential_uri. It must not change rules or existing headers.
-// Compilers run in order; together they must bind every target.
+// Compiler extends the built-in policy and may change anything in it. Compilers
+// run in order; afterwards every target must have a header on its origin.
 type Compiler interface {
 	Compile(context.Context, Input, *ateapipb.EgressPolicy) error
 }

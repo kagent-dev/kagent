@@ -78,6 +78,36 @@ func TestEnsureActorEgressPolicyReloadsAfterConflict(t *testing.T) {
 	require.Zero(t, fake.updated)
 }
 
+type targetPolicyStore struct {
+	access  egress.Access
+	targets []egresspolicy.GatewayTarget
+}
+
+func (s *targetPolicyStore) GetRuntimeEgressPolicy(context.Context, string) (egress.Access, []egresspolicy.GatewayTarget, error) {
+	return s.access, s.targets, nil
+}
+
+func TestEnsureActorEgressPolicyRevokesWhenExtensionFails(t *testing.T) {
+	const kept, revoked = "https://mcp.example.com:443", "https://revoked.example.com:443"
+	fake := &egressPolicyFake{}
+	store := &targetPolicyStore{
+		access:  egress.Access{Destinations: []string{kept, revoked}},
+		targets: []egresspolicy.GatewayTarget{{Origin: kept, Header: "authorization", Prefix: "Bearer "}},
+	}
+	failing := compilerFunc(func(context.Context, egresspolicy.Input, *ateapipb.EgressPolicy) error {
+		return errors.New("provider unavailable")
+	})
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: store, EgressPolicyCompilers: []egresspolicy.Compiler{failing}}}
+	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision") }
+
+	require.ErrorContains(t, reconcile(), "provider unavailable")
+	require.Len(t, fake.policy.GetRules(), 2, "the built-in policy is installed")
+	store.access.Destinations = []string{kept}
+	require.ErrorContains(t, reconcile(), "provider unavailable")
+	require.Len(t, fake.policy.GetRules(), 1, "a revoked grant is removed despite the failing extension")
+	require.Empty(t, fake.policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders())
+}
+
 type egressPolicyFake struct {
 	ateapipb.ControlClient
 	policy            *ateapipb.EgressPolicy

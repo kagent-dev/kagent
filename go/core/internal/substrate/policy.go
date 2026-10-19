@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
@@ -59,33 +58,26 @@ func (c defaultEgressPolicyCompiler) Compile(_ context.Context, input egresspoli
 }
 
 // compileActorEgressPolicy runs the built-in compiler, then each extension.
-// With any extension, every tokenPassthrough target must end bound.
+// Extensions may change anything; the result must still validate, and with
+// any extension every tokenPassthrough target must end bound.
 func compileActorEgressPolicy(ctx context.Context, atespace string, access egress.Access, gatewayTargets []egresspolicy.GatewayTarget, compilers []egresspolicy.Compiler) (*ateapipb.EgressPolicy, error) {
-	targets := map[string]string{}
-	for _, target := range gatewayTargets {
-		targets[target.Origin+"\x00"+target.Header] = target.Prefix
-	}
 	policy := &ateapipb.EgressPolicy{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: "default"}}
 	chain := append([]egresspolicy.Compiler{defaultEgressPolicyCompiler{access: access}}, compilers...)
-	for i, compiler := range chain {
-		before := proto.CloneOf(policy)
+	for _, compiler := range chain {
 		input := egresspolicy.Input{Atespace: atespace, GatewayTargets: slices.Clone(gatewayTargets)}
 		if err := compiler.Compile(ctx, input, policy); err != nil {
 			return nil, fmt.Errorf("compile egress policy with %T: %w", compiler, err)
 		}
-		if i == 0 {
-			continue
-		}
-		if err := checkAddedEffects(before, policy, targets); err != nil {
-			return nil, fmt.Errorf("egress policy compiler %T: %w", compiler, err)
-		}
 	}
-	_, headers, err := policyHeaders(policy)
+	headers, err := policyHeaders(policy)
 	if err != nil {
 		return nil, err
 	}
 	var bindings []egress.Credential
 	for key, header := range headers {
+		if header.GetActorJwt() != nil {
+			continue
+		}
 		origin, _, _ := strings.Cut(key, "\x00")
 		bindings = append(bindings, egress.Credential{Origin: origin, Header: header.GetHeader(), Prefix: header.GetPrefix(), URI: header.GetCredentialUri()})
 	}
@@ -100,42 +92,10 @@ func compileActorEgressPolicy(ctx context.Context, atespace string, access egres
 	return policy, nil
 }
 
-// checkAddedEffects allows an extension only to bind unbound targets.
-func checkAddedEffects(before, after *ateapipb.EgressPolicy, targets map[string]string) error {
-	beforeRules, beforeHeaders, err := policyHeaders(before)
-	if err != nil {
-		return err
-	}
-	afterRules, afterHeaders, err := policyHeaders(after)
-	if err != nil {
-		return err
-	}
-	if !proto.Equal(beforeRules, afterRules) {
-		return fmt.Errorf("changed policy metadata or rules")
-	}
-	for key, header := range beforeHeaders {
-		if !proto.Equal(header, afterHeaders[key]) {
-			return fmt.Errorf("changed or removed an existing credential header")
-		}
-	}
-	for key, header := range afterHeaders {
-		if beforeHeaders[key] != nil {
-			continue
-		}
-		prefix, ok := targets[key]
-		if !ok || header.GetPrefix() != prefix || header.GetCredentialUri() == "" || header.GetActorJwt() != nil {
-			origin, _, _ := strings.Cut(key, "\x00")
-			return fmt.Errorf("added credential header %s on %s that does not match a gateway target", header.GetHeader(), origin)
-		}
-	}
-	return nil
-}
-
-// policyHeaders splits a policy into rules and credential headers by origin and header.
-func policyHeaders(policy *ateapipb.EgressPolicy) (*ateapipb.EgressPolicy, map[string]*ateapipb.CredentialHeader, error) {
-	rules := proto.CloneOf(policy)
+// policyHeaders returns credential headers keyed by origin and lowercase header.
+func policyHeaders(policy *ateapipb.EgressPolicy) (map[string]*ateapipb.CredentialHeader, error) {
 	headers := map[string]*ateapipb.CredentialHeader{}
-	for _, rule := range rules.GetRules() {
+	for _, rule := range policy.GetRules() {
 		scheme, hostnames, ports, effects := "https", rule.GetHttps().GetHostnames(), rule.GetHttps().GetPorts(), rule.GetHttps().GetEffects()
 		if rule.GetHttp() != nil {
 			scheme, hostnames, ports, effects = "http", rule.GetHttp().GetHostnames(), rule.GetHttp().GetPorts(), rule.GetHttp().GetEffects()
@@ -144,22 +104,17 @@ func policyHeaders(policy *ateapipb.EgressPolicy) (*ateapipb.EgressPolicy, map[s
 			continue
 		}
 		if len(hostnames) != 1 || len(ports.GetNumbers()) != 1 {
-			return nil, nil, fmt.Errorf("credential headers require a rule with one hostname and port")
+			return nil, fmt.Errorf("credential headers require a rule with one hostname and port")
 		}
 		u := url.URL{Scheme: scheme, Host: net.JoinHostPort(hostnames[0], strconv.Itoa(int(ports.GetNumbers()[0])))}
 		origin := egress.Origin(&u)
 		for _, header := range effects.GetReplaceHeaders() {
 			key := origin + "\x00" + strings.ToLower(header.GetHeader())
 			if headers[key] != nil {
-				return nil, nil, fmt.Errorf("duplicate credential header %s on %s", header.GetHeader(), origin)
+				return nil, fmt.Errorf("duplicate credential header %s on %s", header.GetHeader(), origin)
 			}
 			headers[key] = header
 		}
-		if rule.GetHttps() != nil {
-			rule.Https.Effects = nil
-		} else {
-			rule.Http.Effects = nil
-		}
 	}
-	return rules, headers, nil
+	return headers, nil
 }

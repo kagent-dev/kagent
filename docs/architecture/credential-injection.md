@@ -110,9 +110,10 @@ as described above. To keep it out of runtimes, an embedding program registers
 compilers and its `Authenticator.UpstreamAuth` must replace the caller's
 `Authorization` with `Bearer kagent-credential-injected`; registering compilers
 alone changes nothing, and a forwarding authenticator still exposes the token.
-The runtime forwards the placeholder as usual. Compilers run after the built-in
-EgressPolicy compiler, may only add a `credential_uri` header for a target, and
-together must bind every target. Kagent never names a credential provider.
+The runtime forwards the placeholder as usual. Compilers run in order after the
+built-in EgressPolicy compiler and may change anything it produced. Kagent then
+validates the result, and every target must have a header. Kagent never names a
+credential provider.
 
 This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
 embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and

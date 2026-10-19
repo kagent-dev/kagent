@@ -3,7 +3,6 @@ package substrate
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -83,22 +82,13 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 		{name: "compiler error", compilers: []egresspolicy.Compiler{compilerFunc(func(context.Context, egresspolicy.Input, *ateapipb.EgressPolicy) error {
 			return errors.New("denied")
 		})}, wantErr: "denied"},
-		{name: "header off target", compilers: []egresspolicy.Compiler{bind, addHeader("other.example.com", "authorization", "Bearer ", callerURI)}, wantErr: "does not match a gateway target"},
-		{name: "wrong prefix", compilers: []egresspolicy.Compiler{addHeader("api.example.com", "authorization", "", callerURI)}, wantErr: "does not match a gateway target"},
 		{name: "invalid URI", compilers: []egresspolicy.Compiler{addHeader("api.example.com", "authorization", "Bearer ", "https://caller-token.example/token")}, wantErr: "credential"},
 		{name: "rebinding the target", compilers: []egresspolicy.Compiler{bind, bind}, wantErr: "duplicate credential header"},
-		{name: "changed Secret header", compilers: []egresspolicy.Compiler{bind, compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
-			policy.GetRules()[1].GetHttps().GetEffects().GetReplaceHeaders()[0].CredentialUri = callerURI
-			return nil
-		})}, wantErr: "changed or removed an existing credential header"},
-		{name: "reordered rules", compilers: []egresspolicy.Compiler{bind, compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
-			slices.Reverse(policy.Rules)
-			return nil
-		})}, wantErr: "changed policy metadata or rules"},
-		{name: "added rule", compilers: []egresspolicy.Compiler{bind, compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
+		{name: "extensions may change earlier output", compilers: []egresspolicy.Compiler{bind, compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
+			policy.GetRules()[1].GetHttps().GetEffects().GetReplaceHeaders()[0] = &ateapipb.CredentialHeader{Header: "x-api-key", ActorJwt: &ateapipb.ActorJwtSource{}}
 			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{"*"}}})
 			return nil
-		})}, wantErr: "changed policy metadata or rules"},
+		})}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			policy, err := compileActorEgressPolicy(t.Context(), "team", access, []egresspolicy.GatewayTarget{target}, test.compilers)
@@ -108,9 +98,7 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Len(t, policy.GetRules(), 2)
 			require.Equal(t, callerURI, policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders()[0].GetCredentialUri())
-			require.Equal(t, secret.URI, policy.GetRules()[1].GetHttps().GetEffects().GetReplaceHeaders()[0].GetCredentialUri())
 		})
 	}
 }

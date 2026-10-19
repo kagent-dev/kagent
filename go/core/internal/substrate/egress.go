@@ -32,9 +32,12 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		if err != nil {
 			return fmt.Errorf("load intended actor egress: %w", err)
 		}
-		policy, err := compileActorEgressPolicy(ctx, atespace, access, targets, c.cfg.EgressPolicyCompilers)
-		if err != nil {
-			return err
+		policy, chainErr := compileActorEgressPolicy(ctx, atespace, access, targets, c.cfg.EgressPolicyCompilers)
+		if chainErr != nil {
+			// Still apply revocations; unbound targets only send the placeholder.
+			if policy, err = ActorEgressPolicy(atespace, access.Destinations, access.Credentials); err != nil {
+				return err
+			}
 		}
 		if existing == nil {
 			_, err = c.CreateActorEgressPolicy(ctx, &ateapipb.CreateActorEgressPolicyRequest{Actor: actor, EgressPolicy: policy})
@@ -49,6 +52,9 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		}
 		if err != nil {
 			return err
+		}
+		if chainErr != nil {
+			return fmt.Errorf("apply built-in actor egress after extension failure: %w", chainErr)
 		}
 		// A source update may have discovered this instance before its Actor
 		// existed. Recheck after applying so creation cannot miss that update.
