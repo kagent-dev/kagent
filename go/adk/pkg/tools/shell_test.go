@@ -679,11 +679,12 @@ func TestExecuteCommand_WithholdsRuntimeEnv(t *testing.T) {
 func TestExecuteCommand_TurnEnvironment(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghp_real")
 	t.Setenv("GITHUB_TOKEN", "ghp_real")
+	t.Setenv("GITLAB_TOKEN", "glpat_real")
 	t.Setenv("GIT_AUTHOR_NAME", "runtime")
 	t.Setenv("OPENAI_API_KEY", "sk-leak")
 	t.Setenv("KAGENT_API_URL", "http://kagent")
 	workingDir := t.TempDir()
-	const command = `env | grep -E '^(GH_TOKEN|GITHUB_TOKEN|GIT_|OPENAI_|KAGENT_)' | sort`
+	const command = `env | grep -E '^(GH_TOKEN|GITHUB_TOKEN|GITLAB_TOKEN|GLAB_|GIT_|OPENAI_|KAGENT_)' | LC_ALL=C sort`
 
 	tests := []struct {
 		name string
@@ -698,7 +699,7 @@ func TestExecuteCommand_TurnEnvironment(t *testing.T) {
 		{
 			name: "workspace without a person",
 			ctx:  turn.WithDirectory(context.Background(), workingDir),
-			want: "GH_TOKEN=kagent-credential-injected\n" + placeholderGitConfig,
+			want: "GH_TOKEN=kagent-credential-injected\nGITLAB_TOKEN=kagent-credential-injected\n" + placeholderGitConfig + "\nGLAB_CONFIG_DIR=" + filepath.Join(workingDir, workspace.GlabConfigDirectory) + "\nGLAB_IS_OAUTH2=true",
 		},
 		{
 			name: "person without a workspace",
@@ -709,9 +710,9 @@ func TestExecuteCommand_TurnEnvironment(t *testing.T) {
 		{
 			name: "person in a workspace",
 			ctx:  models.WithUser(turn.WithDirectory(context.Background(), workingDir), "alice@example.com"),
-			want: "GH_TOKEN=kagent-credential-injected\n" +
+			want: "GH_TOKEN=kagent-credential-injected\nGITLAB_TOKEN=kagent-credential-injected\n" +
 				"GIT_AUTHOR_EMAIL=alice@example.com\nGIT_AUTHOR_NAME=alice@example.com\n" +
-				"GIT_COMMITTER_EMAIL=alice@example.com\nGIT_COMMITTER_NAME=alice@example.com\n" + placeholderGitConfig,
+				"GIT_COMMITTER_EMAIL=alice@example.com\nGIT_COMMITTER_NAME=alice@example.com\n" + placeholderGitConfig + "\nGLAB_CONFIG_DIR=" + filepath.Join(workingDir, workspace.GlabConfigDirectory) + "\nGLAB_IS_OAUTH2=true",
 		},
 	}
 	for _, tt := range tests {
