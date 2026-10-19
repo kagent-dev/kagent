@@ -1369,7 +1369,7 @@ func startForkMemoryMock(t *testing.T) string {
 	config.OpenAI = append(config.OpenAI, continuation.OpenAI...)
 	config.OpenAIResponse = append(config.OpenAIResponse, continuation.OpenAIResponse...)
 	config.Anthropic = append(config.Anthropic, continuation.Anthropic...)
-	recorder := startModelRecorder(t, startMockLLMConfig(t, config), func(body []byte) error {
+	recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMConfig(t, config)), func(body []byte) error {
 		if !bytes.Contains(body, []byte("What was the answer before the checkpoint?")) {
 			return nil
 		}
@@ -1397,18 +1397,14 @@ type recordedModelRequest struct {
 	Body   []byte
 }
 
-// startModelRecorder puts a recording proxy in front of the mock LLM at
-// upstreamURL. An inspect function may reject a request: its error is
-// answered with 400 instead of being forwarded, which fails the agent's turn
-// visibly rather than letting the mock answer a prompt it should not see.
-func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []byte) error) *modelRecorder {
+// startModelRecorder puts a recording server in front of upstream, which is
+// usually a proxy to the mock LLM. An inspect function may reject a request:
+// its error is answered with 400 instead of being forwarded, which fails the
+// agent's turn visibly rather than letting the mock answer a prompt it should
+// not see.
+func startModelRecorder(t *testing.T, upstream http.Handler, inspect func(body []byte) error) *modelRecorder {
 	t.Helper()
-	upstream, err := url.Parse(upstreamURL)
-	if err != nil {
-		t.Fatal(err)
-	}
 	recorder := &modelRecorder{}
-	proxy := httputil.NewSingleHostReverseProxy(upstream)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -1425,10 +1421,13 @@ func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []by
 				return
 			}
 		}
+		// Upstream proxies read the body after the response starts, so they
+		// need a reader that the server cannot close under them.
 		r.Body = io.NopCloser(bytes.NewReader(body))
-		proxy.ServeHTTP(w, r)
+		upstream.ServeHTTP(w, r)
 	}))
 	_ = server.Listener.Close()
+	var err error
 	server.Listener, err = net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		t.Fatal(err)
@@ -1437,6 +1436,16 @@ func startModelRecorder(t *testing.T, upstreamURL string, inspect func(body []by
 	t.Cleanup(server.Close)
 	recorder.URL = server.URL
 	return recorder
+}
+
+// mockLLMProxy returns a proxy to the mock LLM at rawURL for startModelRecorder.
+func mockLLMProxy(t *testing.T, rawURL string) *httputil.ReverseProxy {
+	t.Helper()
+	upstream, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httputil.NewSingleHostReverseProxy(upstream)
 }
 
 // Requests returns the recorded requests carrying the header value, in

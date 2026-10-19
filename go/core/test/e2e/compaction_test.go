@@ -47,7 +47,7 @@ const (
 func TestSessionContextCompaction(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
-	recorder := startModelRecorder(t, startMockLLMServer(t, compactionMocks, "mocks/invoke_golang_compaction.json"), nil)
+	recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, compactionMocks, "mocks/invoke_golang_compaction.json")), nil)
 	kube := interactionKubeClient(t)
 	modelURL := reachableModelURL(t, recorder.URL)
 	agentModel := createInteractionModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Model": "agent"})

@@ -361,7 +361,7 @@ func startEgressSkillMock(t *testing.T, root, destination string, runNames ...st
 	t.Helper()
 	require.NotEmpty(t, runNames)
 	var active atomic.Pointer[egressProbeRun]
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		run := active.Load()
 		if run == nil {
 			http.Error(w, "no active probe", http.StatusServiceUnavailable)
@@ -395,9 +395,8 @@ func startEgressSkillMock(t *testing.T, root, destination string, runNames ...st
 			return
 		}
 		run.proxy.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	recorder := startModelRecorder(t, server.URL, nil)
+	})
+	recorder := startModelRecorder(t, upstream, nil)
 	modelURL := reachableModelURL(t, recorder.URL)
 	origin := strings.TrimSuffix(modelURL, "/v1")
 	raw, err := interactionMocks.ReadFile("mocks/invoke_egress_skill.json")
