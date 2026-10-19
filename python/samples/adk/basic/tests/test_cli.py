@@ -1,0 +1,36 @@
+"""Regression test for the basic ADK sample runtime command."""
+
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+from kagent.adk import cli
+from kagent.core import KAgentConfig
+
+
+def test_run_loads_basic_sample_and_passes_app_to_uvicorn(monkeypatch):
+    monkeypatch.setattr(
+        cli,
+        "KAgentConfig",
+        lambda runtime: KAgentConfig(
+            api_url="http://localhost:8083",
+            gateway_url="http://localhost:8083",
+            name="basic",
+            namespace="default",
+            runtime=runtime,
+        ),
+    )
+    monkeypatch.chdir(Path(__file__).parent.parent)
+    monkeypatch.syspath_prepend(str(Path.cwd()))
+    captured = {}
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kwargs: captured.update(app=app, kwargs=kwargs))
+
+    cli.run("basic", working_dir=".", host="0.0.0.0", local=True)
+
+    assert TestClient(captured["app"]).get("/health").text == "OK"
+    assert captured["kwargs"] == {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "workers": 1,
+        "log_level": "info",
+        "log_config": None,
+    }

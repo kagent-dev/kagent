@@ -4,21 +4,22 @@ This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent)
 
 ## Features
 
-- **A2A Server Integration**: Compatible with KAgent's Agent-to-Agent protocol
-- **Event Streaming**: Real-time streaming of graph execution events
-- **FastAPI Integration**: Ready-to-deploy web server for agent execution
+- **A2A Server Integration**: Serves LangGraph workflows over A2A
+- **Event Streaming**: Streams graph execution events
+- **FastAPI Integration**: Builds a deployable FastAPI application
 
 ## Quick Start
 
 ```python
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
-from kagent.langgraph import KAgentApp
 import os
 import sqlite3
+from typing import Annotated, Sequence, TypedDict
+
+from kagent.core import KAgentConfig
+from kagent.langgraph import KAgentApp
+from langchain_core.messages import BaseMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph
-from langchain_core.messages import BaseMessage
-from typing import TypedDict, Annotated, Sequence
 
 
 class State(TypedDict):
@@ -26,13 +27,6 @@ class State(TypedDict):
 
 
 config = KAgentConfig.from_file()
-controller_client = AsyncControllerClient(
-    config.grpc_url,
-    agent_name=config.app_name,
-    token_provider=AsyncFileTokenProvider(),
-)
-
-# Define and compile your graph
 builder = StateGraph(State)
 # Add nodes and edges...
 checkpointer = SqliteSaver(
@@ -43,32 +37,37 @@ checkpointer = SqliteSaver(
 )
 graph = builder.compile(checkpointer=checkpointer)
 
-# Create KAgent app
 app = KAgentApp(
     graph=graph,
     agent_card={
         "name": "my-langgraph-agent",
         "description": "A LangGraph agent with KAgent integration",
         "version": "0.1.0",
+        "supportedInterfaces": [{"url": "http://localhost:8080", "protocolBinding": "JSONRPC"}],
         "capabilities": {"streaming": True},
-        "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"],
+        "defaultInputModes": ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
     },
     config=config,
-    controller_client=controller_client,
 )
 
-# Build FastAPI application
 fastapi_app = app.build()
 ```
 
+## State and Task Storage
+
+The LangGraph checkpointer owns graph conversation state. A SQLite checkpointer stores checkpoints in a local file; persistence across pod replacement requires placing that file on durable storage or selecting another durable LangGraph checkpointer.
+
+`KAgentApp` persists public A2A task history through `KAgentTaskStore` and the
+controller gRPC API. This task history is separate from LangGraph conversation
+state; configuring one does not make the other durable.
+
 ## Architecture
 
-The package mirrors the structure of `kagent-adk` but uses LangGraph instead of Google's ADK:
-
-- **LangGraphAgentExecutor**: Executes LangGraph workflows within A2A protocol
-- **KAgentApp**: FastAPI application builder with A2A integration
-- **Task Management**: Automatic A2A task persistence through one shared authenticated gRPC channel
+- **LangGraphAgentExecutor**: Executes LangGraph workflows over A2A
+- **KAgentApp**: Builds the FastAPI A2A application
+- **LangGraph checkpointer**: Stores graph conversation state when configured
+- **KAgentTaskStore**: Persists public A2A task history through controller gRPC
 
 ## Configuration
 

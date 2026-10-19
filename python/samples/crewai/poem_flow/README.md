@@ -4,7 +4,7 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 This example is generated directly from the `crewai create flow poem_flow` command.
 
-If you wish to use the memory persistence integration with KAgent, edit `poem_flow.py` and set `@persist()` on the flow or methods you want to persist.
+`KAgentApp` creates a Flow instance for each A2A request. It does not persist or restore Flow state. Configure Flow persistence in the application when needed.
 
 ## Quick Start
 
@@ -27,7 +27,8 @@ If you wish to use the memory persistence integration with KAgent, edit `poem_fl
    ```
 
 3. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   current examples and E2E fixtures for the resource shape.
+   current examples and E2E fixtures for the resource shape. The sample does
+   not configure Flow persistence.
 
 When interacting with the agent, you do not need to provide any input because the design of the flow does not take in user input for its tasks.
 

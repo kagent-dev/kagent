@@ -4,7 +4,7 @@ This sample demonstrates how to use the `kagent-crewai` toolkit to run a CrewAI 
 
 It follows the standard CrewAI project structure and developer experience, allowing you to define your agents and tasks in Python.
 
-If you wish to use the memory persistence integration with KAgent, edit `crew.py` and set `memory=True` when creating the crew.
+`KAgentApp` does not configure or persist CrewAI memory. Configure CrewAI memory and its backing storage explicitly when needed.
 
 ## Features
 
@@ -43,7 +43,8 @@ If you wish to use the memory persistence integration with KAgent, edit `crew.py
    ```
 
 4. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   current examples and E2E fixtures for the resource shape.
+   current examples and E2E fixtures for the resource shape. The sample does
+   not configure CrewAI memory persistence.
 
 ## Local Development
 
