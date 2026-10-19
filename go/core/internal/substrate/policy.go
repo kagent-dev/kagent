@@ -23,14 +23,11 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	if err != nil {
 		return nil, err
 	}
-	var runtimeOrigin string
-	if controlPlaneURL != "" {
-		u, err := egress.ParseOrigin(controlPlaneURL)
-		if err != nil {
-			return nil, fmt.Errorf("invalid runtime control-plane origin: %w", err)
-		}
-		runtimeOrigin = u.String()
+	u, err := egress.ParseOrigin(controlPlaneURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid runtime control-plane origin: %w", err)
 	}
+	runtimeOrigin := u.String()
 	effects := map[string]*ateapipb.HttpRuleEffects{}
 	for _, binding := range access.Credentials {
 		if binding.Origin == runtimeOrigin && binding.Header == apia2a.RuntimeAuthorizationHeader {
