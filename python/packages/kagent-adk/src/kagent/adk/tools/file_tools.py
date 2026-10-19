@@ -131,8 +131,6 @@ class ReadFileTool(BaseTool):
             description=get_read_file_description(),
         )
         self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -231,8 +229,6 @@ class ListFilesTool(BaseTool):
             description=get_list_files_description(),
         )
         self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -277,8 +273,6 @@ class GrepFileTool(BaseTool):
             description=get_grep_file_description(),
         )
         self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(

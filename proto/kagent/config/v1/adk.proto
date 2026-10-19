@@ -426,5 +426,5 @@ message ADKRuntimeConfig {
     message: "runtime telemetry resource_attributes must not override compiled service.name or service.namespace"
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
-  SkillToolsConfig skill_tools = 11;
+  BuiltinToolsConfig builtin_tools = 11;
 }

@@ -159,7 +159,7 @@ func TestResolvePathContainment(t *testing.T) {
 	}
 }
 
-func TestNewSkillExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
+func TestNewBuiltinTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
@@ -173,9 +173,9 @@ description: Demo skill.
 		t.Fatalf("failed to write skill metadata: %v", err)
 	}
 
-	tools, err := NewSkillExecutionTools(skillsDir, true, false)
+	tools, err := NewBuiltinTools(skillsDir, false, false)
 	if err != nil {
-		t.Fatalf("NewSkillExecutionTools() error = %v", err)
+		t.Fatalf("NewBuiltinTools() error = %v", err)
 	}
 
 	got := map[string]bool{}
@@ -190,12 +190,12 @@ description: Demo skill.
 	}
 }
 
-func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
+func TestNewBuiltinTools_DisableFileSearchOmitsListFilesAndGrepFile(t *testing.T) {
 	skillsDir := t.TempDir()
 
-	tools, err := NewSkillExecutionTools(skillsDir, false, false)
+	tools, err := NewBuiltinTools(skillsDir, true, false)
 	if err != nil {
-		t.Fatalf("NewSkillExecutionTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
+		t.Fatalf("NewBuiltinTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
 	}
 
 	got := map[string]bool{}
@@ -216,10 +216,10 @@ func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T)
 	}
 }
 
-func TestNewSkillExecutionTools_DisableBashPreservesFileTools(t *testing.T) {
+func TestNewBuiltinTools_DisableBashPreservesFileTools(t *testing.T) {
 	for _, fileSearchEnabled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("file_search=%t", fileSearchEnabled), func(t *testing.T) {
-			tools, err := NewSkillExecutionTools(t.TempDir(), fileSearchEnabled, true)
+			tools, err := NewBuiltinTools(t.TempDir(), !fileSearchEnabled, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -244,7 +244,7 @@ func TestNewSkillExecutionTools_DisableBashPreservesFileTools(t *testing.T) {
 	}
 }
 
-func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
+func TestNewBuiltinTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
 	skillsDir := t.TempDir()
 
 	findBash := func(t *testing.T, tools []tool.Tool) tool.Tool {
@@ -258,10 +258,10 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 		return nil
 	}
 
-	t.Run("disabled by default", func(t *testing.T) {
-		tools, err := NewSkillExecutionTools(skillsDir, false, false)
+	t.Run("explicitly disabled", func(t *testing.T) {
+		tools, err := NewBuiltinTools(skillsDir, true, false)
 		if err != nil {
-			t.Fatalf("NewSkillExecutionTools() error = %v", err)
+			t.Fatalf("NewBuiltinTools() error = %v", err)
 		}
 		desc := findBash(t, tools).Description()
 		if strings.Contains(desc, "list_files") || strings.Contains(desc, "grep_file") {
@@ -270,9 +270,9 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 	})
 
 	t.Run("mentioned when enabled", func(t *testing.T) {
-		tools, err := NewSkillExecutionTools(skillsDir, true, false)
+		tools, err := NewBuiltinTools(skillsDir, false, false)
 		if err != nil {
-			t.Fatalf("NewSkillExecutionTools() error = %v", err)
+			t.Fatalf("NewBuiltinTools() error = %v", err)
 		}
 		desc := findBash(t, tools).Description()
 		if !strings.Contains(desc, "list_files and grep_file") {
@@ -284,15 +284,15 @@ func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEn
 // TestListFilesAndGrepFileTools_RunThroughADK invokes the real functiontool.Run()
 // path (the same one the ADK flow engine uses to execute a model's tool call),
 // rather than calling ListDirContent/GrepContent directly, to verify the
-// closures in NewSkillExecutionTools correctly wire path resolution and
+// closures in NewBuiltinTools correctly wire path resolution and
 // argument parsing end-to-end.
 func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
 
-	tools, err := NewSkillExecutionTools(skillsDir, true, false)
+	tools, err := NewBuiltinTools(skillsDir, false, false)
 	if err != nil {
-		t.Fatalf("NewSkillExecutionTools() error = %v", err)
+		t.Fatalf("NewBuiltinTools() error = %v", err)
 	}
 
 	var listFilesTool, grepFileTool, readFileTool, bashTool tool.Tool
@@ -420,4 +420,50 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 			t.Errorf("list_files result = %q, want file-link sized by its target (5000)", result)
 		}
 	})
+}
+
+// Exercise actual tool calls without a skills directory, including containment.
+func TestBuiltinToolsWithoutSkills(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	builtinTools, err := NewBuiltinTools("", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]tool.Tool)
+	for _, tl := range builtinTools {
+		byName[tl.Name()] = tl
+	}
+	ctx := &fakeToolContext{StrictContextMock: adkagent.NewStrictContextMock(t.Context()), sessionID: "no-skills"}
+	if got := runTool(t, byName["write_file"], ctx, map[string]any{"file_path": "notes.txt", "content": "hello"}); strings.Contains(got, "Error") {
+		t.Fatal(got)
+	}
+	if got := runTool(t, byName["read_file"], ctx, map[string]any{"file_path": "notes.txt"}); !strings.Contains(got, "hello") {
+		t.Fatal(got)
+	}
+	if got := runTool(t, byName["edit_file"], ctx, map[string]any{"file_path": "notes.txt", "old_string": "hello", "new_string": "updated"}); strings.Contains(got, "Error") {
+		t.Fatal(got)
+	}
+	if got := runTool(t, byName["bash"], ctx, map[string]any{"command": "cat notes.txt"}); got != "updated" {
+		t.Fatal(got)
+	}
+	if got := runTool(t, byName["list_files"], ctx, map[string]any{}); !strings.Contains(got, "notes.txt") {
+		t.Fatal(got)
+	}
+	if got := runTool(t, byName["grep_file"], ctx, map[string]any{"path": "notes.txt", "pattern": "updated"}); !strings.Contains(got, "updated") {
+		t.Fatal(got)
+	}
+	sessionPath, err := GetSessionPath(ctx.sessionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(sessionPath, "skills")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected skills link: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := runTool(t, byName["read_file"], ctx, map[string]any{"file_path": outside}); !strings.Contains(got, "outside the allowed roots") {
+		t.Fatal(got)
+	}
 }

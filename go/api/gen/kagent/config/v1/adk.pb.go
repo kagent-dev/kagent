@@ -2809,7 +2809,7 @@ type ADKRuntimeConfig struct {
 	MaxContentLength *int64                  `protobuf:"varint,8,opt,name=max_content_length,json=maxContentLength,proto3,oneof" json:"max_content_length,omitempty"`
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,9,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,10,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
-	SkillTools       *SkillToolsConfig       `protobuf:"bytes,11,opt,name=skill_tools,json=skillTools,proto3" json:"skill_tools,omitempty"`
+	BuiltinTools     *BuiltinToolsConfig     `protobuf:"bytes,11,opt,name=builtin_tools,json=builtinTools,proto3" json:"builtin_tools,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2914,9 +2914,9 @@ func (x *ADKRuntimeConfig) GetTelemetry() *TelemetryConfig {
 	return nil
 }
 
-func (x *ADKRuntimeConfig) GetSkillTools() *SkillToolsConfig {
+func (x *ADKRuntimeConfig) GetBuiltinTools() *BuiltinToolsConfig {
 	if x != nil {
-		return x.SkillTools
+		return x.BuiltinTools
 	}
 	return nil
 }
@@ -3240,7 +3240,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x1d\n" +
 	"\n" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x16\n" +
-	"\x06region\x18\x05 \x01(\tR\x06region\"\xfd\x06\n" +
+	"\x06region\x18\x05 \x01(\tR\x06region\"\x83\a\n" +
 	"\x10ADKRuntimeConfig\x12J\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\x0fcontrolPlaneUrl\x12?\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\n" +
@@ -3254,9 +3254,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x11token_propagation\x18\t \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12\xb7\x02\n" +
 	"\ttelemetry\x18\n" +
 	" \x01(\v2!.kagent.config.v1.TelemetryConfigB\xf5\x01\xbaH\xf1\x01\xba\x01\xed\x01\n" +
-	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12C\n" +
-	"\vskill_tools\x18\v \x01(\v2\".kagent.config.v1.SkillToolsConfigR\n" +
-	"skillToolsB\a\n" +
+	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12I\n" +
+	"\rbuiltin_tools\x18\v \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinToolsB\a\n" +
 	"\x05_portB\x15\n" +
 	"\x13_max_content_lengthBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
 
@@ -3319,7 +3318,7 @@ var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
 	(*TokenPropagationConfig)(nil),     // 43: kagent.config.v1.TokenPropagationConfig
 	(*TelemetryConfig)(nil),            // 44: kagent.config.v1.TelemetryConfig
-	(*SkillToolsConfig)(nil),           // 45: kagent.config.v1.SkillToolsConfig
+	(*BuiltinToolsConfig)(nil),         // 45: kagent.config.v1.BuiltinToolsConfig
 }
 var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	35, // 0: kagent.config.v1.ADKConfig.runtime:type_name -> kagent.config.v1.ADKRuntimeConfig
@@ -3378,7 +3377,7 @@ var file_kagent_config_v1_adk_proto_depIdxs = []int32{
 	34, // 53: kagent.config.v1.ADKPluginSource.s3:type_name -> kagent.config.v1.ADKPluginS3Source
 	43, // 54: kagent.config.v1.ADKRuntimeConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
 	44, // 55: kagent.config.v1.ADKRuntimeConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	45, // 56: kagent.config.v1.ADKRuntimeConfig.skill_tools:type_name -> kagent.config.v1.SkillToolsConfig
+	45, // 56: kagent.config.v1.ADKRuntimeConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
 	57, // [57:57] is the sub-list for method output_type
 	57, // [57:57] is the sub-list for method input_type
 	57, // [57:57] is the sub-list for extension type_name

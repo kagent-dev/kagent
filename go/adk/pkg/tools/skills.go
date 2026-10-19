@@ -63,12 +63,11 @@ Usage:
 - Returns matching lines as path:line_number:content
 - You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session`
 
-	bashDescription = `Execute bash commands in the skills environment with sandbox protection.
+	bashDescription = `Execute bash commands in the agent sandbox.
 
 Working Directory & Structure:
 - Commands run in a temporary session directory: /tmp/kagent/{session_id}/
-- /skills -> All skills are available here (read-only).
-- Your current working directory and /skills are added to PYTHONPATH.
+- skills/ links to installed skills when configured (read-only).
 
 Python Imports (CRITICAL):
 - To import from a skill, use the name of the skill.
@@ -128,20 +127,19 @@ type grepFileInput struct {
 	IgnoreCase bool   `json:"ignore_case,omitempty"`
 }
 
-// NewSkillExecutionTools creates the filesystem and shell tools used to execute
-// skills. Skill discovery and loading are provided by Go ADK's skilltoolset.
-func NewSkillExecutionTools(skillsDirectory string, fileSearchEnabled, disableBash bool) ([]tool.Tool, error) {
-	skillsDirectory = strings.TrimSpace(skillsDirectory)
-	if skillsDirectory == "" {
-		return nil, nil
-	}
-
-	absSkillsDir, err := filepath.Abs(skillsDirectory)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve skills directory %q: %w", skillsDirectory, err)
-	}
-	if _, err := os.Stat(absSkillsDir); err != nil {
-		return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
+// NewBuiltinTools creates filesystem and shell tools independently of skill discovery.
+// An empty skillsDirectory limits file access to the session directory.
+func NewBuiltinTools(skillsDirectory string, disableFileSearch, disableBash bool) ([]tool.Tool, error) {
+	absSkillsDir := strings.TrimSpace(skillsDirectory)
+	if absSkillsDir != "" {
+		var err error
+		absSkillsDir, err = filepath.Abs(absSkillsDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve skills directory %q: %w", skillsDirectory, err)
+		}
+		if _, err := os.Stat(absSkillsDir); err != nil {
+			return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
+		}
 	}
 
 	readFileTool, err := functiontool.New(functiontool.Config{
@@ -201,9 +199,8 @@ func NewSkillExecutionTools(skillsDirectory string, fileSearchEnabled, disableBa
 
 	tools := []tool.Tool{readFileTool, writeFileTool, editFileTool}
 
-	// list_files/grep_file are opt-in: they give an agent broad filesystem
-	// visibility, so deployments enable them deliberately.
-	if fileSearchEnabled {
+	// File search tools are available unless explicitly disabled.
+	if !disableFileSearch {
 		listFilesTool, err := functiontool.New(functiontool.Config{
 			Name:        "list_files",
 			Description: listFilesDescription,
@@ -275,7 +272,7 @@ func NewSkillExecutionTools(skillsDirectory string, fileSearchEnabled, disableBa
 
 	commandExecutor := NewCommandExecutor()
 	desc := bashDescription
-	if fileSearchEnabled {
+	if !disableFileSearch {
 		desc += fileSearchToolsBashHint
 	}
 	bashTool, err := functiontool.New(functiontool.Config{
@@ -359,7 +356,7 @@ func resolveSandboxedPath(sessionID, skillsDirectory, requestedPath string, poli
 	}
 	roots := []string{sessionRoot}
 
-	if policy.allowSkillsRoot {
+	if policy.allowSkillsRoot && skillsDirectory != "" {
 		// Resolved eagerly rather than only when the session root misses, so
 		// an unresolvable skills directory still surfaces as an error the way
 		// it did before these three were merged into one function.

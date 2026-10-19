@@ -16,15 +16,13 @@ logger = logging.getLogger("kagent_adk." + __name__)
 class BashTool(BaseTool):
     """Execute bash commands in the agent runtime."""
 
-    def __init__(self, skills_directory: str | Path, *, file_search_tools: bool = False, bash_venv_path: str = ""):
+    def __init__(self, skills_directory: str | Path, *, file_search_tools: bool = True, bash_venv_path: str = ""):
         super().__init__(
             name="bash",
             description=get_bash_description(file_search_tools),
         )
         self.bash_venv_path = bash_venv_path
         self.skills_directory = Path(skills_directory).resolve()
-        if not self.skills_directory.exists():
-            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(

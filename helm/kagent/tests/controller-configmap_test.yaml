@@ -3,14 +3,18 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
 tests:
-  - it: forwards the Go ADK bash setting to runtime defaults
+  - it: forwards the built-in bash setting to runtime defaults
     template: controller-configmap.yaml
     set:
-      config.runtimeDefaults.skillTools.disableBash: true
+      config.runtimeDefaults.builtinTools.disableBash: true
+      config.runtimeDefaults.builtinTools.disableFileSearch: true
     asserts:
       - matchRegex:
           path: data["controller.yaml"]
           pattern: 'disableBash: true'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'disableFileSearch: true'
 
   - it: uses full service DNS names for runtime egress
     template: controller-configmap.yaml

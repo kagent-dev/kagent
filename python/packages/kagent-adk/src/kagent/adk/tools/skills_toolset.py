@@ -38,7 +38,14 @@ class SkillsToolset(BaseToolset):
     Note: For file upload/download, use the ArtifactsToolset separately.
     """
 
-    def __init__(self, skills_directory: str | Path, *, file_search_tools: bool = False, bash_venv_path: str = ""):
+    def __init__(
+        self,
+        skills_directory: str | Path,
+        *,
+        disable_file_search: bool = False,
+        disable_bash: bool = False,
+        bash_venv_path: str = "",
+    ):
         """Initialize the skills toolset.
 
         Args:
@@ -52,16 +59,15 @@ class SkillsToolset(BaseToolset):
         self.read_file_tool = ReadFileTool(skills_directory)
         self.write_file_tool = WriteFileTool()
         self.edit_file_tool = EditFileTool()
-        # list_files/grep_file are opt-in: they give an agent broad
-        # filesystem visibility, so deployments enable them deliberately.
-        # Note this gate is theirs alone -- bash below is always registered.
-        # A single list (rather than two separately-nullable attributes)
-        # keeps "both present or both absent" a structural guarantee instead
-        # of a convention the two attributes have to be kept in sync by hand.
+        # File search and bash are available unless explicitly disabled.
         self._file_search_tools: list[BaseTool] = (
-            [ListFilesTool(skills_directory), GrepFileTool(skills_directory)] if file_search_tools else []
+            [ListFilesTool(skills_directory), GrepFileTool(skills_directory)] if not disable_file_search else []
         )
-        self.bash_tool = BashTool(skills_directory, file_search_tools=file_search_tools, bash_venv_path=bash_venv_path)
+        self.bash_tool = (
+            BashTool(skills_directory, file_search_tools=not disable_file_search, bash_venv_path=bash_venv_path)
+            if not disable_bash
+            else None
+        )
 
     @override
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> List[BaseTool]:
@@ -69,7 +75,7 @@ class SkillsToolset(BaseToolset):
 
         Returns:
           List containing all skills tools: skills, read, write, edit, list, grep, and bash.
-          list/grep are omitted unless file_search_tools is enabled.
+          list/grep and bash are omitted when explicitly disabled.
         """
         return [
             self.skills_tool,
@@ -77,5 +83,5 @@ class SkillsToolset(BaseToolset):
             self.write_file_tool,
             self.edit_file_tool,
             *self._file_search_tools,
-            self.bash_tool,
+            *([self.bash_tool] if self.bash_tool is not None else []),
         ]

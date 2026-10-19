@@ -70,6 +70,12 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
+	builtinTools := runtime.GetBuiltinTools()
+	executionTools, err := tools.NewBuiltinTools(skillsDirectory, builtinTools.GetDisableFileSearch(), builtinTools.GetDisableBash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create built-in tools: %w", err)
+	}
+	extraTools = append(extraTools, executionTools...)
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
 		skills, err := skillsSource.ListFrontmatters(ctx)
@@ -77,19 +83,12 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
 		if len(skills) > 0 {
-			skillTools := runtime.GetSkillTools()
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, skillTools.GetFileSearchTools(), skillTools.GetDisableBash())
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
-			}
-			extraTools = append(extraTools, executionTools...)
-
 			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
 			}
 			toolsets = append(toolsets, skillsToolset)
-			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills), "execution_tool_count", len(executionTools))
+			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills))
 		}
 	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)

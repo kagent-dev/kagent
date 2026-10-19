@@ -21,9 +21,9 @@ func TestSharedRuntimeContract(t *testing.T) {
 	require.NotNil(t, cfg.MaxContentLength)
 	require.Zero(t, *cfg.MaxContentLength)
 	require.False(t, cfg.TokenPropagation.Enabled)
-	require.Equal(t, "/opt/venv", cfg.GetSkillTools().GetBashVenvPath())
-	require.False(t, cfg.GetSkillTools().GetFileSearchTools())
-	require.True(t, cfg.GetSkillTools().GetDisableBash())
+	require.Equal(t, "/opt/venv", cfg.GetBuiltinTools().GetBashVenvPath())
+	require.False(t, cfg.GetBuiltinTools().GetDisableFileSearch())
+	require.True(t, cfg.GetBuiltinTools().GetDisableBash())
 	require.False(t, cfg.Telemetry.CaptureContent)
 	require.Equal(t, int64(1500), cfg.Telemetry.Traces.Timeout.AsDuration().Milliseconds())
 	root := &configv1.ADKConfig{Runtime: &cfg, Agent: &configv1.ADKAgentConfig{SubAgents: []*configv1.ADKAgentConfig{{}}}}
@@ -35,8 +35,8 @@ func TestRuntimeDefaultsAndValidation(t *testing.T) {
 	var cfg configv1.ADKRuntimeConfig
 	require.NoError(t, protovalidate.Validate(&cfg))
 	require.Nil(t, cfg.MaxContentLength)
-	require.False(t, cfg.GetSkillTools().GetFileSearchTools())
-	require.False(t, cfg.GetSkillTools().GetDisableBash())
+	require.False(t, cfg.GetBuiltinTools().GetDisableFileSearch())
+	require.False(t, cfg.GetBuiltinTools().GetDisableBash())
 	for _, data := range []string{
 		`{"port":"0"}`, `{"max_content_length":-1}`, `{"control_plane_url":"file:///private"}`,
 		`{"token_propagation":{"resources":[""]}}`, `{"telemetry":{"max_capture_bytes":-1}}`,

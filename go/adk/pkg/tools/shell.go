@@ -93,7 +93,7 @@ func truncateRunes(s string, maxRunes int) string {
 	return s
 }
 
-// GetSessionPath creates the working directory used by skill execution tools.
+// GetSessionPath creates the working directory used by built-in tools.
 func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 	if sessionID == "" {
 		return "", fmt.Errorf("sessionID cannot be empty")
@@ -110,6 +110,10 @@ func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
 	}
 	if err := os.MkdirAll(filepath.Join(sessionPath, "outputs"), 0755); err != nil {
 		return "", fmt.Errorf("failed to create outputs directory: %w", err)
+	}
+
+	if skillsDirectory == "" {
+		return sessionPath, nil
 	}
 
 	absSkillsDir, err := filepath.Abs(skillsDirectory)

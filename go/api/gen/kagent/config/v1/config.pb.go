@@ -1711,7 +1711,7 @@ type RuntimeDefaultsConfig struct {
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,4,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
 	MaxContentLength *int64                  `protobuf:"varint,5,opt,name=max_content_length,json=maxContentLength,proto3,oneof" json:"max_content_length,omitempty"`
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
-	SkillTools       *SkillToolsConfig       `protobuf:"bytes,7,opt,name=skill_tools,json=skillTools,proto3" json:"skill_tools,omitempty"`
+	BuiltinTools     *BuiltinToolsConfig     `protobuf:"bytes,7,opt,name=builtin_tools,json=builtinTools,proto3" json:"builtin_tools,omitempty"`
 	// Per-agent runtime limits, in Kubernetes quantity notation.
 	Cpu           *string `protobuf:"bytes,8,opt,name=cpu,proto3,oneof" json:"cpu,omitempty"`
 	Memory        *string `protobuf:"bytes,9,opt,name=memory,proto3,oneof" json:"memory,omitempty"`
@@ -1791,9 +1791,9 @@ func (x *RuntimeDefaultsConfig) GetTokenPropagation() *TokenPropagationConfig {
 	return nil
 }
 
-func (x *RuntimeDefaultsConfig) GetSkillTools() *SkillToolsConfig {
+func (x *RuntimeDefaultsConfig) GetBuiltinTools() *BuiltinToolsConfig {
 	if x != nil {
-		return x.SkillTools
+		return x.BuiltinTools
 	}
 	return nil
 }
@@ -1812,30 +1812,30 @@ func (x *RuntimeDefaultsConfig) GetMemory() string {
 	return ""
 }
 
-// SkillToolsConfig configures the built-in tools available with local skills.
-type SkillToolsConfig struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	FileSearchTools bool                   `protobuf:"varint,1,opt,name=file_search_tools,json=fileSearchTools,proto3" json:"file_search_tools,omitempty"`
-	BashVenvPath    string                 `protobuf:"bytes,2,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
-	DisableBash     bool                   `protobuf:"varint,3,opt,name=disable_bash,json=disableBash,proto3" json:"disable_bash,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+// BuiltinToolsConfig configures the built-in filesystem and shell tools, independently of skills.
+type BuiltinToolsConfig struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	DisableFileSearch bool                   `protobuf:"varint,1,opt,name=disable_file_search,json=disableFileSearch,proto3" json:"disable_file_search,omitempty"`
+	BashVenvPath      string                 `protobuf:"bytes,2,opt,name=bash_venv_path,json=bashVenvPath,proto3" json:"bash_venv_path,omitempty"`
+	DisableBash       bool                   `protobuf:"varint,3,opt,name=disable_bash,json=disableBash,proto3" json:"disable_bash,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
-func (x *SkillToolsConfig) Reset() {
-	*x = SkillToolsConfig{}
+func (x *BuiltinToolsConfig) Reset() {
+	*x = BuiltinToolsConfig{}
 	mi := &file_kagent_config_v1_config_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SkillToolsConfig) String() string {
+func (x *BuiltinToolsConfig) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SkillToolsConfig) ProtoMessage() {}
+func (*BuiltinToolsConfig) ProtoMessage() {}
 
-func (x *SkillToolsConfig) ProtoReflect() protoreflect.Message {
+func (x *BuiltinToolsConfig) ProtoReflect() protoreflect.Message {
 	mi := &file_kagent_config_v1_config_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1847,26 +1847,26 @@ func (x *SkillToolsConfig) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SkillToolsConfig.ProtoReflect.Descriptor instead.
-func (*SkillToolsConfig) Descriptor() ([]byte, []int) {
+// Deprecated: Use BuiltinToolsConfig.ProtoReflect.Descriptor instead.
+func (*BuiltinToolsConfig) Descriptor() ([]byte, []int) {
 	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *SkillToolsConfig) GetFileSearchTools() bool {
+func (x *BuiltinToolsConfig) GetDisableFileSearch() bool {
 	if x != nil {
-		return x.FileSearchTools
+		return x.DisableFileSearch
 	}
 	return false
 }
 
-func (x *SkillToolsConfig) GetBashVenvPath() string {
+func (x *BuiltinToolsConfig) GetBashVenvPath() string {
 	if x != nil {
 		return x.BashVenvPath
 	}
 	return ""
 }
 
-func (x *SkillToolsConfig) GetDisableBash() bool {
+func (x *BuiltinToolsConfig) GetDisableBash() bool {
 	if x != nil {
 		return x.DisableBash
 	}
@@ -2138,7 +2138,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\x94\a\n" +
+	"\t_protocol\"\x9a\a\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2147,18 +2147,17 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\ttelemetry\x18\x04 \x01(\v2!.kagent.config.v1.TelemetryConfigB\xfe\x01\xbaH\xfa\x01\xba\x01\xf6\x01\n" +
 	"+runtime_defaults.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12:\n" +
 	"\x12max_content_length\x18\x05 \x01(\x03B\a\xbaH\x04\"\x02(\x00H\x02R\x10maxContentLength\x88\x01\x01\x12U\n" +
-	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12C\n" +
-	"\vskill_tools\x18\a \x01(\v2\".kagent.config.v1.SkillToolsConfigR\n" +
-	"skillTools\x12\x1e\n" +
+	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12I\n" +
+	"\rbuiltin_tools\x18\a \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinTools\x12\x1e\n" +
 	"\x03cpu\x18\b \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x03R\x03cpu\x88\x01\x01\x12$\n" +
 	"\x06memory\x18\t \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x04R\x06memory\x88\x01\x01B\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
 	"\x13_max_content_lengthB\x06\n" +
 	"\x04_cpuB\t\n" +
-	"\a_memory\"\x87\x01\n" +
-	"\x10SkillToolsConfig\x12*\n" +
-	"\x11file_search_tools\x18\x01 \x01(\bR\x0ffileSearchTools\x12$\n" +
+	"\a_memory\"\x8d\x01\n" +
+	"\x12BuiltinToolsConfig\x12.\n" +
+	"\x13disable_file_search\x18\x01 \x01(\bR\x11disableFileSearch\x12$\n" +
 	"\x0ebash_venv_path\x18\x02 \x01(\tR\fbashVenvPath\x12!\n" +
 	"\fdisable_bash\x18\x03 \x01(\bR\vdisableBash\"\x8e\x02\n" +
 	"\x16TokenPropagationConfig\x12\x18\n" +
@@ -2207,7 +2206,7 @@ var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*TelemetryConfig)(nil),        // 22: kagent.config.v1.TelemetryConfig
 	(*OTLPConfig)(nil),             // 23: kagent.config.v1.OTLPConfig
 	(*RuntimeDefaultsConfig)(nil),  // 24: kagent.config.v1.RuntimeDefaultsConfig
-	(*SkillToolsConfig)(nil),       // 25: kagent.config.v1.SkillToolsConfig
+	(*BuiltinToolsConfig)(nil),     // 25: kagent.config.v1.BuiltinToolsConfig
 	(*TokenPropagationConfig)(nil), // 26: kagent.config.v1.TokenPropagationConfig
 	nil,                            // 27: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
 	(*durationpb.Duration)(nil),    // 28: google.protobuf.Duration
@@ -2262,7 +2261,7 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	3,  // 46: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
 	22, // 47: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
 	26, // 48: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	25, // 49: kagent.config.v1.RuntimeDefaultsConfig.skill_tools:type_name -> kagent.config.v1.SkillToolsConfig
+	25, // 49: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
 	50, // [50:50] is the sub-list for method output_type
 	50, // [50:50] is the sub-list for method input_type
 	50, // [50:50] is the sub-list for extension type_name

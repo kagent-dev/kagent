@@ -198,8 +198,8 @@ config:
     # Limits for each agent runtime; Substrate requires both.
     cpu: "1"
     memory: 1Gi
-    skillTools:
-      fileSearchTools: false
+    builtinTools:
+      disableFileSearch: false
       bashVenvPath: ""
       disableBash: false
     logging:
