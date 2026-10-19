@@ -224,6 +224,12 @@ type egressProbeRun struct {
 	consecutive           int
 	stopped               chan struct{}
 	stopOnce              sync.Once
+	completed             <-chan egressInvocationResult
+}
+
+type egressInvocationResult struct {
+	message *a2apb.SendMessageResponse
+	err     error
 }
 
 func (e *egressProbeRun) setPhase(phase string) {
@@ -233,11 +239,20 @@ func (e *egressProbeRun) setPhase(phase string) {
 }
 func (e *egressProbeRun) expect(t *testing.T, phase, result string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
+	err := wait.PollUntilContextTimeout(t.Context(), 100*time.Millisecond, 90*time.Second, true, func(context.Context) (bool, error) {
+		select {
+		case invocation := <-e.completed:
+			if invocation.err != nil {
+				return false, fmt.Errorf("egress invocation failed: %w", invocation.err)
+			}
+			return false, fmt.Errorf("egress invocation ended before the probe: %v", invocation.message.GetTask().GetStatus())
+		default:
+		}
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		return e.lastPhase == e.name+"_"+phase && e.lastResult == result && e.consecutive >= 3
-	}, 90*time.Second, 100*time.Millisecond, "%s %s did not become %s", e.name, phase, result)
+		return e.lastPhase == e.name+"_"+phase && e.lastResult == result && e.consecutive >= 3, nil
+	})
+	require.NoError(t, err, "%s %s did not become %s", e.name, phase, result)
 }
 func (e *egressProbeRun) finish(ctx context.Context) error {
 	e.mu.Lock()
@@ -257,11 +272,8 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 	_, request := newMessageRequest(t, "Run egress skill "+run.name+".")
 	request.Message.ContextId = fixture.sessionID
 	request.Tenant = fixture.tenant
-	type response struct {
-		message *a2apb.SendMessageResponse
-		err     error
-	}
-	done := make(chan response, 1)
+	done := make(chan egressInvocationResult, 1)
+	run.completed = done
 	ctx, cancel := context.WithCancel(fixture.ctx)
 	t.Cleanup(func() {
 		cancel()
@@ -274,13 +286,16 @@ func runEgressSkill(t *testing.T, fixture *interactionFixture, model *modelRecor
 			}
 		}
 	})
-	go func() { r, err := sendMessageWithRetry(ctx, fixture.client, request); done <- response{r, err} }()
+	go func() {
+		r, err := sendMessageWithRetry(ctx, fixture.client, request)
+		done <- egressInvocationResult{r, err}
+	}()
 	return func() *a2atype.Task {
 		t.Helper()
 		stopCtx, stop := context.WithTimeout(ctx, 15*time.Second)
 		defer stop()
 		require.NoError(t, run.finish(stopCtx))
-		var result response
+		var result egressInvocationResult
 		select {
 		case result = <-done:
 		case <-ctx.Done():
@@ -516,7 +531,7 @@ func TestSessionEgressDeniesUnconfiguredDestination(t *testing.T) {
 		t.Parallel()
 		target := interactionTarget(t)
 		var reachedDenied atomic.Bool
-		origin := startModelRecorder(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"), func([]byte) error {
+		origin := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), func([]byte) error {
 			reachedDenied.Store(true)
 			return nil
 		})
