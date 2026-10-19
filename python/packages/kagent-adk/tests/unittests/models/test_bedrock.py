@@ -237,9 +237,10 @@ class TestKAgentBedrockLlm:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "cached,want", [({}, 0), ({"cacheReadInputTokens": 8}, 8), ({"cacheReadInputTokens": -1}, 0)]
+        "cached,want_cached,want_prompt",
+        [({}, 0, 13), ({"cacheReadInputTokens": 8}, 8, 21), ({"cacheReadInputTokens": -1}, 0, 13)],
     )
-    async def test_generate_calls_converse(self, cached, want):
+    async def test_generate_calls_converse(self, cached, want_cached, want_prompt):
         fields = {"thinking": {"budget_tokens": 1024}, "large": 9007199254740993, "values": [False, None, 0.25]}
         llm = KAgentBedrockLlm(
             model="us.anthropic.claude-sonnet-4-20250514-v1:0", additional_model_request_fields=fields
@@ -272,13 +273,15 @@ class TestKAgentBedrockLlm:
         assert sent == fields
         assert type(sent["thinking"]["budget_tokens"]) is int
         assert type(sent["large"]) is int
-        assert responses[0].usage_metadata.cached_content_token_count == want
+        assert responses[0].usage_metadata.prompt_token_count == want_prompt
+        assert responses[0].usage_metadata.cached_content_token_count == want_cached
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "cached,want", [({}, 0), ({"cacheReadInputTokens": 8}, 8), ({"cacheReadInputTokens": -1}, 0)]
+        "cached,want_cached,want_prompt",
+        [({}, 0, 13), ({"cacheReadInputTokens": 8}, 8, 21), ({"cacheReadInputTokens": -1}, 0, 13)],
     )
-    async def test_streaming_captures_usage_metadata(self, cached, want):
+    async def test_streaming_captures_usage_metadata(self, cached, want_cached, want_prompt):
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
 
         stream_events = [
@@ -316,10 +319,10 @@ class TestKAgentBedrockLlm:
 
         final = responses[-1]
         assert final.usage_metadata is not None
-        assert final.usage_metadata.prompt_token_count == 10
+        assert final.usage_metadata.prompt_token_count == want_prompt
         assert final.usage_metadata.candidates_token_count == 5
         assert final.usage_metadata.total_token_count == 15
-        assert final.usage_metadata.cached_content_token_count == want
+        assert final.usage_metadata.cached_content_token_count == want_cached
 
     @pytest.mark.asyncio
     async def test_dot_tool_name_sanitized_to_bedrock_and_remapped_in_response(self):
