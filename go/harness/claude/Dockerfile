@@ -35,13 +35,14 @@ ENV USE_BUILTIN_RIPGREP=0
 # The GitHub CLI from its release, as go/Dockerfile installs it (github-cli.version,
 # install-github-cli.sh). The GitLab CLI at gitlab-cli.version, in this image
 # only: glab needs a writable home for its config, and the harness gives
-# Claude's user one.
+# Claude's user one. curl shows an HTTP error's status line and body, which
+# WebFetch drops; managed-CLAUDE.md steers Claude to it.
 # apk retries a transient mirror error; a missing package still fails on the third attempt.
 RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
     --mount=type=bind,source=install-github-cli.sh,target=/tmp/install-github-cli.sh \
     --mount=type=bind,source=gitlab-cli.version,target=/tmp/gitlab-cli.version \
     for attempt in 1 2 3; do \
-        apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
+        apk upgrade --no-cache && apk add --no-cache bash ca-certificates git curl libgcc libstdc++ ripgrep \
             "glab~$(cat /tmp/gitlab-cli.version)" && break; \
         status=$?; [ "$attempt" -lt 3 ] || exit "$status"; \
         echo "apk failed (attempt $attempt of 3), retrying in 5s" >&2; sleep 5; \
@@ -62,6 +63,9 @@ RUN --mount=type=bind,source=github-cli.version,target=/tmp/github-cli.version \
     && chown -R 65532:65532 /data
 
 COPY --from=builder /kagent-claude /usr/local/bin/kagent-claude
+# Claude Code reads its managed CLAUDE.md on every start, beside the managed
+# settings the harness writes there.
+COPY harness/claude/managed-CLAUDE.md /etc/claude-code/CLAUDE.md
 
 # The harness runs as root and starts Claude Code as the kagent user, so that
 # Claude and its tools cannot read the harness process or change the policy it

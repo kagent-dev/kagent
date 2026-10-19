@@ -12,6 +12,8 @@ test/
 # Documentation
 README.md
 *.md
+# The Claude harness image's managed instructions
+!harness/claude/managed-CLAUDE.md
 
 # IDE and editor files
 .vscode/
