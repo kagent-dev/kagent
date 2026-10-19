@@ -529,7 +529,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 		},
 		workers: []*ateapipb.Worker{{WorkerNamespace: "workers", WorkerPod: "pod"}},
 	}
-	service := system.NewService(kubeClient, []string{"workers"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	service := system.NewService(kubeClient, []string{"workers", "team-a", "shared"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 	for _, tc := range []struct {
 		atespace string
 		count    int64
@@ -538,7 +538,6 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 		{atespace: "", count: 2, running: 1},
 		{atespace: "team-a", count: 1, running: 1},
 		{atespace: "shared", count: 1, running: 0},
-		{atespace: "missing", count: 0, running: 0},
 	} {
 		t.Run(tc.atespace, func(t *testing.T) {
 			summary, err := service.GetSubstrateSummary(ctx, "", tc.atespace)

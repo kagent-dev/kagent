@@ -148,16 +148,6 @@ func namespacesFromNames(names []string) []Namespace {
 	return result
 }
 
-func (s *Service) substrateNamespaces(requested string) []string {
-	if requested != "" {
-		return []string{requested}
-	}
-	if len(s.observedNamespaces) > 0 {
-		return slices.Clone(s.observedNamespaces)
-	}
-	return []string{""}
-}
-
 func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev1alpha1.WorkerPool, error) {
 	var options []client.ListOption
 	if namespace != "" {
@@ -173,14 +163,14 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 }
 
 // substrateActorTemplates drains upstream pagination for the configuration-sized list.
-func (s *Service) substrateActorTemplates(ctx context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
-	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
+func (s *Service) substrateActorTemplates(ctx context.Context, scope substrateScope) ([]*ateapipb.ActorTemplate, error) {
+	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, scope.atespace())
 	if err != nil {
 		return nil, err
 	}
 	templates := make([]*ateapipb.ActorTemplate, 0, len(templatesFromAPI))
 	for _, template := range templatesFromAPI {
-		if template == nil {
+		if template == nil || !scope.contains(template.GetMetadata().GetAtespace()) {
 			continue
 		}
 		// Only expose inventory fields: containers can contain resolved credentials.
