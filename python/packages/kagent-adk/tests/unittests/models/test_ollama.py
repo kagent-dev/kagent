@@ -231,3 +231,54 @@ class TestCreateOllamaLlm:
         # Options are type-coerced by _convert_ollama_options before reaching create_ollama_llm
         assert result.ollama_options["temperature"] == 0.8
         assert result.ollama_options["top_p"] == 0.9
+
+
+class TestConvertOllamaOptions:
+    """Coercion of CRD string options into the Ollama SDK's typed values."""
+
+    def test_int_option_coerced(self):
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"num_ctx": "64000"}) == {"num_ctx": 64000}
+
+    def test_int_option_accepts_integral_float_string(self):
+        """A value like "64000.0" (which JSON/YAML tooling can produce for an int
+        field) must not crash the whole agent build."""
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"num_ctx": "64000.0"}) == {"num_ctx": 64000}
+
+    def test_float_option_coerced(self):
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"temperature": "0.7"}) == {"temperature": 0.7}
+
+    @pytest.mark.parametrize("value", ["1", "true", "True", "YES", "on", " true "])
+    def test_bool_option_truthy_spellings(self, value):
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"low_vram": value}) == {"low_vram": True}
+
+    @pytest.mark.parametrize("value", ["0", "false", "False", "no", "off"])
+    def test_bool_option_falsy_spellings(self, value):
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"low_vram": value}) == {"low_vram": False}
+
+    def test_unparseable_value_is_forwarded_not_raised(self):
+        """A malformed value is kept as a string for the SDK to report, rather
+        than raising and failing agent construction."""
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"num_ctx": "not-a-number"}) == {"num_ctx": "not-a-number"}
+
+    def test_unknown_option_kept_as_string(self):
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options({"custom_flag": "value"}) == {"custom_flag": "value"}
+
+    def test_empty_and_none(self):
+        from kagent.adk.types import _convert_ollama_options
+
+        assert _convert_ollama_options(None) == {}
+        assert _convert_ollama_options({}) == {}
