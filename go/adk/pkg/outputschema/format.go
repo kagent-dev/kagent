@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp/syntax"
 	"slices"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -102,16 +103,52 @@ func assertFormats(schema *jsonschema.Schema) error {
 			schema.AllOf = append(schema.AllOf, &jsonschema.Schema{Pattern: pattern})
 		}
 	}
-	children := slices.Concat(
-		slices.Collect(maps.Values(schema.Defs)),
-		slices.Collect(maps.Values(schema.Properties)),
-		schema.AnyOf,
-		[]*jsonschema.Schema{schema.Items, schema.AdditionalProperties},
-	)
-	for _, child := range children {
+	for _, child := range subschemas(schema) {
 		if err := assertFormats(child); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// CheckPortablePatterns rejects patterns that compile as RE2 but that a
+// provider cannot constrain. Claude documents word boundaries as unsupported,
+// and Bedrock accepts them but then degenerates, so \b and \B are rejected.
+func CheckPortablePatterns(schema *jsonschema.Schema) error {
+	if schema == nil {
+		return nil
+	}
+	if schema.Pattern != "" {
+		parsed, err := syntax.Parse(schema.Pattern, syntax.Perl)
+		if err != nil {
+			return fmt.Errorf("pattern %q: %w", schema.Pattern, err)
+		}
+		if hasWordBoundary(parsed) {
+			return fmt.Errorf(`pattern %q uses a word boundary (\b or \B), which structured output providers do not support; anchor with ^ and $ instead`, schema.Pattern)
+		}
+	}
+	for _, child := range subschemas(schema) {
+		if err := CheckPortablePatterns(child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasWordBoundary(expression *syntax.Regexp) bool {
+	if expression.Op == syntax.OpWordBoundary || expression.Op == syntax.OpNoWordBoundary {
+		return true
+	}
+	return slices.ContainsFunc(expression.Sub, hasWordBoundary)
+}
+
+// subschemas returns the direct children of the keywords the portable profile
+// allows to contain schemas.
+func subschemas(schema *jsonschema.Schema) []*jsonschema.Schema {
+	return slices.Concat(
+		slices.Collect(maps.Values(schema.Defs)),
+		slices.Collect(maps.Values(schema.Properties)),
+		schema.AnyOf,
+		[]*jsonschema.Schema{schema.Items, schema.AdditionalProperties},
+	)
 }

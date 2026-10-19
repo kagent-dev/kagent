@@ -85,7 +85,9 @@ descriptions, and non-recursive local references through `$defs`.
 
 Schemas with `"type": "string"` can also use `pattern` and `format`. A
 `pattern` must be a regular expression that Go's RE2 syntax accepts, so
-lookaround and backreferences are rejected. `format` accepts the formats that
+lookaround and backreferences are rejected. Word boundaries (`\b` and `\B`)
+are also rejected: Claude documents them as unsupported, and Bedrock accepts
+them but produces degenerate output. Anchor with `^` and `$` instead. `format` accepts the formats that
 both OpenAI and Claude structured outputs document: `date-time`, `time`,
 `date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`, and `uuid`.
 

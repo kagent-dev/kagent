@@ -166,5 +166,8 @@ func validateOutputSchema(raw []byte) ([]byte, error) {
 	if _, err := schema.Resolve(nil); err != nil {
 		return nil, fmt.Errorf("resolve schema: %w", err)
 	}
+	if err := adkoutputschema.CheckPortablePatterns(&schema); err != nil {
+		return nil, err
+	}
 	return canonical, nil
 }
