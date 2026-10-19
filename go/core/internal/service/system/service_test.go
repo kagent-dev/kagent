@@ -53,9 +53,8 @@ type fakeATEClient struct {
 	pageSize int
 	// How many page reads each list has taken, so a test can assert that the token
 	// was followed rather than that the rows came back.
-	actorReads  int
-	workerReads int
-	// The atespaces ate-api was asked for, since asking for "" reads every tenant's rows.
+	actorReads        int
+	workerReads       int
 	actorAtespaces    []string
 	templateAtespaces []string
 }
@@ -725,8 +724,6 @@ func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
 }
 
-// Kagent installs that each watch only some namespaces share one ate-api. Each must see
-// only the atespaces it watches, and refuse a request naming another.
 func TestSubstrateTenantIsolation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, atev1alpha1.AddToScheme(scheme))

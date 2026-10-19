@@ -164,21 +164,23 @@ func (s *Service) listWorkerPools(ctx context.Context, namespace string) ([]atev
 
 // substrateActorTemplates drains upstream pagination for the configuration-sized list.
 func (s *Service) substrateActorTemplates(ctx context.Context, scope substrateScope) ([]*ateapipb.ActorTemplate, error) {
-	templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, scope.atespace())
-	if err != nil {
-		return nil, err
-	}
-	templates := make([]*ateapipb.ActorTemplate, 0, len(templatesFromAPI))
-	for _, template := range templatesFromAPI {
-		if template == nil || !scope.contains(template.GetMetadata().GetAtespace()) {
-			continue
+	templates := []*ateapipb.ActorTemplate{}
+	for _, atespace := range scope.listNamespaces() {
+		templatesFromAPI, err := s.ateClient.ListActorTemplates(ctx, atespace)
+		if err != nil {
+			return nil, err
 		}
-		// Only expose inventory fields: containers can contain resolved credentials.
-		templates = append(templates, &ateapipb.ActorTemplate{
-			Metadata:       template.GetMetadata(),
-			Status:         template.GetStatus(),
-			WorkerSelector: template.GetWorkerSelector(),
-		})
+		for _, template := range templatesFromAPI {
+			if template == nil {
+				continue
+			}
+			// Only expose inventory fields: containers can contain resolved credentials.
+			templates = append(templates, &ateapipb.ActorTemplate{
+				Metadata:       template.GetMetadata(),
+				Status:         template.GetStatus(),
+				WorkerSelector: template.GetWorkerSelector(),
+			})
+		}
 	}
 
 	slices.SortStableFunc(templates, func(left, right *ateapipb.ActorTemplate) int {
