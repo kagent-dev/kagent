@@ -184,7 +184,8 @@ export type GetSubstrateSummaryRequest = Message<"kagent.api.v1.GetSubstrateSumm
   namespace: string;
 
   /**
-   * ATE atespace for actors and templates. Empty lists all atespaces.
+   * ATE atespace for actors and templates. Empty uses the watched namespaces, or every
+   * atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
    *
    * @generated from field: string atespace = 2;
    */
@@ -297,7 +298,8 @@ export const GetSubstrateSummaryResponseSchema: GenMessage<GetSubstrateSummaryRe
  */
 export type ListSubstrateActorsRequest = Message<"kagent.api.v1.ListSubstrateActorsRequest"> & {
   /**
-   * ATE atespace of the actor itself. Empty lists all atespaces.
+   * ATE atespace of the actor itself. Empty uses the watched namespaces, or every
+   * atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
    *
    * @generated from field: string atespace = 6;
    */

@@ -396,7 +396,8 @@ type GetSubstrateSummaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Kubernetes namespace for workers and pools. Empty uses watched namespaces.
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// ATE atespace for actors and templates. Empty lists all atespaces.
+	// ATE atespace for actors and templates. Empty uses the watched namespaces, or every
+	// atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
 	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -617,7 +618,8 @@ func (x *GetSubstrateSummaryResponse) GetActorTemplates() []*ateapipb.ActorTempl
 // One upstream page of actors, in Substrate order.
 type ListSubstrateActorsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// ATE atespace of the actor itself. Empty lists all atespaces.
+	// ATE atespace of the actor itself. Empty uses the watched namespaces, or every
+	// atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
 	Atespace string `protobuf:"bytes,6,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	// `limit` is capped at 100 in common.proto and zero means the server's default;
 	// above the cap is refused rather than clamped.
