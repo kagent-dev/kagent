@@ -501,7 +501,7 @@ controller:
     #   muster:
     #     hostname: muster.agent-platform.svc.cluster.local
     #     audience: https://muster.example.com
-    # Every Session admitted with a grant gets each as a Bearer provider: the
+    # Every Session, with or without a grant, gets each as a Bearer provider: the
     # egress gateway replaces the Authorization header on the hostname with
     # the JWT it mints for the Session's Actor, bound to the audience. It needs
     # no credentialAuthority; a grant naming the instance or its host is

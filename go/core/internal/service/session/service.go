@@ -16,6 +16,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -116,6 +117,7 @@ type Service struct {
 	shareMaxTTL     time.Duration
 	volumeAdmission VolumeAdmission
 	agents          ctrlclient.Reader
+	actorJWT        map[string]egress.ActorJWTProvider
 }
 
 type Option func(*Service)
@@ -134,6 +136,17 @@ func WithShareMaxTTL(maxTTL time.Duration) Option {
 func WithVolumeAdmission(admission VolumeAdmission) Option {
 	return func(service *Service) {
 		service.volumeAdmission = admission
+	}
+}
+
+// WithSessionActorJWTProviders names the provider instances that verify the
+// Actor's own JWT themselves (the workflow's WithActorJWTProviders). A Session
+// created without a volume source gets each as a provider, as an admitted one
+// does, so its Actor reaches them as the Session's person once that person
+// binds it; a Session that names a source gets what its admission admits.
+func WithSessionActorJWTProviders(providers map[string]egress.ActorJWTProvider) Option {
+	return func(service *Service) {
+		service.actorJWT = providers
 	}
 }
 
@@ -321,12 +334,13 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 }
 
 // admitVolume refuses a volume source the installation's admission does not
-// admit, and returns what it admits otherwise. The admission token is handed
-// to the admission and to nothing else: it never reaches the store or a
-// response.
+// admit, and returns what it admits otherwise. A request without the volume
+// fields is admitted with the providers that verify the Actor's own JWT. The
+// admission token is handed to the admission and to nothing else: it never
+// reaches the store or a response.
 func (s *Service) admitVolume(ctx context.Context, caller string, request CreateRequest) (Admitted, error) {
 	if request.VolumeSource == nil && request.AdmissionToken == "" {
-		return Admitted{}, nil
+		return Admitted{Providers: ActorJWTSessionProviders(s.actorJWT)}, nil
 	}
 	if s.volumeAdmission == nil {
 		return Admitted{}, serviceerrors.NewFailedPrecondition("this installation admits no Session volume", nil)

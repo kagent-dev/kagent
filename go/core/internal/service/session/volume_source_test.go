@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -138,6 +139,55 @@ func TestServiceCreateWithoutTheVolumeFieldsNeverAsksTheAdmission(t *testing.T) 
 			require.Nil(t, session.GetVolumeSource())
 		})
 	}
+}
+
+// A Session created without the volume fields carries the providers that
+// verify the Actor's own JWT, as an admitted one does, so a Session started
+// outside a workspace reaches them as its person once bound; a request with a
+// source gets only what its admission admits.
+func TestServiceCreateGivesASessionWithoutAVolumeTheActorJWTProviders(t *testing.T) {
+	actorJWT := map[string]egress.ActorJWTProvider{
+		"muster": {Hostname: "muster.muster.svc", Audience: "https://muster.example.com"},
+		"argo":   {Hostname: "argo.argo.svc", Audience: "https://argo.example.com"},
+	}
+	want := []*apiv1alpha1.SessionProvider{
+		{Hostname: "argo.argo.svc", Scheme: "Bearer", Provider: "argo", Audience: "argo"},
+		{Hostname: "muster.muster.svc", Scheme: "Bearer", Provider: "muster", Audience: "muster"},
+	}
+
+	t.Run("without a volume", func(t *testing.T) {
+		store := &serviceTestStore{}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithSessionActorJWTProviders(actorJWT))
+		session, err := service.Create(serviceTestContext("alice"), testCreateRequest())
+		require.NoError(t, err)
+		require.Len(t, store.createInput.GetProviders(), len(want))
+		for i := range want {
+			require.True(t, proto.Equal(want[i], store.createInput.GetProviders()[i]), "provider %d = %v, want %v", i, store.createInput.GetProviders()[i], want[i])
+		}
+		require.Len(t, session.GetProviders(), len(want))
+		require.Equal(t, []string{"argo.argo.svc", "muster.muster.svc"}, ActorJWTHosts(actorJWT, session.GetProviders()))
+	})
+
+	t.Run("without configured providers", func(t *testing.T) {
+		store := &serviceTestStore{}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+		_, err := service.Create(serviceTestContext("alice"), testCreateRequest())
+		require.NoError(t, err)
+		require.Empty(t, store.createInput.GetProviders())
+	})
+
+	t.Run("with a volume the admission admits", func(t *testing.T) {
+		admitted := &apiv1alpha1.SessionProvider{Hostname: "github.com", Scheme: "Basic", Provider: "github"}
+		store := &serviceTestStore{}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithSessionActorJWTProviders(actorJWT),
+			WithVolumeAdmission(&recordingAdmission{admitted: Admitted{Providers: []*apiv1alpha1.SessionProvider{admitted}}}))
+		request := testCreateRequest()
+		request.VolumeSource, request.AdmissionToken = testVolumeSource(), "grant"
+		_, err := service.Create(serviceTestContext("alice"), request)
+		require.NoError(t, err)
+		require.Len(t, store.createInput.GetProviders(), 1)
+		require.True(t, proto.Equal(admitted, store.createInput.GetProviders()[0]))
+	})
 }
 
 // Validation of the source precedes the admission: a malformed source is

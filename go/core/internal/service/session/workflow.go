@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -944,6 +945,22 @@ func actorJWTVerifier(actorJWT map[string]egress.ActorJWTProvider, provider *api
 	//nolint:staticcheck // audience is the instance of a session stored before provider existed.
 	verifier, verifies := actorJWT[cmp.Or(provider.GetProvider(), provider.GetAudience())]
 	return verifier, verifies && provider.GetScheme() == "Bearer"
+}
+
+// ActorJWTSessionProviders are the Session providers of the instances that
+// verify the Actor's own JWT: one Bearer provider on each instance's host,
+// sorted by instance. Every Session gets them, with or without an admission
+// grant, so the egress gateway hands its Actor that JWT on those hosts.
+func ActorJWTSessionProviders(actorJWT map[string]egress.ActorJWTProvider) []*apiv1alpha1.SessionProvider {
+	var providers []*apiv1alpha1.SessionProvider
+	for _, instance := range slices.Sorted(maps.Keys(actorJWT)) {
+		providers = append(providers, &apiv1alpha1.SessionProvider{
+			Hostname: actorJWT[instance].Hostname, Scheme: "Bearer",
+			//nolint:staticcheck // audience mirrors provider for clients that read it before provider existed.
+			Provider: instance, Audience: instance,
+		})
+	}
+	return providers
 }
 
 // ActorJWTHosts lists the hosts of providers on which the egress gateway

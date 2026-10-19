@@ -358,7 +358,7 @@ func Run(ctx context.Context, opts Options) error {
 	if shareMaxTTL < 0 {
 		return fmt.Errorf("%s must not be negative", kagentenv.SessionShareMaxTTL.Name())
 	}
-	sessionOptions := []sessionsvc.Option{sessionsvc.WithShareMaxTTL(shareMaxTTL), sessionsvc.WithAgentReader(manager.GetClient())}
+	sessionOptions := []sessionsvc.Option{sessionsvc.WithShareMaxTTL(shareMaxTTL), sessionsvc.WithAgentReader(manager.GetClient()), sessionsvc.WithSessionActorJWTProviders(actorJWTProviders)}
 	volumeAdmission, err := sessionVolumeAdmission(ctx, logger, actorJWTProviders)
 	if err != nil {
 		return err
