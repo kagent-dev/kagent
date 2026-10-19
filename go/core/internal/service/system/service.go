@@ -32,8 +32,7 @@ type ATEClient interface {
 }
 
 type Service struct {
-	kubeClient client.Client
-	// Sorted and unique: actor page tokens resume in this order. Empty means every namespace.
+	kubeClient         client.Client
 	observedNamespaces []string
 	authorizer         auth.CollectionAuthorizer
 	ateClient          ATEClient

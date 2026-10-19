@@ -172,10 +172,7 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 	return result, nil
 }
 
-// ListSubstrateActors returns one page of actors. A cluster-wide controller passes
-// ate-api's page and token through. A controller that watches some namespaces reads
-// each watched atespace with its own scoped list, so no page token names an actor of
-// a namespace it does not watch.
+// ListSubstrateActors returns one page of actors.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
 	scope, err := s.authorizeSubstrateScope(ctx, input.GetAtespace())
 	if err != nil {
@@ -208,16 +205,12 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	return result, nil
 }
 
-// The longest actor page token accepted. This controller's own tokens are far shorter.
 const maxActorPageTokenBytes = 1024
 
-// actorPageToken is the actor page token of a controller that watches some
-// namespaces: the atespace to read and ate-api's token inside it. An atespace holds no "/".
 func actorPageToken(atespace, inner string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(atespace + "/" + inner))
 }
 
-// parseActorPageToken returns where in atespaces a page starts, and ate-api's token there.
 func parseActorPageToken(atespaces []string, token string) (int, string, error) {
 	if token == "" {
 		return 0, "", nil
@@ -226,14 +219,11 @@ func parseActorPageToken(atespaces []string, token string) (int, string, error) 
 	atespace, inner, ok := strings.Cut(string(decoded), "/")
 	start := slices.Index(atespaces, atespace)
 	if len(token) > maxActorPageTokenBytes || err != nil || !ok || start < 0 {
-		// The token is the caller's text and can name anything, so the error omits it.
 		return 0, "", serviceerrors.NewInvalidArgument("Invalid page token", nil)
 	}
 	return start, inner, nil
 }
 
-// listScopedActors fills one page from the atespaces in order, each with its own scoped
-// list, starting at ate-api's inner token in the first.
 func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inner string, limit int32) ([]*ateapipb.Actor, string, error) {
 	var actors []*ateapipb.Actor
 	for i, atespace := range atespaces {
@@ -253,10 +243,7 @@ func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inne
 	return actors, "", nil
 }
 
-// ListSubstrateWorkers returns one page of workers. A cluster-wide controller filters
-// ate-api's page and passes its token through. A controller that watches some
-// namespaces pages its own workers with its own token, since ate-api's can name any
-// worker.
+// ListSubstrateWorkers returns one page of workers.
 func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
 	scope, err := s.authorizeSubstrateScope(ctx, input.GetNamespace())
 	if err != nil {
@@ -282,9 +269,6 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	return result, nil
 }
 
-// listWatchedWorkers fills one page with the workers in scope, in worker name order.
-// The token is the name of the last worker on the previous page: a cursor only, never
-// sent to ate-api.
 func (s *Service) listWatchedWorkers(ctx context.Context, scope substrateScope, limit int32, after string) SubstrateWorkerPage {
 	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
 	var workers []*ateapipb.Worker
@@ -320,14 +304,11 @@ func (s *Service) walkActors(ctx context.Context, scope substrateScope, visit fu
 }
 
 // walkWorkers calls visit for every worker ate-api holds, one page at a time.
-//
-// NOTE: ate-api cannot list one namespace's workers, so a controller that watches some
-// drains every tenant's workers per request. Use an ate-api worker namespace filter
-// when one lands.
+// ate-api's ListWorkersRequest has no namespace filter, so a controller that watches
+// some namespaces still reads every tenant's workers.
 func (s *Service) walkWorkers(ctx context.Context, visit func(*ateapipb.Worker)) error {
 	err := walkSubstrate(ctx, s.ateClient.ListWorkersPage, visit)
 	if err != nil && len(s.observedNamespaces) > 0 {
-		// ate-api's error text can name another tenant's worker, so the caller gets the code.
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
 		return fmt.Errorf("ate-api could not list workers: %s", status.Code(err))
 	}
