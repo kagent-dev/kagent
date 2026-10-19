@@ -2,11 +2,10 @@ package system_test
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,7 +69,7 @@ func (client *fakeATEClient) ListActorsPage(_ context.Context, atespace string, 
 	if err := client.readError(client.actorReads); err != nil {
 		return nil, "", err
 	}
-	return fakePage(actorsInAtespace(client.actors, atespace), client.pageSize, pageSize, pageToken)
+	return fakePage(actorsInAtespace(client.actors, atespace), actorKey, client.pageSize, pageSize, pageToken)
 }
 
 func (client *fakeATEClient) ListWorkersPage(_ context.Context, pageSize int32, pageToken string) ([]*ateapipb.Worker, string, error) {
@@ -78,40 +77,59 @@ func (client *fakeATEClient) ListWorkersPage(_ context.Context, pageSize int32, 
 	if err := client.readError(client.workerReads); err != nil {
 		return nil, "", err
 	}
-	return fakePage(client.workers, client.pageSize, pageSize, pageToken)
+	return fakePage(client.workers, workerKey, client.pageSize, pageSize, pageToken)
 }
 
 func (client *fakeATEClient) readError(int) error {
 	return client.err
 }
 
-// fakePage slices rows the way ate-api pages them: an opaque token, empty on the last
-// page, and never more rows than its own ceiling however many were asked for.
-func fakePage[T any](rows []T, ceiling int, requested int32, pageToken string) ([]T, string, error) {
+type fakeCursor struct {
+	Last   string `json:"last"`
+	Offset int    `json:"offset"`
+}
+
+// fakePage slices rows the way ate-api pages them: never more rows than its own
+// ceiling however many were asked for, and a token that is empty on the last page and
+// otherwise base64 JSON naming the page's last row, as ate-api's does. Carrying the
+// row key lets a test see a token that would tell one tenant about another's rows.
+func fakePage[T any](rows []T, key func(T) string, ceiling int, requested int32, pageToken string) ([]T, string, error) {
 	pageSize := ceiling
 	if requested > 0 && (ceiling <= 0 || int(requested) < ceiling) {
 		pageSize = int(requested)
 	}
 	start := 0
 	if pageToken != "" {
-		parsed, err := strconv.Atoi(strings.TrimPrefix(pageToken, "upstream:"))
-		if err != nil {
-			return nil, "", fmt.Errorf("invalid page token %q", pageToken)
+		var cursor fakeCursor
+		raw, err := base64.StdEncoding.DecodeString(pageToken)
+		if err != nil || json.Unmarshal(raw, &cursor) != nil {
+			return nil, "", errors.New("invalid page token")
 		}
-		start = parsed
+		start = max(cursor.Offset, 0)
 	}
-	if start > len(rows) {
-		start = len(rows)
-	}
+	start = min(start, len(rows))
 	if pageSize <= 0 {
 		return rows[start:], "", nil
 	}
 	end := min(start+pageSize, len(rows))
 	next := ""
 	if end < len(rows) {
-		next = "upstream:" + strconv.Itoa(end)
+		next = fakePageToken(key(rows[end-1]), end)
 	}
 	return rows[start:end], next, nil
+}
+
+func fakePageToken(last string, offset int) string {
+	raw, _ := json.Marshal(fakeCursor{Last: last, Offset: offset})
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func actorKey(actor *ateapipb.Actor) string {
+	return actor.GetMetadata().GetAtespace() + "/" + actor.GetMetadata().GetName()
+}
+
+func workerKey(worker *ateapipb.Worker) string {
+	return worker.GetMetadata().GetName()
 }
 
 func TestCurrentUser(t *testing.T) {
@@ -278,7 +296,7 @@ func TestListSubstrateWorkers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page.Workers, 1)
 	assert.Equal(t, "worker-0", page.Workers[0].WorkerPod)
-	assert.Equal(t, "upstream:2", page.NextPageToken)
+	assert.Equal(t, fakePageToken("", 2), page.NextPageToken)
 	assert.Equal(t, 1, ateClient.workerReads)
 	next, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Namespace: "team", Page: &apiv1.PageRequest{Limit: 2, PageToken: page.NextPageToken}})
 	require.NoError(t, err)
@@ -455,9 +473,13 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 // counted while the pods they sit on cannot.
 type failingWorkersATEClient struct {
 	fakeATEClient
+	workerErr error
 }
 
 func (client *failingWorkersATEClient) ListWorkersPage(context.Context, int32, string) ([]*ateapipb.Worker, string, error) {
+	if client.workerErr != nil {
+		return nil, "", client.workerErr
+	}
 	return nil, "", errors.New("workers unavailable")
 }
 
