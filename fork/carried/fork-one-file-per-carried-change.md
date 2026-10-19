@@ -7,7 +7,7 @@ status: carried
 commits:
   - 'ci(fork): one file per carried change under fork/carried, checked in CI'
   - 'ci(fork): name the ledger check fork-ledger and record this change'
-  - 'ci(fork): read the carried commits from the header, check the ledger is complete'
+  - 'docs(fork): the header is the ledger''s single source, commits named by subject'
 upstream:
   outcome: fork-only
   refs: [giantswarm/kagent-upstream#324]
@@ -19,7 +19,7 @@ verified: 2026-10-19
 
 ## Change
 
-`ci(fork): one file per carried change under fork/carried, checked in CI` and `ci(fork): name the ledger check fork-ledger and record this change`
+`ci(fork): one file per carried change under fork/carried, checked in CI`, `ci(fork): name the ledger check fork-ledger and record this change` and `docs(fork): the header is the ledger's single source, commits named by subject`
 
 ## Reason
 
