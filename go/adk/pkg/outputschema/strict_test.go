@@ -1,0 +1,77 @@
+package outputschema
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestCheckStrict(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  string
+		wantErr string
+	}{
+		{
+			name:   "closed object with every property required",
+			schema: `{"type":"object","properties":{"due":{"type":"string"}},"required":["due"],"additionalProperties":false}`,
+		},
+		{
+			name: "nested objects in properties, items, anyOf and $defs",
+			schema: `{
+				"type":"object",
+				"properties":{
+					"stops":{"type":"array","items":{"$ref":"#/$defs/stop"}},
+					"note":{"anyOf":[{"type":"string"},{"type":"null"}]}
+				},
+				"required":["stops","note"],
+				"additionalProperties":false,
+				"$defs":{"stop":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}}
+			}`,
+		},
+		{
+			name:    "root object left open",
+			schema:  `{"type":"object","properties":{"due":{"type":"string"}},"required":["due"]}`,
+			wantErr: "the root object must set additionalProperties to false",
+		},
+		{
+			name:    "optional property",
+			schema:  `{"type":"object","properties":{"due":{"type":"string"},"code":{"type":"string"}},"required":["due"],"additionalProperties":false}`,
+			wantErr: `the root object must list property "code" in required`,
+		},
+		{
+			name: "open object inside an array",
+			schema: `{
+				"type":"object",
+				"properties":{"stops":{"type":"array","items":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}}},
+				"required":["stops"],
+				"additionalProperties":false
+			}`,
+			wantErr: "/properties/stops/items must set additionalProperties to false",
+		},
+		{
+			name: "open object in $defs",
+			schema: `{
+				"type":"object","properties":{},"additionalProperties":false,
+				"$defs":{"stop":{"type":"object","additionalProperties":true}}
+			}`,
+			wantErr: "/$defs/stop must set additionalProperties to false",
+		},
+		{
+			name:    "root anyOf",
+			schema:  `{"type":"object","anyOf":[{"type":"object","properties":{},"additionalProperties":false}]}`,
+			wantErr: "the root must not use anyOf",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckStrict(json.RawMessage(tt.schema))
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

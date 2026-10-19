@@ -127,6 +127,9 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	if err != nil {
 		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
+	if openAIModel, ok := llmModel.(*models.OpenAIModel); ok {
+		openAIModel.StrictOutputSchema = agentConfig.GetOutput().GetStrict()
+	}
 	llmModel = fileextract.WithFileText(llmModel)
 
 	if agentName == "" {

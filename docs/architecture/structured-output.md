@@ -93,6 +93,23 @@ also limited to 32 levels and 1,000 expanded schema nodes; these bounds include
 nodes expanded through local `$defs` references. Schemas that exceed any limit
 fail compilation.
 
+## Strict mode
+
+By default, kagent sends the schema to OpenAI and Azure OpenAI as guidance
+and validates the answer afterward. Set `outputSchemaStrict: true` next to
+`outputSchema` or `outputSchemaFrom` to also send `strict: true`, on both the
+Chat Completions and Responses APIs. The provider then constrains generation
+to the schema. The final validation still runs.
+
+Strict mode accepts fewer schemas. Every object must set
+`additionalProperties: false` and list every property in `required`, and the
+root must not use `anyOf`. Compilation rejects a strict schema that breaks
+these rules, so the Agent reports the error instead of every request failing
+at the provider. To make a field optional under strict mode, give it a
+`null` alternative, for example `anyOf: [{type: string}, {type: "null"}]`.
+
+Other providers ignore the field.
+
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).
 Runtime validation and A2A conversion are owned by the Go kagent ADK executor.

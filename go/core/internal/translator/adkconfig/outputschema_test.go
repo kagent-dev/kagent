@@ -33,3 +33,26 @@ func TestApplyOutputSchemaRejectsRecursiveADKConversion(t *testing.T) {
 	require.ErrorContains(t, err, "recursive output schema")
 	require.Nil(t, config.Output)
 }
+
+func TestApplyOutputSchemaStrict(t *testing.T) {
+	config := &configv1.ADKAgentConfig{}
+	output := &translator.ResolvedOutputSchema{
+		Schema: []byte(`{"type":"object","properties":{"due":{"type":"string"}},"required":["due"],"additionalProperties":false}`),
+		Strict: true,
+	}
+
+	require.NoError(t, applyOutputSchema(config, output))
+	require.True(t, config.Output.Strict)
+}
+
+func TestApplyOutputSchemaStrictRejectsOpenObject(t *testing.T) {
+	config := &configv1.ADKAgentConfig{}
+	output := &translator.ResolvedOutputSchema{
+		Schema: []byte(`{"type":"object","properties":{"due":{"type":"string"}},"required":["due"]}`),
+		Strict: true,
+	}
+
+	err := applyOutputSchema(config, output)
+	require.ErrorContains(t, err, "outputSchemaStrict: strict output schema: the root object must set additionalProperties to false")
+	require.Nil(t, config.Output)
+}

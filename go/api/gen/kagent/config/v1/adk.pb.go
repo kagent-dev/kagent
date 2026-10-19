@@ -2353,8 +2353,10 @@ func (x *ADKCompressionConfig) GetEventRetentionSize() int64 {
 type ADKOutputConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Canonical JSON bytes retain the exact schema hashed by the compiler.
-	JsonSchema    []byte `protobuf:"bytes,1,opt,name=json_schema,json=jsonSchema,proto3" json:"json_schema,omitempty"`
-	Sha256        string `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	JsonSchema []byte `protobuf:"bytes,1,opt,name=json_schema,json=jsonSchema,proto3" json:"json_schema,omitempty"`
+	Sha256     string `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Asks OpenAI-compatible providers to constrain generation to json_schema.
+	Strict        bool `protobuf:"varint,3,opt,name=strict,proto3" json:"strict,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2401,6 +2403,13 @@ func (x *ADKOutputConfig) GetSha256() string {
 		return x.Sha256
 	}
 	return ""
+}
+
+func (x *ADKOutputConfig) GetStrict() bool {
+	if x != nil {
+		return x.Strict
+	}
+	return false
 }
 
 type ADKAgentPlugins struct {
@@ -3211,11 +3220,12 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x14_compaction_intervalB\x0f\n" +
 	"\r_overlap_sizeB\x12\n" +
 	"\x10_token_thresholdB\x17\n" +
-	"\x15_event_retention_size\"J\n" +
+	"\x15_event_retention_size\"b\n" +
 	"\x0fADKOutputConfig\x12\x1f\n" +
 	"\vjson_schema\x18\x01 \x01(\fR\n" +
 	"jsonSchema\x12\x16\n" +
-	"\x06sha256\x18\x02 \x01(\tR\x06sha256\"\x82\x01\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12\x16\n" +
+	"\x06strict\x18\x03 \x01(\bR\x06strict\"\x82\x01\n" +
 	"\x0fADKAgentPlugins\x122\n" +
 	"\x06skills\x18\x01 \x03(\v2\x1a.kagent.config.v1.ADKSkillR\x06skills\x12;\n" +
 	"\aplugins\x18\x02 \x03(\v2!.kagent.config.v1.ADKPluginBundleR\aplugins\"Y\n" +

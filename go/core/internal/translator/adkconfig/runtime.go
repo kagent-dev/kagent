@@ -100,9 +100,15 @@ func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.Resol
 	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
+	if output.Strict {
+		if err := adkoutputschema.CheckStrict(output.Schema); err != nil {
+			return translator.NewValidationError("outputSchemaStrict: %v", err)
+		}
+	}
 	config.Output = &configv1.ADKOutputConfig{
 		JsonSchema: append(json.RawMessage(nil), output.Schema...),
 		Sha256:     output.SHA256,
+		Strict:     output.Strict,
 	}
 	return nil
 }
