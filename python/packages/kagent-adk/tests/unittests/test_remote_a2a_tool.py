@@ -4,9 +4,8 @@ from typing import Any, AsyncIterator, Callable, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
-from a2a.types import Message as A2AMessage
-from a2a.types import Part as A2APart
 from a2a.types import (
+    Artifact,
     Role,
     SendMessageRequest,
     StreamResponse,
@@ -14,6 +13,8 @@ from a2a.types import (
     TaskState,
     TaskStatus,
 )
+from a2a.types import Message as A2AMessage
+from a2a.types import Part as A2APart
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.adk.tools.tool_context import ToolContext
 from google.protobuf.json_format import MessageToDict
@@ -280,7 +281,38 @@ class TestFirstCall:
         finally:
             p.stop()
 
-        assert result == "something broke"
+        assert result == {"error": "something broke", "subagent_session_id": "ctx-1"}
+
+    async def test_failed_task_keeps_the_partial_answer_beside_the_reason(self):
+        """A failure that kept its artifacts reports the reason as the error and the artifacts as the result."""
+        tool = _make_tool()
+        reason = "model output limit reached (max_tokens=8192): the answer is incomplete"
+        task = _make_task(TaskState.TASK_STATE_FAILED, text=reason)
+        task.artifacts.append(Artifact(artifact_id="a-1", parts=[A2APart(text="the answer starts and is cut")]))
+        p, _ = _patch_client(tool, _async_yield((task, None)))
+        try:
+            result = await tool.run_async(args={"request": "go"}, tool_context=MockToolContext().as_tool_context())
+        finally:
+            p.stop()
+
+        assert result == {
+            "error": reason,
+            "result": "the answer starts and is cut",
+            "subagent_session_id": "ctx-1",
+        }
+
+    async def test_failed_task_without_a_status_message_reports_the_artifacts(self):
+        """A failure without a status message reads its text from the artifacts, as before."""
+        tool = _make_tool()
+        task = _make_task(TaskState.TASK_STATE_FAILED)
+        task.artifacts.append(Artifact(artifact_id="a-1", parts=[A2APart(text="the answer starts and is cut")]))
+        p, _ = _patch_client(tool, _async_yield((task, None)))
+        try:
+            result = await tool.run_async(args={"request": "go"}, tool_context=MockToolContext().as_tool_context())
+        finally:
+            p.stop()
+
+        assert result == {"error": "the answer starts and is cut", "subagent_session_id": "ctx-1"}
 
     async def test_context_id_sent_in_outgoing_message(self):
         """The receiving Agent assigns the first conversation ID."""
