@@ -184,7 +184,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 	for _, binding := range bindings {
 		destinations = append(destinations, binding.Origin)
 	}
-	access, err := egress.CanonicalAccess(destinations, bindings, egress.TargetOrigins(targets))
+	access, err := egress.CanonicalAccess(destinations, bindings, targets)
 	if err != nil {
 		return nil, nil, nil, NewValidationError("%v", err)
 	}
@@ -201,7 +201,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		}
 		result[i].Value, result[i].ValueFrom = CredentialPlaceholder, nil
 	}
-	return result, access.Credentials, targets, nil
+	return result, access.Credentials, access.TokenPassthroughTargets, nil
 }
 
 func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, header, prefix string) {

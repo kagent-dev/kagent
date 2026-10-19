@@ -137,7 +137,7 @@ func TestRuntimeEgressTokenOriginsAreNotGrants(t *testing.T) {
 				SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
 				TokenPassthroughTargets: targets,
 			}, RecordRevisionOptions{}))
-			policy, _, err := client.GetRuntimeEgressPolicy(ctx, "revision")
+			policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 			require.NoError(t, err)
 			require.Empty(t, policy.Destinations, "token origins constrain credentials without granting network access")
 		})
@@ -157,7 +157,7 @@ func TestRuntimeEgressCanonicalTokenOriginWithholdsCredentials(t *testing.T) {
 		SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime",
 		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://MODEL.example.com.", Header: "Authorization"}},
 	}, RecordRevisionOptions{}))
-	policy, _, err := client.GetRuntimeEgressPolicy(ctx, "revision")
+	policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 	require.NoError(t, err)
 	require.Equal(t, []string{"https://model.example.com:443"}, policy.Destinations)
 	require.Empty(t, policy.Credentials)
@@ -194,9 +194,9 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 			}
 			assertPolicy := func(grants egress.Access) {
 				t.Helper()
-				policy, _, err := client.GetRuntimeEgressPolicy(ctx, "revision")
+				policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 				require.NoError(t, err)
-				expected, err := egress.MergeAccess(base, grants, nil)
+				expected, err := egress.MergeAccess(base, grants)
 				require.NoError(t, err)
 				require.True(t, slices.Equal(expected.Destinations, policy.Destinations))
 				require.True(t, slices.Equal(expected.Credentials, policy.Credentials))
@@ -209,9 +209,9 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 				conflict := egress.Access{Destinations: append(slices.Clone(base.Destinations), canonical.Destinations...), Credentials: append(slices.Clone(canonical.Credentials), egress.Credential{Origin: base.Destinations[0], Header: "authorization", URI: "ate-secret://k8s.io/default/team/other/token"})}
 				err = upsert("uid", conflict)
 				require.NoError(t, err)
-				policy, _, err := client.GetRuntimeEgressPolicy(ctx, "revision")
+				policy, err := client.GetRuntimeEgressPolicy(ctx, "revision")
 				require.NoError(t, err)
-				expected, err := egress.MergeAccess(base, canonical, nil)
+				expected, err := egress.MergeAccess(base, canonical)
 				require.NoError(t, err)
 				require.Equal(t, expected, policy, "older revisions retain nonconflicting grants")
 			}
@@ -229,7 +229,7 @@ func TestSourceGrantsDetermineEffectivePolicy(t *testing.T) {
 			assertPolicy(egress.Access{})
 			err = upsert("replacement", canonical)
 			require.NoError(t, err)
-			_, _, err = client.GetRuntimeEgressPolicy(ctx, "missing")
+			_, err = client.GetRuntimeEgressPolicy(ctx, "missing")
 			require.ErrorIs(t, err, ErrNotFound)
 		})
 	}
@@ -248,7 +248,7 @@ func TestSourceGrantsRollbackWithInvalidRevision(t *testing.T) {
 		definition.AgentUID, definition.DesiredRevision, definition.EgressGrant = uid, "sandbox", egress.Access{}
 		err = client.UpsertAgentDefinition(ctx, definition)
 		require.ErrorIs(t, err, ErrConflict)
-		policy, _, err := client.GetRuntimeEgressPolicy(ctx, "agent")
+		policy, err := client.GetRuntimeEgressPolicy(ctx, "agent")
 		require.NoError(t, err)
 		require.Equal(t, grants.Destinations, policy.Destinations, "failed upsert must roll back grants and retirement")
 		require.Empty(t, policy.Credentials)
@@ -272,7 +272,7 @@ func TestRuntimeEgressMalformedInputsFailClosed(t *testing.T) {
 			require.NoError(t, client.RecordRuntimeRevision(ctx, RuntimeRevision{Revision: "revision", Namespace: "team", AgentName: "source", AgentUID: "uid", SourceSnapshot: []byte(`{}`), AgentCard: &a2apb.AgentCard{}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime"}, RecordRevisionOptions{}))
 			_, err = pool.Exec(ctx, test.statement)
 			require.NoError(t, err)
-			_, _, err = client.GetRuntimeEgressPolicy(ctx, "revision")
+			_, err = client.GetRuntimeEgressPolicy(ctx, "revision")
 			require.Error(t, err)
 		})
 	}

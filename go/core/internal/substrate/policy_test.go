@@ -41,7 +41,7 @@ func (f compilerFunc) Compile(ctx context.Context, input egresspolicy.Input, pol
 func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 	secret := egress.Credential{Origin: "https://other.example.com:443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/token"}
 	target := egresspolicy.GatewayTarget{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer "}
-	access := egress.Access{Destinations: []string{"https://api.example.com:443", "https://other.example.com:443"}, Credentials: []egress.Credential{secret}}
+	access := egress.Access{Destinations: []string{"https://api.example.com:443", "https://other.example.com:443"}, Credentials: []egress.Credential{secret}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}
 	addHeader := func(host, header, prefix, uri string) compilerFunc {
 		return func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
 			for _, rule := range policy.GetRules() {
@@ -91,7 +91,7 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 		})}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			policy, err := compileActorEgressPolicy(t.Context(), "team", access, []egresspolicy.GatewayTarget{target}, test.compilers)
+			policy, err := compileActorEgressPolicy(t.Context(), "team", access, test.compilers)
 			if test.wantErr != "" {
 				require.ErrorContains(t, err, test.wantErr)
 				require.Nil(t, policy)
@@ -105,7 +105,7 @@ func TestCompileActorEgressPolicyExtensions(t *testing.T) {
 
 func TestCompileActorEgressPolicyWithoutExtensionsLeavesTargetsUnbound(t *testing.T) {
 	target := egresspolicy.GatewayTarget{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer "}
-	policy, err := compileActorEgressPolicy(t.Context(), "team", egress.Access{Destinations: []string{target.Origin}}, []egresspolicy.GatewayTarget{target}, nil)
+	policy, err := compileActorEgressPolicy(t.Context(), "team", egress.Access{Destinations: []string{target.Origin}, TokenPassthroughTargets: []egresspolicy.GatewayTarget{target}}, nil)
 	require.NoError(t, err, "runtimes forward the caller token without an extension")
 	require.Empty(t, policy.GetRules()[0].GetHttps().GetEffects().GetReplaceHeaders())
 }

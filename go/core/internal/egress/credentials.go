@@ -55,15 +55,6 @@ func CanonicalGatewayTargets(targets []egresspolicy.GatewayTarget) ([]egresspoli
 	return result, nil
 }
 
-// TargetOrigins returns the origins that gateway targets reserve.
-func TargetOrigins(targets []egresspolicy.GatewayTarget) []string {
-	var origins []string
-	for _, target := range targets {
-		origins = append(origins, target.Origin)
-	}
-	return origins
-}
-
 // CanonicalCredentials validates and orders bindings by complete origin and header.
 func CanonicalCredentials(bindings []Credential) ([]Credential, error) {
 	result := slices.Clone(bindings)

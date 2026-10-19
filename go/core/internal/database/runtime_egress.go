@@ -27,10 +27,10 @@ func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
 }
 
 // GetRuntimeEgressPolicy merges pinned inputs with the active source UID's grants
-// in one database snapshot, plus the revision's tokenPassthrough targets.
-// Missing/deleting revisions and malformed inputs fail closed. Retired or replaced identities contribute no grants. Older revisions
+// in one database snapshot. Missing/deleting revisions and malformed inputs fail
+// closed. Retired or replaced identities contribute no grants. Older revisions
 // retain their pinned base and only the grants compatible with it.
-func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, []egresspolicy.GatewayTarget, error) {
+func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
 	type policyInputs struct {
 		EgressDestinations      []string
 		Credentials             []egress.Credential
@@ -51,26 +51,17 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
     AND (a.revision IS NOT NULL OR s.revision IS NOT NULL)
  `, pgx.RowToStructByName[policyInputs], revision)
 	if err != nil {
-		return egress.Access{}, nil, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
+		return egress.Access{}, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
 	}
-	targets, err := egress.CanonicalGatewayTargets(row.TokenPassthroughTargets)
+	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, row.TokenPassthroughTargets)
 	if err != nil {
-		return egress.Access{}, nil, fmt.Errorf("decode runtime tokenPassthrough targets %s: %w", revision, err)
-	}
-	origins := egress.TargetOrigins(targets)
-	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, origins)
-	if err != nil {
-		return egress.Access{}, nil, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
+		return egress.Access{}, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
 	}
 	grants, err := egress.CanonicalAccess(row.GrantDestinations, row.GrantCredentials, nil)
 	if err != nil {
-		return egress.Access{}, nil, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
+		return egress.Access{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
 	}
-	access, err := egress.EffectiveAccess(base, grants, origins)
-	if err != nil {
-		return egress.Access{}, nil, err
-	}
-	return access, targets, nil
+	return egress.EffectiveAccess(base, grants)
 }
 
 var _ egress.PolicyStore = (*Client)(nil)
