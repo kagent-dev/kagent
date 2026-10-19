@@ -26,6 +26,7 @@ import (
 	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -1022,4 +1023,37 @@ func TestResolveModelConfigMistral(t *testing.T) {
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+}
+
+func TestRevisionDigestIncludesTokenPassthroughTargets(t *testing.T) {
+	revision := translator.Revision{AgentName: "agent"}
+	digest := func() translator.RevisionID {
+		id, err := revision.Digest()
+		require.NoError(t, err)
+		return id
+	}
+	without := digest()
+	revision.TokenPassthroughTargets = []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}
+	bearer := digest()
+	revision.TokenPassthroughTargets[0].Header = "x-api-key"
+	require.NotEqual(t, without, bearer)
+	require.NotEqual(t, bearer, digest(), "the header is part of revision identity")
+}
+
+func TestCompileAgentRejectsUnsupportedTokenPassthrough(t *testing.T) {
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
+		Kagent:    &v1alpha3.KagentHarness{},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+	}}
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"}}
+	for _, spec := range []v1alpha3.ModelConfigSpec{
+		{Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud", TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{}},
+		{Provider: v1alpha3.ModelProviderBedrock, Model: "anthropic.claude", TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+	} {
+		model := modelConfig()
+		model.Spec = spec
+		_, err := compiler(t, model, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
+		require.ErrorContains(t, err, "tokenPassthrough is not supported", spec.Provider)
+	}
 }

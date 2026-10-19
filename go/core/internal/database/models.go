@@ -9,6 +9,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 type Tool struct {
@@ -68,7 +69,7 @@ type RuntimeRevision struct {
 	AgentCard               *a2apb.AgentCard
 	Credentials             []egress.Credential
 	EgressDestinations      []string
-	TokenPassthroughOrigins []string
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	ActorTemplateAtespace   string
 	ActorTemplateName       string
 	ActorTemplateUID        string

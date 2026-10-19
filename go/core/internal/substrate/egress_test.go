@@ -13,12 +13,14 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 type egressPolicyStoreFunc func(context.Context, string) (egress.Access, error)
 
-func (f egressPolicyStoreFunc) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
-	return f(ctx, revision)
+func (f egressPolicyStoreFunc) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, []egresspolicy.GatewayTarget, error) {
+	access, err := f(ctx, revision)
+	return access, nil, err
 }
 
 var _ egress.PolicyStore = egressPolicyStoreFunc(nil)

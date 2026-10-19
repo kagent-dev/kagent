@@ -18,6 +18,7 @@ import (
 	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 func TestGrantAdmissionAcrossSources(t *testing.T) {
@@ -115,6 +116,40 @@ func TestGrantAdmissionAcrossSources(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestAgentGrantAdmissionReservesTokenPassthroughOrigins(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const origin = "https://mcp.example.com:443"
+		server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{URL: "https://mcp.example.com/mcp", TokenPassthrough: true}}
+		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedLocalObjectReference{Kind: "RemoteMCPServer", Name: server.Name}, Tools: []string{"lookup"}}}},
+		}}
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "auth"}, Data: map[string][]byte{"token": []byte("value")}}
+		collections, _ := newPreparationTestCollectionsFor(t, "gvisor", template, server, secret)
+		initial := collections.Reconciliations.List()[0]
+		target := egresspolicy.GatewayTarget{Origin: origin, Header: "authorization", Prefix: "Bearer "}
+		require.Equal(t, []egresspolicy.GatewayTarget{target}, initial.Target.Revision.TokenPassthroughTargets)
+		agent := initial.Agent.DeepCopy()
+		agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: "keys"}}
+		collections.Agents.(krt.StaticCollection[*v1alpha3.Agent]).UpdateObject(agent)
+		prepared := proto.CloneOf(initial.Target.ActorTemplate)
+		prepared.Metadata.Uid, prepared.Status = "prepared", sandboxGoldenStatus()
+		store := &fakeRuntimeRevisionStore{}
+		r := &Reconciler{collections: collections, templates: &fakeActorTemplates{template: prepared}, store: store}
+		policies := collections.EgressPolicies.(krt.StaticCollection[*v1alpha3.EgressPolicy])
+		// Any Secret header on a passthrough origin conflicts, not just the target's.
+		for _, header := range []string{"Authorization", "X-API-Key"} {
+			policies.UpdateObject(&v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "keys"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{
+				Origin: origin, Authentication: &v1alpha3.EgressAuthentication{Header: header, SecretKeyRef: corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}},
+			}}}})
+			synctest.Wait()
+			require.NotEmpty(t, collections.Reconciliations.GetKey(initial.ResourceName()).EgressConflict, header)
+			require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+			require.Empty(t, store.pair.EgressGrant.Credentials, header)
+		}
+		require.Equal(t, []egresspolicy.GatewayTarget{target}, store.revision.TokenPassthroughTargets)
+	})
 }
 
 func TestAgentGrantAdmissionWithAndWithoutCompiledBase(t *testing.T) {

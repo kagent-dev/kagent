@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // canonicalStoredGrants validates and normalizes source grants for NOT NULL storage.
@@ -26,19 +27,19 @@ func canonicalStoredGrants(grants egress.Access) (egress.Access, error) {
 }
 
 // GetRuntimeEgressPolicy merges pinned inputs with the active source UID's grants
-// in one database snapshot. Missing/deleting revisions and malformed inputs fail
-// closed. Retired or replaced identities contribute no grants. Older revisions
+// in one database snapshot, plus the revision's tokenPassthrough targets.
+// Missing/deleting revisions and malformed inputs fail closed. Retired or replaced identities contribute no grants. Older revisions
 // retain their pinned base and only the grants compatible with it.
-func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, error) {
+func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (egress.Access, []egresspolicy.GatewayTarget, error) {
 	type policyInputs struct {
 		EgressDestinations      []string
 		Credentials             []egress.Credential
-		TokenPassthroughOrigins []string
+		TokenPassthroughTargets []egresspolicy.GatewayTarget
 		GrantDestinations       []string
 		GrantCredentials        []egress.Credential
 	}
 	row, err := queryOne(ctx, c.db, `
-  SELECT r.egress_destinations, r.credentials, r.token_passthrough_origins,
+  SELECT r.egress_destinations, r.credentials, r.token_passthrough_targets,
     COALESCE(ad.grant_destinations, sd.grant_destinations, '{}') AS grant_destinations,
     COALESCE(ad.grant_credentials, sd.grant_credentials, '[]') AS grant_credentials
   FROM runtime_revision r
@@ -50,24 +51,26 @@ func (c *Client) GetRuntimeEgressPolicy(ctx context.Context, revision string) (e
     AND (a.revision IS NOT NULL OR s.revision IS NOT NULL)
  `, pgx.RowToStructByName[policyInputs], revision)
 	if err != nil {
-		return egress.Access{}, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
+		return egress.Access{}, nil, fmt.Errorf("get runtime egress policy %s: %w", revision, notFoundOr(err))
 	}
-	for i, raw := range row.TokenPassthroughOrigins {
-		origin, err := egress.ParseOrigin(raw)
-		if err != nil {
-			return egress.Access{}, fmt.Errorf("decode runtime token origins %s: %w", revision, err)
-		}
-		row.TokenPassthroughOrigins[i] = origin.String()
-	}
-	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, row.TokenPassthroughOrigins)
+	targets, err := egress.CanonicalGatewayTargets(row.TokenPassthroughTargets)
 	if err != nil {
-		return egress.Access{}, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
+		return egress.Access{}, nil, fmt.Errorf("decode runtime tokenPassthrough targets %s: %w", revision, err)
+	}
+	origins := egress.TargetOrigins(targets)
+	base, err := egress.CanonicalAccess(row.EgressDestinations, row.Credentials, origins)
+	if err != nil {
+		return egress.Access{}, nil, fmt.Errorf("decode runtime egress base %s: %w", revision, err)
 	}
 	grants, err := egress.CanonicalAccess(row.GrantDestinations, row.GrantCredentials, nil)
 	if err != nil {
-		return egress.Access{}, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
+		return egress.Access{}, nil, fmt.Errorf("decode runtime egress grants %s: %w", revision, err)
 	}
-	return egress.EffectiveAccess(base, grants, row.TokenPassthroughOrigins)
+	access, err := egress.EffectiveAccess(base, grants, origins)
+	if err != nil {
+		return egress.Access{}, nil, err
+	}
+	return access, targets, nil
 }
 
 var _ egress.PolicyStore = (*Client)(nil)

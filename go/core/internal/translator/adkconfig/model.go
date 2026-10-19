@@ -71,6 +71,10 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 	}
 	model := resolved.Config
 	modelDeploymentData := &modelDeploymentData{}
+	// These runtimes read their key from the environment, never the caller's token.
+	if model.Spec.TokenPassthrough && (model.Spec.Provider == v1alpha3.ModelProviderOllama || model.Spec.Provider == v1alpha3.ModelProviderBedrock) {
+		return nil, nil, translator.NewValidationError("ModelConfig %q: tokenPassthrough is not supported for provider %s", model.Name, model.Spec.Provider)
+	}
 
 	switch model.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
@@ -357,7 +361,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		}
 		// Populate shared transport settings.
 		populateTLSFields(ollama, model.Spec.TLS)
-		ollama.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return ollama, modelDeploymentData, nil
 	case v1alpha3.ModelProviderGemini:
@@ -480,7 +483,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 
 		// Populate shared transport settings.
 		populateTLSFields(bedrock, model.Spec.TLS)
-		bedrock.ApiKeyPassthrough = model.Spec.TokenPassthrough
 
 		return bedrock, modelDeploymentData, nil
 	case v1alpha3.ModelProviderSAPAICore:

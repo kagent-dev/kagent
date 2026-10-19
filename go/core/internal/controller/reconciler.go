@@ -119,7 +119,7 @@ func newAgentReconciliations(
 		} else {
 			revision := &state.Target.Revision
 			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
-			_, err = egress.MergeAccess(base, state.EgressGrant, revision.TokenPassthroughOrigins)
+			_, err = egress.MergeAccess(base, state.EgressGrant, egress.TargetOrigins(revision.TokenPassthroughTargets))
 		}
 		if err != nil {
 			state.EgressConflict = err.Error()
@@ -385,7 +385,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		if state.Target != nil {
 			revision := &state.Target.Revision
 			base := egress.Access{Destinations: revision.EgressDestinations, Credentials: revision.Credentials}
-			grants, _ = egress.FilterConflicts(base, grants, revision.TokenPassthroughOrigins)
+			grants, _ = egress.FilterConflicts(base, grants, egress.TargetOrigins(revision.TokenPassthroughTargets))
 		}
 	}
 	definition := database.AgentDefinition{
@@ -445,7 +445,7 @@ func (r *Reconciler) reconcileAgent(ctx context.Context, key string) error {
 		SourceSnapshot: target.Revision.Provenance, AgentCard: target.Revision.AgentCard,
 		EgressDestinations:      target.Revision.EgressDestinations,
 		Credentials:             target.Revision.Credentials,
-		TokenPassthroughOrigins: target.Revision.TokenPassthroughOrigins,
+		TokenPassthroughTargets: target.Revision.TokenPassthroughTargets,
 		ActorTemplateAtespace:   observed.GetMetadata().GetAtespace(), ActorTemplateName: observed.GetMetadata().GetName(), ActorTemplateUID: observed.GetMetadata().GetUid(),
 	}
 	ready := observed.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag() != nil

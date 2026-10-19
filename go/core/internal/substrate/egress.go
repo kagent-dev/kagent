@@ -28,11 +28,11 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		if err != nil && status.Code(err) != codes.NotFound {
 			return err
 		}
-		access, err := c.cfg.EgressPolicies.GetRuntimeEgressPolicy(ctx, revision)
+		access, targets, err := c.cfg.EgressPolicies.GetRuntimeEgressPolicy(ctx, revision)
 		if err != nil {
 			return fmt.Errorf("load intended actor egress: %w", err)
 		}
-		policy, err := ActorEgressPolicy(atespace, access.Destinations, access.Credentials)
+		policy, err := compileActorEgressPolicy(ctx, atespace, access, targets, c.cfg.EgressPolicyCompilers)
 		if err != nil {
 			return err
 		}
@@ -52,7 +52,7 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		}
 		// A source update may have discovered this instance before its Actor
 		// existed. Recheck after applying so creation cannot miss that update.
-		latest, err := c.cfg.EgressPolicies.GetRuntimeEgressPolicy(ctx, revision)
+		latest, _, err := c.cfg.EgressPolicies.GetRuntimeEgressPolicy(ctx, revision)
 		if err != nil {
 			return fmt.Errorf("reload intended actor egress: %w", err)
 		}

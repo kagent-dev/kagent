@@ -3,12 +3,14 @@ package egress
 import (
 	"context"
 	"slices"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // PolicyStore reads effective policy from persisted revision inputs and source grants.
 // A missing or malformed policy is an error, never permission to retain old access.
 type PolicyStore interface {
-	GetRuntimeEgressPolicy(context.Context, string) (Access, error)
+	GetRuntimeEgressPolicy(context.Context, string) (Access, []egresspolicy.GatewayTarget, error)
 }
 
 // EffectiveAccess retains the base and all grants compatible with this revision.

@@ -110,7 +110,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughTargets, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 			ConfigJSON:  configJSON, AgentCard: card,
 			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
 			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
-			TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
+			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil
@@ -261,7 +261,7 @@ func (c *Compiler) provider(ctx context.Context, model *v1alpha3.ModelConfig) ([
 		return []corev1.EnvVar{
 			{Name: claudeconfig.UseVertexEnvName, Value: "1"}, {Name: claudeconfig.VertexProjectEnvName, Value: cfg.ProjectID}, {Name: claudeconfig.VertexRegionEnvName, Value: cfg.Location},
 			secretEnvironment(claudeconfig.GoogleCredentialsJSONEnvName, model.Spec.APIKeySecret, model.Spec.APIKeySecretKey),
-		}, []string{"https://" + vertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
+		}, []string{"https://" + translator.VertexHostname(cfg.Location) + ":443", "https://oauth2.googleapis.com:443"}, nil
 	default:
 		return nil, nil, translator.NewValidationError("Claude does not support ModelConfig provider %q", model.Spec.Provider)
 	}
@@ -336,17 +336,6 @@ func secretEnvironment(environmentName, secretName, key string) corev1.EnvVar {
 	return corev1.EnvVar{Name: environmentName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: secretName}, Key: key,
 	}}}
-}
-
-func vertexHostname(location string) string {
-	switch location {
-	case "global":
-		return "aiplatform.googleapis.com"
-	case "us", "eu":
-		return "aiplatform." + location + ".rep.googleapis.com"
-	default:
-		return location + "-aiplatform.googleapis.com"
-	}
 }
 
 type provenanceEntry struct {
