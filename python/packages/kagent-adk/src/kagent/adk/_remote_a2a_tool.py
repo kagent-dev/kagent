@@ -79,26 +79,45 @@ ROOT_CONTEXT_ID_HEADER = "x-kagent-root-context-id"
 def _extract_text_from_task(task: Task) -> str:
     """Extract text content from a completed task's artifacts or status message."""
     # Prefer artifacts (the canonical result)
-    if task.artifacts:
-        texts: list[str] = []
-        for artifact in task.artifacts:
-            if artifact.parts:
-                for part in artifact.parts:
-                    if part.HasField("text") and part.text:
-                        texts.append(part.text)
-        if texts:
-            return "\n".join(texts)
+    return _extract_text_from_artifacts(task) or _extract_text_from_status(task)
 
-    # Fall back to status message
-    if task.status and task.status.message and task.status.message.parts:
-        texts = []
-        for part in task.status.message.parts:
+
+def _extract_text_from_artifacts(task: Task) -> str:
+    """Extract text content from a task's artifacts."""
+    texts: list[str] = []
+    for artifact in task.artifacts:
+        for part in artifact.parts:
             if part.HasField("text") and part.text:
                 texts.append(part.text)
-        if texts:
-            return "\n".join(texts)
+    return "\n".join(texts)
 
-    return ""
+
+def _extract_text_from_status(task: Task) -> str:
+    """Extract text content from a task's status message."""
+    if not (task.status and task.status.message):
+        return ""
+    texts = [part.text for part in task.status.message.parts if part.HasField("text") and part.text]
+    return "\n".join(texts)
+
+
+def _failure_response(task: Task, context_id: Optional[str], fallback: str) -> dict[str, Any]:
+    """Report a failed task to the parent.
+
+    The status message names the failure. The artifacts, when the runtime kept
+    them (an answer cut at the model's output limit, say), hold what the agent
+    produced before it failed, and the parent reads them beside the reason. A
+    failure without a message reads its text from the artifacts, as before.
+    """
+    reason = _extract_text_from_status(task)
+    partial = _extract_text_from_artifacts(task)
+    response: dict[str, Any] = {"subagent_session_id": context_id}
+    if reason:
+        response["error"] = reason
+        if partial:
+            response["result"] = partial
+    else:
+        response["error"] = partial or fallback
+    return response
 
 
 def _extract_usage_from_task(task: Task) -> Optional[dict]:
@@ -325,8 +344,7 @@ class KAgentRemoteA2ATool(BaseTool):
             return self._handle_input_required(task, tool_context, context_id)
 
         if state == TaskState.TASK_STATE_FAILED:
-            error_text = _extract_text_from_task(task)
-            return error_text or f"Remote agent '{self.name}' failed."
+            return _failure_response(task, context_id, f"Remote agent '{self.name}' failed.")
 
         # completed — include the sub-agent's final LLM usage from task.metadata
         # so the parent can display it on the AgentCall card in the UI.
@@ -433,8 +451,11 @@ class KAgentRemoteA2ATool(BaseTool):
             return self._handle_input_required(task, tool_context)
 
         if task_state == TaskState.TASK_STATE_FAILED:
-            error_text = _extract_text_from_task(task)
-            return error_text or f"Remote agent '{remote_state.subagent_name}' failed after resume."
+            return _failure_response(
+                task,
+                remote_state.context_id or self._last_context_id,
+                f"Remote agent '{remote_state.subagent_name}' failed after resume.",
+            )
 
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
