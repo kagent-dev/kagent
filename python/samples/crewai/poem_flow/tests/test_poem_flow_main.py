@@ -5,12 +5,9 @@ import importlib
 from fastapi.testclient import TestClient
 
 
-def test_main_passes_healthy_app_to_uvicorn(monkeypatch):
+def test_main_passes_healthy_app_to_uvicorn(monkeypatch, configure_runtime):
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    monkeypatch.setenv("KAGENT_API_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_GATEWAY_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_NAME", "poem-flow")
-    monkeypatch.setenv("KAGENT_NAMESPACE", "default")
+    configure_runtime("poem-flow")
     module = importlib.import_module("poem_flow.main")
     captured = {}
     monkeypatch.setattr(module.uvicorn, "run", lambda app, **kwargs: captured.update(app=app, kwargs=kwargs))

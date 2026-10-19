@@ -99,6 +99,7 @@ agent_card = ParseDict(
     AgentCard(),
 )
 
+
 def build_app():
     """Build the basic OpenAI agent ASGI application."""
     return KAgentApp(

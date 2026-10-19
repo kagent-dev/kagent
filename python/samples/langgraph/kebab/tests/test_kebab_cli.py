@@ -5,12 +5,9 @@ import importlib
 from fastapi.testclient import TestClient
 
 
-def test_main_passes_healthy_app_to_uvicorn(monkeypatch):
+def test_main_passes_healthy_app_to_uvicorn(monkeypatch, configure_runtime):
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    monkeypatch.setenv("KAGENT_API_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_GATEWAY_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_NAME", "kebab")
-    monkeypatch.setenv("KAGENT_NAMESPACE", "default")
+    configure_runtime("kebab")
 
     cli = importlib.import_module("kebab.cli")
     captured = {}

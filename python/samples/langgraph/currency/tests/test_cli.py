@@ -5,12 +5,9 @@ import importlib
 from fastapi.testclient import TestClient
 
 
-def test_main_passes_healthy_app_to_uvicorn(monkeypatch, tmp_path):
+def test_main_passes_healthy_app_to_uvicorn(monkeypatch, tmp_path, configure_runtime):
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    monkeypatch.setenv("KAGENT_API_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_GATEWAY_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_NAME", "currency")
-    monkeypatch.setenv("KAGENT_NAMESPACE", "default")
+    configure_runtime("currency")
     checkpoint_db = tmp_path / "currency-checkpoints.sqlite"
     monkeypatch.setenv("KAGENT_CHECKPOINT_DB", str(checkpoint_db))
 

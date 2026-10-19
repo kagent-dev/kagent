@@ -5,12 +5,9 @@ import importlib
 from fastapi.testclient import TestClient
 
 
-def test_main_passes_healthy_app_to_uvicorn(monkeypatch):
+def test_main_passes_healthy_app_to_uvicorn(monkeypatch, configure_runtime):
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    monkeypatch.setenv("KAGENT_API_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_GATEWAY_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_NAME", "hitl-tools")
-    monkeypatch.setenv("KAGENT_NAMESPACE", "default")
+    configure_runtime("hitl-tools")
 
     cli = importlib.import_module("hitl_tools.cli")
     captured = {}

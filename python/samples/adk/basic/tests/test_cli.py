@@ -4,13 +4,21 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from kagent.adk import cli
+from kagent.core import KAgentConfig
 
 
 def test_run_loads_basic_sample_and_passes_app_to_uvicorn(monkeypatch):
-    monkeypatch.setenv("KAGENT_API_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_GATEWAY_URL", "http://localhost:8083")
-    monkeypatch.setenv("KAGENT_NAME", "basic")
-    monkeypatch.setenv("KAGENT_NAMESPACE", "default")
+    monkeypatch.setattr(
+        cli,
+        "KAgentConfig",
+        lambda runtime: KAgentConfig(
+            api_url="http://localhost:8083",
+            gateway_url="http://localhost:8083",
+            name="basic",
+            namespace="default",
+            runtime=runtime,
+        ),
+    )
     monkeypatch.chdir(Path(__file__).parent.parent)
     monkeypatch.syspath_prepend(str(Path.cwd()))
     captured = {}
@@ -19,4 +27,10 @@ def test_run_loads_basic_sample_and_passes_app_to_uvicorn(monkeypatch):
     cli.run("basic", working_dir=".", host="0.0.0.0", local=True)
 
     assert TestClient(captured["app"]).get("/health").text == "OK"
-    assert captured["kwargs"] == {"host": "0.0.0.0", "port": 8080, "workers": 1, "log_level": "info"}
+    assert captured["kwargs"] == {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "workers": 1,
+        "log_level": "info",
+        "log_config": None,
+    }
