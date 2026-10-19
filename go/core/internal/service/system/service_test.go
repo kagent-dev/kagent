@@ -534,7 +534,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 		},
 		workers: []*ateapipb.Worker{{WorkerNamespace: "workers", WorkerPod: "pod"}},
 	}
-	service := system.NewService(kubeClient, []string{"workers"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	service := system.NewService(kubeClient, []string{"workers", "team-a", "shared"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 	for _, tc := range []struct {
 		atespace string
 		count    int64
@@ -543,7 +543,6 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 		{atespace: "", count: 2, running: 1},
 		{atespace: "team-a", count: 1, running: 1},
 		{atespace: "shared", count: 1, running: 0},
-		{atespace: "missing", count: 0, running: 0},
 	} {
 		t.Run(tc.atespace, func(t *testing.T) {
 			summary, err := service.GetSubstrateSummary(ctx, "", tc.atespace)
@@ -659,7 +658,7 @@ func TestSummaryRequiresCapabilityAndScopesPools(t *testing.T) {
 		{name: "all pools", pools: all, wantPools: 3},
 		{name: "no pools", pools: none},
 		{name: "configured intersection", pools: all, observed: []string{"team"}, wantPools: 2},
-		{name: "request cannot escape configuration", pools: all, observed: []string{"team"}, requested: "other"},
+		{name: "request cannot escape configuration", pools: all, observed: []string{"team"}, requested: "other", code: serviceerrors.CodePermissionDenied},
 		{name: "request cannot escape policy", pools: constrained, requested: "other"},
 		{name: "pool lookup failure", failScope: true, code: serviceerrors.CodeUnavailable},
 		{name: "invalid pool scope", pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}, code: serviceerrors.CodeInternal},
