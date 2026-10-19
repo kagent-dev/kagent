@@ -485,3 +485,57 @@ func TestProxyAuthenticator_ServiceAccountTokenReview(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyAuthenticator_SessionReader(t *testing.T) {
+	const reader = "system:serviceaccount:agent-platform:klaus-gateway"
+	readerToken := createTestJWT(map[string]any{"sub": reader, "aud": []any{"kagent"}})
+	otherToken := createTestJWT(map[string]any{"sub": "system:serviceaccount:workspace-manager:workspace-manager", "aud": []any{"kagent"}})
+	// A person's token whose user ID claim names the reader: its claims are
+	// not the API server's word.
+	impostorToken := createTestJWT(map[string]any{"sub": "Cg1hbGljZQ", "email": reader})
+	reviewed := func(user string) *fakeTokenReviewer {
+		return &fakeTokenReviewer{status: authenticationv1.TokenReviewStatus{Authenticated: true, Audiences: []string{"kagent"}, User: authenticationv1.UserInfo{Username: user}}}
+	}
+
+	for _, tt := range []struct {
+		name        string
+		token       string
+		agent       string
+		reviewer    *fakeTokenReviewer
+		admitted    bool
+		wantReader  bool
+		wantRefused bool
+		wantUser    string
+	}{
+		{name: "the reader's token on an admitted call is the session reader", token: readerToken, reviewer: reviewed(reader), admitted: true, wantReader: true, wantUser: reader},
+		{name: "the reader's token on any other call is refused", token: readerToken, reviewer: reviewed(reader), wantRefused: true},
+		{name: "another ServiceAccount on an admitted call is an ordinary caller", token: otherToken, reviewer: reviewed("system:serviceaccount:workspace-manager:workspace-manager"), admitted: true, wantUser: "system:serviceaccount:workspace-manager:workspace-manager"},
+		{name: "a person's token naming the reader is an ordinary caller", token: impostorToken, reviewer: reviewed(reader), admitted: true, wantUser: reader},
+		{name: "an agent's call naming the reader is an ordinary caller", token: readerToken, agent: "assistant", reviewer: reviewed(reader), admitted: true, wantUser: reader},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authenticator := authimpl.NewProxyAuthenticator("email", authimpl.WithUserIDClaimRequired(),
+				authimpl.WithServiceAccountTokenReview(tt.reviewer, "kagent"), authimpl.WithSessionReader(reader))
+			headers := http.Header{}
+			headers.Set("Authorization", "Bearer "+tt.token)
+			if tt.agent != "" {
+				headers.Set("X-Agent-Name", tt.agent)
+				headers.Set("X-User-Id", reader)
+			}
+			ctx := context.Background()
+			if tt.admitted {
+				ctx = auth.AdmitSessionReader(ctx)
+			}
+			session, err := authenticator.Authenticate(ctx, headers, url.Values{})
+			if tt.wantRefused {
+				require.ErrorIs(t, err, auth.ErrSessionReaderRefused)
+				require.Nil(t, session)
+				return
+			}
+			require.NoError(t, err)
+			_, isReader := session.(auth.SessionReaderSession)
+			require.Equal(t, tt.wantReader, isReader)
+			require.Equal(t, tt.wantUser, session.Principal().User.ID)
+		})
+	}
+}

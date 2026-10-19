@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -97,6 +98,39 @@ type ControlPlaneSession struct{}
 var _ Session = ControlPlaneSession{}
 
 func (ControlPlaneSession) Principal() Principal { return Principal{} }
+
+// SessionReaderSession is a call of the session reader: the one ServiceAccount
+// an installation configures to read any Session by its ID, whoever created
+// it, and to do nothing else. Its authenticator returns it only on a call
+// admitted for it (AdmitSessionReader) and refuses the ServiceAccount on every
+// other call with ErrSessionReaderRefused; the Session service reads a Session
+// by ID for it, as for ControlPlaneSession, and for a read only.
+type SessionReaderSession struct {
+	P Principal
+}
+
+var _ Session = SessionReaderSession{}
+
+func (s SessionReaderSession) Principal() Principal { return s.P }
+
+// ErrSessionReaderRefused refuses the session reader's ServiceAccount on a
+// call that is not admitted for it.
+var ErrSessionReaderRefused = errors.New("the session reader may only get a Session")
+
+type sessionReaderAdmissionKey struct{}
+
+// AdmitSessionReader marks ctx as a call the session reader may make. The
+// gRPC server marks SessionService/GetSession and nothing else.
+func AdmitSessionReader(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sessionReaderAdmissionKey{}, true)
+}
+
+// SessionReaderAdmitted reports whether ctx is a call the session reader may
+// make.
+func SessionReaderAdmitted(ctx context.Context) bool {
+	admitted, _ := ctx.Value(sessionReaderAdmissionKey{}).(bool)
+	return admitted
+}
 
 // Responsibilities:
 // - Authenticate:

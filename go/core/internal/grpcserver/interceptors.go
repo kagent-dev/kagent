@@ -13,6 +13,7 @@ import (
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -69,7 +70,10 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 	}
 
 	headers := incomingHTTPHeaders(ctx)
-	session, err := authenticator.Authenticate(ctx, headers, url.Values{})
+	session, err := authenticator.Authenticate(sessionReaderAdmission(ctx, fullMethod), headers, url.Values{})
+	if errors.Is(err, auth.ErrSessionReaderRefused) {
+		return ctx, status.Error(codes.PermissionDenied, "the session reader may only get a Session")
+	}
 	if err != nil || session == nil {
 		return ctx, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
@@ -95,6 +99,16 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 		return ctx, status.Error(codes.PermissionDenied, "this share link is read-only")
 	}
 	return auth.ShareContextTo(authenticatedContext, share), nil
+}
+
+// sessionReaderAdmission admits the session reader to SessionService/GetSession
+// and to no other method: the authenticator refuses its ServiceAccount
+// everywhere else.
+func sessionReaderAdmission(ctx context.Context, fullMethod string) context.Context {
+	if fullMethod == apiv1alpha1.SessionService_GetSession_FullMethodName {
+		return auth.AdmitSessionReader(ctx)
+	}
+	return ctx
 }
 
 func incomingHTTPHeaders(ctx context.Context) http.Header {

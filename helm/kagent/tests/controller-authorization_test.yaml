@@ -83,6 +83,23 @@ tests:
           value: kagent-api
         template: controller-configmap.yaml
 
+  - it: admits no session reader by default
+    asserts:
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_SESSION_READER_SERVICE_ACCOUNT
+          value: ""
+        template: controller-configmap.yaml
+
+  - it: names the session reader's ServiceAccount
+    set:
+      controller.authorization.mode: kubernetes
+      controller.authorization.sessionReaderServiceAccount: agent-platform/klaus-gateway
+    asserts:
+      - equal:
+          path: data.KAGENT_AUTHORIZATION_SESSION_READER_SERVICE_ACCOUNT
+          value: agent-platform/klaus-gateway
+        template: controller-configmap.yaml
+
   - it: grants the controller subjectaccessreviews and tokenreviews in kubernetes mode
     set:
       controller.authorization.mode: kubernetes

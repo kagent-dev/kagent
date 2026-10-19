@@ -15,6 +15,7 @@ data:
   KAGENT_AUTHORIZATION_NAMESPACE_SELECTOR: {{ .Values.controller.authorization.namespaceSelector | quote }}
   KAGENT_AUTHORIZATION_INCLUDE_NAMESPACES: {{ join "," (.Values.controller.authorization.includeNamespaces | default list) | quote }}
   KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE: {{ .Values.controller.authorization.serviceAccountTokenAudience | quote }}
+  KAGENT_AUTHORIZATION_SESSION_READER_SERVICE_ACCOUNT: {{ .Values.controller.authorization.sessionReaderServiceAccount | default "" | quote }}
   KAGENT_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
   KAGENT_A2A_PUSH_ISSUER: {{ coalesce .Values.controller.push.signing.issuer .Values.ui.externalUrl (include "kagent.a2aGatewayUrl" .) | trimSuffix "/" | quote }}
   KAGENT_A2A_PUSH_ALLOW_HTTP: {{ .Values.controller.push.allowHTTP | quote }}

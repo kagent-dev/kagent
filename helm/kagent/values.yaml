@@ -245,6 +245,12 @@ controller:
     # cluster-wide, which a wildcard ClusterRole such as cluster-admin grants
     # too.
     serviceAccountTokenAudience: kagent
+    # -- ServiceAccount, as <namespace>/<name>, admitted as the session
+    # reader in the kubernetes mode: with a token of
+    # serviceAccountTokenAudience it may call SessionService/GetSession for
+    # any Session, whoever created it, and is refused on every other call,
+    # whatever its RBAC. Empty admits none.
+    sessionReaderServiceAccount: ""
   # The controller trusts the identity a caller's token names (trusted-proxy)
   # and the user an agent's call names: in the kubernetes authorization mode,
   # whoever can reach the controller's API port picks whose RBAC applies. A

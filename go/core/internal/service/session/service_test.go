@@ -636,6 +636,10 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 		{name: "controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), unscoped: true},
 		{name: "denied controller", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), denied: true, code: serviceerrors.CodePermissionDenied},
 		{name: "controller with share stays scoped", ctx: auth.AuthSessionTo(context.Background(), auth.ControlPlaneSession{}), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, owner: "owner"},
+		{name: "session reader", ctx: sessionReaderContext(), unscoped: true},
+		{name: "denied session reader", ctx: sessionReaderContext(), denied: true, code: serviceerrors.CodePermissionDenied},
+		{name: "session reader with share stays scoped", ctx: sessionReaderContext(), share: &auth.ShareContext{SessionID: id, UserID: "owner"}, owner: "owner"},
+		{name: "another ServiceAccount stays scoped", ctx: serviceTestContext("system:serviceaccount:workspace-manager:workspace-manager"), owner: "system:serviceaccount:workspace-manager:workspace-manager"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := test.ctx
@@ -662,6 +666,32 @@ func TestServiceGetScopesReadsToAuthorizedIdentity(t *testing.T) {
 				if authorizer.verb != auth.VerbGet || authorizer.resource.Type != "Session" || authorizer.resource.Name != id || authorizer.principal.User.ID != caller.Principal().User.ID {
 					t.Fatalf("unexpected authorization: %+v", authorizer)
 				}
+			}
+		})
+	}
+}
+
+// sessionReaderContext is a call of the session reader, as the authenticator
+// admits it to SessionService/GetSession.
+func sessionReaderContext() context.Context {
+	return auth.AuthSessionTo(context.Background(), auth.SessionReaderSession{P: auth.Principal{
+		User: auth.User{ID: "system:serviceaccount:agent-platform:klaus-gateway", Kubernetes: true},
+	}})
+}
+
+// The session reader reads any Session; every other operation on one stays
+// with the reader's own Sessions, of which it has none.
+func TestServiceSessionReaderOnlyReads(t *testing.T) {
+	id := uuid.NewString()
+	for _, verb := range []auth.Verb{auth.VerbUpdate, auth.VerbDelete, auth.VerbCreate} {
+		t.Run(string(verb), func(t *testing.T) {
+			store := &serviceTestStore{getResult: &apiv1alpha1.Session{Id: id}}
+			service := NewService(store, &recordingAuthorizer{}, nil)
+			if _, err := service.getAuthorized(sessionReaderContext(), id, verb); err != nil {
+				t.Fatalf("getAuthorized() = %v", err)
+			}
+			if store.unscoped || store.getCreator != "system:serviceaccount:agent-platform:klaus-gateway" {
+				t.Fatalf("%s read unscoped = %v, owner = %q, want the reader's own scope", verb, store.unscoped, store.getCreator)
 			}
 		})
 	}

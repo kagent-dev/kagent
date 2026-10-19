@@ -112,6 +112,21 @@ that cleans up after every creator's Sessions, calls the controller with a
 projected ServiceAccount token of that audience. A person's token and an agent
 request are read as before. The `noop` mode reviews no token.
 
+One such ServiceAccount may be the session reader:
+`KAGENT_AUTHORIZATION_SESSION_READER_SERVICE_ACCOUNT` (`<namespace>/<name>`,
+empty by default, which admits none) names it, and the controller refuses to
+start with it outside `trusted-proxy` authentication and `kubernetes`
+authorization, where no TokenReview would stand behind the name. A call
+authenticated as that ServiceAccount is admitted to `SessionService/GetSession`
+and nothing else: it reads any Session by ID, whoever created it, as the
+controller's own calls do, so a platform service that receives a Session ID can
+map it to the Session's Agent. Every other gRPC method refuses it with
+`PermissionDenied`, and `/mcp` and the A2A HTTP endpoint with `401`, whatever
+RBAC binds it; a share token never widens its read beyond the share. The
+reader is the API server's word only: a person's token or an agent request
+that names the same user is an ordinary caller, and every other ServiceAccount
+reads only its own Sessions, as before.
+
 For an agent request with `X-Agent-Name`, a parseable bearer JWT is still required.
 The acting user comes from `user_id`, then `X-User-Id`, then the token's `sub`
 claim. Headers alone do not authenticate an agent. This path does not perform a
@@ -268,6 +283,7 @@ differs.
 | `controller.authorization.namespaceSelector` | Empty | Namespaces a collection read ranges over |
 | `controller.authorization.includeNamespaces` | Empty | Namespaces ranged over beside the selected ones |
 | `controller.authorization.serviceAccountTokenAudience` | `kagent` | Audience a ServiceAccount token must carry in `kubernetes` mode |
+| `controller.authorization.sessionReaderServiceAccount` | Empty | ServiceAccount (`<namespace>/<name>`) admitted to `SessionService/GetSession` for every Session, and to nothing else, in `kubernetes` mode |
 | `controller.networkPolicy.enabled`, `.from` | `false`, empty | Admit only the UI and these peers to the controller's API port |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |
 

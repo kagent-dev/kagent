@@ -363,8 +363,11 @@ func (s *Service) getAuthorized(ctx context.Context, id string, verb auth.Verb) 
 	authSession, _ := auth.AuthSessionFrom(ctx)
 	_, shared := auth.ShareContextFrom(ctx)
 	// Internal controllers may access Sessions independently of ownership,
-	// after authorization. A share never grants that broader authority.
-	if _, controlPlane := authSession.(auth.ControlPlaneSession); controlPlane && !shared {
+	// after authorization, and so may the session reader, for a read only. A
+	// share never grants that broader authority.
+	_, controlPlane := authSession.(auth.ControlPlaneSession)
+	_, reader := authSession.(auth.SessionReaderSession)
+	if (controlPlane || reader && verb == auth.VerbGet) && !shared {
 		session, err = s.store.GetSessionByID(ctx, id)
 	} else {
 		session, err = s.store.GetSession(ctx, id, creator)

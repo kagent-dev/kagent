@@ -35,7 +35,7 @@ func TestControllerAuthenticator(t *testing.T) {
 		{name: "empty mode", mode: "", wantConfigError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			authenticator, err := controllerAuthenticator(tt.mode, tt.claim, "", nil, "")
+			authenticator, err := controllerAuthenticator(tt.mode, tt.claim, "", nil, "", "")
 			if tt.wantConfigError {
 				require.ErrorContains(t, err, env.AuthMode.Name())
 				require.Nil(t, authenticator)
@@ -80,7 +80,7 @@ func TestControllerAuthenticatorServiceAccountToken(t *testing.T) {
 		{name: "kubernetes authorization reviews the token", reviews: fakeTokenReviewer{}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			authenticator, err := controllerAuthenticator(env.AuthModeTrustedProxy, "email", "", tt.reviews, "kagent")
+			authenticator, err := controllerAuthenticator(env.AuthModeTrustedProxy, "email", "", tt.reviews, "kagent", "")
 			require.NoError(t, err)
 			session, err := authenticator.Authenticate(context.Background(), headers, url.Values{})
 			require.NoError(t, err)
@@ -90,8 +90,41 @@ func TestControllerAuthenticatorServiceAccountToken(t *testing.T) {
 	}
 }
 
+func TestControllerAuthenticatorSessionReader(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer e30."+base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"system:serviceaccount:workspace-manager:workspace-manager"}`))+".signature")
+	for _, tt := range []struct {
+		name, mode, reader string
+		reviews            authimpl.TokenReviewer
+		wantConfigError    string
+	}{
+		{name: "the configured ServiceAccount is the session reader", mode: env.AuthModeTrustedProxy, reader: "workspace-manager/workspace-manager", reviews: fakeTokenReviewer{}},
+		{name: "no namespace", mode: env.AuthModeTrustedProxy, reader: "workspace-manager", reviews: fakeTokenReviewer{}, wantConfigError: env.AuthorizationSessionReaderServiceAccount.Name()},
+		{name: "an invalid namespace", mode: env.AuthModeTrustedProxy, reader: "Workspace_Manager/workspace-manager", reviews: fakeTokenReviewer{}, wantConfigError: env.AuthorizationSessionReaderServiceAccount.Name()},
+		{name: "an empty name", mode: env.AuthModeTrustedProxy, reader: "workspace-manager/", reviews: fakeTokenReviewer{}, wantConfigError: env.AuthorizationSessionReaderServiceAccount.Name()},
+		// Without the TokenReview a token's claims would name the reader.
+		{name: "noop authorization admits no reader", mode: env.AuthModeTrustedProxy, reader: "workspace-manager/workspace-manager", wantConfigError: env.AuthorizationSessionReaderServiceAccount.Name()},
+		{name: "insecure authentication admits no reader", mode: env.AuthModeInsecure, reader: "workspace-manager/workspace-manager", reviews: fakeTokenReviewer{}, wantConfigError: env.AuthorizationSessionReaderServiceAccount.Name()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			authenticator, err := controllerAuthenticator(tt.mode, "email", "", tt.reviews, "kagent", tt.reader)
+			if tt.wantConfigError != "" {
+				require.ErrorContains(t, err, tt.wantConfigError)
+				require.Nil(t, authenticator)
+				return
+			}
+			require.NoError(t, err)
+			session, err := authenticator.Authenticate(auth.AdmitSessionReader(context.Background()), headers, url.Values{})
+			require.NoError(t, err)
+			require.IsType(t, auth.SessionReaderSession{}, session)
+			_, err = authenticator.Authenticate(context.Background(), headers, url.Values{})
+			require.ErrorIs(t, err, auth.ErrSessionReaderRefused)
+		})
+	}
+}
+
 func TestControllerAuthenticatorNeedsAServiceAccountTokenAudience(t *testing.T) {
-	authenticator, err := controllerAuthenticator(env.AuthModeTrustedProxy, "email", "", fakeTokenReviewer{}, "")
+	authenticator, err := controllerAuthenticator(env.AuthModeTrustedProxy, "email", "", fakeTokenReviewer{}, "", "")
 	require.ErrorContains(t, err, env.AuthorizationServiceAccountTokenAudience.Name())
 	require.Nil(t, authenticator)
 }

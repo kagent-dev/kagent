@@ -47,6 +47,10 @@ var (
 		"KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE", "kagent",
 		"Audience a ServiceAccount token must carry in kubernetes authorization mode: a direct call whose token's sub names a ServiceAccount is authenticated with a TokenReview for this audience and reviewed as that ServiceAccount. It must not be empty.", ComponentController,
 	)
+	AuthorizationSessionReaderServiceAccount = RegisterStringVar(
+		"KAGENT_AUTHORIZATION_SESSION_READER_SERVICE_ACCOUNT", "",
+		"ServiceAccount, as <namespace>/<name>, admitted in kubernetes authorization mode to SessionService/GetSession for any Session, whoever created it, and refused on every other call: a direct call with its token for KAGENT_AUTHORIZATION_SERVICE_ACCOUNT_TOKEN_AUDIENCE, authenticated by TokenReview. Empty admits none.", ComponentController,
+	)
 	HTTPBindAddress = RegisterStringVar(
 		"KAGENT_HTTP_BIND_ADDRESS", ":8083",
 		"Listen address for the controller HTTP, gRPC, A2A, and MCP server.", ComponentController,

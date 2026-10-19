@@ -43,6 +43,9 @@ type ProxyAuthenticator struct {
 	// audience the token must carry.
 	tokenReviews  TokenReviewer
 	tokenAudience string
+	// sessionReader, when set, is the user name of the ServiceAccount
+	// admitted as the session reader (WithSessionReader).
+	sessionReader string
 }
 
 // ProxyAuthenticatorOption configures a ProxyAuthenticator.
@@ -70,6 +73,16 @@ func WithUserIDClaimRequired() ProxyAuthenticatorOption {
 // is read as before.
 func WithServiceAccountTokenReview(reviews TokenReviewer, audience string) ProxyAuthenticatorOption {
 	return func(a *ProxyAuthenticator) { a.tokenReviews, a.tokenAudience = reviews, audience }
+}
+
+// WithSessionReader admits the ServiceAccount user (system:serviceaccount:
+// <namespace>:<name>) as the session reader: on a call admitted for it
+// (auth.AdmitSessionReader) the API server's TokenReview of its token yields
+// an auth.SessionReaderSession, and every other call of it is refused with
+// auth.ErrSessionReaderRefused. It takes effect only beside
+// WithServiceAccountTokenReview: a token's claims never name the reader.
+func WithSessionReader(user string) ProxyAuthenticatorOption {
+	return func(a *ProxyAuthenticator) { a.sessionReader = user }
 }
 
 func NewProxyAuthenticator(userIDClaim string, options ...ProxyAuthenticatorOption) *ProxyAuthenticator {
@@ -130,6 +143,12 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 		user, err := a.reviewServiceAccountToken(ctx, tokenString)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+		}
+		if a.sessionReader != "" && user.ID == a.sessionReader {
+			if !auth.SessionReaderAdmitted(ctx) {
+				return nil, fmt.Errorf("%w: %s", auth.ErrSessionReaderRefused, user.ID)
+			}
+			return auth.SessionReaderSession{P: auth.Principal{User: user, Claims: rawClaims}}, nil
 		}
 		return &SimpleSession{P: auth.Principal{User: user, Claims: rawClaims}, authHeader: authHeader}, nil
 	}
