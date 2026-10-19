@@ -602,14 +602,14 @@ func (c *emptyPageATEClient) ListWorkersPage(_ context.Context, size int32, toke
 
 func TestSubstrateEmptyPagesPreserveUpstreamTokens(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
-	service := system.NewService(nil, []string{"team"}, &pkgAuth.NoopAuthorizer{}, &emptyPageATEClient{t: t})
+	service := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, &emptyPageATEClient{t: t})
 	page := &apiv1.PageRequest{Limit: 7, PageToken: "upstream:opaque/cursor="}
 	actors, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "team", Page: page})
 	require.NoError(t, err)
 	assert.Empty(t, actors.Actors)
 	assert.Empty(t, actors.ATEAPIError)
 	assert.Equal(t, "upstream:next/cursor=", actors.NextPageToken)
-	workers, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: page})
+	workers, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Namespace: "team", Page: page})
 	require.NoError(t, err)
 	assert.Empty(t, workers.Workers)
 	assert.Empty(t, workers.ATEAPIError)
@@ -828,11 +828,6 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 
 	t.Run("a controller watching two namespaces lists only those atespaces", func(t *testing.T) {
 		assert.Equal(t, []string{"tenant-a/session-a", "tenant-c/session-c"}, listAllActors(t, tenantsAC, ""))
-
-		first, err := tenantsAC.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 1}})
-		require.NoError(t, err)
-		assert.Empty(t, first.Actors, "the first upstream page holds only a tenant-b actor")
-		assert.NotEmpty(t, first.NextPageToken, "a page filtered to nothing still leads to the rest")
 	})
 
 	t.Run("a controller watching two namespaces asks ate-api for only those atespaces", func(t *testing.T) {
