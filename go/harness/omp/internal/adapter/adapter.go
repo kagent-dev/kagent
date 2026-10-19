@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/omp/internal/config"
 	"github.com/kagent-dev/kagent/go/harness/omp/internal/driver"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
 const (
@@ -78,18 +79,22 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := materializeSkills(ctx, cfg, paths); err != nil {
 		return nil, err
 	}
-	bridged, err := startBridges(ctx, cfg.MCPServers)
+	actorJWT := &turnActorJWTHosts{}
+	bridged, err := startBridges(ctx, cfg.MCPServers, actorJWT)
 	if err != nil {
 		return nil, err
 	}
 	_, hasKey := lookupEnv(apiKeyEnv)
-	files := ompFiles{
-		paths.overlay: settingsOverlay(),
-		paths.models:  modelsFile(cfg.Model, hasKey),
-		paths.mcp:     mcpFile(cfg.MCPServers, bridged),
+	prepare := func(actorJWTHosts []string) error {
+		actorJWT.set(actorJWTHosts)
+		files := ompFiles{
+			paths.overlay: settingsOverlay(),
+			paths.models:  modelsFile(cfg.Model, hasKey),
+			paths.mcp:     mcpFile(cfg.MCPServers, bridged, actorJWTHosts),
+		}
+		return files.write(paths, cfg.Instruction)
 	}
-	prepare := func() error { return files.write(paths, cfg.Instruction) }
-	if err := prepare(); err != nil {
+	if err := prepare(nil); err != nil {
 		return nil, err
 	}
 	return driver.NewProcessDriver(driver.ProcessConfig{
@@ -263,13 +268,21 @@ type mcpServer struct {
 
 // mcpFile lists the Agent's servers in omp's agent-directory mcp.json, the
 // only MCP configuration the overlay leaves enabled. A server whose tools are
-// selected is reached through its bridge, which holds its headers.
-func mcpFile(servers []config.MCPServer, bridged map[string]string) mcpFileContents {
+// selected is reached through its bridge, which holds its headers. A server
+// reached directly on one of actorJWTHosts that sets no Authorization of its
+// own sends the placeholder the egress gateway replaces with the Actor's JWT.
+func mcpFile(servers []config.MCPServer, bridged map[string]string, actorJWTHosts []string) mcpFileContents {
 	result := mcpFileContents{MCPServers: make(map[string]mcpServer, len(servers))}
 	for _, server := range servers {
 		entry := mcpServer{Type: "http", URL: server.URL, Headers: server.Headers, Timeout: int64(server.TimeoutSeconds * 1000)}
 		if url, ok := bridged[server.Name]; ok {
 			entry.URL, entry.Headers = url, nil
+		} else if workspace.TakesActorJWT(server.URL, server.Headers, actorJWTHosts) {
+			entry.Headers = maps.Clone(server.Headers)
+			if entry.Headers == nil {
+				entry.Headers = map[string]string{}
+			}
+			entry.Headers["Authorization"] = workspace.ActorJWTAuthorization
 		}
 		result.MCPServers[server.Name] = entry
 	}

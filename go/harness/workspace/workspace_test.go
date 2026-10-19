@@ -47,6 +47,37 @@ func TestDispatchFrom(t *testing.T) {
 	}, DispatchFrom(ctx))
 }
 
+func TestActorJWTHosts(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		values []string
+		want   []string
+	}{
+		{name: "none"},
+		{name: "one", values: []string{"muster.example.svc"}, want: []string{"muster.example.svc"}},
+		{name: "joined and repeated, case folded", values: []string{"Muster.Example.svc, git.example.com", "muster.example.svc,,other.example.com"}, want: []string{"muster.example.svc", "git.example.com", "other.example.com"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			params := map[string][]string{}
+			if test.values != nil {
+				params[adk.ActorJWTHostsHeader] = test.values
+			}
+			ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(params))
+			require.Equal(t, test.want, ActorJWTHosts(ctx))
+		})
+	}
+	require.Nil(t, ActorJWTHosts(t.Context()), "a call outside A2A names no host")
+}
+
+func TestTakesActorJWT(t *testing.T) {
+	hosts := []string{"muster.example.svc"}
+	require.True(t, TakesActorJWT("https://Muster.Example.svc:8090/mcp", map[string]string{"X-Muster-Toolset": "all"}, hosts))
+	require.False(t, TakesActorJWT("https://muster.example.svc/mcp", map[string]string{"authorization": "Bearer own"}, hosts), "a server that owns its Authorization")
+	require.False(t, TakesActorJWT("https://tools.example.svc/mcp", nil, hosts), "another host")
+	require.False(t, TakesActorJWT("https://muster.example.svc/mcp", nil, nil), "a turn without actor-JWT hosts")
+	require.False(t, TakesActorJWT("://muster.example.svc", nil, hosts), "an unparsable URL")
+}
+
 func TestWithoutUserinfo(t *testing.T) {
 	for origin, want := range map[string]string{
 		"https://x-access-token:secret@github.com/o/r.git": "https://github.com/o/r.git",

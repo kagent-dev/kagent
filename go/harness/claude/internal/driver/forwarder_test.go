@@ -14,7 +14,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
@@ -326,26 +325,4 @@ func TestCredentialForwarderSendsThePlaceholderToActorJWTHosts(t *testing.T) {
 	require.Equal(t, http.StatusOK, callForwarder(t, only, only.URL("muster"), true).StatusCode)
 	seen = requests()
 	require.Empty(t, seen[len(seen)-1].Header.Values("Authorization"), "a cleared turn names no host and carries nothing")
-}
-
-func TestActorJWTHostsReadsTheTurnsHosts(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		values []string
-		want   []string
-	}{
-		{name: "none"},
-		{name: "one", values: []string{"muster.example.svc"}, want: []string{"muster.example.svc"}},
-		{name: "joined and repeated, case folded", values: []string{"Muster.example.svc, git.example.com", "muster.example.svc,,"}, want: []string{"muster.example.svc", "git.example.com"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			params := map[string][]string{}
-			if test.values != nil {
-				params[adk.ActorJWTHostsHeader] = test.values
-			}
-			ctx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(params))
-			require.Equal(t, test.want, ActorJWTHosts(ctx))
-		})
-	}
-	require.Nil(t, ActorJWTHosts(t.Context()), "a call outside A2A names no host")
 }

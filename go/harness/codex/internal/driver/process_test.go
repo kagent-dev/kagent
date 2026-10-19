@@ -289,6 +289,7 @@ func TestProcessDriverRejectsWorkspaceConfiguration(t *testing.T) {
 }
 
 func TestProcessDriverParksAndResolvesMCPApproval(t *testing.T) {
+	var configs []string
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "codex")
 	capture := filepath.Join(directory, "approval.json")
@@ -321,9 +322,14 @@ sleep 5
 		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
 		Environment: append(os.Environ(), "CAPTURE="+capture), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
 		InterruptGrace: 100 * time.Millisecond, ApprovalServers: map[string]struct{}{"protected": {}},
+		WriteConfig: func(actorJWTHosts []string) error {
+			configs = append(configs, strings.Join(actorJWTHosts, ","))
+			return nil
+		},
 	})
 	sink := &recordingSink{}
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, sink)
+	turnCtx, _ := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{adk.ActorJWTHostsHeader: {"Muster.Example.svc"}}))
+	outcome, err := driver.Run(turnCtx, runtime.Turn{Prompt: "write"}, sink)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,6 +348,10 @@ sleep 5
 	}, sink)
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
+	}
+	// App Server reads its configuration at its start; the resumed turn keeps it.
+	if !slices.Equal(configs, []string{"muster.example.svc"}) {
+		t.Fatalf("configurations written = %q, want one for the turn's actor-JWT hosts", configs)
 	}
 	// The pause does not split the turn: its usage counts the model calls on both sides.
 	if want := (runtime.Usage{InputTokens: 220, CachedTokens: 130, OutputTokens: 15}); outcome.Usage == nil || *outcome.Usage != want {

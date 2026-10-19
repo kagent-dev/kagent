@@ -19,7 +19,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/harness/workspace"
 )
 
@@ -207,7 +206,7 @@ func (f *CredentialForwarder) authorization(target *forwardTarget) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if slices.Contains(f.actorJWTHosts, target.host()) {
-		return "Bearer " + workspace.CredentialPlaceholder
+		return workspace.ActorJWTAuthorization
 	}
 	return f.credential
 }
@@ -362,26 +361,6 @@ func joinQuery(base, extra string) string {
 	default:
 		return base + "&" + extra
 	}
-}
-
-// ActorJWTHosts returns the hosts on which the egress gateway hands the
-// session's Actor its own JWT, as the A2A call that owns ctx names them.
-func ActorJWTHosts(ctx context.Context) []string {
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok || callCtx == nil || callCtx.ServiceParams() == nil {
-		return nil
-	}
-	values, _ := callCtx.ServiceParams().Get(adk.ActorJWTHostsHeader)
-	var hosts []string
-	// A proxy may join repeated values with commas; both forms parse alike.
-	for _, value := range values {
-		for host := range strings.SplitSeq(value, ",") {
-			if host = strings.ToLower(strings.TrimSpace(host)); host != "" && !slices.Contains(hosts, host) {
-				hosts = append(hosts, host)
-			}
-		}
-	}
-	return hosts
 }
 
 // CallerCredential returns the caller's credential of the A2A call that owns

@@ -371,7 +371,7 @@ func (d *ProcessDriver) bindCallerCredential(ctx context.Context) func() {
 	if d.config.CallerCredentials == nil {
 		return func() {}
 	}
-	d.config.CallerCredentials.Bind(CallerCredential(ctx), ActorJWTHosts(ctx))
+	d.config.CallerCredentials.Bind(CallerCredential(ctx), workspace.ActorJWTHosts(ctx))
 	return d.config.CallerCredentials.Clear
 }
 
@@ -441,7 +441,7 @@ func sendPrompt(ctx context.Context, stdin io.WriteCloser, message []byte, gate 
 // nothing bounds the run.
 func (d *ProcessDriver) segmentBound(ctx context.Context) *turnBound {
 	var expiry time.Time
-	if d.config.CallerCredentials != nil && d.config.CallerCredentials.TakesCallerCredential(ActorJWTHosts(ctx)) {
+	if d.config.CallerCredentials != nil && d.config.CallerCredentials.TakesCallerCredential(workspace.ActorJWTHosts(ctx)) {
 		expiry, _ = bearerExpiry(CallerCredential(ctx))
 	}
 	bound, ok := boundTurn(time.Now(), d.config.TurnTimeout, expiry)

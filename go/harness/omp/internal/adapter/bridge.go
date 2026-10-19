@@ -7,9 +7,11 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/omp/internal/config"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -21,8 +23,10 @@ const bridgeConnectTimeout = 30 * time.Second
 // tool a server lists and has no allowlist of its own, so the bridge is the
 // one place a binding's tool selection holds. The bridge calls the server
 // with the binding's headers, so a Secret-backed header still leaves the
-// Actor as the placeholder the egress gateway replaces.
-func startBridges(ctx context.Context, servers []config.MCPServer) (map[string]string, error) {
+// Actor as the placeholder the egress gateway replaces; on one of the turn's
+// actor-JWT hosts, a server without an Authorization of its own is called with
+// the placeholder the gateway replaces with the Actor's JWT.
+func startBridges(ctx context.Context, servers []config.MCPServer, actorJWT *turnActorJWTHosts) (map[string]string, error) {
 	mux := http.NewServeMux()
 	urls := map[string]string{}
 	var bridges []*toolBridge
@@ -30,7 +34,7 @@ func startBridges(ctx context.Context, servers []config.MCPServer) (map[string]s
 		if len(server.Tools) == 0 {
 			continue
 		}
-		bridge := newToolBridge(ctx, server)
+		bridge := newToolBridge(ctx, server, actorJWT)
 		bridges = append(bridges, bridge)
 		path := "/" + server.Name
 		mux.Handle(path, mcp.NewStreamableHTTPHandler(bridge.serverFor, nil))
@@ -76,11 +80,13 @@ type toolBridge struct {
 	server  *mcp.Server
 }
 
-func newToolBridge(ctx context.Context, upstream config.MCPServer) *toolBridge {
+func newToolBridge(ctx context.Context, upstream config.MCPServer, actorJWT *turnActorJWTHosts) *toolBridge {
 	return &toolBridge{
 		ctx: ctx, upstream: upstream,
 		client: mcp.NewClient(&mcp.Implementation{Name: "kagent-omp", Version: "1"}, nil),
-		http:   &http.Client{Transport: headerTransport{headers: upstream.Headers, base: http.DefaultTransport}},
+		http: &http.Client{Transport: headerTransport{
+			url: upstream.URL, headers: upstream.Headers, actorJWT: actorJWT, base: http.DefaultTransport,
+		}},
 	}
 }
 
@@ -184,10 +190,14 @@ func (b *toolBridge) close() {
 	}
 }
 
-// headerTransport sets a binding's headers on every request to its server.
+// headerTransport sets a binding's headers on every request to its server,
+// and the placeholder Authorization while the server takes the current
+// turn's Actor JWT.
 type headerTransport struct {
-	headers map[string]string
-	base    http.RoundTripper
+	url      string
+	headers  map[string]string
+	actorJWT *turnActorJWTHosts
+	base     http.RoundTripper
 }
 
 func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -195,5 +205,24 @@ func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error
 	for name, value := range t.headers {
 		request.Header.Set(name, value)
 	}
+	if workspace.TakesActorJWT(t.url, t.headers, t.actorJWT.get()) {
+		request.Header.Set("Authorization", workspace.ActorJWTAuthorization)
+	}
 	return t.base.RoundTrip(request)
+}
+
+// turnActorJWTHosts holds the actor-JWT hosts of the turn omp runs. The
+// bridges start with the adapter, and the hosts, the Session's, reach it only
+// with each turn's call.
+type turnActorJWTHosts struct {
+	hosts atomic.Pointer[[]string]
+}
+
+func (h *turnActorJWTHosts) set(hosts []string) { h.hosts.Store(&hosts) }
+
+func (h *turnActorJWTHosts) get() []string {
+	if hosts := h.hosts.Load(); hosts != nil {
+		return *hosts
+	}
+	return nil
 }

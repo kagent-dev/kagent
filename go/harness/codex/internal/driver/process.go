@@ -34,6 +34,10 @@ type ProcessConfig struct {
 	MaxStderrBytes       int
 	InterruptGrace       time.Duration
 	ApprovalServers      map[string]struct{}
+	// WriteConfig, when set, rewrites Codex's configuration for the App
+	// Server a turn starts, given the hosts on which the turn's Actor
+	// receives its own JWT.
+	WriteConfig func(actorJWTHosts []string) error
 }
 
 // ProcessDriver supervises Codex App Server and retains it while a protected
@@ -95,6 +99,13 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 	executable, err := exec.LookPath(d.config.Executable)
 	if err != nil {
 		return runtime.Outcome{}, fmt.Errorf("find Codex executable %q: %w", d.config.Executable, err)
+	}
+	// App Server reads its configuration once, at its start; a resumed turn
+	// continues the process with the configuration it started with.
+	if d.config.WriteConfig != nil {
+		if err := d.config.WriteConfig(workspace.ActorJWTHosts(ctx)); err != nil {
+			return runtime.Outcome{}, fmt.Errorf("write Codex configuration for the turn: %w", err)
+		}
 	}
 	command := exec.Command(executable, "app-server", "--strict-config", "--stdio")
 	// Codex's git commits as the person of the turn.

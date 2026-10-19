@@ -137,7 +137,7 @@ func TestRenderConfigOmitsDisabledSignalExporter(t *testing.T) {
 			cfg := config.Production("gpt-5.2-codex", "work carefully")
 			cfg.Provider = config.Provider{Name: "openai"}
 			cfg.Telemetry = test.telemetry
-			contents, err := renderConfig(cfg, t.TempDir(), nil)
+			contents, err := renderConfig(cfg, t.TempDir(), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -176,7 +176,7 @@ func TestRenderConfigNamesTheAgentOnBedrockModelCalls(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := config.Production("gpt-5.2", "work carefully")
 			cfg.Provider = config.Provider{Name: "amazon-bedrock"}
-			contents, err := renderConfig(cfg, t.TempDir(), test.environment)
+			contents, err := renderConfig(cfg, t.TempDir(), test.environment, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -197,7 +197,7 @@ func TestRenderConfigNamesTheAgentOnBedrockModelCalls(t *testing.T) {
 func TestRenderConfigSendsAChatGPTLoginAsPlaceholders(t *testing.T) {
 	cfg := config.Production("gpt-5.1-codex", "work carefully")
 	cfg.Provider = config.Provider{Name: config.ProviderChatGPT, BaseURL: "https://chatgpt.com/backend-api/codex"}
-	contents, err := renderConfig(cfg, t.TempDir(), nil)
+	contents, err := renderConfig(cfg, t.TempDir(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +217,47 @@ func TestRenderConfigSendsAChatGPTLoginAsPlaceholders(t *testing.T) {
 	}
 	if !reflect.DeepEqual(agentHeaderEnvironment, map[string]string{"x-kagent-agent": "KAGENT_AGENT_TEMPLATE", "x-kagent-agent-namespace": "KAGENT_NAMESPACE"}) {
 		t.Fatalf("rendering a ChatGPT login changed the shared agent headers: %#v", agentHeaderEnvironment)
+	}
+}
+
+// The egress gateway replaces only an Authorization the request carries, so a
+// server on an actor-JWT host sends the placeholder; one that owns its
+// Authorization, and every server of a turn without such hosts, stay as compiled.
+func TestRenderConfigSendsThePlaceholderToActorJWTHosts(t *testing.T) {
+	cfg := config.Production("gpt-5.2-codex", "work carefully")
+	cfg.MCPServers = map[string]config.MCPServer{
+		"muster": {URL: "https://Muster.Example.svc:8090/mcp", Headers: map[string]string{"X-Muster-Toolset": "preset:read-only"}},
+		"owned":  {URL: "https://muster.example.svc/mcp", Headers: map[string]string{"authorization": "${KAGENT_CODEX_MCP_CREDENTIAL_ABC}"}},
+		"tools":  {URL: "https://tools.example.svc/mcp"},
+	}
+	render := func(actorJWTHosts []string) map[string]nativeMCPServer {
+		t.Helper()
+		contents, err := renderConfig(cfg, t.TempDir(), nil, actorJWTHosts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var native nativeConfig
+		if err := toml.Unmarshal(contents, &native); err != nil {
+			t.Fatal(err)
+		}
+		return native.MCPServers
+	}
+
+	servers := render([]string{"muster.example.svc"})
+	if want := map[string]string{"X-Muster-Toolset": "preset:read-only", "Authorization": "Bearer kagent-credential-injected"}; !maps.Equal(servers["muster"].HTTPHeaders, want) {
+		t.Fatalf("muster http_headers = %#v, want %#v", servers["muster"].HTTPHeaders, want)
+	}
+	if owned := servers["owned"]; len(owned.HTTPHeaders) != 0 || owned.EnvHTTPHeaders["authorization"] != "KAGENT_CODEX_MCP_CREDENTIAL_ABC" {
+		t.Fatalf("a server that owns its Authorization = %#v", owned)
+	}
+	if len(servers["tools"].HTTPHeaders) != 0 {
+		t.Fatalf("a server on another host = %#v", servers["tools"])
+	}
+	if _, ok := cfg.MCPServers["muster"].Headers["Authorization"]; ok {
+		t.Fatal("rendering changed the compiled server")
+	}
+	if headers := render(nil)["muster"].HTTPHeaders; !maps.Equal(headers, map[string]string{"X-Muster-Toolset": "preset:read-only"}) {
+		t.Fatalf("muster http_headers without actor-JWT hosts = %#v", headers)
 	}
 }
 

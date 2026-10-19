@@ -32,7 +32,8 @@ type ProcessConfig struct {
 	// Prepare runs before every omp process. omp's shell can write the
 	// directory its configuration lives in, so the adapter rewrites the files
 	// it owns and one turn cannot change the next turn's tools or providers.
-	Prepare func() error
+	// It is given the hosts on which the turn's Actor receives its own JWT.
+	Prepare func(actorJWTHosts []string) error
 }
 
 // ProcessDriver starts one omp process per turn. The conversation lives in
@@ -86,7 +87,7 @@ func (d *ProcessDriver) Run(ctx context.Context, turn runtime.Turn, sink runtime
 		return runtime.Outcome{}, fmt.Errorf("omp never waits for input, so there is no turn to answer")
 	}
 	if d.config.Prepare != nil {
-		if err := d.config.Prepare(); err != nil {
+		if err := d.config.Prepare(workspace.ActorJWTHosts(ctx)); err != nil {
 			return runtime.Outcome{}, err
 		}
 	}

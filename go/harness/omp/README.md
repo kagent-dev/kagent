@@ -29,7 +29,11 @@ session under `/data/omp`.
   egress gateway's placeholders. A server is named after the first label of its
   host (`mcp__muster_<tool>`). A binding that selects tools is served through a
   loopback MCP bridge that lists and calls only those tools, because omp has no
-  MCP allowlist; the bridge holds the server's headers.
+  MCP allowlist; the bridge holds the server's headers. A server on a host the
+  turn names in `x-kagent-actor-jwt-hosts`, where the egress gateway hands the
+  Session's Actor its own JWT, is sent the placeholder
+  `Authorization: Bearer kagent-credential-injected` that the gateway replaces,
+  by omp or by its bridge, unless the server sets its own `Authorization`.
 - Standalone skills, written to omp's user skills directory.
 - Streaming text, tool calls and results; one turn's usage (the difference of
   omp's session totals around the prompt, every prompt token counted as input

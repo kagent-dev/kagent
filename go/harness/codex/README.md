@@ -40,6 +40,12 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys are rejected because they cannot be injected as outbound HTTP
 headers. Harness environment entries accept only literal values.
 
+The adapter rewrites `config.toml` before every turn's App Server starts. A
+server on a host the turn names in `x-kagent-actor-jwt-hosts`, where the egress
+gateway hands the Session's Actor its own JWT, gets the placeholder
+`Authorization: Bearer kagent-credential-injected` that the gateway replaces,
+unless the server sets its own `Authorization`.
+
 The adapter deliberately fixes the native sandbox to `danger-full-access`; the
 Substrate Actor remains the security boundary. Its granular native approval
 policy enables MCP elicitation and rejects command, sandbox, rule, skill, and

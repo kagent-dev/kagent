@@ -291,6 +291,45 @@ func turnPerson(ctx context.Context) string {
 // request that carries no such header. It is never a real token.
 const CredentialPlaceholder = "kagent-credential-injected"
 
+// ActorJWTAuthorization is the Authorization an MCP request to one of a
+// turn's actor-JWT hosts carries: the egress gateway replaces only a header
+// the request already has, there with the Actor's own JWT.
+const ActorJWTAuthorization = "Bearer " + CredentialPlaceholder
+
+// ActorJWTHosts returns the hosts, lower-case, on which the egress gateway
+// hands the session's Actor its own JWT, as the A2A call that owns ctx names
+// them.
+func ActorJWTHosts(ctx context.Context) []string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok || callCtx == nil || callCtx.ServiceParams() == nil {
+		return nil
+	}
+	values, _ := callCtx.ServiceParams().Get(adk.ActorJWTHostsHeader)
+	var hosts []string
+	// A proxy may join repeated values with commas; both forms parse alike.
+	for _, value := range values {
+		for host := range strings.SplitSeq(value, ",") {
+			if host = strings.ToLower(strings.TrimSpace(host)); host != "" && !slices.Contains(hosts, host) {
+				hosts = append(hosts, host)
+			}
+		}
+	}
+	return hosts
+}
+
+// TakesActorJWT reports whether a request to serverURL with headers gets the
+// Actor's JWT in a turn whose actor-JWT hosts are actorJWTHosts: its host is
+// one of them and the headers set no Authorization of their own.
+func TakesActorJWT(serverURL string, headers map[string]string, actorJWTHosts []string) bool {
+	for name := range headers {
+		if strings.EqualFold(name, "Authorization") {
+			return false
+		}
+	}
+	parsed, err := url.Parse(serverURL)
+	return err == nil && slices.Contains(actorJWTHosts, strings.ToLower(parsed.Hostname()))
+}
+
 // CredentialHelper answers git's request for a credential with the
 // placeholder. git asks only after a host challenges a request, so a host
 // that answers anonymously never sees it; on a provider's host the gateway

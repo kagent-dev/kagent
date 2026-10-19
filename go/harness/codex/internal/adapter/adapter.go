@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
+	"github.com/kagent-dev/kagent/go/harness/workspace"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -70,12 +71,20 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := materializeAgents(codexHome, cfg.Agents); err != nil {
 		return nil, err
 	}
-	configTOML, err := renderConfig(cfg, codexHome, input.Environment)
-	if err != nil {
-		return nil, err
+	writeConfig := func(actorJWTHosts []string) error {
+		configTOML, err := renderConfig(cfg, codexHome, input.Environment, actorJWTHosts)
+		if err != nil {
+			return err
+		}
+		if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
+			return fmt.Errorf("materialize Codex configuration: %w", err)
+		}
+		return nil
 	}
-	if err := utils.ReplacePrivateFile(filepath.Join(codexHome, "config.toml"), configTOML); err != nil {
-		return nil, fmt.Errorf("materialize Codex configuration: %w", err)
+	// Every turn rewrites the configuration; this write refuses a configuration
+	// that cannot render before the first turn arrives.
+	if err := writeConfig(nil); err != nil {
+		return nil, err
 	}
 	environment := nativeEnvironment(input.Environment, codexHome, cfg.RuntimeTelemetry)
 	approvalServers := make(map[string]struct{})
@@ -89,7 +98,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		Workspace: input.Workspace, Model: cfg.Model, Provider: nativeProviderName(cfg.Provider.Name),
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
-		ApprovalServers: approvalServers,
+		ApprovalServers: approvalServers, WriteConfig: writeConfig,
 	}), nil
 }
 
@@ -187,7 +196,9 @@ var agentHeaderEnvironment = map[string]string{
 
 // renderConfig translates the versioned Kagent contract into the pinned
 // Codex CLI's native TOML without copying credential values into durable state.
-func renderConfig(cfg config.Config, codexHome string, environment []string) ([]byte, error) {
+// A server on one of actorJWTHosts that sets no Authorization of its own sends
+// the placeholder the egress gateway replaces with the Actor's JWT.
+func renderConfig(cfg config.Config, codexHome string, environment, actorJWTHosts []string) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
 		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
@@ -245,6 +256,9 @@ func renderConfig(cfg config.Config, codexHome string, environment []string) ([]
 			} else {
 				literal[header] = value
 			}
+		}
+		if workspace.TakesActorJWT(server.URL, server.Headers, actorJWTHosts) {
+			literal["Authorization"] = workspace.ActorJWTAuthorization
 		}
 		approvalMode := "approve"
 		if server.RequireApproval {

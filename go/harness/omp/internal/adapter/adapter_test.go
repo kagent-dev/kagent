@@ -1,6 +1,8 @@
 package adapter
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,11 +33,35 @@ func TestMCPFileRoutesSelectedToolsThroughTheBridge(t *testing.T) {
 		{Name: "muster", URL: "https://muster/mcp", Headers: map[string]string{"Authorization": "p"}, Tools: []string{"list"}, TimeoutSeconds: 2},
 		{Name: "open", URL: "https://open/mcp", Headers: map[string]string{"Authorization": "q"}},
 	}
-	file := mcpFile(servers, map[string]string{"muster": "http://127.0.0.1:1/muster"})
+	file := mcpFile(servers, map[string]string{"muster": "http://127.0.0.1:1/muster"}, nil)
 	assert.Equal(t, map[string]mcpServer{
 		"muster": {Type: "http", URL: "http://127.0.0.1:1/muster", Timeout: 2000},
 		"open":   {Type: "http", URL: "https://open/mcp", Headers: map[string]string{"Authorization": "q"}},
 	}, file.MCPServers, "a bridged server's headers stay with its bridge")
+}
+
+func TestMCPFileSendsThePlaceholderToActorJWTHosts(t *testing.T) {
+	servers := []config.MCPServer{
+		{Name: "muster", URL: "https://Muster.Example.svc:8090/mcp", Headers: map[string]string{"X-Muster-Toolset": "all"}},
+		{Name: "bare", URL: "https://muster.example.svc/bare"},
+		{Name: "owned", URL: "https://muster.example.svc/mcp", Headers: map[string]string{"authorization": "q"}},
+		{Name: "selected", URL: "https://muster.example.svc/mcp", Tools: []string{"list"}},
+		{Name: "tools", URL: "https://tools.example.svc/mcp"},
+	}
+	bridged := map[string]string{"selected": "http://127.0.0.1:1/selected"}
+	file := mcpFile(servers, bridged, []string{"muster.example.svc"})
+	assert.Equal(t, map[string]mcpServer{
+		"muster":   {Type: "http", URL: "https://Muster.Example.svc:8090/mcp", Headers: map[string]string{"X-Muster-Toolset": "all", "Authorization": "Bearer kagent-credential-injected"}},
+		"bare":     {Type: "http", URL: "https://muster.example.svc/bare", Headers: map[string]string{"Authorization": "Bearer kagent-credential-injected"}},
+		"owned":    {Type: "http", URL: "https://muster.example.svc/mcp", Headers: map[string]string{"authorization": "q"}},
+		"selected": {Type: "http", URL: "http://127.0.0.1:1/selected"},
+		"tools":    {Type: "http", URL: "https://tools.example.svc/mcp"},
+	}, file.MCPServers, "a bridged server's bridge sends the placeholder")
+	assert.NotContains(t, servers[0].Headers, "Authorization", "the parsed configuration is not changed")
+
+	withoutHosts := mcpFile(servers, bridged, nil)
+	assert.Equal(t, map[string]string{"X-Muster-Toolset": "all"}, withoutHosts.MCPServers["muster"].Headers)
+	assert.Nil(t, withoutHosts.MCPServers["bare"].Headers)
 }
 
 func TestNativeEnvironmentWithholdsTheBridgesVariables(t *testing.T) {
@@ -97,4 +123,32 @@ func TestWriteRestoresTamperedFiles(t *testing.T) {
 	instruction, err := os.ReadFile(filepath.Join(p.agent, "instruction.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "Be brief.", string(instruction))
+}
+
+// The bridges outlive a turn, so the placeholder follows the hosts of the turn
+// omp runs, request by request.
+func TestBridgeTransportSendsThePlaceholderDuringAnActorJWTTurn(t *testing.T) {
+	var got []string
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		got = append(got, request.Header.Get("Authorization"))
+	}))
+	t.Cleanup(server.Close)
+	actorJWT := &turnActorJWTHosts{}
+	send := func(headers map[string]string) {
+		t.Helper()
+		transport := headerTransport{url: server.URL, headers: headers, actorJWT: actorJWT, base: http.DefaultTransport}
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL, nil)
+		require.NoError(t, err)
+		response, err := transport.RoundTrip(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+	}
+
+	send(nil)
+	actorJWT.set([]string{"127.0.0.1"})
+	send(nil)
+	send(map[string]string{"Authorization": "Bearer own"})
+	actorJWT.set(nil)
+	send(nil)
+	assert.Equal(t, []string{"", "Bearer kagent-credential-injected", "Bearer own", ""}, got)
 }

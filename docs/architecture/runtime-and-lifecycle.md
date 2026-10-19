@@ -586,6 +586,10 @@ under a path prefix is not named). A runtime that forwards the caller's
 credential on MCP calls sends a placeholder bearer to a server on one of them
 instead, and holds no caller credential for a turn whose every such server is
 on one: the caller's bearer never reaches the sandbox's MCP traffic there.
+The gateway replaces only an `Authorization` header the request already
+carries, so the codex and omp harnesses, which forward no caller credential,
+also send the placeholder to a server on one of those hosts that sets no
+`Authorization` of its own.
 
 ## Forwarder refusal metrics
 
