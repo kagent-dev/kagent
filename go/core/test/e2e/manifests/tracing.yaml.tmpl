@@ -38,6 +38,9 @@ spec:
   workload:
     image: ${KAGENT_E2E_CLAUDE_IMAGE}
   env:
+  # TODO: Remove when Substrate denial handling permits native retries (#2663).
+  - name: KAGENT_TEST_CLAUDE_DISABLE_RETRIES
+    value: "true"
   # Keep the batch processor's timer from exporting during the test. Because
   # this interaction stays below the batch-size threshold, a2a.request can
   # reach the receiver only through the explicit pre-suspension ForceFlush.
@@ -56,6 +59,10 @@ metadata:
   namespace: kagent
 spec:
   codex: {}
+  # TODO: Remove when Substrate denial handling permits native retries (#2663).
+  env:
+  - name: KAGENT_TEST_CODEX_DISABLE_RETRIES
+    value: "true"
   workload:
     image: ${KAGENT_E2E_CODEX_IMAGE}
   substrate:

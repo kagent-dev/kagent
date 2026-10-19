@@ -15,6 +15,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -103,38 +104,63 @@ func TestNewMaterializesCompilerOwnedConfiguration(t *testing.T) {
 	}
 }
 
-func TestRenderConfigDisablesProviderRetries(t *testing.T) {
+func TestNewProviderRetriesAreOptIn(t *testing.T) {
 	for _, provider := range []config.Provider{
 		{Name: "openai"},
 		{Name: "openai", BaseURL: "https://gateway.example.com/v1"},
 		{Name: "amazon-bedrock"},
 	} {
 		t.Run(provider.Name+provider.BaseURL, func(t *testing.T) {
-			cfg := config.Production("test-model", "help")
-			cfg.Provider = provider
-			contents, err := renderConfig(cfg, t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Pointers distinguish explicit zero budgets from omitted native defaults.
-			var native struct {
-				Providers map[string]struct {
-					Request *uint `toml:"request_max_retries"`
-					Stream  *uint `toml:"stream_max_retries"`
-				} `toml:"model_providers"`
-			}
-			if err := toml.Unmarshal(contents, &native); err != nil {
-				t.Fatal(err)
-			}
-			if provider.Name == "amazon-bedrock" {
-				if len(native.Providers) != 0 {
-					t.Fatal("built-in Bedrock rejects provider retry overrides")
-				}
-				return
-			}
-			retries := native.Providers["kagent-openai"]
-			if retries.Request == nil || retries.Stream == nil || *retries.Request != 0 || *retries.Stream != 0 {
-				t.Fatalf("provider retry budgets must be explicitly zero: %s", contents)
+			for _, test := range []struct {
+				name           string
+				environment    []string
+				disableRetries bool
+			}{
+				{name: "unset"},
+				{name: "empty", environment: []string{env.TestCodexDisableRetries + "="}},
+				{name: "false", environment: []string{env.TestCodexDisableRetries + "=false"}},
+				{name: "true", environment: []string{env.TestCodexDisableRetries + "=true"}, disableRetries: true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					cfg := config.Production("test-model", "help")
+					cfg.Provider = provider
+					raw, err := json.Marshal(cfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					durable := t.TempDir()
+					if _, err := New(t.Context(), Input{ConfigJSON: raw, Workspace: filepath.Join(durable, "workspace"), DurableDir: durable, Environment: test.environment}); err != nil {
+						t.Fatal(err)
+					}
+					contents, err := os.ReadFile(filepath.Join(durable, "codex", "config.toml"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					// Pointers distinguish explicit zero budgets from omitted native defaults.
+					var native struct {
+						Providers map[string]struct {
+							Request *uint `toml:"request_max_retries"`
+							Stream  *uint `toml:"stream_max_retries"`
+						} `toml:"model_providers"`
+					}
+					if err := toml.Unmarshal(contents, &native); err != nil {
+						t.Fatal(err)
+					}
+					if provider.Name == "amazon-bedrock" {
+						if len(native.Providers) != 0 {
+							t.Fatal("built-in Bedrock rejects provider retry overrides")
+						}
+						return
+					}
+					retries := native.Providers["kagent-openai"]
+					if !test.disableRetries {
+						if retries.Request != nil || retries.Stream != nil {
+							t.Fatalf("production must omit retry budgets to preserve native defaults: %s", contents)
+						}
+					} else if retries.Request == nil || retries.Stream == nil || *retries.Request != 0 || *retries.Stream != 0 {
+						t.Fatalf("provider retry budgets must be explicitly zero: %s", contents)
+					}
+				})
 			}
 		})
 	}
@@ -213,7 +239,7 @@ func TestRenderConfigOmitsDisabledSignalExporter(t *testing.T) {
 			cfg := config.Production("gpt-5.2-codex", "work carefully")
 			cfg.Provider = config.Provider{Name: "openai"}
 			cfg.Telemetry = test.telemetry
-			contents, err := renderConfig(cfg, t.TempDir())
+			contents, err := renderConfig(cfg, t.TempDir(), false)
 			if err != nil {
 				t.Fatal(err)
 			}

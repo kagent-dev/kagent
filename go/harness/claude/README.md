@@ -35,11 +35,9 @@ Credentials use [Substrate gateway injection](../../../docs/architecture/credent
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
 by the compiler. Harness environment entries accept only literal values.
 
-The adapter temporarily sets `CLAUDE_CODE_MAX_RETRIES=0` for every run. Substrate
-alpha3 fixes Kubernetes DNS search fallback, but native retries on denied
-requests still cause minutes of waiting. Transient failures lose those retries
-too. TODO: remove this override once upstream denial handling permits native
-retries to be restored; see [substrate#2663](https://github.com/agent-substrate/substrate/issues/2663).
+Production runs retain Claude's native retry defaults. E2E fixtures opt into
+zero retries through an internal test switch while upstream denial handling
+still causes minutes of waiting.
 
 ## Telemetry
 

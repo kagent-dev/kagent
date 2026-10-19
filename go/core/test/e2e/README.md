@@ -207,14 +207,19 @@ allowed hostname without trailing dots or worker DNS overrides.
 
 `TestSessionEgressDeniesUnconfiguredDestination` first proves the redirect
 destination works when configured, then verifies that an unconfigured redirect
-fails without reaching it. Both calls use the standard Harness and its production
-retry settings. The denied call must reach FAILED within 30 seconds, with exactly
-one model request and no access to the denied destination. Codex's OpenAI provider
-and Claude temporarily disable native retries. The DNS fix allows service
-resolution, but the patched-worker experiment still retried denied requests for
-28 seconds in Codex and 177 seconds in Claude.
-TODO: revisit the one-request assertion and deadline when denial handling allows
-native retries to be restored (see substrate#2663).
+fails without reaching it. The denied call must reach FAILED within 30 seconds,
+with exactly one model request and no access to the denied destination.
+The lifecycle and tracing Harness fixtures set the hidden, test-only environment
+variables `KAGENT_TEST_CODEX_DISABLE_RETRIES=true` and
+`KAGENT_TEST_CLAUDE_DISABLE_RETRIES=true` for their respective adapters. These
+disable Codex's OpenAI-compatible request/stream retries and set Claude's native
+`CLAUDE_CODE_MAX_RETRIES=0`. Unset, empty, or false preserves native retry defaults;
+Codex's unbounded connection retries remain disabled in production and tests.
+The DNS fix allows service resolution, but the patched-worker experiment still
+retried denied requests for 28 seconds in Codex and 177 seconds in Claude.
+TODO: REMOVE these switches and revisit the one-request assertion and deadline
+when denial handling permits native retries in tests (see
+[substrate#2663](https://github.com/agent-substrate/substrate/issues/2663)).
 
 For tracing, configure the controller's `telemetry` and `runtimeDefaults.telemetry`
 OTLP endpoints as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply

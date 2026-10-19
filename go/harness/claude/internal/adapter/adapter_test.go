@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
@@ -42,30 +44,44 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	}
 }
 
-func TestNativeProcessDisablesRetries(t *testing.T) {
-	for _, environment := range [][]string{nil, {config.MaxRetriesEnvName + "=10"}} {
-		dir := t.TempDir()
-		executable := filepath.Join(dir, "claude")
-		if err := os.WriteFile(executable, []byte("#!/bin/sh\n[ \"$CLAUDE_CODE_MAX_RETRIES\" = 0 ] || exit 42\necho "+config.PinnedClaudeVersion+"\n"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		cfg := config.Production("claude-test", "help")
-		cfg.ClaudeExecutable = executable
-		raw, err := json.Marshal(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		runner, err := New(t.Context(), Input{
-			ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"),
-			DurableDir: filepath.Join(dir, "data"), EphemeralDir: filepath.Join(dir, "ephemeral"), Environment: environment,
+func TestNativeProcessRetriesAreOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		environment []string
+		want        string
+	}{
+		{name: "unset", want: "unset"},
+		{name: "empty", environment: []string{env.TestClaudeDisableRetries + "="}, want: "unset"},
+		{name: "false", environment: []string{env.TestClaudeDisableRetries + "=false"}, want: "unset"},
+		{name: "true", environment: []string{env.TestClaudeDisableRetries + "=true"}, want: "0"},
+		{name: "preserve native setting", environment: []string{config.MaxRetriesEnvName + "=10"}, want: "10"},
+		{name: "override native setting", environment: []string{env.TestClaudeDisableRetries + "=true", config.MaxRetriesEnvName + "=10"}, want: "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			executable := filepath.Join(dir, "claude")
+			script := fmt.Sprintf("#!/bin/sh\n[ \"${CLAUDE_CODE_MAX_RETRIES-unset}\" = %s ] || exit 42\necho %s\n", test.want, config.PinnedClaudeVersion)
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Production("claude-test", "help")
+			cfg.ClaudeExecutable = executable
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner, err := New(t.Context(), Input{
+				ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"),
+				DurableDir: filepath.Join(dir, "data"), EphemeralDir: filepath.Join(dir, "ephemeral"), Environment: test.environment,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = runner.Close() })
+			if err := runner.Validate(t.Context()); err != nil {
+				t.Fatalf("native process did not receive the expected retry setting: %v", err)
+			}
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = runner.Close() })
-		if err := runner.Validate(t.Context()); err != nil {
-			t.Fatalf("native process did not receive the zero retry budget: %v", err)
-		}
 	}
 }
 
