@@ -24,19 +24,19 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
-type resourceAuthorizer struct{}
+type resourceAuthorizer struct{ denySummary bool }
 
-func (resourceAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+func (a resourceAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if resource.Type == "SystemSummary" && !a.denySummary {
+		return nil
+	}
 	if resource.Name != "allowed" || (resource.Type == "ModelProviderConfig" && verb == auth.VerbUpdate) {
 		return errors.New("denied")
 	}
 	return nil
 }
 
-func (resourceAuthorizer) Scope(_ context.Context, _ auth.Principal, _ auth.Verb, resource string) (apiauthorization.AuthorizationScope, error) {
-	if resource == "Substrate" {
-		return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, nil
-	}
+func (resourceAuthorizer) Scope(_ context.Context, _ auth.Principal, _ auth.Verb, _ string) (apiauthorization.AuthorizationScope, error) {
 	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"allowed"}}}}}}, nil
 }
 
@@ -65,7 +65,7 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	connection := newConfigurationConnection(t, kube, func(config *Config) {
 		config.PromptTemplateService = promptservice.NewService(kube, authorizer)
 		config.ModelService = modelservice.NewService(kube, authorizer, "team", modelservice.WithProviderModelRefresher(refresher))
-		config.SystemService = systemservice.NewService(kube, []string{"team"}, authorizer, nil)
+		config.SystemService = systemservice.NewService(kube, []string{"team"}, authorizer, emptySystemATEClient{})
 	})
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
 	prompts := apiv1.NewPromptTemplateServiceClient(connection)
@@ -98,4 +98,39 @@ func TestKubernetesResourceScopesThroughGeneratedClients(t *testing.T) {
 	require.Equal(t, "allowed", summary.GetWorkerPools()[0].GetRef().GetName())
 	require.Zero(t, summary.GetActorCount())
 	require.Empty(t, summary.GetActorTemplates())
+}
+
+func TestProviderModelRefreshDeniedThroughShareRPC(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&v1alpha3.ModelProviderConfig{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "provider"},
+			Status:     v1alpha3.ModelProviderConfigStatus{DiscoveredModels: []string{"cached"}},
+		},
+	).Build()
+	refresher := &deniedProviderRefresher{}
+	connection := newConfigurationConnection(t, kube, func(config *Config) {
+		config.ShareStore = &testShareStore{
+			sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
+		}
+		config.ModelService = modelservice.NewService(kube, &auth.NoopAuthorizer{}, "team", modelservice.WithProviderModelRefresher(refresher))
+	})
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "visitor", "x-share-token", "share"))
+	models := apiv1.NewModelServiceClient(connection)
+	cached, err := models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"cached"}, cached.GetModels())
+	_, err = models.ListProviderModels(ctx, &apiv1.ListProviderModelsRequest{ProviderName: "provider", Refresh: true})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	require.Zero(t, refresher.calls.Load())
+}
+
+func TestSummaryCapabilityDeniedThroughGeneratedClient(t *testing.T) {
+	connection := newConfigurationConnection(t, nil, func(config *Config) {
+		config.SystemService = systemservice.NewService(nil, nil, resourceAuthorizer{denySummary: true}, nil)
+	})
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
+	_, err := apiv1.NewSystemServiceClient(connection).GetSubstrateSummary(ctx, &apiv1.GetSubstrateSummaryRequest{})
+	assertGRPCCode(t, err, codes.PermissionDenied)
 }

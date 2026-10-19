@@ -54,7 +54,8 @@ Pass scopes as ordinary function arguments. Do not place policy decisions in req
 - `ModelConfig` and `ModelProviderConfig` use separate typed CRUD services and resource types. Configured-provider reads and refresh are authorized independently from ModelConfig operations.
 - Prompt libraries, tool discovery, and WorkerPool summary rows use `kubeauth.CollectionMatcher` for custom collection projection.
 - Flat tool discovery must filter through the same exact owning-server identities as server discovery.
-- WorkerPool scope is independent from the mixed summary's whole-inventory Substrate permission.
+- `GetSubstrateSummary` requires `Check(VerbGet, Resource{Type: "SystemSummary"})` before any resource reads; denial fails the whole request with permission denied. WorkerPool rows then use their own `VerbList` scope.
+- The summary capability covers its ATE inventory. Dedicated actor and worker endpoints independently require `Check(VerbGet, Resource{Type: "Substrate"})`. Both capabilities have empty namespace/name; neither uses `Scope(VerbGet, ...)`.
 - Static provider definitions and supported tool-server types expose no configured object and remain available after authentication.
 
 The default OSS no-op authorizer implements `CollectionAuthorizer` and returns `ScopeAll`, preserving current OSS visibility.

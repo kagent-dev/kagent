@@ -615,23 +615,31 @@ func TestSubstrateEmptyPagesPreserveUpstreamTokens(t *testing.T) {
 type summaryAuthorizer struct {
 	pkgAuth.NoopAuthorizer
 	pools     apiauthorization.AuthorizationScope
-	inventory apiauthorization.AuthorizationScope
-	failType  string
+	denyType  string
+	failScope bool
 	calls     []string
+}
+
+func (a *summaryAuthorizer) Check(_ context.Context, _ pkgAuth.Principal, verb pkgAuth.Verb, resource pkgAuth.Resource) error {
+	a.calls = append(a.calls, string(verb)+" "+resource.Type)
+	if resource.Type == a.denyType {
+		return errors.New("denied")
+	}
+	if resource.Namespace != "" || resource.Name != "" {
+		return errors.New("capability must not have an object identity")
+	}
+	return nil
 }
 
 func (a *summaryAuthorizer) Scope(_ context.Context, _ pkgAuth.Principal, verb pkgAuth.Verb, resource string) (apiauthorization.AuthorizationScope, error) {
 	a.calls = append(a.calls, string(verb)+" "+resource)
-	if resource == a.failType {
+	if a.failScope {
 		return apiauthorization.AuthorizationScope{}, errors.New("policy unavailable")
 	}
-	if resource == "WorkerPool" {
-		return a.pools, nil
-	}
-	return a.inventory, nil
+	return a.pools, nil
 }
 
-func TestSummaryAuthorizesPoolAndInventorySectionsIndependently(t *testing.T) {
+func TestSummaryRequiresCapabilityAndScopesPools(t *testing.T) {
 	all := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}
 	none := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}
 	constrained := apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
@@ -641,26 +649,20 @@ func TestSummaryAuthorizesPoolAndInventorySectionsIndependently(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		pools     apiauthorization.AuthorizationScope
-		inventory apiauthorization.AuthorizationScope
 		observed  []string
 		requested string
-		failType  string
+		failScope bool
 		wantPools int
-		wantATE   bool
 		code      serviceerrors.Code
 	}{
-		{name: "pool only", pools: constrained, inventory: none, wantPools: 1},
-		{name: "all pools", pools: all, inventory: none, wantPools: 3},
-		{name: "inventory only", pools: none, inventory: all, wantATE: true},
-		{name: "neither", pools: none, inventory: none},
-		{name: "configured intersection", pools: all, inventory: none, observed: []string{"team"}, wantPools: 2},
-		{name: "request cannot escape configuration", pools: all, inventory: none, observed: []string{"team"}, requested: "other"},
-		{name: "request cannot escape policy", pools: constrained, inventory: none, requested: "other"},
-		{name: "pool lookup failure", failType: "WorkerPool", inventory: all, code: serviceerrors.CodeUnavailable},
-		{name: "inventory lookup failure", pools: all, failType: "Substrate", code: serviceerrors.CodeUnavailable},
-		{name: "invalid pool scope", pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}, inventory: all, code: serviceerrors.CodeInternal},
-		{name: "unsupported inventory scope", pools: all, inventory: constrained, code: serviceerrors.CodeInternal},
-		{name: "invalid inventory scope", pools: all, code: serviceerrors.CodeInternal},
+		{name: "scoped pools", pools: constrained, wantPools: 1},
+		{name: "all pools", pools: all, wantPools: 3},
+		{name: "no pools", pools: none},
+		{name: "configured intersection", pools: all, observed: []string{"team"}, wantPools: 2},
+		{name: "request cannot escape configuration", pools: all, observed: []string{"team"}, requested: "other"},
+		{name: "request cannot escape policy", pools: constrained, requested: "other"},
+		{name: "pool lookup failure", failScope: true, code: serviceerrors.CodeUnavailable},
+		{name: "invalid pool scope", pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}, code: serviceerrors.CodeInternal},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
@@ -670,39 +672,45 @@ func TestSummaryAuthorizesPoolAndInventorySectionsIndependently(t *testing.T) {
 				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "hidden"}},
 				&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "allowed"}},
 			).Build()
-			authorizer := &summaryAuthorizer{pools: test.pools, inventory: test.inventory, failType: test.failType}
+			// Summary access is independent from the dedicated Substrate endpoints.
+			authorizer := &summaryAuthorizer{pools: test.pools, denyType: "Substrate", failScope: test.failScope}
 			ate := &fakeATEClient{actors: []*ateapipb.Actor{substrateActor("actor", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker")}}
 			service := system.NewService(kube, test.observed, authorizer, ate)
 			ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
 			result, err := service.GetSubstrateSummary(ctx, test.requested, "team")
+			require.Equal(t, []string{"get SystemSummary", "list WorkerPool"}, authorizer.calls)
 			if test.code != "" {
 				require.True(t, serviceerrors.IsCode(err, test.code))
-			} else {
-				require.NoError(t, err)
-				require.Len(t, result.WorkerPools, test.wantPools)
-				require.Equal(t, []string{"list WorkerPool", "get Substrate"}, authorizer.calls)
-				if test.wantATE {
-					require.EqualValues(t, 1, result.ActorCount)
-				} else {
-					require.Zero(t, result.ActorCount)
-					require.Empty(t, result.ActorTemplates)
-				}
-			}
-			if test.wantATE {
-				require.Positive(t, ate.actorReads)
-				require.Positive(t, ate.workerReads)
-				require.Positive(t, ate.templateReads)
-			} else {
 				require.Zero(t, ate.actorReads)
 				require.Zero(t, ate.workerReads)
 				require.Zero(t, ate.templateReads)
+				return
 			}
+			require.NoError(t, err)
+			require.Len(t, result.WorkerPools, test.wantPools)
+			require.EqualValues(t, 1, result.ActorCount)
+			require.Positive(t, ate.actorReads)
+			require.Positive(t, ate.workerReads)
+			require.Positive(t, ate.templateReads)
 		})
 	}
 }
 
+func TestSummaryDeniedBeforeResourceReads(t *testing.T) {
+	authorizer := &summaryAuthorizer{denyType: "SystemSummary"}
+	// Nil clients ensure a denied request cannot read Kubernetes or ATE inventory.
+	service := system.NewService(nil, nil, authorizer, nil)
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
+	_, err := service.GetSubstrateSummary(ctx, "", "")
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	require.Equal(t, []string{"get SystemSummary"}, authorizer.calls)
+	// The separate inventory capability is still allowed.
+	_, err = system.NewService(nil, nil, authorizer, &fakeATEClient{}).ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{})
+	require.NoError(t, err)
+}
+
 func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
-	authorizer := &summaryAuthorizer{pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, inventory: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}}
+	authorizer := &summaryAuthorizer{pools: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}}
 	service := system.NewService(nil, nil, authorizer, &fakeATEClient{})
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "reader"}}})
 	result, err := service.GetSubstrateSummary(ctx, "", "")
