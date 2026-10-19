@@ -14,7 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
+func resetTokenMetrics() {
+	tokenUsage.Reset()
+	cachedTokenUsage.Reset()
+}
+
+func TestRecordTokenUsage_RecordsInputOutputSeries(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
 	cases := []struct {
 		name              string
@@ -39,18 +44,18 @@ func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
 			wantResponseModel: "claude-sonnet-4-20250514",
 		},
 		{
-			name: "cached only",
+			name: "cache hit without output",
 			input: TokenUsage{
 				RequestModel: "gemini-2.5-flash", Provider: "gcp.vertex_ai", AgentName: "gemini-agent",
-				CachedTokens: 10,
+				InputTokens: 10, CachedTokens: 10,
 			},
 			wantResponseModel: "gemini-2.5-flash",
 		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			tokenUsage.Reset()
-			t.Cleanup(tokenUsage.Reset)
+			resetTokenMetrics()
+			t.Cleanup(resetTokenMetrics)
 			registry := prometheus.NewPedanticRegistry()
 			registry.MustRegister(tokenUsage)
 
@@ -70,20 +75,9 @@ func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, families, 1)
 			require.Equal(t, metricGenAIClientTokenUsage, families[0].GetName())
-			// The emitted series are additive: input excludes the cached portion
-			// when the prompt count includes it, so input + cached equals the
-			// prompt tokens the model reported.
-			wantInput := testCase.input.InputTokens
-			wantCached := testCase.input.CachedTokens
-			if wantCached > 0 && wantCached <= wantInput {
-				wantInput -= wantCached
-			}
 			wantTokens := map[string]int64{}
-			if wantInput > 0 {
-				wantTokens[tokenTypeInput] = wantInput
-			}
-			if wantCached > 0 {
-				wantTokens[tokenTypeCached] = wantCached
+			if testCase.input.InputTokens > 0 {
+				wantTokens[tokenTypeInput] = testCase.input.InputTokens
 			}
 			if testCase.input.OutputTokens > 0 {
 				wantTokens[tokenTypeOutput] = testCase.input.OutputTokens
@@ -112,33 +106,37 @@ func TestRecordTokenUsage_RecordsCachedSeries(t *testing.T) {
 	}
 }
 
-// TestRecordTokenUsage_CachedSeriesAdditive ensures summing the token-type
-// series yields the prompt total instead of double counting cache hits.
-func TestRecordTokenUsage_CachedSeriesAdditive(t *testing.T) {
+// TestRecordTokenUsage_CachedBreakdownMetric keeps the semconv input series as
+// the full prompt total and exposes cache hits through a separate kagent metric.
+func TestRecordTokenUsage_CachedBreakdownMetric(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
-	t.Cleanup(tokenUsage.Reset)
+	resetTokenMetrics()
+	t.Cleanup(resetTokenMetrics)
 
-	// Prompt count includes cached tokens: the input series must exclude them
-	// so input + cached equals the 100 prompt tokens the model reported.
 	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, CachedTokens: 30})
 	body := serveMetrics(t)
-	want := map[string]string{tokenTypeInput: "70", tokenTypeCached: "30"}
-	for tokenType, sum := range want {
-		pattern := `gen_ai_client_token_usage_sum[{][^}]*gen_ai_token_type="` + tokenType + `"[}] ([0-9]+)`
+	for name, pattern := range map[string]string{
+		"input":  `gen_ai_client_token_usage_sum[{][^}]*gen_ai_token_type="input"[}] ([0-9]+)`,
+		"cached": `kagent_gen_ai_cached_token_usage_sum\{([^}]*)\} ([0-9]+)`,
+	} {
 		m := regexp.MustCompile(pattern).FindStringSubmatch(body)
 		if m == nil {
-			t.Fatalf("no %s series in metrics output:\n%s", tokenType, body)
+			t.Fatalf("no %s series in metrics output:\n%s", name, body)
 		}
-		if m[1] != sum {
-			t.Fatalf("%s series sum = %s, want %s\n%s", tokenType, m[1], sum, body)
+		got := m[len(m)-1]
+		want := map[string]string{"input": "100", "cached": "30"}[name]
+		if got != want {
+			t.Fatalf("%s series sum = %s, want %s\n%s", name, got, want, body)
 		}
+	}
+	if strings.Contains(body, `gen_ai_token_type="cached"`) {
+		t.Fatalf("gen_ai.token.type must only contain input/output:\n%s", body)
 	}
 }
 
 func TestRecordTokenUsage_SkipsNonPositiveCached(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
+	resetTokenMetrics()
 
 	// Zero cached tokens emits no cached series.
 	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", CachedTokens: 0, InputTokens: 10})
@@ -146,14 +144,14 @@ func TestRecordTokenUsage_SkipsNonPositiveCached(t *testing.T) {
 	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", CachedTokens: -5, InputTokens: 10})
 
 	body := serveMetrics(t)
-	if strings.Contains(body, "gen_ai_token_type=\"cached\"") {
+	if strings.Contains(body, "gen_ai_token_type=\"cached\"") || strings.Contains(body, "kagent_gen_ai_cached_token_usage") {
 		t.Fatalf("expected no cached series for non-positive CachedTokens")
 	}
 }
 
 func TestRecordTokenUsage_RecordsHistogram(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
+	resetTokenMetrics()
 
 	RecordTokenUsage(TokenUsage{
 		RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, OutputTokens: 42,
@@ -167,7 +165,7 @@ func TestRecordTokenUsage_RecordsHistogram(t *testing.T) {
 
 func TestRecordTokenUsage_SkipsZero(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
+	resetTokenMetrics()
 
 	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai"})
 
@@ -178,7 +176,7 @@ func TestRecordTokenUsage_SkipsZero(t *testing.T) {
 
 func TestRecordTokenUsage_Disabled(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "false")
-	tokenUsage.Reset()
+	resetTokenMetrics()
 
 	RecordTokenUsage(TokenUsage{RequestModel: "gpt-4o", Provider: "openai", InputTokens: 100, OutputTokens: 42, CachedTokens: 30})
 
@@ -189,7 +187,7 @@ func TestRecordTokenUsage_Disabled(t *testing.T) {
 
 func TestRecordTokenUsage_ResponseModelFallback(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
+	resetTokenMetrics()
 	RecordTokenUsage(TokenUsage{RequestModel: "gemini-2.5-flash", Provider: "gcp.vertex_ai", InputTokens: 3})
 	RecordTokenUsage(TokenUsage{RequestModel: "gemini-2.5-flash", ResponseModel: "gemini-2.5-flash-002", Provider: "gcp.vertex_ai", InputTokens: 3})
 
@@ -204,11 +202,11 @@ func TestRecordTokenUsage_ResponseModelFallback(t *testing.T) {
 
 func TestMetricsHandler_ServesLabels(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
+	resetTokenMetrics()
 	RecordTokenUsage(TokenUsage{
 		RequestModel: "claude-3-5-sonnet", ResponseModel: "claude-3-5-sonnet-20241022",
 		Provider: "anthropic", AgentName: "my-agent", ErrorType: "overloaded_error",
-		InputTokens: 10, OutputTokens: 5,
+		InputTokens: 10, OutputTokens: 5, CachedTokens: 3,
 	})
 
 	body := serveMetrics(t)
@@ -222,6 +220,7 @@ func TestMetricsHandler_ServesLabels(t *testing.T) {
 		"gen_ai_response_model=\"claude-3-5-sonnet-20241022\"",
 		"gen_ai_agent_name=\"my-agent\"",
 		"error_type=\"overloaded_error\"",
+		"kagent_gen_ai_cached_token_usage_count",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics output missing %q", want)
@@ -264,8 +263,8 @@ func TestRecordTokenUsageValues(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv(metricsEnabledEnvVar, "true")
-			tokenUsage.Reset()
-			t.Cleanup(tokenUsage.Reset)
+			resetTokenMetrics()
+			t.Cleanup(resetTokenMetrics)
 			RecordTokenUsage(test.input)
 			RecordTokenUsage(test.input)
 			require.Equal(t, len(test.want), testutil.CollectAndCount(tokenUsage))
@@ -291,8 +290,8 @@ func TestRecordTokenUsageValues(t *testing.T) {
 
 func TestRecordTokenUsageConcurrent(t *testing.T) {
 	t.Setenv(metricsEnabledEnvVar, "true")
-	tokenUsage.Reset()
-	t.Cleanup(tokenUsage.Reset)
+	resetTokenMetrics()
+	t.Cleanup(resetTokenMetrics)
 	var workers sync.WaitGroup
 	for range 16 {
 		workers.Go(func() {
