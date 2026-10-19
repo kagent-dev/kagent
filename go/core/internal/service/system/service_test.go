@@ -719,3 +719,77 @@ func TestSummaryDeniedPoolsDoNotRequireKubernetes(t *testing.T) {
 	_, err = service.GetSubstrateSummary(t.Context(), "", "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeUnauthenticated))
 }
+
+// Two kagent installs, each watching only its own namespace, share one ate-api. Each
+// must see only its own atespace, and refuse a request naming the other.
+func TestSubstrateTenantIsolation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, atev1alpha1.AddToScheme(scheme))
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
+	ateClient := &fakeATEClient{
+		pageSize: 1,
+		actors: []*ateapipb.Actor{
+			substrateActor("session-b", "tenant-b", ateapipb.ActorState_ACTOR_STATE_RUNNING, "tenant-b", "pod-b"),
+			substrateActor("session-a", "tenant-a", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
+		},
+		templates: []*ateapipb.ActorTemplate{
+			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-a", Name: "agent-a"}},
+			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-b", Name: "agent-b"}},
+		},
+		workers: []*ateapipb.Worker{
+			{WorkerNamespace: "tenant-a", WorkerPod: "pod-a"},
+			{WorkerNamespace: "tenant-b", WorkerPod: "pod-b"},
+		},
+	}
+	tenantA := system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), []string{"tenant-a"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+
+	t.Run("lists only its own actors", func(t *testing.T) {
+		var names []string
+		request := &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 1}}
+		for {
+			page, err := tenantA.ListSubstrateActors(ctx, request)
+			require.NoError(t, err)
+			for _, actor := range page.Actors {
+				names = append(names, actor.GetMetadata().GetAtespace()+"/"+actor.GetMetadata().GetName())
+			}
+			if page.NextPageToken == "" {
+				break
+			}
+			request.Page.PageToken = page.NextPageToken
+		}
+		assert.Equal(t, []string{"tenant-a/session-a"}, names)
+	})
+
+	t.Run("summarises only its own atespace", func(t *testing.T) {
+		summary, err := tenantA.GetSubstrateSummary(ctx, "", "")
+		require.NoError(t, err)
+		require.Empty(t, summary.ATEAPIError)
+		require.Len(t, summary.ActorTemplates, 1)
+		assert.Equal(t, "agent-a", summary.ActorTemplates[0].GetMetadata().GetName())
+		assert.Equal(t, int64(1), summary.ActorCount)
+		assert.Equal(t, int64(0), summary.RunningActorCount)
+		assert.Equal(t, int64(1), summary.WorkerCount)
+	})
+
+	t.Run("refuses another tenant's atespace or namespace", func(t *testing.T) {
+		_, err := tenantA.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "tenant-b"})
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
+		_, err = tenantA.GetSubstrateSummary(ctx, "", "tenant-b")
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
+		_, err = tenantA.GetSubstrateSummary(ctx, "tenant-b", "")
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
+		_, err = tenantA.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Namespace: "tenant-b"})
+		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
+	})
+
+	t.Run("a cluster-wide install still sees every tenant", func(t *testing.T) {
+		clusterWide := system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), nil, &pkgAuth.NoopAuthorizer{}, ateClient)
+		summary, err := clusterWide.GetSubstrateSummary(ctx, "", "")
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), summary.ActorCount)
+		assert.Len(t, summary.ActorTemplates, 2)
+		page, err := clusterWide.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "tenant-b"})
+		require.NoError(t, err)
+		require.Len(t, page.Actors, 1)
+	})
+}
