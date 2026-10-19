@@ -6,6 +6,7 @@ category: feature
 status: carried
 commits:
   - 'feat(harness): glab acts as the person through the placeholder like gh'
+  - 'fix(harness): glab gets its placeholder in a workspace only'
 upstream:
   outcome: to-file
   refs: []
@@ -17,11 +18,11 @@ verified: 2026-10-19
 
 ## Change
 
-`feat(harness): glab acts as the person through the placeholder like gh`
+`feat(harness): glab acts as the person through the placeholder like gh` and `fix(harness): glab gets its placeholder in a workspace only`
 
 ## Reason
 
-in a Session of a GitLab workspace `git push` reached GitLab as the person, but `glab` could not: without a token glab sends no credential, and with one from `GITLAB_TOKEN` it sends a `PRIVATE-TOKEN` header, neither of which the egress gateway replaces, so `glab api user` answered 401 and the Session could not open a merge request (giantswarm/kagent-upstream#723). `WithCredentialPlaceholders` now also sets `GITLAB_TOKEN` to the placeholder and `GLAB_IS_OAUTH2=true` in a turn with a working directory, so glab sends `Authorization: Bearer <placeholder>`, which the gateway replaces with the person's token on a GitLab host; a glab token the environment sets (`GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`) stands, and the bash tool's allowlist keeps a runtime's real token from the command. glab also acts only on a remote whose host its configuration knows besides gitlab.com, so the workspace setup writes `.kagent/glab-cli/config.yml` (0600) naming the host of every http(s) origin but github.com as an OAuth2 GitLab host, and `GLAB_CONFIG_DIR` points at it. `TestWithCredentialPlaceholders`, `TestGlabConfig`, `TestPrepareWritesGlabConfig`, `TestExecuteCommand_TurnEnvironment`
+in a Session of a GitLab workspace `git push` reached GitLab as the person, but `glab` could not: without a token glab sends no credential, and with one from `GITLAB_TOKEN` it sends a `PRIVATE-TOKEN` header, neither of which the egress gateway replaces, so `glab api user` answered 401 and the Session could not open a merge request (giantswarm/kagent-upstream#723). `WithCredentialPlaceholders` now also sets `GITLAB_TOKEN` to the placeholder and `GLAB_IS_OAUTH2=true` in a turn of a workspace (a dispatch with a mirrors directory; a Session without one gets no glab placeholder), so glab sends `Authorization: Bearer <placeholder>`, which the gateway replaces with the person's token on a GitLab host; a glab token the environment sets (`GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`) stands, and the bash tool's allowlist keeps a runtime's real token from the command. glab also acts only on a remote whose host its configuration knows besides gitlab.com, so the workspace setup writes `.kagent/glab-cli/config.yml` (0600) naming the host of every http(s) origin but github.com as an OAuth2 GitLab host, and `GLAB_CONFIG_DIR` points at it. `TestWithCredentialPlaceholders`, `TestGlabConfig`, `TestPrepareWritesGlabConfig`, `TestExecuteCommand_TurnEnvironment`
 
 ## History
 
