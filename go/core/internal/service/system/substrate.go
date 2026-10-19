@@ -11,6 +11,7 @@ import (
 
 	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -229,15 +230,21 @@ func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inne
 	return actors, "", nil
 }
 
-// ListSubstrateWorkers filters one upstream page by namespace and preserves its token.
-// A page with no workers in scope may still have a next page.
+// ListSubstrateWorkers returns one page of workers. A cluster-wide controller filters
+// ate-api's page and passes its token through. A controller that watches some
+// namespaces pages its own workers with its own token, since ate-api's can name any
+// worker.
 func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
 	scope, err := s.authorizeSubstrateScope(ctx, input.GetNamespace())
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
+	limit, token := substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken()
+	if len(s.observedNamespaces) > 0 {
+		return s.listWatchedWorkers(ctx, scope, limit, token), nil
+	}
 	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
-	workers, next, err := s.ateClient.ListWorkersPage(ctx, substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken())
+	workers, next, err := s.ateClient.ListWorkersPage(ctx, limit, token)
 	if err != nil {
 		result.ATEAPIError = err.Error()
 		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
@@ -250,6 +257,31 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	}
 	result.NextPageToken = next
 	return result, nil
+}
+
+// listWatchedWorkers fills one page with the workers in scope, in worker name order.
+// The token is the name of the last worker on the previous page: a cursor only, never
+// sent to ate-api.
+func (s *Service) listWatchedWorkers(ctx context.Context, scope substrateScope, limit int32, after string) SubstrateWorkerPage {
+	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
+	var workers []*ateapipb.Worker
+	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
+		if scope.contains(worker.GetWorkerNamespace()) && worker.GetMetadata().GetName() > after {
+			workers = append(workers, worker)
+		}
+	}); err != nil {
+		result.ATEAPIError = err.Error()
+		return result
+	}
+	slices.SortFunc(workers, func(left, right *ateapipb.Worker) int {
+		return strings.Compare(left.GetMetadata().GetName(), right.GetMetadata().GetName())
+	})
+	if int32(len(workers)) > limit {
+		workers = workers[:limit]
+		result.NextPageToken = workers[limit-1].GetMetadata().GetName()
+	}
+	result.Workers = workers
+	return result
 }
 
 func (s *Service) walkActors(ctx context.Context, scope substrateScope, visit func(*ateapipb.Actor)) error {
@@ -265,8 +297,18 @@ func (s *Service) walkActors(ctx context.Context, scope substrateScope, visit fu
 }
 
 // walkWorkers calls visit for every worker ate-api holds, one page at a time.
+//
+// NOTE: ate-api cannot list one namespace's workers, so a controller that watches some
+// drains every tenant's workers per request. Use an ate-api worker namespace filter
+// when one lands.
 func (s *Service) walkWorkers(ctx context.Context, visit func(*ateapipb.Worker)) error {
-	return walkSubstrate(ctx, s.ateClient.ListWorkersPage, visit)
+	err := walkSubstrate(ctx, s.ateClient.ListWorkersPage, visit)
+	if err != nil && len(s.observedNamespaces) > 0 {
+		// ate-api's error text can name another tenant's worker, so the caller gets the code.
+		logging.FromContext(ctx).ErrorContext(ctx, "failed to list ate-api workers", "error", err)
+		return fmt.Errorf("ate-api could not list workers: %s", status.Code(err))
+	}
+	return err
 }
 
 // walkSubstrate calls visit for every row ate-api holds, holding one page at a time
