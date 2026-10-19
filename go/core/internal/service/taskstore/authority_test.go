@@ -8,11 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-func TestInsecureRuntimeIdentity(t *testing.T) {
+func TestRuntimeJWTAuthentication(t *testing.T) {
+	i := jwttest.New(t)
+	v, err := substrate.NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	require.NoError(t, err)
+	a := NewAuthenticator(v)
 	id := uuid.NewString()
-	valid := "team-a/session-" + id + "/actor-uid"
+	valid := "Bearer " + i.Token(t, i.Claims("team-a", "session-"+id, "actor-uid"))
 	for _, test := range []struct {
 		name   string
 		values []string
@@ -21,17 +27,20 @@ func TestInsecureRuntimeIdentity(t *testing.T) {
 		{"valid", []string{valid}, true},
 		{"missing", nil, false},
 		{"duplicate", []string{valid, valid}, false},
-		{"invalid session", []string{"team-a/session-invalid/actor-uid"}, false},
-		{"missing namespace", []string{"/session-" + id + "/actor-uid"}, false},
-		{"missing UID", []string{"team-a/session-" + id + "/"}, false},
-		{"extra component", []string{valid + "/extra"}, false},
+		{"placeholder", []string{"Bearer placeholder"}, false},
+		{"wrong scheme", []string{"Basic abc"}, false},
+		{"empty token", []string{"Bearer "}, false},
+		{"invalid session", []string{"Bearer " + i.Token(t, i.Claims("team-a", "session-invalid", "actor-uid"))}, false},
+		{"sandbox actor", []string{"Bearer " + i.Token(t, i.Claims("team-a", "sandbox-"+id, "actor-uid"))}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			headers := http.Header{}
+			// The removed header never supplies or overrides authenticated identity.
+			headers.Set("x-kagent-insecure-runtime-identity", "other/session-"+uuid.NewString()+"/forged")
 			for _, value := range test.values {
-				headers.Add(apia2a.InsecureRuntimeIdentityHeader, value)
+				headers.Add(apia2a.RuntimeAuthorizationHeader, value)
 			}
-			session, err := (&Authenticator{}).Authenticate(t.Context(), headers, nil)
+			session, err := a.Authenticate(t.Context(), headers, nil)
 			if !test.valid {
 				require.Error(t, err)
 				return

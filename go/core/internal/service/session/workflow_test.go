@@ -405,7 +405,7 @@ func TestActorCreationFailsBeforeIssueWhenEgressPolicyCannotCompile(t *testing.T
 }
 
 func TestActorEgressPolicy(t *testing.T) {
-	policy, err := substrate.ActorEgressPolicy("team-a", []string{"https://API.Example.com.", "https://api.example.com:443", "https://api.example.com:0443", "http://api.example.com:8080"}, nil)
+	policy, err := substrate.ActorEgressPolicy("team-a", []string{"https://API.Example.com.", "https://api.example.com:443", "https://api.example.com:0443", "http://api.example.com:8080"}, nil, "")
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "default"}, policy.Metadata)
 	require.Len(t, policy.Rules, 2)
@@ -413,20 +413,20 @@ func TestActorEgressPolicy(t *testing.T) {
 	require.Equal(t, []int32{8080}, policy.Rules[0].GetHttp().GetPorts().GetNumbers())
 	require.Equal(t, []string{"api.example.com"}, policy.Rules[1].GetHttps().GetHostnames())
 	require.Equal(t, []int32{443}, policy.Rules[1].GetHttps().GetPorts().GetNumbers())
-	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil)
+	policy, err = substrate.ActorEgressPolicy("team-a", nil, nil, "")
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "no destinations must deny all egress")
 	for _, destination := range []string{"", "*", "api.example.com", "https://api.example.com/path", "http://api.example.com:0", "http://api.example.com:65536", "http://user@api.example.com", "http://api.example.com?key=value"} {
 		t.Run(destination, func(t *testing.T) {
-			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
+			_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil, "")
 			require.Error(t, err)
 		})
 	}
 	for _, destination := range []string{"http://192.0.2.1", "http://[2001:db8::1]", "http://[::ffff:192.0.2.1]"} {
-		_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil)
+		_, err := substrate.ActorEgressPolicy("team-a", []string{destination}, nil, "")
 		require.ErrorContains(t, err, "expected a DNS name")
 	}
-	_, err = substrate.ActorEgressPolicy("team-a", []string{"http://api.example.com:8443", "https://api.example.com:8443"}, nil)
+	_, err = substrate.ActorEgressPolicy("team-a", []string{"http://api.example.com:8443", "https://api.example.com:8443"}, nil, "")
 	require.ErrorContains(t, err, "both HTTP and HTTPS on the same port")
 }
 
@@ -435,9 +435,9 @@ func TestActorEgressCredentialsRequireAllowedDestination(t *testing.T) {
 		{Origin: "https://api.example.com:8443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"},
 		{Origin: "https://api.example.com:8443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/team/auth/key"},
 	}
-	_, err := substrate.ActorEgressPolicy("team", []string{"https://other.example.com"}, bindings)
+	_, err := substrate.ActorEgressPolicy("team", []string{"https://other.example.com"}, bindings, "")
 	require.ErrorContains(t, err, "is not explicitly allowed")
-	policy, err := substrate.ActorEgressPolicy("team", []string{"http://api.example.com:8080", "https://api.example.com:8443", "https://other.example.com"}, bindings)
+	policy, err := substrate.ActorEgressPolicy("team", []string{"http://api.example.com:8080", "https://api.example.com:8443", "https://other.example.com"}, bindings, "")
 	require.NoError(t, err)
 	require.Len(t, policy.Rules, 3)
 	require.Empty(t, policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders(), "credentials must not cross schemes or ports")

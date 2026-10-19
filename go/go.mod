@@ -36,6 +36,7 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/kagent-dev/mockllm v0.1.0
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
+	github.com/lestrrat-go/jwx v1.2.31
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/muesli/reflow v0.3.0
 	github.com/ollama/ollama v0.40.5
@@ -307,7 +308,6 @@ require (
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/iter v1.0.2 // indirect
-	github.com/lestrrat-go/jwx v1.2.31 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect

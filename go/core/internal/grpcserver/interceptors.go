@@ -26,11 +26,11 @@ import (
 )
 
 var forwardedMetadataKeys = map[string]string{
-	apia2a.InsecureRuntimeIdentityHeader: apia2a.InsecureRuntimeIdentityHeader,
-	"authorization":                      "Authorization",
-	"x-user-id":                          "X-User-Id",
-	"x-agent-name":                       "X-Agent-Name",
-	"x-share-token":                      "X-Share-Token",
+	apia2a.RuntimeAuthorizationHeader: apia2a.RuntimeAuthorizationHeader,
+	"authorization":                   "Authorization",
+	"x-user-id":                       "X-User-Id",
+	"x-agent-name":                    "X-Agent-Name",
+	"x-share-token":                   "X-Share-Token",
 }
 
 func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {

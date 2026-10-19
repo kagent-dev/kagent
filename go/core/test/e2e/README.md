@@ -273,6 +273,12 @@ prefix) and X-API-Key (without a prefix) match the Secret. The script has only
 inert placeholders. The test and its harness subtests run in parallel. Actor
 identity, policy checks, and credential injection use the normal Substrate path.
 
+`TestRuntimeActorJWTAuthentication` exercises TaskStore persistence through
+Substrate's Actor JWT injection on every harness, then verifies that direct
+calls with unsigned identity headers, public credentials, or an uninjected
+placeholder are rejected. The checkpoint and suspension tests also exercise
+authentication after the runtime's projected identity changes.
+
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
 persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`

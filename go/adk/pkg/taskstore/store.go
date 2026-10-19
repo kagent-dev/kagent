@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,7 +48,7 @@ func (s *Store) sessionID() (string, error) {
 	return id, nil
 }
 
-func (s *Store) callContext(ctx context.Context) (context.Context, context.CancelFunc, error) {
+func (s *Store) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	ctx, cancel := s.client.CallContext(ctx, "")
 	md, _ := metadata.FromOutgoingContext(ctx)
 	md = md.Copy()
@@ -57,19 +56,10 @@ func (s *Store) callContext(ctx context.Context) (context.Context, context.Cance
 	md.Delete("x-user-id")
 	md.Delete("x-agent-name")
 	md.Delete("x-share-token")
-	// Temporary identity transport until Substrate injects actor credentials (#1660).
-	// Reread on every call because restore rebinds these files to the new actor.
-	var identity []string
-	for _, field := range []string{"atespace", "name", "uid"} {
-		value, err := os.ReadFile(filepath.Join(filepath.Dir(s.identityPath), field))
-		if err != nil {
-			cancel()
-			return nil, nil, fmt.Errorf("read runtime identity %s: %w", field, err)
-		}
-		identity = append(identity, strings.TrimSpace(string(value)))
-	}
-	md.Set(apia2a.InsecureRuntimeIdentityHeader, strings.Join(identity, "/"))
-	return metadata.NewOutgoingContext(ctx, md), cancel, nil
+	// Substrate replaces this placeholder with the calling Actor's JWT, including
+	// after a restore or fork. No credential is kept in the runtime snapshot.
+	md.Set(apia2a.RuntimeAuthorizationHeader, "Bearer placeholder")
+	return metadata.NewOutgoingContext(ctx, md), cancel
 }
 
 // Create persists the SDK's initial task and returns its committed version.
@@ -183,11 +173,8 @@ func (s *Store) List(ctx context.Context, request *a2a.ListTasksRequest) (*a2a.L
 // retries conflicts, advances a version locally, or invokes the agent again.
 func (s *Store) retry(ctx context.Context, call func(context.Context) error) error {
 	for attempt := range 4 {
-		rpcCtx, cancel, err := s.callContext(ctx)
-		if err != nil {
-			return err
-		}
-		err = call(rpcCtx)
+		rpcCtx, cancel := s.callContext(ctx)
+		err := call(rpcCtx)
 		cancel()
 		if (status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded) || attempt == 3 {
 			return err

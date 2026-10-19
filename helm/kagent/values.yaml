@@ -188,6 +188,8 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: http://atenet-router.ate-system.svc:80
+    # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
+    actorJwtIssuer: https://idp.ate-system.svc
   logging:
     level: info
   metrics:

@@ -201,6 +201,11 @@ message SubstrateConfig {
     uri: true
     pattern: "^https?://[^/?#]+"
   }];
+  // Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
+  optional string actor_jwt_issuer = 5 [(buf.validate.field).string = {
+    uri: true
+    pattern: "^https://[^/?#]+"
+  }];
 }
 
 message SessionsConfig {

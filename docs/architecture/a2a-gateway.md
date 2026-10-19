@@ -186,21 +186,31 @@ Codex and Claude reserve their native session while approval/input is pending.
 Their local executor interceptor rejects input for another task before SDK
 execution. Other harnesses retain their existing policy for parked tasks. All harnesses permit at most one active execution.
 
-## Runtime authority and deployment prerequisite
+## Runtime authority
 
-TaskStore currently uses a temporary unsigned
-`x-kagent-insecure-runtime-identity` header carrying the projected atespace, actor
-name, and UID. Go and Python reread those files on every call so restored actors
-use their own identity. The API checks the requested session, atespace, and
-recorded actor UID; user and share credentials do not grant private persistence
-access. Public authentication remains unchanged.
+TaskStore requires a Substrate-issued Actor JWT. Go and Python send
+`x-kagent-runtime-authorization: Bearer placeholder`; the control-plane origin's
+egress rule replaces it with a five-minute JWT bound to the `kagent-runtime`
+audience. The separate header preserves public credentials used on the same
+origin. Other destinations receive no runtime JWT, and this rule does not grant
+network access to sandboxes that cannot already reach the control plane.
 
-This is the single prerelease path, with no configuration switch. The header can
-be forged and does not establish verified actor identity. These builds are for
-isolated deployments until [Substrate #1660](https://github.com/agent-substrate/substrate/issues/1660)
-supplies actor JWT injection. That implementation will replace the header path
-outright, including trusted issuer/JWKS, signature, audience, and expiry validation;
-there will be no fallback to unsigned headers.
+The controller trusts `substrate.actorJwtIssuer` (default
+`https://idp.ate-system.svc`). It fetches OIDC discovery and JWKS over TLS using
+`substrate.caFile`, checks the exact issuer, signature, audience, expiration and
+not-before time, and requires an `actor.ate.dev` identity consistent with the
+subject. Worker-for-actor tokens are not accepted. Signing keys refresh every
+minute; publish new verification keys at least a minute before using them.
+
+The service checks the verified actor name against the requested session and
+matches its atespace and recorded Actor UID. Public and share credentials cannot
+grant TaskStore access. The unsigned identity header is not accepted.
+
+Substrate supplies the calling Actor's current identity after restore and fork;
+no token is persisted in a runtime snapshot. Only the projected actor name is
+read locally, to choose the session being addressed. Controller and runtime
+images must be upgraded together; snapshots of older runtime images still send
+the removed header and must be recreated.
 
 ## Push notifications
 
