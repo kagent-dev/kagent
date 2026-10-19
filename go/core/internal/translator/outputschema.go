@@ -13,6 +13,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
+
+	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 )
 
 const maxOutputSchemaBytes = 64 << 10
@@ -21,6 +23,7 @@ const maxOutputSchemaBytes = 64 << 10
 // supported kagent ADK integration can consume. It is deliberately itself a
 // JSON Schema so keyword forms and recursive schema locations are validated by
 // jsonschema-go rather than by a parallel handwritten schema implementation.
+// The %s placeholder receives the supported string formats.
 const portableOutputSchemaMetaSchema = `{
 	"$schema":"https://json-schema.org/draft/2020-12/schema",
 	"$defs":{
@@ -36,14 +39,21 @@ const portableOutputSchemaMetaSchema = `{
 				"const":{},
 				"description":{"type":"string"},
 				"enum":{"type":"array","minItems":1},
+				"format":{"enum":%s},
 				"items":{"$ref":"#/$defs/schema"},
+				"pattern":{"type":"string"},
 				"properties":{"type":"object","additionalProperties":{"$ref":"#/$defs/schema"}},
 				"required":{"type":"array","items":{"type":"string","minLength":1},"uniqueItems":true},
 				"title":{"type":"string"},
 				"type":{"enum":["object","array","string","number","integer","boolean","null"]}
 			},
-			"additionalProperties":false
-		}
+			"additionalProperties":false,
+			"dependentSchemas":{
+				"format":{"$ref":"#/$defs/stringSchema"},
+				"pattern":{"$ref":"#/$defs/stringSchema"}
+			}
+		},
+		"stringSchema":{"properties":{"type":{"const":"string"}},"required":["type"]}
 	},
 	"allOf":[{"$ref":"#/$defs/schema"}],
 	"properties":{"type":{"const":"object"}},
@@ -51,8 +61,12 @@ const portableOutputSchemaMetaSchema = `{
 }`
 
 var resolvePortableOutputSchemaMetaSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
+	formats, err := json.Marshal(adkoutputschema.SupportedStringFormats())
+	if err != nil {
+		return nil, fmt.Errorf("encode supported output formats: %w", err)
+	}
 	var schema jsonschema.Schema
-	if err := json.Unmarshal([]byte(portableOutputSchemaMetaSchema), &schema); err != nil {
+	if err := json.Unmarshal(fmt.Appendf(nil, portableOutputSchemaMetaSchema, formats), &schema); err != nil {
 		return nil, fmt.Errorf("decode portable output meta-schema: %w", err)
 	}
 	resolved, err := schema.Resolve(nil)

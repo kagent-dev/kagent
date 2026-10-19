@@ -362,6 +362,46 @@ func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing
 	}
 }
 
+func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
+		JsonSchema: []byte(`{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"}},"required":["due","ticket"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		text    string
+		wantErr bool
+	}{
+		{name: "conforming", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42"}`},
+		{name: "not a date", text: `{"due":"not-a-date","ticket":"OPS-42"}`, wantErr: true},
+		{name: "pattern mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"DEV-42"}`, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := &adksession.Event{
+				Author: "root",
+				LLMResponse: model.LLMResponse{
+					Content:      genai.NewContentFromText(test.text, genai.RoleModel),
+					FinishReason: genai.FinishReasonStop,
+				},
+			}
+			update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(test.text))
+			err := transformStructuredOutput(output, "root", event, update)
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "output_validation_failed") {
+					t.Fatalf("transformStructuredOutput() error = %v, want output_validation_failed", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("transformStructuredOutput() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestTransformStructuredOutputRejectsIncompleteResponse(t *testing.T) {
 	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
 		JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),

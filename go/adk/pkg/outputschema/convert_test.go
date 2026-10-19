@@ -69,3 +69,19 @@ func TestToGenAISchemaBoundsReferenceExpansion(t *testing.T) {
 	_, err = ToGenAISchema(raw)
 	require.ErrorContains(t, err, "conversion exceeds maximum node count")
 }
+
+func TestToGenAISchemaKeepsPatternAndGeminiFormats(t *testing.T) {
+	schema, err := ToGenAISchema(json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"due":{"type":"string","format":"date-time"},
+			"day":{"type":"string","format":"date","pattern":"^2026-"},
+			"id":{"type":"string","format":"uuid"}
+		}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "date-time", schema.Properties["due"].Format)
+	require.Equal(t, "date", schema.Properties["day"].Format)
+	require.Equal(t, "^2026-", schema.Properties["day"].Pattern)
+	require.Empty(t, schema.Properties["id"].Format, "Gemini does not document uuid; the final validator still asserts it")
+}

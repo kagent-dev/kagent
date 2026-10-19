@@ -83,6 +83,32 @@ types, nested objects and arrays, `properties`, `required`,
 `additionalProperties`, `items`, `enum`, `const`, `anyOf`, titles and
 descriptions, and non-recursive local references through `$defs`.
 
+Schemas with `"type": "string"` can also use `pattern` and `format`. A
+`pattern` must be a regular expression that Go's RE2 syntax accepts, so
+lookaround and backreferences are rejected. `format` accepts the formats that
+both OpenAI and Claude structured outputs document: `date-time`, `time`,
+`date`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`, and `uuid`.
+
+```yaml
+outputSchema:
+  type: object
+  properties:
+    due:
+      type: string
+      format: date-time
+    ticket:
+      type: string
+      pattern: "^OPS-[0-9]+$"
+  required: [due, ticket]
+```
+
+OpenAI, Azure OpenAI, Claude, Bedrock, and Foundry requests carry both keywords
+unchanged. Gemini requests carry `pattern` and only the `date` and `date-time`
+formats, which Gemini documents. The final validator asserts every `pattern`
+and `format`, so a provider that ignores either keyword still cannot complete
+the Task with a nonconforming value. `date-time` follows RFC 3339 and requires
+a time zone offset; `time` accepts an optional offset.
+
 External or recursive references, conditional schemas, tuple arrays, and other
 unsupported keywords are rejected during compilation rather than silently
 weakened for a provider. A provider or model can still reject structured output

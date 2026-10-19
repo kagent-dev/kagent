@@ -43,6 +43,14 @@ func TestValidateOutputSchema(t *testing.T) {
 				"$defs":{"value":{"type":"integer","enum":[1,2]}}
 			}`,
 		},
+		{
+			name:   "string format and pattern",
+			schema: `{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"day":{"anyOf":[{"$ref":"#/$defs/day"},{"type":"null"}]}},"$defs":{"day":{"type":"string","format":"date","pattern":"^2026-"}}}`,
+		},
+		{name: "unsupported format", schema: `{"type":"object","properties":{"site":{"type":"string","format":"uri"}}}`, wantErr: `format: enum: uri does not equal any of: [date date-time duration email hostname ipv4 ipv6 time uuid]`},
+		{name: "format on non-string", schema: `{"type":"object","properties":{"count":{"type":"integer","format":"date"}}}`, wantErr: "does not equal string"},
+		{name: "pattern without type", schema: `{"type":"object","properties":{"code":{"pattern":"^[A-Z]+$"}}}`, wantErr: `missing properties: ["type"]`},
+		{name: "pattern not RE2", schema: `{"type":"object","properties":{"code":{"type":"string","pattern":"^(?=A)"}}}`, wantErr: "error parsing regexp"},
 		{name: "root is not object", schema: `{"type":"array","items":{"type":"string"}}`, wantErr: "does not equal object"},
 		{name: "unknown keyword", schema: `{"type":"object","oneOf":[]}`, wantErr: "unexpected additional properties"},
 		{name: "external ref", schema: `{"type":"object","properties":{"x":{"$ref":"https://example.com/schema"}}}`, wantErr: "does not match regular expression"},

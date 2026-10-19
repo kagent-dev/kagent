@@ -23,6 +23,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -206,13 +207,9 @@ func resolveStructuredOutput(config *configv1.ADKOutputConfig) (*structuredOutpu
 	if config == nil {
 		return nil, nil
 	}
-	var schema jsonschema.Schema
-	if err := json.Unmarshal(config.JsonSchema, &schema); err != nil {
-		return nil, fmt.Errorf("decode output schema: %w", err)
-	}
-	resolved, err := schema.Resolve(nil)
+	resolved, err := outputschema.ResolveValidator(config.JsonSchema)
 	if err != nil {
-		return nil, fmt.Errorf("resolve output schema: %w", err)
+		return nil, err
 	}
 	return &structuredOutput{schema: resolved, sha256: config.Sha256}, nil
 }
