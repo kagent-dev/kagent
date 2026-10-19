@@ -20,7 +20,6 @@ import type {
 import type {
   AgentInstance,
   AgentInstanceShare,
-  AgentInstanceSharePermission,
 } from "@/api/domain/agentInstances";
 import type { Harness } from "@/api/domain/harnesses";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
@@ -100,16 +99,14 @@ export function allToolServers(): ToolServerResponse[] {
  * Records a created tool server and answers with the row a list would show.
  *
  * Takes the type and the resource's metadata rather than the whole create request,
- * because that is all the RPC carries that identifies the server — and the two
- * server kinds keep their metadata in the same place.
+ * because that is all the RPC carries that identifies the server.
  */
 export function saveToolServer(
-  type: string,
   metadata: { name?: string; namespace?: string } | undefined,
 ): ToolServerResponse {
   const server: ToolServerResponse = {
     ref: `${metadata?.namespace ?? "kagent"}/${metadata?.name ?? "unnamed"}`,
-    groupKind: type === "RemoteMCPServer" ? "RemoteMCPServer.api.kagent.dev" : "MCPServer.kagent.dev",
+    groupKind: "RemoteMCPServer.api.kagent.dev",
     // Empty until the controller has handshaken with the server, which is the
     // honest state immediately after a create. Claiming otherwise would put tools
     // on screen that nothing has confirmed exist.
@@ -249,7 +246,6 @@ export const SEEDED_INSTANCE_SHARE: AgentInstanceShare = {
   id: "mock-instance-share-seed",
 
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  permission: "readOnly",
   createdAt: "2026-08-01T09:00:00Z",
 };
 
@@ -297,13 +293,11 @@ function readTokens(): Record<string, string> {
 
 export function createInstanceShare(
   agentInstanceId: string,
-  permission: AgentInstanceSharePermission,
 ): { share: AgentInstanceShare; token: string } {
   const existing = readInstanceShares();
   const share: AgentInstanceShare = {
     id: `mock-share-${existing.length + 1}`,
     agentInstanceId,
-    permission,
     createdAt: new Date().toISOString(),
   };
   // Obviously fake, and long enough to look like the controller's own.

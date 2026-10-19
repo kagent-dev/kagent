@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Modal, Space, Switch, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Modal, Space, Table, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Copy, Trash2 } from "lucide-react";
 import { apiClient, type AgentInstanceShare } from "@/api";
@@ -9,59 +9,10 @@ import { copyText } from "@/components/common/copyText";
 
 const { Text } = Typography;
 
-/**
- * Share links for one conversation: create, list, revoke.
- *
- * ## What a share is over
- *
- * An `AgentInstance`. The instance *is* the conversation — the A2A gateway files
- * every task under it as the task's `contextId` — so sharing one hands somebody what
- * was said. The gRPC interceptor validates the instance token, and the A2A gateway
- * authorises that same instance as the share's owner.
- *
- * ## A token is shown once, and the list never shows one
- *
- * The controller stores only a digest — which is what keeps a database dump from
- * being a set of working links — so the token comes back from the create call and
- * from nowhere else. The list can therefore show that a share exists, when it was
- * made and what it allows, but never the link itself.
- *
- * This is not a limitation to work around: it is the reason the newly created link
- * is shown prominently and says it will not be shown again. A dialog that listed
- * tokens would be describing an API that does not exist.
- *
- * ## Read-only is the default, and stays the default
- *
- * `READ_ONLY` allows A2A get, list and subscribe; `READ_WRITE` also allows send and
- * cancel — so the second one lets a visitor talk *as* the owner. That is the right
- * way round for something that gives away access, so the switch starts off and has
- * to be turned on.
- */
-
-/**
- * The address a share is sent as.
- *
- * Absolute, because it is going into somebody else's messages: a path would be
- * copied into a chat and pasted somewhere that has no idea what host it came from.
- * Built from the page's own origin, so a deployment behind any hostname produces
- * links to itself.
- */
-/**
- * The link a reader sends somebody.
- *
- * A read-write share carries `?reply` so the page it opens knows to offer a composer.
- * That is a *hint*, not a permission: the controller resolves the token and refuses a
- * send the share does not allow, whatever the address claims. Without it the visitor
- * has no way to know a reply is allowed — the share's permission is readable only by
- * its owner — and the toggle that granted it would do nothing they could see.
- */
-function shareLink(
-  id: string,
-  token: string,
-  allowWrites: boolean,
-): string {
+/** Build an absolute link for read-only access to a conversation. */
+function shareLink(id: string, token: string): string {
   const path = buildPath(paths.sharedAgent, { id, token });
-  return `${window.location.origin}${withBasePath(path)}${allowWrites ? "?reply" : ""}`;
+  return `${window.location.origin}${withBasePath(path)}`;
 }
 
 export function ShareDialog({
@@ -87,7 +38,6 @@ export function ShareDialog({
    */
   const [shares, setShares] = useState<AgentInstanceShare[]>();
   const [error, setError] = useState<string>();
-  const [allowWrites, setAllowWrites] = useState(false);
   const [isCreating, setCreating] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -136,14 +86,8 @@ export function ShareDialog({
     setCreating(true);
     setError(undefined);
     try {
-      const created = await apiClient.agentInstances.shares.create(
-
-        conversation.id,
-        allowWrites ? "readWrite" : "readOnly",
-      );
-      setFreshLink(
-        shareLink(conversation.id, created.token, allowWrites),
-      );
+      const created = await apiClient.agentInstances.shares.create(conversation.id);
+      setFreshLink(shareLink(conversation.id, created.token));
       reload();
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -187,22 +131,9 @@ export function ShareDialog({
         data-testid="share-dialog"
       >
         <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-          Whoever opens the link can read this conversation. They sign in as
-          themselves — a share widens what one account may read, it does not replace
-          signing in.
+          Whoever opens the link can read this conversation after signing in.
+          Shared links are read-only and do not allow replies.
         </Text>
-
-        <Space size={8}>
-          <Switch
-            checked={allowWrites}
-            onChange={setAllowWrites}
-            data-testid="share-allow-writes"
-          />
-          <Text>Also allow replies</Text>
-          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-            Anything they send goes to this agent as you.
-          </Text>
-        </Space>
 
         <Button
           type="primary"
@@ -288,13 +219,6 @@ export function ShareDialog({
                   {share.id}
                 </Text>
               ),
-            },
-            {
-              title: "Allows",
-              key: "permission",
-              width: 130,
-              render: (_, share) =>
-                share.permission === "readWrite" ? "Read & write" : "Read only",
             },
             {
               title: "",

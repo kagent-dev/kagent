@@ -2,12 +2,13 @@
 package models
 
 import (
+	"cmp"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
-	"slices"
+	"mime"
+	"net/http"
 	"strings"
 
 	"github.com/openai/openai-go/v3/packages/param"
@@ -15,6 +16,8 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 )
 
 func generateContentResponses(
@@ -71,9 +74,9 @@ func applyOpenAIResponsesConfig(params *responses.ResponseNewParams, cfg *OpenAI
 	}
 	// Responses uses max_output_tokens (same semantics as max_completion_tokens).
 	if cfg.MaxCompletionTokens != nil {
-		params.MaxOutputTokens = param.NewOpt(int64(*cfg.MaxCompletionTokens))
+		params.MaxOutputTokens = param.NewOpt(*cfg.MaxCompletionTokens)
 	} else if cfg.MaxTokens != nil {
-		params.MaxOutputTokens = param.NewOpt(int64(*cfg.MaxTokens))
+		params.MaxOutputTokens = param.NewOpt(*cfg.MaxTokens)
 	}
 	if cfg.TopP != nil {
 		params.TopP = param.NewOpt(*cfg.TopP)
@@ -102,9 +105,11 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 		}
 	}
 
-	newestUser := newestUserTurn(contents)
+	// The size of this file and every newer one: while it is over the cap, the file
+	// becomes a note, so the newest files are the ones sent.
+	fileBytes := requestFileBytes(contents)
 	var input responses.ResponseInputParam
-	for i, content := range contents {
+	for _, content := range contents {
 		if content == nil || strings.TrimSpace(content.Role) == openAIRoleSystem {
 			continue
 		}
@@ -126,27 +131,32 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				functionCalls = append(functionCalls, part.FunctionCall)
 			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
 				hasFile = true
-				contentParts = append(contentParts, responsesInputImage(fmt.Sprintf(
-					"data:%s;base64,%s",
-					part.InlineData.MIMEType,
-					base64.StdEncoding.EncodeToString(part.InlineData.Data),
-				)))
+				contentParts = append(contentParts, responsesInputImage(dataURL(part.InlineData.MIMEType, part.InlineData.Data)))
+			} else if fileType := responsesFileType(part); fileType != "" && role == genai.RoleUser && fileBytes > maxRequestFileBytes {
+				fileBytes -= len(part.InlineData.Data)
+				note := overFileCapNote(part.InlineData.DisplayName)
+				textParts = append(textParts, note)
+				contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(note))
+			} else if fileType != "" && role == genai.RoleUser {
+				hasFile = true
+				contentParts = append(contentParts, fileNameParts(part.InlineData.DisplayName)...)
+				file := responses.ResponseInputFileParam{
+					FileData: param.NewOpt(dataURL(fileType, part.InlineData.Data)),
+					Filename: param.NewOpt(cmp.Or(part.InlineData.DisplayName, "file")),
+				}
+				contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 			} else if part.FileData != nil && role == genai.RoleUser {
-				// The provider fetches the link itself, on this turn and on every replayed one.
+				// The provider fetches the link itself. fileextract makes links in older turns text.
 				switch {
-				case !isHTTPLink(part.FileData.FileURI) && i == newestUser:
-					return nil, "", unsupportedLinkError(part.FileData)
 				case !isHTTPLink(part.FileData.FileURI):
-					note := unsupportedLinkNote(part.FileData)
-					textParts = append(textParts, note)
-					contentParts = append(contentParts, responses.ResponseInputContentParamOfInputText(note))
+					return nil, "", unsupportedLinkError(part.FileData)
 				case strings.HasPrefix(part.FileData.MIMEType, "image/"):
 					hasFile = true
-					contentParts = append(contentParts, linkNameParts(part.FileData)...)
+					contentParts = append(contentParts, fileNameParts(part.FileData.DisplayName)...)
 					contentParts = append(contentParts, responsesInputImage(part.FileData.FileURI))
 				default:
 					hasFile = true
-					contentParts = append(contentParts, linkNameParts(part.FileData)...)
+					contentParts = append(contentParts, fileNameParts(part.FileData.DisplayName)...)
 					file := responses.ResponseInputFileParam{FileURL: param.NewOpt(part.FileData.FileURI)}
 					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 				}
@@ -196,13 +206,14 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 	return input, instructions, nil
 }
 
-// linkNameParts names a link in a text part before it: neither input_file nor
-// input_image takes a name next to a URL (Azure rejects filename beside file_url).
-func linkNameParts(f *genai.FileData) responses.ResponseInputMessageContentListParam {
-	if f.DisplayName == "" {
+// fileNameParts names a file in a text part before it: the model does not see
+// input_file's filename, and neither input_file nor input_image takes a name next
+// to a URL (Azure rejects filename beside file_url).
+func fileNameParts(name string) responses.ResponseInputMessageContentListParam {
+	if name == "" {
 		return nil
 	}
-	return responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText("File: " + f.DisplayName)}
+	return responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText("File: " + name)}
 }
 
 // responsesInputImage builds an input_image part from a data or https URL.
@@ -217,15 +228,28 @@ func isHTTPLink(uri string) bool {
 	return strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://")
 }
 
-// newestUserTurn is the index of the last user content, or -1. Only a bad link
-// there fails the request; in replayed history it becomes a note.
-func newestUserTurn(contents []*genai.Content) int {
-	for i, c := range slices.Backward(contents) {
+// maxRequestFileBytes caps the bytes of the files in one request: OpenAI takes at
+// most 50 MB of files in total per request.
+// https://developers.openai.com/api/docs/guides/file-inputs#usage-considerations
+const maxRequestFileBytes = 50_000_000 // decimal MB: under the limit if OpenAI means MiB too
+
+// requestFileBytes is the size of the user files that input_file gets as bytes.
+func requestFileBytes(contents []*genai.Content) (n int) {
+	for _, c := range contents {
 		if c != nil && strings.TrimSpace(c.Role) == genai.RoleUser {
-			return i
+			for _, p := range c.Parts {
+				if p != nil && responsesFileType(p) != "" {
+					n += len(p.InlineData.Data)
+				}
+			}
 		}
 	}
-	return -1
+	return n
+}
+
+func overFileCapNote(name string) string {
+	return fmt.Sprintf("[File %q was not sent: the files in this chat are over the %d MB limit for one request.]",
+		cmp.Or(name, "file"), maxRequestFileBytes/1_000_000)
 }
 
 func unsupportedLinkError(f *genai.FileData) error {
@@ -233,15 +257,6 @@ func unsupportedLinkError(f *genai.FileData) error {
 		return fmt.Errorf("cannot send link %q without a media type: %s", f.FileURI, linkRule)
 	}
 	return fmt.Errorf("cannot send link %q with media type %q: %s", f.FileURI, f.MIMEType, linkRule)
-}
-
-// unsupportedLinkNote keeps the URL, so a model with a fetch tool can still use it.
-func unsupportedLinkNote(f *genai.FileData) string {
-	link := f.FileURI
-	if f.DisplayName != "" {
-		link = fmt.Sprintf("%s (%s)", f.DisplayName, f.FileURI)
-	}
-	return fmt.Sprintf("[Link %q was not sent: %s.]", link, linkRule)
 }
 
 func genaiToolsToResponsesTools(tools []*genai.Tool) []responses.ToolUnionParam {
@@ -414,15 +429,19 @@ func responseToLLMResponse(resp *responses.Response) *model.LLMResponse {
 	}
 }
 
+// responsesUsageToGenai follows the genai convention, where candidates exclude
+// thoughts: the Responses API counts reasoning inside output_tokens.
 func responsesUsageToGenai(u responses.ResponseUsage) *genai.GenerateContentResponseUsageMetadata {
 	if u.InputTokens == 0 && u.OutputTokens == 0 {
 		return nil
 	}
+	reasoning := u.OutputTokensDetails.ReasoningTokens
 	return &genai.GenerateContentResponseUsageMetadata{
 		PromptTokenCount:        int32(u.InputTokens),
-		CandidatesTokenCount:    int32(u.OutputTokens),
+		CandidatesTokenCount:    int32(u.OutputTokens - reasoning),
 		CachedContentTokenCount: int32(u.InputTokensDetails.CachedTokens),
-		ThoughtsTokenCount:      int32(u.OutputTokensDetails.ReasoningTokens),
+		ThoughtsTokenCount:      int32(reasoning),
+		TotalTokenCount:         int32(u.TotalTokens),
 	}
 }
 
@@ -435,4 +454,36 @@ func responsesStatusToFinishReason(status responses.ResponseStatus) genai.Finish
 	default:
 		return genai.FinishReasonStop
 	}
+}
+
+// responsesFileTypes are the document types that input_file reads from bytes
+// (pdf and Office; text types stay with fileextract as plain text), each with the
+// type http.DetectContentType gives its bytes: an Office file is a zip archive.
+var responsesFileTypes = map[string]string{
+	"application/pdf": "application/pdf",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   "application/zip",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         "application/zip",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": "application/zip",
+}
+
+// responsesFileType is the media type of p's bytes, without parameters, when
+// input_file reads them, else "". The bytes must match the type, as the provider
+// rejects a file that does not; fileextract gives that file the could-not-be-read note.
+func responsesFileType(p *genai.Part) string {
+	if p.InlineData == nil {
+		return ""
+	}
+	mediaType, _, _ := mime.ParseMediaType(p.InlineData.MIMEType)
+	if sniffed, ok := responsesFileTypes[mediaType]; ok && http.DetectContentType(p.InlineData.Data) == sniffed {
+		return mediaType
+	}
+	return ""
+}
+
+var _ fileextract.FileSender = (*OpenAIModel)(nil)
+
+// ProviderAccepts implements fileextract.FileSender: the Responses API takes links,
+// and pdf and Office files as bytes. Chat Completions takes neither.
+func (m *OpenAIModel) ProviderAccepts(p *genai.Part) bool {
+	return m.apiFormat() == OpenAIAPIFormatResponses && (p.FileData != nil || responsesFileType(p) != "")
 }

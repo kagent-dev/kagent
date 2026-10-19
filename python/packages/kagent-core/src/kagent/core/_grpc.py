@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import grpc
-from kagent.api.v1alpha1 import memory_pb2_grpc, task_store_pb2_grpc
+from kagent.runtime.v1 import memory_pb2_grpc, task_store_pb2_grpc
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_MESSAGE_BYTES = 16 << 20

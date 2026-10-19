@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package kagent.api.v1;
+
+import "buf/validate/validate.proto";
+import "kagent/api/v1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
+
+// AgentService manages runnable definitions pairing templates and harnesses.
+service AgentService {
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
+  rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
+  rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
+  rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
+}
+
+message Agent {
+  ResourceReference ref = 1;
+
+  // Complete Agent CR, including its inline or referenced configuration and status.
+  StructuredObject resource = 2;
+}
+
+message ListAgentsRequest {
+  // Empty lists every namespace.
+  string namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
+  PageRequest page = 2;
+}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+  PageResponse page = 2;
+}
+
+message GetAgentRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+}
+
+message GetAgentResponse {
+  Agent agent = 1;
+}
+
+message CreateAgentRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field).required = true];
+}
+
+message CreateAgentResponse {
+  Agent agent = 1;
+}
+
+message UpdateAgentRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+  StructuredObject resource = 2 [(buf.validate.field).required = true];
+}
+
+message UpdateAgentResponse {
+  Agent agent = 1;
+}
+
+message DeleteAgentRequest {
+  ResourceReference ref = 1 [(buf.validate.field).required = true];
+}
+
+message DeleteAgentResponse {}

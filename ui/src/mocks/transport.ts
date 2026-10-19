@@ -1,10 +1,10 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
-import { AgentService } from "@/generated/kagent/api/v1alpha1/agents_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
+import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
-import { ActorState, SandboxClass, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
+import { ActorState, SnapshotStorageStatus, type WorkerSchema, type ActorSchema } from "@/generated/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/ateapi_pb";
-import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1alpha1/scheduled_runs_pb";
+import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * The mock backend, as a gRPC transport.
  *
@@ -38,7 +38,7 @@ import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, S
  * ## What it answers, and what it refuses
  *
  * A call is dispatched on `service.typeName/method.name`, so the table below reads
- * as the controller's own API surface — `kagent.api.v1alpha1.ModelService/ListModelConfigs`
+ * as the controller's own API surface — `kagent.api.v1.ModelService/ListModelConfigs`
  * and so on. An RPC with no entry answers `Unimplemented` naming itself, and
  * `stream` throws for the same reason: nothing in this app streams over gRPC yet,
  * and a silently empty stream is a fixture that lies.
@@ -82,24 +82,23 @@ import type {
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Transport, UnaryResponse } from "@connectrpc/connect";
-import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
-import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { HarnessService } from "@/generated/kagent/api/v1/harnesses_pb";
+import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
+} from "@/generated/kagent/api/v1/system_pb";
 import {
   CheckpointService,
   CheckpointState as PbCheckpointState,
-} from "@/generated/kagent/api/v1alpha1/checkpoints_pb";
+} from "@/generated/kagent/api/v1/checkpoints_pb";
 import {
   SessionService,
-  SessionSharePermission as PbSharePermission,
   type SessionSchema,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1alpha1/common_pb";
+} from "@/generated/kagent/api/v1/sessions_pb";
+import type { ResourceReferenceSchema } from "@/generated/kagent/api/v1/common_pb";
 import type {
   AgentInstance,
   AgentInstanceOperation,
@@ -514,11 +513,11 @@ on(ToolService.method.createToolServer, (input) => {
     input.resource,
     "tool server",
   );
-  saveToolServer(input.type, server.metadata);
+  saveToolServer(server.metadata);
   // The RPC answers with the created resource rather than with a list row, which
   // is what the client assembles the row from.
   return {
-    resource: structured(input.type, server, input.type === "MCPServer" ? "kagent.dev/v1alpha1" : undefined),
+    resource: structured(input.type, server),
   };
 });
 
@@ -1052,10 +1051,7 @@ on(SessionService.method.createSessionShare, (input, call) => {
     requireInstanceId(input.sessionId),
     call,
   );
-  const { share, token } = createInstanceShare(
-    instance.id,
-    input.permission === PbSharePermission.READ_WRITE ? "readWrite" : "readOnly",
-  );
+  const { share, token } = createInstanceShare(instance.id);
   return { share: instanceShareMessage(share), token };
 });
 
@@ -1069,10 +1065,6 @@ on(SessionService.method.revokeSessionShare, (input) => {
 const instanceShareMessage = (share: AgentInstanceShare) => ({
   id: share.id,
   sessionId: share.agentInstanceId,
-  permission:
-    share.permission === "readWrite"
-      ? PbSharePermission.READ_WRITE
-      : PbSharePermission.READ_ONLY,
   createdAt: timestampFromDate(new Date(share.createdAt)),
 });
 
@@ -1354,11 +1346,6 @@ function substrateActorTemplateMessage(
         errorMessage: template.phase === "Failed" ? "Golden snapshot failed" : "",
       },
     },
-    sandboxConfig: {
-      sandboxClass:
-        SandboxClass[template.sandboxClass?.toUpperCase() as keyof typeof SandboxClass]
-        ?? SandboxClass.UNSPECIFIED,
-    },
     workerSelector: {
       matchLabels: template.workerSelector
         ? Object.fromEntries(template.workerSelector.split(",").map((label) => label.split("=")))
@@ -1381,7 +1368,7 @@ function substrateActorMessage(
       name: actor.actorTemplateName ?? "",
     },
     status: {
-      state: ActorState[
+      state: actor.status === "Paused" ? ActorState.SUSPENDED : ActorState[
         actor.status.replace(/^ACTOR_STATE_/, "").toUpperCase() as keyof typeof ActorState
       ] ?? ActorState.UNSPECIFIED,
       workerAssignment: actor.ateomPodName ? {
@@ -1390,10 +1377,18 @@ function substrateActorMessage(
         workerPodIps: actor.ateomPodIp ? [actor.ateomPodIp] : [],
         workerPool: actor.workerPoolName ?? "",
       } : undefined,
-      externalSnapshot: actor.latestSnapshot
-        ? { snapshotUri: actor.latestSnapshot }
-        : undefined,
-      inProgressLocalSnapshotName: actor.inProgressSnapshot ?? "",
+      snapshots: [
+        ...(actor.latestSnapshot ? [{
+          generation: 1,
+          durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: actor.latestSnapshot } },
+        }] : []),
+        ...(actor.status === "Paused" ? [{ generation: 2, locality: "worker-node" }] : []),
+        ...(actor.inProgressSnapshot ? [{
+          generation: 3,
+          uuid: actor.inProgressSnapshot,
+          durableSnapshot: { status: SnapshotStorageStatus.PENDING },
+        }] : []),
+      ],
     },
   };
 }

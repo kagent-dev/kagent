@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/cli"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
 func executeConfig(t *testing.T, args ...string) (string, error) {
@@ -35,14 +36,15 @@ func TestConfigFileAndFlagPrecedence(t *testing.T) {
 output:
   format: json
 database:
-  urlFile: secret-not-present
+  owner:
+    urlFile: secret-not-present
 install:
   substrate:
     version: v1.2.3
 `), 0600))
 	output, err := executeConfig(t, "--config", path, "config", "view", "--namespace", "flag-ns", "--timeout", "0", "--verbose=false")
 	require.NoError(t, err)
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
 	require.Equal(t, "flag-ns", cfg.GetConnection().GetNamespace())
 	require.Equal(t, "file-user", cfg.GetConnection().GetUserId())
@@ -51,7 +53,7 @@ install:
 	require.Equal(t, filepath.Join(dir, "ca.pem"), cfg.GetConnection().GetCaFile())
 	require.Equal(t, "json", cfg.GetOutput().GetFormat())
 	require.Equal(t, "v1.2.3", cfg.GetInstall().GetPodCertificate().GetVersion())
-	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.GetDatabase().GetUrlFile())
+	require.Equal(t, filepath.Join(dir, "secret-not-present"), cfg.GetDatabase().GetOwner().GetUrlFile())
 	_, err = executeConfig(t, "--config", path, "config", "validate")
 	require.NoError(t, err)
 }
@@ -70,7 +72,7 @@ func TestDefaultConfigIsOptionalAndCommandTreesAreIndependent(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	first, err := executeConfig(t, "config", "view", "--namespace", "first")
 	require.NoError(t, err)
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(first), cfg))
 	require.Equal(t, "first", cfg.GetConnection().GetNamespace())
 	second, err := executeConfig(t, "config", "view")
@@ -86,7 +88,7 @@ func TestDatabasePreRunLoadsRootConfig(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, []byte("unexpected: true"), 0600))
 			_, err := executeConfig(t, "--config", path, "db", "migrate", command)
 			require.ErrorContains(t, err, "unknown field")
-			require.NoError(t, os.WriteFile(path, []byte("database: {urlFile: missing-url}"), 0600))
+			require.NoError(t, os.WriteFile(path, []byte("database: {owner: {urlFile: missing-url}}"), 0600))
 			_, err = executeConfig(t, "--config", path, "db", "migrate", command)
 			require.ErrorContains(t, err, "missing-url")
 		})

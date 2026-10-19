@@ -8,14 +8,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
-	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/api/client"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 const (
@@ -42,8 +43,8 @@ type Client struct {
 	maxMessageBytes  int
 	agentName        string
 	tokenProvider    TokenProvider
-	memoryService    apiv1alpha1.MemoryServiceClient
-	taskStoreService apiv1alpha1.TaskStoreServiceClient
+	memoryService    runtimev1.MemoryServiceClient
+	taskStoreService runtimev1.TaskStoreServiceClient
 	closeOnce        sync.Once
 	closeErr         error
 }
@@ -90,8 +91,8 @@ func New(config Config) (*Client, error) {
 		maxMessageBytes:  config.MaxMessageBytes,
 		agentName:        config.AgentName,
 		tokenProvider:    config.TokenProvider,
-		memoryService:    apiv1alpha1.NewMemoryServiceClient(connection),
-		taskStoreService: apiv1alpha1.NewTaskStoreServiceClient(connection),
+		memoryService:    runtimev1.NewMemoryServiceClient(connection),
+		taskStoreService: runtimev1.NewTaskStoreServiceClient(connection),
 	}, nil
 }
 
@@ -113,11 +114,11 @@ func targetFromURL(rawURL string) (string, bool, error) {
 	}
 }
 
-func (client *Client) MemoryService() apiv1alpha1.MemoryServiceClient {
+func (client *Client) MemoryService() runtimev1.MemoryServiceClient {
 	return client.memoryService
 }
 
-func (client *Client) TaskStoreService() apiv1alpha1.TaskStoreServiceClient {
+func (client *Client) TaskStoreService() runtimev1.TaskStoreServiceClient {
 	return client.taskStoreService
 }
 

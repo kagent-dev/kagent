@@ -18,9 +18,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // CognitiveServicesScope is the Azure data-plane scope used to request AAD tokens

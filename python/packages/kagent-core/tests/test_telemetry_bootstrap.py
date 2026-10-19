@@ -14,7 +14,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import get_current_span
 
-from kagent.core._runtime_config import ExporterConfig, OTLPConfig, RuntimeConfig, RuntimeTelemetry
+from kagent.core._runtime_config import OTLPConfig, RuntimeConfig, TelemetryConfig
 from kagent.core.telemetry import _boot, _defaults
 from kagent.core.telemetry._conv import KagentRuntimeValues
 from kagent.core.telemetry._profiles import PROFILES, profile_for
@@ -54,9 +54,7 @@ def configurator(monkeypatch):
 
 def exporting_config(**kwargs):
     return RuntimeConfig(
-        telemetry=RuntimeTelemetry(
-            exporters=ExporterConfig(traces=OTLPConfig(endpoint="http://collector:4317", protocol="grpc"))
-        ),
+        telemetry=TelemetryConfig(traces=OTLPConfig(endpoint="http://collector:4317", protocol="grpc")),
         **kwargs,
     )
 
@@ -166,7 +164,7 @@ def test_instrumentation_adapter_preserves_overrides(monkeypatch):
     monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     monkeypatch.delenv("OTEL_INSTRUMENTATION_A2A_SDK_ENABLED", raising=False)
 
-    _defaults.apply(RuntimeTelemetry())
+    _defaults.apply(TelemetryConfig())
 
     import os
 
@@ -322,7 +320,8 @@ def test_specific_connection_overrides_generic(monkeypatch):
 @pytest.mark.parametrize("timeout", [0, 10000, 1234])
 def test_timeout_omits_only_sdk_default(timeout):
     config = exporting_config().telemetry
-    config.exporters.traces.timeout_ms = timeout
+    if timeout:
+        config.traces.timeout.FromMilliseconds(timeout)
     _defaults.apply(config)
     if timeout in (0, 10000):
         assert "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT" not in os.environ

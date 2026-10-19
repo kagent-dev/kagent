@@ -11,15 +11,16 @@ import (
 	"strings"
 	"time"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
-	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 
-	"github.com/briandowns/spinner"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
+	"github.com/kagent-dev/kagent/go/core/internal/version"
+	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
 )
 
 type InstallCfg struct {
@@ -125,19 +126,8 @@ type helmConfig struct {
 	inlineValues string
 }
 
-func crdChartValues(values []string) []string {
-	var result []string
-	for _, value := range values {
-		key, _, _ := strings.Cut(value, "=")
-		if key == "kmcp.enabled" {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
 func podCertificateChartValues(values []string, namespace string, includeBundledPostgresClient bool) []string {
-	result := make([]string, 0, len(values)+1)
+	result := make([]string, 0, len(values)+2)
 	for _, value := range values {
 		key, _, _ := strings.Cut(value, "=")
 		if strings.HasPrefix(key, "image.") || strings.HasPrefix(key, "global.") || strings.HasPrefix(key, "imagePullSecrets") {
@@ -145,14 +135,18 @@ func podCertificateChartValues(values []string, namespace string, includeBundled
 		}
 	}
 	if includeBundledPostgresClient {
-		result = append(result, fmt.Sprintf("postgresClients[0]=%s/kagent-controller=kagent_user", namespace))
+		// One entry per login: Helm's --set would split a comma-separated username list.
+		result = append(result,
+			fmt.Sprintf("postgresClients[0]=%s/kagent-controller=%s", namespace, kagentsetup.OwnerUser),
+			fmt.Sprintf("postgresClients[1]=%s/kagent-controller=%s", namespace, kagentsetup.ReadWriteUser),
+		)
 	}
 	return result
 }
 
 // setupHelmConfig sets up the helm config for the kagent chart
 // This sets up the general configuration for a helm installation without the profile, which is calculated later based on the installation type (interactive or non-interactive)
-func setupHelmConfig(chart *apiv1.ChartConfig, modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
+func setupHelmConfig(chart *configv1.ChartConfig, modelProvider v1alpha3.ModelProvider, apiKeyValue string) helmConfig {
 	// Build Helm values
 	helmProviderKey := GetModelProviderHelmValuesKey(modelProvider)
 	values := []string{
@@ -173,14 +167,14 @@ config:
 	return result
 }
 
-func chartConfig(chart *apiv1.ChartConfig) helmConfig {
+func chartConfig(chart *configv1.ChartConfig) helmConfig {
 	return helmConfig{registry: strings.TrimRight(chart.GetRepository(), "/") + "/", version: chart.GetVersion(), valuesFiles: slices.Clone(chart.GetValuesFiles())}
 }
 
 // install installs the Substrate and Kagent releases.
 func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig, podCertificateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool, postgresImage string) error {
-	substrateHelmConfig.inlineValues = fmt.Sprintf("credentialProvider:\n  namespacePolicies:\n    - atespace: %s\n      allowedNamespaces: [%s]\n", strconv.Quote(cfg.Namespace), strconv.Quote(cfg.Namespace))
-	helmConfig.inlineValues += fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote("ghcr.io/kagent-dev/substrate/ateom-gvisor:v"+strings.TrimPrefix(substrateHelmConfig.version, "v")))
+	substrateHelmConfig.inlineValues = substrateInstallValues(cfg.Namespace)
+	helmConfig.inlineValues += fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote("ghcr.io/kagent-dev/substrate/ateworker-gvisor:v"+strings.TrimPrefix(substrateHelmConfig.version, "v")))
 
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
@@ -189,7 +183,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	s.Suffix = " Installing kagent-crds from " + helmConfig.registry
 	defer s.Stop()
 	s.Start()
-	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, crdChartValues(helmConfig.values), helmConfig.valuesFiles, ""); err != nil {
+	if output, err := installChart(ctx, "kagent-crds", cfg.Namespace, helmConfig.registry, helmConfig.version, nil, helmConfig.valuesFiles, ""); err != nil {
 		// Helm creates the namespaces later steps deploy into, so CRDs it does not
 		// own, such as those left by an old install, stop the install.
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
@@ -204,7 +198,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 
 	s.Suffix = " Preparing Substrate prerequisites"
-	if err := prepareSubstrate(ctx); err != nil {
+	if err := prepareSubstrate(ctx, cfg.Namespace); err != nil {
 		return fmt.Errorf("prepare Substrate prerequisites: %w", err)
 	}
 
@@ -414,4 +408,18 @@ func NewUninstallCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// substrateInstallValues grants the default controller's pod-certificate identity
+// access to the Substrate control plane. Explicit values files override defaults.
+func substrateInstallValues(namespace string) string {
+	return fmt.Sprintf(`ateApi:
+  authorization:
+    bootstrapOwners:
+      - %s
+credentialProvider:
+  namespacePolicies:
+    - atespace: %s
+      allowedNamespaces: [%s]
+`, strconv.Quote("spiffe://cluster.local/ns/"+namespace+"/sa/kagent-controller"), strconv.Quote(namespace), strconv.Quote(namespace))
 }

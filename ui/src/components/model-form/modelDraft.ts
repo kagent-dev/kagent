@@ -202,7 +202,7 @@ function authTypeFrom(spec: ModelConfigSpec): ModelAuthType {
   if (spec.provider === OLLAMA_PROVIDER) {
     return spec.apiKeySecret ? "secret" : "none";
   }
-  if (spec.apiKeyPassthrough) return "passthrough";
+  if (spec.tokenPassthrough) return "passthrough";
   if (spec.apiKeySecret) return "secret";
   return "none";
 }
@@ -288,7 +288,7 @@ export function buildModelPayload(draft: ModelDraft): CreateModelConfigRequest {
         }
       }
     } else if (draft.authType === "passthrough") {
-      spec.apiKeyPassthrough = true;
+      spec.tokenPassthrough = true;
     }
   } else if (draft.authType === "secret" && draft.apiKeySecret.trim()) {
     spec.apiKeySecret = draft.apiKeySecret.trim();

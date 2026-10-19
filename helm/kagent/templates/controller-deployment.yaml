@@ -1,6 +1,11 @@
-{{- $databaseConnectionStringSecretRef := .Values.database.postgres.connectionStringSecretRef | default dict -}}
-{{- if not (get $databaseConnectionStringSecretRef "name") -}}
-{{- fail "database.postgres.connectionStringSecretRef.name is required" -}}
+{{- $readWriteSecretRef := .Values.database.postgres.readWriteConnectionStringSecretRef | default dict -}}
+{{- if not (get $readWriteSecretRef "name") -}}
+{{- fail "database.postgres.readWriteConnectionStringSecretRef.name is required" -}}
+{{- end -}}
+{{- $ownerSecretRef := .Values.database.postgres.ownerConnectionStringSecretRef | default dict -}}
+{{- $skipMigrations := include "kagent.database.skipMigrations" . -}}
+{{- if and (not $skipMigrations) (not (get $ownerSecretRef "name")) -}}
+{{- fail "database.postgres.ownerConnectionStringSecretRef.name is required unless config.database.skipMigrations is true" -}}
 {{- end -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -46,10 +51,17 @@ spec:
         projected:
           sources:
           - secret:
-              name: {{ include "kagent.postgres.connectionStringSecretName" . }}
+              name: {{ get $readWriteSecretRef "name" }}
               items:
-              - key: {{ get $databaseConnectionStringSecretRef "key" | default "connectionString" }}
-                path: database-url
+              - key: {{ get $readWriteSecretRef "key" | default "readWriteConnectionString" }}
+                path: database-readwrite-url
+          {{- if not $skipMigrations }}
+          - secret:
+              name: {{ get $ownerSecretRef "name" }}
+              items:
+              - key: {{ get $ownerSecretRef "key" | default "ownerConnectionString" }}
+                path: database-owner-url
+          {{- end }}
           {{- if .Values.controller.push.signing.secretName }}
           - secret:
               name: {{ .Values.controller.push.signing.secretName }}
@@ -61,12 +73,20 @@ spec:
       - name: postgres-client-certificate
         projected:
           sources:
+          {{- if not $skipMigrations }}
           - podCertificate:
               signerName: postgres.podcert.ate.dev/identity
               keyType: ECDSAP256
-              credentialBundlePath: credential-bundle.pem
+              credentialBundlePath: kagent_owner_user.pem
               userAnnotations:
-                postgres.podcert.ate.dev/username: kagent_user
+                postgres.podcert.ate.dev/username: kagent_owner_user
+          {{- end }}
+          - podCertificate:
+              signerName: postgres.podcert.ate.dev/identity
+              keyType: ECDSAP256
+              credentialBundlePath: kagent_readwrite_user.pem
+              userAnnotations:
+                postgres.podcert.ate.dev/username: kagent_readwrite_user
           - clusterTrustBundle:
               signerName: servicedns.podcert.ate.dev/identity
               labelSelector:

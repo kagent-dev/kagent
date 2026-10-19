@@ -11,8 +11,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/openai/openai-go/v3"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 type fakeCredential struct {

@@ -6,6 +6,7 @@ import pytest
 from openai import AsyncOpenAI
 
 from kagent.adk.models._mistral import DEFAULT_MISTRAL_BASE_URL, KAgentMistralLlm
+from kagent.adk.types import ModelConfig
 
 
 class TestKAgentMistralLlm:
@@ -96,12 +97,9 @@ class TestCreateLLMFromMistralConfig:
         """Integration: _create_llm_from_model_config returns KAgentMistralLlm for mistral type."""
         from kagent.adk.types import Mistral, _create_llm_from_model_config
 
-        config = Mistral(
-            type="mistral",
+        config = ModelConfig(
             model="mistral-large-latest",
-            base_url="https://api.mistral.ai/v1",
-            temperature=0.5,
-            max_tokens=1024,
+            mistral=Mistral(base_url="https://api.mistral.ai/v1", temperature=0.5, max_tokens=1024),
         )
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentMistralLlm)

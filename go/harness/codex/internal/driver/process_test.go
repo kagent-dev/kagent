@@ -12,6 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -33,7 +37,7 @@ printf '%s\n' "$initialized" >> "$CAPTURE"
 read thread
 printf '%s\n' "$thread" >> "$CAPTURE"
 printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"01900000-0000-7000-8000-000000000001"}}}'
-read turn
+read -r turn
 printf '%s\n' "$turn" >> "$CAPTURE"
 printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"01900000-0000-7000-8000-000000000002","status":"inProgress"}}}'
 printf '%s\n' '{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"01900000-0000-7000-8000-000000000001","turnId":"01900000-0000-7000-8000-000000000002","itemId":"message-1","delta":"hello"}}'
@@ -90,16 +94,21 @@ func TestProcessDriverLetsAppServerExitAfterStdinEOF(t *testing.T) {
 	executable := filepath.Join(directory, "codex")
 	exitCapture := filepath.Join(directory, "exit")
 	script := `#!/bin/sh
-trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' TERM
+trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' INT TERM
 read initialize
 printf '%s\n' '{"id":1,"result":{}}'
 read initialized
 read thread
 printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read turn
+read -r turn
 printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
 while read ignored; do :; done
+i=0
+while [ "$i" -lt 128 ]; do
+  printf '%s\n' '{"method":"thread/name/updated","params":{"threadId":"thread-1","threadName":"done"}}'
+  i=$((i + 1))
+done
 printf graceful > "$EXIT_CAPTURE"
 `
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
@@ -116,6 +125,41 @@ printf graceful > "$EXIT_CAPTURE"
 	})
 	if _, err := driver.Run(t.Context(), runtime.Turn{Prompt: "hello"}, &recordingSink{}); err != nil {
 		t.Fatal(err)
+	}
+	exit, err := os.ReadFile(exitCapture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(exit) != "graceful" {
+		t.Fatalf("app-server exit = %q, want graceful stdin EOF", exit)
+	}
+}
+
+func TestProcessDriverDrainsAfterInitializationFailure(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	exitCapture := filepath.Join(directory, "exit")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"error":{"code":-32603,"message":"initialization failed"}}'
+while read ignored; do :; done
+i=0
+while [ "$i" -lt 128 ]; do
+  printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{}}'
+  i=$((i + 1))
+done
+printf graceful > "$EXIT_CAPTURE"
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: directory,
+		Environment: append(os.Environ(), "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096,
+		MaxStderrBytes: 1024, InterruptGrace: time.Second,
+	})
+	if _, err := driver.Run(t.Context(), runtime.Turn{Prompt: "hello"}, &recordingSink{}); err == nil || !strings.Contains(err.Error(), "initialization failed") {
+		t.Fatalf("Run() error = %v, want initialization failed", err)
 	}
 	exit, err := os.ReadFile(exitCapture)
 	if err != nil {
@@ -153,7 +197,7 @@ printf '%s\n' '{"id":1,"result":{}}'
 read initialized
 read thread
 printf '%s\n' '{"id":2,"result":{"thread":{"id":"parent"}}}'
-read turn
+read -r turn
 printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn"}}}'
 cat "$NOTIFICATIONS"
 while read ignored; do :; done
@@ -211,180 +255,6 @@ func TestProcessDriverRejectsWorkspaceConfiguration(t *testing.T) {
 	}
 }
 
-func TestProcessDriverParksAndResolvesMCPApproval(t *testing.T) {
-	directory := t.TempDir()
-	executable := filepath.Join(directory, "codex")
-	capture := filepath.Join(directory, "approval.json")
-	script := `#!/bin/sh
-read initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read initialized
-read thread
-printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read turn
-printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
-printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
-printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
-read approval
-printf '%s\n' "$approval" > "$CAPTURE"
-printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
-printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
-printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
-sleep 5
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	workspace := filepath.Join(directory, "workspace")
-	if err := os.Mkdir(workspace, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
-		Environment: append(os.Environ(), "CAPTURE="+capture), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
-		InterruptGrace: 100 * time.Millisecond, ApprovalServers: map[string]struct{}{"protected": {}},
-	})
-	sink := &recordingSink{}
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, sink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if outcome.Pending == nil {
-		t.Fatal("Run() did not return a pending turn")
-	}
-	request, ok := outcome.Pending.Request().(*runtime.ApprovalRequest)
-	if !ok || request.ID != "7" || request.CallID != "call-1" || request.Name != "protected.write" {
-		t.Fatalf("pending request = %#v", outcome.Pending.Request())
-	}
-	if _, err := os.Stat(capture); !os.IsNotExist(err) {
-		t.Fatalf("MCP call was resolved before approval: %v", err)
-	}
-	resumed := time.Now()
-	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{
-		ID: "7", Approved: false, RejectionReason: "production is still serving traffic",
-	}, sink)
-	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
-		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
-	}
-	// Usage arrives after the resume, but the call ended at its tool start before the pause.
-	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) || sink.models[0].Start.After(sink.models[0].End) {
-		t.Fatalf("model calls = %#v, resumed at %v", sink.models, resumed)
-	}
-	response, err := os.ReadFile(capture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(response, []byte(`"id":7`)) || !bytes.Contains(response, []byte(`"action":"decline"`)) || bytes.Contains(response, []byte(`"rejection_reason"`)) || bytes.Contains(response, []byte(`"content"`)) {
-		t.Fatalf("approval response = %s", response)
-	}
-}
-
-// A subagent's approval matches the subagent's own tool, which goes under the spawn call.
-func TestProcessDriverParksMCPApprovalInsideASubagent(t *testing.T) {
-	directory := t.TempDir()
-	executable := filepath.Join(directory, "codex")
-	script := `#!/bin/sh
-read initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read initialized
-read thread
-printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read turn
-printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
-printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}'
-printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}'
-printf '%s\n' '{"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-call","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
-printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"child","turnId":"child-turn"}}'
-read approval
-printf '%s\n' '{"method":"item/completed","params":{"threadId":"child","turnId":"child-turn","item":{"type":"mcpToolCall","id":"child-call","server":"protected","tool":"write","arguments":{"value":7},"result":"ok","status":"completed"}}}'
-printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
-sleep 5
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
-		Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
-		InterruptGrace: 100 * time.Millisecond, ApprovalServers: map[string]struct{}{"protected": {}},
-	})
-	sink := &recordingSink{}
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, sink)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if outcome.Pending == nil {
-		t.Fatal("Run() did not return a pending turn")
-	}
-	if request, ok := outcome.Pending.Request().(*runtime.ApprovalRequest); !ok || request.CallID != "child-call" || request.Name != "protected.write" {
-		t.Fatalf("pending request = %#v", outcome.Pending.Request())
-	}
-	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: "7", Approved: true}, sink)
-	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
-		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
-	}
-	if len(sink.calls) != 2 || sink.calls[1].ID != "child-call" || sink.calls[1].ParentToolID != "spawn-1" {
-		t.Fatalf("tool calls = %#v, want the child's call under spawn-1", sink.calls)
-	}
-	if len(sink.results) != 2 || sink.results[1].ID != "child-call" || sink.results[1].IsError {
-		t.Fatalf("tool results = %#v", sink.results)
-	}
-}
-
-func TestProcessDriverAskUserThreads(t *testing.T) {
-	for _, tc := range []struct {
-		name, thread, turn string
-		wantErr            bool
-	}{
-		{name: "a spawned subagent", thread: "child", turn: "child-turn"},
-		{name: "an unknown thread", thread: "stranger", turn: "child-turn", wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			directory := t.TempDir()
-			executable := filepath.Join(directory, "codex")
-			script := `#!/bin/sh
-read initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read initialized
-read thread
-printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read turn
-printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
-printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":[],"status":"inProgress"}}}'
-printf '%s\n' '{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child"],"status":"completed"}}}'
-printf '%s\n' '{"id":8,"method":"item/tool/requestUserInput","params":{"threadId":"` + tc.thread + `","turnId":"` + tc.turn + `","itemId":"item-1","isBlocking":true,"questions":[{"id":"namespace","header":"Namespace","question":"Which namespace?","options":null,"isOther":true,"isSecret":false}]}}'
-read response
-printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
-sleep 5
-`
-			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			driver := NewProcessDriver(ProcessConfig{
-				Executable: executable, Workspace: directory, Model: "model", Provider: "provider",
-				Environment: os.Environ(), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-			})
-			outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "clean up"}, &recordingSink{})
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("Run() outcome = %#v, want an error for a question from %s", outcome, tc.thread)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if request, ok := outcome.Pending.Request().(*runtime.AskUserRequest); !ok || request.ID != "8" {
-				t.Fatalf("pending request = %#v", outcome.Pending.Request())
-			}
-			outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{ID: "8", Answers: [][]string{{"default"}}}, &recordingSink{})
-			if err != nil || outcome.Pending != nil || outcome.Failure != nil {
-				t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
-			}
-		})
-	}
-}
-
 func TestProcessDriverParksAndResolvesAskUserWithExperimentalAPI(t *testing.T) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "codex")
@@ -397,14 +267,19 @@ printf '%s\n' '{"id":1,"result":{}}'
 read initialized
 read thread
 printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read turn
+read -r turn
 printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+case "$turn" in
+  *Continue*)
+    printf '%s\n' "$turn" > "$RESPONSE_CAPTURE"
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
+  *)
 printf '%s\n' '{"id":8,"method":"item/tool/requestUserInput","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"item-1","isBlocking":true,"questions":[{"id":"namespace","header":"Namespace","question":"Which namespace?","options":[{"label":"default","description":"Default namespace"}],"isOther":true,"isSecret":false},{"id":"cluster","header":"Cluster","question":"Which cluster?","options":null,"isOther":false,"isSecret":false}]}}'
-read response
-printf '%s\n' "$response" > "$RESPONSE_CAPTURE"
-printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
-printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
-sleep 5
+read interrupt
+printf '%s\n' '{"id":4,"result":{}}'
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}' ;;
+esac
+while read ignored; do :; done
 `
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -414,11 +289,11 @@ sleep 5
 		t.Fatal(err)
 	}
 	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
+		Executable: executable, Workspace: workspace, PendingDir: directory, Model: "model", Provider: "provider",
 		Environment:   append(os.Environ(), "INITIALIZE_CAPTURE="+initializeCapture, "RESPONSE_CAPTURE="+responseCapture),
 		MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
 	})
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "deploy"}, &recordingSink{})
+	outcome, err := driver.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "deploy"}, &recordingSink{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +301,7 @@ sleep 5
 		t.Fatal("Run() did not return a pending turn")
 	}
 	request, ok := outcome.Pending.Request().(*runtime.AskUserRequest)
-	if !ok || request.ID != "8" || len(request.Questions) != 2 || request.Questions[0].ID != "namespace" || !slices.Equal(request.Questions[0].Choices, []string{"default"}) {
+	if !ok || request.ID == "" || len(request.Questions) != 2 || request.Questions[0].ID != "namespace" || !slices.Equal(request.Questions[0].Choices, []string{"default"}) {
 		t.Fatalf("ask-user request = %#v", outcome.Pending.Request())
 	}
 	initialize, err := os.ReadFile(initializeCapture)
@@ -437,26 +312,33 @@ sleep 5
 		t.Fatalf("experimental API was not enabled: %s", initialize)
 	}
 
-	resumed, sink := time.Now(), &recordingSink{}
-	outcome, err = outcome.Pending.Resume(t.Context(), &runtime.AskUserResponse{
-		ID: "8", Answers: [][]string{{"default"}, {"production"}},
-	}, sink)
+	fresh := NewProcessDriver(driver.config)
+	_, _, pending, err := fresh.RestorePending()
+	require.NoError(t, err)
+	outcome, err = pending.Resume(t.Context(), &runtime.AskUserResponse{
+		ID: request.ID, Answers: [][]string{{"default"}, {"production"}},
+	}, &recordingSink{})
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("resume outcome = %#v, error = %v", outcome, err)
 	}
 	// The question starts no tool item, so the call that asked it ends at the pause.
-	if len(sink.models) != 1 || !sink.models[0].End.Before(resumed) || sink.models[0].Start.After(sink.models[0].End) {
-		t.Fatalf("model calls = %#v, resumed at %v", sink.models, resumed)
-	}
 	response, err := os.ReadFile(responseCapture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{`"id":8`, `"answers"`, `"namespace":{"answers":["default"]}`, `"cluster":{"answers":["production"]}`} {
-		if !bytes.Contains(response, []byte(fragment)) {
-			t.Fatalf("ask-user response omits %s: %s", fragment, response)
-		}
+	var continued struct {
+		Method string `json:"method"`
+		Params struct {
+			ThreadID string      `json:"threadId"`
+			Input    []textInput `json:"input"`
+		} `json:"params"`
 	}
+	require.NoError(t, json.Unmarshal(response, &continued))
+	require.Equal(t, "turn/start", continued.Method)
+	require.Equal(t, "thread-1", continued.Params.ThreadID)
+	require.Len(t, continued.Params.Input, 1)
+	require.Contains(t, continued.Params.Input[0].Text, `"answers":[["default"],["production"]]`)
+	require.Contains(t, continued.Params.Input[0].Text, `"Question":"Which namespace?"`)
 }
 
 func TestDecodeAskUserRequestRejectsDuplicateQuestionIDs(t *testing.T) {
@@ -482,72 +364,6 @@ func TestDecodeAskUserRequestRejectsSecretQuestions(t *testing.T) {
 	}
 }
 
-func TestProcessDriverCancelsParkedMCPApproval(t *testing.T) {
-	directory := t.TempDir()
-	executable := filepath.Join(directory, "codex")
-	approvalCapture := filepath.Join(directory, "approval.json")
-	interruptCapture := filepath.Join(directory, "interrupt.json")
-	script := `#!/bin/sh
-read initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read initialized
-read thread
-printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
-read turn
-printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
-printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{},"status":"inProgress"}}}'
-printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{}},"message":"Allow protected.write?","mode":"form","requestedSchema":{"type":"object","properties":{}},"serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
-read approval
-printf '%s\n' "$approval" > "$APPROVAL_CAPTURE"
-printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
-read interrupt
-printf '%s\n' "$interrupt" > "$INTERRUPT_CAPTURE"
-printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
-printf '%s\n' '{"id":4,"result":{}}'
-sleep 5
-`
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	workspace := filepath.Join(directory, "workspace")
-	if err := os.Mkdir(workspace, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: workspace, Model: "model", Provider: "provider",
-		Environment:   append(os.Environ(), "APPROVAL_CAPTURE="+approvalCapture, "INTERRUPT_CAPTURE="+interruptCapture),
-		MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-		ApprovalServers: map[string]struct{}{"protected": {}},
-	})
-	outcome, err := driver.Run(t.Context(), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil {
-		t.Fatalf("Run() = %#v, %v", outcome, err)
-	}
-	sink := &recordingSink{}
-	if err := outcome.Pending.Cancel(t.Context(), sink); err != nil {
-		t.Fatal(err)
-	}
-	// One usage was waiting before the interrupt and one arrived while Codex answered it.
-	if len(sink.models) != 2 {
-		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
-	}
-
-	approval, err := os.ReadFile(approvalCapture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(approval, []byte(`"id":7`)) || !bytes.Contains(approval, []byte(`"action":"cancel"`)) || !bytes.Contains(approval, []byte(`"content":null`)) {
-		t.Fatalf("cancel response = %s", approval)
-	}
-	interrupt, err := os.ReadFile(interruptCapture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(interrupt, []byte(`"method":"turn/interrupt"`)) || !bytes.Contains(interrupt, []byte(`"threadId":"thread-1"`)) || !bytes.Contains(interrupt, []byte(`"turnId":"turn-1"`)) {
-		t.Fatalf("interrupt request = %s", interrupt)
-	}
-}
-
 func TestProcessDriverCancellationKeepsReportedUsage(t *testing.T) {
 	directory := t.TempDir()
 	executable, started := filepath.Join(directory, "codex"), filepath.Join(directory, "started")
@@ -563,9 +379,14 @@ printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
 read interrupt
 printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":10,"outputTokens":1},"last":{"inputTokens":10,"outputTokens":1}}}}'
 printf '%s\n' '{"id":4,"result":{}}'
-# Flush the final usage report only when the driver requests graceful shutdown.
+# Flush the final usage reports only when the driver requests graceful shutdown.
 while read ignored; do :; done
-printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":20,"outputTokens":2},"last":{"inputTokens":10,"outputTokens":1}}}}'
+# Exceed the RPC frame buffer so the reader must keep draining after process exit.
+i=2
+while [ "$i" -le 128 ]; do
+  printf '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"total":{"inputTokens":%s,"outputTokens":%s},"last":{"inputTokens":10,"outputTokens":1}}}}\n' "$((i * 10))" "$i"
+  i=$((i + 1))
+done
 `
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -592,8 +413,13 @@ printf '%s\n' '{"method":"thread/tokenUsage/updated","params":{"threadId":"threa
 		t.Fatalf("Run() error = %v, want context.Canceled", err)
 	}
 	// Codex reports usage while it answers the interrupt and after it.
-	if len(sink.models) != 2 {
-		t.Fatalf("model calls = %d, want the 2 Codex reported", len(sink.models))
+	if len(sink.models) != 128 {
+		t.Fatalf("model calls = %d, want the 128 Codex reported", len(sink.models))
+	}
+	for i, call := range sink.models {
+		if call.InputTokens != 10 || call.OutputTokens != 1 || call.UsagePartial {
+			t.Fatalf("model call %d = %+v, want the complete reported usage", i, call)
+		}
 	}
 }
 
@@ -686,18 +512,297 @@ printf '%s\n' '{"id":4,"result":{}}'
 	}
 }
 
-func TestApprovalResponseAcceptsWithEmptyRequestedContent(t *testing.T) {
-	response, err := codexInputResponse(
-		&runtime.ApprovalRequest{ID: "7"},
-		&runtime.ApprovalDecision{ID: "7", Approved: true},
-	)
+func TestDeferredTurnExitsBeforePublishingPendingAndReusesSavedResult(t *testing.T) {
+	directory := t.TempDir()
+	executable, capture := filepath.Join(directory, "codex"), filepath.Join(directory, "requests")
+	exitCapture := filepath.Join(directory, "exit")
+	writeDeferredAppServer(t, executable, true)
+	calls := 0
+	cfg := ProcessConfig{Executable: executable, Workspace: directory, Model: "model", Provider: "provider", PendingDir: directory,
+		Environment: append(os.Environ(), "CAPTURE="+capture, "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096, MaxStderrBytes: 4096,
+		InterruptGrace: time.Second, ApprovalServers: map[string]struct{}{"protected": {}}, Tools: fakeToolCaller{call: func(context.Context, string, string, map[string]any) (*mcp.CallToolResult, error) {
+			calls++
+			return nil, errors.New("must use cached result")
+		}}}
+	driver := NewProcessDriver(cfg)
+	origin := runtime.NewTraceOrigin(trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled}))
+	outcome, err := driver.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "write", Origin: origin}, &recordingSink{})
+	if err != nil || outcome.Pending == nil {
+		t.Fatalf("defer = %#v %v", outcome, err)
+	}
+	exit, err := os.ReadFile(exitCapture)
+	if err != nil || string(exit) != "graceful" {
+		t.Fatalf("native process still running at input-required: %q %v", exit, err)
+	}
+	r, err := driver.loadPending()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response["action"] != "accept" {
-		t.Fatalf("approval response = %#v", response)
+	r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+	require.Equal(t, origin.SpanContext().TraceID(), r.Origin.SpanContext().TraceID())
+	require.Equal(t, origin.SpanContext().SpanID(), r.Origin.SpanContext().SpanID())
+	r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "saved successful result"}}}
+	r.Phase = phaseResult
+	if err := driver.savePending(r); err != nil {
+		t.Fatal(err)
 	}
-	if content, ok := response["content"].(map[string]any); !ok || len(content) != 0 {
-		t.Fatalf("approval content = %#v", response["content"])
+	// A known pre-launch failure must keep the saved result retryable and must
+	// not publish it before a native turn can consume it.
+	missing := cfg
+	missing.Executable = filepath.Join(directory, "missing-codex")
+	failed := NewProcessDriver(missing)
+	_, _, retry, err := failed.RestorePending()
+	require.NoError(t, err)
+	sink := &recordingSink{}
+	for range 2 {
+		outcome, err := retry.Resume(t.Context(), r.Decision, sink)
+		require.NoError(t, err)
+		require.NotNil(t, outcome.Pending)
+		require.Empty(t, sink.results)
+		saved, err := failed.loadPending()
+		require.NoError(t, err)
+		require.Equal(t, phaseResult, saved.Phase)
+		require.Equal(t, origin.SpanContext().SpanID(), saved.Origin.SpanContext().SpanID())
+		retry = outcome.Pending
 	}
+	fresh := NewProcessDriver(cfg)
+	_, _, pending, err := fresh.RestorePending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pending.Resume(t.Context(), r.Decision, sink); err != nil || calls != 0 {
+		t.Fatalf("cached result replayed tool: calls=%d err=%v", calls, err)
+	}
+	require.Len(t, sink.results, 1)
+	require.Empty(t, sink.executions, "cached result must not look like another execution")
+	requests, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(requests), `"method":"turn/interrupt"`) || !strings.Contains(string(requests), `"toolOutput"`) || !strings.Contains(string(requests), "saved successful result") {
+		t.Fatalf("missing durable handoff: %s", requests)
+	}
+}
+
+type cancelingResultSink struct {
+	recordingSink
+	cancel context.CancelFunc
+}
+
+func (s *cancelingResultSink) ToolResult(result runtime.ToolResult) error {
+	if err := s.recordingSink.ToolResult(result); err != nil {
+		return err
+	}
+	s.cancel()
+	return nil
+}
+
+func TestDeferredTurnCancellationDuringNativeContinuationAdmitsNextTurn(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	exitCapture := filepath.Join(directory, "exit")
+	script := `#!/bin/sh
+trap 'printf terminated > "$EXIT_CAPTURE"; exit 0' INT TERM
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read -r turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+case "$turn" in
+  *toolOutput*)
+    read interrupt
+    printf '%s\n' '{"id":4,"result":{}}'
+    while read ignored; do :; done
+    printf graceful > "$EXIT_CAPTURE" ;;
+  *)
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+    while read ignored; do :; done
+    printf graceful > "$EXIT_CAPTURE" ;;
+esac
+`
+	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: directory, PendingDir: directory,
+		Environment: append(os.Environ(), "EXIT_CAPTURE="+exitCapture), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
+		InterruptGrace: 100 * time.Millisecond})
+	r := waitingRecord()
+	r.Phase = phaseResult
+	r.Decision = &runtime.ApprovalDecision{ID: r.Approval.ID, Approved: true}
+	r.Result = &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "already committed"}}}
+	require.NoError(t, d.savePending(&r))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	_, _, pending, err := d.RestorePending()
+	require.NoError(t, err)
+	sink := &cancelingResultSink{cancel: cancel}
+	outcome, err := pending.Resume(ctx, r.Decision, sink)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, outcome.Pending)
+	require.Len(t, sink.results, 1)
+	_, err = os.Stat(exitCapture)
+	require.NoError(t, err, "cancellation returned before the native process terminated")
+	_, _, recovered, err := d.RestorePending()
+	require.NoError(t, err)
+	require.Nil(t, recovered)
+	// A fresh driver reusing the DATA directory must not reserve the old task.
+	fresh := NewProcessDriver(d.config)
+	next, err := fresh.Run(t.Context(), runtime.Turn{TaskID: "next-task", ContextID: r.ContextID, ContinuationID: r.ThreadID, Prompt: "next task"}, &recordingSink{})
+	require.NoError(t, err)
+	require.Nil(t, next.Pending)
+	require.Nil(t, next.Failure)
+}
+
+func TestDeferredApprovalResolutionAfterRestart(t *testing.T) {
+	for _, action := range []string{"approve", "deny", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			directory := t.TempDir()
+			executable := filepath.Join(directory, "codex")
+			capture := filepath.Join(directory, "requests")
+			writeDeferredAppServer(t, executable, false)
+			calls := 0
+			cfg := ProcessConfig{Executable: executable, Workspace: directory, PendingDir: directory,
+				Environment: append(os.Environ(), "CAPTURE="+capture), MaxFrameBytes: 4096, MaxStderrBytes: 1024,
+				InterruptGrace: time.Second, ApprovalServers: map[string]struct{}{"protected": {}},
+				Tools: fakeToolCaller{call: func(_ context.Context, server, tool string, args map[string]any) (*mcp.CallToolResult, error) {
+					calls++
+					require.Equal(t, "approve", action, "denied or canceled operation executed")
+					require.Equal(t, "protected", server)
+					require.Equal(t, "write", tool)
+					require.Equal(t, float64(7), args["value"])
+					return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "committed"}}}, nil
+				}}}
+			driver := NewProcessDriver(cfg)
+			outcome, err := driver.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "write"}, &recordingSink{})
+			require.NoError(t, err)
+			require.NotNil(t, outcome.Pending)
+			require.Zero(t, calls)
+			before, err := os.ReadFile(capture)
+			require.NoError(t, err)
+			require.Contains(t, string(before), `"method":"turn/interrupt"`)
+			if action == "cancel" {
+				cfg.Executable = filepath.Join(directory, "missing-codex") // Cancellation must not launch a process.
+			}
+			fresh := NewProcessDriver(cfg)
+			taskID, contextID, pending, err := fresh.RestorePending()
+			require.NoError(t, err)
+			require.Equal(t, "task-1", taskID)
+			require.Equal(t, "context-1", contextID)
+			require.Equal(t, outcome.Pending.Request(), pending.Request())
+			request := pending.Request().(*runtime.ApprovalRequest)
+			require.Equal(t, "call-1", request.CallID)
+			require.NotEmpty(t, request.ID)
+			sink := &recordingSink{}
+			if action == "cancel" {
+				require.NoError(t, pending.Cancel(t.Context(), &recordingSink{}))
+				after, err := os.ReadFile(capture)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			} else {
+				outcome, err = pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: request.ID, Approved: action == "approve", RejectionReason: "production is serving traffic"}, sink)
+				require.NoError(t, err)
+				require.Nil(t, outcome.Pending)
+				require.Nil(t, outcome.Failure)
+				require.Len(t, sink.results, 1)
+				require.Equal(t, action == "deny", sink.results[0].IsError)
+				requests, err := os.ReadFile(capture)
+				require.NoError(t, err)
+				require.Contains(t, string(requests), `"method":"thread/resume"`)
+				require.Contains(t, string(requests), `"toolOutput"`)
+				if action == "deny" {
+					require.Contains(t, string(requests), "production is serving traffic")
+				}
+			}
+			if action == "approve" {
+				require.Equal(t, 1, calls)
+				require.Len(t, sink.executions, 1)
+				require.Len(t, sink.executed, 1)
+				require.Equal(t, "protected", sink.executions[0].MCPServer)
+				require.Equal(t, "write", sink.executions[0].MCPTool)
+			} else {
+				require.Zero(t, calls)
+				require.Empty(t, sink.executions)
+			}
+			_, _, restored, err := fresh.RestorePending()
+			require.NoError(t, err)
+			require.Nil(t, restored)
+		})
+	}
+}
+
+// writeDeferredAppServer supports both interruption orderings and always exits
+// on stdin EOF. Tests decide whether to assert the graceful-exit marker.
+func writeDeferredAppServer(t *testing.T, executable string, terminalFirst bool) {
+	t.Helper()
+	ack := `printf '%s\n' '{"id":4,"result":{}}'`
+	terminal := `printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}'`
+	interrupt := ack + "\n" + terminal
+	if terminalFirst {
+		interrupt = terminal + "\n" + ack
+	}
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' "$thread" >> "$CAPTURE"
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read -r turn
+printf '%s\n' "$turn" >> "$CAPTURE"
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+case "$turn" in
+  *toolOutput*)
+    printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}' ;;
+  *)
+    printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"mcpToolCall","id":"call-1","server":"protected","tool":"write","arguments":{"value":7},"status":"inProgress"}}}'
+    printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"_meta":{"codex_approval_kind":"mcp_tool_call","tool_params":{"value":7}},"message":"Approve?","serverName":"protected","threadId":"thread-1","turnId":"turn-1"}}'
+    read interrupt
+    printf '%s\n' "$interrupt" >> "$CAPTURE"
+` + interrupt + `
+    ;;
+esac
+while read ignored; do :; done
+if [ -n "$EXIT_CAPTURE" ]; then printf graceful > "$EXIT_CAPTURE"; fi
+`
+	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+}
+
+func TestProcessDriverDeclinesChildApprovalAndCompletesParent(t *testing.T) {
+	directory := t.TempDir()
+	executable, capture := filepath.Join(directory, "codex"), filepath.Join(directory, "response")
+	script := `#!/bin/sh
+read initialize
+printf '%s\n' '{"id":1,"result":{}}'
+read initialized
+read thread
+printf '%s\n' '{"id":2,"result":{"thread":{"id":"thread-1"}}}'
+read turn
+printf '%s\n' '{"id":3,"result":{"turn":{"id":"turn-1"}}}'
+printf '%s\n' '{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"type":"collabAgentToolCall","id":"spawn-1","tool":"spawnAgent","receiverThreadIds":["child-1"],"status":"inProgress"}}}'
+printf '%s\n' '{"id":7,"method":"mcpServer/elicitation/request","params":{"threadId":"child-1","turnId":"child-turn","serverName":"protected","_meta":{"codex_approval_kind":"mcp_tool_call"}}}'
+read response
+printf '%s\n' "$response" > "$CAPTURE"
+printf '%s\n' '{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"completed"}}}'
+while read ignored; do :; done
+`
+	require.NoError(t, os.WriteFile(executable, []byte(script), 0o700))
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: directory, PendingDir: directory,
+		Environment: append(os.Environ(), "CAPTURE="+capture), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second,
+		ApprovalServers: map[string]struct{}{"protected": {}}})
+	outcome, err := d.Run(t.Context(), runtime.Turn{TaskID: "task-1", ContextID: "context-1", Prompt: "delegate"}, &recordingSink{})
+	require.NoError(t, err)
+	require.Nil(t, outcome.Failure)
+	require.Nil(t, outcome.Pending)
+	data, err := os.ReadFile(capture)
+	require.NoError(t, err)
+	var response struct {
+		Result struct {
+			Action string `json:"action"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(data, &response))
+	require.Equal(t, "decline", response.Result.Action)
+	_, _, pending, err := d.RestorePending()
+	require.NoError(t, err)
+	require.Nil(t, pending)
 }

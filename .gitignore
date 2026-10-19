@@ -208,6 +208,7 @@ file::memory:*
 .DS_Store
 
 ## Helm
+/helm/kagent/files/builtin-harness-images.json
 *.tgz
 /tmp/
 /reports/*.csv

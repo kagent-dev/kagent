@@ -7,9 +7,10 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/stretchr/testify/assert"
+
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
-	"github.com/stretchr/testify/assert"
 )
 
 func newTestChatModel() *chatModel {

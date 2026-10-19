@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/require"
+
+	kagentenv "github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func TestRollingUpgradeCompatibility(t *testing.T) {

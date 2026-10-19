@@ -20,13 +20,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kagent-dev/kagent/go/api/utils"
 )
 
 // ConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
@@ -153,9 +154,10 @@ func (s *ValueSource) Resolve(ctx context.Context, client client.Client, namespa
 }
 
 // ValueRef represents a configuration value
-// +kubebuilder:validation:XValidation:rule="(has(self.value) && !has(self.valueFrom)) || (!has(self.value) && has(self.valueFrom))",message="Exactly one of value or valueFrom must be specified"
+// +kubebuilder:validation:ExactlyOneOf=value;valueFrom
 type ValueRef struct {
 	// +required
+	// +kubebuilder:validation:MaxLength=256
 	Name string `json:"name"`
 	// +optional
 	Value string `json:"value,omitempty"`

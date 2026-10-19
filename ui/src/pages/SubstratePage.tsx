@@ -234,17 +234,18 @@ const atAGlance = (count: number) => compactNumber.format(count).replace("K", "k
  * today's sample: a reader learns that `Crashed` is a thing that happens by seeing it at
  * zero, not by waiting for one.
  *
+ * The summary groups paused actors under Suspended; only individual actor snapshots
+ * distinguish a node-local pause from a durable suspension.
+ *
  * States absent from this list are added to the legend when reported by Substrate.
  */
 const ACTOR_STATES = [
   "Crashed",
   "Deleting",
-  "Pausing",
   "Resuming",
+  "Reverting",
   "Running",
-  "Snapshotting",
   "Suspending",
-  "Paused",
   "Suspended",
   "Unknown",
 ];
@@ -887,7 +888,6 @@ export function SubstratePage() {
           template.name,
           template.goldenTag,
           template.phase,
-          template.sandboxClass,
           template.workerSelector,
         ]
           .filter(Boolean)
@@ -992,13 +992,6 @@ export function SubstratePage() {
         width: 130,
         sorter: { compare: byText((t) => t.phase ?? ""), multiple: 4 },
         render: (_, template) => <StatusChip label={template.phase ?? ""} />,
-      },
-      {
-        title: "Sandbox class",
-        key: "sandboxClass",
-        width: 140,
-        sorter: { compare: byText((t) => t.sandboxClass ?? ""), multiple: 3 },
-        render: (_, template) => template.sandboxClass ?? "—",
       },
       {
         title: "Worker selector",

@@ -1,3 +1,8 @@
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
+import { visit } from "unist-util-visit";
+
 // One cap for the whole message: the gateway's gRPC limit is 16 MiB, framing included.
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 
@@ -18,6 +23,10 @@ const TYPE_BY_EXTENSION: Record<string, string> = {
   jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
 const ALLOWED_TYPES = new Set([
@@ -49,6 +58,62 @@ export function mediaTypeOf(file: Pick<File, "name" | "type">): string {
 
 export function isAllowedFile(file: Pick<File, "name" | "type">): boolean {
   return ALLOWED_TYPES.has(mediaTypeOf(file));
+}
+
+/**
+ * A link in the message text, sent beside the text as an A2A url part with no bytes and
+ * no chip. A model that reads links fetches it; for any other model the runtime drops the
+ * part, and the URL in the text stays for the agent's fetch tool.
+ */
+export class LinkFile extends File {
+  constructor(readonly url: string) {
+    super([], fileNameFromUrl(url));
+  }
+}
+
+// The model reads the text as markdown, so links are found the same way: bare URLs,
+// <autolinks> and [markdown](links), but none inside code.
+const markdown = unified().use(remarkParse).use(remarkGfm);
+
+/**
+ * The links in `text` to send as url parts: http(s) URLs to a file of a known type,
+ * as written in the text, so the runtime finds them there. A web page stays text only:
+ * no provider is known to read one as a file. A link to a private host stays text too:
+ * the provider fetches the link itself and cannot reach it.
+ */
+export function textLinks(text: string): string[] {
+  const links = new Set<string>();
+  visit(markdown.parse(text), "link", ({ url }) => {
+    const type = TYPE_BY_EXTENSION[extensionOf(fileNameFromUrl(url))];
+    if (text.includes(url) && isHttpUrl(url) && !isPrivateHost(url) && type && type !== "text/html") {
+      links.add(url);
+    }
+  });
+  return [...links];
+}
+
+export function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// An IP, dotless or LAN host the provider likely cannot fetch.
+function isPrivateHost(url: string): boolean {
+  const host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+  return /^[\d.]+$/.test(host) || !host.includes(".") || /\.(local|localdomain|internal|svc|lan|home\.arpa)$/.test(host);
+}
+
+// Last path segment, so a query string or fragment never becomes the name.
+export function fileNameFromUrl(url: string): string {
+  try {
+    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
+  } catch {
+    return "file";
+  }
 }
 
 export function formatBytes(bytes: number): string {

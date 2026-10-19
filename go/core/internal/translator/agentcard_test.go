@@ -3,8 +3,9 @@ package translator
 import (
 	"testing"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestManagedAgentCardDeclaresHITL(t *testing.T) {

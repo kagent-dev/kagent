@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from google.protobuf import json_format, struct_pb2
-from kagent.api.v1alpha1 import common_pb2
+from kagent.api.v1 import common_pb2
 
 
 def encode_structured_object(

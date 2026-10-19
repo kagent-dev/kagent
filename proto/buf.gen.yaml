@@ -18,18 +18,24 @@ plugins:
     opt:
       - paths=source_relative
       - Ma2a.proto=github.com/a2aproject/a2a-go/v2/a2apb/v1
+  # StructuredObject is also consumed directly by kagent-core's envelope helpers.
   - remote: buf.build/protocolbuffers/python:v33.5
     out: ../python/packages/kagent-proto/src
     types:
-      - kagent.api.v1alpha1.MemoryService
-      - kagent.api.v1alpha1.TaskStoreService
+      - kagent.runtime.v1.MemoryService
+      - kagent.runtime.v1.TaskStoreService
+      - kagent.api.v1.StructuredObject
+      - kagent.config.v1.ADKConfig
   - remote: buf.build/protocolbuffers/pyi:v33.5
     out: ../python/packages/kagent-proto/src
     types:
-      - kagent.api.v1alpha1.MemoryService
-      - kagent.api.v1alpha1.TaskStoreService
+      - kagent.runtime.v1.MemoryService
+      - kagent.runtime.v1.TaskStoreService
+      - kagent.api.v1.StructuredObject
+      - kagent.config.v1.ADKConfig
   - remote: buf.build/grpc/python:v1.83.0
     out: ../python/packages/kagent-proto/src
     types:
-      - kagent.api.v1alpha1.MemoryService
-      - kagent.api.v1alpha1.TaskStoreService
+      - kagent.runtime.v1.MemoryService
+      - kagent.runtime.v1.TaskStoreService
+      - kagent.api.v1.StructuredObject

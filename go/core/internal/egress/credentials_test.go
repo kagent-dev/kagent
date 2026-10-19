@@ -7,17 +7,17 @@ import (
 )
 
 func TestCanonicalCredentials(t *testing.T) {
-	base := Credential{Hostname: "API.Example.com.", Header: "Authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}
+	base := Credential{Origin: "https://API.Example.com.", Header: "Authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}
 	got, err := CanonicalCredentials([]Credential{base, base})
 	require.NoError(t, err)
-	require.Equal(t, []Credential{{Hostname: "api.example.com", Header: "authorization", Prefix: "Bearer ", URI: base.URI}}, got)
-	require.Equal(t, "API.Example.com.", base.Hostname)
+	require.Equal(t, []Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: base.URI}}, got)
+	require.Equal(t, "https://API.Example.com.", base.Origin)
 	for _, test := range []struct {
 		name   string
 		change func(*Credential)
 	}{
-		{"wildcard", func(c *Credential) { c.Hostname = "*.example.com" }},
-		{"IP", func(c *Credential) { c.Hostname = "192.0.2.1" }},
+		{"wildcard", func(c *Credential) { c.Origin = "https://*.example.com" }},
+		{"IP", func(c *Credential) { c.Origin = "https://192.0.2.1" }},
 		{"header", func(c *Credential) { c.Header = "Authorization\r\nInjected" }},
 		{"prefix", func(c *Credential) { c.Prefix = "Bearer\n" }},
 		{"provider", func(c *Credential) { c.URI = "https://example.com/secret" }},

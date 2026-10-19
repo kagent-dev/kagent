@@ -11,6 +11,8 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	adkagent "google.golang.org/adk/v2/agent"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
@@ -18,7 +20,6 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	adkagent "google.golang.org/adk/v2/agent"
 )
 
 const (
@@ -145,15 +146,21 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallInterceptor) []a2asrv.RequestHandlerOption {
 	return []a2asrv.RequestHandlerOption{
 		a2asrv.WithTaskStore(tasks),
-		a2asrv.WithCallInterceptors(a2a.HITLActivationInterceptor(), a2a.UserIDCallInterceptor(), runtime),
+		a2asrv.WithCallInterceptors(
+			a2a.HITLActivationInterceptor(),
+			a2a.UsageActivationInterceptor(),
+			a2a.UserIDCallInterceptor(),
+			runtime,
+		),
 	}
 }
 
-// buildAgentCard returns the card the server serves. The HITL extension is declared
-// for every app, whether or not an ADK agent was supplied for skill derivation.
+// buildAgentCard returns the card the server serves. The HITL and usage extensions
+// are declared for every app, whether or not an ADK agent was supplied for skill derivation.
 func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
 	card := cfg.AgentCard
 	a2a.EnsureHITLExtension(&card)
+	a2a.EnsureUsageExtension(&card)
 	if cfg.Agent != nil {
 		a2a.EnrichAgentCard(&card, cfg.Agent)
 	}

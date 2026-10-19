@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: agenttemplates.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -163,12 +163,13 @@ spec:
                           type: string
                       type: object
                       x-kubernetes-validations:
-                      - message: exactly one of oci, git or bucket must be specified
-                        rule: '(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) +
-                          (has(self.bucket) ? 1 : 0) == 1'
                       - message: path must be relative and must not contain '..' segments
                         rule: '!has(self.path) || (!self.path.startsWith(''/'') &&
                           !self.path.split(''/'').exists(p, p == ''..''))'
+                      - message: exactly one of the fields in [oci git bucket] must
+                          be set
+                        rule: (has(self.oci)?1:0)+(has(self.git)?1:0)+(has(self.bucket)?1:0)
+                          == 1
                   required:
                   - source
                   type: object
@@ -274,12 +275,13 @@ spec:
                           type: string
                       type: object
                       x-kubernetes-validations:
-                      - message: exactly one of oci, git or bucket must be specified
-                        rule: '(has(self.oci) ? 1 : 0) + (has(self.git) ? 1 : 0) +
-                          (has(self.bucket) ? 1 : 0) == 1'
                       - message: path must be relative and must not contain '..' segments
                         rule: '!has(self.path) || (!self.path.startsWith(''/'') &&
                           !self.path.split(''/'').exists(p, p == ''..''))'
+                      - message: exactly one of the fields in [oci git bucket] must
+                          be set
+                        rule: (has(self.oci)?1:0)+(has(self.git)?1:0)+(has(self.bucket)?1:0)
+                          == 1
                   required:
                   - name
                   - source
@@ -398,16 +400,20 @@ spec:
                       type: object
                   type: object
                   x-kubernetes-validations:
-                  - message: exactly one of mcp or subAgent must be specified
-                    rule: has(self.mcp) != has(self.subAgent)
+                  - message: exactly one of the fields in [mcp subAgent] must be set
+                    rule: (has(self.mcp)?1:0)+(has(self.subAgent)?1:0) == 1
                 maxItems: 50
                 type: array
             type: object
             x-kubernetes-validations:
-            - message: systemPrompt and systemPromptFrom are mutually exclusive
-              rule: '!(has(self.systemPrompt) && has(self.systemPromptFrom))'
-            - message: outputSchema and outputSchemaFrom are mutually exclusive
-              rule: '!(has(self.outputSchema) && has(self.outputSchemaFrom))'
+            - message: at most one of the fields in [systemPrompt systemPromptFrom]
+                may be set
+              rule: (has(self.systemPrompt)?1:0)+(has(self.systemPromptFrom)?1:0)
+                <= 1
+            - message: at most one of the fields in [outputSchema outputSchemaFrom]
+                may be set
+              rule: (has(self.outputSchema)?1:0)+(has(self.outputSchemaFrom)?1:0)
+                <= 1
         required:
         - spec
         type: object

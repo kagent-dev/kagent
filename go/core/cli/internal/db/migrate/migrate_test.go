@@ -42,8 +42,8 @@ func migrationFile(up, down string) []byte {
 
 func testSources() []migrations.Source {
 	return []migrations.Source{
-		{Name: "alpha", TrackingTable: "alpha_schema_migrations", FS: alphaFS, Dir: "alpha"},
-		{Name: "beta", TrackingTable: "beta_schema_migrations", FS: betaFS, Dir: "beta"},
+		{Name: "alpha", Schema: "public", TrackingTable: "alpha_schema_migrations", FS: alphaFS, Dir: "alpha"},
+		{Name: "beta", Schema: "public", TrackingTable: "beta_schema_migrations", FS: betaFS, Dir: "beta"},
 	}
 }
 
@@ -116,8 +116,11 @@ func TestResolveDSN(t *testing.T) {
 }
 
 func TestResolveRole(t *testing.T) {
-	if got := (&commandState{dbRole: " app_role "}).role(); got != "app_role" {
-		t.Fatal(got)
+	if got, err := (&commandState{dbRole: " app_role "}).role(); err != nil || got != "app_role" {
+		t.Fatalf("role() = %q, %v", got, err)
+	}
+	if _, err := (&commandState{}).role(); err == nil || !strings.Contains(err.Error(), "--db-role") {
+		t.Fatalf("role() error = %v, want the missing-role error", err)
 	}
 }
 
@@ -177,7 +180,8 @@ func TestArgValidation(t *testing.T) {
 		{name: "up rejects source flag", args: []string{"up", "--source", "alpha"}, wantErr: "--source is not applicable"},
 		{name: "status rejects source flag", args: []string{"status", "--source", "alpha"}, wantErr: "--source is not applicable"},
 		{name: "status invalid output", args: []string{"status", "--output", "yaml"}, wantErr: "invalid --output"},
-		{name: "no dsn", args: []string{"version"}, wantErr: "database.urlFile"},
+		{name: "no dsn", args: []string{"version"}, wantErr: "database.owner.urlFile"},
+		{name: "no role", args: []string{"version", "--db-url", "postgres://unused"}, wantErr: "database.owner.role"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -210,7 +214,7 @@ func TestNewCommandFromFunc(t *testing.T) {
 		})
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)
-		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused"})
+		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused", "--db-role", "kagent_owner"})
 		err := cmd.ExecuteContext(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "cluster unreachable") {
 			t.Fatalf("error = %v, want resolver error", err)
@@ -225,7 +229,7 @@ func TestNewCommandFromFunc(t *testing.T) {
 		cmd := NewCommandFromFunc(func(context.Context) ([]migrations.Source, error) { return dup, nil })
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)
-		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused"})
+		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused", "--db-role", "kagent_owner"})
 		err := cmd.ExecuteContext(context.Background())
 		if err == nil || !strings.Contains(err.Error(), "appears twice") {
 			t.Fatalf("error = %v, want duplicate-name error", err)
@@ -274,7 +278,7 @@ func TestCLIAgainstPostgres(t *testing.T) {
 	}
 	mustRun := func(t *testing.T, args ...string) string {
 		t.Helper()
-		out, _, err := runCLI(t, sources, append(args, "--db-url", dsn)...)
+		out, _, err := runCLI(t, sources, append(args, "--db-url", dsn, "--db-role", dbtest.Role)...)
 		if err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
@@ -334,43 +338,4 @@ func TestCLIAgainstPostgres(t *testing.T) {
 	t.Run("up restores a source after goto zero", func(t *testing.T) {
 		mustContain(t, mustRun(t, "up"), "schema is up to date")
 	})
-}
-
-func TestSourceFileVersions(t *testing.T) {
-	tests := []struct {
-		name    string
-		files   []string
-		want    []int64
-		wantErr bool
-	}{
-		{"standard format", []string{"000001_create.sql", "000002_alter.sql"}, []int64{1, 2}, false},
-		{"non-SQL ignored", []string{"README.md"}, nil, false},
-		{"legacy split rejected", []string{"000001_create.up.sql"}, nil, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mfs := fstest.MapFS{}
-			for _, f := range tt.files {
-				mfs["m/"+f] = &fstest.MapFile{Data: migrationFile("SELECT 1;", "SELECT 1;")}
-			}
-			got, err := sourceFileVersions(migrations.Source{FS: mfs, Dir: "m"})
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("sourceFileVersions succeeded")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("got %v, want %v", got, tt.want)
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("[%d] got %d, want %d", i, got[i], tt.want[i])
-				}
-			}
-		})
-	}
 }

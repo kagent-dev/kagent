@@ -246,8 +246,6 @@ func TestSessionHTTPPushFromNonleader(t *testing.T) {
 func preparePushLeaderHandoff(t *testing.T) (string, func()) {
 	t.Helper()
 	kube := interactionKubeClient(t)
-	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
-	require.NoError(t, coordinationv1.AddToScheme(kube.Scheme()))
 	deployments := &appsv1.DeploymentList{}
 	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
 	require.Len(t, deployments.Items, 1)

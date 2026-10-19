@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
-	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 )
 
 // runInteractive launches the workspace; the TUI reads raw keys, so a redirected stream is an error.

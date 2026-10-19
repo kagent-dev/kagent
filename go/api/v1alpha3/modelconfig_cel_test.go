@@ -18,10 +18,12 @@ package v1alpha3
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,7 +33,7 @@ import (
 // TestOpenAIConfigValidation pins the OpenAIConfig admission rules against a
 // real kube-apiserver loaded with the shipped CRDs:
 //   - maxTokens and maxCompletionTokens are mutually exclusive (type-level
-//     XValidation), because native OpenAI reasoning models reject max_tokens
+//     AtMostOneOf), because native OpenAI reasoning models reject max_tokens
 //     while some OpenAI-compatible endpoints reject max_completion_tokens, so
 //     sending both risks hard 400s.
 //   - both fields carry Minimum=1, so a non-positive value is rejected at
@@ -41,7 +43,7 @@ import (
 func TestOpenAIConfigValidation(t *testing.T) {
 	testEnv := &envtest.Environment{
 		BinaryAssetsDirectory: envtestAssetsDir(t),
-		CRDDirectoryPaths:     []string{crdBasesDir(t)},
+		CRDDirectoryPaths:     []string{crdChartDir(t)},
 		ErrorIfCRDPathMissing: true,
 	}
 	cfg, err := testEnv.Start()
@@ -75,7 +77,7 @@ func TestOpenAIConfigValidation(t *testing.T) {
 					},
 				}
 			},
-			wantReject: "maxTokens and maxCompletionTokens are mutually exclusive",
+			wantReject: "at most one of the fields in [maxTokens maxCompletionTokens] may be set",
 		},
 		{
 			name: "maxTokens below minimum rejected",
@@ -291,6 +293,51 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), c.wantReject)
 		})
+	}
+
+	for _, field := range []string{"n", "timeout", "azure-max-tokens"} {
+		for _, value := range []int{-1, 0, 1} {
+			t.Run(fmt.Sprintf("%s=%d", field, value), func(t *testing.T) {
+				model := &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{GenerateName: "numeric-", Namespace: ns},
+					Spec:       ModelConfigSpec{Model: "gpt-4", Provider: ModelProviderOpenAI, OpenAI: &OpenAIConfig{}},
+				}
+				switch field {
+				case "n":
+					model.Spec.OpenAI.N = &value
+				case "timeout":
+					model.Spec.OpenAI.Timeout = &value
+				case "azure-max-tokens":
+					model.Spec.Provider, model.Spec.OpenAI = ModelProviderAzureOpenAI, nil
+					model.Spec.AzureOpenAI = &AzureOpenAIConfig{Endpoint: "https://team.openai.azure.com", APIVersion: "2024-10-21", MaxTokens: &value}
+				}
+				err := cl.Create(ctx, model)
+				if value <= 0 {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	}
+
+	for _, raw := range []string{`{"thinking":{"budget_tokens":1024},"large":9007199254740993}`, `[]`, `1`} {
+		model := &ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "bedrock-json-", Namespace: ns},
+			Spec: ModelConfigSpec{Provider: ModelProviderBedrock, Model: "claude", Bedrock: &BedrockConfig{
+				Region: "us-east-1", AdditionalModelRequestFields: &apiextensionsv1.JSON{Raw: []byte(raw)},
+			}},
+		}
+		err := cl.Create(ctx, model)
+		if raw[0] != '{' {
+			require.ErrorContains(t, err, "additionalModelRequestFields")
+		} else {
+			require.NoError(t, err)
+			stored := &ModelConfig{}
+			require.NoError(t, cl.Get(ctx, ctrl_client.ObjectKeyFromObject(model), stored))
+			require.Contains(t, string(stored.Spec.Bedrock.AdditionalModelRequestFields.Raw), `"large":9007199254740993`)
+			require.Contains(t, string(stored.Spec.Bedrock.AdditionalModelRequestFields.Raw), `"budget_tokens":1024`)
+		}
 	}
 
 	for _, tc := range []struct {

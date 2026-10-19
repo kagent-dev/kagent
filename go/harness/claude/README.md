@@ -10,13 +10,13 @@ The controller and Actor share only the versioned config contract. Kubernetes
 resolution stays in the controller; native process behavior stays in this
 harness.
 
-| Path | Look here for |
-| --- | --- |
-| [`../../core/internal/translator/claude`](../../core/internal/translator/claude) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision and warnings |
-| [`config/config.go`](config/config.go) | The versioned JSON contract shared by the compiler and runtime, including defaults and reserved environment variables |
-| [`cmd/main.go`](cmd/main.go) | Actor startup, environment inputs, Claude version validation, continuation-store wiring, and private A2A startup |
-| [`internal/adapter/adapter.go`](internal/adapter/adapter.go) | Materializing Claude home, skills, MCP config, and ephemeral provider credentials |
-| [`internal/driver`](internal/driver) | Claude CLI arguments, stream-JSON parsing, runtime-event translation, cancellation, and process supervision |
+| Path                                                                             | Look here for                                                                                                         |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [`../../core/internal/translator/claude`](../../core/internal/translator/claude) | Translating `Harness`, `AgentTemplate`, model, MCP, plugin, and Secret inputs into a runtime revision and warnings    |
+| [`config/config.go`](config/config.go)                                           | The versioned JSON contract shared by the compiler and runtime, including defaults and reserved environment variables |
+| [`cmd/main.go`](cmd/main.go)                                                     | Actor startup, environment inputs, Claude version validation, continuation-store wiring, and private A2A startup      |
+| [`internal/adapter/adapter.go`](internal/adapter/adapter.go)                     | Materializing Claude home, skills, MCP config, and ephemeral provider credentials                                     |
+| [`internal/driver`](internal/driver)                                             | Claude CLI arguments, stream-JSON parsing, runtime-event translation, cancellation, and process supervision           |
 
 ## Working
 
@@ -28,11 +28,16 @@ harness.
 - [x] Shared local subagents
 - [x] Standalone skills and plugin-provided skills
 - [x] Direct HTTP and SSE MCP servers with whole-server tool access
-- [x] Human-in-the-loop MCP tool approval
+- [x] Human-in-the-loop MCP tool approval across DATA-only restart
+- [x] Native ask-user questions through durable deferred input
 
 Credentials use [Substrate gateway injection](../../../docs/architecture/credential-injection.md).
 AWS IAM keys and Vertex service-account keys require local signing and are rejected
 by the compiler. Harness environment entries accept only literal values.
+
+Production runs retain Claude's native retry defaults. E2E fixtures opt into
+zero retries through an internal test switch while upstream denial handling
+still causes minutes of waiting.
 
 ## Telemetry
 
@@ -55,58 +60,44 @@ for the fetch after 30 seconds, so in a turn that runs past then, spans started
 after its telemetry initializes become roots of new traces rather than being
 absent.
 
+The gate delays new stdin prompts only. Deferred replay starts automatically on
+`--resume`, so the gate cannot ensure telemetry is initialized before replay.
+
 ## Human-in-the-loop approval flow
 
-Claude runs in print mode with `permissions.ask` rules for MCP servers
-that require approval. Its native `--permission-prompt-tool` calls a private,
-authenticated loopback MCP tool before executing a protected call.
+Claude runs in print mode with compiler-owned `PreToolUse` hooks. Protected MCP
+calls and `AskUserQuestion` return `permissionDecision: "defer"` before execution.
+Claude exits with the pending call preserved in its transcript. The driver saves
+A2A task ownership and the pending input, then returns `input-required` after
+reaping the process.
 
-```mermaid
-sequenceDiagram
-    participant Client as A2A client
-    participant Driver as Claude driver
-    participant Claude as claude -p
-    participant Broker as Approval MCP broker
-    participant Tool as Protected MCP tool
+After DATA restore, the shared executor recovers ownership and the harness starts
+`claude -p --resume <session-id>` without adding a new user prompt. The hook reads
+the saved approval or answer. Explicit ask rules also consult the private MCP
+permission host; it returns only that matching saved decision. Ask-user answers
+are supplied through `updatedInput`.
 
-    Client->>Driver: Start task
-    Driver->>Claude: Start process
-    Claude->>Broker: approve(tool, input, tool_use_id)
-    Broker-->>Driver: PendingApprovalRequest via requests channel
-    Note over Broker: Handler waits on decision channel
-    Driver-->>Client: input-required
-    Note over Driver,Broker: Actor snapshot freezes the live process,<br/>broker handler, and in-memory channels
-    Client->>Driver: ApprovalDecision on the same task
-    Driver->>Broker: Send decision via decision channel
-    Broker-->>Claude: allow or deny
-    alt approved
-        Claude->>Tool: Execute original call
-        Tool-->>Claude: Result
-    else denied
-        Claude-->>Claude: Continue with denied tool call
-    end
-```
+Cancellation resolves the native deferred call with a stop decision before
+writing a tombstone.
 
-The `requests` channel carries a new pending request from the MCP handler to the
-process driver. The per-request `decision chan runtime.ApprovalDecision` carries
-the response in the other direction. The channel is not durable storage: the
-full Actor memory snapshot preserves the live Claude process, blocked handler,
-and channel together until the same task resumes. If we want to switch to DATA
-snapshot in the future, we will need to switch to using deferred tool call with
-hooks instead.
+The native [defer documentation](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later)
+describes the transcript-based continuation.
 
-See [defer a tool call for later](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later).
+## Key limitations
 
-The `permission-prompt-tool` might not work if you modify the permission rules,
-permission mode, hooks (like `PreToolUse / PermissionRequest`) since they resolve
-the tool calls first before Claude's permission system invoke the `permission-prompt-tool`.
-If this tool does not respond (e.g. error or timeout or failed connection),
-the unresolved requests are denied, not approved.
+- **Tool parenting is not retained across DATA suspension.** Resumed invocations
+  link to the task's original invocation. Deferred tool spans use the resumed
+  invocation and exclude approval wait time. Other tool spans still open when
+  input is published are settled as unfinished; previous tool parents are not
+  restored. Parenting within an execution segment is retained.
+  Deferred span duration includes replay startup and is not exact tool-only time.
+
+- **Parallel approvals are not supported.** Protected calls that Claude cannot
+  defer in a parallel batch are denied through the permission fallback. A
+  remaining single call can still be deferred and approved.
 
 ## Planned / not yet supported
 
-- [ ] Ask User tool (removed upstream, see https://github.com/anthropics/claude-code/issues/77994, would require Agents SDK)
-- [ ] Checkpoint and fork continuity for Claude sessions
 - [ ] Enforced selection of individual tools from an MCP server
 - [ ] Dedicated subagents running in separate Sessions
 - [ ] Skills, MCP tools, and nested subagents on local subagents
@@ -116,9 +107,9 @@ the unresolved requests are denied, not approved.
 
 The platform-managed `Harness` selects the Claude runtime, and the `Agent`
 references it while defining behavior inline. The referenced ModelConfig and
-RemoteMCPServer must already exist in `kagent`. Replace
-`${KAGENT_CLAUDE_IMAGE}` with the full harness image reference, including its
-`@sha256:` digest.
+RemoteMCPServer must already exist in `kagent`. The installed release supplies
+the default Harness image. To override it, set `workload.image` to a full
+`@sha256:`-pinned reference.
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -128,8 +119,6 @@ metadata:
   namespace: kagent
 spec:
   claude: {}
-  workload:
-    image: ${KAGENT_CLAUDE_IMAGE}
   substrate:
     workerPoolRef:
       name: kagent-default
@@ -148,7 +137,7 @@ spec:
       modelConfig:
         name: bedrock-claude # Assuming you have created a modelconfig using Bedrock Anthropic
       systemPrompt: |
-          Follow the selected skill and use the configured MCP tool.
+        Follow the selected skill and use the configured MCP tool.
       tools:
         - mcp:
             server:

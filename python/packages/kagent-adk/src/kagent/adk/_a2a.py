@@ -23,13 +23,14 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
-from kagent.core._runtime_config import RuntimeConfig
+from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentGrpcServerCallContextBuilder,
     KAgentRequestContextBuilder,
     TelemetryRequestHandler,
     attach_hitl_agent_extension,
+    attach_usage_agent_extension,
     get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
@@ -41,7 +42,7 @@ from ._lifespan import LifespanManager
 from ._local_session_service import LocalSessionService
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
-from .types import AgentConfig
+from .types import Config
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class KAgentApp:
         lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
-        agent_config: Optional[AgentConfig] = None,
+        config: Optional[Config] = None,
         a2a_grpc_address: Optional[str] = None,
     ):
         """Initialize the KAgent application.
@@ -82,22 +83,23 @@ class KAgentApp:
             lifespan: Optional lifespan function
             plugins: Optional list of plugins
             stream: Whether to stream the response
-            agent_config: Optional agent configuration
+            config: Optional runtime and agent configuration
             a2a_grpc_address: Address for the A2A gRPC listener
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
-        runtime = agent_config.runtime if agent_config and agent_config.runtime else RuntimeConfig()
-        self.a2a_grpc_address = a2a_grpc_address or f"{runtime.host or '[::]'}:{runtime.port or '80'}"
+        self.config = config if config is not None else Config()
+        runtime = self.config.runtime
+        self.a2a_grpc_address = a2a_grpc_address or f"{runtime.host or '[::]'}:{runtime.port or 80}"
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
-        self.agent_config = agent_config
 
     def build(self, local=False) -> FastAPI:
         attach_hitl_agent_extension(self.agent_card)
+        attach_usage_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
         token_service = None
         controller_client: Optional[AsyncControllerClient] = None
@@ -105,7 +107,7 @@ class KAgentApp:
         # Substrate sandbox agents with durable-dir session storage keep session state in a
         # local sqlite DB inside the actor's durableDir volume. The URL arrives as
         # AgentConfig.session_db_url in the rendered config (set by the controller).
-        session_db_url = self.agent_config.session_db_url if self.agent_config else None
+        session_db_url = self.config.agent.session_db_url
 
         if not local:
             token_service = KAgentTokenService(self.app_name)
@@ -117,12 +119,12 @@ class KAgentApp:
             if session_db_url:
                 session_service = LocalSessionService(db_url=session_db_url)
 
-            if self.agent_config and self.agent_config.memory is not None:
+            if self.config.agent.HasField("memory"):
                 memory_service = KagentMemoryService(
                     agent_name=self.app_name,
                     controller_client=controller_client,
-                    embedding_config=self.agent_config.memory.embedding,
-                    ttl_days=self.agent_config.memory.ttl_days,
+                    embedding_config=optional_field(self.config.agent.memory, "embedding"),
+                    ttl_days=self.config.agent.memory.ttl_days,
                 )
 
         def create_runner() -> Runner:
@@ -130,10 +132,10 @@ class KAgentApp:
 
             # Build ADK context config objects from agent config
             events_compaction_config: EventsCompactionConfig | None = None
-            if self.agent_config and self.agent_config.context_config is not None:
+            if self.config.agent.HasField("context_config"):
                 from .types import build_adk_context_configs
 
-                events_compaction_config, _ = build_adk_context_configs(self.agent_config.context_config)
+                events_compaction_config, _ = build_adk_context_configs(self.config.agent.context_config)
 
             adk_app = App(
                 name=self.app_name,
@@ -180,11 +182,7 @@ class KAgentApp:
         app = FastAPI(lifespan=lifespan_manager)
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(
-                self.agent_config.runtime.max_content_length
-                if self.agent_config and self.agent_config.runtime
-                else None
-            ),
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
 
         # Health check/readiness probe
