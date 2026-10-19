@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import { agentNewChat, dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
-import { confirmDelete, selectOption } from "../../helpers/resource";
+import { confirmDelete, expectRequired, selectOption } from "../../helpers/resource";
 import { clickNav } from "../../helpers/nav";
 
 type Source = "reference" | "inline";
@@ -22,18 +22,36 @@ for (const template of CASES) {
       await page.getByTestId("agents-new").click();
       await expect(page).toHaveURL(/\/agents\/new$/);
       await expect(page.getByTestId("agent-form-namespace")).toContainText("kagent");
+      const submit = page.getByTestId("agent-form-submit");
+      const problems = page.getByTestId("agent-form-problems");
+
+      await expect(submit).toBeDisabled();
+      await expect(problems).toHaveText("A name is required.");
+      await expectRequired(page, {
+        marked: ["Name", "Namespace", "Shared template", "Shared harness"],
+        unmarked: [],
+      });
       await page.getByTestId("agent-form-name").fill(name);
+      await expect(submit).toBeDisabled();
+      await expect(problems).toHaveText("Choose a template.");
 
       if (template === "inline") {
         await chooseTemplateSource(page, "inline");
+        await expect(submit).toBeDisabled();
+        await expect(problems).toHaveText("Choose a model configuration for the inline template.");
         await selectOption(page, "template-form-model", "default-model-config");
         await page.getByTestId("template-form-description").fill("Inline before edit");
         await page.getByTestId("template-form-prompt").fill("You answer briefly.");
       } else {
         await selectOption(page, "agent-form-template-ref", "shared-brain");
       }
+      await expect(submit).toBeDisabled();
+      await expect(problems).toHaveText("Choose a harness.");
       await selectOption(page, "agent-form-harness-ref", "k8s-agent");
-      await page.getByTestId("agent-form-submit").click();
+      await expect(problems).toHaveCount(0);
+      await expect(submit).toBeEnabled();
+      await expect(page).toHaveURL(/\/agents\/new$/);
+      await submit.click();
     });
 
     await test.step("2. it appears in the list with its sources and status", async () => {
