@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # The carried-commit ledger (FORK.md, "Which kagent are we running"): one file
-# per carried change under fork/carried/, each the one-row table FORK.md used
-# to hold, so a pull request that adds a carried commit adds a file and never
-# touches a line another pull request adds.
+# per carried change under fork/carried/, so a pull request that adds a carried
+# commit adds a file and never touches a line another pull request adds.
 #
-#   scripts/fork/carried.sh          # print the table, rows in the order the
-#                                    # commits sit on top of the pin
+#   scripts/fork/carried.sh          # print the ledger table, rows in the order
+#                                    # the commits sit on top of the pin
 #   scripts/fork/carried.sh --check  # verify the files, print nothing
 #
-# A file is an optional YAML front-matter (the header `fork-ledger validate`
-# reads), the table header, its separator and one row of three cells; the
-# first cell names the carried commit(s) in backticks, by subject (the pull
-# request number GitHub appends to a subject is ignored). A file of another
-# shape, a subject that is not a commit on top of the pin (upstream merged it:
+# A file opens with the YAML front-matter `scripts/fork/ledger-header.sh`
+# checks; its `commits:` list names the carried commit(s) by subject (the pull
+# request number GitHub appends to a subject is ignored). A file without the
+# list, a subject that is not a commit on top of the pin (upstream merged it:
 # delete the file in the re-pin's follow-up; or it is misspelt) and a commit
 # two files record are each a problem: they are listed on stderr and the exit
 # code is 1. The pin is the merge base with the mirror (MIRROR, default
-# origin/main), as in the re-pin.
+# origin/main), as in the re-pin. The printed table has one row per file: its
+# subjects, its title, and its upstream outcome and exit from the header.
 set -euo pipefail
 
 mode=${1:-print}
@@ -30,11 +29,8 @@ esac
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 dir=fork/carried
-header='| Carried commit (subject) | Why the platform needs it | Upstream |'
+header='| Carried commit (subject) | Change | Upstream |'
 separator='|---|---|---|'
-# A conventional commit subject inside backticks: `type(scope): text`.
-# shellcheck disable=SC2016
-subject_re='`([a-z]+(\([^)`]*\))?!?: [^`]+)`'
 
 pin=$(git -C "$root" merge-base HEAD "${MIRROR:-origin/main}")
 declare -A position=()
@@ -55,35 +51,38 @@ rows=()
 shopt -s nullglob
 for file in "$root/$dir"/*.md; do
   name=$dir/$(basename "$file")
-  mapfile -t lines < "$file"
-  # A YAML front-matter (`---` to the next `---`, the machine-readable header)
-  # precedes the row and is no part of the table.
-  if [ "${lines[0]:-}" = "---" ]; then
-    end=1
-    while [ "$end" -lt "${#lines[@]}" ] && [ "${lines[$end]}" != "---" ]; do end=$((end + 1)); done
-    lines=("${lines[@]:$((end + 1))}")
-  fi
-  if [ "${#lines[@]}" -ne 3 ] || [ "${lines[0]}" != "$header" ] || [ "${lines[1]}" != "$separator" ]; then
-    problem "$name" "not the table header, its separator and one row"
+  # The front-matter: `---` on line 1 to the next `---`. `commits:` is a block
+  # list of single-quoted subjects ('' is a quote inside); `outcome:` and
+  # `exit:` sit under `upstream:`; the title is the first `# ` line after it.
+  mapfile -t subjects < <(awk '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    /^commits:/ { in_commits = 1; next }
+    in_commits && /^  - / {
+      v = substr($0, 5)
+      if (v ~ /^\x27/) { v = substr(v, 2, length(v) - 2); gsub(/\x27\x27/, "\x27", v) }
+      else if (v ~ /^"/) { v = substr(v, 2, length(v) - 2) }
+      print v; next
+    }
+    in_commits { in_commits = 0 }
+  ' "$file")
+  mapfile -t meta < <(awk '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && !closed && $0 == "---" { closed = 1; next }
+    !closed && /^upstream:/ { up = 1; next }
+    !closed && up && /^  outcome:/ { v = $0; sub(/^  outcome:[ \t]*/, "", v); outcome = v; next }
+    !closed && up && /^  exit:/ { v = $0; sub(/^  exit:[ \t]*/, "", v); exitv = v; next }
+    !closed && /^[a-z_]+:/ { up = 0 }
+    closed && /^# / && !title { title = substr($0, 3) }
+    END { print outcome; print exitv; print title }
+  ' "$file")
+  if [ "${#subjects[@]}" -eq 0 ]; then
+    problem "$name" "names no carried commit in its commits: list"
     continue
   fi
-  row=${lines[2]}
-  # An escaped pipe (`\|`, a literal one inside a cell) is no cell border.
-  unescaped=${row//\\|/}
-  pipes=${unescaped//[^|]/}
-  if [[ $row != "| "* || $row != *" |" || ${#pipes} -ne 4 ]]; then
-    problem "$name" "the row does not have three cells"
-    continue
-  fi
-  cell=${unescaped#"| "}
-  cell=${cell%%" |"*}
   order=
-  keys=0
-  while [[ $cell =~ $subject_re ]]; do
-    key=${BASH_REMATCH[1]}
-    cell=${cell#*"${BASH_REMATCH[0]}"}
+  for key in "${subjects[@]}"; do
     [[ $key =~ ^(.*)\ \(#[0-9]+\)$ ]] && key=${BASH_REMATCH[1]}
-    keys=$((keys + 1))
     if [ -z "${position[$key]:-}" ]; then
       problem "$name" "names \`$key\`, which is not a commit on top of the pin: upstream merged it (delete the file), or the subject is misspelt"
       continue
@@ -97,10 +96,11 @@ for file in "$root/$dir"/*.md; do
       order=${position[$key]}
     fi
   done
-  if [ "$keys" -eq 0 ]; then
-    problem "$name" "names no carried commit in its first cell"
-    continue
-  fi
+  cell=$(printf '`%s`, ' "${subjects[@]}")
+  cell=${cell%, }
+  exitv=${meta[1]#\'}; exitv=${exitv%\'}; exitv=${exitv//\'\'/\'}
+  exitv=${exitv#\"}; exitv=${exitv%\"}
+  row="| $cell | ${meta[2]} | ${meta[0]}: $exitv |"
   [ -n "$order" ] && rows+=("$order	$row")
 done
 

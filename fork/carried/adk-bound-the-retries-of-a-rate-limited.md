@@ -4,14 +4,25 @@ fork: kagent
 theme: session-lifecycle
 category: bugfix
 status: carried
+commits:
+  - 'fix(adk): bound the retries of a rate-limited model call'
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#2001]
   exit: file the branch
 depends_on: []
-commit: e05392ed9
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `fix(adk): bound the retries of a rate-limited model call` | a Go ADK turn whose model provider answered HTTP 429 stayed `WORKING` with no error and nothing in the runtime log (giantswarm/kagent-upstream#440). The A2A executor already fails a task whose model call errors; the gap is the provider SDK's wait: the Anthropic SDK retries a 429 twice by default and sleeps for any `Retry-After` uncapped, so an hourly rate-limit bucket (`Retry-After: 3600`) held a turn for up to two hours, while the OpenAI SDK caps its wait at 8 s and Ollama and Gemini do not retry. `BuildHTTPClient`, which every provider's client is built from, now carries one policy (`go/adk/pkg/models/ratelimit.go`): a 429 is sent again at most `rateLimitMaxRetries` (3) times, honouring `Retry-After-Ms` or `Retry-After` (seconds or an HTTP date), backing off 1 s, 2 s, 4 s when none is named, its waits within `rateLimitMaxWait` (1 minute) in total, a `Retry-After` past that ending the call at once; each retry is logged; the final 429 reaches the SDK marked `X-Should-Retry: false` with a body every SDK's error parser surfaces, so the call ends with "model provider rate-limited the request (429), retried <n> times, Retry-After <d>" and the task fails with it. Proven by unit tests on the transport, on each SDK (Anthropic, OpenAI, Ollama, Gemini) against a server answering 429, and on the A2A executor (task `FAILED` with the message); no e2e: the suite's mock model server cannot answer 429 | to file — prepared in the fork: branch `upstream/adk-429-turn-outcome` (mirror `main` @ `6c4cfb2b`, the pin, + the patch, `401b947f`, DCO-signed, no fork references, unit tests green there; its message is the pull-request text). kagent-dev/kagent searched 2026-10-12 ("429", "rate limit", "Retry-After"): nothing on a provider 429; upstream `main` has the same gap (Anthropic SDK v1.78.0 waits the same way); kagent-dev/kagent#2001 (ADK reliability options, retries among them) closed unmerged |
+# fix(adk): bound the retries of a rate-limited model call
+
+## Change
+
+`fix(adk): bound the retries of a rate-limited model call`
+
+## Reason
+
+a Go ADK turn whose model provider answered HTTP 429 stayed `WORKING` with no error and nothing in the runtime log (giantswarm/kagent-upstream#440). The A2A executor already fails a task whose model call errors; the gap is the provider SDK's wait: the Anthropic SDK retries a 429 twice by default and sleeps for any `Retry-After` uncapped, so an hourly rate-limit bucket (`Retry-After: 3600`) held a turn for up to two hours, while the OpenAI SDK caps its wait at 8 s and Ollama and Gemini do not retry. `BuildHTTPClient`, which every provider's client is built from, now carries one policy (`go/adk/pkg/models/ratelimit.go`): a 429 is sent again at most `rateLimitMaxRetries` (3) times, honouring `Retry-After-Ms` or `Retry-After` (seconds or an HTTP date), backing off 1 s, 2 s, 4 s when none is named, its waits within `rateLimitMaxWait` (1 minute) in total, a `Retry-After` past that ending the call at once; each retry is logged; the final 429 reaches the SDK marked `X-Should-Retry: false` with a body every SDK's error parser surfaces, so the call ends with "model provider rate-limited the request (429), retried <n> times, Retry-After <d>" and the task fails with it. Proven by unit tests on the transport, on each SDK (Anthropic, OpenAI, Ollama, Gemini) against a server answering 429, and on the A2A executor (task `FAILED` with the message); no e2e: the suite's mock model server cannot answer 429
+
+## History
+
+to file — prepared in the fork: branch `upstream/adk-429-turn-outcome` (mirror `main` @ `6c4cfb2b`, the pin, + the patch, `401b947f`, DCO-signed, no fork references, unit tests green there; its message is the pull-request text). kagent-dev/kagent searched 2026-10-12 ("429", "rate limit", "Retry-After"): nothing on a provider 429; upstream `main` has the same gap (Anthropic SDK v1.78.0 waits the same way); kagent-dev/kagent#2001 (ADK reliability options, retries among them) closed unmerged

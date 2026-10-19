@@ -44,6 +44,7 @@ jobs:
         run: |
           scripts/fork/ledger-header.sh --self-test
           scripts/fork/ledger-header.sh kagent fork/carried
+          scripts/fork/ledger-header.sh --complete kagent fork/carried
       - name: Check the Substrate pin rows
         run: scripts/fork/ledger-check.sh pin
       - name: Check the harness CLI pins

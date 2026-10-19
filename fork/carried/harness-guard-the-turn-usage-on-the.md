@@ -4,14 +4,25 @@ fork: kagent
 theme: test-flakes
 category: test
 status: carried
+commits:
+  - 'test(harness): guard the turn usage on the final task status'
 upstream:
   outcome: fork-only
   refs: []
   exit: with the usage rows
 depends_on: [api-withdraw-the-harness-turn-limits]
-commit: fdc5bbc85
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `test(harness): guard the turn usage on the final task status` | the platform reads a turn's tokens and cost from `kagent.dev/a2a/usage` on its final task status (the Dev Portal's session cost). That usage, `Outcome.Usage`, is carried by the withdrawn turn-limits commits (`api-withdraw-the-harness-turn-limits.md`), and the codex and omp usage build on it, so a re-pin that drops those commits would drop it with no failing check (https://github.com/giantswarm/kagent-upstream/issues/615). The tests sit in a commit of their own: the claude, codex and omp drivers each hand a turn's reported usage to the runtime's `Outcome`, and the A2A executor writes it on the final status of a completed and a failed turn; a re-pin without the usage fails them | fork-only: it guards the fork-only turn usage and leaves with it |
+# test(harness): guard the turn usage on the final task status
+
+## Change
+
+`test(harness): guard the turn usage on the final task status`
+
+## Reason
+
+the platform reads a turn's tokens and cost from `kagent.dev/a2a/usage` on its final task status (the Dev Portal's session cost). That usage, `Outcome.Usage`, is carried by the withdrawn turn-limits commits (`api-withdraw-the-harness-turn-limits.md`), and the codex and omp usage build on it, so a re-pin that drops those commits would drop it with no failing check (https://github.com/giantswarm/kagent-upstream/issues/615). The tests sit in a commit of their own: the claude, codex and omp drivers each hand a turn's reported usage to the runtime's `Outcome`, and the A2A executor writes it on the final status of a completed and a failed turn; a re-pin without the usage fails them
+
+## History
+
+fork-only: it guards the fork-only turn usage and leaves with it

@@ -4,14 +4,25 @@ fork: kagent
 theme: test-flakes
 category: test
 status: carried
+commits:
+  - 'test(ui): count a journey''s steps per test, and budget the transcript''s'
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#2610]
   exit: file in the UI test batch
 depends_on: []
-commit: ef0d74b04
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `test(ui): count a journey's steps per test, and budget the transcript's` | after the chat journeys fix the fork's `ui-tests` still failed on every attempt of a loaded Firefox run, on pull requests that touched nothing under `ui/` (giantswarm/kagent-upstream#68): the transcript journey is fifteen steps around two page loads, three streamed turns, a reload and a conversation switch on the thirty-second default, 31–34 s on the hosted runner with every step waiting on the page. The suite's own rule gives a test of ten or more steps `LIFECYCLE_TIMEOUT`, but its check counted steps per file and only in files holding one test; it counts per test now, finds this journey alone, and the journey sets the budget in its own body. Profiled first: a turn's time is React's development build re-rendering the page per streamed word, no race in the product | to file — prepared in the fork: branch `upstream/ui-journey-budget` (mirror `main` + both `test(ui)` commits, DCO-signed, no fork references). kagent-dev/kagent searched 2026-09-24: nothing on the transcript journey, the step check or the templates delete; #2610/#2612 (earlier waits) are the neighbours |
+# test(ui): count a journey's steps per test, and budget the transcript's
+
+## Change
+
+`test(ui): count a journey's steps per test, and budget the transcript's`
+
+## Reason
+
+after the chat journeys fix the fork's `ui-tests` still failed on every attempt of a loaded Firefox run, on pull requests that touched nothing under `ui/` (giantswarm/kagent-upstream#68): the transcript journey is fifteen steps around two page loads, three streamed turns, a reload and a conversation switch on the thirty-second default, 31–34 s on the hosted runner with every step waiting on the page. The suite's own rule gives a test of ten or more steps `LIFECYCLE_TIMEOUT`, but its check counted steps per file and only in files holding one test; it counts per test now, finds this journey alone, and the journey sets the budget in its own body. Profiled first: a turn's time is React's development build re-rendering the page per streamed word, no race in the product
+
+## History
+
+to file — prepared in the fork: branch `upstream/ui-journey-budget` (mirror `main` + both `test(ui)` commits, DCO-signed, no fork references). kagent-dev/kagent searched 2026-09-24: nothing on the transcript journey, the step check or the templates delete; #2610/#2612 (earlier waits) are the neighbours

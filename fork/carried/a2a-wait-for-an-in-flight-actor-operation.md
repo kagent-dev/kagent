@@ -4,14 +4,25 @@ fork: kagent
 theme: session-lifecycle
 category: bugfix
 status: carried
+commits:
+  - 'fix(a2a): wait for an in-flight actor operation instead of failing'
 upstream:
   outcome: to-file
   refs: []
-  exit: Substrate router answers a typed status; then the retry drops
+  exit: Substrate router answers a typed status (S row 137); then the retry drops
 depends_on: [session-resume-again-while-substrate-has-no-free-worker]
-commit: 19a955da7
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `fix(a2a): wait for an in-flight actor operation instead of failing` | a turn sent while another operation held its Actor, such as the repoint of a suspended Actor onto a newer template right after a Substrate upgrade, failed: Substrate's router resumes the Actor on the turn's dial, ate-api answered `Aborted: another operation is in progress for this actor` to every resume of its parking budget, and the router refused the turn, which reached the caller as a refused send although the same turn was answered seconds later (giantswarm/kagent-upstream#191). A send the runtime refused without taking its input, on a runtime that is not lost, now makes the gateway resume the Actor itself through ate-api, waiting while it answers `Aborted` (from 500 ms, doubling to 5 s, at most two minutes), and run the send once more; any other answer, or an Actor still held at the bound, keeps the retryable refusal. The gateway waits once per turn. Docs: `docs/architecture/a2a-gateway.md` | to file |
+# fix(a2a): wait for an in-flight actor operation instead of failing
+
+## Change
+
+`fix(a2a): wait for an in-flight actor operation instead of failing`
+
+## Reason
+
+a turn sent while another operation held its Actor, such as the repoint of a suspended Actor onto a newer template right after a Substrate upgrade, failed: Substrate's router resumes the Actor on the turn's dial, ate-api answered `Aborted: another operation is in progress for this actor` to every resume of its parking budget, and the router refused the turn, which reached the caller as a refused send although the same turn was answered seconds later (giantswarm/kagent-upstream#191). A send the runtime refused without taking its input, on a runtime that is not lost, now makes the gateway resume the Actor itself through ate-api, waiting while it answers `Aborted` (from 500 ms, doubling to 5 s, at most two minutes), and run the send once more; any other answer, or an Actor still held at the bound, keeps the retryable refusal. The gateway waits once per turn. Docs: `docs/architecture/a2a-gateway.md`
+
+## History
+
+to file

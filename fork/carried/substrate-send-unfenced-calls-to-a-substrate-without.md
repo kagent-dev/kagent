@@ -4,14 +4,25 @@ fork: kagent
 theme: durable-pause
 category: compat
 status: carried
+commits:
+  - 'fix(substrate): send unfenced calls to a Substrate without the token'
 upstream:
   outcome: none
   refs: []
-  exit: with the upstream design issue
+  exit: with the T4 design issue
 depends_on: [session-fence-a-frozen-quiescence-holders-late-pause]
-commit: 4dfa1d349
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `fix(substrate): send unfenced calls to a Substrate without the token` | the row above made every Pause, Suspend and fencing Resume carry the token, and a Substrate whose Actor API predates it (every release of the Giant Swarm line before `1.5.0-rc.6`, `1.4.0` included) rejects every field it has no descriptor for: `InvalidArgument: request: Invalid value: unknown field with protobuf tag 10001`, so every quiesce failed and the fenced Resume before a claim's release was retried forever, wedging every session after its first turn (giantswarm/kagent-upstream#230). The Substrate client detects that refusal, remembers per client (per ate-api) that the token is not taken, logs one WARN naming the ate-api endpoint and the lost fence, and sends that request and every later one unfenced; a Substrate that takes the token keeps the fence. Feature detection rather than a minimum version enforced at startup: ate-api exposes no version to check, Substrate is usually installed on its own (`substrate.enabled: false`), so the chart's dependency cannot hold the pair, and a rolling upgrade that moves kagent first keeps working. The minimum Substrate for the fence is the chart's dependency version (`SUBSTRATE_VERSION`, `1.5.0`), stated in `values.yaml`. Docs: `docs/architecture/runtime-and-lifecycle.md` | none upstream; filed with the row above, whose upstream version needs it once upstream Substrate takes the token |
+# fix(substrate): send unfenced calls to a Substrate without the token
+
+## Change
+
+`fix(substrate): send unfenced calls to a Substrate without the token`
+
+## Reason
+
+the row above made every Pause, Suspend and fencing Resume carry the token, and a Substrate whose Actor API predates it (every release of the Giant Swarm line before `1.5.0-rc.6`, `1.4.0` included) rejects every field it has no descriptor for: `InvalidArgument: request: Invalid value: unknown field with protobuf tag 10001`, so every quiesce failed and the fenced Resume before a claim's release was retried forever, wedging every session after its first turn (giantswarm/kagent-upstream#230). The Substrate client detects that refusal, remembers per client (per ate-api) that the token is not taken, logs one WARN naming the ate-api endpoint and the lost fence, and sends that request and every later one unfenced; a Substrate that takes the token keeps the fence. Feature detection rather than a minimum version enforced at startup: ate-api exposes no version to check, Substrate is usually installed on its own (`substrate.enabled: false`), so the chart's dependency cannot hold the pair, and a rolling upgrade that moves kagent first keeps working. The minimum Substrate for the fence is the chart's dependency version (`SUBSTRATE_VERSION`, `1.5.0`), stated in `values.yaml`. Docs: `docs/architecture/runtime-and-lifecycle.md`
+
+## History
+
+none upstream; filed with the row above, whose upstream version needs it once upstream Substrate takes the token

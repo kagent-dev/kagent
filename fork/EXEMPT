@@ -1,0 +1,20 @@
+# Subject prefixes of commits on top of the pin that no carried-change file names
+# (scripts/fork/ledger-header.sh --complete, fork-ledger validate --complete).
+docs(
+docs:
+# the re-pin's pin annotation, Substrate re-pins, release rows and Renovate configuration
+chore(fork)
+# the line's Substrate pin bumps
+chore(substrate)
+build(fork)
+# giantswarm-align-files
+chore: align files
+# Renovate and hand-made dependency pins
+chore(deps)
+# heraldbot's sync markers
+sync:
+# fixups the next re-pin folds into the commit they name
+amend!
+fixup!
+# release-row tooling fixes
+fix(fork)

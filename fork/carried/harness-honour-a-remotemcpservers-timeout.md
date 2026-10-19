@@ -4,14 +4,25 @@ fork: kagent
 theme: mcp-forwarder
 category: bugfix
 status: carried
+commits:
+  - 'fix(harness): honour a RemoteMCPServer''s timeout on the Claude and Codex harnesses'
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3258]
   exit: file
 depends_on: []
-commit: c86802dae
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `fix(harness): honour a RemoteMCPServer's timeout on the Claude and Codex harnesses` | the agent chart renders the muster RemoteMCPServer with `spec.timeout: 180s` so a long backend call (a repository write, a watch) is bounded by muster's per-server budget; both compilers dropped the field with the compile warning `ignores unsupported fields timeout`, shown on every Claude and Codex agent in Backstage, and the runtime applied its own limit instead (Claude Code's 60 s HTTP request limit, Codex's 300 s default). The Claude compiler now writes `spec.timeout` as the server's `timeout` in Claude's MCP file (milliseconds, Claude Code 2.1.203+), also on servers the credential forwarder fronts, and the Codex compiler as `tool_timeout_sec`; a timeout either CLI would ignore (below 1 s for Claude, not positive for Codex) is still reported. Claude config version 6, Codex config version 4 | to file — prepared in the fork: branch `upstream/harness-mcp-timeout`, on the pin `main@92dd6caa`, the Claude commit without the forwarder hunk (the forwarder is fork-only); no upstream issue or pull request found (`gh search prs/issues -R kagent-dev/kagent "claude timeout"`, "MCP timeout", 2026-10-13) |
+# fix(harness): honour a RemoteMCPServer's timeout on the Claude and Codex harnesses
+
+## Change
+
+`fix(harness): honour a RemoteMCPServer's timeout on the Claude and Codex harnesses`
+
+## Reason
+
+the agent chart renders the muster RemoteMCPServer with `spec.timeout: 180s` so a long backend call (a repository write, a watch) is bounded by muster's per-server budget; both compilers dropped the field with the compile warning `ignores unsupported fields timeout`, shown on every Claude and Codex agent in Backstage, and the runtime applied its own limit instead (Claude Code's 60 s HTTP request limit, Codex's 300 s default). The Claude compiler now writes `spec.timeout` as the server's `timeout` in Claude's MCP file (milliseconds, Claude Code 2.1.203+), also on servers the credential forwarder fronts, and the Codex compiler as `tool_timeout_sec`; a timeout either CLI would ignore (below 1 s for Claude, not positive for Codex) is still reported. Claude config version 6, Codex config version 4
+
+## History
+
+to file — prepared in the fork: branch `upstream/harness-mcp-timeout`, on the pin `main@92dd6caa`, the Claude commit without the forwarder hunk (the forwarder is fork-only); no upstream issue or pull request found (`gh search prs/issues -R kagent-dev/kagent "claude timeout"`, "MCP timeout", 2026-10-13)

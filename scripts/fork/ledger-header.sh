@@ -13,8 +13,15 @@
 # their listed values, `upstream.refs` are `owner/repo#N` and never name
 # giantswarm/giantswarm, `depends_on` entries are such a reference, a file of
 # this ledger, or `owner/repo:<id>` in another line's ledger, `verified` is a
-# date, `upstream.exit` is set unless the outcome is merged or none, and
-# `commit` is empty, a 7-12 hex SHA or `owner/repo#N`.
+# date, `upstream.exit` is set unless the outcome is merged or none,
+# `commits` lists the carried commit subjects (at least one while the status is
+# carried) and the body has a `## History` section. `--complete` adds the
+# reverse check: every commit on top of the pin (the merge base with MIRROR,
+# default origin/main) whose subject no prefix in fork/EXEMPT covers is named
+# by exactly one file; the commits are read from the repository holding <dir>
+# (LEDGER_GIT names another checkout).
+#
+#   scripts/fork/ledger-header.sh --complete <fork> <dir>
 set -eu
 
 # --self-test: fixture runs, one ledger directory per case.
@@ -36,12 +43,23 @@ upstream:
   refs: [agent-substrate/substrate#1543, giantswarm/kagent-upstream#12]
   exit: 'as#1543 merged; the line''s patch drops'
 depends_on: [another-row, giantswarm/substrate:let-actors-egress-through-while-resumes, agent-substrate/substrate#2117]
-commit: 52f1c49a
+commits:
+  - 'fix(x): y'
 verified: 2026-10-19
 ---
-| Carried commit (subject) | Why the platform needs it | Upstream |
-|---|---|---|
-| `fix(x): y` | because | none |
+# A good row
+
+## Change
+
+x
+
+## Reason
+
+because
+
+## History
+
+none
 GOOD
   }
   # case_ <name> <want exit code> <file name> <file text> [text the output must name]
@@ -71,16 +89,15 @@ GOOD
   case_ "an outcome off the list" 1 "off-outcome.md" "$(good | sed 's/^id: a-good-row$/id: off-outcome/; s/^  outcome: .*/  outcome: pending/')" 'upstream.outcome "pending"'
   case_ "a missing key" 1 "no-verified.md" "$(good | sed 's/^id: a-good-row$/id: no-verified/; /^verified:/d')" "verified is missing"
   case_ "a bad date" 1 "bad-date.md" "$(good | sed 's/^id: a-good-row$/id: bad-date/; s/^verified: .*/verified: yesterday/')" 'verified "yesterday"'
+  case_ "no commits while carried" 1 "no-commits.md" "$(good | sed 's/^id: a-good-row$/id: no-commits/; /^  - .fix(x): y.$/d')" "commits names no carried commit"
+  case_ "no commits while superseded" 0 "gone.md" "$(good | sed 's/^id: a-good-row$/id: gone/; s/^status: .*/status: superseded/; /^  - .fix(x): y.$/d')"
+  case_ "no History section" 1 "no-history.md" "$(good | sed 's/^id: a-good-row$/id: no-history/; /^## History$/d')" "no ## History section"
   case_ "a bare reference" 1 "bare-ref.md" "$(good | sed 's/^id: a-good-row$/id: bare-ref/; s/^  refs: .*/  refs: [#12]/')" 'upstream.refs "#12"'
   case_ "the internal tracker" 1 "tracker.md" "$(good | sed 's/^id: a-good-row$/id: tracker/; s/^  refs: .*/  refs: [giantswarm\/giantswarm#37742]/')" "internal tracker"
   case_ "an exit missing while open" 1 "no-exit.md" "$(good | sed 's/^id: a-good-row$/id: no-exit/; /^  exit:/d')" "upstream.exit is empty while outcome is open"
   case_ "an exit missing while merged" 0 "merged.md" "$(good | sed 's/^id: a-good-row$/id: merged/; s/^  outcome: .*/  outcome: merged/; /^  exit:/d')"
   case_ "a dependency on no file" 1 "no-dep.md" "$(good | sed 's/^id: a-good-row$/id: no-dep/; s/^depends_on: .*/depends_on: [missing-row]/')" 'depends_on "missing-row" names no file'
   case_ "a malformed dependency" 1 "bad-dep.md" "$(good | sed 's/^id: a-good-row$/id: bad-dep/; s/^depends_on: .*/depends_on: [Not A Row]/')" 'depends_on "Not A Row"'
-  case_ "an empty commit" 0 "no-commit.md" "$(good | sed 's/^id: a-good-row$/id: no-commit/; s/^commit: .*/commit: ""/')"
-  case_ "a short commit" 1 "short-commit.md" "$(good | sed 's/^id: a-good-row$/id: short-commit/; s/^commit: .*/commit: abc12/')" 'commit "abc12"'
-  case_ "a pull request as the commit" 0 "pr-commit.md" "$(good | sed 's/^id: a-good-row$/id: pr-commit/; s/^commit: .*/commit: giantswarm\/kagent-upstream#7/')"
-  case_ "a quoted commit" 0 "quoted-commit.md" "$(good | sed 's/^id: a-good-row$/id: quoted-commit/; s/^commit: .*/commit: "08779062"/')"
   if [ "$failures" -gt 0 ]; then
     echo "$failures case(s) failed"
     exit 1
@@ -91,8 +108,13 @@ if [ "${1:-}" = --self-test ]; then
   self_test
 fi
 
+complete=0
+if [ "${1:-}" = --complete ]; then
+  complete=1
+  shift
+fi
 if [ "$#" -ne 2 ]; then
-  echo "usage: $0 <fork> <dir>" >&2
+  echo "usage: $0 [--complete] <fork> <dir>" >&2
   exit 64
 fi
 fork=$1
@@ -134,13 +156,15 @@ for f in "$dir"/*.md; do
       split("carried dropped superseded", s, " "); for (i in s) statuses[s[i]] = 1
       split("merged open declined superseded to-file fork-only drops-at-repin none", o, " "); for (i in o) outcomes[o[i]] = 1
       n = split(ids, idlist, "\n"); for (i = 1; i <= n; i++) known[idlist[i]] = 1
-      problems = 0; closed = 0; in_upstream = 0
+      problems = 0; closed = 0; in_upstream = 0; in_commits = 0; ncommits = 0; history = 0
     }
     NR == 1 { if ($0 != "---") { problem("no header: the file must start with a --- front-matter"); exit } next }
-    closed { next }
+    closed { if ($0 == "## History") history = 1; next }
     $0 == "---" { closed = 1; next }
+    /^commits:/ { in_commits = 1; in_upstream = 0; seen["commits"] = 1; next }
+    in_commits && /^  - / { ncommits++; next }
     /^[a-z_]+:/ {
-      in_upstream = 0
+      in_upstream = 0; in_commits = 0
       key = $0; sub(/:.*/, "", key)
       val = $0; sub(/^[a-z_]+:/, "", val)
       if (key == "upstream") { in_upstream = 1; seen["upstream"] = 1; next }
@@ -186,9 +210,8 @@ for f in "$dir"/*.md; do
           problem("depends_on \"" d "\" is neither owner/repo#N nor [owner/repo:]id")
         } }
       }
-      v = unquote(top["commit"])
-      if (v != "" && v !~ /^[0-9a-f]+$/ && v !~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[0-9]+$/) problem("commit \"" v "\" is neither a SHA nor owner/repo#N")
-      else if (v ~ /^[0-9a-f]+$/ && (length(v) < 7 || length(v) > 12)) problem("commit \"" v "\" is not a 7-12 hex SHA")
+      if (unquote(top["status"]) == "carried" && ncommits == 0) problem("commits names no carried commit while status is carried")
+      if (closed && !history) problem("no ## History section in the body")
       print "PROBLEMS=" problems
     }
   ' "$f") || true; then :; fi
@@ -197,6 +220,46 @@ for f in "$dir"/*.md; do
   [ -z "$count" ] && count=1
   problems=$((problems + count))
 done
+
+if [ "$complete" -eq 1 ]; then
+  exempt=$(cd "$dir/.." && pwd)/EXEMPT
+  repo=${LEDGER_GIT:-$dir}
+  pin=$(git -C "$repo" merge-base HEAD "${MIRROR:-origin/main}")
+  named=$(for f in "$dir"/*.md; do awk '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    /^commits:/ { c = 1; next }
+    c && /^  - / {
+      v = substr($0, 5)
+      if (v ~ /^\x27/) { v = substr(v, 2, length(v) - 2); gsub(/\x27\x27/, "\x27", v) }
+      else if (v ~ /^"/) { v = substr(v, 2, length(v) - 2) }
+      sub(/ \(#[0-9]+\)$/, "", v); print v; next
+    }
+    c { c = 0 }
+  ' "$f"; done)
+  commits=$(mktemp)
+  git -C "$repo" log --no-merges --format=%s "$pin..HEAD" >"$commits"
+  while IFS= read -r subject; do
+    subject=$(printf '%s' "$subject" | sed -E 's/ \(#[0-9]+\)$//')
+    skip=0
+    if [ -f "$exempt" ]; then
+      while IFS= read -r prefix; do
+        case $prefix in '' | '#'*) continue ;; esac
+        case $subject in "$prefix"*) skip=1; break ;; esac
+      done <"$exempt"
+    fi
+    [ "$skip" -eq 1 ] && continue
+    n=$(printf '%s\n' "$named" | grep -cxF -- "$subject" || true)
+    if [ "$n" -eq 0 ]; then
+      echo "$dir: commit \"$subject\" is named by no file and no EXEMPT prefix covers it" >&2
+      problems=$((problems + 1))
+    elif [ "$n" -gt 1 ]; then
+      echo "$dir: commit \"$subject\" is named by $n files" >&2
+      problems=$((problems + 1))
+    fi
+  done <"$commits"
+  rm -f "$commits"
+fi
 
 if [ "$problems" -gt 0 ]; then
   echo "$problems problem(s) in $dir" >&2
