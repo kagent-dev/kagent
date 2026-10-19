@@ -225,7 +225,8 @@ and `grep_file`. Both opt-outs default to `false`. Skill discovery and loading
 remain conditional on installed skills.
 For controller-managed runtimes, set
 `config.runtimeDefaults.builtinTools.disableBash: true` in Helm values.
-`bash_venv_path` selects a separate Python environment for Python runtime shell commands.
+`bash_venv_path` selects a separate environment for shell commands in both runtimes:
+its `bin` directory is prepended to `PATH`, and `VIRTUAL_ENV` is set.
 
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with

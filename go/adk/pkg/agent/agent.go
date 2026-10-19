@@ -71,7 +71,10 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
 	builtinTools := runtime.GetBuiltinTools()
-	executionTools, err := tools.NewBuiltinTools(skillsDirectory, builtinTools.GetDisableFileSearch(), builtinTools.GetDisableBash())
+	executionTools, err := tools.NewBuiltinTools(tools.BuiltinToolsConfig{
+		SkillsDirectory: skillsDirectory, BashVenvPath: builtinTools.GetBashVenvPath(),
+		DisableFileSearch: builtinTools.GetDisableFileSearch(), DisableBash: builtinTools.GetDisableBash(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create built-in tools: %w", err)
 	}

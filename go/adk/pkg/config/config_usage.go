@@ -31,7 +31,7 @@ import (
 //   - Used in create_agent() to add tools to the agent
 //
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
-//   - Skills are added via SkillsPlugin in Python
+//   - Python adds skill discovery alongside the built-in tools
 //   - In go-adk, skills are handled via AgentConfig.SkillsDirectory
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used

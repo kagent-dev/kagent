@@ -1,13 +1,10 @@
 [project]
-name = "kagent-skills"
+name = "kagent-tools"
 version = "0.1.0"
-description = "Core library for discovering and loading KAgent skills."
+description = "Shared filesystem, shell, and workspace helpers for kagent Python adapters."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-  "pydantic>=2.0.0",
-  "pyyaml>=6.0"
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [

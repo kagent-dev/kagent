@@ -42,7 +42,7 @@ def add_tools_with_config(root_agent: BaseAgent, config: Optional[Config] = None
     def add_tools(agent: BaseAgent, agent_config=None):
         settings = runtime.builtin_tools
         add_builtin_tools_to_agent(
-            agent_config.skills_directory if agent_config and agent_config.skills_directory else "/skills",
+            agent_config.skills_directory if agent_config and agent_config.skills_directory else None,
             agent,
             disable_file_search=settings.disable_file_search,
             bash_venv_path=settings.bash_venv_path,

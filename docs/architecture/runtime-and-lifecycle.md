@@ -238,6 +238,23 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
+The ADK's built-in file and shell tools use `/data/workspace`, shared by the root
+agent and subagents in one Actor. Workspace files survive VOLUMES snapshots, resume,
+and checkpoint forks. Skills are discovered independently; the workspace has no
+session-specific directories or mutable skills symlinks. The workspace is created
+on first use, with no predefined upload or output directories. File tools accept
+normal relative and absolute paths inside the sandbox; Substrate owns isolation.
+
+Each bash invocation starts a fresh shell with the Actor environment. The working
+directory and configured skills directory are added to `PYTHONPATH`. Commands use
+a 60-second default timeout; `timeout_seconds` can select up to 600 seconds.
+Stdout and stderr are combined, captured up to 64 KiB, and returned with an
+explicit truncation marker. Large results should be redirected to workspace files.
+Commands and their process groups are stopped when a call finishes, times out,
+or is canceled. Background processes are not durable work and have no process
+handle API in the bash tool. Suspending an Actor preserves files, not running
+commands. Command payloads and output are not logged by the shell helpers.
+
 Substrate v0.6.0-alpha3 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
