@@ -161,7 +161,7 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	if len(s.observedNamespaces) == 0 {
 		actors, next, err = s.ateClient.ListActorsPage(ctx, input.GetAtespace(), limit, token)
 	} else {
-		start, inner, tokenErr := parseActorPageToken(scope.namespaces, token)
+		start, inner, tokenErr := parseScopedPageToken(scope.namespaces, token)
 		if tokenErr != nil {
 			return SubstrateActorPage{}, tokenErr
 		}
@@ -182,23 +182,32 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 	return result, nil
 }
 
-const maxActorPageTokenBytes = 1024
+const maxPageTokenBytes = 1024
 
-func actorPageToken(atespace, inner string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(atespace + "/" + inner))
+// scopedPageToken is the cursor a controller that watches some namespaces hands out:
+// the watched namespace a page ended in, then where to resume.
+func scopedPageToken(namespace, cursor string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(namespace + "/" + cursor))
 }
 
-func parseActorPageToken(atespaces []string, token string) (int, string, error) {
+func parseScopedPageToken(namespaces []string, token string) (int, string, error) {
 	if token == "" {
 		return 0, "", nil
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	atespace, inner, ok := strings.Cut(string(decoded), "/")
-	start := slices.Index(atespaces, atespace)
-	if len(token) > maxActorPageTokenBytes || err != nil || !ok || start < 0 {
-		return 0, "", serviceerrors.NewInvalidArgument("Invalid page token", nil)
+	if len(token) > maxPageTokenBytes {
+		return 0, "", invalidPageToken()
 	}
-	return start, inner, nil
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	namespace, cursor, ok := strings.Cut(string(decoded), "/")
+	start := slices.Index(namespaces, namespace)
+	if err != nil || !ok || start < 0 {
+		return 0, "", invalidPageToken()
+	}
+	return start, cursor, nil
+}
+
+func invalidPageToken() error {
+	return serviceerrors.NewInvalidArgument("Invalid page token", nil)
 }
 
 func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inner string, limit int32) ([]*ateapipb.Actor, string, error) {
@@ -211,9 +220,9 @@ func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inne
 		actors = append(actors, rows...)
 		switch {
 		case next != "":
-			return actors, actorPageToken(atespace, next), nil
+			return actors, scopedPageToken(atespace, next), nil
 		case int32(len(actors)) >= limit && i+1 < len(atespaces):
-			return actors, actorPageToken(atespaces[i+1], ""), nil
+			return actors, scopedPageToken(atespaces[i+1], ""), nil
 		}
 		inner = ""
 	}
@@ -228,7 +237,14 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 	}
 	limit, token := substratePageSize(input.GetPage().GetLimit()), input.GetPage().GetPageToken()
 	if len(s.observedNamespaces) > 0 {
-		return s.listWatchedWorkers(ctx, scope, limit, token), nil
+		_, after, err := parseScopedPageToken(scope.namespaces, token)
+		if err == nil && token != "" && after == "" {
+			err = invalidPageToken()
+		}
+		if err != nil {
+			return SubstrateWorkerPage{}, err
+		}
+		return s.listWatchedWorkers(ctx, scope, limit, after), nil
 	}
 	result := SubstrateWorkerPage{ComputedAt: time.Now().UTC()}
 	workers, next, err := s.ateClient.ListWorkersPage(ctx, limit, token)
@@ -262,7 +278,8 @@ func (s *Service) listWatchedWorkers(ctx context.Context, scope substrateScope, 
 	})
 	if int32(len(workers)) > limit {
 		workers = workers[:limit]
-		result.NextPageToken = workers[limit-1].GetMetadata().GetName()
+		last := workers[limit-1]
+		result.NextPageToken = scopedPageToken(last.GetWorkerNamespace(), last.GetMetadata().GetName())
 	}
 	result.Workers = workers
 	return result
