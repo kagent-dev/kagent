@@ -280,11 +280,7 @@ func (m mcpConfigFile) write(actorJWTHosts []string) (string, error) {
 				continue
 			}
 			server := m.compiled[name]
-			server.Headers = maps.Clone(server.Headers)
-			if server.Headers == nil {
-				server.Headers = map[string]string{}
-			}
-			server.Headers["Authorization"] = workspace.ActorJWTAuthorization
+			server.Headers = workspace.ActorJWTHeaders(server.URL, server.Headers, actorJWTHosts)
 			servers[name] = server
 		}
 	}

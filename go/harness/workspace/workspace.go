@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
@@ -347,6 +348,20 @@ func TakesActorJWT(serverURL string, headers map[string]string, actorJWTHosts []
 	}
 	parsed, err := url.Parse(serverURL)
 	return err == nil && slices.Contains(actorJWTHosts, strings.ToLower(parsed.Hostname()))
+}
+
+// ActorJWTHeaders returns the headers an MCP request to serverURL carries in a
+// turn whose actor-JWT hosts are actorJWTHosts: headers, with
+// ActorJWTAuthorization added when the server takes the Actor's JWT. headers
+// is never changed; a server that takes none gets headers itself.
+func ActorJWTHeaders(serverURL string, headers map[string]string, actorJWTHosts []string) map[string]string {
+	if !TakesActorJWT(serverURL, headers, actorJWTHosts) {
+		return headers
+	}
+	result := make(map[string]string, len(headers)+1)
+	maps.Copy(result, headers)
+	result["Authorization"] = ActorJWTAuthorization
+	return result
 }
 
 // CredentialHelper answers git's request for a credential with the

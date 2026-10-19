@@ -78,6 +78,18 @@ func TestTakesActorJWT(t *testing.T) {
 	require.False(t, TakesActorJWT("://muster.example.svc", nil, hosts), "an unparsable URL")
 }
 
+func TestActorJWTHeaders(t *testing.T) {
+	hosts := []string{"muster.example.svc"}
+	compiled := map[string]string{"X-Muster-Toolset": "all"}
+	require.Equal(t, map[string]string{"X-Muster-Toolset": "all", "Authorization": ActorJWTAuthorization}, ActorJWTHeaders("https://muster.example.svc/mcp", compiled, hosts))
+	require.Equal(t, map[string]string{"X-Muster-Toolset": "all"}, compiled, "the compiled headers are not changed")
+	require.Equal(t, map[string]string{"Authorization": ActorJWTAuthorization}, ActorJWTHeaders("https://muster.example.svc/mcp", nil, hosts))
+	owned := map[string]string{"authorization": "${KAGENT_CREDENTIAL}"}
+	require.Equal(t, owned, ActorJWTHeaders("https://muster.example.svc/mcp", owned, hosts), "a server that owns its Authorization")
+	require.Nil(t, ActorJWTHeaders("https://tools.example.svc/mcp", nil, hosts), "another host")
+	require.Equal(t, compiled, ActorJWTHeaders("https://muster.example.svc/mcp", compiled, nil), "a turn without actor-JWT hosts")
+}
+
 func TestWithoutUserinfo(t *testing.T) {
 	for origin, want := range map[string]string{
 		"https://x-access-token:secret@github.com/o/r.git": "https://github.com/o/r.git",

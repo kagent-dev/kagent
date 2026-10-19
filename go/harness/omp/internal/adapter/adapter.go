@@ -277,12 +277,8 @@ func mcpFile(servers []config.MCPServer, bridged map[string]string, actorJWTHost
 		entry := mcpServer{Type: "http", URL: server.URL, Headers: server.Headers, Timeout: int64(server.TimeoutSeconds * 1000)}
 		if url, ok := bridged[server.Name]; ok {
 			entry.URL, entry.Headers = url, nil
-		} else if workspace.TakesActorJWT(server.URL, server.Headers, actorJWTHosts) {
-			entry.Headers = maps.Clone(server.Headers)
-			if entry.Headers == nil {
-				entry.Headers = map[string]string{}
-			}
-			entry.Headers["Authorization"] = workspace.ActorJWTAuthorization
+		} else {
+			entry.Headers = workspace.ActorJWTHeaders(server.URL, server.Headers, actorJWTHosts)
 		}
 		result.MCPServers[server.Name] = entry
 	}

@@ -202,11 +202,8 @@ type headerTransport struct {
 
 func (t headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	request = request.Clone(request.Context())
-	for name, value := range t.headers {
+	for name, value := range workspace.ActorJWTHeaders(t.url, t.headers, t.actorJWT.get()) {
 		request.Header.Set(name, value)
-	}
-	if workspace.TakesActorJWT(t.url, t.headers, t.actorJWT.get()) {
-		request.Header.Set("Authorization", workspace.ActorJWTAuthorization)
 	}
 	return t.base.RoundTrip(request)
 }

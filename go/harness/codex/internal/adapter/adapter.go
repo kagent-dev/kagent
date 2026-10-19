@@ -250,15 +250,12 @@ func renderConfig(cfg config.Config, codexHome string, environment, actorJWTHost
 	}
 	for name, server := range cfg.MCPServers {
 		literal, environment := map[string]string{}, map[string]string{}
-		for header, value := range server.Headers {
+		for header, value := range workspace.ActorJWTHeaders(server.URL, server.Headers, actorJWTHosts) {
 			if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
 				environment[header] = strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
 			} else {
 				literal[header] = value
 			}
-		}
-		if workspace.TakesActorJWT(server.URL, server.Headers, actorJWTHosts) {
-			literal["Authorization"] = workspace.ActorJWTAuthorization
 		}
 		approvalMode := "approve"
 		if server.RequireApproval {
