@@ -3,10 +3,9 @@ package a2a
 import (
 	"context"
 	"iter"
+	"log/slog"
 	"strings"
 	"testing"
-
-	"log/slog"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
