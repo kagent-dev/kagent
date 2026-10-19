@@ -9,7 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EgressPolicySpec grants additional HTTP(S) access to workloads in its namespace.
+// EgressPolicySpec grants additional HTTP(S) and TLS passthrough access to
+// workloads in its namespace.
 type EgressPolicySpec struct {
 	// Destinations are additional origins the workload may reach.
 	// +required
@@ -20,14 +21,20 @@ type EgressPolicySpec struct {
 	Destinations []EgressDestination `json:"destinations"`
 }
 
-// EgressDestination grants access to one HTTP(S) origin, including all its paths.
+// EgressDestination grants access to one HTTP(S) origin, including all its
+// paths, or to one TLS passthrough destination.
 // +kubebuilder:validation:XValidation:rule="!has(self.authentication) || (self.origin.startsWith('https://') && !self.origin.contains('*'))",message="authentication requires an exact HTTPS origin"
+// +kubebuilder:validation:XValidation:rule="!self.origin.startsWith('tls://') || self.origin.matches(':[0-9]+$')",message="a tls:// origin requires a port"
 type EgressDestination struct {
-	// Origin is a scheme, DNS hostname, and optional port. A wildcard replaces
-	// exactly one leftmost DNS label, for example https://*.example.com.
+	// Origin is a scheme, DNS hostname, and port, optional for HTTP(S). A
+	// wildcard replaces exactly one leftmost DNS label, for example
+	// https://*.example.com. A tls:// origin, for example
+	// tls://db.example.com:5432, allows TLS that the gateway forwards without
+	// decryption, matched on the SNI server name and port; it cannot carry
+	// authentication.
 	// +required
 	// +kubebuilder:validation:MaxLength=270
-	// +kubebuilder:validation:Pattern=`^https?://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$`
+	// +kubebuilder:validation:Pattern=`^(https?|tls)://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$`
 	Origin string `json:"origin"`
 	// Authentication replaces a placeholder header at the gateway. Requests
 	// must send the header; its credential value is never supplied to the runtime.

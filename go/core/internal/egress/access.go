@@ -37,7 +37,7 @@ func CanonicalAccess(destinations []string, credentials []Credential) (Access, e
 		u.Host = net.JoinHostPort(u.Hostname(), strconv.FormatUint(port, 10))
 		origin = u.String()
 		if scheme, exists := protocols[u.Host]; exists && scheme != u.Scheme {
-			return Access{}, fmt.Errorf("egress destination %q uses both HTTP and HTTPS on the same port", u.Host)
+			return Access{}, ProtocolConflict(u.Host, scheme, u.Scheme)
 		}
 		protocols[u.Host] = u.Scheme
 		if u.Scheme == "https" {
@@ -61,6 +61,15 @@ func CanonicalAccess(destinations []string, credentials []Credential) (Access, e
 		}
 	}
 	return result, nil
+}
+
+// ProtocolConflict refuses two protocols on one hostname pattern and port:
+// Substrate selects its HTTP, HTTPS and TLS passthrough rules by the same
+// pattern and port, so one pattern and port takes one protocol.
+func ProtocolConflict(host, one, other string) error {
+	schemes := []string{strings.ToUpper(one), strings.ToUpper(other)}
+	slices.Sort(schemes)
+	return fmt.Errorf("egress destination %q uses both %s and %s on the same port", host, schemes[0], schemes[1])
 }
 
 // ValidCredentialHeader reports whether a header may carry an injected

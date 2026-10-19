@@ -41,6 +41,14 @@ func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace st
 		{"interior wildcard", EgressDestination{Origin: "https://api.*.com"}, true},
 		{"port zero", EgressDestination{Origin: "https://api.example.com:0"}, true},
 		{"port overflow", EgressDestination{Origin: "https://api.example.com:65536"}, true},
+		{"TLS passthrough", EgressDestination{Origin: "tls://db.example.com:5432"}, false},
+		{"TLS wildcard", EgressDestination{Origin: "tls://*.example.com:443"}, false},
+		{"TLS without port", EgressDestination{Origin: "tls://db.example.com"}, true},
+		{"TLS IP", EgressDestination{Origin: "tls://192.0.2.1:5432"}, true},
+		{"TLS path", EgressDestination{Origin: "tls://db.example.com:5432/db"}, true},
+		{"TLS all hosts", EgressDestination{Origin: "tls://*:443"}, true},
+		{"TLS auth", EgressDestination{Origin: "tls://db.example.com:5432", Authentication: bearer}, true},
+		{"TLS port zero", EgressDestination{Origin: "tls://db.example.com:0"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("egress-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{tc.destination}}}

@@ -14,8 +14,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
 
-// ActorEgressPolicy compiles HTTP(S) origins into an actor's default allowlist.
-// Credential bindings are already canonicalized by the store.
+// ActorEgressPolicy compiles HTTP(S) and TLS passthrough origins into an
+// actor's default allowlist. Credential bindings are already canonicalized by
+// the store; they bind to HTTP(S) hosts only, as passthrough is not decrypted.
 func ActorEgressPolicy(atespace string, destinations []string, credentials []egress.Credential) (*ateapipb.EgressPolicy, error) {
 	type originTarget struct {
 		scheme, hostname string
@@ -41,10 +42,12 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		port, _ := strconv.ParseUint(u.Port(), 10, 16)
 		u.Host = net.JoinHostPort(host, strconv.FormatUint(port, 10))
 		if protocol, found := protocols[u.Host]; found && protocol != u.Scheme {
-			return nil, fmt.Errorf("egress destination %q uses both HTTP and HTTPS on the same port", u.Host)
+			return nil, egress.ProtocolConflict(u.Host, protocol, u.Scheme)
 		}
 		protocols[u.Host] = u.Scheme
-		hosts[host] = true
+		if u.Scheme != egress.SchemeTLS {
+			hosts[host] = true
+		}
 		origins[u.String()] = originTarget{scheme: u.Scheme, hostname: host, port: int32(port)}
 	}
 	effects := map[string]*ateapipb.HttpRuleEffects{}
@@ -75,9 +78,13 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		// overlap an exact one, but Substrate decides on the exact hostname
 		// first (EgressPolicy in proto/ateapi.proto), and credentials bind only
 		// to exact hostnames, so a wildcard cannot bypass credential replacement.
-		if target.scheme == "https" {
+		switch target.scheme {
+		case egress.SchemeTLS:
+			// Forwarded without decryption: a passthrough rule has no effects.
+			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{TlsPassthrough: &ateapipb.TLSPassthroughRule{Hostnames: []string{target.hostname}, Ports: ports}})
+		case "https":
 			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HTTPSRule{Hostnames: []string{target.hostname}, Ports: ports, Effects: effects[target.hostname]}})
-		} else {
+		default:
 			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Http: &ateapipb.HTTPRule{Hostnames: []string{target.hostname}, Ports: ports, Effects: effects[target.hostname]}})
 		}
 	}

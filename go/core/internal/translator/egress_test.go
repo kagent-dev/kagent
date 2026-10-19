@@ -127,8 +127,21 @@ func TestAgentEgressPoliciesPinGrantsAcrossHarnesses(t *testing.T) {
 	}
 }
 
+func TestEgressPolicyTLSPassthrough(t *testing.T) {
+	policy, secret := egressPolicy()
+	policy.Spec.Destinations = []v1alpha3.EgressDestination{{Origin: "tls://DB.example.com:5432"}, {Origin: "tls://*.example.com:443"}}
+	access, err := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"tls://*.example.com:443", "tls://db.example.com:5432"}, access.Destinations)
+	require.Empty(t, access.Credentials)
+
+	policy.Spec.Destinations = []v1alpha3.EgressDestination{{Origin: "tls://db.example.com"}}
+	_, err = translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
+	require.ErrorContains(t, err, "requires a port")
+}
+
 func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
-	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "HTTP auth", "wildcard auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix"} {
+	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "HTTP auth", "wildcard auth", "TLS auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix"} {
 		t.Run(name, func(t *testing.T) {
 			policy, secret := egressPolicy()
 			objects := []any{policy, secret}
@@ -151,6 +164,8 @@ func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 				policy.Spec.Destinations[0].Origin = "http://tickets.example.com"
 			case "wildcard auth":
 				policy.Spec.Destinations[0].Origin = "https://*.example.com"
+			case "TLS auth":
+				policy.Spec.Destinations[0].Origin = "tls://tickets.example.com:443"
 			case "empty auth":
 				policy.Spec.Destinations[0].Authentication = &v1alpha3.EgressAuthentication{}
 			case "missing header":

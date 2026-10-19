@@ -1,7 +1,7 @@
 # Egress policies
 
-`EgressPolicy` grants additional HTTP(S) access to an Agent or standalone
-sandbox. An Agent selects policies through `spec.egressPolicyRefs`; a
+`EgressPolicy` grants additional HTTP(S) and TLS passthrough access to an
+Agent or standalone sandbox. An Agent selects policies through `spec.egressPolicyRefs`; a
 SandboxTemplate selects them through the same field. References resolve in the
 workload's namespace. Policies are managed through the Kubernetes API.
 
@@ -43,12 +43,41 @@ spec:
 
 An origin is a scheme, DNS name, and optional port. Omitted ports mean 443 for
 HTTPS and 80 for HTTP. Every path on that origin is allowed. URL paths, queries,
-fragments, user information, IP addresses, and non-HTTP protocols are rejected.
+fragments, user information, IP addresses, and other schemes are rejected.
 A wildcard replaces exactly one leftmost label: `https://*.example.com`
 allows `api.example.com`, but neither `example.com` nor `a.b.example.com`.
 `*` and `*.com` are not accepted. Redirects and downloads from other origins
 require their own grants. A registry grant is not a guarantee that every
 package's install script or release download can reach its dependencies.
+
+## Reach a TLS service that is not HTTP
+
+A `tls://` origin allows TLS that the gateway forwards without decryption, for
+a database or message broker that speaks TLS:
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: EgressPolicy
+metadata:
+  name: orders-database
+  namespace: team-a
+spec:
+  destinations:
+    - origin: tls://orders-db.example.com:5432
+    - origin: tls://*.kafka.example.com:9093
+```
+
+The port is required; the hostname follows the rules of an HTTP(S) origin,
+wildcard included. The gateway matches the SNI server name and port of each
+connection's ClientHello and reads nothing after it: a client that sends no SNI,
+and a protocol that upgrades to TLS after a cleartext exchange (STARTTLS), do
+not match. A passthrough destination cannot carry authentication, and its
+hostname pattern and port cannot also be an HTTP or HTTPS origin, because
+Substrate selects the three rule kinds by the same hostname pattern and port. A
+credential binds only to a hostname with an HTTPS origin, never to one a
+passthrough origin alone allows. A model, MCP server or artifact URL never
+infers a passthrough grant. A policy change reaches an open passthrough
+connection only when it ends.
 
 For a standalone sandbox, select the policy on its template:
 
@@ -147,9 +176,9 @@ headers do not use gateway credential injection. A server may configure up to
 64 headers, with names of at most 256 characters.
 
 An exact credential-bearing rule wins over a matching wildcard rule. Credentials
-are never attached to wildcard rules. HTTP and HTTPS cannot both use the same
-hostname pattern and port, because Substrate cannot distinguish that rule
-selection.
+are never attached to wildcard rules. HTTP, HTTPS and TLS passthrough cannot
+share a hostname pattern and port, because Substrate cannot distinguish that
+rule selection.
 
 ## Preparation and lifecycle
 
@@ -191,6 +220,6 @@ credentials back to a client. Do not grant credentials to destinations that
 should not receive or disclose them.
 
 This API intentionally does not expose Substrate rule effects, raw TCP/SSH,
-TLS passthrough, OAuth exchange, request signing, cross-namespace references,
+OAuth exchange, request signing, cross-namespace references,
 or unrestricted public-internet access. Substrate remains the enforcement
 backend; kagent exposes task-oriented reusable grants and static authentication.
