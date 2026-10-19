@@ -49,9 +49,15 @@ func NewService(
 	authorizer auth.CollectionAuthorizer,
 	ateClient ATEClient,
 ) *Service {
+	var observed []string
+	for _, namespace := range observedNamespaces {
+		if !slices.Contains(observed, namespace) {
+			observed = append(observed, namespace)
+		}
+	}
 	return &Service{
 		kubeClient:         kubeClient,
-		observedNamespaces: slices.Clone(observedNamespaces),
+		observedNamespaces: observed,
 		authorizer:         authorizer,
 		ateClient:          ateClient,
 	}
