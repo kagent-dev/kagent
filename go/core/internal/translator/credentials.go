@@ -250,7 +250,7 @@ func modelCredentialTarget(resolved *ResolvedModelConfig) (name, endpoint, heade
 		if spec.Ollama == nil {
 			break
 		}
-		hasCredential := spec.APIKeySecret != ""
+		hasCredential := spec.APIKeySecret != "" || spec.TokenPassthrough
 		if !models.OllamaReachesCloud(spec.Model, spec.Ollama.Host, hasCredential) {
 			break
 		}

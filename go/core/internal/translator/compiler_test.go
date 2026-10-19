@@ -1039,21 +1039,3 @@ func TestRevisionDigestIncludesTokenPassthroughTargets(t *testing.T) {
 	require.NotEqual(t, without, bearer)
 	require.NotEqual(t, bearer, digest(), "the header is part of revision identity")
 }
-
-func TestCompileAgentRejectsUnsupportedTokenPassthrough(t *testing.T) {
-	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
-		Kagent:    &v1alpha3.KagentHarness{},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
-	}}
-	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "test"},
-		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, SystemPrompt: "help"}}
-	for _, spec := range []v1alpha3.ModelConfigSpec{
-		{Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud", TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{}},
-		{Provider: v1alpha3.ModelProviderBedrock, Model: "anthropic.claude", TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
-	} {
-		model := modelConfig()
-		model.Spec = spec
-		_, err := compiler(t, model, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
-		require.ErrorContains(t, err, "tokenPassthrough is not supported", spec.Provider)
-	}
-}

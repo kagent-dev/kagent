@@ -83,18 +83,6 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	}
 }
 
-func TestTranslateModelRejectsUnsupportedTokenPassthrough(t *testing.T) {
-	for _, spec := range []v1alpha3.ModelConfigSpec{
-		{Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud", TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{}},
-		{Provider: v1alpha3.ModelProviderBedrock, Model: "anthropic.claude", TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
-	} {
-		_, _, err := translateModel(&translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model"}, Spec: spec}})
-		var validation *translator.ValidationError
-		require.ErrorAs(t, err, &validation, spec.Provider)
-		require.ErrorContains(t, err, "tokenPassthrough is not supported", spec.Provider)
-	}
-}
-
 // The Ollama key reaches the agent as an environment variable read from a
 // Secret, never serialized into the agent config, and the host is written only
 // when the operator set one — an empty value lets the runtime apply its own
@@ -130,6 +118,19 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
 				Ollama: &v1alpha3.OllamaConfig{},
+			},
+			wantNames: []string{},
+			noEnv:     env.OllamaAPIKey.Name(),
+		},
+		{
+			// Passthrough carries the caller's own token, so a stale secret must
+			// not be mounted alongside it.
+			name: "passthrough does not mount a key",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
+				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
+				TokenPassthrough: true,
+				Ollama:           &v1alpha3.OllamaConfig{},
 			},
 			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),

@@ -91,8 +91,7 @@ authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
 Compilation records each passthrough client as a target {origin, header,
 prefix} in the revision. It rejects a client with no credential target (SAP AI
 Core), a client that shares its origin with an MCP server or model that did not
-opt in, and an explicit header that matches a target header. The ADK rejects
-passthrough for Ollama and Bedrock, which read their key from the environment.
+opt in, and an explicit header that matches a target header.
 
 RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
 Codex and Claude reject it at compilation, and the Python runtime fails at

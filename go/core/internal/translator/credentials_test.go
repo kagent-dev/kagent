@@ -124,6 +124,15 @@ func TestModelCredentialTargetOllamaCloud(t *testing.T) {
 			wantEndpoint: "https://api.ollama.com",
 		},
 		{
+			name: "cloud model with passthrough binds the cloud",
+			spec: v1alpha3.ModelConfigSpec{
+				Provider: v1alpha3.ModelProviderOllama, Model: "minimax-m3:cloud",
+				TokenPassthrough: true, Ollama: &v1alpha3.OllamaConfig{},
+			},
+			wantName:     "OLLAMA_API_KEY",
+			wantEndpoint: "https://api.ollama.com",
+		},
+		{
 			// A local model must declare no binding: no request leaves for the
 			// cloud, so there is nothing to inject a header into.
 			name: "local model declares no binding",
@@ -225,6 +234,10 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 		{
 			name: "auxiliary model", extra: []*ResolvedModelConfig{model(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderMistral, TokenPassthrough: true})},
 			want: []egresspolicy.GatewayTarget{{Origin: "https://api.mistral.ai:443", Header: "authorization", Prefix: "Bearer "}},
+		},
+		{
+			name: "Bedrock", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, TokenPassthrough: true, Bedrock: &v1alpha3.BedrockConfig{Region: "us-east-1"}},
+			want: []egresspolicy.GatewayTarget{{Origin: "https://bedrock-runtime.us-east-1.amazonaws.com:443", Header: "authorization", Prefix: "Bearer "}},
 		},
 		{
 			name: "Secret header on the passthrough origin",
