@@ -3,6 +3,8 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -400,6 +402,43 @@ func TestFrontedServersSelectToolsWithoutCallerCredential(t *testing.T) {
 	require.Equal(t, forwarder.URL("selected"), cfg.MCPServers["selected"].URL)
 	require.Empty(t, cfg.MCPServers["selected"].Tools, "Claude's MCP file carries no selection; the forwarder enforces it")
 	require.Equal(t, servers["whole"], cfg.MCPServers["whole"])
+}
+
+// Without the caller's credential the forwarder still fronts a server with a
+// tool selection, and sends the placeholder to it on an actor-JWT host.
+func TestActorJWTHostsOnlyBindsNoCallerCredential(t *testing.T) {
+	var authorizations []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		authorizations = append(authorizations, request.Header.Get("Authorization"))
+		response.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(upstream.Close)
+	port := strings.TrimPrefix(upstream.URL, "http://127.0.0.1")
+	cfg := config.Production("claude-test", "help")
+	cfg.MCPServers = map[string]config.MCPServer{
+		"muster": {Type: "http", URL: "http://localhost" + port + "/mcp", Tools: []string{"list"}},
+		"tools":  {Type: "http", URL: upstream.URL + "/mcp", Tools: []string{"echo"}},
+	}
+	forwarder, err := frontMCPServers(&cfg, frontedServers(cfg.MCPServers, false), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+	binder := actorJWTHostsOnly{forwarder}
+
+	require.False(t, binder.TakesCallerCredential(nil), "no turn is bounded by a credential it does not hold")
+	binder.Bind("Bearer person-token", []string{"localhost"})
+	for _, name := range []string{"muster", "tools"} {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, forwarder.URL(name), strings.NewReader(`{"jsonrpc":"2.0"}`))
+		require.NoError(t, err)
+		for header, value := range forwarder.Headers() {
+			request.Header.Set(header, value)
+		}
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		_ = response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+	}
+	binder.Clear()
+	require.Equal(t, []string{"Bearer kagent-credential-injected", ""}, authorizations)
 }
 
 func TestTurnTimeoutReadsTheHarnessEnvironment(t *testing.T) {

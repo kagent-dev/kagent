@@ -252,8 +252,9 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	if forwarder != nil {
 		processConfig.MCPForwarder = forwarder
-		if holdsCallerCredential {
-			processConfig.CallerCredentials = forwarder
+		processConfig.CallerCredentials = forwarder
+		if !holdsCallerCredential {
+			processConfig.CallerCredentials = actorJWTHostsOnly{forwarder}
 		}
 	}
 	if len(compiledServers) != 0 {
@@ -261,6 +262,20 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	}
 	return driver.NewProcessDriver(processConfig), nil
 }
+
+// actorJWTHostsOnly binds the turn's actor-JWT hosts to a forwarder that
+// fronts only servers with a tool selection, so it sends the placeholder there,
+// and never the caller's credential, which the Actor environment did not ask
+// for.
+type actorJWTHostsOnly struct {
+	*driver.CredentialForwarder
+}
+
+func (f actorJWTHostsOnly) Bind(_ string, actorJWTHosts []string) {
+	f.CredentialForwarder.Bind("", actorJWTHosts)
+}
+
+func (actorJWTHostsOnly) TakesCallerCredential([]string) bool { return false }
 
 // mcpConfigFile renders Claude's MCP configuration for a turn: a server
 // without a tool selection on a host where the turn's Actor receives its own

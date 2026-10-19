@@ -593,8 +593,8 @@ caller's credential (`workspace.ActorJWTHeaders`). The Claude harness writes
 such a server into the turn's MCP configuration with its own URL and the
 placeholder, unless the forwarder enforces a tool selection on it, so a turn
 whose every server is on one leaves no loopback token in the sandbox. A server
-with a tool selection stays on the forwarder, which sends the placeholder only
-while it holds the caller's credential.
+with a tool selection stays on the forwarder, which learns the turn's hosts and
+sends the placeholder there with or without the caller's credential.
 
 ## Forwarder refusal metrics
 
