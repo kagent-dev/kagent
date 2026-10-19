@@ -87,7 +87,13 @@ func TestModelCachedTokens(t *testing.T) {
 					require.NotNil(t, final)
 					require.NotNil(t, final.UsageMetadata)
 					require.Equal(t, test.want, final.UsageMetadata.CachedContentTokenCount)
-					require.Equal(t, int32(10), final.UsageMetadata.PromptTokenCount)
+					wantPrompt := int32(10)
+					if provider == "bedrock" {
+						// Bedrock reports cache reads and writes separately from
+						// inputTokens; GenAI PromptTokenCount is the total prompt.
+						wantPrompt = cachedTokenCount(3 + int64(test.want) + 10)
+					}
+					require.Equal(t, wantPrompt, final.UsageMetadata.PromptTokenCount)
 					require.Equal(t, int32(5), final.UsageMetadata.CandidatesTokenCount)
 				})
 			}

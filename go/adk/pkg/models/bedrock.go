@@ -144,6 +144,21 @@ func bedrockGuardrailStreamConfig(c *BedrockConfig) *types.GuardrailStreamConfig
 	}
 }
 
+// bedrockUsageToGenai folds Bedrock's disjoint cache counters into the GenAI
+// prompt count and keeps cache reads as the cached-token breakdown.
+func bedrockUsageToGenai(usage types.TokenUsage) *genai.GenerateContentResponseUsageMetadata {
+	input := int64(aws.ToInt32(usage.InputTokens))
+	cacheRead := int64(aws.ToInt32(usage.CacheReadInputTokens))
+	cacheWrite := int64(aws.ToInt32(usage.CacheWriteInputTokens))
+	prompt := input + max(cacheRead, 0) + max(cacheWrite, 0)
+	return &genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount:        cachedTokenCount(prompt),
+		CandidatesTokenCount:    aws.ToInt32(usage.OutputTokens),
+		TotalTokenCount:         aws.ToInt32(usage.TotalTokens),
+		CachedContentTokenCount: cachedTokenCount(cacheRead),
+	}
+}
+
 // bedrockCachePointBlock builds a Converse CachePoint marker honoring the
 // configured cache TTL.
 //
@@ -462,12 +477,7 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		// Handle metadata event (includes usage)
 		if meta, ok := event.(*types.ConverseStreamOutputMemberMetadata); ok {
 			if meta.Value.Usage != nil {
-				usageMetadata = &genai.GenerateContentResponseUsageMetadata{
-					PromptTokenCount:        aws.ToInt32(meta.Value.Usage.InputTokens),
-					CandidatesTokenCount:    aws.ToInt32(meta.Value.Usage.OutputTokens),
-					TotalTokenCount:         aws.ToInt32(meta.Value.Usage.TotalTokens),
-					CachedContentTokenCount: cachedTokenCount(int64(aws.ToInt32(meta.Value.Usage.CacheReadInputTokens))),
-				}
+				usageMetadata = bedrockUsageToGenai(*meta.Value.Usage)
 			}
 		}
 	}
@@ -592,12 +602,7 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 	// Build usage metadata
 	var usageMetadata *genai.GenerateContentResponseUsageMetadata
 	if output.Usage != nil {
-		usageMetadata = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:        aws.ToInt32(output.Usage.InputTokens),
-			CandidatesTokenCount:    aws.ToInt32(output.Usage.OutputTokens),
-			TotalTokenCount:         aws.ToInt32(output.Usage.TotalTokens),
-			CachedContentTokenCount: cachedTokenCount(int64(aws.ToInt32(output.Usage.CacheReadInputTokens))),
-		}
+		usageMetadata = bedrockUsageToGenai(*output.Usage)
 	}
 
 	response := &model.LLMResponse{
