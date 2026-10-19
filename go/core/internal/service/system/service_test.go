@@ -748,11 +748,17 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 			{WorkerPod: "pod-unlabelled"},
 		},
 	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-a", Name: "pool-a"}},
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-b", Name: "pool-b"}},
+		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-c", Name: "pool-c"}},
+	).Build()
 	newService := func(observedNamespaces []string) *system.Service {
-		return system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), observedNamespaces, &pkgAuth.NoopAuthorizer{}, ateClient)
+		return system.NewService(kubeClient, observedNamespaces, &pkgAuth.NoopAuthorizer{}, ateClient)
 	}
 	tenantA := newService([]string{"tenant-a"})
 	tenantsAC := newService([]string{"tenant-a", "tenant-c"})
+	tenantsACDuplicated := newService([]string{"tenant-a", "tenant-c", "tenant-a"})
 	clusterWide := newService(nil)
 
 	listAllActors := func(t *testing.T, service *system.Service, atespace string) []string {
@@ -785,6 +791,13 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 			request.Page.PageToken = page.NextPageToken
 		}
 	}
+	poolNames := func(summary system.SubstrateSummary) []string {
+		var names []string
+		for _, pool := range summary.WorkerPools {
+			names = append(names, pool.Namespace+"/"+pool.Name)
+		}
+		return names
+	}
 	templateNames := func(summary system.SubstrateSummary) []string {
 		var names []string
 		for _, template := range summary.ActorTemplates {
@@ -802,6 +815,7 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, summary.ATEAPIError)
 		assert.Equal(t, []string{"agent-a"}, templateNames(summary))
+		assert.Equal(t, []string{"tenant-a/pool-a"}, poolNames(summary))
 		assert.Equal(t, int64(1), summary.ActorCount)
 		assert.Equal(t, int64(0), summary.RunningActorCount)
 		assert.Equal(t, int64(1), summary.WorkerCount)
@@ -833,10 +847,21 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 			{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Count: 1},
 		}, summary.ActorStatusCounts)
 		assert.Equal(t, []string{"agent-a", "agent-c"}, templateNames(summary))
+		assert.Equal(t, []string{"tenant-a/pool-a", "tenant-c/pool-c"}, poolNames(summary))
 		assert.Equal(t, int64(2), summary.WorkerCount)
 
 		assert.Equal(t, []string{"tenant-a", "tenant-c"}, slices.Compact(slices.Sorted(slices.Values(ateClient.actorAtespaces))))
 		assert.ElementsMatch(t, []string{"tenant-a", "tenant-c"}, ateClient.templateAtespaces)
+	})
+
+	t.Run("a namespace listed twice in the config is counted once", func(t *testing.T) {
+		summary, err := tenantsACDuplicated.GetSubstrateSummary(ctx, "", "")
+		require.NoError(t, err)
+		require.Empty(t, summary.ATEAPIError)
+		assert.Equal(t, int64(2), summary.ActorCount)
+		assert.Equal(t, []string{"agent-a", "agent-c"}, templateNames(summary))
+		assert.Equal(t, []string{"tenant-a/pool-a", "tenant-c/pool-c"}, poolNames(summary))
+		assert.Equal(t, int64(2), summary.WorkerCount)
 	})
 
 	t.Run("refuses another tenant's atespace or namespace", func(t *testing.T) {
@@ -856,6 +881,7 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(4), summary.ActorCount)
 		assert.Len(t, summary.ActorTemplates, 3)
+		assert.Equal(t, []string{"tenant-a/pool-a", "tenant-b/pool-b", "tenant-c/pool-c"}, poolNames(summary))
 		assert.Equal(t, int64(4), summary.WorkerCount)
 		assert.Equal(t, []string{"pod-a", "pod-b", "pod-c", "pod-unlabelled"}, workerPods(t, clusterWide))
 		assert.Equal(t, []string{"tenant-b/session-b", "tenant-b/session-b2"}, listAllActors(t, clusterWide, "tenant-b"))
