@@ -339,7 +339,7 @@ export type ListSubstrateActorsResponse = Message<"kagent.api.v1.ListSubstrateAc
   /**
    * Continuation token. A controller that watches all namespaces passes Substrate's
    * token through. A controller that watches some issues its own, which names only
-   * watched data. Only a last page can be empty.
+   * watched data. A page can be empty even when another page exists.
    *
    * @generated from field: kagent.api.v1.PageResponse page = 4;
    */
@@ -359,10 +359,10 @@ export const ListSubstrateActorsResponseSchema: GenMessage<ListSubstrateActorsRe
   messageDesc(file_kagent_api_v1_system, 12);
 
 /**
- * One page of workers, in worker name order. A controller that watches all namespaces
- * filters one Substrate page, which may be empty and still have a next token. A
+ * One page of workers. A controller that watches all namespaces filters one Substrate
+ * page, in Substrate order, which may be empty and still have a next token. A
  * controller that watches some reads every Substrate worker and returns only those of
- * its watched namespaces; only its last page can be empty.
+ * its watched namespaces, in worker name order; only its last page can be empty.
  *
  * @generated from message kagent.api.v1.ListSubstrateWorkersRequest
  */

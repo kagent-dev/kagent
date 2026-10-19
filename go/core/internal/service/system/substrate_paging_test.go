@@ -24,8 +24,6 @@ func pagingContext(t *testing.T) context.Context {
 	return pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 }
 
-// pagingATEClient mixes three tenants' rows in ate-api order, two rows a page. Every
-// tenant-b name holds "tenant-b", so a test can look for it in any text.
 func pagingATEClient() *fakeATEClient {
 	client := &fakeATEClient{pageSize: 2}
 	for _, actor := range []string{"tenant-a/a-1", "tenant-b/b-1", "tenant-c/c-1", "tenant-a/a-2", "tenant-b/b-2", "tenant-c/c-2", "tenant-a/a-3"} {
@@ -39,13 +37,10 @@ func pagingATEClient() *fakeATEClient {
 	return client
 }
 
-// pagingService watches tenant-a and tenant-c, listed out of order and with a repeat.
 func pagingService(ateClient system.ATEClient) *system.Service {
 	return system.NewService(nil, []string{"tenant-c", "tenant-a", "tenant-a"}, &pkgAuth.NoopAuthorizer{}, ateClient)
 }
 
-// assertOwnToken fails when a page token names a tenant-b row, or when an empty page
-// carries a token: that would tell the caller a hidden row exists.
 func assertOwnToken(t *testing.T, rows int, pageToken string) {
 	t.Helper()
 	raw, _ := base64.RawURLEncoding.DecodeString(pageToken)
@@ -100,8 +95,6 @@ func actorPageToken(raw string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
-// A token this controller did not issue never reaches ate-api and never restarts the
-// walk at page one. Its error repeats neither the token nor a tenant-b name.
 func TestListSubstrateActorsRefusesForeignTokens(t *testing.T) {
 	for name, tc := range map[string]struct {
 		atespace  string
@@ -147,8 +140,6 @@ func walkWorkerNames(t *testing.T, service *system.Service, namespace string, li
 	return nil
 }
 
-// ate-api cannot list one namespace's workers, so its token can name any worker. The
-// fake refuses a token it did not issue, so a kagent token sent to it fails the walk.
 func TestListSubstrateWorkersPagesWatchedNamespaces(t *testing.T) {
 	for namespace, want := range map[string][]string{
 		"":         {"u1-tenant-a", "u3-tenant-c", "u4-tenant-a", "u6-tenant-a"},
