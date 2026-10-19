@@ -1,6 +1,8 @@
 package grpcserver
 
 import (
+	"maps"
+
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -14,22 +16,12 @@ type MethodPolicies map[string]auth.AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
 	policies := MethodPolicies{
-		runtimev1.TaskStoreService_CreateTask_FullMethodName:             auth.AccessRuntime,
-		runtimev1.TaskStoreService_GetTask_FullMethodName:                auth.AccessRuntime,
-		runtimev1.TaskStoreService_UpdateTask_FullMethodName:             auth.AccessRuntime,
-		runtimev1.TaskStoreService_SettleTask_FullMethodName:             auth.AccessRuntime,
-		runtimev1.TaskStoreService_ListTasks_FullMethodName:              auth.AccessRuntime,
 		apiv1.SystemService_GetVersion_FullMethodName:                    auth.AccessPublic,
 		apiv1.SystemService_GetCurrentUser_FullMethodName:                auth.AccessRead,
 		apiv1.SystemService_ListNamespaces_FullMethodName:                auth.AccessRead,
 		apiv1.SystemService_GetSubstrateSummary_FullMethodName:           auth.AccessRead,
 		apiv1.SystemService_ListSubstrateActors_FullMethodName:           auth.AccessRead,
 		apiv1.SystemService_ListSubstrateWorkers_FullMethodName:          auth.AccessRead,
-		runtimev1.MemoryService_AddSession_FullMethodName:                auth.AccessCreate,
-		runtimev1.MemoryService_AddSessionBatch_FullMethodName:           auth.AccessCreate,
-		runtimev1.MemoryService_Search_FullMethodName:                    auth.AccessRead,
-		runtimev1.MemoryService_List_FullMethodName:                      auth.AccessRead,
-		runtimev1.MemoryService_Delete_FullMethodName:                    auth.AccessDelete,
 		apiv1.ModelService_ListModelConfigs_FullMethodName:               auth.AccessRead,
 		apiv1.ModelService_GetModelConfig_FullMethodName:                 auth.AccessRead,
 		apiv1.ModelService_CreateModelConfig_FullMethodName:              auth.AccessCreate,
@@ -124,5 +116,23 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[guestpb.ProcessService_StreamProcessOutputs_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_ReadFile_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_WriteFile_FullMethodName] = auth.AccessUpdate
+	maps.Copy(policies, RuntimeMethodPolicies())
 	return policies
+}
+
+// RuntimeMethodPolicies is the explicit allowlist for actor calls.
+// New public or extension methods never become callable by actors implicitly.
+func RuntimeMethodPolicies() MethodPolicies {
+	return MethodPolicies{
+		runtimev1.TaskStoreService_CreateTask_FullMethodName:   auth.AccessRuntime,
+		runtimev1.TaskStoreService_GetTask_FullMethodName:      auth.AccessRuntime,
+		runtimev1.TaskStoreService_UpdateTask_FullMethodName:   auth.AccessRuntime,
+		runtimev1.TaskStoreService_SettleTask_FullMethodName:   auth.AccessRuntime,
+		runtimev1.TaskStoreService_ListTasks_FullMethodName:    auth.AccessRuntime,
+		runtimev1.MemoryService_AddSession_FullMethodName:      auth.AccessRuntime,
+		runtimev1.MemoryService_AddSessionBatch_FullMethodName: auth.AccessRuntime,
+		runtimev1.MemoryService_Search_FullMethodName:          auth.AccessRuntime,
+		runtimev1.MemoryService_List_FullMethodName:            auth.AccessRuntime,
+		runtimev1.MemoryService_Delete_FullMethodName:          auth.AccessRuntime,
+	}
 }

@@ -46,7 +46,7 @@ class KAgentTaskStore(TaskStore):
     async def _call(self, method, request):
         # Substrate replaces the placeholder with the calling Actor's JWT.
         # Credentials never become part of a runtime snapshot.
-        metadata = (("x-kagent-runtime-authorization", "Bearer placeholder"),)
+        metadata = (("authorization", "Bearer placeholder"),)
         for attempt in range(4):
             try:
                 return await method(

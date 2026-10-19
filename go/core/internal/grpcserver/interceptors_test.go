@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -220,7 +219,7 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 func TestRuntimeIdentityDoesNotAuthorizePublicAPI(t *testing.T) {
 	const runtimeMethod = "/test.TaskStore/Get"
 	policies := MethodPolicies{runtimeMethod: pkgauth.AccessRuntime, readMethod: pkgauth.AccessRead}
-	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(apia2a.RuntimeAuthorizationHeader, "Bearer signed-actor-token"))
+	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", "Bearer signed-actor-token"))
 	public := &testAuthenticator{err: errors.New("public credentials required")}
 	for _, method := range []string{runtimeMethod, readMethod} {
 		_, err := authenticate(ctx, method, public, nil, nil, policies)

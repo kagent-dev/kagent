@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
@@ -58,7 +57,7 @@ func (s *Store) callContext(ctx context.Context) (context.Context, context.Cance
 	md.Delete("x-share-token")
 	// Substrate replaces this placeholder with the calling Actor's JWT, including
 	// after a restore or fork. No credential is kept in the runtime snapshot.
-	md.Set(apia2a.RuntimeAuthorizationHeader, "Bearer placeholder")
+	md.Set("authorization", "Bearer placeholder")
 	return metadata.NewOutgoingContext(ctx, md), cancel
 }
 

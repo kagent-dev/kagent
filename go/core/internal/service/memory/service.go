@@ -9,6 +9,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 )
 
@@ -20,6 +21,7 @@ const (
 )
 
 type Store interface {
+	runtimeauth.SessionStore
 	StoreAgentMemories(context.Context, ...*database.Memory) error
 	SearchAgentMemory(context.Context, string, string, pgvector.Vector, int) ([]database.AgentMemorySearchResult, error)
 	ListAgentMemories(context.Context, string, string) ([]database.Memory, error)
@@ -73,6 +75,11 @@ func NewService(store Store, options ...Option) *Service {
 }
 
 func (s *Service) Add(ctx context.Context, input Input) (string, error) {
+	agentName, userID, err := s.scope(ctx)
+	if err != nil {
+		return "", err
+	}
+	input.AgentName, input.UserID = agentName, userID
 	if err := validateInput(input, "Missing required fields (agent_name, user_id, vector)"); err != nil {
 		return "", err
 	}
@@ -103,8 +110,13 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 		return 0, serviceerrors.NewInternal("failed to save memory batch", fmt.Errorf("database client is not configured"))
 	}
 
+	agentName, userID, err := s.scope(ctx)
+	if err != nil {
+		return 0, err
+	}
 	memories := make([]*database.Memory, 0, len(inputs))
 	for _, input := range inputs {
+		input.AgentName, input.UserID = agentName, userID
 		if err := validateInput(input, "Missing required fields in batch item"); err != nil {
 			return 0, err
 		}
@@ -121,6 +133,11 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 }
 
 func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchResult, error) {
+	agentName, userID, err := s.scope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	request.AgentName, request.UserID = agentName, userID
 	if request.AgentName == "" || request.UserID == "" || len(request.Vector) == 0 {
 		return nil, serviceerrors.NewInvalidArgument("Missing required fields (agent_name, user_id, vector)", nil)
 	}
@@ -164,7 +181,11 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchRe
 	return response, nil
 }
 
-func (s *Service) List(ctx context.Context, agentName, userID string) ([]database.Memory, error) {
+func (s *Service) List(ctx context.Context) ([]database.Memory, error) {
+	agentName, userID, err := s.scope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if agentName == "" || userID == "" {
 		return nil, serviceerrors.NewInvalidArgument("Missing required query parameters (agent_name, user_id)", nil)
 	}
@@ -178,7 +199,11 @@ func (s *Service) List(ctx context.Context, agentName, userID string) ([]databas
 	return memories, nil
 }
 
-func (s *Service) Delete(ctx context.Context, agentName, userID string) error {
+func (s *Service) Delete(ctx context.Context) error {
+	agentName, userID, err := s.scope(ctx)
+	if err != nil {
+		return err
+	}
 	if agentName == "" || userID == "" {
 		return serviceerrors.NewInvalidArgument("Missing required query parameters (agent_name, user_id)", nil)
 	}
@@ -189,6 +214,22 @@ func (s *Service) Delete(ctx context.Context, agentName, userID string) error {
 		return serviceerrors.NewInternal("failed to delete memory", err)
 	}
 	return nil
+}
+
+// scope binds memory to the persisted session's agent and owner. Request fields
+// and forwarded headers never select another identity's memory namespace.
+func (s *Service) scope(ctx context.Context) (string, string, error) {
+	if s.store == nil {
+		return "", "", serviceerrors.NewInternal("memory store is not configured", nil)
+	}
+	session, err := runtimeauth.Session(ctx, s.store)
+	if err != nil {
+		return "", "", err
+	}
+	if session.GetAgent().GetNamespace() == "" || session.GetAgent().GetName() == "" || session.Creator == "" {
+		return "", "", serviceerrors.NewPermissionDenied("actor has no memory scope", nil)
+	}
+	return session.Agent.Namespace + "/" + session.Agent.Name, session.Creator, nil
 }
 
 func (s *Service) toMemory(input Input) (*database.Memory, error) {

@@ -1,4 +1,4 @@
-package taskstore
+package runtimeauth
 
 import (
 	"net/http"
@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
@@ -38,7 +37,7 @@ func TestRuntimeJWTAuthentication(t *testing.T) {
 			// The removed header never supplies or overrides authenticated identity.
 			headers.Set("x-kagent-insecure-runtime-identity", "other/session-"+uuid.NewString()+"/forged")
 			for _, value := range test.values {
-				headers.Add(apia2a.RuntimeAuthorizationHeader, value)
+				headers.Add("authorization", value)
 			}
 			session, err := a.Authenticate(t.Context(), headers, nil)
 			if !test.valid {

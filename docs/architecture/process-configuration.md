@@ -69,6 +69,7 @@ kubernetes:
   leaderElection: true
 server:
   bindAddress: :8083
+  runtimeBindAddress: :8084
   auth:
     mode: insecure
 database:
@@ -88,8 +89,8 @@ push:
 sessions:
   idleTtl: 604800s
 runtimeDefaults:
-  controlPlaneUrl: http://kagent-controller.kagent.svc:8083
-  gatewayUrl: http://kagent-controller.kagent.svc:8083
+  controlPlaneUrl: http://kagent-controller.kagent.svc:8084
+  gatewayUrl: http://kagent-controller.kagent.svc:8084
   logging:
     level: info
 ```
@@ -168,8 +169,8 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
 ```json
 {
   "runtime": {
-    "control_plane_url": "http://kagent-controller.kagent.svc:8083",
-    "gateway_url": "http://kagent-controller.kagent.svc:8083",
+    "control_plane_url": "http://kagent-controller.kagent.svc:8084",
+    "gateway_url": "http://kagent-controller.kagent.svc:8084",
     "name": "researcher",
     "namespace": "kagent",
     "log_level": "info",

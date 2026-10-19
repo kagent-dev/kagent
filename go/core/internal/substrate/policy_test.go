@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
@@ -131,24 +130,21 @@ func TestCompileActorEgressPolicyWithoutExtensionsLeavesTargetsUnbound(t *testin
 
 func TestActorPolicyInjectsRuntimeJWTOnlyAtControlPlane(t *testing.T) {
 	const controlPlane = testControlPlaneURL
-	policy, err := ActorEgressPolicy("team", []string{controlPlane, "https://models.example"}, []egress.Credential{
-		{Origin: controlPlane, Header: "authorization", URI: "ate-secret://k8s.io/default/team/auth/token"},
-	}, "http://KAGENT-CONTROLLER.kagent.svc.:8083")
+	policy, err := ActorEgressPolicy("team", []string{controlPlane, "https://models.example"}, nil, "http://KAGENT-CONTROLLER.kagent.svc.:8083")
 	require.NoError(t, err)
 	headers := policy.Rules[0].GetHttp().GetEffects().GetReplaceHeaders()
-	require.Len(t, headers, 2)
-	require.Equal(t, "authorization", headers[0].Header, "public credentials coexist with runtime authentication")
-	require.Equal(t, apia2a.RuntimeAuthorizationHeader, headers[1].Header)
-	require.Equal(t, "Bearer ", headers[1].Prefix)
-	require.Empty(t, headers[1].CredentialUri)
-	require.Equal(t, []string{runtimeJWTAudience}, headers[1].ActorJwt.Audiences)
-	require.EqualValues(t, 300, headers[1].ActorJwt.ExpirationSeconds)
+	require.Len(t, headers, 1)
+	require.Equal(t, "authorization", headers[0].Header)
+	require.Equal(t, "Bearer ", headers[0].Prefix)
+	require.Empty(t, headers[0].CredentialUri)
+	require.Equal(t, []string{runtimeJWTAudience}, headers[0].ActorJwt.Audiences)
+	require.EqualValues(t, 300, headers[0].ActorJwt.ExpirationSeconds)
 	require.Empty(t, policy.Rules[1].GetHttps().GetEffects().GetReplaceHeaders())
 	policy, err = ActorEgressPolicy("team", nil, nil, controlPlane)
 	require.NoError(t, err)
 	require.Empty(t, policy.Rules, "runtime authentication must not grant sandbox network access")
 	_, err = ActorEgressPolicy("team", []string{controlPlane}, []egress.Credential{
-		{Origin: controlPlane, Header: "X-Kagent-Runtime-Authorization", URI: "ate-secret://k8s.io/default/team/auth/token"},
+		{Origin: controlPlane, Header: "Authorization", URI: "ate-secret://k8s.io/default/team/auth/token"},
 	}, controlPlane)
 	require.Error(t, err, "a credential binding must not override runtime identity")
 }

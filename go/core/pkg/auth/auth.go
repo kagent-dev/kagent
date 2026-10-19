@@ -142,19 +142,12 @@ func UpstreamMethodTo(ctx context.Context, method string) context.Context {
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for the health endpoint used by probes.
-			if r.URL.Path == "/health" {
-				next.ServeHTTP(w, r)
-				return
-			}
 			session, err := authn.Authenticate(r.Context(), r.Header, r.URL.Query())
-			if err != nil {
+			if err != nil || session == nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			if session != nil {
-				r = r.WithContext(AuthSessionTo(r.Context(), session))
-			}
+			r = r.WithContext(AuthSessionTo(r.Context(), session))
 			next.ServeHTTP(w, r)
 		})
 	}

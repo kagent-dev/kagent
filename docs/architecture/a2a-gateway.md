@@ -188,12 +188,20 @@ execution. Other harnesses retain their existing policy for parked tasks. All ha
 
 ## Runtime authority
 
-TaskStore requires a Substrate-issued Actor JWT. Go and Python send
-`x-kagent-runtime-authorization: Bearer placeholder`; the control-plane origin's
-egress rule replaces it with a five-minute JWT bound to the `kagent-runtime`
-audience. The separate header preserves public credentials used on the same
-origin. Other destinations receive no runtime JWT, and this rule does not grant
-network access to sandboxes that cannot already reach the control plane.
+Actor calls use the controller's runtime listener (`server.runtimeBindAddress`,
+`:8084` by default). Every permitted RPC requires a Substrate-issued Actor JWT in
+`Authorization`. Go and Python controller clients send `Bearer placeholder`;
+the exact control-plane origin's egress rule replaces it with a five-minute JWT
+bound to the `kagent-runtime` audience. Other destinations receive no runtime JWT,
+and this rule does not grant network access to sandboxes that cannot already
+reach the control plane.
+
+The runtime method allowlist contains TaskStore and Memory only. User APIs,
+A2A, MCP, reflection, and unconfigured methods are not available through that
+listener. Actors do not inherit their session owner's general permissions.
+The user listener retains configured authentication and rejects Actor JWTs as
+user credentials. Insecure user authentication remains insecure by design;
+protect access to that listener according to the selected user authentication mode.
 
 The controller trusts `substrate.actorJwtIssuer` (default
 `https://idp.ate-system.svc`). It fetches OIDC discovery and JWKS over TLS using
@@ -203,14 +211,17 @@ subject. Worker-for-actor tokens are not accepted. Signing keys refresh every
 minute; publish new verification keys at least a minute before using them.
 
 The service checks the verified actor name against the requested session and
-matches its atespace and recorded Actor UID. Public and share credentials cannot
-grant TaskStore access. The unsigned identity header is not accepted.
+matches its atespace and recorded Actor UID. Memory derives its agent namespace
+and user from that persisted session binding, ignoring caller-supplied identity
+fields. Public and share credentials cannot grant runtime access. The unsigned identity header is not accepted.
 
 Substrate supplies the calling Actor's current identity after restore and fork;
 no token is persisted in a runtime snapshot. Only the projected actor name is
 read locally, to choose the session being addressed. Controller and runtime
 images must be upgraded together; snapshots of older runtime images still send
-the removed header and must be recreated.
+the removed header and must be recreated. Memory keys now use the stored
+`namespace/name` agent reference; existing memories keyed by runtime display
+names are not migrated.
 
 ## Push notifications
 

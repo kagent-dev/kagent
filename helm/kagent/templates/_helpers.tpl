@@ -439,3 +439,8 @@ tag wins over the component tag.
 {{- define "kagent.database.skipMigrations" -}}
 {{- if dig "database" "skipMigrations" false (.Values.config | default dict) -}}true{{- end -}}
 {{- end -}}
+
+{{/* Actor-only controller endpoint, separate from configured user authentication. */}}
+{{- define "kagent.controllerRuntimeAuthority" -}}
+{{- printf "%s-controller.%s.svc.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.global.clusterDomain | default "cluster.local") (.Values.controller.service.ports.runtimePort | int) -}}
+{{- end -}}

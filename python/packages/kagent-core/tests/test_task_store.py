@@ -62,7 +62,7 @@ class Storage(storerpc.TaskStoreServiceServicer):
         self.dispatch_ids.append(request.dispatch_id)
         if self.reject_saves:
             await context.abort(grpc.StatusCode.UNAVAILABLE, "storage outage")
-        assert dict(context.invocation_metadata())["x-kagent-runtime-authorization"] == "Bearer placeholder"
+        assert dict(context.invocation_metadata())["authorization"] == "Bearer placeholder"
         payload = request.SerializeToString(deterministic=True)
         if key in self.receipts:
             digest, version = self.receipts[key]

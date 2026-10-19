@@ -4,11 +4,13 @@ import (
 	"testing"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -95,5 +97,27 @@ func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
 				t.Fatalf("policy = %v (configured: %v), want %v", actual, ok, expected)
 			}
 		})
+	}
+}
+
+func TestRuntimeEndpointDeniesUserAndUnconfiguredMethods(t *testing.T) {
+	actor := &testAuthenticator{session: &testSession{principal: pkgauth.Principal{Agent: pkgauth.Agent{ID: "actor"}}}}
+	for _, method := range []string{
+		apiv1.SessionService_CreateSession_FullMethodName,
+		apiv1.AgentService_DeleteAgent_FullMethodName,
+		apiv1.SystemService_GetVersion_FullMethodName,
+		"/a2a.v1.A2AService/SendMessage",
+		"/extension.Service/Call",
+	} {
+		t.Run(method, func(t *testing.T) {
+			_, err := authenticate(t.Context(), method, actor, actor, nil, RuntimeMethodPolicies())
+			require.Equal(t, codes.PermissionDenied, status.Code(err))
+		})
+	}
+	for _, method := range []string{runtimev1.TaskStoreService_GetTask_FullMethodName, runtimev1.MemoryService_List_FullMethodName} {
+		_, err := authenticate(t.Context(), method, actor, nil, nil, RuntimeMethodPolicies())
+		require.Equal(t, codes.Unauthenticated, status.Code(err))
+		_, err = authenticate(t.Context(), method, nil, actor, nil, RuntimeMethodPolicies())
+		require.NoError(t, err)
 	}
 }

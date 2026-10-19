@@ -11,7 +11,6 @@ import (
 
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
@@ -30,7 +29,7 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 	runtimeOrigin := u.String()
 	effects := map[string]*ateapipb.HttpRuleEffects{}
 	for _, binding := range access.Credentials {
-		if binding.Origin == runtimeOrigin && binding.Header == apia2a.RuntimeAuthorizationHeader {
+		if binding.Origin == runtimeOrigin && binding.Header == "authorization" {
 			return nil, fmt.Errorf("runtime authorization header is reserved for Actor JWTs")
 		}
 		if effects[binding.Origin] == nil {
@@ -45,7 +44,7 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 				effects[origin] = &ateapipb.HttpRuleEffects{}
 			}
 			effects[origin].ReplaceHeaders = append(effects[origin].ReplaceHeaders, &ateapipb.CredentialHeader{
-				Header: apia2a.RuntimeAuthorizationHeader, Prefix: "Bearer ",
+				Header: "authorization", Prefix: "Bearer ",
 				ActorJwt: &ateapipb.ActorJwtSource{Audiences: []string{runtimeJWTAudience}, ExpirationSeconds: 300},
 			})
 		}

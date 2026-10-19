@@ -36,10 +36,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["controller.yaml"]
-          pattern: 'controlPlaneUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083'
+          pattern: 'controlPlaneUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8084'
       - matchRegex:
           path: data["controller.yaml"]
-          pattern: 'gatewayUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083'
+          pattern: 'gatewayUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8084'
 
   - it: supports a custom Kubernetes DNS domain
     template: controller-configmap.yaml
@@ -48,7 +48,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["controller.yaml"]
-          pattern: 'controlPlaneUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.example:8083'
+          pattern: 'controlPlaneUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.example:8084'
 
   - it: mounts one config document and secret files
     template: controller-deployment.yaml
