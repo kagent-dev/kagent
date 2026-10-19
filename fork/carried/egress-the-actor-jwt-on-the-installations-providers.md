@@ -7,6 +7,7 @@ status: carried
 commits:
   - 'feat(egress): the actor JWT on the installation''s providers that verify it'
   - 'fix(session): the actor JWT providers on a Session created without a grant'
+  - 'test(e2e): a Session without a grant reaches the actor JWT provider as its Actor'
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3156]
