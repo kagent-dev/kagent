@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,9 +49,13 @@ type fakeATEClient struct {
 	// was followed rather than that the rows came back.
 	actorReads  int
 	workerReads int
+	// The atespaces ate-api was asked for, since asking for "" reads every tenant's rows.
+	actorAtespaces    []string
+	templateAtespaces []string
 }
 
 func (client *fakeATEClient) ListActorTemplates(_ context.Context, atespace string) ([]*ateapipb.ActorTemplate, error) {
+	client.templateAtespaces = append(client.templateAtespaces, atespace)
 	templates := []*ateapipb.ActorTemplate{}
 	for _, template := range client.templates {
 		if atespace == "" || template.GetMetadata().GetAtespace() == atespace {
@@ -62,6 +67,7 @@ func (client *fakeATEClient) ListActorTemplates(_ context.Context, atespace stri
 
 func (client *fakeATEClient) ListActorsPage(_ context.Context, atespace string, pageSize int32, pageToken string) ([]*ateapipb.Actor, string, error) {
 	client.actorReads++
+	client.actorAtespaces = append(client.actorAtespaces, atespace)
 	if err := client.readError(client.actorReads); err != nil {
 		return nil, "", err
 	}
@@ -606,8 +612,8 @@ func TestSubstrateEmptyPagesPreserveUpstreamTokens(t *testing.T) {
 	assert.Equal(t, "upstream:next/cursor=", workers.NextPageToken)
 }
 
-// Two kagent installs, each watching only its own namespace, share one ate-api. Each
-// must see only its own atespace, and refuse a request naming the other.
+// Kagent installs that each watch only some namespaces share one ate-api. Each must see
+// only the atespaces it watches, and refuse a request naming another.
 func TestSubstrateTenantIsolation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, atev1alpha1.AddToScheme(scheme))
@@ -617,49 +623,116 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 		actors: []*ateapipb.Actor{
 			substrateActor("session-b", "tenant-b", ateapipb.ActorState_ACTOR_STATE_RUNNING, "tenant-b", "pod-b"),
 			substrateActor("session-a", "tenant-a", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
+			substrateActor("session-c", "tenant-c", ateapipb.ActorState_ACTOR_STATE_RUNNING, "tenant-c", "pod-c"),
+			substrateActor("session-b2", "tenant-b", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
 		},
 		templates: []*ateapipb.ActorTemplate{
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-a", Name: "agent-a"}},
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-b", Name: "agent-b"}},
+			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-c", Name: "agent-c"}},
 		},
 		workers: []*ateapipb.Worker{
 			{WorkerNamespace: "tenant-a", WorkerPod: "pod-a"},
 			{WorkerNamespace: "tenant-b", WorkerPod: "pod-b"},
+			{WorkerNamespace: "tenant-c", WorkerPod: "pod-c"},
+			{WorkerPod: "pod-unlabelled"},
 		},
 	}
-	tenantA := system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), []string{"tenant-a"}, &pkgAuth.NoopAuthorizer{}, ateClient)
+	newService := func(observedNamespaces []string) *system.Service {
+		return system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), observedNamespaces, &pkgAuth.NoopAuthorizer{}, ateClient)
+	}
+	tenantA := newService([]string{"tenant-a"})
+	tenantsAC := newService([]string{"tenant-a", "tenant-c"})
+	clusterWide := newService(nil)
 
-	t.Run("lists only its own actors", func(t *testing.T) {
+	listAllActors := func(t *testing.T, service *system.Service, atespace string) []string {
 		var names []string
-		request := &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 1}}
+		request := &apiv1.ListSubstrateActorsRequest{Atespace: atespace, Page: &apiv1.PageRequest{Limit: 1}}
 		for {
-			page, err := tenantA.ListSubstrateActors(ctx, request)
+			page, err := service.ListSubstrateActors(ctx, request)
 			require.NoError(t, err)
 			for _, actor := range page.Actors {
 				names = append(names, actor.GetMetadata().GetAtespace()+"/"+actor.GetMetadata().GetName())
 			}
 			if page.NextPageToken == "" {
-				break
+				return names
 			}
 			request.Page.PageToken = page.NextPageToken
 		}
-		assert.Equal(t, []string{"tenant-a/session-a"}, names)
+	}
+	workerPods := func(t *testing.T, service *system.Service) []string {
+		var pods []string
+		request := &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{}}
+		for {
+			page, err := service.ListSubstrateWorkers(ctx, request)
+			require.NoError(t, err)
+			for _, worker := range page.Workers {
+				pods = append(pods, worker.GetWorkerPod())
+			}
+			if page.NextPageToken == "" {
+				return pods
+			}
+			request.Page.PageToken = page.NextPageToken
+		}
+	}
+	templateNames := func(summary system.SubstrateSummary) []string {
+		var names []string
+		for _, template := range summary.ActorTemplates {
+			names = append(names, template.GetMetadata().GetName())
+		}
+		return names
+	}
+
+	t.Run("lists only its own actors", func(t *testing.T) {
+		assert.Equal(t, []string{"tenant-a/session-a"}, listAllActors(t, tenantA, ""))
 	})
 
 	t.Run("summarises only its own atespace", func(t *testing.T) {
 		summary, err := tenantA.GetSubstrateSummary(ctx, "", "")
 		require.NoError(t, err)
 		require.Empty(t, summary.ATEAPIError)
-		require.Len(t, summary.ActorTemplates, 1)
-		assert.Equal(t, "agent-a", summary.ActorTemplates[0].GetMetadata().GetName())
+		assert.Equal(t, []string{"agent-a"}, templateNames(summary))
 		assert.Equal(t, int64(1), summary.ActorCount)
 		assert.Equal(t, int64(0), summary.RunningActorCount)
 		assert.Equal(t, int64(1), summary.WorkerCount)
 	})
 
+	t.Run("hides a worker that reports no namespace", func(t *testing.T) {
+		assert.Equal(t, []string{"pod-a"}, workerPods(t, tenantA))
+		assert.Equal(t, []string{"pod-a", "pod-c"}, workerPods(t, tenantsAC))
+	})
+
+	t.Run("a controller watching two namespaces lists only those atespaces", func(t *testing.T) {
+		assert.Equal(t, []string{"tenant-a/session-a", "tenant-c/session-c"}, listAllActors(t, tenantsAC, ""))
+
+		first, err := tenantsAC.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 1}})
+		require.NoError(t, err)
+		assert.Empty(t, first.Actors, "the first upstream page holds only a tenant-b actor")
+		assert.NotEmpty(t, first.NextPageToken, "a page filtered to nothing still leads to the rest")
+	})
+
+	t.Run("a controller watching two namespaces asks ate-api for only those atespaces", func(t *testing.T) {
+		ateClient.actorAtespaces, ateClient.templateAtespaces = nil, nil
+		summary, err := tenantsAC.GetSubstrateSummary(ctx, "", "")
+		require.NoError(t, err)
+		require.Empty(t, summary.ATEAPIError)
+		assert.Equal(t, int64(2), summary.ActorCount)
+		assert.Equal(t, int64(1), summary.RunningActorCount)
+		assert.ElementsMatch(t, []system.SubstrateActorStatusCount{
+			{State: ateapipb.ActorState_ACTOR_STATE_RUNNING, Count: 1},
+			{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Count: 1},
+		}, summary.ActorStatusCounts)
+		assert.Equal(t, []string{"agent-a", "agent-c"}, templateNames(summary))
+		assert.Equal(t, int64(2), summary.WorkerCount)
+
+		assert.Equal(t, []string{"tenant-a", "tenant-c"}, slices.Compact(slices.Sorted(slices.Values(ateClient.actorAtespaces))))
+		assert.ElementsMatch(t, []string{"tenant-a", "tenant-c"}, ateClient.templateAtespaces)
+	})
+
 	t.Run("refuses another tenant's atespace or namespace", func(t *testing.T) {
 		_, err := tenantA.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "tenant-b"})
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
+		assert.Contains(t, serviceerrors.MessageOf(err), "not watched by this controller", "the caller sees only the message, not the cause")
 		_, err = tenantA.GetSubstrateSummary(ctx, "", "tenant-b")
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 		_, err = tenantA.GetSubstrateSummary(ctx, "tenant-b", "")
@@ -669,13 +742,22 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 	})
 
 	t.Run("a cluster-wide install still sees every tenant", func(t *testing.T) {
-		clusterWide := system.NewService(fake.NewClientBuilder().WithScheme(scheme).Build(), nil, &pkgAuth.NoopAuthorizer{}, ateClient)
 		summary, err := clusterWide.GetSubstrateSummary(ctx, "", "")
 		require.NoError(t, err)
-		assert.Equal(t, int64(2), summary.ActorCount)
-		assert.Len(t, summary.ActorTemplates, 2)
-		page, err := clusterWide.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "tenant-b"})
+		assert.Equal(t, int64(4), summary.ActorCount)
+		assert.Len(t, summary.ActorTemplates, 3)
+		assert.Equal(t, int64(4), summary.WorkerCount)
+		assert.Equal(t, []string{"pod-a", "pod-b", "pod-c", "pod-unlabelled"}, workerPods(t, clusterWide))
+		assert.Equal(t, []string{"tenant-b/session-b", "tenant-b/session-b2"}, listAllActors(t, clusterWide, "tenant-b"))
+	})
+
+	t.Run("a cluster-wide install counts nothing in an atespace with no rows", func(t *testing.T) {
+		summary, err := clusterWide.GetSubstrateSummary(ctx, "", "missing")
 		require.NoError(t, err)
-		require.Len(t, page.Actors, 1)
+		assert.Empty(t, summary.ATEAPIError)
+		assert.Zero(t, summary.ActorCount)
+		assert.Zero(t, summary.RunningActorCount)
+		assert.Empty(t, summary.ActorStatusCounts)
+		assert.Empty(t, summary.ActorTemplates)
 	})
 }
