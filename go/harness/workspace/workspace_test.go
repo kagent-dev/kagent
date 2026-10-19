@@ -397,10 +397,11 @@ func TestMirrors(t *testing.T) {
 
 // A workspace turn's git answers a host's challenge with the placeholder, so
 // the egress gateway has an Authorization header to replace, gh gets its
-// placeholder token and glab sends it as an OAuth2 bearer; an own GH_TOKEN or
-// glab token stands, and a turn without a working directory gets none.
+// placeholder token and, in a workspace, glab sends it as an OAuth2 bearer; an
+// own GH_TOKEN or glab token stands, a directory without a workspace gets no
+// glab placeholder, and a turn without a working directory gets none.
 func TestWithCredentialPlaceholders(t *testing.T) {
-	dispatch := Dispatch{Directory: t.TempDir()}
+	dispatch := Dispatch{Directory: t.TempDir(), Mirrors: "/mirrors"}
 	environment := WithCredentialPlaceholders(dispatch, []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=/mirrors/*"})
 	fill := exec.Command("git", "credential", "fill")
 	fill.Env = append(environment, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
@@ -441,6 +442,14 @@ func TestWithCredentialPlaceholders(t *testing.T) {
 	}
 	if got := WithCredentialPlaceholders(Dispatch{}, []string{"A=1"}); !slices.Equal(got, []string{"A=1"}) {
 		t.Fatalf("a turn without a working directory got %v", got)
+	}
+	// A directory without a workspace's mirrors gets git's and gh's
+	// placeholders, never glab's.
+	plain := WithCredentialPlaceholders(Dispatch{Directory: dispatch.Directory}, nil)
+	if !slices.Contains(plain, "GH_TOKEN="+CredentialPlaceholder) || slices.ContainsFunc(plain, func(variable string) bool {
+		return strings.HasPrefix(variable, "GITLAB_TOKEN=") || strings.HasPrefix(variable, "GLAB_")
+	}) {
+		t.Fatalf("a turn without a workspace got %v", plain)
 	}
 }
 

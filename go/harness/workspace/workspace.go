@@ -361,12 +361,13 @@ var glabTokenVariables = []string{"GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_
 // WithCredentialPlaceholders returns environment with the placeholder
 // credentials of a turn in the dispatch's working directory: git's credential
 // helper (CredentialHelper); GH_TOKEN, which gh needs before it makes any
-// call, unless the environment sets one; and GITLAB_TOKEN with GLAB_IS_OAUTH2,
-// which make glab send the placeholder as the Authorization bearer the gateway
-// replaces rather than as the PRIVATE-TOKEN header it leaves alone, with
-// GLAB_CONFIG_DIR at the directory's GlabConfigDirectory, unless the
-// environment sets a glab token. A dispatch without an absolute working
-// directory leaves the environment as it is.
+// call, unless the environment sets one; and, in a workspace (a dispatch with
+// a mirrors directory), GITLAB_TOKEN with GLAB_IS_OAUTH2, which make glab send
+// the placeholder as the Authorization bearer the gateway replaces rather than
+// as the PRIVATE-TOKEN header it leaves alone, with GLAB_CONFIG_DIR at the
+// directory's GlabConfigDirectory, unless the environment sets a glab token.
+// A dispatch without an absolute working directory leaves the environment as
+// it is.
 func WithCredentialPlaceholders(dispatch Dispatch, environment []string) []string {
 	if !filepath.IsAbs(dispatch.Directory) {
 		return environment
@@ -375,7 +376,7 @@ func WithCredentialPlaceholders(dispatch Dispatch, environment []string) []strin
 	if !hasVariable(result, "GH_TOKEN") {
 		result = append(result, "GH_TOKEN="+CredentialPlaceholder)
 	}
-	if !slices.ContainsFunc(glabTokenVariables, func(name string) bool { return hasVariable(result, name) }) {
+	if filepath.IsAbs(dispatch.Mirrors) && !slices.ContainsFunc(glabTokenVariables, func(name string) bool { return hasVariable(result, name) }) {
 		result = append(slices.DeleteFunc(result, func(variable string) bool {
 			return strings.HasPrefix(variable, "GLAB_IS_OAUTH2=") || strings.HasPrefix(variable, "GLAB_CONFIG_DIR=")
 		}), "GITLAB_TOKEN="+CredentialPlaceholder, "GLAB_IS_OAUTH2=true", "GLAB_CONFIG_DIR="+filepath.Join(dispatch.Directory, GlabConfigDirectory))
