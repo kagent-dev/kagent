@@ -15,12 +15,12 @@ allowlist.
 
 | Setting | Default | Description |
 |---|---|---|
-| Helm `otel.tracing.contextKeys` | `[]` | List of baggage keys, or `{from, to}` mappings, to copy onto spans |
+| Helm `otel.traces.contextKeys` | `[]` | List of baggage keys, or `{from, to}` mappings, to copy onto spans |
 | Env `KAGENT_TRACE_CONTEXT_KEYS` | `""` | Comma-separated keys, or a JSON array of the same mappings |
 
 ```yaml
 otel:
-  tracing:
+  traces:
     enabled: true
     contextKeys:
       - {from: sub, to: user.id}

@@ -13,7 +13,7 @@ from a2a.types import Message
 from opentelemetry import baggage
 from opentelemetry import context as otel_context
 
-from kagent.core.a2a._consts import read_message_metadata
+from google.protobuf.json_format import MessageToDict
 
 # Allowlist of caller-supplied context keys copied from W3C baggage onto
 # agent spans. Unset or empty (the default) disables promotion entirely.
@@ -50,7 +50,7 @@ def context_with_promoted_metadata(
     if not mappings:
         return ctx
     if metadata is None and message is not None:
-        metadata = read_message_metadata(message)
+        metadata = MessageToDict(message.metadata) if message.HasField("metadata") else {}
     if metadata is None:
         metadata = {}
 

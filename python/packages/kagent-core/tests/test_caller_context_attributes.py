@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock
 
 import pytest
+from a2a.types import Message, Role
+from google.protobuf.json_format import ParseDict
 from opentelemetry import baggage
 from opentelemetry import context as otel_context
 from opentelemetry.processor.baggage import BaggageSpanProcessor
@@ -158,7 +160,7 @@ class TestContextWithPromotedMetadata:
     def test_skips_message_decode_when_allowlist_empty(self, monkeypatch):
         set_allowlist(monkeypatch, "")
         decode = MagicMock(return_value={"thread_id": "T1"})
-        monkeypatch.setattr("kagent.core.tracing._context_attributes.read_message_metadata", decode)
+        monkeypatch.setattr("kagent.core.tracing._context_attributes.MessageToDict", decode)
         assert baggage_values(context_with_promoted_metadata(message=MagicMock())) == {}
         decode.assert_not_called()
 
@@ -166,7 +168,7 @@ class TestContextWithPromotedMetadata:
         set_allowlist(monkeypatch, "thread_id")
         message = MagicMock()
         monkeypatch.setattr(
-            "kagent.core.tracing._context_attributes.read_message_metadata",
+            "kagent.core.tracing._context_attributes.MessageToDict",
             lambda _message: {"thread_id": "T1"},
         )
         assert baggage_values(context_with_promoted_metadata(message=message)) == {"thread_id": "T1"}
@@ -251,3 +253,13 @@ def test_runtime_attributes_win_over_allowlisted_baggage(monkeypatch):
 
     attrs = _span_attrs(exporter.get_finished_spans(), "generate_content")
     assert attrs["gen_ai.conversation.id"] == "from-runtime"
+
+
+def test_promotes_real_protobuf_message_metadata(monkeypatch):
+    set_allowlist(monkeypatch, '[{"from":"sub","to":"user.id"},"attempt"]')
+    message = Message(role=Role.ROLE_USER, message_id="msg-1")
+    ParseDict({"sub": "opaque-subject", "attempt": 3, "private_token": "must-not-be-exported"}, message.metadata)
+    assert baggage_values(context_with_promoted_metadata(message=message)) == {
+        "user.id": "opaque-subject",
+        "attempt": "3",
+    }

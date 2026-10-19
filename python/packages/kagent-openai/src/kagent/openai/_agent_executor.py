@@ -37,6 +37,7 @@ from agents.memory.session import SessionABC
 from agents.run import Runner
 from kagent.core.a2a import now_timestamp
 from kagent.core.tracing import detach_promoted_metadata, promote_message_metadata_to_baggage
+from kagent.core.tracing._span_processor import clear_kagent_span_attributes, set_kagent_span_attributes
 from pydantic import BaseModel
 
 from ._event_converter import convert_openai_event_to_a2a_events

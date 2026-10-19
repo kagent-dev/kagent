@@ -259,7 +259,6 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		tracing.InvocationFromContext(ctx).SetAttributes(tracing.RequestIdentity(sessionID, string(reqCtx.TaskID), resumed)...)
 		ctx = telemetry.ContextWithPromotedMetadata(ctx, reqCtx.Message.Metadata)
 		ctx = telemetry.WithRequestAttributes(ctx, requestSpanAttributes(sessionID, string(reqCtx.TaskID), trustedUserID)...)
-		telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 
 		e.logger.InfoContext(ctx, "execute",
 			"task_id", reqCtx.TaskID,

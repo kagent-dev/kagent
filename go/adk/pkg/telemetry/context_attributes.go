@@ -31,40 +31,16 @@ type contextMapping struct {
 	attribute string
 }
 
-// contextPolicy is the parsed allowlist plus every source key named in it.
-// Source keys are skipped by SetMessageMetadataAttributes so allowlisted
-// values are not also stamped as a2a.message.metadata.<from>. Rejected
-// leftover {hash:...} mappings still contribute their from key so the
-// raw source cannot leak on that generic metadata path.
-type contextPolicy struct {
-	mappings []contextMapping
-	sources  map[string]struct{}
-}
-
-// loadContextPolicy parses KAGENT_TRACE_CONTEXT_KEYS once. The allowlist
-// cannot change without a process restart; tests call
-// resetAllowedContextMappings after t.Setenv.
-var loadContextPolicy = sync.OnceValue(parseContextPolicy)
+// loadContextMappings parses the allowlist once per process. Tests reset it
+// after changing the environment.
+var loadContextMappings = sync.OnceValue(parseAllowedContextMappings)
 
 func resetAllowedContextMappings() {
-	loadContextPolicy = sync.OnceValue(parseContextPolicy)
+	loadContextMappings = sync.OnceValue(parseAllowedContextMappings)
 }
 
 func allowedContextMappings() []contextMapping {
-	return loadContextPolicy().mappings
-}
-
-func policyCoveredContextSources() map[string]struct{} {
-	return loadContextPolicy().sources
-}
-
-func parseContextPolicy() contextPolicy {
-	sources := map[string]struct{}{}
-	mappings := parseAllowedContextMappings(sources)
-	for _, mapping := range mappings {
-		sources[mapping.source] = struct{}{}
-	}
-	return contextPolicy{mappings: mappings, sources: sources}
+	return loadContextMappings()
 }
 
 // ContextWithPromotedMetadata copies allowlisted A2A message.metadata values
@@ -130,13 +106,13 @@ func AllowedBaggageCopyFilter() baggagecopy.Filter {
 	}
 }
 
-func parseAllowedContextMappings(sources map[string]struct{}) []contextMapping {
+func parseAllowedContextMappings() []contextMapping {
 	raw := strings.TrimSpace(os.Getenv(traceContextKeysEnvVar))
 	if raw == "" {
 		return nil
 	}
 	if strings.HasPrefix(raw, "[") {
-		return capMappings(parseJSONAllowlist(raw, sources))
+		return capMappings(parseJSONAllowlist(raw))
 	}
 	return capMappings(parseCommaAllowlist(raw))
 }
@@ -151,7 +127,7 @@ func parseCommaAllowlist(raw string) []contextMapping {
 	return mappings
 }
 
-func parseJSONAllowlist(raw string, sources map[string]struct{}) []contextMapping {
+func parseJSONAllowlist(raw string) []contextMapping {
 	var items []json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &items); err != nil {
 		return nil
@@ -175,29 +151,15 @@ func parseJSONAllowlist(raw string, sources map[string]struct{}) []contextMappin
 		}
 		// Leftover {hash:...} config is no longer supported. Drop the
 		// mapping rather than stamping the raw source value onto `to`.
-		// Keep `from` in the metadata-suppression set so the executor
-		// cannot write a2a.message.metadata.<from> either.
 		if spec.Hash != nil {
-			coverContextSource(sources, spec.From)
 			continue
 		}
 		if mapping, ok := newContextMapping(spec.From, spec.To); ok {
 			mappings = append(mappings, mapping)
 			continue
 		}
-		coverContextSource(sources, spec.From)
 	}
 	return mappings
-}
-
-// coverContextSource records a named from key so SetMessageMetadataAttributes
-// skips it, even when the mapping itself was rejected.
-func coverContextSource(sources map[string]struct{}, from string) {
-	from = strings.TrimSpace(from)
-	if from == "" || len([]rune(from)) > maxContextKeyLength || !isAttributeKey(from) {
-		return
-	}
-	sources[from] = struct{}{}
 }
 
 func newContextMapping(from, to string) (contextMapping, bool) {
