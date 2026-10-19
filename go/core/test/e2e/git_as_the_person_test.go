@@ -316,8 +316,10 @@ func stringValues(value any) []string {
 // Session's Actor. The sandbox's environment, /data and the Session's
 // directory hold no JWT and no credential, and the commit is the person's. A
 // caller whose provider refuses the credential gets the gateway's refusal in
-// the tool result, and a Session of the same Agent without a grant sends no
-// credential and gets the gateway's 403. Each Session writes only its own
+// the tool result. A Session of the same Agent without a grant reaches the
+// forge's host as its own Actor too, since the installation's providers that
+// verify the Actor's JWT are every Session's, and gets the gateway's 403 on
+// the hosts a grant admits by credential URI. Each Session writes only its own
 // directory and never the mirrors.
 //
 // It stays sequential: it rolls the controller onto trusted-proxy
@@ -414,19 +416,23 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 			})
 
 			t.Run("without a grant", func(t *testing.T) {
+				plain := session(t, nil)
 				started := time.Now()
-				probed := gitAsThePersonProbe(t, session(t, nil), harness.shellTool)
+				probed := gitAsThePersonProbe(t, plain, harness.shellTool)
 				require.Equal(t, "/data/workspace", probed["pwd"])
-				for _, key := range []string{"fetch", "gh"} {
-					require.True(t, strings.HasPrefix(probed[key], "failed "), "%s failed: %s", key, probed[key])
-					require.Contains(t, probed[key], "403", "%s got the gateway's 403", key)
-					require.Contains(t, probed[key], gatewayDeniedDestination, "%s got the gateway's refusal", key)
-				}
+				require.True(t, strings.HasPrefix(probed["fetch"], "ok"), "git fetch on the actor-JWT provider's host: %s", probed["fetch"])
+				require.True(t, strings.HasPrefix(probed["gh"], "ok actor/") && strings.HasSuffix(probed["gh"], "/"+substrate.ActorName(plain.sessionID)),
+					"gh api user answered as the Session's Actor: %s", probed["gh"])
+				requireActorCredential(t, origin.requestsSince(forgeHost, started), plain.sessionID, "/api/v3/user")
+				require.True(t, strings.HasPrefix(probed["uri_push"], "failed "), "uri_push failed: %s", probed["uri_push"])
+				require.Contains(t, probed["uri_push"], gatewayDeniedDestination, "uri_push got the gateway's refusal")
 				// busybox wget reports the status, not the body.
 				require.True(t, strings.HasPrefix(probed["uri_api"], "failed "), "uri_api failed: %s", probed["uri_api"])
 				require.Contains(t, probed["uri_api"], "403", "uri_api got the gateway's 403")
-				require.Empty(t, origin.requestsSince(forgeHost, started), "a Session without a grant reached the forge")
 				require.Empty(t, origin.requestsSince(forgeURIHost, started), "a Session without a grant reached the forge on the credential URI's host")
+				require.Equal(t, "none", probed["jwt_env"], "the sandbox's environment holds no JWT")
+				require.Equal(t, "none", probed["jwt_files"], "/data and the Session's directory hold no JWT")
+				require.Equal(t, "none", probed["credential_env"], "the sandbox's environment holds no provider credential")
 			})
 		})
 	}
