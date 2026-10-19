@@ -154,6 +154,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
+	compiledServers := cfg.MCPServers
 	var forwarder *driver.CredentialForwarder
 	var approvalBroker *driver.ApprovalBroker
 	closeListeners := func() {
@@ -208,14 +209,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("materialize Claude settings: %w", err)
 		}
 	}
-	mcpJSON, err := cfg.MCPConfigJSON()
-	if err != nil {
-		closeListeners()
-		return nil, err
-	}
+	mcpConfig := mcpConfigFile{servers: cfg.MCPServers, compiled: compiledServers, forwarder: forwarder, files: files}
 	var mcpConfigPath string
-	if len(mcpJSON) != 0 {
-		if mcpConfigPath, err = files.write("mcp.json", mcpJSON); err != nil {
+	if len(cfg.MCPServers) != 0 {
+		if mcpConfigPath, err = mcpConfig.write(nil); err != nil {
 			closeListeners()
 			return nil, fmt.Errorf("materialize Claude MCP configuration: %w", err)
 		}
@@ -253,8 +250,49 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		if holdsCallerCredential {
 			processConfig.CallerCredentials = forwarder
 		}
+		processConfig.WriteMCPConfig = func(actorJWTHosts []string) error {
+			_, err := mcpConfig.write(actorJWTHosts)
+			return err
+		}
 	}
 	return driver.NewProcessDriver(processConfig), nil
+}
+
+// mcpConfigFile renders Claude's MCP configuration for a turn: a fronted
+// server on a host where the turn's Actor receives its own JWT is written with
+// its compiled URL and headers and the placeholder the egress gateway
+// replaces, so a turn whose every server is on such a host leaves the
+// forwarder's loopback token out of the file Claude, and every process of the
+// sandbox, can read.
+type mcpConfigFile struct {
+	// servers is the configuration Claude reads with every fronted server on
+	// loopback; compiled holds the servers as the compiler wrote them.
+	servers, compiled map[string]config.MCPServer
+	forwarder         *driver.CredentialForwarder
+	files             harnessFiles
+}
+
+func (m mcpConfigFile) write(actorJWTHosts []string) (string, error) {
+	servers := maps.Clone(m.servers)
+	if m.forwarder != nil {
+		for _, name := range m.forwarder.Names() {
+			if !m.forwarder.ActorJWTDirect(name, actorJWTHosts) {
+				continue
+			}
+			server := m.compiled[name]
+			server.Headers = maps.Clone(server.Headers)
+			if server.Headers == nil {
+				server.Headers = map[string]string{}
+			}
+			server.Headers["Authorization"] = workspace.ActorJWTAuthorization
+			servers[name] = server
+		}
+	}
+	raw, err := config.Config{MCPServers: servers}.MCPConfigJSON()
+	if err != nil {
+		return "", err
+	}
+	return m.files.write("mcp.json", raw)
 }
 
 // propagateCallerToken reports whether the Actor environment asks for the

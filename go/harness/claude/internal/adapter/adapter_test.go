@@ -314,6 +314,37 @@ func TestFrontMCPServersKeepsServerSettings(t *testing.T) {
 	require.Equal(t, int64(180000), fronted.TimeoutMillis)
 }
 
+// A turn whose every server is on an actor-JWT host writes no loopback token:
+// Claude reaches muster itself with the placeholder the gateway replaces.
+func TestMCPConfigLeavesTheLoopbackTokenOutOfAnActorJWTOnlyTurn(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	compiled := map[string]config.MCPServer{
+		"muster": {Type: "http", URL: "https://muster.example.svc/mcp", Headers: map[string]string{"X-Muster-Toolset": "preset:read-only"}, TimeoutMillis: 180000},
+	}
+	cfg.MCPServers = compiled
+	forwarder, err := frontMCPServers(&cfg, []string{"muster"}, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+	file := mcpConfigFile{servers: cfg.MCPServers, compiled: compiled, forwarder: forwarder, files: harnessFiles{dir: t.TempDir()}}
+	read := func(actorJWTHosts []string) string {
+		t.Helper()
+		path, err := file.write(actorJWTHosts)
+		require.NoError(t, err)
+		contents, err := os.ReadFile(path)
+		require.NoError(t, err)
+		return string(contents)
+	}
+
+	require.JSONEq(t, `{"mcpServers":{"muster":{"type":"http","url":"https://muster.example.svc/mcp","timeout":180000,
+		"headers":{"X-Muster-Toolset":"preset:read-only","Authorization":"Bearer kagent-credential-injected"}}}}`,
+		read([]string{"muster.example.svc"}))
+	require.Empty(t, compiled["muster"].Headers["Authorization"], "the compiled server is left as it was")
+
+	forwarded := read(nil)
+	require.Contains(t, forwarded, forwarder.URL("muster"), "a turn that forwards the caller's credential goes through the forwarder")
+	require.Contains(t, forwarded, forwarder.Headers()["Authorization"])
+}
+
 func TestFrontedServersSelectToolsWithoutCallerCredential(t *testing.T) {
 	servers := map[string]config.MCPServer{
 		"selected": {Type: "http", URL: "https://selected.example.com/mcp", Tools: []string{"echo"}},

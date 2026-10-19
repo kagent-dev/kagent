@@ -496,29 +496,36 @@ func TestProcessDriverBindsTheCallerCredentialPerTurn(t *testing.T) {
 	}
 	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
 	binder := &recordingBinder{}
+	var mcpConfigs []string
 	driver := NewProcessDriver(ProcessConfig{
 		Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
 		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
 		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"), CallerCredentials: binder,
+		WriteMCPConfig: func(actorJWTHosts []string) error {
+			mcpConfigs = append(mcpConfigs, "write@"+strings.Join(actorJWTHosts, ";"))
+			return nil
+		},
 	})
 	pending := newTestPending("approval-1", "call-1")
 	broker.requests <- pending
 	bridgeDecisionToFile(t, pending, decision)
 
-	outcome, err := driver.Run(callerContext(t, "Bearer first-sender"), runtime.Turn{Prompt: "write"}, &recordingSink{})
+	outcome, err := driver.Run(callerContext(t, "Bearer first-sender", "muster.example.svc"), runtime.Turn{Prompt: "write"}, &recordingSink{})
 	if err != nil || outcome.Pending == nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
-	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear" {
+	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender@muster.example.svc,clear" {
 		t.Fatalf("a parked turn must hold no credential: binder events = %q", got)
 	}
+	require.Equal(t, []string{"write@muster.example.svc"}, mcpConfigs, "the process the turn starts reads a configuration for the turn's hosts")
 	outcome, err = outcome.Pending.Resume(callerContext(t, "Bearer second-sender", "Muster.Example.svc"), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, &recordingSink{})
 	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("Resume() = %#v, %v", outcome, err)
 	}
-	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear,bind:Bearer second-sender@muster.example.svc,clear" {
+	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender@muster.example.svc,clear,bind:Bearer second-sender@muster.example.svc,clear" {
 		t.Fatalf("the resuming call's credential must replace the first: binder events = %q", got)
 	}
+	require.Len(t, mcpConfigs, 1, "a resumed turn continues the process and its configuration")
 }
 
 // A root harness carries its permission rules in Claude Code's managed

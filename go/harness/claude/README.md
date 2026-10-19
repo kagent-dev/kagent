@@ -47,7 +47,10 @@ the turn's outcome is returned, so a parked or suspended Actor holds none. A ser
 the turn names in `x-kagent-actor-jwt-hosts`, where the egress gateway hands the Session's
 Actor its own JWT, gets the placeholder bearer `kagent-credential-injected` the gateway
 replaces instead of the caller's credential, and a turn whose every such server is on one
-holds no caller credential at all. The credential
+holds no caller credential at all. The harness rewrites `mcp.json` before each turn's Claude
+process starts: a server on such a host without a tool selection is written with its compiled
+URL and headers and that placeholder, so Claude reaches it through the egress gateway itself,
+and a turn whose every server is one finds no loopback endpoint or token in the file. The credential
 never enters Claude's environment or `mcp.json`. SSE servers are not fronted: their
 message endpoint is announced by the upstream host. A request whose path holds a `.` or `..`
 segment, decoded or not, an encoded slash or backslash, an encoded `%`, a `;` or a control
