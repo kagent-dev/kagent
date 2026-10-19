@@ -219,11 +219,13 @@ when it holds one page of them, and only the proto says which.
 | `ListSubstrateActors` | `ListSubstrateActorsRequest { atespace, page }` | a page | `string filter` and a sort field enum — **and ate-api has to grow them first** |
 | `ListSubstrateWorkers` | `ListSubstrateWorkersRequest { namespace, page }` | a page | the same two, on the same condition |
 
-**Substrate actor and worker lists use upstream pagination.** Each list request makes
-one ate-api call and preserves its order and continuation token. Actors use upstream
-atespace filtering. Worker namespace filtering applies only to the returned page, so an
-empty worker page may still have a next token. The UI labels counts as "on this page"
-and offers no actor/worker text search or column sorting.
+**Substrate actor and worker lists use upstream pagination.** A controller that watches
+every namespace makes one ate-api call per list request and passes its order and
+continuation token through. Worker namespace filtering then applies only to the returned
+page, so an empty worker page may still have a next token. A controller that watches some
+namespaces reads actors with one scoped ate-api list per watched atespace and returns its
+own token. It reads every ate-api worker page and returns a worker-name cursor. The UI
+labels counts as "on this page" and offers no actor/worker text search or column sorting.
 
 Two capabilities remain deferred until Substrate supports them:
 
