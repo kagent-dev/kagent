@@ -12,15 +12,19 @@ import (
 
 // GenAI token-usage instrumentation using the native Prometheus client library.
 //
-// Metric and attribute names follow the OpenTelemetry GenAI semantic
-// conventions (semconv 1.40.0), mapped to Prometheus naming (dots -> underscores):
+// gen_ai.client.token.usage follows OpenTelemetry GenAI semconv 1.40.0, mapped
+// to Prometheus naming (dots -> underscores):
 //   - metric  gen_ai.client.token.usage -> gen_ai_client_token_usage
 //   - attrs   gen_ai.token.type, gen_ai.request.model, gen_ai.response.model,
 //     gen_ai.provider.name, gen_ai.agent.name, gen_ai.operation.name, error.type
 //
+// gen_ai.token.type only permits input and output. Cache hits are a breakdown of
+// the full input count, so they are exposed separately as a kagent extension.
+//
 // https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/
 const (
 	metricGenAIClientTokenUsage = "gen_ai_client_token_usage"
+	metricGenAICachedTokenUsage = "kagent_gen_ai_cached_token_usage"
 
 	labelGenAITokenType     = "gen_ai_token_type"
 	labelGenAIOperationName = "gen_ai_operation_name"
@@ -32,7 +36,6 @@ const (
 
 	tokenTypeInput  = "input"
 	tokenTypeOutput = "output"
-	tokenTypeCached = "cached"
 
 	// operationChat is the default gen_ai.operation.name for chat-completion calls.
 	operationChat = "chat"
@@ -53,11 +56,30 @@ var tokenUsageBuckets = []float64{1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 2
 var tokenUsage = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    metricGenAIClientTokenUsage,
-		Help:    "Measures the number of input, output, and cached tokens used by GenAI requests.",
+		Help:    "Measures the number of input and output tokens used by GenAI requests.",
 		Buckets: tokenUsageBuckets,
 	},
 	[]string{
 		labelGenAITokenType,
+		labelGenAIOperationName,
+		labelGenAIProviderName,
+		labelGenAIRequestModel,
+		labelGenAIResponseModel,
+		labelGenAIAgentName,
+		labelErrorType,
+	},
+)
+
+// cachedTokenUsage exposes provider cache hits as a kagent extension metric.
+// Cached tokens are already included in the semconv input observation above;
+// this histogram is a breakdown and must not be added to input totals.
+var cachedTokenUsage = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    metricGenAICachedTokenUsage,
+		Help:    "Measures prompt tokens served from provider-managed caches by GenAI requests.",
+		Buckets: tokenUsageBuckets,
+	},
+	[]string{
 		labelGenAIOperationName,
 		labelGenAIProviderName,
 		labelGenAIRequestModel,
@@ -117,23 +139,18 @@ type TokenUsage struct {
 	AgentName string
 	// ErrorType is error.type; empty for successful requests.
 	ErrorType string
-	// InputTokens / OutputTokens are the token counts (output = candidate +
-	// reasoning tokens). CachedTokens are prompt tokens served from the prompt
-	// cache. Providers report prompt counts inconsistently, so RecordTokenUsage
-	// normalizes the emitted series to stay additive. Non-positive counts are skipped.
+	// InputTokens is the full prompt count (including cache hits); OutputTokens
+	// is candidate + reasoning tokens. CachedTokens is a breakdown of InputTokens
+	// served from the provider-managed prompt cache. Non-positive counts are skipped.
 	InputTokens  int64
 	OutputTokens int64
 	CachedTokens int64
 }
 
-// RecordTokenUsage records input/output/cached token counts on the
-// gen_ai.client.token.usage histogram. If the metric pipeline is disabled
-// (OTEL_METRICS_ENABLED unset or not "true"), it is a no-op. Zero/negative
-// counts are skipped.
-//
-// The token-type series are additive: the input observation excludes the
-// cached portion, so input + cached always equals the prompt token count the
-// model reported and summing the series never double counts cache hits.
+// RecordTokenUsage records input/output counts on the semconv token-usage
+// histogram and positive cache hits on the kagent cached-token breakdown
+// histogram. If the metric pipeline is disabled (OTEL_METRICS_ENABLED unset or
+// not "true"), it is a no-op. Zero/negative counts are skipped.
 func RecordTokenUsage(usage TokenUsage) {
 	if !MetricsEnabled() {
 		return
@@ -146,26 +163,16 @@ func RecordTokenUsage(usage TokenUsage) {
 	if responseModel == "" {
 		responseModel = usage.RequestModel
 	}
-	inputTokens := usage.InputTokens
-	cachedTokens := usage.CachedTokens
-	if cachedTokens > 0 && cachedTokens <= inputTokens {
-		// Providers include cache hits in the prompt count (Gemini, OpenAI);
-		// emitting both unchanged would double count them in aggregates.
-		inputTokens -= cachedTokens
-	}
-	if cachedTokens < 0 {
-		cachedTokens = 0
-	}
-	if inputTokens > 0 {
+	if usage.InputTokens > 0 {
 		tokenUsage.WithLabelValues(tokenTypeInput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
-			Observe(float64(inputTokens))
+			Observe(float64(usage.InputTokens))
 	}
 	if usage.OutputTokens > 0 {
 		tokenUsage.WithLabelValues(tokenTypeOutput, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
 			Observe(float64(usage.OutputTokens))
 	}
-	if cachedTokens > 0 {
-		tokenUsage.WithLabelValues(tokenTypeCached, operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
-			Observe(float64(cachedTokens))
+	if usage.CachedTokens > 0 {
+		cachedTokenUsage.WithLabelValues(operationName, usage.Provider, usage.RequestModel, responseModel, usage.AgentName, usage.ErrorType).
+			Observe(float64(usage.CachedTokens))
 	}
 }
