@@ -32,7 +32,10 @@ async def test_output_is_bounded_but_command_completes(tmp_path):
 @pytest.mark.asyncio
 async def test_cancellation_stops_descendants(tmp_path):
     task = asyncio.create_task(
-        execute_command("echo started > started; (sleep 0.5; echo leaked > leaked) & wait", tmp_path)
+        execute_command(
+            "(echo started > started; while [ ! -f release ]; do sleep 0.01; done; echo leaked > leaked) & wait",
+            tmp_path,
+        )
     )
     try:
 
@@ -45,6 +48,8 @@ async def test_cancellation_stops_descendants(tmp_path):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, 2)
+    # A surviving child can only write after cancellation has finished.
+    (tmp_path / "release").touch()
     await asyncio.sleep(0.6)
     assert not (tmp_path / "leaked").exists()
 

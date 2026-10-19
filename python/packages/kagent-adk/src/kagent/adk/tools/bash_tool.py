@@ -24,8 +24,7 @@ class BashTool(BaseTool):
             description=get_bash_description(file_search_tools)
             + (
                 f"\nSkills directory: {Path(skills_directory).resolve()}. "
-                "This bash tool can execute skill scripts using their absolute paths, "
-                "even though the skills toolset has no dedicated script executor."
+                "Execute skill scripts using their absolute paths."
                 if skills_directory
                 else ""
             ),

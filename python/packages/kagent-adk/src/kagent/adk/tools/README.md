@@ -33,8 +33,10 @@ require a nonempty `old_string`, which must be unique unless `replace_all=true`.
 
 Go and Python ADK use their upstream skills toolsets. Python exposes
 `list_skills`, `load_skill`, and `load_skill_resource`; scripts run through the
-common bash tool. Skills are registered only from each agent's configured
-`skills_directory`. Subagents do not implicitly load `/skills`.
+common bash tool. A small prompt adapter directs scripts to bash when available
+and describes the execution limit when it is absent. Skill discovery, loading,
+and resource access remain upstream implementations. Skills are registered only
+from each agent's configured `skills_directory`. Subagents do not implicitly load `/skills`.
 
 The unused custom Python skills bundle and artifact staging/return tools have
 been removed. Python retains ADK's upstream artifact service for native A2A
