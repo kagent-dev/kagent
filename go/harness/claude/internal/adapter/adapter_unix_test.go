@@ -115,7 +115,12 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	runner, err := New(t.Context(), input)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runner.Close() })
-	contents, err := os.ReadFile(filepath.Join(input.PolicyDir, "mcp.json"))
+	mcpConfig := filepath.Join(input.PolicyDir, "mcp.json")
+	require.NoFileExists(t, mcpConfig, "New wrote the loopback token before a turn")
+	// Claude Code is absent, so the turn fails after writing its configuration.
+	_, err = runner.Run(t.Context(), runtime.Turn{Prompt: "test"}, discardSink{})
+	require.Error(t, err)
+	contents, err := os.ReadFile(mcpConfig)
 	require.NoError(t, err)
 	var written struct {
 		Servers map[string]struct {
@@ -335,3 +340,11 @@ func owner(t *testing.T, path string) int {
 	}
 	return int(info.Sys().(*syscall.Stat_t).Uid)
 }
+
+type discardSink struct{}
+
+func (discardSink) SessionStarted(runtime.SessionStarted) error { return nil }
+func (discardSink) Notice(runtime.Notice) error                 { return nil }
+func (discardSink) TextDelta(runtime.TextDelta) error           { return nil }
+func (discardSink) ToolCall(runtime.ToolCall) error             { return nil }
+func (discardSink) ToolResult(runtime.ToolResult) error         { return nil }
