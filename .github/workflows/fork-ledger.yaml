@@ -40,6 +40,10 @@ jobs:
           fetch-depth: 0
       - name: Check the carried files
         run: scripts/fork/carried.sh --check
+      - name: Check the carried files' headers
+        run: |
+          scripts/fork/ledger-header.sh --self-test
+          scripts/fork/ledger-header.sh kagent fork/carried
       - name: Check the Substrate pin rows
         run: scripts/fork/ledger-check.sh pin
       - name: Check the harness CLI pins

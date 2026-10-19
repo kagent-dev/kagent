@@ -1,3 +1,17 @@
+---
+id: egress-a-sessions-provider-credentials-by
+fork: kagent
+theme: credential-injection
+category: feature
+status: carried
+upstream:
+  outcome: to-file
+  refs: [kagent-dev/kagent#3156]
+  exit: row 210 filed
+depends_on: []
+commit: 08fcd26e9
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `feat(egress): a Session's provider credentials by credential URI`, `fix(egress): regenerate the provider proto, mark the audience mirror` , `feat(harness): placeholder git and gh credentials in a workspace turn` and `fix(e2e): a sandbox source request may carry git's helper placeholder` | a workspace Session's `git` and `gh` act as the person on exactly its providers' hosts, through the credential provider the egress gateway configures (muster on the platform), with no token in the sandbox, the controller or its database. Each provider of `Session.providers`, Basic and Bearer alike, compiles into the Session Actor's own policy on create, repoint and the move back after a lost race as a `CredentialHeader` with `credential_uri` `ate-secret://<KAGENT_SESSION_CREDENTIAL_AUTHORITY>/<provider instance>/git` and prefix `Basic `, or `.../api` and prefix `Bearer `; the gateway resolves it through `FetchSecret` with the Actor's verified identity, and the provider finds the person from the Actor. The URI names no person and no Session. The grant's provider names its instance (`provider`, one DNS label) instead of an audience, user name and broker; the authority is the installation's (`controller.session.credentialAuthority`), never the grant's: a grant with providers is refused without one, and a Kubernetes Secret provider is no authority. `SessionProvider.provider` (field 7) replaces `username` and `broker` (reserved); `audience` is kept equal to `provider` for clients that read it, and a grant or a stored Session that names the instance only as its audience is read the same way. `KAGENT_SESSION_ADMISSION_JWT_BROKERS` goes. `TestSessionEgressPolicyBindsTheProvidersCallerCredentials`, `TestSessionEgressPolicyScopesAProviderToItsPathPrefix`, `TestSessionEgressPolicyReadsAStoredProvidersAudienceAsItsInstance`, `TestRefusesProvidersWithoutACredentialAuthority`, `TestAdmitsAGrantNamingTheInstanceAsItsAudience` | to file — prepared in the fork: branch `upstream/egress-provider-credential-uri` (one DCO-signed commit on `upstream/egress-caller-credentials`, replacing its actor-JWT rules with the credential URI), filed with or after kagent-dev/kagent#3156; `feat(harness): placeholder git and gh credentials in a workspace turn` stays fork-only, upstream has no workspace turns The upstream form is prepared as branch `upstream/session-egress-destinations-2` (`9c6eab5a`, one DCO-signed commit on `upstream/session-volume-admission`, no fork references, a session header refused on a caller-token passthrough origin, `make -C go test` and lint green there), queued as review-list row 210, superseding the `upstream/egress-*` branches: `Session.egress` (field 20) in the vocabulary of an `EgressPolicy` destination, each header from a `credential_uri` under the installation's `sessions.admission.jwt.credentialAuthority` or an `actor_jwt`; the installation-wide actor-JWT providers become grant entries with `actor_jwt`, the path prefix waits for Substrate's `CredentialHeader.path_prefix` upstream. At the re-pin onto an upstream with it, the fork's `Session.providers` (field 18) ships its automatic migration to `egress`. |

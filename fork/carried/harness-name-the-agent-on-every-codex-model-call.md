@@ -1,3 +1,17 @@
+---
+id: harness-name-the-agent-on-every-codex-model-call
+fork: kagent
+theme: identity-authorizer
+category: feature
+status: carried
+upstream:
+  outcome: to-file
+  refs: []
+  exit: file with identity headers
+depends_on: [runtime-name-the-agent-and-the-user]
+commit: 0dd41c533
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `feat(harness): name the agent on every codex model call` | a codex agent's model calls carried no agent identity, so the platform's `llm` listener, which labels usage and keys rate limits by `x-kagent-agent` and `x-kagent-agent-namespace`, read every codex call as an unknown agent (giantswarm/kagent-upstream#613). The codex compiler injects and owns `KAGENT_AGENT_TEMPLATE` like the kagent compiler, and the codex adapter names the agent on the OpenAI provider through `env_http_headers`, on Amazon Bedrock through literal `http_headers` (the pinned Codex 0.148.0 refuses `env_http_headers` on its built-in Bedrock provider) | to file — prepared in the fork: branch `upstream/codex-model-call-identity-headers`, on top of `upstream/model-call-identity-headers` (the identity it extends, `runtime-name-the-agent-and-the-user.md`), so it is filed with or after that one |

@@ -1,3 +1,17 @@
+---
+id: session-the-sessions-actor-with-its-workspace-directory
+fork: kagent
+theme: workspace-volumes
+category: feature
+status: carried
+upstream:
+  outcome: to-file
+  refs: [agent-substrate/substrate#1637, kagent-dev/kagent#1988]
+  exit: after as#1637 / as#1988 gated
+depends_on: [giantswarm/substrate#234]
+commit: ed9f4acaf
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `feat(session): the Session's actor with its workspace directory` | a Session admitted on a workspace volume works in its own directory of that one shared read-write-many volume: every revision's ActorTemplate declares two existing volumes (the Session's own directory read-write at `/workspace`, the shared mirrors read-only at `/mirrors`), and the Session's Actor supplies its volume source's directories for them at create (`${SESSION_ID}` expanded), through the Substrate line's mount of an existing volume at a sub-path (`Actor.existing_volumes`, Substrate 1.7.0); a source outside that layout or with a handle over Substrate's 256 characters is refused. An Actor without a source supplies none and its create request is byte-identical to before. Deleting the Session deletes its Actor and records a `SessionDirectoryReleased` Event naming the volume and the directory, for the volume's owner to delete; kagent never touches the volume. `Session.last_turn_time`, moved by every turn's dispatch and shown on get and list, drives the owner's cleanup of unused directories. Every dispatch carries the turn's working directory (`x-kagent-working-directory`: `/workspace` with a volume, `/data/workspace` without). The Kind lane moves from the CSI hostpath snapshot fixture to an NFS read-write-many class with the workspace's bare mirrors | to file; with the volume source and the admission, once the Substrate mount of an existing volume (agent-substrate/substrate#1637) has landed upstream Not in the review-list series of rows 209 to 211: it waits on agent-substrate/substrate#1637 and #1988. |

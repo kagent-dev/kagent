@@ -1,3 +1,17 @@
+---
+id: e2e-prove-the-egress-credential-contract-through
+fork: kagent
+theme: test-flakes
+category: test
+status: carried
+upstream:
+  outcome: fork-only
+  refs: [kagent-dev/kagent#3099]
+  exit: 'with #3099'
+depends_on: [api-a-per-source-credential-for-private-git]
+commit: 742267283
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `test(e2e): prove the egress credential contract through the gateway for every client kind` | Substrate 1.5's egress gateway replaces a credential header only when the request carries it (agent-substrate#1751, agentgateway#3689), and private git skills stopped booting on a production installation without a test noticing: no e2e sent a credentialed request through the real gateway and looked at what the upstream received. The suite now records the upstream of every client kind (model keys as `Authorization` and `X-Api-Key`, `RemoteMCPServer` `headersFrom` on every harness and on Claude with `KAGENT_PROPAGATE_TOKEN`, with and without a caller token, git skill and plugin sources with a `credentialRef`) and requires the Secret value on every request and the placeholder on none. The CI job has the gateway trust a per-run CA (`atenetEgress.upstreamTrust.caBundle`) that signs the HTTPS git fixture | fork-only while `credentialRef` is; the model and MCP cases fit upstream next to kagent-dev/kagent#3099 |

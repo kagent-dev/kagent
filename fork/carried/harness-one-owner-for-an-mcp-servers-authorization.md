@@ -1,3 +1,17 @@
+---
+id: harness-one-owner-for-an-mcp-servers-authorization
+fork: kagent
+theme: mcp-forwarder
+category: bugfix
+status: carried
+upstream:
+  outcome: to-file
+  refs: [kagent-dev/kagent#3018]
+  exit: file the compiler rule
+depends_on: [harness-forward-the-callers-credential-on-mcp-calls]
+commit: d57618970
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `fix(harness): one owner for an MCP server's Authorization under caller-token propagation` | on Substrate 1.5's replace-only egress the Claude harness's credential forwarder deleted every server's compiled `Authorization` and set the caller's token in its place, so a Secret-backed `Authorization` was never sent on a turn without a caller token and overwrote the person's token on a turn with one (giantswarm/kagent-upstream#253); a server that configures `Authorization` keeps its gateway placeholder, any other takes the caller's token or none, the adapter resolves the compiler's `${KAGENT_CLAUDE_MCP_CREDENTIAL_*}` references before forwarding, and `CompileCredentials` refuses, with `KAGENT_PROPAGATE_TOKEN=true`, a caller-owned MCP server on a host with a gateway `authorization` binding, as it refuses a model's `apiKeyPassthrough` | fork-only for the forwarder (upstream main's Claude harness has none; it rides on kagent-dev/kagent#3018); the compiler rule is to file upstream, where the Go ADK has the same overwrite |

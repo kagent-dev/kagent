@@ -1,3 +1,17 @@
+---
+id: session-refuse-new-work-while-the-agents-harness
+fork: kagent
+theme: identity-authorizer
+category: feature
+status: carried
+upstream:
+  outcome: to-file
+  refs: [kagent-dev/kagent#3080]
+  exit: file
+depends_on: [session-refuse-a-share-on-a-session-whose-harness-runs-code]
+commit: 77b4fcede
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `fix(session): refuse new work while the Agent's Harness does not resolve` | removing a Harness is the operator's switch for a runtime, but it stopped new revisions only: the Agent read `Ready=False` (`ResolvedRefs=False`, `ReferenceResolutionFailed`) while its last prepared revision stayed ready in the database, so `CreateSession` and new turns of existing Sessions went on running on it. The session service now reads the Agent's `harnessRef` through the Agent reader the share check uses; while the Harness is not found, `Create` and a new turn (a message to an existing conversation naming no task) are refused with `FailedPrecondition` (an unsupported operation over A2A) naming the Agent and the Harness. A message continuing a running task is accepted, so a running turn finishes; existing Sessions are untouched; once the Harness resolves again new work is accepted with no further step. Chosen over the controller retiring the prepared revision: Sessions pin their revision, so retiring it would refuse new Sessions but not new turns. An inline Harness is not checked | to file — prepared in the fork: branch `upstream/session-harness-gone` (stacked on `upstream/session-share-runs-sender-code`, which adds the service's Agent reader, at the mirror's `main` pin `6c4cfb2b`; DCO-signed, no fork references; upstream's `Create` takes the Agent reference directly, so the call and the test differ by that signature only); no upstream pull request or issue found for refusing work on an unresolved Harness |

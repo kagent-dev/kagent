@@ -1,3 +1,17 @@
+---
+id: session-suspend-a-runtime-paused-for-input-once
+fork: kagent
+theme: session-lifecycle
+category: feature
+status: carried
+upstream:
+  outcome: superseded
+  refs: [giantswarm/kagent-upstream#43, kagent-dev/kagent#2503, kagent-dev/kagent#2939, kagent-dev/kagent#2970]
+  exit: verify and drop
+depends_on: []
+commit: 6b670e7b5
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `feat(session): suspend a runtime paused for input once the pause is older than a TTL` | a turn that ends `input-required`/`auth-required` pauses the actor on its worker's node (`PauseActor`, the upstream design of kagent-dev/kagent#2714) and nothing made that checkpoint durable, so a spot interruption, a consolidation or a node roll while a person took their time lost the session's runtime state: the reply's resume found no worker on the recorded node, Substrate reported the locality miss as `no free workers available`, the task failed after the 60 s resume budget and the instance could neither be resumed, suspended nor deleted (seen on a production installation). The controller's leader now sweeps READY sessions whose latest task waits for input without a recorded snapshot and, once the pause is older than `KAGENT_PAUSED_RUNTIME_TTL` (2m; `controller.pausedRuntimeTTL`; 0 disables), suspends the actor durably — `SuspendActor` uploads the pause checkpoint to the snapshot store — and records the snapshot as the task's boundary (guarded on the task still waiting, so a reply that landed meanwhile keeps its own boundary); the sweep takes the session's quiesce lock without waiting and the gateway dispatches under the runtime-call lock, so a suspend and a reply never overlap. A reply within the TTL keeps the in-place resume; a later one restores from the external snapshot on any worker. The platform's meta chart leaves the default | superseded structurally by kagent-dev/kagent#2939 and #2970 (idle expiry deletes and skips waiting tasks, so a paused turn is not covered): the patch drops at the re-pin and is rebuilt as `KAGENT_PAUSED_RUNTIME_TTL` on the Session model in the candidate. Was prepared as `upstream/a2agateway-pause-ttl` on the mirror; the first half of the lost-runtime fix (the second half is the row above: giantswarm/kagent-upstream#43, `v0.11.0-gs.17`); kagent-dev/kagent#2503 is the adjacent resume-reliability issue |

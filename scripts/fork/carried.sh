@@ -8,7 +8,8 @@
 #                                    # commits sit on top of the pin
 #   scripts/fork/carried.sh --check  # verify the files, print nothing
 #
-# A file is the table header, its separator and one row of three cells; the
+# A file is an optional YAML front-matter (the header `fork-ledger validate`
+# reads), the table header, its separator and one row of three cells; the
 # first cell names the carried commit(s) in backticks, by subject (the pull
 # request number GitHub appends to a subject is ignored). A file of another
 # shape, a subject that is not a commit on top of the pin (upstream merged it:
@@ -55,6 +56,13 @@ shopt -s nullglob
 for file in "$root/$dir"/*.md; do
   name=$dir/$(basename "$file")
   mapfile -t lines < "$file"
+  # A YAML front-matter (`---` to the next `---`, the machine-readable header)
+  # precedes the row and is no part of the table.
+  if [ "${lines[0]:-}" = "---" ]; then
+    end=1
+    while [ "$end" -lt "${#lines[@]}" ] && [ "${lines[$end]}" != "---" ]; do end=$((end + 1)); done
+    lines=("${lines[@]:$((end + 1))}")
+  fi
   if [ "${#lines[@]}" -ne 3 ] || [ "${lines[0]}" != "$header" ] || [ "${lines[1]}" != "$separator" ]; then
     problem "$name" "not the table header, its separator and one row"
     continue

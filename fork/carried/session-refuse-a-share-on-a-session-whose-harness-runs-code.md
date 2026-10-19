@@ -1,3 +1,17 @@
+---
+id: session-refuse-a-share-on-a-session-whose-harness-runs-code
+fork: kagent
+theme: identity-authorizer
+category: feature
+status: carried
+upstream:
+  outcome: to-file
+  refs: [kagent-dev/kagent#3189]
+  exit: 're-check against #3189; likely drop'
+depends_on: []
+commit: c29307884
+verified: 2026-10-19
+---
 | Carried commit (subject) | Why the platform needs it | Upstream |
 |---|---|---|
 | `feat(session): refuse a share on a Session whose Harness runs code` and `fix(session): refuse a share unless the Session's Harness runs the kagent runtime` | a coding agent's runtime keeps what a turn leaves behind (a repository hook, a build target), so a share of its Session would run one sender's leftovers under the next sender's credentials; the platform's gateway refuses such shares on its own surfaces only, while `CreateSessionShare` let a creator mint one directly. `CreateSessionShare` reads the Session's Agent and its Harness (inline or `harnessRef`) and refuses the share, read-only and read-write alike, with `FailedPrecondition` and a message naming the remedy (a Session of one's own) unless the Harness is the `kagent` runtime: `claude`, `codex` and `byo` are refused, and an Agent or Harness that cannot be read refuses the share too, so the rule is fail-closed and needs no API field; reads, sends and existing shares are unchanged. The rule is derived from the runtime because a Harness field is one upstream will not carry (kagent-dev/kagent#3065 drops read-write shares) and one an inline Harness could leave out. It does not cover the `kagent` runtime's own file and bash tools, which can also leave files behind in a Session's working directory. Delete this patch when per-sender isolation runs each sender's turn apart | to file — prepared in the fork: branch `upstream/session-share-runs-sender-code` (mirror `main` at the pin `6c4cfb2b` + the patch, no API change, DCO-signed, no fork references); no upstream pull request found for a share refusal on a Harness |
