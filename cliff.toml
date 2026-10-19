@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/5271fd6c7de989d9776e7af86a4d89c94c9274f3/pkg/gen/input/workflows/internal/file/cliff.toml.template
+#    https://github.com/giantswarm/devctl/blob/88a5399393f41a2aacc8da4ed639e5a0107d85e9/pkg/gen/input/workflows/internal/file/cliff.toml.template
 #
 # git-cliff config for the push-based auto-release flow.
 #
@@ -84,13 +84,8 @@ tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+$'
 # commit text -- git-cliff's default regex mode is single-line). This
 # anchoring keeps `(#N)` references that appear inside commit bodies
 # untouched.
-#
-# A feat-rc/fix-rc subject is released as its plain type:
-# `features_always_bump_minor` keys off the type being exactly "feat", and an
-# un-normalised feat-rc would bump patch instead of minor.
 commit_preprocessors = [
   { pattern = '(?m) \(#\d+\)$', replace = "" },
-  { pattern = '^(feat|fix)-rc', replace = "${1}" },
 ]
 
 # Map commit types to changelog groups (Keep-a-Changelog convention):
