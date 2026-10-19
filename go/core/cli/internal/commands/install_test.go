@@ -20,7 +20,7 @@ import (
 
 func TestUninstallReversesInstall(t *testing.T) {
 	const (
-		listReleases   = "helm list --all-namespaces --all --filter ^kagent$ --output json"
+		listReleases   = "helm list --all-namespaces --filter ^kagent$ --output json"
 		getDatabase    = "kubectl -n kagent get deployment/kagent-postgresql --ignore-not-found -o name"
 		deleteDatabase = "kubectl delete --ignore-not-found -f -"
 		bundled        = "deployment.apps/kagent-postgresql"

@@ -271,7 +271,7 @@ func uninstallChart(ctx context.Context, release, namespace string) (bool, error
 
 // kagentReleaseNamespaces returns the namespaces holding a kagent Helm release.
 func kagentReleaseNamespaces(ctx context.Context) ([]string, error) {
-	out, err := exec.CommandContext(ctx, "helm", "list", "--all-namespaces", "--all", "--filter", "^kagent$", "--output", "json").Output()
+	out, err := exec.CommandContext(ctx, "helm", "list", "--all-namespaces", "--filter", "^kagent$", "--output", "json").Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
