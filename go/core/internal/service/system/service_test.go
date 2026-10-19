@@ -742,10 +742,10 @@ func TestSubstrateTenantIsolation(t *testing.T) {
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "tenant-c", Name: "agent-c"}},
 		},
 		workers: []*ateapipb.Worker{
-			{WorkerNamespace: "tenant-a", WorkerPod: "pod-a"},
-			{WorkerNamespace: "tenant-b", WorkerPod: "pod-b"},
-			{WorkerNamespace: "tenant-c", WorkerPod: "pod-c"},
-			{WorkerPod: "pod-unlabelled"},
+			{Metadata: &ateapipb.ResourceMetadata{Name: "uid-a"}, WorkerNamespace: "tenant-a", WorkerPod: "pod-a"},
+			{Metadata: &ateapipb.ResourceMetadata{Name: "uid-b"}, WorkerNamespace: "tenant-b", WorkerPod: "pod-b"},
+			{Metadata: &ateapipb.ResourceMetadata{Name: "uid-c"}, WorkerNamespace: "tenant-c", WorkerPod: "pod-c"},
+			{Metadata: &ateapipb.ResourceMetadata{Name: "uid-unlabelled"}, WorkerPod: "pod-unlabelled"},
 		},
 	}
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(

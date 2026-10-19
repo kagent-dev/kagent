@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -29,6 +31,10 @@ func pagingATEClient() *fakeATEClient {
 	for _, actor := range []string{"tenant-a/a-1", "tenant-b/b-1", "tenant-c/c-1", "tenant-a/a-2", "tenant-b/b-2", "tenant-c/c-2", "tenant-a/a-3"} {
 		atespace, name, _ := strings.Cut(actor, "/")
 		client.actors = append(client.actors, substrateActor(name, atespace, ateapipb.ActorState_ACTOR_STATE_RUNNING, "", ""))
+	}
+	for _, worker := range []string{"tenant-a/u4", "tenant-b/u2", "tenant-a/u1", "tenant-c/u3", "tenant-a/u6", "tenant-b/u5"} {
+		namespace, uid, _ := strings.Cut(worker, "/")
+		client.workers = append(client.workers, &ateapipb.Worker{Metadata: &ateapipb.ResourceMetadata{Name: uid + "-" + namespace}, WorkerNamespace: namespace})
 	}
 	return client
 }
@@ -119,4 +125,50 @@ func TestListSubstrateActorsRefusesForeignTokens(t *testing.T) {
 			assert.Zero(t, ateClient.actorReads)
 		})
 	}
+}
+
+func walkWorkerNames(t *testing.T, service *system.Service, namespace string, limit int32) []string {
+	t.Helper()
+	names := []string{}
+	pageToken := ""
+	for range 100 {
+		page, err := service.ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{Namespace: namespace, Page: &apiv1.PageRequest{Limit: limit, PageToken: pageToken}})
+		require.NoError(t, err)
+		require.Empty(t, page.ATEAPIError)
+		assertOwnToken(t, len(page.Workers), page.NextPageToken)
+		for _, worker := range page.Workers {
+			names = append(names, worker.GetMetadata().GetName())
+		}
+		if pageToken = page.NextPageToken; pageToken == "" {
+			return names
+		}
+	}
+	t.Fatal("the walk did not end")
+	return nil
+}
+
+// ate-api cannot list one namespace's workers, so its token can name any worker. The
+// fake refuses a token it did not issue, so a kagent token sent to it fails the walk.
+func TestListSubstrateWorkersPagesWatchedNamespaces(t *testing.T) {
+	for namespace, want := range map[string][]string{
+		"":         {"u1-tenant-a", "u3-tenant-c", "u4-tenant-a", "u6-tenant-a"},
+		"tenant-a": {"u1-tenant-a", "u4-tenant-a", "u6-tenant-a"},
+	} {
+		for _, limit := range []int32{1, 2, 3, 100} {
+			t.Run(fmt.Sprintf("%q/%d", namespace, limit), func(t *testing.T) {
+				assert.Equal(t, want, walkWorkerNames(t, pagingService(pagingATEClient()), namespace, limit))
+			})
+		}
+	}
+}
+
+func TestListSubstrateWorkersHidesATEAPIErrorText(t *testing.T) {
+	ateClient := pagingATEClient()
+	ateClient.err = status.Error(codes.Internal, "worker u2-tenant-b is down")
+
+	page, err := pagingService(ateClient).ListSubstrateWorkers(pagingContext(t), &apiv1.ListSubstrateWorkersRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, "ate-api could not list workers: Internal", page.ATEAPIError)
+	assert.Empty(t, page.Workers)
+	assert.Empty(t, page.NextPageToken)
 }
