@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#2952]
   exit: design issue per family
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(session): fail a session whose resume finds its snapshot lost
 
@@ -26,3 +26,5 @@ a resume that Substrate answers with `DataLoss` (the Actor's snapshot or the gol
 ## History
 
 to file: upstream's session workflow (kagent-dev/kagent#2952) left a claimed resume pending on the same answer; the change is ported onto that workflow since the 2026-10-05 re-pin and is filed from there
+
+kagent-dev/kagent#2952 merged 2026-09-26 (`907daf90`, in the pin) is the session workflow this change is ported onto, not its exit, so it stays in `refs` as related work and the outcome stays to-file.

@@ -9,9 +9,9 @@ commits:
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3209]
-  exit: 're-check against #3209; file or drop'
+  exit: '#3209 lets an embedding binary authenticate the CLI and removes invoke --token; the stock CLI''s own bearer (--caller-token, KAGENT_TOKEN, kubeconfig) remains, to file on top of it'
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(cli): send a caller token as the bearer of every controller call
 
@@ -26,3 +26,5 @@ the CLI reached the controller with `x-user-id` alone, so against a controller i
 ## History
 
 to file — prepared in the fork: branch `upstream/cli-caller-token` (mirror `main` + the patch, DCO-signed, no fork references)
+
+kagent-dev/kagent#3209 merged 2026-10-15 (`2ab16889`) covers part: an embedding binary adds a bearer through gRPC dial options and `agent invoke --token` is gone, so the outcome stays to-file for the stock CLI's own bearer.

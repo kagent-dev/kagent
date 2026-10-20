@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#2971]
   exit: file in the chart batch
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(helm): keep the chart's kagent-api RemoteMCPServer out of tool discovery under trusted-proxy auth
 
@@ -26,3 +26,5 @@ under `controller.auth.mode: trusted-proxy` the controller validates a bearer on
 ## History
 
 to file: upstream's chart has the same gap under its trusted-proxy mode (kagent-dev/kagent#2971)
+
+kagent-dev/kagent#2971 merged 2026-09-27 (`d4ed7dea`, in the pin) wired the auth settings where the gap shows, not this change's exit, and upstream's chart still sets no discovery label on 2026-10-20, so it stays in `refs` as related work and the outcome stays to-file.

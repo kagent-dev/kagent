@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#3203, kagent-dev/kagent#3258]
   exit: skills via OCI images (#3203) make the git path moot
 depends_on: [skills-retry-a-git-fetch-on-a-transient-network, skills-retry-an-http-2-stream-or-cut-transfer]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(adk): fall back to the durable copy of a skill a restart cannot fetch
 
@@ -26,3 +26,5 @@ a restored Go ADK actor starts with an empty root filesystem and materializes it
 ## History
 
 to file — prepared in the fork: branch `upstream/adk-skill-durable-copy-exact` (mirror `main` @ `92dd6caa` + the patch, DCO-signed, no fork references)
+
+kagent-dev/kagent#3203 merged 2026-10-16 (`673d181e`): it mounts OCI skills through Substrate image volumes and leaves git sources fetched at start, so it stays in `refs` as the mechanism the exit relies on and the outcome stays to-file.

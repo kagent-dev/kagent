@@ -10,9 +10,9 @@ commits:
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3206]
-  exit: 're-check against #3206'
+  exit: file
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(helm): keep the kagent-crds CRDs on uninstall (helm.sh/resource-policy: keep)
 
@@ -27,3 +27,5 @@ the `kagent-crds` chart ships the CRDs as plain templates (no `crds/` directory)
 ## History
 
 to file — prepared in the fork: branch `upstream/kagent-crds-resource-policy-keep`
+
+kagent-dev/kagent#3206 merged 2026-10-14 (`e7d18cde`) generates the CRDs into the chart and adds no `helm.sh/resource-policy: keep` (none on upstream `main` on 2026-10-20), so it stays in `refs` as related work and the outcome stays to-file.

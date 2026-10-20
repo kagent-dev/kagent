@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#3111]
   exit: file
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(migrations): move an installation's tables from public into the configured schemas
 
@@ -26,3 +26,5 @@ upstream moved kagent's tables to a `kagent` schema and pgvector to `extensions`
 ## History
 
 to file — prepared in the fork: branch `upstream/schema-migration-from-public` (mirror `main` @ the pin `92dd6caa` + the patch, `ab57503b`, DCO-signed, no fork references; its message is the pull-request text), the upgrade path #3111 left out. kagent-dev/kagent searched 2026-10-13: no issue or pull request moving existing tables out of `public`
+
+kagent-dev/kagent#3111 merged 2026-10-09 (`5e14c16c`, in the pin) is the schema move this change adds the upgrade path for, not its exit, so it stays in `refs` as related work and the outcome stays to-file.

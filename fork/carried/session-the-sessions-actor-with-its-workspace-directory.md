@@ -8,10 +8,10 @@ commits:
   - 'feat(session): the Session''s actor with its workspace directory'
 upstream:
   outcome: to-file
-  refs: [agent-substrate/substrate#1637, kagent-dev/kagent#1988]
+  refs: [agent-substrate/substrate#1637, agent-substrate/substrate#1988]
   exit: after as#1637 / as#1988 gated
 depends_on: [giantswarm/substrate#234]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(session): the Session's actor with its workspace directory
 
@@ -26,3 +26,5 @@ a Session admitted on a workspace volume works in its own directory of that one 
 ## History
 
 to file; with the volume source and the admission, once the Substrate mount of an existing volume (agent-substrate/substrate#1637) has landed upstream. It waits on agent-substrate/substrate#1637 and #1988.
+
+The ref kagent-dev/kagent#1988 (an unrelated CEL validation pull request, merged 2026-06-12) is corrected to agent-substrate/substrate#1988 (open, configurable volume access modes), the item the exit names.

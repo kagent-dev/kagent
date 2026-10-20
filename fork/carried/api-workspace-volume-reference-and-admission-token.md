@@ -11,7 +11,7 @@ upstream:
   refs: [agent-substrate/substrate#1637, kagent-dev/kagent#3153, kagent-dev/kagent#3155, kagent-dev/kagent#3156]
   exit: '#3155 rebased and merged'
 depends_on: [giantswarm/substrate:existing-volume-mounted-per-actor-at-sub, giantswarm/substrate:read-write-mounts-missing-sub-path-directory]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(api): workspace volume reference and admission token on CreateSession
 
@@ -26,3 +26,5 @@ the platform starts a Session in its own directory of a workspace's shared volum
 ## History
 
 open upstream as kagent-dev/kagent#3155 (branch `upstream/session-volume-source`, off upstream `main`): the same API, storage and refusal; the source is `Session.volume_source` (field 17) as here, stored for the actor mount that follows once Substrate can mount an existing volume (agent-substrate/substrate#1637); drops at the re-pin onto an upstream with #3155. #3155 conflicts with upstream `main` since kagent-dev/kagent#3153; its rebased head is prepared as branch `upstream/session-volume-source-3` (`258bef34f`, on the mirror `main` @ `b42a6c53a`), for its owner to move the pull request to Rebased onto upstream `main` @ `7a0a4fd0` and folded with the jwt admission into one upstream-ready commit as branch `upstream/session-volume-admission` (`d1365420`, DCO-signed, no fork references, `make -C go test` and lint green there); it supersedes the heads above, and a human decides whether it replaces kagent-dev/kagent#3155 and #3156.
+
+kagent-dev/kagent#3153 merged 2026-10-13 (`16e63ca5`) is the configuration change #3155 conflicts with, not this change's exit, so it stays in `refs` as related work and the outcome stays open.

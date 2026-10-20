@@ -13,7 +13,7 @@ upstream:
   refs: [kagent-dev/kagent#3018, kagent-dev/kagent#3257]
   exit: 'reconcile against #3257, then #3018 or close'
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(harness): forward the caller's credential on MCP calls from the Claude harness
 
@@ -28,3 +28,5 @@ a coding agent on the `claude` Harness must call muster as the invoking person: 
 ## History
 
 kagent-dev/kagent#3018 (`a9617a48d`), carried as the pull request has it; the two forwarder fixes are to file on top of it
+
+kagent-dev/kagent#3257 merged 2026-10-18 (`7a0a4fd0`) adds `tokenPassthrough` for the Go runtime and rejects it on the Claude and Codex harnesses, so it does not cover this change: it stays in `refs` as related work and the outcome stays open.

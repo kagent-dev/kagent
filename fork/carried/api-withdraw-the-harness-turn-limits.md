@@ -16,7 +16,7 @@ upstream:
   refs: [giantswarm/kagent-upstream#615, kagent-dev/kagent#2461, kagent-dev/kagent#3020]
   exit: 'squash the net-zero commits; close #3020'
 depends_on: [harness-guard-the-turn-usage-on-the, harness-omp-harness-a-byo-adapter-for, harness-the-codex-turns-usage-on-its-final]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(api): Harness.spec.claude.limits — a budget and a turn cap on every turn of a Claude Code agent
 
@@ -31,3 +31,5 @@ withdrawn: the platform bounds no Claude Code turn by a budget or a turn cap, so
 ## History
 
 none: kagent-dev/kagent#3020 is to be withdrawn by a person; no agent touches it (still open upstream on 2026-10-19). The next re-pin drops the limits of all six commits together, and this file with them, but not the turn usage the first one carries: the usage, which `harness-the-codex-turns-usage-on-its-final.md` and the omp adapter build on, moves into a carried commit of its own at that re-pin (https://github.com/giantswarm/kagent-upstream/issues/615), and `harness-guard-the-turn-usage-on-the.md` fails the re-pin that loses it
+
+kagent-dev/kagent#2461 merged 2026-10-16 (`9097d0d2`) is the usage extension of the kagent ADK runtimes, which Claude and Codex do not emit, so it is related work and the outcome stays open.

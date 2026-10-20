@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#2636, kagent-dev/kagent#2825]
   exit: file in the UI test batch
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # test(ui): press a transcript's controls once its diagram has landed
 
@@ -26,3 +26,5 @@ the fork's `ui-tests` reported "a failed turn is reported and can be retried" fl
 ## History
 
 to file — prepared in the fork: branch `upstream/ui-press-waits` (on `upstream/ui-journey-budget`, the four `test(ui)` commits, DCO-signed, no fork references). kagent-dev/kagent searched 2026-09-24: nothing on the lost press, `pressUntil`'s first attempt or the bare extension points; #2636 (mermaid in chat) and #2825 (`pressUntil`) are where the code came from
+
+kagent-dev/kagent#2636 (merged 2026-08-31, `8905d1ca`) and kagent-dev/kagent#2825 (merged 2026-09-15, `a9553f5a`), both in the pin, are where the code came from, not this change's exit, so they stay in `refs` as related work and the outcome stays to-file.

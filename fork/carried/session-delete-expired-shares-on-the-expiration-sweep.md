@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#2987]
   exit: file
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(session): delete expired shares on the expiration sweep
 
@@ -26,3 +26,5 @@ an expired share stops granting access at its `expires_at`, but its row stayed i
 ## History
 
 to file against kagent-dev/kagent#2987 (`4dce53de`) — prepared in the fork: branch `upstream/session-share-expiry-sweep` (mirror `main` + the patch, DCO-signed, no fork references)
+
+kagent-dev/kagent#2987 merged 2026-10-02 (`4dce53de`, in the pin) is the share expiry this sweep is filed against, so it stays in `refs` as related work and the outcome stays to-file.

@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#3177, giantswarm/kagent-upstream#709]
   exit: upstream takes the tls:// kind and a re-pin brings it; the line then drops this port
 depends_on: [api-add-reusable-egress-policies-for-agents]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(api): tls:// EgressPolicy destinations as TLS passthrough
 
@@ -26,3 +26,5 @@ an agent that needs a TLS service that is not HTTP, such as a database or a mess
 ## History
 
 to file — prepared in the fork: branch `upstream/egress-policy-tls-passthrough-v2` (one DCO-signed commit on upstream `main` at `7a0a4fd0`, which contains kagent-dev/kagent#3177; no fork references; its message the pull request text). kagent-dev/kagent searched 2026-10-19: nothing proposes a TLS passthrough or non-HTTP kind for `EgressPolicy`.
+
+kagent-dev/kagent#3177 merged 2026-10-17 (`a0ad6cb9`) is the `EgressPolicy` this kind extends, not its exit, so it stays in `refs` as related work and the outcome stays to-file.

@@ -15,7 +15,10 @@
 # this ledger, or `owner/repo:<id>` in another line's ledger, `verified` is a
 # date, `upstream.exit` is set unless the outcome is merged or none,
 # `commits` lists the carried commit subjects (at least one while the status is
-# carried) and the body has a `## History` section. `--complete` adds the
+# carried) and the body has a `## History` section. The header must also parse
+# as YAML: mikefarah yq v4, preinstalled on the GitHub-hosted Ubuntu runners,
+# reads it, so a quoting mistake the line rules accept still fails.
+# `--complete` adds the
 # reverse check: every commit on top of the pin (the merge base with MIRROR,
 # default origin/main) whose subject no prefix in fork/EXEMPT covers is named
 # by exactly one file; the commits are read from the repository holding <dir>
@@ -98,6 +101,7 @@ GOOD
   case_ "an exit missing while merged" 0 "merged.md" "$(good | sed 's/^id: a-good-row$/id: merged/; s/^  outcome: .*/  outcome: merged/; /^  exit:/d')"
   case_ "a dependency on no file" 1 "no-dep.md" "$(good | sed 's/^id: a-good-row$/id: no-dep/; s/^depends_on: .*/depends_on: [missing-row]/')" 'depends_on "missing-row" names no file'
   case_ "a malformed dependency" 1 "bad-dep.md" "$(good | sed 's/^id: a-good-row$/id: bad-dep/; s/^depends_on: .*/depends_on: [Not A Row]/')" 'depends_on "Not A Row"'
+  case_ "a subject the YAML quoting ends early" 1 "bad-quote.md" "$(good | sed "s/^id: a-good-row\$/id: bad-quote/; s/^  - 'fix(x): y'\$/  - 'fix(x): the line's subject'/")" "not valid YAML"
   if [ "$failures" -gt 0 ]; then
     echo "$failures case(s) failed"
     exit 1
@@ -121,6 +125,10 @@ fork=$1
 dir=$2
 if [ ! -d "$dir" ]; then
   echo "$dir: not a directory" >&2
+  exit 64
+fi
+if ! command -v yq >/dev/null 2>&1; then
+  echo "yq (mikefarah yq v4) is required to parse the headers" >&2
   exit 64
 fi
 
@@ -219,6 +227,11 @@ for f in "$dir"/*.md; do
   printf '%s\n' "$out" | grep -v '^PROBLEMS=' | sed "s|^|$f: |" >&2 || true
   [ -z "$count" ] && count=1
   problems=$((problems + count))
+  if [ "$(head -n 1 "$f")" = --- ] && [ "$(grep -c '^---$' "$f")" -ge 2 ] &&
+    ! err=$(yq --front-matter=extract 'true' "$f" 2>&1 >/dev/null); then
+    echo "$f: header: not valid YAML: $(printf '%s\n' "$err" | sed "s|^Error: bad file '[^']*': ||")" >&2
+    problems=$((problems + 1))
+  fi
 done
 
 if [ "$complete" -eq 1 ]; then

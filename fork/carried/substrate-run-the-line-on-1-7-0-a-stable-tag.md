@@ -6,14 +6,13 @@ category: pin
 status: carried
 commits:
   - 'fix(substrate): run the line on 1.7.0; a stable tag needs a stable pin'
-  - 'ci(fork): run the stable gate before the promotion tags'
   - 'test(e2e): run the session directory proofs on Substrate 1.7.0-rc.2'
 upstream:
   outcome: fork-only
   refs: []
   exit: squash the pin part
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(substrate): run the line on 1.7.0; a stable tag needs a stable pin
 
@@ -28,3 +27,5 @@ verified: 2026-10-19
 ## History
 
 fork-only: the pin, the gate and the notes are the line's own publishing
+
+2026-10-20: the stable gate (`ci(fork): run the stable gate before the promotion tags`) moved to `fork-run-the-stable-gate-before-the-promotion-tags`, because it is the line's publishing and outlives this pin.

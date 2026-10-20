@@ -9,9 +9,9 @@ commits:
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3134, kagent-dev/kagent#3163]
-  exit: 're-check against #3163'
+  exit: file
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(ui): serve the mock backend's userinfo without a service worker
 
@@ -26,3 +26,5 @@ the fork's `ui-tests` retried Firefox specs in about a quarter of runs (giantswa
 ## History
 
 to file — prepared in the fork: branch `upstream/ui-mock-userinfo-without-worker` (mirror `main` @ `7433d70b` + the patch, DCO-signed, no fork references; typecheck, lint and unit tests green there). kagent-dev/kagent#3163 (merged 2026-10-13, for kagent-dev/kagent#3134) serves the mock suite from a production build, which cuts the module requests through the worker but keeps it
+
+kagent-dev/kagent#3163 merged 2026-10-13 (`7433d70b`) keeps the service worker, as recorded above, so it stays in `refs` as related work and the outcome stays to-file.

@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#2737, kagent-dev/kagent#2901, kagent-dev/kagent#2939]
   exit: 'file against #2901'
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(runtime): name the agent and the user on every model call
 
@@ -26,3 +26,5 @@ under the kagent API v2 every agent is a Substrate actor in a shared WorkerPool 
 ## History
 
 to file — prepared in the fork: branch `upstream/model-call-identity-headers`; kagent-dev/kagent#2901 (open: `X-Agent-Id` on the kagent runtime's model calls, issue #2737) overlaps the agent half, so the filing is coordinated there; at the re-pin the gateway hop moves to the runtime executor (#2939)
+
+kagent-dev/kagent#2939 merged 2026-09-25 (`8be872b2`, in the pin) moved the gateway hop to the runtime executor, not this change's exit, so it stays in `refs` as related work and the outcome stays to-file.

@@ -11,10 +11,10 @@ commits:
   - 'test(e2e): Codex mock turns call exec_command'
 upstream:
   outcome: to-file
-  refs: [agent-substrate/substrate#2117, agent-substrate/substrate#2159, kagent-dev/kagent#2117, kagent-dev/kagent#2604, kagent-dev/kagent#3099]
+  refs: [agent-substrate/substrate#2117, agent-substrate/substrate#2159, kagent-dev/kagent#2604, kagent-dev/kagent#3099]
   exit: 'after #3099 and as#2159'
 depends_on: [agent-substrate/substrate#2117, agent-substrate/substrate#2159, api-a-per-source-credential-for-private-git]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(egress): keep artifact credentials off a Session's egress policy
 
@@ -29,3 +29,5 @@ a private skill or plugin source binds its git credential (an App or deploy toke
 ## History
 
 upstream has no credential path for artifact sources yet: kagent-dev/kagent#3099 (draft) adds `GitArtifact.authorizationFrom` and fetches standalone skills at the first task inside the Session actor, so its credential is on Session egress by design until golden-time egress exists upstream (agent-substrate/substrate#2159, #2117, kagent-dev/kagent#2604); exit: the follow-up a review note on kagent-dev/kagent#3099 names (the fetch back at golden boot, scoped as here), prepared as an `upstream/…` branch on the mirror plus that pull request's head once it is merged, after agent-substrate/substrate#2159 and #2117
+
+The ref kagent-dev/kagent#2117 (an unrelated CI pull request, merged 2026-06-30) is removed from `refs`: the item meant is agent-substrate/substrate#2117, already listed.

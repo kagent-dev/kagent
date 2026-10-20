@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#3229]
   exit: drops when upstream requires >= 0.61
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(deps): bump golang.org/x/net to v0.61.0 for two HTTP/2 CVEs
 
@@ -26,3 +26,5 @@ golang.org/x/net below v0.61.0 carries two HTTP/2 vulnerabilities, CVE-2026-9703
 ## History
 
 to file (upstream main is on x/net v0.59.0); dropped at the re-pin onto an upstream that has it
+
+2026-10-20: kagent-dev/kagent `main` requires x/net v0.61.0, so the next re-pin onto it drops this commit.
