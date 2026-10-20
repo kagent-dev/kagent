@@ -72,7 +72,9 @@ func ContextWithPromotedMetadata(ctx context.Context, metadata map[string]any) c
 		if value == "" {
 			continue
 		}
-		member, err := baggage.NewMember(mapping.attribute, value)
+		// Metadata and decoded baggage already hold raw values. The
+		// propagator handles header encoding when crossing a process boundary.
+		member, err := baggage.NewMemberRaw(mapping.attribute, value)
 		if err != nil {
 			continue
 		}

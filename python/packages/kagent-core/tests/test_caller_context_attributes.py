@@ -3,8 +3,9 @@ from unittest.mock import MagicMock
 import pytest
 from a2a.types import Message, Role
 from google.protobuf.json_format import ParseDict
-from opentelemetry import baggage
+from opentelemetry import baggage, trace
 from opentelemetry import context as otel_context
+from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.processor.baggage import BaggageSpanProcessor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -262,3 +263,42 @@ def test_promotes_real_protobuf_message_metadata(monkeypatch):
         "user.id": "opaque-subject",
         "attempt": "3",
     }
+
+
+@pytest.mark.parametrize("value", ["case with spaces", "café", "literal%2Fid", "literal%252Fid", "100%", "a,b;c=d"])
+@pytest.mark.parametrize("source", ["metadata", "mapped metadata", "baggage"])
+def test_promoted_context_preserves_raw_values(monkeypatch, value, source):
+    policy = "thread_id" if source == "metadata" else '[{"from":"source","to":"thread_id"}]'
+    key = "thread_id" if source == "metadata" else "source"
+    set_allowlist(monkeypatch, policy)
+    ctx = otel_context.Context()
+    metadata = {key: value, "private_token": "must-not-be-exported"}
+    if source == "baggage":
+        ctx = baggage_context({key: value})
+        metadata = None
+    ctx = context_with_promoted_metadata(metadata, ctx)
+    assert baggage.get_baggage("thread_id", ctx) == value
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(BaggageSpanProcessor(allowed_baggage_key_predicate()))
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    try:
+        tracer = provider.get_tracer("test")
+        root = tracer.start_span("invocation", context=ctx)
+        child_ctx = trace.set_span_in_context(root, ctx)
+        model = tracer.start_span("model", context=child_ctx)
+        model.end()
+        root.end()
+        for name in ("invocation", "model"):
+            attrs = _span_attrs(exporter.get_finished_spans(), name)
+            assert attrs["thread_id"] == value
+            assert "private_token" not in attrs
+
+        carrier = {}
+        propagator = W3CBaggagePropagator()
+        propagator.inject(carrier, context=ctx)
+        downstream = propagator.extract(carrier, context=otel_context.Context())
+        assert baggage.get_baggage("thread_id", downstream) == value
+    finally:
+        provider.shutdown()

@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -25,9 +26,9 @@ func baggageContext(t *testing.T, members map[string]string) context.Context {
 
 	built := make([]baggage.Member, 0, len(members))
 	for key, value := range members {
-		member, err := baggage.NewMember(key, value)
+		member, err := baggage.NewMemberRaw(key, value)
 		if err != nil {
-			t.Fatalf("baggage.NewMember(%q, %q): %v", key, value, err)
+			t.Fatalf("baggage.NewMemberRaw(%q, %q): %v", key, value, err)
 		}
 		built = append(built, member)
 	}
@@ -297,4 +298,69 @@ func mustMember(t *testing.T, key, value string) baggage.Member {
 		t.Fatal(err)
 	}
 	return member
+}
+
+func TestPromotedContextPreservesRawValues(t *testing.T) {
+	values := []struct{ name, value string }{
+		{"spaces", "case with spaces"},
+		{"unicode", "café"},
+		{"percent escape", "literal%2Fid"},
+		{"double percent escape", "literal%252Fid"},
+		{"literal percent", "100%"},
+		{"delimiters", "a,b;c=d"},
+	}
+	for _, source := range []string{"metadata", "mapped metadata", "baggage"} {
+		for _, value := range values {
+			t.Run(source+"/"+value.name, func(t *testing.T) {
+				policy := "thread_id"
+				key := "thread_id"
+				if source != "metadata" {
+					policy = `[{"from":"source","to":"thread_id"}]`
+					key = "source"
+				}
+				setAllowlist(t, policy)
+				ctx := t.Context()
+				metadata := map[string]any{key: value.value, "private_token": "must-not-be-exported"}
+				if source == "baggage" {
+					ctx = baggageContext(t, map[string]string{key: value.value})
+					metadata = nil
+				}
+				ctx = ContextWithPromotedMetadata(ctx, metadata)
+				if got := baggage.FromContext(ctx).Member("thread_id").Value(); got != value.value {
+					t.Fatalf("promoted value = %q, want %q", got, value.value)
+				}
+
+				exporter := tracetest.NewInMemoryExporter()
+				provider := sdktrace.NewTracerProvider(
+					sdktrace.WithSyncer(exporter),
+					sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(AllowedBaggageCopyFilter())),
+				)
+				t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+				tracer := provider.Tracer("test")
+				ctx, root := tracer.Start(ctx, "invocation")
+				_, model := tracer.Start(ctx, "model")
+				model.End()
+				root.End()
+				for _, name := range []string{"invocation", "model"} {
+					attrs := spanAttributesByName(t, exporter.GetSpans(), name)
+					if got := attrs["thread_id"].AsString(); got != value.value {
+						t.Errorf("%s thread_id = %q, want %q", name, got, value.value)
+					}
+					if _, exists := attrs["private_token"]; exists {
+						t.Errorf("%s exported unrelated metadata", name)
+					}
+				}
+
+				// Encoding belongs to the propagator. A downstream hop must
+				// receive the original value, not a decoded percent sequence.
+				carrier := propagation.MapCarrier{}
+				propagator := propagation.Baggage{}
+				propagator.Inject(ctx, carrier)
+				downstream := propagator.Extract(t.Context(), carrier)
+				if got := baggage.FromContext(downstream).Member("thread_id").Value(); got != value.value {
+					t.Errorf("propagated value = %q, want %q", got, value.value)
+				}
+			})
+		}
+	}
 }
