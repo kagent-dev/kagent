@@ -16,7 +16,10 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
-const runtimeJWTAudience = "kagent-runtime"
+const (
+	runtimeJWTAudience  = "kagent-runtime"
+	runtimeJWTClockSkew = 30 * time.Second
+)
 
 // ActorIdentity is the identity asserted by Substrate's actor.ate.dev claim.
 // Worker-for-actor tokens deliberately use a different claim and subject.
@@ -134,7 +137,8 @@ func (v *ActorJWTVerifier) Verify(ctx context.Context, raw string) (ActorIdentit
 		}
 		return publicKey, nil
 	}, jwt.WithValidMethods([]string{"ES256", "RS256", "RS384", "RS512"}),
-		jwt.WithIssuer(v.issuer), jwt.WithAudience(runtimeJWTAudience), jwt.WithExpirationRequired(), jwt.WithIssuedAt())
+		jwt.WithIssuer(v.issuer), jwt.WithAudience(runtimeJWTAudience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(),
+		jwt.WithLeeway(runtimeJWTClockSkew))
 	if err != nil {
 		return ActorIdentity{}, fmt.Errorf("verify Actor JWT: %w", err)
 	}

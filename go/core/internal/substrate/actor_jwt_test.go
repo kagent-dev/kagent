@@ -88,3 +88,37 @@ func TestActorJWTVerifierRequiresTrustedDiscovery(t *testing.T) {
 		require.Error(t, err, issuer)
 	}
 }
+
+func TestActorJWTVerifierClockSkew(t *testing.T) {
+	i := jwttest.New(t)
+	v, err := NewActorJWTVerifier(t.Context(), i.URL, i.CAFile)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name    string
+		claim   string
+		offset  time.Duration
+		wantErr error
+	}{
+		{name: "recent expiration", claim: "exp", offset: -15 * time.Second},
+		{name: "expired beyond tolerance", claim: "exp", offset: -45 * time.Second, wantErr: jwt.ErrTokenExpired},
+		{name: "issuance slightly ahead", claim: "iat", offset: 15 * time.Second},
+		{name: "issuance beyond tolerance", claim: "iat", offset: 45 * time.Second, wantErr: jwt.ErrTokenUsedBeforeIssued},
+		{name: "not-before slightly ahead", claim: "nbf", offset: 15 * time.Second},
+		{name: "not-before beyond tolerance", claim: "nbf", offset: 45 * time.Second, wantErr: jwt.ErrTokenNotValidYet},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			claims := i.Claims("team-a", "session-example", "actor-uid")
+			now := time.Now()
+			claims["iat"] = now.Add(-5 * time.Minute).Unix()
+			claims[test.claim] = now.Add(test.offset).Unix()
+			identity, err := v.Verify(t.Context(), i.Token(t, claims))
+			if test.wantErr != nil {
+				require.ErrorIs(t, err, test.wantErr)
+				require.Empty(t, identity)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, ActorIdentity{Atespace: "team-a", ActorName: "session-example", ActorUID: "actor-uid"}, identity)
+		})
+	}
+}

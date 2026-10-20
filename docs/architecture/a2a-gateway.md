@@ -205,9 +205,10 @@ protect access to that listener according to the selected user authentication mo
 
 The controller trusts `substrate.actorJwtIssuer` (default
 `https://idp.ate-system.svc`). It fetches OIDC discovery and JWKS over TLS using
-`substrate.caFile`, checks the exact issuer, signature, audience, expiration and
-not-before time, and requires an `actor.ate.dev` identity consistent with the
-subject. Worker-for-actor tokens are not accepted. Signing keys refresh every
+`substrate.caFile`, checks the exact issuer, signature, audience, and required
+expiration, issued-at, and not-before claims. Time checks allow 30 seconds of
+clock skew. It requires an `actor.ate.dev` identity consistent with the subject.
+Worker-for-actor tokens are not accepted. Signing keys refresh every
 minute; publish new verification keys at least a minute before using them.
 
 The service checks the verified actor name against the requested session and
