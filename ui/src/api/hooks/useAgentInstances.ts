@@ -1,15 +1,51 @@
+import { ApiError } from "../ApiError";
 import { apiClient } from "../client";
 import type { AgentInstance } from "../domain/agentInstances";
 import { type ApiResource, useApiResource } from "./useApiResource";
 
+/** The list `useAgentInstances` returns, with the reason a wider read was refused. */
+export interface AgentInstanceList extends ApiResource<AgentInstance[]> {
+  /**
+   * Why the list is only the caller's own, when `allCreators` was asked for and refused.
+   *
+   * The controller refuses an `all_creators` read from a caller who may not make it
+   * rather than narrowing it, so the list is re-read as the caller's own and this says
+   * why. Undefined when the wide read succeeded, or was not asked for.
+   */
+  widerReadRefused?: string;
+}
+
 /** All conversations visible to the caller. */
-export function useAgentInstances(
-  allCreators = false,
-): ApiResource<AgentInstance[]> {
-  return useApiResource(
+export function useAgentInstances(allCreators = false): AgentInstanceList {
+  const resource = useApiResource(
     ["agentInstances.list", allCreators],
-    () => apiClient.agentInstances.list({ allCreators }),
+    async () => {
+      if (!allCreators) {
+        return { rows: await apiClient.agentInstances.list({ allCreators }), refused: undefined };
+      }
+      try {
+        return {
+          rows: await apiClient.agentInstances.list({ allCreators: true }),
+          refused: undefined as string | undefined,
+        };
+      } catch (cause) {
+        // Only a refusal is answered with the caller's own rows; anything else is a real failure.
+        if (!(cause instanceof ApiError) || cause.status !== 403) throw cause;
+        return {
+          rows: await apiClient.agentInstances.list({ allCreators: false }),
+          refused: cause.message,
+        };
+      }
+    },
   );
+
+  const rows = resource.data?.rows;
+  return {
+    ...resource,
+    data: rows,
+    isEmpty: rows !== undefined && !resource.error && rows.length === 0,
+    widerReadRefused: resource.data?.refused,
+  };
 }
 
 export interface AgentConversations {
