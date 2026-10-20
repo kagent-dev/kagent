@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 const (
@@ -55,7 +57,8 @@ type sessionLister interface {
 func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, verbose bool) error {
 	m := newWorkspaceModel(ctx, cfg, api, gateway, &apiCatalog{agents: api.Agent}, nil, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Focus reports tell the workspace when the user looks away, so a finished turn can ring the bell.
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus())
 	_, err := p.Run()
 	return err
 }
@@ -119,6 +122,9 @@ type workspaceModel struct {
 	agent     string
 
 	focus panelID
+	// away is set while the terminal reports it has lost focus; a terminal that
+	// sends no focus reports leaves it false, so the bell never rings there.
+	away bool
 }
 
 // newWorkspaceModel builds the model from resolved dependencies; it reads no configuration of its own.
@@ -286,7 +292,16 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		updated, cmd := m.chat.Update(msg)
 		m.chat = updated.(*chatModel)
+		m.ringIfAway()
 		return m, cmd
+
+	case tea.BlurMsg:
+		m.away = true
+		return m, nil
+
+	case tea.FocusMsg:
+		m.away = false
+		return m, nil
 	}
 
 	return m, m.forward(msg)
@@ -580,6 +595,12 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return tea.Quit, true
 	case "ctrl+r":
 		return m.loadSessions(), true
+	case "ctrl+x":
+		if m.chat == nil {
+			return nil, false
+		}
+		m.chat.toggleTools()
+		return nil, true
 	case "ctrl+d":
 		m.showDetails = !m.showDetails
 		return m.resize(), true
@@ -593,6 +614,20 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return m.activateFocused()
 	}
 	return nil, false
+}
+
+// ringBell sounds the terminal bell, which macOS terminals show as a dock bounce or badge; tests replace it.
+var ringBell = func() { _, _ = fmt.Fprint(os.Stdout, "\a") }
+
+// ringIfAway rings the bell when a turn finished or began waiting on the user while the terminal was unfocused.
+func (m *workspaceModel) ringIfAway() {
+	if m.chat == nil || !m.chat.attention {
+		return
+	}
+	m.chat.attention = false
+	if m.away && env.TUIBell.Get() {
+		ringBell()
+	}
 }
 
 // activateFocused narrows the cascade, or opens a chat from the session panel.
@@ -746,7 +781,7 @@ func (m *workspaceModel) centerView() string {
 // footerView is the keybinding hint bar, plus any current error.
 func (m *workspaceModel) footerView() string {
 	hints := theme.DimStyle().Render(
-		"navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  refresh: ctrl+r  details: ctrl+d  quit: ctrl+c")
+		"navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c")
 	if m.status == "" {
 		return hints
 	}

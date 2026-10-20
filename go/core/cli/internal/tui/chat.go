@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,7 +14,9 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/reflow/wordwrap"
 
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -26,18 +30,6 @@ type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) <-
 
 type streamDoneMsg struct{}
 
-type toolCall struct {
-	Name string `json:"name"`
-	ID   string `json:"id"`
-	Args any    `json:"args"`
-}
-
-type toolResult struct {
-	Name     string `json:"name"`
-	ID       string `json:"id"`
-	Response any    `json:"response"`
-}
-
 type chatModel struct {
 	agentRef  string
 	contextID string
@@ -49,9 +41,32 @@ type chatModel struct {
 	vp    viewport.Model
 	input textarea.Model
 
-	// agentText is the trailing block still being assembled, committed into history before anything else.
-	history   string
+	// blocks is the transcript; agentText is the markdown still streaming, committed into blocks before anything else.
+	blocks    []*block
 	agentText string
+	// tools finds a call's entry by ID, so its result fills it in place.
+	tools map[string]*toolEntry
+	// expanded shows every tool call's full output and every thought; ctrl+x toggles it.
+	expanded bool
+	// projectedThought is the assembler's last thought projection; thinking is
+	// the thought block still growing, nil once the model moves on.
+	projectedThought string
+	thinking         *block
+	// turnTools and turnTokens count the running turn's tool calls and model tokens, for its closing line.
+	turnTools  int
+	turnTokens int64
+	// turnStart is when the user's prompt started the turn; zero for a turn this chat did not start.
+	turnStart time.Time
+	// attention is set when a turn finishes or waits on the user; the workspace
+	// takes it to ring the bell when the terminal is not focused.
+	attention bool
+	// md renders markdown at mdWidth, rebuilt when the width changes.
+	md      *glamour.TermRenderer
+	mdWidth int
+	// liveDone is the streaming reply's finished markdown, and liveOut its glamour rendering.
+	liveDone, liveOut string
+	// body is the laid-out transcript, without the running turn's status line.
+	body string
 
 	// projected is the assembler's last text projection, so cumulative chunks yield a delta not a duplicate.
 	assembler *clia2a.Assembler
@@ -85,7 +100,7 @@ func newChatModel(ctx context.Context, agentRef string, contextID string, send S
 	vp.MouseWheelEnabled = true
 
 	sp := spinner.New()
-	sp.Spinner = spinner.Hamburger
+	sp.Spinner = spinner.Spinner{Frames: []string{"◐", "◓", "◑", "◒"}, FPS: time.Second / 6}
 	sp.Style = lipgloss.NewStyle().Foreground(theme.ColorPrimary)
 
 	return &chatModel{
@@ -118,6 +133,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.working {
 			var sCmd tea.Cmd
 			m.spin, sCmd = m.spin.Update(msg)
+			m.showContent()
 			if sCmd != nil {
 				cmds = append(cmds, sCmd)
 			}
@@ -130,8 +146,8 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		// What View draws around the viewport: header and rule above; rule, status, and input below.
-		const chromeHeight = 5
+		// What View draws around the viewport: header and rule above; rule and input below.
+		const chromeHeight = 4
 		vpHeight := max(msg.Height-chromeHeight, 5)
 
 		oldWidth := m.vp.Width
@@ -188,17 +204,12 @@ func (m *chatModel) View() string {
 	if width <= 0 {
 		width = 80 // default width if not yet sized
 	}
-	status := m.statusText
-	if m.working {
-		status = fmt.Sprintf("%s %s", m.spin.View(), status)
-	}
 	rule := theme.SeparatorStyle().Render(strings.Repeat("─", max(10, width)))
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.headerView(width),
 		rule,
 		m.vp.View(),
 		rule,
-		theme.StatusStyle().Render(status),
 		m.input.View(),
 	)
 }
@@ -234,8 +245,9 @@ func (m *chatModel) headerView(width int) string {
 func (m *chatModel) submit(text string) tea.Cmd {
 	m.streaming = true
 	m.assembler = &clia2a.Assembler{}
-	m.projected = ""
+	m.projected, m.projectedThought = "", ""
 	m.lastState = ""
+	m.turnTools, m.turnTokens, m.turnStart = 0, 0, time.Now()
 	m.setWorkingTime(time.Time{})
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.cancel = cancel
@@ -264,6 +276,7 @@ func (m *chatModel) waitNext() tea.Cmd {
 
 // endStream commits any in-flight agent text and clears the working state.
 func (m *chatModel) endStream() {
+	m.endThinking()
 	m.commitAgentText()
 	m.streaming = false
 	m.working = false
@@ -283,9 +296,60 @@ func (m *chatModel) appendEvent(ev a2atype.Event) {
 		m.appendLine(theme.ErrorStyle().Render(fmt.Sprintf("Protocol error: %v", err)))
 		return
 	}
+	m.turnTokens += eventTokens(ev)
+	m.renderThoughts()
 	m.renderToolActivity(eventParts(ev))
 	m.renderAssembledText()
 	m.renderState()
+	m.updateStatus()
+}
+
+// renderThoughts grows the thought block with new reasoning summary, starting
+// one when the model starts thinking again after a tool call or text.
+func (m *chatModel) renderThoughts() {
+	text := assembledThought(m.assembler.Result())
+	if text == m.projectedThought {
+		return
+	}
+	delta, extends := strings.CutPrefix(text, m.projectedThought)
+	if !extends {
+		delta = text
+	}
+	m.projectedThought = text
+	if m.thinking == nil {
+		m.thinking = &block{thought: &thoughtEntry{start: time.Now()}, expanded: m.expanded}
+		m.appendBlock(m.thinking)
+		delta = strings.TrimLeft(delta, "\n")
+	}
+	m.thinking.thought.text += delta
+	m.render()
+}
+
+// endThinking closes the thought block once the model acts or answers.
+func (m *chatModel) endThinking() {
+	if m.thinking != nil {
+		m.thinking.thought.end = time.Now()
+		m.thinking = nil
+		m.render()
+	}
+}
+
+// assembledThought projects the reasoning summaries in a task's artifacts.
+func assembledThought(result a2atype.SendMessageResult) string {
+	task, ok := result.(*a2atype.Task)
+	if !ok {
+		return ""
+	}
+	var groups []string
+	for _, artifact := range task.Artifacts {
+		if artifact == nil {
+			continue
+		}
+		if text := clia2a.ThoughtText(artifact.Parts); text != "" {
+			groups = append(groups, text)
+		}
+	}
+	return strings.Join(groups, "\n\n")
 }
 
 // eventParts returns what one event carries, so tool activity shows as it happens.
@@ -315,6 +379,7 @@ func (m *chatModel) renderAssembledText() {
 	if text == m.projected {
 		return
 	}
+	m.endThinking()
 	delta, extends := strings.CutPrefix(text, m.projected)
 	if extends {
 		m.agentText += delta
@@ -351,7 +416,7 @@ func assembledText(result a2atype.SendMessageResult) (string, error) {
 	}
 }
 
-// renderState banners a state change; completion needs none.
+// renderState banners a state change, and closes a finished turn with how it went.
 func (m *chatModel) renderState() {
 	task, ok := m.assembler.Result().(*a2atype.Task)
 	if !ok {
@@ -369,24 +434,103 @@ func (m *chatModel) renderState() {
 		m.appendLine(theme.StatusStyle().Render("⏸ Input required. Resuming a paused task is not supported yet; a reply starts a new one."))
 	case a2atype.TaskStateAuthRequired:
 		m.appendLine(theme.StatusStyle().Render("⏸ Authentication required. This task cannot continue here."))
-	case a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateCanceled:
-		banner := fmt.Sprintf("✗ Task %s.", state)
+	case a2atype.TaskStateCompleted:
+		m.endThinking()
+		m.commitAgentText()
+		m.appendLine(doneLine(time.Since(cmp.Or(m.turnStart, m.workStart)), m.turnTools, m.turnTokens))
+	case a2atype.TaskStateCanceled:
+		m.appendLine(theme.AttentionStyle().Render("⊘ Cancelled"))
+	case a2atype.TaskStateFailed, a2atype.TaskStateRejected:
+		detail := ""
 		if task.Status.Message != nil {
-			detail, err := clia2a.PartsText(task.Status.Message.Parts)
+			text, err := clia2a.PartsText(task.Status.Message.Parts)
 			if err != nil {
 				m.appendTransportError(err)
-			} else if strings.TrimSpace(detail) != "" {
-				banner += " " + detail
 			}
+			detail = strings.TrimSpace(sanitize(text))
 		}
-		m.appendLine(theme.ErrorStyle().Render(banner))
+		m.appendLine(theme.ErrorStyle().Render(failureLine(time.Since(cmp.Or(m.turnStart, m.workStart)), detail)))
 	}
 	if state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired {
 		m.working = false
+		// Finished or waiting on the user, either of which is worth a bell when they look away.
+		m.attention = true
 		m.updateStatus()
 	} else if task.Status.Timestamp != nil {
 		m.setWorkingTime(*task.Status.Timestamp)
 	}
+}
+
+// doneLine closes a finished turn; a replayed one, whose length is not recorded, gives zero took.
+func doneLine(took time.Duration, tools int, tokens int64) string {
+	parts := []string{"Done"}
+	if took > 0 {
+		parts[0] += " in " + took.Round(time.Second).String()
+	}
+	if tools > 0 {
+		parts = append(parts, plural(tools, "tool"))
+	}
+	if tokens > 0 {
+		parts = append(parts, compactCount(tokens)+" tokens")
+	}
+	return theme.ReadyStyle().Bold(true).Render("✓") + theme.FaintStyle().Render(" "+strings.Join(parts, " · "))
+}
+
+// failureLine is a failed turn's closing line, with the first line of its reason.
+func failureLine(took time.Duration, reason string) string {
+	line := "✗ Failed"
+	if took > 0 {
+		line += " after " + took.Round(time.Second).String()
+	}
+	if first, _, _ := strings.Cut(reason, "\n"); first != "" {
+		line += " · " + ansi.Truncate(first, 120, "…")
+	}
+	return line
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// compactCount writes a count as 950, 1.4k or 12k.
+func compactCount(n int64) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprint(n)
+	case n < 10000:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1000), ".0") + "k"
+	default:
+		return fmt.Sprintf("%dk", (n+500)/1000)
+	}
+}
+
+// eventTokens is the tokens one event's model call used, from the usage the executor attaches.
+func eventTokens(ev a2atype.Event) int64 {
+	usage, _ := ev.Meta()[kagenta2a.UsageMetadataKey].(map[string]any)
+	// ADK puts event metadata on the artifact, or on the update in its legacy shape.
+	if update, ok := ev.(*a2atype.TaskArtifactUpdateEvent); ok && usage == nil && update.Artifact != nil {
+		usage, _ = update.Artifact.Metadata[kagenta2a.UsageMetadataKey].(map[string]any)
+	}
+	number := func(keys ...string) int64 {
+		for _, key := range keys {
+			switch value := usage[key].(type) {
+			case float64:
+				return int64(value)
+			case int64:
+				return value
+			case int32:
+				return int64(value)
+			}
+		}
+		return 0
+	}
+	if total := number("totalTokenCount", "total_token_count"); total > 0 {
+		return total
+	}
+	return number("promptTokenCount", "prompt_token_count") + number("candidatesTokenCount", "candidates_token_count")
 }
 
 // AppendHistoryTask renders a past task: its user messages, then its output.
@@ -413,12 +557,12 @@ func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 		return
 	}
 	if strings.TrimSpace(text) != "" {
-		m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
+		m.appendBlock(&block{text: text, markdown: true})
 	}
 }
 
 func (m *chatModel) appendUser(text string) {
-	m.appendLine(theme.UserStyle().Render("You:") + " " + text)
+	m.appendBlock(&block{text: sanitize(text), user: true})
 }
 
 // appendTransportError reports a stream failure, distinct from a task the agent itself failed.
@@ -428,9 +572,6 @@ func (m *chatModel) appendTransportError(err error) {
 
 // renderToolActivity shows kagent data parts; the reducer has no opinion about them.
 func (m *chatModel) renderToolActivity(parts a2atype.ContentParts) {
-	var calls []toolCall
-	var results []toolResult
-
 	for _, part := range parts {
 		if part == nil {
 			continue
@@ -453,54 +594,36 @@ func (m *chatModel) renderToolActivity(parts a2atype.ContentParts) {
 		if !ok {
 			continue
 		}
-
-		switch activity.Kind {
-		case kagenta2a.ToolCallKind:
-			calls = append(calls, toolCall{
-				Name: activity.Name,
-				ID:   activity.ID,
-				Args: activity.Args,
-			})
-		case kagenta2a.ToolResultKind:
-			results = append(results, toolResult{
-				Name:     activity.Name,
-				ID:       activity.ID,
-				Response: activity.Response,
-			})
+		if m.tools == nil {
+			m.tools = map[string]*toolEntry{}
 		}
-	}
-
-	for _, call := range calls {
-		display := theme.ToolCallStyle().Render(fmt.Sprintf("🔧 Tool Call: %s", call.Name))
-		if call.ID != "" {
-			display += theme.DimStyle().Render(fmt.Sprintf(" (id: %s)", call.ID))
+		switch entry := m.tools[activity.ID]; {
+		case activity.Kind == kagenta2a.ToolCallKind:
+			m.endThinking()
+			args, _ := activity.Args.(map[string]any)
+			entry = &toolEntry{started: time.Now(), name: activity.Name, args: args}
+			m.turnTools++
+			m.tools[activity.ID] = entry
+			m.appendBlock(&block{tool: entry, expanded: m.expanded})
+		case activity.Kind == kagenta2a.ToolResultKind && entry != nil:
+			entry.response, entry.done = activity.Response, true
+			m.render()
+		case activity.Kind == kagenta2a.ToolResultKind:
+			// A result whose call came before this stream shows on its own.
+			m.appendBlock(&block{tool: &toolEntry{name: activity.Name, response: activity.Response, done: true}})
 		}
-		if args := indentJSON(call.Args); args != "" {
-			display += "\n" + theme.DimStyle().Render(args)
-		}
-		m.appendLine(display)
-	}
-	for _, result := range results {
-		display := theme.ToolResultStyle().Render(fmt.Sprintf("📊 Tool Result: %s", result.Name))
-		if result.ID != "" {
-			display += theme.DimStyle().Render(fmt.Sprintf(" (id: %s)", result.ID))
-		}
-		if response := indentJSON(result.Response); response != "" {
-			display += "\n" + response
-		}
-		m.appendLine(display)
 	}
 }
 
-func indentJSON(value any) string {
-	if value == nil {
-		return ""
+// toggleTools expands or collapses every tool call's output and every thought.
+func (m *chatModel) toggleTools() {
+	m.expanded = !m.expanded
+	for _, b := range m.blocks {
+		if b.tool != nil || b.thought != nil {
+			b.expanded = m.expanded
+		}
 	}
-	encoded, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return fmt.Sprintf("%v", value)
-	}
-	return string(encoded)
+	m.render()
 }
 
 // commitAgentText closes the in-flight block so another can follow it.
@@ -508,34 +631,81 @@ func (m *chatModel) commitAgentText() {
 	if m.agentText == "" {
 		return
 	}
-	m.history = joinBlocks(m.history, theme.AgentStyle().Render("Agent:")+"\n"+m.agentText)
+	m.blocks = append(m.blocks, &block{text: m.agentText, markdown: true})
 	m.agentText = ""
 }
 
 func (m *chatModel) appendLine(s string) {
+	m.appendBlock(&block{text: s})
+}
+
+func (m *chatModel) appendBlock(b *block) {
 	m.commitAgentText()
-	m.history = joinBlocks(m.history, s)
+	m.blocks = append(m.blocks, b)
 	m.render()
 }
 
-func joinBlocks(history, block string) string {
-	if history == "" {
-		return block
+// layout renders the transcript at width: each block, then the agent text still streaming.
+func (m *chatModel) layout(width int) string {
+	if width != m.mdWidth || m.md == nil {
+		m.md, _ = markdownRenderer(width) // nil renders markdown raw
+		m.liveOut = ""
+		m.mdWidth = width
 	}
-	return history + "\n\n" + block
+	rendered := make([]string, 0, len(m.blocks)+1)
+	for _, b := range m.blocks {
+		switch {
+		case b.tool != nil:
+			rendered = append(rendered, renderTool(b.tool, width, b.expanded))
+		case b.thought != nil:
+			rendered = append(rendered, renderThought(b.thought, width, b.expanded))
+		case b.user:
+			rendered = append(rendered, renderUser(b.text, width))
+		case b.markdown:
+			if b.cacheWidth != width || b.cache == "" {
+				b.cache, b.cacheWidth = renderMarkdown(m.md, b.text), width
+			}
+			rendered = append(rendered, b.cache)
+		default:
+			rendered = append(rendered, wordwrap.String(b.text, width))
+		}
+	}
+	if m.agentText != "" {
+		rendered = append(rendered, m.renderLive())
+	}
+	return strings.Join(rendered, "\n\n")
 }
 
-// render redraws the viewport, wrapping to the current width.
+// render lays the transcript out again at the current width, less 2 for padding.
 func (m *chatModel) render() {
-	content := m.history
-	if m.agentText != "" {
-		content = joinBlocks(content, theme.AgentStyle().Render("Agent:")+"\n"+m.agentText)
+	width := m.vp.Width - 2
+	if width <= 0 {
+		width = 80
 	}
-	if m.vp.Width > 2 {
-		content = wordwrap.String(content, m.vp.Width-2) // -2 for padding
+	m.body = m.layout(width)
+	m.showContent()
+}
+
+// showContent puts the transcript and the running turn's status line in the
+// viewport. Status ticks call it without laying the transcript out again.
+func (m *chatModel) showContent() {
+	content := m.body
+	if line := m.inlineStatus(); line != "" {
+		if content != "" {
+			content += "\n\n"
+		}
+		content += line
 	}
 	m.vp.SetContent(content)
 	m.vp.GotoBottom()
+}
+
+// inlineStatus is the running turn's status line, or "" between turns, whose closing line says how it went.
+func (m *chatModel) inlineStatus() string {
+	if !m.working {
+		return ""
+	}
+	return theme.StatusStyle().Render(m.spin.View() + " " + m.statusText)
 }
 
 type tickMsg time.Time
@@ -561,8 +731,31 @@ func (m *chatModel) setWorkingTime(ts time.Time) {
 
 func (m *chatModel) updateStatus() {
 	if m.working {
-		m.statusText = fmt.Sprintf("Working… %s", time.Since(m.workStart).Round(time.Second))
+		label, since := m.activity()
+		m.statusText = fmt.Sprintf("%s %s", label, time.Since(since).Round(time.Second))
 	} else {
-		m.statusText = ""
+		m.statusText = "" // the closing line says how the turn went
 	}
+	m.showContent()
+}
+
+// activity is what the turn is doing now, for the status line, and since when.
+// Its words follow the web UI's turn phases (Sent, Working…, Answering…);
+// thinking and the running tool are the terminal's finer detail.
+func (m *chatModel) activity() (string, time.Time) {
+	if m.thinking != nil {
+		return "Thinking…", m.thinking.thought.start
+	}
+	for _, b := range slices.Backward(m.blocks) {
+		if t := b.tool; t != nil && !t.done {
+			return "Running " + sanitize(t.name) + "…", t.started
+		}
+	}
+	switch {
+	case m.assembler == nil || m.assembler.Result() == nil:
+		return "Sent", m.workStart
+	case m.agentText != "":
+		return "Answering…", m.workStart
+	}
+	return "Working…", m.workStart
 }

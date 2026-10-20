@@ -104,6 +104,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `AZURE_OPENAI_API_KEY` | String | `(none)` | API key for Azure OpenAI. |
 | `GEMINI_API_KEY` | String | `(none)` | Fallback Gemini API key when GOOGLE_API_KEY is unset; supported by the CLI and Go/Python ADKs. |
 | `GOOGLE_API_KEY` | String | `(none)` | API key for Google Gemini. |
+| `KAGENT_TUI_BELL` | Boolean | `true` | Ring the terminal bell when a TUI turn finishes or waits for input while the terminal window is unfocused. Needs a terminal that reports focus; false turns it off. |
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
