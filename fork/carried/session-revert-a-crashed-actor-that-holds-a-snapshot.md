@@ -10,10 +10,10 @@ commits:
   - 'test(session): the remaining session workflow fakes answer RevertCrashed'
 upstream:
   outcome: to-file
-  refs: []
-  exit: design issue per family
+  refs: [kagent-dev/kagent#3255]
+  exit: read against #3255, then the design issue per family
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(session): revert a crashed Actor that holds a snapshot and resume it again
 
@@ -28,3 +28,5 @@ a gVisor sandbox that died under its runtime right after a restore (Substrate's 
 ## History
 
 to file with the lost-runtime family: upstream has no `RuntimeLost` or `AwaitRuntime` to patch, the family goes up as one
+
+2026-10-20: [kagent-dev/kagent#3255](https://github.com/kagent-dev/kagent/pull/3255) (adalundhe, opened 2026-10-16) recovers accepted turns whose Actor crashed and adds `SessionService.RevertSession` on the same session workflow paths; this change is read against it before the family's design issue, the outcome stays to-file.

@@ -384,6 +384,17 @@ administrators for pull requests only (merging an own green pull request without
 Ruleset `protect-mirror-main` on `main`: no deletion, no force-push. Teams `team-bumblebee` and `bots` have
 write access.
 
+## Before you carry a patch
+
+A carried patch needs a placement and an upstream exit, and its `fork/carried/` file records both: the
+placement in `## Reason` and `upstream.outcome`, the exit in `upstream.exit`. Place it by the first class
+that holds: drop (nothing consumes it), upstream already has it (name the mechanism and its configuration),
+platform (a Giant Swarm product choice, in the agent-platform charts or our own images), upstream issue (a
+generic gap that needs design), upstream pull request (a small generic fix), fork-only (a named reason and a
+dated exit). Before a new field, flag or schema, look for an upstream mechanism or an established standard
+first. The full rule is Team Bumblebee's *Upstream placement* section, kept in its internal plans
+repository.
+
 ## Contributing
 
 - **Every patch is prepared for upstream; a human decides what goes upstream.** Work on
