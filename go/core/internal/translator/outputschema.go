@@ -19,12 +19,11 @@ import (
 
 const maxOutputSchemaBytes = 64 << 10
 
-// portableOutputSchemaMetaSchema describes the JSON Schema subset that every
+// portableOutputSchemaMetaSchemaTemplate describes the JSON Schema subset that every
 // supported kagent ADK integration can consume. It is deliberately itself a
 // JSON Schema so keyword forms and recursive schema locations are validated by
 // jsonschema-go rather than by a parallel handwritten schema implementation.
-// The %s placeholder receives the supported string formats.
-const portableOutputSchemaMetaSchema = `{
+const portableOutputSchemaMetaSchemaTemplate = `{
 	"$schema":"https://json-schema.org/draft/2020-12/schema",
 	"$defs":{
 		"schema":{
@@ -66,7 +65,7 @@ var resolvePortableOutputSchemaMetaSchema = sync.OnceValues(func() (*jsonschema.
 		return nil, fmt.Errorf("encode supported output formats: %w", err)
 	}
 	var schema jsonschema.Schema
-	if err := json.Unmarshal(fmt.Appendf(nil, portableOutputSchemaMetaSchema, formats), &schema); err != nil {
+	if err := json.Unmarshal(fmt.Appendf(nil, portableOutputSchemaMetaSchemaTemplate, formats), &schema); err != nil {
 		return nil, fmt.Errorf("decode portable output meta-schema: %w", err)
 	}
 	resolved, err := schema.Resolve(nil)

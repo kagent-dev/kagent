@@ -168,9 +168,13 @@ describe("the agent template draft", () => {
     });
     expect(configMapDraft.outputSource).toBe("configMap");
     configMapDraft.outputSource = "text";
-    const text = specFromDraft(configMapDraft, fromConfigMap);
+    const text = specFromDraft(configMapDraft, { ...fromConfigMap, outputSchemaStrict: true });
     expect(text).not.toHaveProperty("outputSchema");
     expect(text).not.toHaveProperty("outputSchemaFrom");
+    expect(text).not.toHaveProperty("outputSchemaStrict");
+
+    const strictKept = specFromDraft(inlineDraft, { ...inline, outputSchemaStrict: true });
+    expect(strictKept.outputSchemaStrict).toBe(true);
   });
 
   it("keeps an MCP binding with no selection because it exposes every server tool", () => {

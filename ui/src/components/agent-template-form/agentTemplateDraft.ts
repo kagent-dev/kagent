@@ -228,6 +228,7 @@ export function specFromDraft(
     delete spec.outputSchema;
     delete spec.outputSchemaFrom;
   }
+  if (!spec.outputSchema && !spec.outputSchemaFrom) delete spec.outputSchemaStrict;
 
   // An empty list is removed rather than sent: `tools: []` and no `tools` mean the
   // same thing to the controller, and the shorter resource is the one a reader can

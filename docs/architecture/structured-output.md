@@ -123,7 +123,8 @@ fail compilation.
 
 ## Strict mode
 
-By default, kagent sends the schema to OpenAI and Azure OpenAI as guidance
+By default, kagent sends the schema to OpenAI, Azure OpenAI, and Foundry's
+OpenAI-compatible surface as guidance
 and validates the answer afterward. Set `outputSchemaStrict: true` next to
 `outputSchema` or `outputSchemaFrom` to also send `strict: true`, on both the
 Chat Completions and Responses APIs. The provider then constrains generation
@@ -136,7 +137,9 @@ these rules, so the Agent reports the error instead of every request failing
 at the provider. To make a field optional under strict mode, give it a
 `null` alternative, for example `anyOf: [{type: string}, {type: "null"}]`.
 
-Other providers ignore the field.
+Other providers do not send `strict`. Compilation still applies the strict
+rules to their schemas, so a schema stays valid when its ModelConfig changes
+provider.
 
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).

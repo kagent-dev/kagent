@@ -10,12 +10,9 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// stringFormatPatterns maps each supported JSON Schema string format to an
-// anchored RE2 expression that the final output validator asserts. The set is
-// the intersection of the formats OpenAI and Anthropic structured outputs
-// document. jsonschema-go treats format as an annotation only, so assertion is
-// expressed as a pattern, which also keeps anyOf branch selection inside the
-// validator.
+// The set is the intersection of the formats OpenAI and Anthropic structured
+// outputs document. jsonschema-go treats format as an annotation only, so each
+// format is asserted as a pattern.
 var stringFormatPatterns = func() map[string]string {
 	const (
 		fullDate = `\d{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1\d|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31|02-29)`
@@ -57,8 +54,7 @@ var stringFormatPatterns = func() map[string]string {
 }()
 
 // geminiStringFormats are the formats that both the genai.Schema reference and
-// the Gemini structured output guide document. Other formats are dropped from
-// the Gemini projection and enforced only by the final output validator.
+// the Gemini structured output guide document.
 var geminiStringFormats = map[string]bool{"date": true, "date-time": true}
 
 // SupportedStringFormats returns the string formats accepted in a portable
@@ -85,9 +81,6 @@ func ResolveValidator(raw json.RawMessage) (*jsonschema.Resolved, error) {
 	return resolved, nil
 }
 
-// assertFormats walks the keywords the portable profile allows to contain
-// subschemas and adds each format's pattern. A schema that already has its own
-// pattern gets the format pattern through allOf so both must match.
 func assertFormats(schema *jsonschema.Schema) error {
 	if schema == nil {
 		return nil
@@ -142,8 +135,6 @@ func hasWordBoundary(expression *syntax.Regexp) bool {
 	return slices.ContainsFunc(expression.Sub, hasWordBoundary)
 }
 
-// subschemas returns the direct children of the keywords the portable profile
-// allows to contain schemas.
 func subschemas(schema *jsonschema.Schema) []*jsonschema.Schema {
 	return slices.Concat(
 		slices.Collect(maps.Values(schema.Defs)),

@@ -194,11 +194,12 @@ type AgentTemplateSpec struct {
 	// same-namespace ConfigMap key.
 	// +optional
 	OutputSchemaFrom *ConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
-	// OutputSchemaStrict asks OpenAI and Azure OpenAI models to follow the
-	// output schema while they generate (strict mode), instead of only
-	// validating the answer afterward. The schema must then set
+	// OutputSchemaStrict asks OpenAI, Azure OpenAI, and Foundry OpenAI-compatible
+	// models to follow the output schema while they generate (strict mode),
+	// instead of only validating the answer afterward. The schema must then set
 	// additionalProperties to false on every object and list every property in
-	// required, and its root must not use anyOf. Other providers ignore it.
+	// required, and its root must not use anyOf. Other providers do not send
+	// strict, but the schema must still follow these rules.
 	// +optional
 	OutputSchemaStrict bool `json:"outputSchemaStrict,omitempty"`
 	// +optional
