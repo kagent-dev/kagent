@@ -651,7 +651,8 @@ func eventTokens(ev a2atype.Event) int64 {
 	return number("promptTokenCount", "prompt_token_count") + number("candidatesTokenCount", "candidates_token_count")
 }
 
-// AppendHistoryTask renders a past task: its user messages, then its output.
+// AppendHistoryTask renders a past task as streaming drew it: its user
+// messages, its reply's thoughts, tool calls and text, and its closing line.
 func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 	if task == nil {
 		return
@@ -669,14 +670,61 @@ func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 			m.appendUser(text)
 		}
 	}
-	text, err := assembledText(task)
-	if err != nil {
-		m.appendTransportError(err)
-		return
+	tools, tokens := 0, int64(0)
+	for _, artifact := range task.Artifacts {
+		if artifact == nil {
+			continue
+		}
+		tools += m.replayParts(artifact.Parts)
+		tokens += eventTokens(&a2atype.TaskArtifactUpdateEvent{Artifact: artifact})
 	}
-	if strings.TrimSpace(text) != "" {
-		m.appendBlock(&block{text: text, markdown: true})
+	// A past turn's length is not recorded, so its closing line names none.
+	switch task.Status.State {
+	case a2atype.TaskStateCompleted:
+		m.appendLine(doneLine(0, tools, tokens))
+	case a2atype.TaskStateCanceled:
+		m.appendLine(theme.AttentionStyle().Render("⊘ Cancelled"))
+	case a2atype.TaskStateFailed, a2atype.TaskStateRejected:
+		reason := ""
+		if task.Status.Message != nil {
+			reason, _ = clia2a.PartsText(task.Status.Message.Parts)
+		}
+		m.appendLine(theme.ErrorStyle().Render(failureLine(0, strings.TrimSpace(sanitize(reason)))))
 	}
+}
+
+// replayParts draws a past reply's parts in order: thoughts collapsed, tool
+// calls with their results, and text as markdown. It returns the tool calls drawn.
+func (m *chatModel) replayParts(parts a2atype.ContentParts) int {
+	var text []*a2atype.Part
+	calls := 0
+	flush := func() {
+		if answer, err := clia2a.PartsText(text); err != nil {
+			m.appendTransportError(err)
+		} else if strings.TrimSpace(answer) != "" {
+			m.appendBlock(&block{text: answer, markdown: true})
+		}
+		text = nil
+	}
+	for _, part := range parts {
+		switch {
+		case part == nil:
+		case kagenta2a.IsThought(part):
+			flush()
+			at := time.Now()
+			m.appendBlock(&block{thought: &thoughtEntry{text: clia2a.ThoughtText(a2atype.ContentParts{part}), start: at, end: at}, expanded: m.expanded})
+		case part.Data() != nil:
+			flush()
+			if activity, ok := kagenta2a.ParseToolActivity(part); ok && activity.Kind == kagenta2a.ToolCallKind {
+				calls++
+			}
+			m.renderToolActivity(a2atype.ContentParts{part})
+		default:
+			text = append(text, part)
+		}
+	}
+	flush()
+	return calls
 }
 
 func (m *chatModel) appendUser(text string) {

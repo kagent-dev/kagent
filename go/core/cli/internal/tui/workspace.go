@@ -33,10 +33,8 @@ const (
 	sessionPageSize = 50
 	// maxSessionPages bounds the pages walked on open; reaching it is reported rather than hidden.
 	maxSessionPages = 20
-	// historyTaskLimit bounds how many past tasks open in the transcript.
-	historyTaskLimit = 20
-	// historyMessageLimit bounds the messages kept per historical task.
-	historyMessageLimit = 20
+	// historyPageSize is how many past tasks one history request fetches, the task store's most.
+	historyPageSize = 100
 
 	sidebarWidth = 34
 	detailsWidth = 32
@@ -244,17 +242,26 @@ func (m *workspaceModel) loadHistory(session *apiv1.Session) tea.Cmd {
 		if err != nil {
 			return sessionHistoryLoadedMsg{sessionID: id, err: err}
 		}
-		historyLength := historyMessageLimit
-		response, err := a2aClient.ListTasks(m.ctx, &a2atype.ListTasksRequest{
-			ContextID:        session.GetId(),
-			PageSize:         historyTaskLimit,
-			HistoryLength:    &historyLength,
-			IncludeArtifacts: true,
-		})
+		tasks, err := allTasks(m.ctx, a2aClient.ListTasks, id)
+		return sessionHistoryLoadedMsg{sessionID: id, tasks: tasks, err: err}
+	}
+}
+
+// allTasks lists every task of a session, oldest first, each with its whole
+// history; a HistoryLength would keep only each task's last messages.
+func allTasks(ctx context.Context, list func(context.Context, *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error), contextID string) ([]*a2atype.Task, error) {
+	var tasks []*a2atype.Task
+	request := &a2atype.ListTasksRequest{ContextID: contextID, PageSize: historyPageSize, IncludeArtifacts: true}
+	for {
+		response, err := list(ctx, request)
 		if err != nil {
-			return sessionHistoryLoadedMsg{sessionID: id, err: err}
+			return nil, err
 		}
-		return sessionHistoryLoadedMsg{sessionID: id, tasks: response.Tasks}
+		tasks = append(tasks, response.Tasks...)
+		if response.NextPageToken == "" || response.NextPageToken == request.PageToken {
+			return tasks, nil
+		}
+		request.PageToken = response.NextPageToken
 	}
 }
 
@@ -295,6 +302,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, task := range msg.tasks {
 			m.chat.AppendHistoryTask(task)
 		}
+		m.chat.jumpToLatest() // a resumed session opens at its latest turn
 		// Tasks are sorted oldest first, so the last is the most recent thing this session did.
 		if last := len(msg.tasks) - 1; last >= 0 && msg.tasks[last] != nil && msg.tasks[last].Status.Timestamp != nil {
 			m.chat.setHeaderMeta(stateBadge(m.current.GetState()), *msg.tasks[last].Status.Timestamp)
