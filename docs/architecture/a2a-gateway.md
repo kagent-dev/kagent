@@ -196,12 +196,27 @@ bound to the `kagent-runtime` audience. Other destinations receive no runtime JW
 and this rule does not grant network access to sandboxes that cannot already
 reach the control plane.
 
-The runtime method allowlist contains TaskStore and Memory only. Actor JWTs
-cannot authorize user APIs, A2A, MCP, reflection, or unconfigured methods. Actors
-do not inherit their session owner's general permissions. The user authenticator
-identifies actor credentials without trusting their claims, then the gRPC
-interceptor sends them to the Actor JWT verifier and enforces the allowlist.
-Invalid actor credentials never fall back to user authentication.
+HTTP, MCP, and gRPC use the same `auth.AuthProvider`. It selects the Actor JWT
+verifier using the issuer or actor claim, then binds the verified identity to the
+current session's atespace and Actor UID. Invalid or stale actor credentials never
+fall back to user authentication. `Principal.Actor` distinguishes a verified
+actor from a user-supplied agent header; its associated user identifies the data
+owner and does not grant the user's permissions.
+
+Services authorize resources through `auth.Authorizer` / `CollectionAuthorizer`.
+The default actor policy permits reading its own Agent, listing only that Agent,
+and reading, sending to, or updating its existing Session. Session collections
+filter out every other session before pagination, including sessions for the same
+agent and owner. Creating or deleting sessions, using shares, and access to other
+protected resources are denied. Namespace inventory requires the
+`SystemNamespaces` capability and is denied to actors. Static APIs without protected resources remain
+available after authentication. Unconfigured gRPC methods remain denied.
+
+The same policy applies to MCP tools and HTTP/gRPC A2A calls. Permitted calls to
+the private runtime carry the bound owner's ID; the incoming Actor JWT is never
+forwarded as a user credential. Cross-agent delegation and configurable actor
+grants are not implemented. User permissions continue through the configured
+authorizer independently of the actor policy.
 
 User calls retain configured authentication. Insecure mode intentionally permits
 unauthenticated user access. Substrate replaces Authorization only when the actor
@@ -221,7 +236,9 @@ The service checks the verified actor name against the requested session and
 matches its atespace and recorded Actor UID. Memory derives its agent namespace
 and user from that persisted session binding, ignoring caller-supplied identity
 fields. Users can also list and delete their own memories on the same endpoint.
-These calls use the requested agent key and the authenticated user ID,
+Both actor and user memory operations check the `Memory` resource, whose name is
+the agent key (including legacy keys). User management calls use the requested
+agent key and the authenticated user ID,
 ignoring the request's user ID, and do not require a live actor or session.
 User and share credentials cannot grant access to actor-only methods. The
 unsigned identity header is not accepted.

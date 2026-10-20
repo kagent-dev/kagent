@@ -32,10 +32,18 @@ type Agent struct {
 	ID string
 }
 
+// Actor identifies a verified runtime caller. User is its session's owner, not
+// a grant of that user's permissions; Agent is the session's namespaced agent.
+// Caller-supplied agent headers never establish an Actor identity.
+type Actor struct {
+	SessionID string
+}
+
 // Authn
 type Principal struct {
 	User   User
 	Agent  Agent
+	Actor  *Actor
 	Claims map[string]any // Raw JWT claims (nil for non-JWT auth)
 }
 
@@ -70,8 +78,8 @@ type AuthProvider interface {
 //
 // It lives here rather than beside the server because a library consumer
 // registering its own services has to name these, and the server package is
-// internal. AccessPublic skips authentication. AccessRuntime requires the
-// separate workload authenticator; the remaining modes use public identity.
+// internal. AccessPublic permits anonymous calls. AccessRuntime requires a
+// verified actor; other modes accept either identity and authorize in services.
 type AccessMode string
 
 const (

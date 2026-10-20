@@ -78,6 +78,9 @@ func (s *Service) GetCurrentUser(ctx context.Context) (map[string]any, error) {
 }
 
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "SystemNamespaces"}); err != nil {
+		return nil, err
+	}
 	if len(s.observedNamespaces) == 0 {
 		namespaceList := &corev1.NamespaceList{}
 		if err := s.kubeClient.List(ctx, namespaceList); err != nil {

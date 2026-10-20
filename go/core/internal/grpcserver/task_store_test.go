@@ -145,12 +145,13 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, err)
 	runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(id), "actor-uid"))
 	memories := &runtimeMemoryStore{Client: store.Client}
+	policy := runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, store)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
-		Authenticator:        runtimeauth.Users(&authimpl.InsecureAuthenticator{}, issuer.URL),
-		RuntimeAuthenticator: runtimeauth.NewAuthenticator(verifier),
-		TaskStoreService:     tasks,
-		MemoryService:        memoryservice.NewService(memories),
+		Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
+		TaskStoreService: tasks,
+		MemoryService:    memoryservice.NewService(memories, policy),
+		SessionService:   sessionsvc.NewService(store, policy, nil),
 	})
 	require.NoError(t, err)
 	serverCtx, stopServer := context.WithCancel(t.Context())
@@ -171,14 +172,23 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	private := controller.TaskStoreService()
 	read := &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: "absent"}
 	_, err = private.GetTask(t.Context(), read)
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	forged := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice", "x-agent-name", id))
 	_, err = private.GetTask(forged, read)
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	unsigned := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-kagent-insecure-runtime-identity", "team-a/session-"+id+"/actor-uid"))
 	_, err = private.GetTask(unsigned, read)
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	authenticated := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", runtimeToken))
+	publicConn, err := grpc.NewClient("passthrough:///sessions", grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, publicConn.Close()) })
+	publicSessions := apiv1.NewSessionServiceClient(publicConn)
+	_, err = publicSessions.GetSession(authenticated, &apiv1.GetSessionRequest{SessionId: id})
+	require.NoError(t, err)
+	_, err = publicSessions.GetSession(authenticated, &apiv1.GetSessionRequest{SessionId: uuid.NewString()})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	_, err = controller.MemoryService().List(authenticated, &runtimev1.MemoryServiceListRequest{AgentName: "forged/agent", UserId: "another-user"}) //nolint:staticcheck // Legacy user_id must not override actor scope.
 	require.NoError(t, err)
 	require.Equal(t, session.Agent.Namespace+"/"+session.Agent.Name, memories.agentName)
@@ -186,15 +196,15 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	_, err = private.GetTask(authenticated, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: uuid.NewString(), TaskId: "absent"})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	_, err = private.GetTask(metadata.AppendToOutgoingContext(authenticated, "x-share-token", "share"), read)
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	for _, test := range []struct {
 		name     string
 		atespace string
 		actorUID string
 		want     codes.Code
 	}{
-		{"replaced actor", "team-a", "replacement-uid", codes.PermissionDenied},
-		{"wrong atespace", "another-team", "actor-uid", codes.PermissionDenied},
+		{"replaced actor", "team-a", "replacement-uid", codes.Unauthenticated},
+		{"wrong atespace", "another-team", "actor-uid", codes.Unauthenticated},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			token := issuer.Token(t, issuer.Claims(test.atespace, substrate.ActorName(id), test.actorUID))

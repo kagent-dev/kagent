@@ -59,14 +59,22 @@ func (a *Authenticator) Authenticate(ctx context.Context, headers http.Header, _
 	return runtimeSession{sessionID: id, atespace: identity.Atespace, actorUID: identity.ActorUID}, nil
 }
 
-func (*Authenticator) UpstreamAuth(*http.Request, auth.Session, auth.Principal) error {
-	return fmt.Errorf("runtime authentication cannot forward public credentials")
+func (*Authenticator) UpstreamAuth(request *http.Request, session auth.Session, target auth.Principal) error {
+	identity, ok := session.(runtimeSession)
+	if !ok || identity.owner == "" || target.Agent.ID != identity.sessionID {
+		return fmt.Errorf("actor cannot access the upstream session")
+	}
+	// The controller has authorized this call. Forward only the bound owner to
+	// the private runtime; an Actor JWT must never become a user's credential.
+	request.Header.Del("Authorization")
+	request.Header.Set("X-User-Id", identity.owner)
+	return nil
 }
 
-type runtimeSession struct{ sessionID, atespace, actorUID string }
+type runtimeSession struct{ sessionID, atespace, actorUID, owner, agent string }
 
 func (s runtimeSession) Principal() auth.Principal {
-	return auth.Principal{Agent: auth.Agent{ID: s.sessionID}}
+	return auth.Principal{User: auth.User{ID: s.owner}, Agent: auth.Agent{ID: s.agent}, Actor: &auth.Actor{SessionID: s.sessionID}}
 }
 
 type SessionStore interface {

@@ -63,12 +63,13 @@ func WithClock(now func() time.Time) Option {
 }
 
 type Service struct {
-	store Store
-	now   func() time.Time
+	store      Store
+	authorizer auth.Authorizer
+	now        func() time.Time
 }
 
-func NewService(store Store, options ...Option) *Service {
-	service := &Service{store: store, now: time.Now}
+func NewService(store Store, authorizer auth.Authorizer, options ...Option) *Service {
+	service := &Service{store: store, authorizer: authorizer, now: time.Now}
 	for _, option := range options {
 		option(service)
 	}
@@ -76,7 +77,7 @@ func NewService(store Store, options ...Option) *Service {
 }
 
 func (s *Service) Add(ctx context.Context, input Input) (string, error) {
-	agentName, userID, err := s.scope(ctx)
+	agentName, userID, err := s.scope(ctx, auth.VerbCreate)
 	if err != nil {
 		return "", err
 	}
@@ -111,7 +112,7 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 		return 0, serviceerrors.NewInternal("failed to save memory batch", fmt.Errorf("database client is not configured"))
 	}
 
-	agentName, userID, err := s.scope(ctx)
+	agentName, userID, err := s.scope(ctx, auth.VerbCreate)
 	if err != nil {
 		return 0, err
 	}
@@ -134,7 +135,7 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 }
 
 func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchResult, error) {
-	agentName, userID, err := s.scope(ctx)
+	agentName, userID, err := s.scope(ctx, auth.VerbGet)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +184,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchRe
 }
 
 func (s *Service) List(ctx context.Context, agentName string) ([]database.Memory, error) {
-	agentName, userID, err := s.managementScope(ctx, agentName)
+	agentName, userID, err := s.managementScope(ctx, auth.VerbList, agentName)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +202,7 @@ func (s *Service) List(ctx context.Context, agentName string) ([]database.Memory
 }
 
 func (s *Service) Delete(ctx context.Context, agentName string) error {
-	agentName, userID, err := s.managementScope(ctx, agentName)
+	agentName, userID, err := s.managementScope(ctx, auth.VerbDelete, agentName)
 	if err != nil {
 		return err
 	}
@@ -219,18 +220,18 @@ func (s *Service) Delete(ctx context.Context, agentName string) error {
 
 // Users can manage their own memories even when the agent or session no longer
 // exists. Actors remain bound to their current session's agent and owner.
-func (s *Service) managementScope(ctx context.Context, agentName string) (string, string, error) {
+func (s *Service) managementScope(ctx context.Context, verb auth.Verb, agentName string) (string, string, error) {
 	if session, ok := auth.AuthSessionFrom(ctx); ok && session != nil {
-		if userID := session.Principal().User.ID; userID != "" {
-			return agentName, userID, nil
+		if principal := session.Principal(); principal.Actor == nil && principal.User.ID != "" {
+			return agentName, principal.User.ID, s.authorize(ctx, verb, agentName)
 		}
 	}
-	return s.scope(ctx)
+	return s.scope(ctx, verb)
 }
 
 // scope binds memory to the persisted session's agent and owner. Request fields
 // and forwarded headers never select another identity's memory namespace.
-func (s *Service) scope(ctx context.Context) (string, string, error) {
+func (s *Service) scope(ctx context.Context, verb auth.Verb) (string, string, error) {
 	if s.store == nil {
 		return "", "", serviceerrors.NewInternal("memory store is not configured", nil)
 	}
@@ -241,7 +242,19 @@ func (s *Service) scope(ctx context.Context) (string, string, error) {
 	if session.GetAgent().GetNamespace() == "" || session.GetAgent().GetName() == "" || session.Creator == "" {
 		return "", "", serviceerrors.NewPermissionDenied("actor has no memory scope", nil)
 	}
-	return session.Agent.Namespace + "/" + session.Agent.Name, session.Creator, nil
+	agentName := session.Agent.Namespace + "/" + session.Agent.Name
+	return agentName, session.Creator, s.authorize(ctx, verb, agentName)
+}
+
+func (s *Service) authorize(ctx context.Context, verb auth.Verb, agentName string) error {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return serviceerrors.NewUnauthenticated("Authenticated identity is required", nil)
+	}
+	if err := s.authorizer.Check(ctx, session.Principal(), verb, auth.Resource{Type: "Memory", Name: agentName}); err != nil {
+		return serviceerrors.NewPermissionDenied("Not authorized to access memory", err)
+	}
+	return nil
 }
 
 func (s *Service) toMemory(input Input) (*database.Memory, error) {

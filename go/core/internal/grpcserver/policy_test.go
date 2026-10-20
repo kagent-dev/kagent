@@ -82,7 +82,7 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 				sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
-			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, nil, shareStore, DefaultMethodPolicies())
+			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies())
 			if got := status.Code(err); got != test.wantCode {
 				t.Fatalf("authenticate(%s) code = %v (%v), want %v", test.method, got, err, test.wantCode)
 			}
@@ -112,8 +112,8 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 	issuer := jwttest.New(t)
 	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
 	require.NoError(t, err)
-	actors := runtimeauth.NewAuthenticator(verifier)
 	sessionID := uuid.NewString()
+	store := &userMemoryStore{session: &apiv1.Session{Id: sessionID, Creator: "owner", Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "agent"}, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(sessionID), "")}}
 	claims := issuer.Claims("team-a", "session-"+sessionID, "actor-uid")
 	actor := "Bearer " + issuer.Token(t, claims)
 	claims["exp"] = time.Now().Add(-time.Minute).Unix()
@@ -123,15 +123,16 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 	policies := DefaultMethodPolicies()
 	policies["/extension.Service/Call"] = pkgauth.AccessRead
 	for _, mode := range []struct {
-		name      string
-		provider  pkgauth.AuthProvider
-		anonymous codes.Code
+		name        string
+		provider    pkgauth.AuthProvider
+		anonymous   codes.Code
+		runtimeCode codes.Code
 	}{
-		{"insecure", &authimpl.InsecureAuthenticator{}, codes.OK},
-		{"trusted proxy", authimpl.NewProxyAuthenticator("sub"), codes.Unauthenticated},
+		{"insecure", &authimpl.InsecureAuthenticator{}, codes.OK, codes.PermissionDenied},
+		{"trusted proxy", authimpl.NewProxyAuthenticator("sub"), codes.Unauthenticated, codes.Unauthenticated},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
-			users := runtimeauth.Users(mode.provider, issuer.URL)
+			users := runtimeauth.NewProvider(mode.provider, verifier, store, issuer.URL)
 			for _, test := range []struct {
 				name, token, method string
 				want                codes.Code
@@ -141,36 +142,40 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 				{"actor memory delete", actor, runtimev1.MemoryService_Delete_FullMethodName, codes.OK},
 				{"user memory list", user, runtimev1.MemoryService_List_FullMethodName, codes.OK},
 				{"user memory delete", user, runtimev1.MemoryService_Delete_FullMethodName, codes.OK},
-				{"user task denied", user, runtimev1.TaskStoreService_GetTask_FullMethodName, codes.Unauthenticated},
-				{"anonymous task denied", "", runtimev1.TaskStoreService_GetTask_FullMethodName, codes.Unauthenticated},
+				{"user task denied", user, runtimev1.TaskStoreService_GetTask_FullMethodName, codes.PermissionDenied},
+				{"anonymous task denied", "", runtimev1.TaskStoreService_GetTask_FullMethodName, mode.runtimeCode},
 				{"anonymous memory uses configured auth", "", runtimev1.MemoryService_List_FullMethodName, mode.anonymous},
 				{"anonymous user API uses configured auth", "", apiv1.SessionService_ListSessions_FullMethodName, mode.anonymous},
 				{"anonymous public API", "", apiv1.SystemService_GetVersion_FullMethodName, codes.OK},
-				{"actor user API denied", actor, apiv1.SessionService_CreateSession_FullMethodName, codes.PermissionDenied},
-				{"actor public API denied", actor, apiv1.SystemService_GetVersion_FullMethodName, codes.PermissionDenied},
-				{"actor A2A denied", actor, a2apb.A2AService_SendMessage_FullMethodName, codes.PermissionDenied},
-				{"actor streaming A2A denied", actor, a2apb.A2AService_SendStreamingMessage_FullMethodName, codes.PermissionDenied},
-				{"actor extension denied", actor, "/extension.Service/Call", codes.PermissionDenied},
+				{"actor user API delegates authorization", actor, apiv1.SessionService_CreateSession_FullMethodName, codes.OK},
+				{"actor public API delegates authorization", actor, apiv1.SystemService_GetVersion_FullMethodName, codes.OK},
+				{"actor A2A delegates authorization", actor, a2apb.A2AService_SendMessage_FullMethodName, codes.OK},
+				{"actor streaming A2A delegates authorization", actor, a2apb.A2AService_SendStreamingMessage_FullMethodName, codes.OK},
+				{"actor extension delegates authorization", actor, "/extension.Service/Call", codes.OK},
 				{"unknown method denied", actor, "/unconfigured.Service/Call", codes.PermissionDenied},
 				{"expired actor has no user fallback", expired, runtimev1.MemoryService_List_FullMethodName, codes.Unauthenticated},
 				{"forged actor has no user fallback", forged, runtimev1.MemoryService_Delete_FullMethodName, codes.Unauthenticated},
 				{"expired actor cannot use public API", expired, apiv1.SystemService_GetVersion_FullMethodName, codes.Unauthenticated},
 			} {
 				t.Run(test.name, func(t *testing.T) {
-					ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", test.token, "x-user-id", "alice"))
-					result, err := authenticate(ctx, test.method, users, actors, nil, policies)
+					md := metadata.Pairs("x-user-id", "alice")
+					if test.token != "" {
+						md.Set("authorization", test.token)
+					}
+					ctx := metadata.NewIncomingContext(t.Context(), md)
+					result, err := authenticate(ctx, test.method, users, nil, policies)
 					require.Equal(t, test.want, status.Code(err), "%v", err)
 					if test.want == codes.OK && test.token == actor {
 						identity, ok := pkgauth.AuthSessionFrom(result)
 						require.True(t, ok)
-						require.Empty(t, identity.Principal().User.ID)
-						require.Equal(t, sessionID, identity.Principal().Agent.ID)
+						require.Equal(t, "owner", identity.Principal().User.ID)
+						require.Equal(t, sessionID, identity.Principal().Actor.SessionID)
 					}
 				})
 			}
 			shared := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", actor, "x-share-token", "share"))
-			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, actors, nil, policies)
-			require.Equal(t, codes.PermissionDenied, status.Code(err))
+			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies)
+			require.Equal(t, codes.Unauthenticated, status.Code(err))
 		})
 	}
 }

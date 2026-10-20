@@ -142,15 +142,16 @@ func TestCurrentUser(t *testing.T) {
 func TestListNamespaces(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
+	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 
 	t.Run("lists all and sorts case insensitively", func(t *testing.T) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "Zoo"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceActive}},
 			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "alpha"}, Status: corev1.NamespaceStatus{Phase: corev1.NamespaceTerminating}},
 		).Build()
-		service := system.NewService(kubeClient, nil, nil, nil)
+		service := system.NewService(kubeClient, nil, pkgAuth.NoopAuthorizer{}, nil)
 
-		result, err := service.ListNamespaces(t.Context())
+		result, err := service.ListNamespaces(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, []system.Namespace{
 			{Name: "alpha", Status: "Terminating"},
@@ -164,11 +165,18 @@ func TestListNamespaces(t *testing.T) {
 				return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", nil)
 			},
 		}).Build()
-		service := system.NewService(kubeClient, []string{"team-b", "team-a"}, nil, nil)
+		service := system.NewService(kubeClient, []string{"team-b", "team-a"}, pkgAuth.NoopAuthorizer{}, nil)
 
-		result, err := service.ListNamespaces(t.Context())
+		result, err := service.ListNamespaces(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, []system.Namespace{{Name: "team-a"}, {Name: "team-b"}}, result)
+	})
+	t.Run("denied before inventory reads", func(t *testing.T) {
+		authorizer := &summaryAuthorizer{denyType: "SystemNamespaces"}
+		service := system.NewService(nil, nil, authorizer, nil)
+		_, err := service.ListNamespaces(ctx)
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+		require.Equal(t, []string{"get SystemNamespaces"}, authorizer.calls)
 	})
 }
 

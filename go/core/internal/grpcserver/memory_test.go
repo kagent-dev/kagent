@@ -24,6 +24,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type userMemoryStore struct {
@@ -74,11 +75,10 @@ func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	require.NoError(t, err)
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
-		Listener:             listener,
-		SystemService:        testSystemService(),
-		Authenticator:        runtimeauth.Users(authimpl.NewProxyAuthenticator("sub"), issuer.URL),
-		RuntimeAuthenticator: runtimeauth.NewAuthenticator(verifier),
-		MemoryService:        memoryservice.NewService(store),
+		Listener:      listener,
+		SystemService: testSystemService(),
+		Authenticator: runtimeauth.NewProvider(authimpl.NewProxyAuthenticator("sub"), verifier, store, issuer.URL),
+		MemoryService: memoryservice.NewService(store, runtimeauth.NewAuthorizer(pkgauth.NoopAuthorizer{}, store)),
 	})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -111,9 +111,9 @@ func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	require.Len(t, listed.Memories, 1)
 	require.Equal(t, "other-user", listed.Memories[0].Id, "actor scope comes from its stored session")
 	_, err = apiv1.NewSystemServiceClient(conn).GetVersion(actor, &apiv1.GetVersionRequest{})
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.NoError(t, err)
 	_, err = client.List(metadata.AppendToOutgoingContext(actor, "x-share-token", "share"), actorList)
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	// The configured proxy authenticates the bearer claims. Neither the request
 	// user_id nor a conflicting forwarded user header selects another user's data.
 	user := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization",

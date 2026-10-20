@@ -116,15 +116,15 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[guestpb.ProcessService_StreamProcessOutputs_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_ReadFile_FullMethodName] = auth.AccessRead
 	policies[guestpb.FileSystemService_WriteFile_FullMethodName] = auth.AccessUpdate
-	maps.Copy(policies, RuntimeMethodPolicies())
+	maps.Copy(policies, runtimeMethodPolicies())
 	policies[runtimev1.MemoryService_List_FullMethodName] = auth.AccessRead
 	policies[runtimev1.MemoryService_Delete_FullMethodName] = auth.AccessDelete
 	return policies
 }
 
-// RuntimeMethodPolicies is the explicit allowlist for actor calls.
-// New public or extension methods never become callable by actors implicitly.
-func RuntimeMethodPolicies() MethodPolicies {
+// runtimeMethodPolicies marks storage methods that require a verified actor.
+// Shared APIs accept either caller identity and authorize in their services.
+func runtimeMethodPolicies() MethodPolicies {
 	return MethodPolicies{
 		runtimev1.TaskStoreService_CreateTask_FullMethodName:   auth.AccessRuntime,
 		runtimev1.TaskStoreService_GetTask_FullMethodName:      auth.AccessRuntime,
@@ -134,7 +134,5 @@ func RuntimeMethodPolicies() MethodPolicies {
 		runtimev1.MemoryService_AddSession_FullMethodName:      auth.AccessRuntime,
 		runtimev1.MemoryService_AddSessionBatch_FullMethodName: auth.AccessRuntime,
 		runtimev1.MemoryService_Search_FullMethodName:          auth.AccessRuntime,
-		runtimev1.MemoryService_List_FullMethodName:            auth.AccessRuntime,
-		runtimev1.MemoryService_Delete_FullMethodName:          auth.AccessRuntime,
 	}
 }

@@ -326,13 +326,14 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 
 	authenticator, authorizer := opts.resolve()
-	authenticator = runtimeauth.Users(authenticator, cfg.GetSubstrate().GetActorJwtIssuer())
+	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
+	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
 	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
-	memory := memoryservice.NewService(store)
+	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
 	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
@@ -429,7 +430,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		BindAddress:           cfg.GetServer().GetBindAddress(),
 		Reflection:            cfg.GetServer().GetGrpcReflection(),
 		Authenticator:         authenticator,
-		RuntimeAuthenticator:  runtimeauth.NewAuthenticator(actorVerifier),
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,

@@ -66,7 +66,7 @@ func (store *memoryStore) DeleteAgentMemory(_ context.Context, agentName, userID
 func TestAddDefaultsMetadataAndTTL(t *testing.T) {
 	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
 	store := &memoryStore{}
-	service := NewService(store, WithClock(func() time.Time { return now }))
+	service := NewService(store, auth.NoopAuthorizer{}, WithClock(func() time.Time { return now }))
 
 	id, err := service.Add(memoryContext(t), Input{
 		AgentName: "team-a/agent",
@@ -83,7 +83,7 @@ func TestAddDefaultsMetadataAndTTL(t *testing.T) {
 }
 
 func TestAddAndBatchValidation(t *testing.T) {
-	service := NewService(&memoryStore{})
+	service := NewService(&memoryStore{}, auth.NoopAuthorizer{})
 
 	_, err := service.Add(memoryContext(t), Input{AgentName: "team-a/agent", UserID: "user", Vector: vector(16, 1)})
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
@@ -107,7 +107,7 @@ func TestSearchDefaultsFiltersAndNormalizesMetadata(t *testing.T) {
 		{Memory: database.Memory{ID: "invalid", Content: "normalize", Metadata: "{"}, Score: 0.8},
 		{Memory: database.Memory{ID: "low", Content: "drop"}, Score: 0.4},
 	}}
-	service := NewService(store)
+	service := NewService(store, auth.NoopAuthorizer{})
 
 	results, err := service.Search(memoryContext(t), SearchRequest{
 		AgentName: "team-a/agent",
@@ -125,7 +125,7 @@ func TestSearchDefaultsFiltersAndNormalizesMetadata(t *testing.T) {
 
 func TestListDeleteAndStoreErrors(t *testing.T) {
 	store := &memoryStore{listResult: []database.Memory{{ID: "memory-1"}}}
-	service := NewService(store)
+	service := NewService(store, auth.NoopAuthorizer{})
 
 	memories, err := service.List(memoryContext(t), "")
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func memoryContext(t *testing.T) context.Context {
 
 func TestActorMemoryScopeIgnoresCallerIdentity(t *testing.T) {
 	store := &memoryStore{}
-	service := NewService(store)
+	service := NewService(store, auth.NoopAuthorizer{})
 	ctx := memoryContext(t)
 	input := Input{AgentName: "other/agent", UserID: "victim", Content: "scoped", Vector: vector(VectorDimension, 1)}
 	_, err := service.Add(ctx, input)
@@ -207,7 +207,7 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &memoryStore{bindingErr: test.bindingErr}
-			service := NewService(store)
+			service := NewService(store, auth.NoopAuthorizer{})
 			ctx := t.Context()
 			if test.authenticated {
 				ctx = memoryContext(t)
@@ -231,7 +231,7 @@ func TestMemoryRejectsUnboundActors(t *testing.T) {
 
 func TestUserMemoryManagementDoesNotRequireRuntime(t *testing.T) {
 	store := &memoryStore{bindingErr: database.ErrNotFound}
-	service := NewService(store)
+	service := NewService(store, auth.NoopAuthorizer{})
 	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "owner"}}})
 
 	for _, agentName := range []string{"team-a/agent", "legacy-display-name"} {
@@ -247,4 +247,24 @@ func TestUserMemoryManagementDoesNotRequireRuntime(t *testing.T) {
 	_, err := service.List(ctx, "")
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
 	require.True(t, serviceerrors.IsCode(service.Delete(ctx, ""), serviceerrors.CodeInvalidArgument))
+}
+
+type deniedMemoryAuthorizer struct{ auth.NoopAuthorizer }
+
+func (deniedMemoryAuthorizer) Check(context.Context, auth.Principal, auth.Verb, auth.Resource) error {
+	return errors.New("memory access denied")
+}
+
+func TestMemoryManagementHonorsConfiguredAuthorization(t *testing.T) {
+	store := &memoryStore{}
+	service := NewService(store, deniedMemoryAuthorizer{})
+	user := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{User: auth.User{ID: "user"}}})
+	for _, ctx := range []context.Context{user, memoryContext(t)} {
+		_, err := service.List(ctx, "team-a/agent")
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+		err = service.Delete(ctx, "team-a/agent")
+		require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	}
+	require.Empty(t, store.deletedAgent)
+	require.Empty(t, store.deletedUser)
 }

@@ -75,6 +75,10 @@ A decision that permits no resources returns an empty collection. An authorizati
 
 ## Summary and Substrate capabilities
 
+`ListNamespaces` requires `Check(VerbGet, Resource{Type: "SystemNamespaces"})`
+before reading namespace inventory, including configured watched namespaces.
+This whole-inventory capability is independent of object collection scopes.
+
 `GetSubstrateSummary` first requires `Check(VerbGet, Resource{Type: "SystemSummary"})`, with empty namespace and name. This is a whole-summary capability that policies may grant to operators or administrators. Denial fails the request with permission denied before any Kubernetes or ATE reads; the service does not return an apparently empty inventory for denied access.
 
 After this check, WorkerPool rows use `Scope(VerbList, "WorkerPool")` and are intersected with configured and requested namespaces. A `NONE` pool scope returns no pool rows while still allowing ATE inventory under the summary capability. Invalid scopes and evaluator errors fail the request.

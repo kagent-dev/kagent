@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
-	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -32,9 +31,9 @@ var forwardedMetadataKeys = map[string]string{
 	"x-share-token": "X-Share-Token",
 }
 
-func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
+func authenticationUnaryInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
+		authenticatedContext, err := authenticate(ctx, info.FullMethod, authenticator, shareStore, policies)
 		if err != nil {
 			return nil, err
 		}
@@ -42,9 +41,9 @@ func authenticationUnaryInterceptor(authenticator, runtimeAuthenticator auth.Aut
 	}
 }
 
-func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
+func authenticationStreamInterceptor(authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, runtimeAuthenticator, shareStore, policies)
+		authenticatedContext, err := authenticate(stream.Context(), info.FullMethod, authenticator, shareStore, policies)
 		if err != nil {
 			return err
 		}
@@ -52,7 +51,7 @@ func authenticationStreamInterceptor(authenticator, runtimeAuthenticator auth.Au
 	}
 }
 
-func authenticate(ctx context.Context, fullMethod string, authenticator, runtimeAuthenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) (context.Context, error) {
+func authenticate(ctx context.Context, fullMethod string, authenticator auth.AuthProvider, shareStore sessionsvc.ShareStore, policies MethodPolicies) (context.Context, error) {
 	access, ok := policies[fullMethod]
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
@@ -61,34 +60,17 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 	if access == auth.AccessPublic && len(headers.Values("Authorization")) == 0 {
 		return ctx, nil
 	}
-	var session auth.Session
-	var err error
-	if access != auth.AccessRuntime && authenticator != nil {
-		session, err = authenticator.Authenticate(ctx, headers, url.Values{})
+	if authenticator == nil {
+		return ctx, status.Error(codes.Unauthenticated, "authentication is not configured")
 	}
-	actor := access == auth.AccessRuntime || errors.Is(err, runtimeauth.ErrActorCredentials)
-	if actor {
-		if runtimeAuthenticator == nil {
-			return ctx, status.Error(codes.Unauthenticated, "runtime authentication is not configured")
-		}
-		session, err = runtimeAuthenticator.Authenticate(ctx, headers, url.Values{})
-	} else if access == auth.AccessPublic {
-		return ctx, nil
-	}
+	session, err := authenticator.Authenticate(ctx, headers, url.Values{})
 	if err != nil || session == nil {
 		return ctx, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
-
-	authenticatedContext := auth.AuthSessionTo(ctx, session)
-	if actor {
-		if _, allowed := RuntimeMethodPolicies()[fullMethod]; !allowed {
-			return ctx, status.Error(codes.PermissionDenied, "actors cannot access this RPC")
-		}
-		if headers.Get("X-Share-Token") != "" {
-			return ctx, status.Error(codes.PermissionDenied, "share credentials cannot access runtime storage")
-		}
-		return authenticatedContext, nil
+	if access == auth.AccessRuntime && session.Principal().Actor == nil {
+		return ctx, status.Error(codes.PermissionDenied, "runtime actor identity is required")
 	}
+	authenticatedContext := auth.AuthSessionTo(ctx, session)
 	share, err := sessionsvc.ResolveShare(authenticatedContext, shareStore, headers.Get("X-Share-Token"))
 	if err != nil {
 		return ctx, mapError(err)
