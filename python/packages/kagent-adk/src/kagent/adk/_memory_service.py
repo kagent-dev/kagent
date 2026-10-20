@@ -12,8 +12,8 @@ from google.adk.models import BaseLlm
 from google.adk.sessions import Session
 from google.genai import types
 from google.protobuf import json_format, struct_pb2
-from kagent.api.v1alpha1 import memory_pb2
 from kagent.core import AsyncControllerClient
+from kagent.runtime.v1 import memory_pb2
 
 from kagent.adk._request_identity import request_user_id
 from kagent.adk.models import KAgentEmbedding

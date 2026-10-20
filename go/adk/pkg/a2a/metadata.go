@@ -4,8 +4,9 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // canonicalizeADKEvent is the managed ADK runtime's outbound adapter boundary.

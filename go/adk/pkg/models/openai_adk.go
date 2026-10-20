@@ -208,9 +208,9 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	// max_completion_tokens (the modern, superset parameter) takes precedence
 	// when both are configured.
 	if cfg.MaxCompletionTokens != nil {
-		params.MaxCompletionTokens = openai.Int(int64(*cfg.MaxCompletionTokens))
+		params.MaxCompletionTokens = openai.Int(*cfg.MaxCompletionTokens)
 	} else if cfg.MaxTokens != nil {
-		params.MaxTokens = openai.Int(int64(*cfg.MaxTokens))
+		params.MaxTokens = openai.Int(*cfg.MaxTokens)
 	}
 	if cfg.TopP != nil {
 		params.TopP = openai.Float(*cfg.TopP)
@@ -222,10 +222,10 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 		params.PresencePenalty = openai.Float(*cfg.PresencePenalty)
 	}
 	if cfg.Seed != nil {
-		params.Seed = openai.Int(int64(*cfg.Seed))
+		params.Seed = openai.Int(*cfg.Seed)
 	}
 	if cfg.N != nil {
-		params.N = openai.Int(int64(*cfg.N))
+		params.N = openai.Int(*cfg.N)
 	}
 	if cfg.ReasoningEffort != nil {
 		params.ReasoningEffort = shared.ReasoningEffort(*cfg.ReasoningEffort)
@@ -268,7 +268,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 				functionCalls = append(functionCalls, part.FunctionCall)
 			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
 				imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{
-					URL: fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data)),
+					URL: dataURL(part.InlineData.MIMEType, part.InlineData.Data),
 				})
 			}
 		}
@@ -545,4 +545,9 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 		UsageMetadata: usage,
 		Content:       &genai.Content{Role: string(genai.RoleModel), Parts: parts},
 	}
+}
+
+// dataURL is data as a base64 data: URL of the given media type.
+func dataURL(mimeType string, data []byte) string {
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data))
 }

@@ -1,5 +1,5 @@
 name: Build release artifacts
-description: Build CLI binaries, checksums and versioned Helm chart archives
+description: Build CLI binaries and checksums independently of image publishing
 inputs:
   version:
     description: Version without a v prefix
@@ -7,10 +7,8 @@ inputs:
 runs:
   using: composite
   steps:
-  - name: Build CLI and charts
+  - name: Build CLI
     shell: bash
     env:
       VERSION: ${{ inputs.version }}
-    run: |
-      make build-cli
-      make helm-version
+    run: make build-cli

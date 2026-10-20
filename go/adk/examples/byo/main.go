@@ -20,16 +20,17 @@ import (
 	"os"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/adk/pkg/app"
-	"github.com/kagent-dev/kagent/go/adk/pkg/config"
-	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/pkg/logging"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/agent/workflowagents/parallelagent"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/app"
+	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 func main() {
@@ -42,7 +43,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	runtime := compiled.ProcessConfig()
+	runtime := config.ProcessConfig(compiled)
 	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -118,7 +119,7 @@ func main() {
 	}
 	executor := adka2a.NewExecutor(execConfig)
 
-	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneURL, MaxContentLength: runtime.MaxContentLength,
+	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneUrl, MaxContentLength: runtime.MaxContentLength,
 		AgentCard: a2atype.AgentCard{
 			Name:        "byo-parallel-agent",
 			Description: "A BYO agent that runs creative and technical writers in parallel",
@@ -139,7 +140,7 @@ func main() {
 				},
 			},
 		},
-		Port:   cmp.Or(runtime.Port, "8082"),
+		Port:   fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),
 		Logger: logger,
 		Agent:  parallelAgent,
 	}, executor)

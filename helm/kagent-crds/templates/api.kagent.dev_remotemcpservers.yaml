@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: remotemcpservers.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -128,10 +128,15 @@ spec:
               description:
                 type: string
               headersFrom:
+                description: |-
+                  HeadersFrom supplies request headers. Secret-backed headers are injected by
+                  the egress gateway and cannot use routing, framing, hop-by-hop,
+                  proxy-authentication, or Cookie headers. At most 64 headers may be supplied.
                 items:
                   description: ValueRef represents a configuration value
                   properties:
                     name:
+                      maxLength: 256
                       type: string
                     value:
                       type: string
@@ -161,9 +166,20 @@ spec:
                   - name
                   type: object
                   x-kubernetes-validations:
-                  - message: Exactly one of value or valueFrom must be specified
-                    rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
-                      && has(self.valueFrom))
+                  - fieldPath: .name
+                    message: Secret-backed headers require a valid HTTP header name
+                    rule: '!has(self.valueFrom) || self.valueFrom.type != ''Secret''
+                      || self.name.matches(''^[!#$%&\\x27*+.^_`|~0-9A-Za-z-]+$'')'
+                  - fieldPath: .name
+                    message: this header cannot carry an egress credential
+                    rule: '!has(self.valueFrom) || self.valueFrom.type != ''Secret''
+                      || !(self.name.lowerAscii() in [''host'', ''connection'', ''content-length'',
+                      ''transfer-encoding'', ''te'', ''trailer'', ''upgrade'', ''keep-alive'',
+                      ''proxy-authorization'', ''proxy-authenticate'', ''cookie''])'
+                  - message: exactly one of the fields in [value valueFrom] must be
+                      set
+                    rule: (has(self.value)?1:0)+(has(self.valueFrom)?1:0) == 1
+                maxItems: 64
                 type: array
               protocol:
                 default: STREAMABLE_HTTP
@@ -173,12 +189,18 @@ spec:
                 type: string
               sseReadTimeout:
                 type: string
+                x-kubernetes-validations:
+                - message: sseReadTimeout must be positive and at most 9223372036s
+                  rule: duration(self) > duration('0s') && duration(self) <= duration('9223372036s')
               terminateOnClose:
                 default: true
                 type: boolean
               timeout:
                 default: 30s
                 type: string
+                x-kubernetes-validations:
+                - message: timeout must be positive and at most 9223372036s
+                  rule: duration(self) > duration('0s') && duration(self) <= duration('9223372036s')
               tls:
                 description: |-
                   TLS configuration for the upstream MCP server connection.
@@ -195,6 +217,13 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
+              tokenPassthrough:
+                description: |-
+                  TokenPassthrough forwards the bearer token from the incoming A2A request
+                  to this server as its Authorization header. Requests without a caller
+                  token fail. Controller tool discovery has no caller token, so servers that
+                  require one should disable discovery with the kagent.dev/discovery label.
+                type: boolean
               url:
                 minLength: 1
                 type: string
@@ -207,6 +236,10 @@ spec:
                 TLS opinion contradicts a plaintext URL. Either drop spec.tls, or
                 use https:// / a scheme-less URL.'
               rule: '!self.url.startsWith(''http://'') || !has(self.tls)'
+            - message: headersFrom cannot set Authorization when tokenPassthrough
+                is enabled
+              rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough) || !has(self.headersFrom)
+                || !self.headersFrom.exists(h, h.name.lowerAscii() == ''authorization'')'
           status:
             description: RemoteMCPServerStatus defines the observed state of RemoteMCPServer.
             properties:

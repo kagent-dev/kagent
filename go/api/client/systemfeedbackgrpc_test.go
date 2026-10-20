@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -16,18 +15,20 @@ import (
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type recordingSystemService struct {
-	apiv1alpha1.UnimplementedSystemServiceServer
+	apiv1.UnimplementedSystemServiceServer
 
 	mu           sync.Mutex
 	observations []callObservation
 }
 
-func (service *recordingSystemService) GetVersion(ctx context.Context, _ *apiv1alpha1.GetVersionRequest) (*apiv1alpha1.GetVersionResponse, error) {
+func (service *recordingSystemService) GetVersion(ctx context.Context, _ *apiv1.GetVersionRequest) (*apiv1.GetVersionResponse, error) {
 	service.observe(ctx)
-	return &apiv1alpha1.GetVersionResponse{
+	return &apiv1.GetVersionResponse{
 		KagentVersion: "v1.2.3",
 		GitCommit:     "abc123",
 		BuildDate:     "2026-07-29",
@@ -49,7 +50,7 @@ func TestVersionClientUsesGeneratedGRPC(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	systemService := &recordingSystemService{}
 	server := grpc.NewServer()
-	apiv1alpha1.RegisterSystemServiceServer(server, systemService)
+	apiv1.RegisterSystemServiceServer(server, systemService)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(server, healthServer)

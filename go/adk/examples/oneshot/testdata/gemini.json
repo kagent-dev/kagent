@@ -1,8 +1,10 @@
 {
-  "model": {
-    "type": "gemini",
-    "model": "gemini-3.5-flash"
-  },
-  "description": "Gemini test agent",
-  "instruction": "You are a helpful assistant. Answer concisely in one sentence."
+  "agent": {
+    "model": {
+      "model": "gemini-3.5-flash",
+      "gemini": {}
+    },
+    "description": "Gemini test agent",
+    "instruction": "You are a helpful assistant. Answer concisely in one sentence."
+  }
 }

@@ -8,10 +8,10 @@ from kagent.core.a2a import KAgentGrpcServerCallContextBuilder
 
 import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
-from kagent.adk.types import AgentConfig
+from kagent.adk.types import Config
 
 
-def make_app(address: str | None = "127.0.0.1:0", port: str = ""):
+def make_app(address: str | None = "127.0.0.1:0", port: int | None = None):
     card = ParseDict(
         {
             "name": "test-app",
@@ -31,11 +31,11 @@ def make_app(address: str | None = "127.0.0.1:0", port: str = ""):
         kagent_api_url="http://unused",
         app_name="test-app",
         a2a_grpc_address=address,
-        agent_config=AgentConfig.model_construct(runtime=RuntimeConfig(port=port)),
+        config=Config(runtime=RuntimeConfig(port=port)),
     )
 
 
-@pytest.mark.parametrize("port,expected", [("", "[::]:80"), ("9090", "[::]:9090")])
+@pytest.mark.parametrize("port,expected", [(None, "[::]:80"), (9090, "[::]:9090")])
 def test_grpc_address_from_runtime_port(port, expected):
     assert make_app(address=None, port=port).a2a_grpc_address == expected
 

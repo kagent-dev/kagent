@@ -24,6 +24,7 @@ const (
 	PinnedClaudeVersion                 = "2.1.285"
 	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
 	DisableUpdatesEnvName               = "DISABLE_UPDATES"
+	MaxRetriesEnvName                   = "CLAUDE_CODE_MAX_RETRIES"
 	GoogleApplicationCredentialsEnvName = "GOOGLE_APPLICATION_CREDENTIALS"
 	GoogleCredentialsJSONEnvName        = "KAGENT_CLAUDE_GOOGLE_CREDENTIALS_JSON"
 	UseBedrockEnvName                   = "CLAUDE_CODE_USE_BEDROCK"
@@ -38,7 +39,6 @@ const (
 	VertexProjectEnvName                = "ANTHROPIC_VERTEX_PROJECT_ID"
 	VertexRegionEnvName                 = "CLOUD_ML_REGION"
 	SandboxEnvName                      = "IS_SANDBOX"
-	PropagateTokenEnvName               = "KAGENT_PROPAGATE_TOKEN"
 	MCPCredentialEnvPrefix              = "KAGENT_CLAUDE_MCP_CREDENTIAL_"
 )
 
@@ -49,7 +49,7 @@ func OwnsEnvironment(name string) bool {
 		return true
 	}
 	switch name {
-	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, GoogleApplicationCredentialsEnvName,
+	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, MaxRetriesEnvName, GoogleApplicationCredentialsEnvName,
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
@@ -77,6 +77,10 @@ type Config struct {
 	Agents                map[string]Agent       `json:"agents,omitempty"`
 	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
+	// PropagateToken forwards the caller's credential of each A2A turn on
+	// every MCP call, the runtime defaults' token propagation switch the Go
+	// ADK also follows.
+	PropagateToken bool `json:"propagate_token,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy. It is absent for standalone runs, which fall back to the
 	// environment for service identity and leave capture disabled.
@@ -94,6 +98,9 @@ type MCPServer struct {
 	URL             string            `json:"url"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	RequireApproval bool              `json:"require_approval,omitempty"`
+	// TokenPassthrough sends the caller's credential of the turn, and nothing
+	// else, as the server's Authorization; a turn without one cannot call it.
+	TokenPassthrough bool `json:"token_passthrough,omitempty"`
 }
 
 // Agent is one compiler-owned local Claude subagent passed through --agents.
@@ -176,6 +183,9 @@ func (c Config) Validate() error {
 		}
 		if server.Type != "http" && server.Type != "sse" {
 			return fmt.Errorf("claude MCP server %q has unsupported transport %q", name, server.Type)
+		}
+		if server.TokenPassthrough && server.Type != "http" {
+			return fmt.Errorf("claude MCP server %q token passthrough requires the http transport", name)
 		}
 		if strings.TrimSpace(server.URL) == "" {
 			return fmt.Errorf("claude MCP server %q URL is required", name)

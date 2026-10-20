@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,9 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/claude/internal/driver"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -39,6 +42,47 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 		if info.Mode().Perm() != 0o700 {
 			t.Errorf("%s permissions = %o, want 700", path, info.Mode().Perm())
 		}
+	}
+}
+
+func TestNativeProcessRetriesAreOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		environment []string
+		want        string
+	}{
+		{name: "unset", want: "unset"},
+		{name: "empty", environment: []string{env.TestClaudeDisableRetries + "="}, want: "unset"},
+		{name: "false", environment: []string{env.TestClaudeDisableRetries + "=false"}, want: "unset"},
+		{name: "true", environment: []string{env.TestClaudeDisableRetries + "=true"}, want: "0"},
+		{name: "preserve native setting", environment: []string{config.MaxRetriesEnvName + "=10"}, want: "10"},
+		{name: "override native setting", environment: []string{env.TestClaudeDisableRetries + "=true", config.MaxRetriesEnvName + "=10"}, want: "0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			executable := filepath.Join(dir, "claude")
+			script := fmt.Sprintf("#!/bin/sh\n[ \"${CLAUDE_CODE_MAX_RETRIES-unset}\" = %s ] || exit 42\necho %s\n", test.want, config.PinnedClaudeVersion)
+			if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Production("claude-test", "help")
+			cfg.ClaudeExecutable = executable
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner, err := New(t.Context(), Input{
+				ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"),
+				DurableDir: filepath.Join(dir, "data"), EphemeralDir: filepath.Join(dir, "ephemeral"), Environment: test.environment,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = runner.Close() })
+			if err := runner.Validate(t.Context()); err != nil {
+				t.Fatalf("native process did not receive the expected retry setting: %v", err)
+			}
+		})
 	}
 }
 
@@ -73,14 +117,28 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 	for path, want := range map[string]string{
 		filepath.Join(skillRoot, ".claude", "skills", "review", "SKILL.md"): "# Review",
-		filepath.Join(ephemeralDir, "mcp.json"):                             `{"mcpServers":{"tools":{"type":"http","url":"https://mcp.example.com/mcp"}}}`,
+		filepath.Join(skillRoot, ".claude-plugin", "plugin.json"):           `{"name":"kagent-skills","skills":"./.claude/skills/"}`,
 	} {
 		contents, err := os.ReadFile(path)
 		if err != nil || string(contents) != want {
 			t.Fatalf("%s = %q, %v; want %q", path, contents, err, want)
 		}
 	}
-	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--add-dir\n"+skillRoot) {
+	defer runner.Close()
+	rawMCP, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mcpConfig struct {
+		Servers map[string]config.MCPServer `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(rawMCP, &mcpConfig); err != nil {
+		t.Fatal(err)
+	}
+	if len(mcpConfig.Servers) != 2 || mcpConfig.Servers["tools"].URL != "https://mcp.example.com/mcp" || mcpConfig.Servers[approvalMCPServerName].URL == "" {
+		t.Fatalf("invalid MCP configuration")
+	}
+	if args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n"); !strings.Contains(args, "--plugin-dir\n"+skillRoot) {
 		t.Fatalf("arguments do not expose materialized skills: %s", args)
 	}
 }
@@ -110,9 +168,23 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := string(settings), `{"permissions":{"ask":["mcp__protected__*"]}}`; got != want {
-		t.Fatalf("approval settings = %s, want %s", got, want)
+	var approvalSettings struct {
+		Permissions struct {
+			Ask []string `json:"ask"`
+		} `json:"permissions"`
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string `json:"matcher"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
 	}
+	if err := json.Unmarshal(settings, &approvalSettings); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(approvalSettings.Permissions.Ask, []string{"AskUserQuestion", "mcp__protected__*"}) || len(approvalSettings.Hooks.PreToolUse) != 1 || approvalSettings.Hooks.PreToolUse[0].Matcher != "*" {
+		t.Fatalf("invalid durable approval settings: %s", settings)
+	}
+
 	mcpConfig, err := os.ReadFile(filepath.Join(ephemeralDir, "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -240,22 +312,27 @@ func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 	}
 }
 
-func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
+type writtenMCPServers struct {
+	Servers map[string]struct {
+		Type    string            `json:"type"`
+		URL     string            `json:"url"`
+		Headers map[string]string `json:"headers"`
+	} `json:"mcpServers"`
+}
+
+// newWithMCPServers starts the adapter for the given compiled MCP servers and
+// returns the mcp.json it wrote.
+func newWithMCPServers(t *testing.T, cfg config.Config) (*driver.ProcessDriver, writtenMCPServers, []byte) {
+	t.Helper()
 	durableDir := filepath.Join(t.TempDir(), "data")
 	ephemeralDir := filepath.Join(t.TempDir(), "generated")
-	cfg := config.Production("claude-test", "help")
-	cfg.StrictVersion = false
-	cfg.MCPServers = map[string]config.MCPServer{
-		"tools":     {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}, RequireApproval: true},
-		"knowledge": {Type: "http", URL: "https://mcp.example.com/read", Headers: map[string]string{"Authorization": "Bearer ${KAGENT_CLAUDE_MCP_CREDENTIAL_ABC}"}},
-	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runner, err := New(context.Background(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
-		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin", "KAGENT_PROPAGATE_TOKEN=true"},
+		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -265,17 +342,16 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var written struct {
-		Servers map[string]struct {
-			Type    string            `json:"type"`
-			URL     string            `json:"url"`
-			Headers map[string]string `json:"headers"`
-		} `json:"mcpServers"`
-	}
+	var written writtenMCPServers
 	if err := json.Unmarshal(contents, &written); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"tools", "knowledge", "kagent_hitl"} {
+	return runner, written, contents
+}
+
+func assertFronted(t *testing.T, written writtenMCPServers, contents []byte, names ...string) {
+	t.Helper()
+	for _, name := range names {
 		server, ok := written.Servers[name]
 		if !ok {
 			t.Fatalf("mcp.json lacks %q: %s", name, contents)
@@ -287,6 +363,18 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 			t.Errorf("%s headers = %v, want only the loopback token", name, server.Headers)
 		}
 	}
+}
+
+func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.PropagateToken = true
+	cfg.MCPServers = map[string]config.MCPServer{
+		"tools":     {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}, RequireApproval: true},
+		"knowledge": {Type: "http", URL: "https://mcp.example.com/read", Headers: map[string]string{"Authorization": "Bearer ${KAGENT_CLAUDE_MCP_CREDENTIAL_ABC}"}},
+	}
+	runner, written, contents := newWithMCPServers(t, cfg)
+	assertFronted(t, written, contents, "tools", "knowledge", "kagent_hitl")
 	for _, leaked := range []string{"tools.example.com", "mcp.example.com", "X-Toolset", "KAGENT_CLAUDE_MCP_CREDENTIAL_ABC"} {
 		if strings.Contains(string(contents), leaked) {
 			t.Errorf("mcp.json carries upstream detail %q: %s", leaked, contents)
@@ -297,10 +385,44 @@ func TestNewFrontsMCPServersWhenTheCallerTokenPropagates(t *testing.T) {
 	}
 }
 
+func TestNewFrontsOnlyPassthroughServersWithoutPropagation(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{
+		"user":  {Type: "http", URL: "https://user.example.com/mcp", TokenPassthrough: true},
+		"tools": {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
+	}
+	_, written, contents := newWithMCPServers(t, cfg)
+	assertFronted(t, written, contents, "user")
+	if strings.Contains(string(contents), "user.example.com") {
+		t.Errorf("mcp.json carries the passthrough server's upstream URL: %s", contents)
+	}
+	tools := written.Servers["tools"]
+	if tools.URL != "https://tools.example.com/mcp" || tools.Headers["X-Toolset"] != "preset:read-only" {
+		t.Fatalf("tools = %+v, want the server left as compiled", tools)
+	}
+}
+
+func TestNewWritesTheCompiledServersWhenNothingIsFronted(t *testing.T) {
+	cfg := config.Production("claude-test", "help")
+	cfg.StrictVersion = false
+	cfg.MCPServers = map[string]config.MCPServer{
+		"tools": {Type: "http", URL: "https://tools.example.com/mcp", Headers: map[string]string{"X-Toolset": "preset:read-only"}},
+	}
+	runner, written, _ := newWithMCPServers(t, cfg)
+	if tools := written.Servers["tools"]; tools.URL != "https://tools.example.com/mcp" {
+		t.Fatalf("tools = %+v, want the server left as compiled", tools)
+	}
+	if err := runner.Close(); err != nil {
+		t.Fatalf("Close() without a forwarder = %v", err)
+	}
+}
+
 func TestNewRefusesToFrontSSEServers(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
+	cfg.PropagateToken = true
 	cfg.MCPServers = map[string]config.MCPServer{"legacy": {Type: "sse", URL: "https://mcp.example.com/sse"}}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
@@ -308,7 +430,7 @@ func TestNewRefusesToFrontSSEServers(t *testing.T) {
 	}
 	_, err = New(context.Background(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
-		EphemeralDir: filepath.Join(t.TempDir(), "generated"), Environment: []string{"KAGENT_PROPAGATE_TOKEN=true"},
+		EphemeralDir: filepath.Join(t.TempDir(), "generated"),
 	})
 	if err == nil || !strings.Contains(err.Error(), "streamable HTTP") {
 		t.Fatalf("New() error = %v, want the SSE refusal", err)

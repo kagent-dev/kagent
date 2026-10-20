@@ -14,17 +14,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/propagators/autoprop"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 // FlushTimeout bounds one ForceFlush.
@@ -120,7 +120,7 @@ func Init(ctx context.Context, opts Options) (*Providers, error) {
 		errs = append(errs, fmt.Errorf("logs: %w", err))
 	} else if !autoexport.IsNoneLogExporter(exporter) {
 		providers.logger = sdklog.NewLoggerProvider(sdklog.WithResource(res), sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)))
-		global.SetLoggerProvider(providers.logger)
+		otel.SetLoggerProvider(providers.logger)
 	}
 	return providers, errors.Join(errs...)
 }

@@ -28,7 +28,7 @@ data:
   pg_hba.conf: |
     local all all trust
     hostssl all postgres all reject
-    hostssl kagent kagent_user,substrate_owner_user,substrate_readwrite_user all cert
+    hostssl kagent kagent_owner_user,kagent_readwrite_user,substrate_owner_user,substrate_readwrite_user all cert
   reload-tls.sh: |
     set -eu
     trap 'exit 0' TERM INT
@@ -200,11 +200,20 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kagent-postgres
+  name: kagent-postgres-owner
   namespace: ${NAMESPACE}
 type: Opaque
 stringData:
-  connectionString: postgresql://kagent_user@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/postgres.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/credential-bundle.pem&sslkey=/run/postgres.podcert.ate.dev/credential-bundle.pem
+  ownerConnectionString: postgresql://kagent_owner_user@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/postgres.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/kagent_owner_user.pem&sslkey=/run/postgres.podcert.ate.dev/kagent_owner_user.pem
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-postgres-readwrite
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  readWriteConnectionString: postgresql://kagent_readwrite_user@kagent-postgresql.${NAMESPACE}.svc:5432/kagent?sslmode=verify-full&sslrootcert=/run/postgres.podcert.ate.dev/trust-bundle.pem&sslcert=/run/postgres.podcert.ate.dev/kagent_readwrite_user.pem&sslkey=/run/postgres.podcert.ate.dev/kagent_readwrite_user.pem
 ---
 apiVersion: v1
 kind: Secret

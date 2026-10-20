@@ -8,15 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
-	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
-	"github.com/kagent-dev/kagent/go/core/internal/service/system"
-	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,6 +20,12 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/service/system"
+	pkgAuth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 type systemDenyAuthorizer struct{}
@@ -191,11 +192,11 @@ func TestListSubstrateActors(t *testing.T) {
 	t.Run("answers with one page and the token for the next", func(t *testing.T) {
 		ateClient := &fakeATEClient{pageSize: 2, actors: []*ateapipb.Actor{
 			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+			substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 			substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-1"),
 		}}
 
-		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Page: &apiv1alpha1.PageRequest{Limit: 2}})
+		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2}})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 2)
 		// Preserve upstream order, including across different actor states.
@@ -213,10 +214,10 @@ func TestListSubstrateActors(t *testing.T) {
 		}}
 		service := newService(ateClient)
 
-		first, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Page: &apiv1alpha1.PageRequest{Limit: 2}})
+		first, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{Limit: 2}})
 		require.NoError(t, err)
-		second, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{
-			Page: &apiv1alpha1.PageRequest{Limit: 2, PageToken: first.NextPageToken},
+		second, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{
+			Page: &apiv1.PageRequest{Limit: 2, PageToken: first.NextPageToken},
 		})
 		require.NoError(t, err)
 		require.Len(t, second.Actors, 1)
@@ -234,7 +235,7 @@ func TestListSubstrateActors(t *testing.T) {
 			substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 		}}
 
-		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: "team", Page: &apiv1alpha1.PageRequest{Limit: 10}})
+		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "team", Page: &apiv1.PageRequest{Limit: 10}})
 		require.NoError(t, err)
 		require.Len(t, page.Actors, 1)
 		assert.Equal(t, "actor-1", page.Actors[0].GetMetadata().GetName())
@@ -243,7 +244,7 @@ func TestListSubstrateActors(t *testing.T) {
 	t.Run("an ate-api failure is an empty page beside a warning", func(t *testing.T) {
 		ateClient := &fakeATEClient{err: errors.New("ate-api unreachable")}
 
-		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{})
+		page, err := newService(ateClient).ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{})
 		require.NoError(t, err)
 		assert.Empty(t, page.Actors)
 		assert.Equal(t, "ate-api unreachable", page.ATEAPIError)
@@ -253,7 +254,7 @@ func TestListSubstrateActors(t *testing.T) {
 
 	t.Run("authorizes", func(t *testing.T) {
 		denied := system.NewService(nil, nil, systemDenyAuthorizer{}, &fakeATEClient{})
-		_, err := denied.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{})
+		_, err := denied.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{})
 		assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied), err)
 	})
 }
@@ -268,13 +269,13 @@ func TestListSubstrateWorkers(t *testing.T) {
 	}}
 	service := system.NewService(nil, nil, &pkgAuth.NoopAuthorizer{}, ateClient)
 
-	page, err := service.ListSubstrateWorkers(ctx, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: "team", Page: &apiv1alpha1.PageRequest{Limit: 2}})
+	page, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Namespace: "team", Page: &apiv1.PageRequest{Limit: 2}})
 	require.NoError(t, err)
 	require.Len(t, page.Workers, 1)
 	assert.Equal(t, "worker-0", page.Workers[0].WorkerPod)
 	assert.Equal(t, "upstream:2", page.NextPageToken)
 	assert.Equal(t, 1, ateClient.workerReads)
-	next, err := service.ListSubstrateWorkers(ctx, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: "team", Page: &apiv1alpha1.PageRequest{Limit: 2, PageToken: page.NextPageToken}})
+	next, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Namespace: "team", Page: &apiv1.PageRequest{Limit: 2, PageToken: page.NextPageToken}})
 	require.NoError(t, err)
 	require.Len(t, next.Workers, 1)
 	assert.Equal(t, "worker-2", next.Workers[0].WorkerPod)
@@ -301,9 +302,8 @@ func TestGetSubstrateSummary(t *testing.T) {
 			// count of one rather than as a passing test.
 			pageSize: 1,
 			templates: []*ateapipb.ActorTemplate{{
-				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
-				SandboxConfig: &ateapipb.SandboxConfig{SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR},
-				Containers:    []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
+				Metadata:   &ateapipb.ResourceMetadata{Atespace: "team", Name: "template", Uid: "template-uid"},
+				Containers: []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "API_KEY", Value: "secret"}}}},
 				Status: &ateapipb.ActorTemplateStatus{GoldenSnapshotStatus: &ateapipb.GoldenSnapshotStatus{
 					GoldenTag: &ateapipb.ObjectRef{Atespace: "ate-golden", Name: "golden"},
 				}},
@@ -311,7 +311,7 @@ func TestGetSubstrateSummary(t *testing.T) {
 			actors: []*ateapipb.Actor{
 				substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
 				substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-				substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+				substrateActor("actor-3", "team", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 				substrateActor("actor-4", "other", ateapipb.ActorState_ACTOR_STATE_RUNNING, "other", "worker-9"),
 			},
 			workers: []*ateapipb.Worker{
@@ -333,14 +333,13 @@ func TestGetSubstrateSummary(t *testing.T) {
 		assert.Equal(t, int64(1), result.BusyWorkerCount)
 		assert.Equal(t, []system.SubstrateActorStatusCount{
 			{State: ateapipb.ActorState_ACTOR_STATE_RUNNING, Count: 2},
-			{State: ateapipb.ActorState_ACTOR_STATE_PAUSED, Count: 1},
+			{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED, Count: 1},
 		}, result.ActorStatusCounts)
 		require.Len(t, result.WorkerPools, 1)
 		require.Len(t, result.ActorTemplates, 1)
 		template := result.ActorTemplates[0]
 		assert.Equal(t, "template-uid", template.GetMetadata().GetUid())
 		assert.Equal(t, "golden", template.GetStatus().GetGoldenSnapshotStatus().GetGoldenTag().GetName())
-		assert.Equal(t, ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, template.GetSandboxConfig().GetSandboxClass())
 		assert.Empty(t, template.GetContainers())
 		require.Len(t, ateClient.templates[0].GetContainers(), 1)
 		assert.Equal(t, "secret", ateClient.templates[0].GetContainers()[0].GetEnv()[0].GetValue())
@@ -369,7 +368,7 @@ func TestGetSubstrateSummaryReadsAreIndependent(t *testing.T) {
 
 	actors := []*ateapipb.Actor{
 		substrateActor("actor-1", "team", ateapipb.ActorState_ACTOR_STATE_RUNNING, "team", "worker-0"),
-		substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", ""),
+		substrateActor("actor-2", "team", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", ""),
 	}
 	workers := []*ateapipb.Worker{{WorkerNamespace: "team", WorkerPool: "pool", WorkerPod: "worker-0", Status: &ateapipb.WorkerStatus{Allocated: &ateapipb.WorkerResources{Actors: 2}}}}
 
@@ -521,7 +520,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 	actor.ActorTemplate.Atespace = "shared"
 	ateClient := &fakeATEClient{
 		pageSize: 1,
-		actors:   []*ateapipb.Actor{actor, substrateActor("same-name", "shared", ateapipb.ActorState_ACTOR_STATE_PAUSED, "", "")},
+		actors:   []*ateapipb.Actor{actor, substrateActor("same-name", "shared", ateapipb.ActorState_ACTOR_STATE_SUSPENDED, "", "")},
 		templates: []*ateapipb.ActorTemplate{
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "shared", Name: "template"}},
 			{Metadata: &ateapipb.ResourceMetadata{Atespace: "team-a", Name: "own-template"}},
@@ -557,7 +556,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 					assert.Equal(t, tc.atespace, template.GetMetadata().GetAtespace())
 				}
 			}
-			page, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: tc.atespace, Page: &apiv1alpha1.PageRequest{Limit: 1}})
+			page, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: tc.atespace, Page: &apiv1.PageRequest{Limit: 1}})
 			require.NoError(t, err)
 			for _, row := range page.Actors {
 				if tc.atespace != "" {
@@ -566,7 +565,7 @@ func TestSubstrateScopesAreIndependent(t *testing.T) {
 			}
 		})
 	}
-	page, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: "team-a"})
+	page, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "team-a"})
 	require.NoError(t, err)
 	require.Len(t, page.Actors, 1)
 	assert.Same(t, actor, page.Actors[0])
@@ -593,13 +592,13 @@ func (c *emptyPageATEClient) ListWorkersPage(_ context.Context, size int32, toke
 func TestSubstrateEmptyPagesPreserveUpstreamTokens(t *testing.T) {
 	ctx := pkgAuth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: pkgAuth.Principal{User: pkgAuth.User{ID: "user"}}})
 	service := system.NewService(nil, []string{"team"}, &pkgAuth.NoopAuthorizer{}, &emptyPageATEClient{t: t})
-	page := &apiv1alpha1.PageRequest{Limit: 7, PageToken: "upstream:opaque/cursor="}
-	actors, err := service.ListSubstrateActors(ctx, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: "team", Page: page})
+	page := &apiv1.PageRequest{Limit: 7, PageToken: "upstream:opaque/cursor="}
+	actors, err := service.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Atespace: "team", Page: page})
 	require.NoError(t, err)
 	assert.Empty(t, actors.Actors)
 	assert.Empty(t, actors.ATEAPIError)
 	assert.Equal(t, "upstream:next/cursor=", actors.NextPageToken)
-	workers, err := service.ListSubstrateWorkers(ctx, &apiv1alpha1.ListSubstrateWorkersRequest{Page: page})
+	workers, err := service.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: page})
 	require.NoError(t, err)
 	assert.Empty(t, workers.Workers)
 	assert.Empty(t, workers.ATEAPIError)

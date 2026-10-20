@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/grpc"
@@ -196,24 +196,43 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
-func (c *Client) PauseActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
-	ctx, cancel := c.callCtx(ctx)
-	defer cancel()
-	resp, err := c.ControlClient.PauseActor(ctx, &ateapipb.PauseActorRequest{Actor: actorRef(atespace, actorID)})
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetActor(), nil
-}
-
+// SuspendActor waits for durable storage, including an upload left by an earlier
+// attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
+		Actor:   actorRef(atespace, actorID),
+		Options: &ateapipb.SuspendOptions{Mode: ateapipb.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS},
+	})
 	if err != nil {
 		return nil, err
 	}
-	return resp.GetActor(), nil
+	actor := resp.GetActor()
+	uid := actor.GetMetadata().GetUid()
+	generation := LatestActorSnapshot(actor).GetGeneration()
+	for {
+		if actor.GetMetadata().GetUid() != uid || actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED || LatestActorSnapshot(actor).GetGeneration() != generation {
+			return nil, fmt.Errorf("actor %s/%s changed while waiting for its durable snapshot", atespace, actorID)
+		}
+		snapshot := LatestActorSnapshot(actor)
+		if snapshot.GetDurableSnapshot().GetStatus() != ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING {
+			// The lifecycle owner validates fidelity and completeness; only a pending
+			// upload warrants polling. Never substitute an older completed generation.
+			return actor, nil
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("wait for Actor %s/%s durable snapshot: %w", atespace, actorID, ctx.Err())
+		case <-timer.C:
+		}
+		actor, err = c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{Actor: actorRef(atespace, actorID)})
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 func (c *Client) GetTag(ctx context.Context, atespace, name string) (*ateapipb.Tag, error) {
@@ -234,10 +253,13 @@ func (c *Client) CreateTag(ctx context.Context, atespace, name, actorName string
 	})
 }
 
-func (c *Client) DeleteTag(ctx context.Context, atespace, name string) error {
+func (c *Client) DeleteTag(ctx context.Context, atespace, name, uid string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{Tag: actorRef(atespace, name)})
+	_, err := c.ControlClient.DeleteTag(ctx, &ateapipb.DeleteTagRequest{
+		Tag:     actorRef(atespace, name),
+		Options: &ateapipb.DeleteOptions{Uid: uid},
+	})
 	return err
 }
 

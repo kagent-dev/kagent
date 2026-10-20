@@ -68,7 +68,7 @@ import {
   readToolApprovalResponse,
   type PendingRequest,
 } from "./hitl";
-import { mediaTypeOf } from "./attachments";
+import { fileNameFromUrl, isHttpUrl, LinkFile, mediaTypeOf } from "./attachments";
 import { agentInstanceShareToken } from "../shareToken";
 import { interleaveTaskMessages } from "./transcriptOrder";
 import { serviceClient } from "../transport";
@@ -216,24 +216,6 @@ function toPart(part: A2APart): ChatPart | undefined {
   return undefined;
 }
 
-function isHttpUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-// Last path segment, so a query string or fragment never becomes the name.
-function fileNameFromUrl(url: string): string {
-  try {
-    return decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "") || "file";
-  } catch {
-    return "file";
-  }
-}
-
 /**
  * What a data part represents.
  *
@@ -259,7 +241,7 @@ function dataKindOf(
   return "unknown";
 }
 
-function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
+function toParts(parts: readonly A2APart[] | undefined, role?: Role): ChatPart[] {
   const result: ChatPart[] = [];
   for (const source of parts ?? []) {
     const part = toPart(source);
@@ -272,7 +254,12 @@ function toParts(parts: readonly A2APart[] | undefined): ChatPart[] {
     }
     result.push(part);
   }
-  return result;
+  // A link the user sent beside its own URL in the text (see LinkFile) gets no chip.
+  if (role !== Role.USER) return result;
+  return result.filter(
+    (part) =>
+      !(part.kind === "file" && part.url && result.some((t) => t.kind === "text" && t.text.includes(part.url!))),
+  );
 }
 
 type ControlFlowResult = "confirmation_required" | "rejected";
@@ -456,7 +443,10 @@ export class A2AGrpcChatClient implements ChatClient {
     const client = serviceClient(A2AService);
     const fileParts = await Promise.all(
       (input.files ?? []).map(async (file) => ({
-        content: { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
+        content:
+          file instanceof LinkFile
+            ? { case: "url" as const, value: file.url }
+            : { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
         filename: file.name,
         mediaType: mediaTypeOf(file),
       })),
@@ -526,7 +516,7 @@ export class A2AGrpcChatClient implements ChatClient {
      * every frame of a run carries the same one. A local rather than a field: it
      * belongs to this turn and must not outlive it.
      */
-    const artifacts = new Map<string, string>();
+    const artifacts = new Map<string, ChatPart[]>();
 
     let stream: AsyncIterable<{ payload: { case?: string; value?: unknown } }>;
     try {
@@ -550,7 +540,7 @@ export class A2AGrpcChatClient implements ChatClient {
           };
           const status = event.status;
           const message = status?.message;
-          const parts = visibleParts(toParts(message?.parts), { hideRejected: true });
+          const parts = visibleParts(toParts(message?.parts, message?.role), { hideRejected: true });
           const state = turnState(status?.state);
           /*
            * The question, when this is the frame that parked the turn.
@@ -633,18 +623,23 @@ export class A2AGrpcChatClient implements ChatClient {
 
           if (known) {
             const id = artifactId;
-            if (event.append) {
-              const whole = (artifacts.get(artifactId) ?? "") + body;
-              artifacts.set(artifactId, whole);
+            const previous = artifacts.get(id) ?? [];
+            const textOnly = previous.every((part) => part.kind === "text") &&
+              parts.every((part) => part.kind === "text");
+            const combined = event.append ? [...previous, ...parts] : parts;
+            const updated: ChatPart[] = textOnly
+              ? [{ kind: "text", text: textOf(combined) }]
+              : combined;
+            artifacts.set(id, updated);
+            if (event.append && textOnly) {
               yield { type: "delta", messageId: id, text: body };
             } else {
-              artifacts.set(artifactId, body);
               yield {
                 type: "message",
                 message: {
                   id,
                   role: "agent",
-                  parts,
+                  parts: updated,
                   createdAt: new Date().toISOString(),
                   taskId: event.taskId,
                 },
@@ -666,7 +661,7 @@ export class A2AGrpcChatClient implements ChatClient {
           statusReply = "";
 
           const id = artifactId || nextId("artifact");
-          artifacts.set(id, body);
+          artifacts.set(id, parts);
           yield {
             type: "message",
             message: {
@@ -699,7 +694,7 @@ export class A2AGrpcChatClient implements ChatClient {
 
         if (payload.case === "message") {
           const message = payload.value as A2AMessage;
-          const parts = visibleParts(toParts(message.parts), { hideRejected: true });
+          const parts = visibleParts(toParts(message.parts, message.role), { hideRejected: true });
           if (parts.length === 0) continue;
           const id = message.messageId || nextId("message");
           if (delivered.has(id)) continue;
@@ -812,7 +807,7 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
               },
             },
           ]
-      : toParts(message.parts);
+      : toParts(message.parts, message.role);
     if (decisions) pendingApproval = undefined;
     if (answer) pendingQuestions.delete(answer.requestId);
     if (parts.length === 0) return;

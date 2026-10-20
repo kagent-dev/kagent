@@ -10,8 +10,10 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
@@ -19,7 +21,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -114,7 +115,7 @@ func (h *Handler) listSessions(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 	output := ListSessionsOutput{Sessions: []SessionSummary{}, NextPageToken: result.NextPageToken}
 	for _, session := range result.Sessions {
-		if session.GetState() != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY {
+		if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY {
 			continue
 		}
 		output.Sessions = append(output.Sessions, sessionSummary(session))

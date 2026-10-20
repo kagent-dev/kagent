@@ -8,6 +8,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -44,6 +45,8 @@ func NewHTTPHandler(gateway a2asrv.RequestHandler, authenticator auth.AuthProvid
 				status = http.StatusUnauthorized
 			case errors.Is(err, a2atype.ErrUnauthorized):
 				status = http.StatusForbidden
+			case errors.Is(err, a2atype.ErrTaskNotFound):
+				status = http.StatusNotFound
 			case errors.Is(err, a2atype.ErrInvalidRequest):
 				status = http.StatusBadRequest
 			case errors.Is(err, a2atype.ErrUnsupportedOperation):

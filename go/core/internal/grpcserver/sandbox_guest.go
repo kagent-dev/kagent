@@ -4,12 +4,13 @@ import (
 	"context"
 
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
-	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	sandboxapi "github.com/kagent-dev/kagent/go/api/sandbox"
+	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 )
 
 type sandboxGuestServer struct {

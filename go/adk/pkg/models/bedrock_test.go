@@ -14,9 +14,55 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
+
+func TestBedrockProviderJSONReachesConverseUnchanged(t *testing.T) {
+	t.Setenv("AWS_BEARER_TOKEN_BEDROCK", "")
+	raw := `{"thinking":{"budget_tokens":1024},"large":9007199254740993,"values":[0,false,null,0.25]}`
+	fields, err := DecodeBedrockRequestFields([]byte(raw))
+	require.NoError(t, err)
+	var body map[string]json.RawMessage
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"output":{"message":{"role":"assistant","content":[{"text":"ok"}]}},"stopReason":"end_turn","usage":{"inputTokens":1,"outputTokens":1,"totalTokens":2},"metrics":{"latencyMs":1}}`)
+	}))
+	defer server.Close()
+	llm := &BedrockModel{
+		Config: &BedrockConfig{Model: "claude", AdditionalModelRequestFields: fields},
+		Client: bedrockruntime.New(bedrockruntime.Options{
+			Region: "us-east-1", BaseEndpoint: aws.String(server.URL), HTTPClient: server.Client(),
+			Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""), RetryMaxAttempts: 1,
+		}),
+	}
+	for _, err := range llm.GenerateContent(t.Context(), &model.LLMRequest{Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hello"}}}}}, false) {
+		require.NoError(t, err)
+	}
+	var got, want any
+	gotDecoder := json.NewDecoder(strings.NewReader(string(body["additionalModelRequestFields"])))
+	gotDecoder.UseNumber()
+	require.NoError(t, gotDecoder.Decode(&got))
+	wantDecoder := json.NewDecoder(strings.NewReader(raw))
+	wantDecoder.UseNumber()
+	require.NoError(t, wantDecoder.Decode(&want))
+	require.Equal(t, want, got)
+}
+
+func TestDecodeBedrockRequestFields(t *testing.T) {
+	fields, err := DecodeBedrockRequestFields(nil)
+	require.NoError(t, err)
+	require.Nil(t, fields)
+	fields, err = DecodeBedrockRequestFields([]byte(`{}`))
+	require.NoError(t, err)
+	require.NotNil(t, fields)
+	for _, invalid := range []string{`null`, `[]`, `1`, `{`, `{} {}`} {
+		_, err := DecodeBedrockRequestFields([]byte(invalid))
+		require.Error(t, err, invalid)
+	}
+}
 
 // testLogger returns a no-op logger for tests.
 
@@ -763,7 +809,7 @@ func TestBuildInferenceConfig(t *testing.T) {
 		},
 		{
 			name:           "thinking with maxTokens keeps only maxTokens",
-			cfg:            BedrockConfig{Temperature: f64(0.7), TopP: f64(0.9), MaxTokens: func() *int { v := 1000; return &v }()},
+			cfg:            BedrockConfig{Temperature: f64(0.7), TopP: f64(0.9), MaxTokens: new(int32(1000))},
 			thinkingActive: true,
 			wantNil:        false,
 			wantMaxTokens:  i32(1000),

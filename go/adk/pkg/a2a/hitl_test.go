@@ -9,8 +9,9 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
+
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func dataPart(data map[string]any, metadata map[string]any) *a2atype.Part {
@@ -104,6 +105,20 @@ func TestHitlExtensionDoesNotReadLegacyDataPart(t *testing.T) {
 	legacy := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewDataPart(map[string]any{"decision_type": "approve"}))
 	if IsHITLResponse(legacy) {
 		t.Fatal("legacy DataPart was treated as a HITL response")
+	}
+}
+
+// TestHITLActivationInterceptorSplitsJoinedHeader covers clients that send
+// A2A-Extensions as one comma-separated value, as the UI does.
+func TestHITLActivationInterceptorSplitsJoinedHeader(t *testing.T) {
+	ctx, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{
+		a2atype.SvcParamExtensions: {HITLExtensionURI + "," + UsageExtensionURI},
+	}))
+	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+		t.Fatalf("Before() error = %v", err)
+	}
+	if !HitlActivated(ctx) {
+		t.Fatal("HITL was not activated from a joined header value")
 	}
 }
 

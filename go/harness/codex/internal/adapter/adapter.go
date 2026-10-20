@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
@@ -16,7 +18,6 @@ import (
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	sharedtelemetry "github.com/kagent-dev/kagent/go/pkg/telemetry"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"github.com/pelletier/go-toml/v2"
 )
 
 const codexHomeEnv = "CODEX_HOME"
@@ -40,7 +41,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		return nil, fmt.Errorf("workspace and durable directories must be absolute paths")
 	}
 	codexHome := filepath.Join(input.DurableDir, "codex")
-	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), filepath.Join(codexHome, "skills")} {
+	skillsRoot := config.SkillsRoot(input.DurableDir)
+	for _, directory := range []string{input.Workspace, codexHome, filepath.Join(codexHome, "agents"), skillsRoot} {
 		if err := utils.EnsurePrivateDir(directory); err != nil {
 			return nil, fmt.Errorf("prepare Codex directory %q: %w", directory, err)
 		}
@@ -48,13 +50,13 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err := reconcileGeneratedDir(filepath.Join(codexHome, "agents"), agentFileNames(cfg.Agents)); err != nil {
 		return nil, fmt.Errorf("reconcile Codex agents: %w", err)
 	}
-	if err := reconcileGeneratedDir(filepath.Join(codexHome, "skills"), nil); err != nil {
+	if err := reconcileGeneratedDir(skillsRoot, nil); err != nil {
 		return nil, fmt.Errorf("reconcile Codex skills: %w", err)
 	}
 	if cfg.SkillResources != nil {
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
-			Skills:   filepath.Join(codexHome, "skills"),
+			Skills:   skillsRoot,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
@@ -81,7 +83,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	environment := nativeEnvironment(input.Environment, codexHome, nativeDefaults)
 	cfg.Telemetry = effectiveTelemetry(cfg.Telemetry, environment)
 	cfg.Telemetry.CaptureContent = nativeDefaults.WithEnvironment(input.Environment).CaptureContent
-	configTOML, err := renderConfig(cfg, codexHome)
+	configTOML, err := renderConfig(cfg, codexHome, slices.Contains(input.Environment, env.TestCodexDisableRetries+"=true"))
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +102,8 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		DeveloperInstruction: cfg.DeveloperInstruction, Environment: environment,
 		MaxFrameBytes: cfg.MaxFrameBytes, MaxStderrBytes: cfg.MaxStderrBytes, InterruptGrace: cfg.InterruptGrace(),
 		ApprovalServers: approvalServers,
+		PendingDir:      filepath.Join(input.DurableDir, "adapter"),
+		Tools:           driver.NewMCPCaller(cfg.MCPServers, environment),
 	}), nil
 }
 
@@ -131,6 +135,7 @@ type nativeGranularApprovalPolicy struct {
 
 type nativeFeatures struct {
 	DefaultModeRequestUserInput bool `toml:"default_mode_request_user_input"`
+	UnboundedConnectionRetries  bool `toml:"unbounded_connection_retries"`
 }
 
 type nativeAnalytics struct {
@@ -162,6 +167,12 @@ type nativeModelProvider struct {
 	WireAPI string `toml:"wire_api"`
 	EnvKey  string `toml:"env_key"`
 	BaseURL string `toml:"base_url,omitempty"`
+	// TODO: REMOVE these test-only retry budgets once upstream denial handling permits
+	// bounded native retries. Alpha3 fixes DNS search fallback, not native backoff:
+	// https://github.com/agent-substrate/substrate/issues/2663
+	// Restore native defaults by omitting both fields, not by leaving zeros.
+	RequestMaxRetries *uint `toml:"request_max_retries,omitempty"`
+	StreamMaxRetries  *uint `toml:"stream_max_retries,omitempty"`
 }
 
 type nativeAgent struct {
@@ -184,21 +195,28 @@ type nativeAgentConfig struct {
 
 // renderConfig translates the versioned Kagent contract into the pinned
 // Codex CLI's native TOML without copying credential values into durable state.
-func renderConfig(cfg config.Config, codexHome string) ([]byte, error) {
+func renderConfig(cfg config.Config, codexHome string, disableRetries bool) ([]byte, error) {
 	native := nativeConfig{
 		Model: cfg.Model, ModelProvider: nativeProviderName(cfg.Provider.Name),
 		ApprovalPolicy: nativeApprovalPolicy{Granular: nativeGranularApprovalPolicy{MCPElicitations: true}},
 		SandboxMode:    "danger-full-access", WebSearch: "cached",
-		Features:   nativeFeatures{DefaultModeRequestUserInput: true},
+		// DNS denials look like connection failures. Keep retries bounded even
+		// after the temporary zero provider retry budgets are removed.
+		Features:   nativeFeatures{DefaultModeRequestUserInput: true, UnboundedConnectionRetries: false},
 		Analytics:  nativeAnalytics{Enabled: false},
 		Agents:     make(map[string]nativeAgent, len(cfg.Agents)),
 		MCPServers: make(map[string]nativeMCPServer, len(cfg.MCPServers)),
 	}
 	if cfg.Provider.Name == "openai" {
+		provider := nativeModelProvider{
+			Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
+		}
+		if disableRetries {
+			provider.RequestMaxRetries = new(uint(0))
+			provider.StreamMaxRetries = new(uint(0))
+		}
 		native.ModelProviders = map[string]nativeModelProvider{
-			"kagent-openai": {
-				Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
-			},
+			"kagent-openai": provider,
 		}
 	}
 	if cfg.Telemetry != nil {

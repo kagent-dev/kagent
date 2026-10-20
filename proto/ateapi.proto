@@ -16,56 +16,79 @@ syntax = "proto3";
 
 package ateapi;
 
+import "google/protobuf/descriptor.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/agent-substrate/substrate/pkg/proto/ateapipb";
+option go_package = "go.ate.dev/substrate/pkg/proto/ateapipb";
 
 // Control is the primary RPC interface for Agentic Substrate.
 service Control {
   // Get an Actor.
-  rpc GetActor(GetActorRequest) returns (Actor) {}
+  rpc GetActor(GetActorRequest) returns (Actor) {
+    option (method).resource = "Actor";
+  }
 
   // Create a new Actor deriving from a given ActorTemplate.
-  rpc CreateActor(CreateActorRequest) returns (Actor) {}
+  rpc CreateActor(CreateActorRequest) returns (Actor) {
+    option (method).resource = "Actor";
+  }
 
   // Update mutable fields on an existing Actor.
-  rpc UpdateActor(UpdateActorRequest) returns (Actor) {}
+  rpc UpdateActor(UpdateActorRequest) returns (Actor) {
+    option (method).resource = "Actor";
+  }
 
   // Suspend a given actor to a new snapshot. A running actor is checkpointed
-  // on its worker; a paused actor's node-local snapshot is uploaded, narrowed
-  // to the template's commit scope where required (Full capture, Data commit).
-  rpc SuspendActor(SuspendActorRequest) returns (SuspendActorResponse) {}
-
-  // Pause a given actor and keep its snapshots on node VM.
-  rpc PauseActor(PauseActorRequest) returns (PauseActorResponse) {}
+  // on its worker. A SUSPENDED actor is returned as it is.
+  rpc SuspendActor(SuspendActorRequest) returns (SuspendActorResponse) {
+    option (method).resource = "Actor";
+  }
 
   // Resume an actor from its latest snapshot.
-  rpc ResumeActor(ResumeActorRequest) returns (ResumeActorResponse) {}
+  rpc ResumeActor(ResumeActorRequest) returns (ResumeActorResponse) {
+    option (method).resource = "Actor";
+  }
 
-  // Revert an actor to SUSPENDED state.
-  // Only crashed, running or paused actors can be reverted.
-  rpc RevertActor(RevertActorRequest) returns (RevertActorResponse) {}
+  // Revert an actor to SUSPENDED state at its durable snapshot.
+  // Only crashed or running actors, or suspended actors with a node-local
+  // snapshot, can be reverted. A suspended actor without a node-local snapshot
+  // is already at its durable snapshot, so there is nothing to revert.
+  rpc RevertActor(RevertActorRequest) returns (RevertActorResponse) {
+    option (method).resource = "Actor";
+  }
 
   // Delete an actor. Only suspended or crashed actors can be deleted unless
   // any_state is set.
-  rpc DeleteActor(DeleteActorRequest) returns (Actor) {}
+  rpc DeleteActor(DeleteActorRequest) returns (Actor) {
+    option (method).resource = "Actor";
+  }
 
   // Get the egress policy resource nested under an Actor.
-  rpc GetActorEgressPolicy(GetActorEgressPolicyRequest) returns (EgressPolicy) {}
+  rpc GetActorEgressPolicy(GetActorEgressPolicyRequest) returns (EgressPolicy) {
+    option (method).resource = "EgressPolicy";
+  }
 
   // Create the egress policy resource nested under an Actor.
-  rpc CreateActorEgressPolicy(CreateActorEgressPolicyRequest) returns (EgressPolicy) {}
+  rpc CreateActorEgressPolicy(CreateActorEgressPolicyRequest) returns (EgressPolicy) {
+    option (method).resource = "EgressPolicy";
+  }
 
   // Replace the egress policy resource nested under an Actor.
-  rpc UpdateActorEgressPolicy(UpdateActorEgressPolicyRequest) returns (EgressPolicy) {}
+  rpc UpdateActorEgressPolicy(UpdateActorEgressPolicyRequest) returns (EgressPolicy) {
+    option (method).resource = "EgressPolicy";
+  }
 
   // Delete the egress policy resource nested under an Actor.
-  rpc DeleteActorEgressPolicy(DeleteActorEgressPolicyRequest) returns (EgressPolicy) {}
+  rpc DeleteActorEgressPolicy(DeleteActorEgressPolicyRequest) returns (EgressPolicy) {
+    option (method).resource = "EgressPolicy";
+  }
 
   // Create a Substrate-issued JWT asserting the actor identity.
   //
   // * Called by the egress gateway when actor JWT injection is configured for outbound requests.
-  rpc MintActorJWT(MintActorJWTRequest) returns (MintActorJWTResponse) {}
+  rpc MintActorJwt(MintActorJwtRequest) returns (MintActorJwtResponse) {
+    option (method).resource = "Actor";
+  }
 
   // Create a Substrate-issued SPIFFE certificate asserting the actor identity.
   //
@@ -73,152 +96,300 @@ service Control {
   //
   // * Called by the egress gateway when actor client certificate injection is
   //   configured for outbound requests.
-  rpc MintActorCertificate(MintActorCertificateRequest) returns (MintActorCertificateResponse) {}
+  rpc MintActorCertificate(MintActorCertificateRequest) returns (MintActorCertificateResponse) {
+    option (method).resource = "Actor";
+  }
 
   // Tag the external snapshot a suspended Actor holds. The tag gets its own
   // copy of that snapshot, so suspending or deleting the Actor afterwards
   // cannot collect it.
-  rpc CreateTag(CreateTagRequest) returns (Tag) {}
+  rpc CreateTag(CreateTagRequest) returns (Tag) {
+    option (method).resource = "Tag";
+  }
 
   // Get a Tag.
-  rpc GetTag(GetTagRequest) returns (Tag) {}
+  rpc GetTag(GetTagRequest) returns (Tag) {
+    option (method).resource = "Tag";
+  }
 
   // List Tags.
-  rpc ListTags(ListTagsRequest) returns (ListTagsResponse) {}
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse) {
+    option (method).resource = "Tag";
+  }
 
   // Publish or unpublish a Tag without changing its address.
-  rpc UpdateTag(UpdateTagRequest) returns (Tag) {}
+  rpc UpdateTag(UpdateTagRequest) returns (Tag) {
+    option (method).resource = "Tag";
+  }
 
   // Delete a Tag and the external snapshot it owns. Actors created from the
   // tag that have not yet been suspended still point at that external snapshot
   // and become unrecoverable, so do not delete a tag while such Actors exist.
-  rpc DeleteTag(DeleteTagRequest) returns (Tag) {}
+  rpc DeleteTag(DeleteTagRequest) returns (Tag) {
+    option (method).resource = "Tag";
+  }
 
   // List Workers.
-  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse) {}
+  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse) {
+    option (method).resource = "Worker";
+  }
 
   // Get a Worker.
-  rpc GetWorker(GetWorkerRequest) returns (Worker) {}
+  rpc GetWorker(GetWorkerRequest) returns (Worker) {
+    option (method).resource = "Worker";
+  }
 
-  // Register a Worker. Called once its Pod is Ready and has an IP.
-  rpc CreateWorker(CreateWorkerRequest) returns (Worker) {}
+  // Register a Worker. Called once its Pod has an IP. A Worker is registered
+  // UNAVAILABLE and takes no Actors until MarkWorkerAvailable.
+  rpc CreateWorker(CreateWorkerRequest) returns (Worker) {
+    option (method).resource = "Worker";
+  }
 
   // Update observed pool state on a Worker.
-  rpc UpdateWorker(UpdateWorkerRequest) returns (Worker) {}
+  rpc UpdateWorker(UpdateWorkerRequest) returns (Worker) {
+    option (method).resource = "Worker";
+  }
 
   // Deregister a Worker. Does not cascade: the caller is responsible for
   // cleaning up related resources first.
-  rpc DeleteWorker(DeleteWorkerRequest) returns (Worker) {}
+  rpc DeleteWorker(DeleteWorkerRequest) returns (Worker) {
+    option (method).resource = "Worker";
+  }
 
   // Mark a Worker as terminating so the scheduler stops routing new Actors to
   // it. Idempotent; one-way. Deliberately leaves any bound Actor alone.
   // Returns ABORTED if another write lands on the Worker first; retry.
-  rpc DrainWorker(DrainWorkerRequest) returns (Worker) {}
+  rpc DrainWorker(DrainWorkerRequest) returns (DrainWorkerResponse) {
+    option (method).resource = "Worker";
+  }
+
+  // Mark an UNAVAILABLE Worker ACTIVE so the scheduler places Actors on it.
+  // Idempotent. Returns FAILED_PRECONDITION for a DRAINING Worker, and ABORTED
+  // if another write lands on the Worker first; retry.
+  //
+  // Every Actor placed after this call is stamped with the Worker's epoch as
+  // it stands then, so a caller raises epoch for a restarted the worker first.
+  rpc MarkWorkerAvailable(MarkWorkerAvailableRequest) returns (MarkWorkerAvailableResponse) {
+    option (method).resource = "Worker";
+  }
+
+  // Mark an ACTIVE Worker UNAVAILABLE so the scheduler stops placing Actors on
+  // it, as while its Pod is not Ready. Idempotent. Leaves any bound Actor
+  // alone. Returns FAILED_PRECONDITION for a DRAINING Worker, and ABORTED if
+  // another write lands on the Worker first; retry.
+  rpc MarkWorkerUnavailable(MarkWorkerUnavailableRequest) returns (MarkWorkerUnavailableResponse) {
+    option (method).resource = "Worker";
+  }
 
   // List the Actors hosted by a given Worker.
-  rpc ListWorkerActorAssignments(ListWorkerActorAssignmentsRequest) returns (ListWorkerActorAssignmentsResponse) {}
+  rpc ListWorkerActorAssignments(ListWorkerActorAssignmentsRequest) returns (ListWorkerActorAssignmentsResponse) {
+    option (method).resource = "ActorAssignment";
+  }
 
   // List Actors.
-  rpc ListActors(ListActorsRequest) returns (ListActorsResponse) {}
+  rpc ListActors(ListActorsRequest) returns (ListActorsResponse) {
+    option (method).resource = "Actor";
+  }
 
   // Create a new Atespace. Substrate-native, stored in database.
-  rpc CreateAtespace(CreateAtespaceRequest) returns (Atespace) {}
+  rpc CreateAtespace(CreateAtespaceRequest) returns (Atespace) {
+    option (method).resource = "Atespace";
+  }
 
   // Get an Atespace by name.
-  rpc GetAtespace(GetAtespaceRequest) returns (Atespace) {}
+  rpc GetAtespace(GetAtespaceRequest) returns (Atespace) {
+    option (method).resource = "Atespace";
+  }
 
   // List Atespaces.
-  rpc ListAtespaces(ListAtespacesRequest) returns (ListAtespacesResponse) {}
+  rpc ListAtespaces(ListAtespacesRequest) returns (ListAtespacesResponse) {
+    option (method).resource = "Atespace";
+  }
 
   // Delete an empty Atespace. Rejects (FailedPrecondition) if any Actors or
   // Tags remain.
-  rpc DeleteAtespace(DeleteAtespaceRequest) returns (Atespace) {}
+  rpc DeleteAtespace(DeleteAtespaceRequest) returns (Atespace) {
+    option (method).resource = "Atespace";
+  }
 
-  rpc CreateActorTemplate(CreateActorTemplateRequest) returns (ActorTemplate) {}
+  rpc CreateActorTemplate(CreateActorTemplateRequest) returns (ActorTemplate) {
+    option (method).resource = "ActorTemplate";
+  }
 
-  rpc GetActorTemplate(GetActorTemplateRequest) returns (ActorTemplate) {}
+  rpc GetActorTemplate(GetActorTemplateRequest) returns (ActorTemplate) {
+    option (method).resource = "ActorTemplate";
+  }
 
-  rpc ListActorTemplates(ListActorTemplatesRequest) returns (ListActorTemplatesResponse) {}
+  rpc ListActorTemplates(ListActorTemplatesRequest) returns (ListActorTemplatesResponse) {
+    option (method).resource = "ActorTemplate";
+  }
 
   // Delete an ActorTemplate together with its golden actor and golden
-  // tag in the reserved ate-golden atespace.
-  rpc DeleteActorTemplate(DeleteActorTemplateRequest) returns (ActorTemplate) {}
+  // tag in the template's atespace.
+  rpc DeleteActorTemplate(DeleteActorTemplateRequest) returns (ActorTemplate) {
+    option (method).resource = "ActorTemplate";
+  }
 
   // Get the deployment-wide global access policy singleton. Returns NotFound
   // until the policy has been created.
-  rpc GetGlobalAccessPolicy(GetGlobalAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc GetGlobalAccessPolicy(GetGlobalAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 
   // Create the deployment-wide global access policy singleton. The server's
   // configured bootstrap owners are global owners whether or not this policy
   // exists, so they can create it.
-  rpc CreateGlobalAccessPolicy(CreateGlobalAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc CreateGlobalAccessPolicy(CreateGlobalAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 
   // Replace the deployment-wide global access policy singleton. Empty
   // bindings revoke every grant held through the policy; bootstrap owners
   // keep access.
-  rpc UpdateGlobalAccessPolicy(UpdateGlobalAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc UpdateGlobalAccessPolicy(UpdateGlobalAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 
   // Get the access policy resource nested under an Atespace.
-  rpc GetAtespaceAccessPolicy(GetAtespaceAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc GetAtespaceAccessPolicy(GetAtespaceAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 
   // Create the access policy resource nested under an Atespace.
-  rpc CreateAtespaceAccessPolicy(CreateAtespaceAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc CreateAtespaceAccessPolicy(CreateAtespaceAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 
   // Replace the access policy resource nested under an Atespace.
-  rpc UpdateAtespaceAccessPolicy(UpdateAtespaceAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc UpdateAtespaceAccessPolicy(UpdateAtespaceAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 
   // Delete the access policy resource nested under an Atespace.
-  rpc DeleteAtespaceAccessPolicy(DeleteAtespaceAccessPolicyRequest) returns (AccessPolicy) {}
+  rpc DeleteAtespaceAccessPolicy(DeleteAtespaceAccessPolicyRequest) returns (AccessPolicy) {
+    option (method).resource = "AccessPolicy";
+  }
 }
 
-// ExternalSnapshot addresses a snapshot held in object storage.
-message ExternalSnapshot {
+// ObjectSnapshot addresses a snapshot held in object storage.
+message ObjectSnapshot {
   // snapshot_uri addresses the snapshot's prefix in object storage.
   //
   // +k8s:required
   // +k8s:maxLength=2048 # the template's storage_location bound plus the owner prefix and snapshot name
   string snapshot_uri = 1;
+}
 
-  // content_scope is what the snapshot captured.
+// SnapshotOwner indicates the owner of a snapshot.
+enum SnapshotOwner {
+  SNAPSHOT_OWNER_UNSPECIFIED = 0;
+  // Snapshot captured directly from this Actor.
+  SNAPSHOT_OWNER_ACTOR = 1;
+  // Snapshot owned by a Tag (also includes Golden Snapshot)
+  SNAPSHOT_OWNER_TAG = 2;
+  // Keep this in sync with Snapshot.owner's maximum.
+}
+
+// SnapshotStorageStatus indicates the lifecycle stage of a durable snapshot.
+enum SnapshotStorageStatus {
+  SNAPSHOT_STORAGE_STATUS_UNSPECIFIED = 0;
+  // Snapshot creation in durable storage is in progress.
+  SNAPSHOT_STORAGE_STATUS_PENDING = 1;
+  // Snapshot is complete and ready for use in durable storage.
+  SNAPSHOT_STORAGE_STATUS_COMPLETED = 2;
+  // Keep this in sync with SnapshotStorage.status's maximum.
+}
+
+// SnapshotStorage records the durable storage representation of a Snapshot.
+message SnapshotStorage {
+  // status is the lifecycle status of the durable snapshot.
   //
-  // +k8s:optional
+  // +k8s:required
   // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
-  SnapshotContentScope content_scope = 2;
+  // +k8s:maximum=2 # keep this in sync with the SnapshotStorageStatus enum
+  SnapshotStorageStatus status = 1;
+
+  // object snapshot is stored in object storage.
+  //
+  // +k8s:required
+  ObjectSnapshot object = 2;
+}
+
+// Snapshot represents one generation of an Actor's or Tag's snapshot state.
+message Snapshot {
+  // uuid is the server-generated unique identifier for this snapshot, passed to
+  // atelet to identify the local checkpoint on disk and used as the snapshot
+  // name in object storage.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  string uuid = 1;
+
+  // generation is the monotonically increasing generation number of this
+  // snapshot, starting at 1.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  int32 generation = 2;
+
+  // owner identifies the origin and ownership of this snapshot.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  // +k8s:maximum=2 # keep this in sync with the SnapshotOwner enum
+  SnapshotOwner owner = 3;
+
+  // fidelity is what this snapshot holds.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  // +k8s:maximum=3 # keep this in sync with the SnapshotFidelity enum
+  SnapshotFidelity fidelity = 4;
 
   // UID of the ActorTemplate whose sandbox this snapshot's guest state was
   // captured from.
   //
   // +k8s:optional
   // +k8s:format=k8s-uuid
-  string actor_template_uid = 3;
-}
+  string actor_template_uid = 5;
 
-// LocalSnapshot records information about a node-local snapshot.
-message LocalSnapshot {
-  // The name of the local checkpoint on the node. Checkpoint names are
-  // server-generated UUIDs, but any resource name is valid here.
+  // locality identifies the node holding this snapshot's files (currently the
+  // Kubernetes node name). Set when a local pause checkpoint completes, and
+  // cleared once the files are deleted from that node; a resume does not
+  // delete them.
   //
   // +k8s:optional
-  // +k8s:format=k8s-short-name
-  string snapshot_name = 1;
+  // +k8s:format=k8s-long-name
+  string locality = 6;
 
-  // Scope the pause checkpoint captured (the template's onCommit at pause
-  // time).
+  // durable_snapshot holds the durable storage representation of this snapshot.
+  // PENDING while the snapshot is uploaded, including a pause's snapshot that
+  // so far exists only on the node named by locality. COMPLETED once the
+  // upload is recorded.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
-  SnapshotContentScope content_scope = 2;
+  SnapshotStorage durable_snapshot = 7;
+
+  // sandbox_runtime is the runtime the actor ran under when the snapshot was
+  // taken.
+  //
+  // +k8s:optional
+  SandboxRuntime sandbox_runtime = 8;
 }
 
-enum SnapshotContentScope {
-  // Unspecified snapshot content scope.
-  SNAPSHOT_CONTENT_SCOPE_UNSPECIFIED = 0;
-  // Captures process memory, root filesystem changes, and durable data.
-  SNAPSHOT_CONTENT_SCOPE_FULL = 1;
-  // Captures durable data without process memory or root filesystem changes.
-  SNAPSHOT_CONTENT_SCOPE_DATA = 2;
+// SnapshotFidelity orders the state layers a snapshot can hold, lowest to
+// highest. Each level includes the ones below it.
+enum SnapshotFidelity {
+  SNAPSHOT_FIDELITY_UNSPECIFIED = 0;
+  // Durable volumes only. The actor resumes by cold-booting its containers
+  // from the OCI image with the volumes restored.
+  SNAPSHOT_FIDELITY_VOLUMES = 1;
+  // Volumes plus the root filesystem changes made since boot. The actor
+  // cold-boots on resume with its rootfs writes back in place.
+  SNAPSHOT_FIDELITY_ROOTFS = 2;
+  // Volumes, root filesystem changes, and process memory. The actor resumes
+  // where it left off.
+  SNAPSHOT_FIDELITY_MEMORY = 3;
   // Keep this in sync with the maximums on fields of this type.
 }
 
@@ -316,7 +487,7 @@ message ExternalVolume {
   // +k8s:update=NoModify
   // +k8s:update=NoUnset # set-once; immutable would reject the create
   // ratchet's nil->set when the final object is validated as an update
-  string volume_name = 1;
+  string name = 1;
 
   // The globally unique volume_id returned from the storage system.
   // This will be initially empty during volume creation. Its format is the
@@ -339,39 +510,26 @@ message ExternalVolume {
   // +k8s:required
   // +k8s:maxLength=253
   // +k8s:update=NoModify
-  // +k8s:update=NoUnset # set-once, like volume_name above
+  // +k8s:update=NoUnset # set-once, like name above
   // +k8s:customValidation
   string volume_type = 3;
 
-  enum Status {
-    STATUS_UNSPECIFIED = 0;
-    // Volume creation pending in the storage system.
-    STATUS_PENDING = 1;
-    // Volume successfully created in the storage system.
-    STATUS_CREATED = 2;
-    // Volume being deleted from the storage system.
-    STATUS_DELETING = 3;
-    // Keep this in sync with ExternalVolume.status's maximum.
-  }
-
-  // +k8s:optional
-  // +k8s:minimum=1
-  // +k8s:maximum=3 # keep this in sync with the Status enum
-  Status status = 4;
-
   // volume_context contains metadata returned by the CSI driver during volume
   // provisioning, needed by the node plugin for mounting (e.g. attachment
-  // info). Keys and values are the driver's own, so they are only bounded,
+  // info). Keys and values are the driver's own, so the map is only bounded,
   // not validated.
   //
   // +k8s:optional
-  // +k8s:maxProperties=32
-  // +k8s:eachKey=+k8s:maxLength=128
-  // +k8s:eachVal=+k8s:maxLength=256
+  // +k8s:customValidation # at most 40 KiB in total, ten times the CSI limit for map fields
   map<string, string> volume_context = 5;
 }
 
 message Actor {
+  option (resource) = {
+    scope : SCOPE_ATESPACE
+    plural : "Actors"
+  };
+
   // Common resource metadata: atespace, name, uid, version, timestamps.
   //
   // +k8s:required
@@ -386,7 +544,8 @@ message Actor {
 
   // worker_selector is the per-actor placement constraint. The scheduler
   // evaluates the AND of this selector and the template's workerSelector to
-  // find eligible pools.
+  // find eligible pools. It narrows the template's selection; pinning a
+  // sandbox class belongs on the template's worker_selector.
   // Changes take effect on the next ResumeActor call.
   //
   // +k8s:optional
@@ -412,6 +571,12 @@ message Actor {
 // at most one egress policy resource, named "default".
 //
 message EgressPolicy {
+  option (resource) = {
+    parents : "Actor"
+    singleton : true
+    plural : "EgressPolicies"
+  };
+
   // Standard resource metadata. Atespace must match the parent Actor and name
   // must be "default". Both are caller-specified on create and immutable.
   // UID, version, create_time, and update_time are server-managed.
@@ -458,7 +623,7 @@ message EgressRule {
   //
   // +k8s:optional
   // +k8s:unionMember
-  HTTPRule http = 1;
+  HttpRule http = 1;
 
   // HTTPS to the named hosts, intercepted (man-in-the-middle) so the gateway
   // can authorize and modify each request. HTTP/1.1 and HTTP/2 inside the
@@ -466,19 +631,19 @@ message EgressRule {
   //
   // +k8s:optional
   // +k8s:unionMember
-  HTTPSRule https = 2;
+  HttpsRule https = 2;
 
   // TLS to the named servers, forwarded without decryption.
   //
   // +k8s:optional
   // +k8s:unionMember
-  TLSPassthroughRule tls_passthrough = 3;
+  TlsPassthroughRule tls_passthrough = 3;
 }
 
-// HTTPRule allows cleartext HTTP and is evaluated per request on the request
+// HttpRule allows cleartext HTTP and is evaluated per request on the request
 // authority (Host or :authority) and port. The gateway resolves the name and
 // dials it.
-message HTTPRule {
+message HttpRule {
   // Hostname patterns: a DNS name, or a DNS name with "*" as its leftmost
   // label. The rule matches when any pattern matches.
   //
@@ -516,7 +681,7 @@ message HTTPRule {
   HttpRuleEffects effects = 3;
 }
 
-// HTTPSRule allows HTTPS that the gateway intercepts (MITM). Every Actor behind such
+// HttpsRule allows HTTPS that the gateway intercepts (MITM). Every Actor behind such
 // a rule must trust the gateway CA. Without it, TLS to these names fails in the
 // Actor.
 //
@@ -527,9 +692,9 @@ message HTTPRule {
 //
 // Interception is for HTTP. A connection that sends no SNI does not match,
 // and a non-HTTP protocol inside an intercepted connection fails.
-message HTTPSRule {
+message HttpsRule {
   // Server names matched against the SNI, in the pattern syntax of
-  // HTTPRule.hostnames.
+  // HttpRule.hostnames.
   //
   // +k8s:required
   // +k8s:maxItems=256
@@ -549,16 +714,16 @@ message HTTPSRule {
   HttpRuleEffects effects = 3;
 }
 
-// TLSPassthroughRule allows TLS that the gateway forwards without decryption.
+// TlsPassthroughRule allows TLS that the gateway forwards without decryption.
 // It is evaluated once per connection at the ClientHello, on the SNI and
 // port, for any protocol carried over TLS. A connection that sends no SNI
 // does not match. Protocols that upgrade to TLS after a cleartext exchange
 // (STARTTLS) do not match. Because the gateway reads nothing after the
 // ClientHello, a passthrough rule has no effects, and a policy change reaches
 // an open connection only when it ends.
-message TLSPassthroughRule {
+message TlsPassthroughRule {
   // Server names matched against the SNI, in the pattern syntax of
-  // HTTPRule.hostnames.
+  // HttpRule.hostnames.
   //
   // +k8s:required
   // +k8s:maxItems=256
@@ -656,14 +821,14 @@ message CredentialHeader {
   //
   // +k8s:optional
   // +k8s:unionMember
-  ActorJWTSource actor_jwt = 4;
+  ActorJwtSource actor_jwt = 4;
 }
 
-// ActorJWTSource has the gateway mint a JWT for the Actor that sent the
+// ActorJwtSource has the gateway mint a JWT for the Actor that sent the
 // request. Relying parties verify it with OpenID Connect Discovery against its
 // issuer. The gateway reuses a JWT across requests while enough of its
 // lifetime remains, so its jti does not identify a single request.
-message ActorJWTSource {
+message ActorJwtSource {
   // The audiences the JWT is bound to, which become its aud claim.
   //
   // +k8s:required
@@ -687,8 +852,6 @@ enum ActorState {
   ACTOR_STATE_RUNNING = 2;
   ACTOR_STATE_SUSPENDING = 3;
   ACTOR_STATE_SUSPENDED = 4;
-  ACTOR_STATE_PAUSING = 5;
-  ACTOR_STATE_PAUSED = 6;
   ACTOR_STATE_CRASHED = 7;
   ACTOR_STATE_DELETING = 8;
   ACTOR_STATE_REVERTING = 9;
@@ -704,47 +867,22 @@ message ActorStatus {
   ActorState state = 1;
 
   // worker_assignment points at the worker currently hosting this Actor.
-  // Unset whenever the Actor has no worker (SUSPENDED, PAUSED, CRASHED).
+  // Unset whenever the Actor has no worker (SUSPENDED, CRASHED).
   //
   // +k8s:optional
   // +k8s:update=NoModify # can be set and cleared, but not changed in place
   WorkerAssignment worker_assignment = 2;
 
-  // in_progress_snapshot_uri is the URI in object storage of the durable
-  // snapshot the Actor is currently taking.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=2048 # the template's storage_location bound plus the owner prefix and snapshot name
-  string in_progress_snapshot_uri = 3;
-
-  // external_snapshot is the Actor's current external snapshot.
-  // If the Actor was created from a Tag this is the tag's snapshot, borrowed
-  // until the Actor's first suspend writes one of its own. Otherwise it is
-  // unset until the Actor is first suspended.
-  // +k8s:optional
-  ExternalSnapshot external_snapshot = 4;
-
-  // Node-local state used only while the Actor is paused.
-  //
-  // +k8s:optional
-  LocalSnapshot local_snapshot = 5;
-
   // Volumes attached to the actor. These volumes only live as long as the actor.
   // They are deleted when the actor is deleted. Each template volume
   // appears at most once.
   //
+  // +ate:preview=ExternalVolumes
   // +k8s:optional
   // +k8s:maxItems=32 # matches the template's volumes bound
   // +k8s:listType=map
-  // +k8s:listMapKey=volume_name
-  repeated ExternalVolume actor_volumes = 7;
-
-  // The name of the in-progress node-local checkpoint. Like durable snapshot
-  // names, these are server-generated UUIDs.
-  //
-  // +k8s:optional
-  // +k8s:format=k8s-short-name
-  string in_progress_local_snapshot_name = 8;
+  // +k8s:listMapKey=name
+  repeated ExternalVolume external_volumes = 7;
 
   // crash records why and when the Actor entered CRASHED. It is set with the
   // CRASHED state and cleared when a revert returns the Actor to SUSPENDED.
@@ -759,6 +897,26 @@ message ActorStatus {
   // +k8s:optional
   // +k8s:format=k8s-long-name
   string assigned_node = 10;
+
+  // snapshots holds the Actor's active and in-progress snapshot generations.
+  //
+  // +k8s:optional
+  // +k8s:maxItems=16
+  // +k8s:listType=atomic
+  // +k8s:unique=map
+  // +k8s:listMapKey=generation
+  repeated Snapshot snapshots = 11;
+
+  // last_assigned_generation tracks the last snapshot generation assigned for
+  // this Actor during a Suspend or Pause request.
+  // Even during Revert, the generation is not decreased to keep track of snapshots
+  // that have become stale and need to be cleaned up.
+  //
+  // +k8s:optional
+  // +k8s:alpha(since: "0.0")=+k8s:monotonic # TODO: get rid of alpha prefix
+  // +k8s:minimum=0
+  // +k8s:update=NoUnset
+  int32 last_assigned_generation = 12;
 }
 
 // ActorCrash describes the failure that moved an Actor to CRASHED.
@@ -839,18 +997,36 @@ message WorkerAssignment {
   // +k8s:optional
   // +k8s:minimum=0
   int64 worker_epoch = 8;
+
+  // sandbox_runtime is the sandbox runtime and compatibility version the Actor
+  // was started or restored under on this Worker.
+  //
+  // +k8s:optional
+  SandboxRuntime sandbox_runtime = 9;
+
+  // worker_spiffe_id is the SPIFFE ID worker_pod's certificate carries, copied
+  // from Worker.worker_spiffe_id.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=2048
+  // +k8s:customValidation # a SPIFFE ID
+  string worker_spiffe_id = 10;
 }
 
 // TagStatus is the server-owned state of a Tag.
 // The tag is fixed to one external snapshot once its creation completes, so
 // the rest is immutable provenance.
 message TagStatus {
-  // snapshot is the external snapshot this tag points at. Unset while the tag
-  // is still being created, and immutable once set: a tag never moves between
-  // snapshots. A tag is usable only once this is set.
+  // snapshot is the external snapshot this tag points at: the tag's own copy,
+  // stored under a prefix keyed on the tag's UID. It is recorded with its
+  // durable_snapshot PENDING right after the tag is reserved, before anything
+  // is copied, and transitions to COMPLETED once the copy finishes: a tag never
+  // moves between snapshots and is usable only once COMPLETED. Unset until it
+  // is recorded; a tag whose creation failed first never gets one.
   //
   // +k8s:optional
-  ExternalSnapshot snapshot = 1;
+  // +k8s:subfield(durable_snapshot)=+k8s:required
+  Snapshot snapshot = 1;
 
   // UID of the ActorTemplate the snapshot was taken under. Actors can only be
   // seeded from a tag under the same template.
@@ -858,15 +1034,6 @@ message TagStatus {
   // +k8s:required
   // +k8s:format=k8s-uuid
   string actor_template_uid = 2;
-
-  // storage_location is the base object-storage URI for this tag's snapshot.
-  // Set by the server from the source actor's template when the tag is created
-  // and immutable thereafter. The full snapshot URI is available in
-  // snapshot.snapshot_uri once tag creation completes.
-  //
-  // +k8s:required
-  // +k8s:maxLength=1024
-  string storage_location = 3;
 }
 
 // Tag is an Atespace-owned, stable name for one external snapshot. The
@@ -874,6 +1041,11 @@ message TagStatus {
 // snapshot is copied when the tag is created, and deleted when the tag is. Its
 // owning Atespace cannot be deleted until the tag is removed.
 message Tag {
+  option (resource) = {
+    scope : SCOPE_ATESPACE
+    plural : "Tags"
+  };
+
   // Common resource metadata: atespace, name, uid, version, timestamps.
   //
   // +k8s:required
@@ -905,6 +1077,11 @@ message Tag {
 // Atespace is the isolation boundary an Actor is created into. Global-scoped:
 // metadata.atespace is always empty; the atespace's identity is metadata.name.
 message Atespace {
+  option (resource) = {
+    scope : SCOPE_GLOBAL
+    plural : "Atespaces"
+  };
+
   // Common resource metadata: name, uid, version, timestamps.
   //
   // +k8s:required
@@ -931,16 +1108,12 @@ message ObjectRef {
   string name = 2;
 }
 
-// SandboxClass selects the sandbox runtime family. Snapshots are not portable
-// across classes.
-enum SandboxClass {
-  SANDBOX_CLASS_UNSPECIFIED = 0;
-  SANDBOX_CLASS_GVISOR = 1;
-  SANDBOX_CLASS_MICROVM = 2;
-  // Keep this in sync with SandboxConfig.sandbox_class's maximum.
-}
-
 message ActorTemplate {
+  option (resource) = {
+    scope : SCOPE_ATESPACE
+    plural : "ActorTemplates"
+  };
+
   // Common resource metadata: atespace, name, uid, version, timestamps.
   //
   // +k8s:required
@@ -948,7 +1121,13 @@ message ActorTemplate {
   ResourceMetadata metadata = 1;
 
   // worker_selector restricts which worker pools actors from this template
-  // may use.
+  // may use, by matching the pools' labels. Unset, every pool is eligible.
+  //
+  // The pool decides the sandbox class an actor runs in, so this selector is
+  // also how a template pins one: if the cluster runs pools of more than one
+  // sandbox class and the workload needs a particular one, select only pools
+  // of that class. An actor booting with no snapshot and no selector may land
+  // on a pool of any class, and keeps that class from its first checkpoint on.
   //
   // +k8s:optional
   Selector worker_selector = 2;
@@ -968,14 +1147,12 @@ message ActorTemplate {
   // +k8s:required
   SnapshotConfig snapshot_config = 5;
 
-  // sandbox_config selects the sandbox runtime this version's actors run on.
+  // resources is the actor's compute size. Both cpu and memory limits are
+  // required: the scheduler books them against worker capacity, and a
+  // micro-VM is booted at that size.
   //
   // +k8s:required
-  SandboxConfig sandbox_config = 6;
-
-  // Resource usage configuration.
-  //
-  // +k8s:optional
+  // +k8s:customValidation # cpu and memory limits are both set
   Resources resources = 7;
 
   // +k8s:optional
@@ -1015,11 +1192,11 @@ message GoldenSnapshotStatus {
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef golden_tag = 1;
 
-  // take_golden_snapshot_at is when the golden-actor warmup ends and the
+  // snapshot_time is when the golden-actor warmup ends and the
   // golden snapshot may be taken.
   //
   // +k8s:optional
-  google.protobuf.Timestamp take_golden_snapshot_at = 2;
+  google.protobuf.Timestamp snapshot_time = 2;
 
   // error_message is set when the golden snapshot build fails and will not be
   // retried, formatted as "<Reason>: <detail>". A nonempty value is terminal.
@@ -1034,44 +1211,53 @@ message ActorTemplateStatus {
   GoldenSnapshotStatus golden_snapshot_status = 1;
 }
 
-// SandboxConfig selects the sandbox runtime for an ActorTemplate.
-message SandboxConfig {
-  // sandbox_class selects the sandbox runtime family.
-  //
-  // +k8s:required
-  // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the SandboxClass enum
-  SandboxClass sandbox_class = 1;
-
-  // config_name names the cluster-scoped SandboxConfig Kubernetes object
-  // supplying the sandbox binaries. Required; must match sandbox_class.
-  //
-  // +k8s:required
-  // +k8s:format=k8s-long-name
-  string config_name = 2;
-}
-
 // SnapshotConfig selects what actor snapshots capture and where they are
-// stored. A FULL snapshot resumes from its own content. A DATA snapshot
-// resumes by starting the containers afresh from the OCI image, with the
-// durable-dir volumes populated from the snapshot.
+// stored.
 message SnapshotConfig {
-  // on_commit defines the scope of every snapshot taken of an actor, both
-  // the node-local one captured on pause and the one uploaded on suspend.
-  // Defaults to FULL when unset.
-  //
-  // +k8s:required
-  // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the SnapshotContentScope enum
-  SnapshotContentScope on_commit = 2;
-
   // storage_location is the base object-storage URI snapshots of actors on
   // this version are stored under. Required.
   //
   // +k8s:required
   // +k8s:maxLength=1024
   // +k8s:customValidation # Validate URI
-  string storage_location = 4;
+  string storage_location = 1;
+
+  // preferred_fidelity is the highest fidelity the system packages when it
+  // snapshots the actor, on pause (node-local) and on suspend (uploaded).
+  // It is a best-effort ceiling, not a guarantee: the system never packages
+  // more than this level, and it may package less when a layer cannot be
+  // captured or is too expensive to capture at the time, for example memory
+  // under host pressure. A process resumed in place on its worker keeps its
+  // memory regardless of this setting. Defaults to MEMORY when unset.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  // +k8s:maximum=3 # keep this in sync with the SnapshotFidelity enum
+  SnapshotFidelity preferred_fidelity = 2;
+
+  // golden_snapshot_config configures automated golden snapshot creation.
+  // Golden snapshots are enabled when this config is omitted.
+  //
+  // +k8s:optional
+  GoldenSnapshotConfig golden_snapshot_config = 5;
+}
+
+// GoldenSnapshotMode selects whether a template builds a golden snapshot.
+enum GoldenSnapshotMode {
+  GOLDEN_SNAPSHOT_MODE_UNSPECIFIED = 0;
+  GOLDEN_SNAPSHOT_MODE_ENABLED = 1;
+  GOLDEN_SNAPSHOT_MODE_DISABLED = 2;
+}
+
+// GoldenSnapshotConfig controls automated golden snapshot creation for a template.
+message GoldenSnapshotConfig {
+  // mode defaults to ENABLED when unspecified. DISABLED skips creating the
+  // template's golden actor and tag.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  // +k8s:maximum=2 # keep this in sync with the GoldenSnapshotMode enum
+  GoldenSnapshotMode mode = 1;
 }
 
 // Container is a single application container of an ActorTemplate.
@@ -1122,7 +1308,7 @@ message Container {
   // as soon as the container has started, which may be before it listens.
   //
   // +k8s:optional
-  ContainerWakeupProbe wakeup_probe = 6;
+  WakeupProbe wakeup_probe = 6;
 
   // Keyed by mount_path: each path hosts exactly one mount, while a volume
   // may be mounted at multiple paths.
@@ -1197,15 +1383,15 @@ message EnvVar {
   string value = 2 [ debug_redact = true ];
 }
 
-// ContainerWakeupProbe tells the platform when a container is serving. It is
+// WakeupProbe tells the platform when a container is serving. It is
 // polled on every wakeup, whether the actor cold-boots or is restored from a
 // snapshot, and not again while the actor stays running. A probe that does
 // not answer 200 within timeout_seconds crashes the actor.
-message ContainerWakeupProbe {
+message WakeupProbe {
   // http_get is the request to poll.
   //
   // +k8s:required
-  HTTPGetAction http_get = 1;
+  HttpGetAction http_get = 1;
 
   // timeout_seconds is how long to keep polling before giving up.
   // Defaults to 30 when unset.
@@ -1216,8 +1402,8 @@ message ContainerWakeupProbe {
   int32 timeout_seconds = 2;
 }
 
-// HTTPGetAction describes the HTTP GET the probe polls.
-message HTTPGetAction {
+// HttpGetAction describes the HTTP GET the probe polls.
+message HttpGetAction {
   // path must be a URL path starting with "/", using only RFC 3986
   // path-segment characters, without query or fragment.
   // Defaults to "/" when unset.
@@ -1249,6 +1435,8 @@ message Volume {
   // +k8s:unionMember
   DurableDirVolumeSource durable_dir = 2;
 
+  // +ate:preview=ExternalVolumes
+  // +k8s:ifDisabled(ExternalVolumes)=+k8s:forbidden
   // +k8s:optional
   // +k8s:unionMember
   ExternalVolumeTemplate external_volume_template = 3;
@@ -1311,7 +1499,7 @@ message SystemInfoVolumeSource {
   // +k8s:optional
   // +k8s:maxItems=8
   // +k8s:listType=atomic
-  // +k8s:customValidation # paths unique across entries
+  // +k8s:customValidation # at most one actor_metadata; paths unique across entries
   repeated SystemInfoDataSource data_sources = 1;
 }
 
@@ -1435,20 +1623,10 @@ message GetAtespaceRequest {
 }
 
 message ListAtespacesRequest {
-  // Requested page size; the server may return fewer, or occasionally
-  // slightly more. If unspecified, defaults to a server-chosen value;
-  // values above 1000 are coerced to 1000.
+  // Pagination controls.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  int32 page_size = 1;
-
-  // Pagination token from a previous ListAtespaces response.
-  // Omit or leave empty for the first request.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=256
-  string page_token = 2;
+  ListOptions options = 1;
 }
 
 message ListAtespacesResponse {
@@ -1493,20 +1671,10 @@ message ListActorTemplatesRequest {
   // +k8s:format=k8s-short-name
   string atespace = 1;
 
-  // Requested page size; the server may return fewer, or occasionally
-  // slightly more. If unspecified, defaults to a server-chosen value;
-  // values above 1000 are coerced to 1000.
+  // Pagination controls.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  int32 page_size = 2;
-
-  // Pagination token from a previous ListActorTemplates response.
-  // Omit or leave empty for the first request.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=256
-  string page_token = 3;
+  ListOptions options = 2;
 }
 
 message ListActorTemplatesResponse {
@@ -1563,20 +1731,43 @@ message SuspendActorRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef actor = 1;
+
+  // options controls how SuspendActor persists the actor's snapshot.
+  //
+  // +k8s:optional
+  SuspendOptions options = 2;
 }
 
 message SuspendActorResponse {
   Actor actor = 1;
 }
 
-message PauseActorRequest {
-  // +k8s:required
-  // +k8s:subfield(atespace)=+k8s:required
-  ObjectRef actor = 1;
+// SuspendOptions tunes how SuspendActor persists the actor's snapshot.
+message SuspendOptions {
+  // mode selects when SuspendActor returns relative to the snapshot reaching
+  // durable storage. If unspecified, defaults to DURABILITY_MODE_ASYNCHRONOUS.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  // +k8s:maximum=2 # keep this in sync with the DurabilityMode enum
+  DurabilityMode mode = 1;
 }
 
-message PauseActorResponse {
-  Actor actor = 1;
+// DurabilityMode selects when a suspend is acknowledged relative to its
+// snapshot being stored durably.
+enum DurabilityMode {
+  DURABILITY_MODE_UNSPECIFIED = 0;
+
+  // Return only after the snapshot is complete in durable storage. Applies
+  // only when the call checkpoints a running actor: an actor that is already
+  // SUSPENDED is returned with the snapshot it holds, which may still be on
+  // its node.
+  DURABILITY_MODE_SYNCHRONOUS = 1;
+
+  // Return once the snapshot is captured on the node. The upload to durable
+  // storage continues in the background.
+  DURABILITY_MODE_ASYNCHRONOUS = 2;
+  // Keep this in sync with SuspendOptions.mode's maximum.
 }
 
 message ResumeActorRequest {
@@ -1631,6 +1822,13 @@ message GetActorEgressPolicyRequest {
   // +k8s:required
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef actor = 1;
+
+  // Name of the singleton egress policy. Must be "default".
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  // +k8s:customValidation # must be "default"
+  string name = 2;
 }
 
 // CreateActorEgressPolicyRequest creates an egress policy for an Actor.
@@ -1675,10 +1873,17 @@ message DeleteActorEgressPolicyRequest {
   // +k8s:subfield(atespace)=+k8s:required
   ObjectRef actor = 1;
 
+  // Name of the singleton egress policy. Must be "default".
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  // +k8s:customValidation # must be "default"
+  string name = 2;
+
   // Optional per-delete preconditions.
   //
   // +k8s:optional
-  DeleteOptions options = 2;
+  DeleteOptions options = 3;
 }
 
 message GetTagRequest {
@@ -1687,8 +1892,8 @@ message GetTagRequest {
   ObjectRef tag = 1;
 }
 
-// Request message for MintActorJWT.
-message MintActorJWTRequest {
+// Request message for MintActorJwt.
+message MintActorJwtRequest {
   // The actor for which the JWT should be issued.
   //
   // Must be a valid actor that currently exists according to the actor store.
@@ -1703,7 +1908,7 @@ message MintActorJWTRequest {
   // +k8s:maxItems=16 # guardrail; tokens realistically bind a handful of audiences
   // +k8s:listType=set
   // +k8s:eachVal=+k8s:maxLength=512 # audiences are caller-defined URIs; bound only
-  repeated string audience = 1;
+  repeated string audiences = 1;
 
   // Lifetime of the JWT, in seconds.
   //
@@ -1713,8 +1918,8 @@ message MintActorJWTRequest {
   int64 expiration_seconds = 8;
 }
 
-// Response message for MintActorJWT.
-message MintActorJWTResponse {
+// Response message for MintActorJwt.
+message MintActorJwtResponse {
   // The signed actor JWT. Relying parties verify it with OpenID Connect
   // Discovery against its issuer.
   //
@@ -1727,12 +1932,17 @@ message MintActorJWTResponse {
   // * exp, nbf, iat: Numeric Unix timestamps. nbf is five minutes before iat
   //   to allow for clock skew.
   // * jti: A random token ID.
-  // * `ate.dev`: A JSON object with the actor's `atespace`, `actorName`, and
-  //   `actorUID`.
+  // * `actor.ate.dev`: A JSON object with the actor's `atespace`,
+  //   `actorName`, and `actorUID`.
+  //
+  // The subject and claim name say the token speaks for the actor itself.
+  // A token minted for a Substrate component acting on the actor's behalf
+  // (WorkerService.MintWorkerActorJwt) uses `worker-for-actor` in both places
+  // instead, so a relying party can grant the two different access.
   string actor_jwt = 1 [ debug_redact = true ];
 
-  // When actor_jwt expires. Equal to its exp claim.
-  google.protobuf.Timestamp expires_at = 2;
+  // expire_time is when actor_jwt expires. Equal to its exp claim.
+  google.protobuf.Timestamp expire_time = 2;
 }
 
 // Request message for MintActorCertificate.
@@ -1775,20 +1985,10 @@ message ListTagsRequest {
   // +k8s:format=k8s-short-name
   string atespace = 1;
 
-  // Requested page size; the server may return fewer, or occasionally
-  // slightly more. If unspecified, defaults to a server-chosen value;
-  // values above 1000 are coerced to 1000.
+  // Pagination controls.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  int32 page_size = 2;
-
-  // Pagination token from a previous ListTags response.
-  // Omit or leave empty for the first request.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=256
-  string page_token = 3;
+  ListOptions options = 2;
 }
 
 message ListTagsResponse {
@@ -1863,6 +2063,24 @@ message DeleteOptions {
   string uid = 2;
 }
 
+// ListOptions are the pagination controls a List request may carry.
+message ListOptions {
+  // Requested page size; the server may return fewer, or occasionally
+  // slightly more. If unspecified, defaults to a server-chosen value;
+  // values above 1000 are coerced to 1000.
+  //
+  // +k8s:optional
+  // +k8s:minimum=1
+  int32 page_size = 1;
+
+  // Pagination token from a previous response of the same List method.
+  // Omit or leave empty for the first request.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=256
+  string page_token = 2;
+}
+
 // ListWorkerActorAssignmentsRequest asks for a page of the Actors hosted by a
 // given Worker.
 message ListWorkerActorAssignmentsRequest {
@@ -1872,19 +2090,10 @@ message ListWorkerActorAssignmentsRequest {
   // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
   ObjectRef worker = 1;
 
-  // Requested page size; the server may return fewer. If unspecified, defaults
-  // to a server-chosen value; values above 1000 are coerced to 1000.
+  // Pagination controls.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  int32 page_size = 2;
-
-  // Pagination token from a previous ListWorkerActorAssignments response.
-  // Omit or leave empty for the first request.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=256
-  string page_token = 3;
+  ListOptions options = 2;
 }
 
 // ListWorkerActorAssignmentsResponse is one page of a Worker's Actors.
@@ -1897,20 +2106,10 @@ message ListWorkerActorAssignmentsResponse {
 }
 
 message ListWorkersRequest {
-  // Requested page size; the server may return fewer, or occasionally
-  // slightly more. If unspecified, defaults to a server-chosen value;
-  // values above 1000 are coerced to 1000.
+  // Pagination controls.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  int32 page_size = 1;
-
-  // Pagination token from a previous ListWorkers response.
-  // Omit or leave empty for the first request.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=256
-  string page_token = 2;
+  ListOptions options = 1;
 }
 
 message ListWorkersResponse {
@@ -1977,6 +2176,42 @@ message DrainWorkerRequest {
   ObjectRef worker = 1;
 }
 
+// DrainWorkerResponse holds the drained Worker.
+message DrainWorkerResponse {
+  // The worker being drained.
+  Worker worker = 1;
+}
+
+// MarkWorkerAvailableRequest names the Worker to mark ACTIVE.
+message MarkWorkerAvailableRequest {
+  // The Worker to mark ACTIVE.
+  //
+  // +k8s:required
+  // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
+  ObjectRef worker = 1;
+}
+
+// MarkWorkerAvailableResponse holds the Worker marked ACTIVE.
+message MarkWorkerAvailableResponse {
+  // The Worker marked ACTIVE.
+  Worker worker = 1;
+}
+
+// MarkWorkerUnavailableRequest names the Worker to mark UNAVAILABLE.
+message MarkWorkerUnavailableRequest {
+  // The Worker to mark UNAVAILABLE.
+  //
+  // +k8s:required
+  // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
+  ObjectRef worker = 1;
+}
+
+// MarkWorkerUnavailableResponse holds the Worker marked UNAVAILABLE.
+message MarkWorkerUnavailableResponse {
+  // The Worker marked UNAVAILABLE.
+  Worker worker = 1;
+}
+
 // List actors with pagination. Provides "soft" guarantees: actors may be
 // missed or duplicated if the system state changes during pagination.
 message ListActorsRequest {
@@ -1986,20 +2221,10 @@ message ListActorsRequest {
   // +k8s:format=k8s-short-name
   string atespace = 1;
 
-  // Requested page size; the server may return fewer, or occasionally
-  // slightly more. If unspecified, defaults to a server-chosen value;
-  // values above 1000 are coerced to 1000.
+  // Pagination controls.
   //
   // +k8s:optional
-  // +k8s:minimum=1
-  int32 page_size = 2;
-
-  // Pagination token from a previous ListActors response.
-  // Omit or leave empty for the first request.
-  //
-  // +k8s:optional
-  // +k8s:maxLength=256
-  string page_token = 3;
+  ListOptions options = 2;
 }
 
 message ListActorsResponse {
@@ -2021,6 +2246,11 @@ message ListActorsResponse {
 // an immutable field that a request changes — including by omitting it, which
 // would clear it — is rejected with INVALID_ARGUMENT.
 message Worker {
+  option (resource) = {
+    scope : SCOPE_GLOBAL
+    plural : "Workers"
+  };
+
   // Output-only: name, uid, version and timestamps are all server-assigned.
   // uid and version are echoed back on UpdateWorker as preconditions.
   //
@@ -2059,12 +2289,20 @@ message Worker {
   // +k8s:customValidation # until `format=k8s-ip` is supported
   // +k8s:immutable
   repeated string ips = 7;
+  // worker_spiffe_id is the SPIFFE ID the worker pod's certificate carries.
+  // atenet-router requires it on the certificate of the worker's atunnel.
+  //
+  // +k8s:optional
+  // +k8s:maxLength=2048
+  // +k8s:customValidation # a SPIFFE ID
+  // +k8s:immutable
+  string worker_spiffe_id = 13;
 
-  // sandbox_class mirrors the WorkerPool's sandboxClass; its values are the
-  // CRD's own vocabulary, so it is only bounded, not validated.
+  // sandbox_class mirrors the WorkerPool's default sandbox class
   //
   // +k8s:optional
   // +k8s:maxLength=63
+  // +k8s:customValidation # gvisor or microvm
   // +k8s:immutable
   string sandbox_class = 8;
 
@@ -2079,10 +2317,10 @@ message Worker {
   // +k8s:eachVal=+k8s:format=k8s-label-value
   map<string, string> labels = 9;
 
-  // epoch counts the runs of the worker pod's ateom container: 1 for its first
+  // epoch counts the runs of the worker pod's worker container: 1 for its first
   // run and one more for each restart. 0 means it has not been reported.
   //
-  // A restarted ateom has lost the sandboxes of the Actors it was hosting, so
+  // A restarted worker has lost the sandboxes of the Actors it was hosting, so
   // once epoch rises the control plane crashes every Actor placed during an
   // earlier epoch; status.observed_epoch reports when that is done. It may only
   // increase.
@@ -2094,8 +2332,9 @@ message Worker {
   int64 epoch = 12;
 
   // Output-only server-managed state. Absent from Create/Update request
-  // payloads; whatever a request carries here is ignored. DrainWorker is the
-  // only way a client moves state, and the assignments are the scheduler's.
+  // payloads; whatever a request carries here is ignored. A client moves
+  // state only through DrainWorker, MarkWorkerAvailable and
+  // MarkWorkerUnavailable, and the assignments are the scheduler's.
   //
   // +k8s:optional
   WorkerStatus status = 11;
@@ -2105,15 +2344,19 @@ enum WorkerState {
   WORKER_STATE_UNSPECIFIED = 0;
   // Ready; schedulable.
   WORKER_STATE_ACTIVE = 1;
-  // Pod terminating. Not schedulable.
+  // Pod terminating. Not schedulable. Final: a draining Worker never becomes
+  // active or unavailable again.
   WORKER_STATE_DRAINING = 2;
+  // Registered but not Ready, or its the worker restarting. Not schedulable. Every
+  // Worker starts here until MarkWorkerAvailable.
+  WORKER_STATE_UNAVAILABLE = 3;
   // Keep this in sync with WorkerStatus.state's maximum.
 }
 
 message WorkerStatus {
   // +k8s:required
   // +k8s:minimum=1
-  // +k8s:maximum=2 # keep this in sync with the WorkerState enum
+  // +k8s:maximum=3 # keep this in sync with the WorkerState enum
   WorkerState state = 1;
 
   // The total resource capacity of the Worker.
@@ -2137,29 +2380,93 @@ message WorkerStatus {
 
   // observed_epoch is the latest epoch whose earlier Actors the control plane
   // has crashed and released. While it is below epoch, Actors placed before
-  // the ateom's last restart may still be reported as running.
+  // the worker's last restart may still be reported as running.
   //
   // +k8s:optional
   // +k8s:minimum=0
   int64 observed_epoch = 4;
 
-  // Hardware identity reported by the Worker at registration.
+  // Runtime that new and cold-booted actors start under, as reported by the
+  // Worker at registration. Snapshots matching default_runtime can also
+  // warm-boot on this worker.
   //
   // +k8s:optional
-  HardwareIdentity hardware = 5;
+  SandboxRuntime default_runtime = 5;
+
+  // Additional runtimes (excluding default_runtime) that this worker can
+  // restore snapshots from right now.
+  //
+  // +k8s:optional
+  // +k8s:maxItems=32
+  // +k8s:listType=atomic
+  repeated SandboxRuntime restorable_runtimes = 6;
 }
 
-// HardwareIdentity identifies the hardware of a Worker or the Worker a
-// snapshot was captured on.
-message HardwareIdentity {
-  // Key-value pairs describing hardware properties (currently
-  // "architecture"; TODO: add "cpu_vendor", "cpu_model", etc.).
+// SandboxRuntime describes a sandbox runtime and its compatibility identity as
+// reported by a Worker or recorded on a snapshot.
+message SandboxRuntime {
+  // e.g. "gvisor", "microvm"
   //
-  // +k8s:optional
-  // +k8s:maxProperties=32
-  // +k8s:eachKey=+k8s:maxLength=128
-  // +k8s:eachVal=+k8s:maxLength=256
-  map<string, string> attributes = 1;
+  // +k8s:required
+  // +k8s:maxLength=63
+  // +k8s:customValidation # gvisor or microvm
+  string sandbox_class = 1;
+
+  // Primary compatibility version stamped onto an actor's snapshot when a
+  // checkpoint is taken on this runtime. Snapshots matching `version`
+  // can warm-boot on this runtime.
+  // TODO: Add support for additional compatibility versions.
+  //
+  // +k8s:required
+  VersionedSandboxCompat version = 2;
+
+  // TODO: Add an informational SandboxConfig version name (e.g. "gvisor-2")
+  // once workers report one.
+}
+
+// VersionedSandboxCompat holds the compatibility schema version and the
+// key-value compatibility attributes for a SandboxRuntime.
+message VersionedSandboxCompat {
+  // Compatibility schema version (e.g. "v1") defining which runtime and
+  // hardware attributes are recorded and how they are computed.
+  //
+  // +k8s:required
+  // +k8s:maxLength=64
+  string schema_version = 1;
+
+  // Key-value compatibility attributes defined by this schema version, covering
+  // both runtime assets (e.g. "sandbox_bundle_hash") and effective guest
+  // hardware features after masking (e.g. "architecture", "cpu_features").
+  // Matched against a snapshot under the same schema_version: every attribute
+  // on the snapshot must be present on the worker with an equal value (except
+  // "cpu_features", where the snapshot's hexadecimal bitmask must be a bitwise
+  // subset of the worker's); keys only the worker has are ignored, so a worker
+  // can gain keys under one schema_version without invalidating older
+  // snapshots. Removing or recomputing a key is a new schema_version, under
+  // which older snapshots no longer match.
+  // Order as sent does not matter: ate-api-server sorts attributes by key
+  // before recording them.
+  //
+  // +k8s:required
+  // +k8s:maxItems=32
+  // +k8s:listType=map
+  // +k8s:listMapKey=key
+  repeated AttributeEntry attributes = 2;
+}
+
+// AttributeEntry is a single key-value compatibility attribute.
+message AttributeEntry {
+  // Attribute name (e.g. "architecture", "cpu_features", "sandbox_bundle_hash").
+  //
+  // +k8s:required
+  // +k8s:maxLength=128
+  string key = 1;
+
+  // Attribute value corresponding to key.
+  //
+  // +k8s:required
+  // +k8s:maxLength=256
+  string value = 2;
 }
 
 // WorkerResources represents a set of resources.
@@ -2183,6 +2490,11 @@ message WorkerResources {
 // ActorAssignment binds an Actor to a Worker.  This is a subresource of the
 // Worker.
 message ActorAssignment {
+  option (resource) = {
+    parents : "Worker"
+    plural : "ActorAssignments"
+  };
+
   // Metadata about the assignment.
   //
   // The atespace field is always empty, since it corresponds to a Worker, and
@@ -2220,23 +2532,43 @@ message ActorAssignment {
 // authorization: Control is the client-facing API, while these RPCs are served
 // only to an atelet, and only for the Workers on its own node.
 service WorkerService {
-  // RegisterWorker records what a Worker can hold and its hardware identity in
-  // one write, so a Worker is never schedulable without hardware to match
-  // snapshots against. Capacity and hardware are the Worker's to report rather
-  // than the control plane's to infer: they are what the ateom can actually
-  // supply and expose, only its node can observe them, and a fleet may run
-  // mixed ateom versions.
+  // RegisterWorker records what a Worker can hold and its supported sandbox
+  // runtimes in one write, so a Worker is never schedulable without runtime
+  // compatibility information to match snapshots against. Capacity and
+  // runtimes are the Worker's to report rather than the control plane's to
+  // infer: they are what the worker can actually supply and expose, only its
+  // node can observe them, and a fleet may run mixed versions.
   //
   // atelet calls this with its own client certificate, as it does for
-  // MintCert. Idempotent: re-sending the same capacity and hardware is not a
+  // MintCert. Idempotent: re-sending the same capacity and runtimes is not a
   // write.
   rpc RegisterWorker(RegisterWorkerRequest) returns (RegisterWorkerResponse);
 
-  // Create a Substrate-issued SPIFFE certificate that asserts an ateom acting
+  // Create a Substrate-issued SPIFFE certificate that asserts a worker acting
   // on behalf of a particular actor.
   //
-  // SPIFFE URI: spiffe://${trustdomain}/ateom-for-actor/${atespace}/${actor}
-  rpc MintAteomActorCertificate(MintAteomActorCertificateRequest) returns (MintAteomActorCertificateResponse);
+  // SPIFFE URI: spiffe://${trustdomain}/worker-for-actor/${atespace}/${actor}
+  //
+  // atelet calls this with its own client certificate, as it does for
+  // RequestActorSuspend, naming the Worker its caller proved itself to be.
+  // The control plane mints only for the Worker that the Actor is assigned
+  // to, and only to an atelet on that Worker's node. A request from any
+  // other node or Worker gets NotFound; one from the assigned Worker with a
+  // stale actor_uid gets Aborted. Unlike MintWorkerActorJwt, a paused Actor
+  // gets NotFound, since it has no Worker to bind the certificate to.
+  rpc MintWorkerActorCertificate(MintWorkerActorCertificateRequest) returns (MintWorkerActorCertificateResponse);
+
+  // MintWorkerActorJwt creates a Substrate-issued JWT that asserts a worker
+  // acting on behalf of a particular actor: the JWT counterpart of
+  // MintWorkerActorCertificate. atelet calls it with its own client
+  // certificate and hands the JWT to node-side plugins, which exchange it for
+  // credentials scoped to that actor.
+  //
+  // The token speaks for the worker, not the actor: its subject is
+  // `worker-for-actor/<atespace>/<name>` and its claims sit under
+  // `worker-for-actor.ate.dev`, see MintWorkerActorJwtResponse. The lifetime is
+  // fixed at one hour.
+  rpc MintWorkerActorJwt(MintWorkerActorJwtRequest) returns (MintWorkerActorJwtResponse);
 
   // RequestActorSuspend asks the control plane to suspend an Actor that the
   // calling Worker hosts. Only the Worker can observe what makes an Actor
@@ -2258,6 +2590,18 @@ service WorkerService {
   // retries a suspend it had already been granted therefore sees a failure
   // rather than a repeat of its success.
   rpc RequestActorSuspend(RequestActorSuspendRequest) returns (RequestActorSuspendResponse);
+
+  // ReportActorSnapshotState reports an Actor's snapshot state on the caller's
+  // node. The control plane records two facts from it: an upload finished, and
+  // atelet detached the Actor from the node. Only atelet observes either.
+  //
+  // atelet calls this with its own client certificate, for an Actor on its
+  // node. Each report carries the whole state, so repeating one is safe.
+  // Returns ABORTED while another operation is changing the Actor; retry.
+  // Returns NOT_FOUND once the Actor is gone or no longer on the caller's
+  // node. Returns FAILED_PRECONDITION or INVALID_ARGUMENT when the report
+  // conflicts with the record; don't retry.
+  rpc ReportActorSnapshotState(ReportActorSnapshotStateRequest) returns (ReportActorSnapshotStateResponse);
 }
 
 message RegisterWorkerRequest {
@@ -2275,11 +2619,20 @@ message RegisterWorkerRequest {
   // +k8s:required
   WorkerResources capacity = 2;
 
-  // Hardware identity reported by the Worker. Like capacity, this replaces
-  // what is recorded on the Worker.
+  // Runtime that new and cold-booted actors start under.
+  // Snapshots matching default_runtime can also warm-boot on this worker.
+  // Like capacity, this replaces what is recorded on the Worker.
   //
   // +k8s:required
-  HardwareIdentity hardware = 3;
+  SandboxRuntime default_runtime = 3;
+
+  // Additional runtimes (excluding default_runtime) that this worker can
+  // restore snapshots from right now.
+  //
+  // +k8s:optional
+  // +k8s:maxItems=32
+  // +k8s:listType=atomic
+  repeated SandboxRuntime restorable_runtimes = 4;
 }
 
 message RegisterWorkerResponse {
@@ -2287,8 +2640,8 @@ message RegisterWorkerResponse {
   Worker worker = 1;
 }
 
-// Request message for MintAteomActorCertificate.
-message MintAteomActorCertificateRequest {
+// Request message for MintWorkerActorCertificate.
+message MintWorkerActorCertificateRequest {
   // The actor for which the certificate should be issued.
   //
   // Must be a valid actor that currently exists according to the actor store.
@@ -2311,20 +2664,78 @@ message MintAteomActorCertificateRequest {
   // +k8s:required
   // +k8s:maxBytes=16384
   bytes certificate_signing_request = 3;
+
+  // The Worker requesting the certificate. atespace is always empty; Workers
+  // are global-scoped. atelet fills this in from its caller's certificate, so
+  // it names the Worker that certificate proves the request came from. It
+  // must be the Worker that the actor is assigned to.
+  //
+  // +k8s:required
+  // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
+  ObjectRef worker = 4;
 }
 
-// Response message for MintAteomActorCertificate.
-message MintAteomActorCertificateResponse {
+// Response message for MintWorkerActorCertificate.
+message MintWorkerActorCertificateResponse {
   // Response contains a list of DER encoded certificates. The first entry is the
   // leaf certificate, and any remaining entries are intermediates in
   // leaf-to-root order.
   repeated bytes actor_certificates = 1;
 }
 
+// Request message for MintWorkerActorJwt.
+message MintWorkerActorJwtRequest {
+  // The actor for which the JWT should be issued.
+  //
+  // Must be a valid actor that currently exists according to the actor store.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 1;
+
+  // The UID of the actor --- used to guard against deletion and recreation of
+  // an actor with the same name.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
+  string actor_uid = 2;
+
+  // The audiences the minted JWT is bound to. Tokens are only issued with
+  // audience bindings, so at least one is required.
+  //
+  // +k8s:required
+  // +k8s:maxItems=16 # guardrail; tokens realistically bind a handful of audiences
+  // +k8s:listType=set
+  // +k8s:eachVal=+k8s:minLength=1
+  // +k8s:eachVal=+k8s:maxLength=512 # audiences are caller-defined URIs; bound only
+  repeated string audiences = 3;
+}
+
+// Response message for MintWorkerActorJwt.
+message MintWorkerActorJwtResponse {
+  // The signed JWT. Its claims are those described on
+  // MintActorJwtResponse.actor_jwt, except that it speaks for a worker
+  // acting on behalf of the actor rather than for the actor itself:
+  //
+  // * sub: `worker-for-actor/<atespace>/<name>`.
+  // * `worker-for-actor.ate.dev`: A JSON object with the actor's `atespace`,
+  //   `actorName`, and `actorUID`.
+  //
+  // A relying party that trusts actor JWTs must not accept this token as the
+  // actor, and vice versa.
+  string actor_jwt = 1 [ debug_redact = true ];
+
+  // expire_time is when actor_jwt expires. Equal to its exp claim.
+  google.protobuf.Timestamp expire_time = 2;
+}
+
+// TODO: add a durability mode, carried through atelet's
+// RequestActorSuspendRequest, so the Worker can choose how the snapshot is
+// made durable. Until then the suspend uses SuspendActor's default mode.
 message RequestActorSuspendRequest {
   // The Worker making the request. atespace is always empty; Workers are
   // global-scoped. atelet fills this in from its caller's certificate, so it
-  // names the Worker the request provably came from.
+  // names the Worker that certificate proves the request came from.
   //
   // +k8s:required
   // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
@@ -2351,10 +2762,106 @@ message RequestActorSuspendResponse {
   Actor actor = 1;
 }
 
+message ReportActorSnapshotStateRequest {
+  // The Actor the report is about.
+  //
+  // +k8s:required
+  // +k8s:subfield(atespace)=+k8s:required
+  ObjectRef actor = 1;
+
+  // The UID of the Actor atelet holds snapshots for, which pins the report to
+  // one incarnation, as on RequestActorSuspendRequest.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-uuid
+  string actor_uid = 2;
+
+  // +k8s:required
+  ActorSnapshotState state = 3;
+}
+
+message ReportActorSnapshotStateResponse {}
+
+// ActorSnapshotState is what atelet holds for one Actor on its node. It
+// mirrors atelet's ActorSnapshotState, flattened: atelet's SnapshotReport
+// nests its own Snapshot message, which this API's Snapshot is not.
+message ActorSnapshotState {
+  // The snapshot atelet restores the Actor from locally. Unset once a detach
+  // has made the snapshot durable and begun deleting it; latest_durable is
+  // then the Actor's latest snapshot.
+  //
+  // +k8s:optional
+  SnapshotReport latest_local = 1;
+
+  // The snapshot an in-flight upload is reading, if any.
+  //
+  // +k8s:optional
+  SnapshotReport uploading = 2;
+
+  // The newest snapshot atelet knows is durable, whether or not the control
+  // plane has recorded it. Unset says nothing about older durable snapshots.
+  //
+  // +k8s:optional
+  SnapshotReport latest_durable = 3;
+
+  // When atelet next plans to upload latest_local. Advisory: a promote or
+  // detach can upload it sooner.
+  //
+  // +k8s:optional
+  google.protobuf.Timestamp upload_due_time = 4;
+}
+
+// SnapshotReport is one of an Actor's snapshots, named by the uuid and
+// generation the control plane gave it.
+message SnapshotReport {
+  // Snapshot.uuid.
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  string uuid = 1;
+
+  // Snapshot.generation.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  int32 generation = 2;
+
+  // The fidelity the snapshot holds, read from its manifest.
+  //
+  // +k8s:required
+  // +k8s:minimum=1
+  // +k8s:maximum=3 # keep this in sync with the SnapshotFidelity enum
+  SnapshotFidelity fidelity = 3;
+
+  // Where the snapshot's durable copy is, or will be, uploaded.
+  //
+  // +k8s:required
+  ObjectSnapshot object = 4;
+
+  // When the checkpoint that produced the snapshot committed on the node.
+  // Unset when this atelet did not take it, as for a snapshot it restored
+  // from object storage.
+  //
+  // +k8s:optional
+  google.protobuf.Timestamp local_commit_time = 5;
+
+  // When the snapshot's manifest was written to object storage. Set only in
+  // latest_durable, and only when this atelet wrote it.
+  //
+  // +k8s:optional
+  google.protobuf.Timestamp durable_complete_time = 6;
+}
+
 // AccessPolicy is an access policy resource nested under a parent resource (or
 // the global singleton installation). Every parent resource has at most one
 // access policy resource, named "default".
 message AccessPolicy {
+  option (resource) = {
+    parents : [ "Global", "Atespace" ]
+    singleton : true
+    plural : "AccessPolicies"
+  };
+
   // Standard resource metadata. Atespace must match the parent resource (empty
   // for global-scoped parents like Global and Atespace) and name must be
   // "default". Both are caller-specified on create and immutable. UID, version,
@@ -2394,7 +2901,14 @@ message Binding {
 }
 
 // GetGlobalAccessPolicyRequest retrieves the deployment-wide global access policy singleton.
-message GetGlobalAccessPolicyRequest {}
+message GetGlobalAccessPolicyRequest {
+  // Name of the singleton access policy. Must be "default".
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  // +k8s:customValidation # must be "default"
+  string name = 1;
+}
 
 // CreateGlobalAccessPolicyRequest creates the deployment-wide global access policy singleton.
 message CreateGlobalAccessPolicyRequest {
@@ -2421,6 +2935,13 @@ message GetAtespaceAccessPolicyRequest {
   // +k8s:required
   // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
   ObjectRef atespace = 1;
+
+  // Name of the singleton access policy. Must be "default".
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  // +k8s:customValidation # must be "default"
+  string name = 2;
 }
 
 // CreateAtespaceAccessPolicyRequest creates an access policy for an Atespace.
@@ -2461,8 +2982,60 @@ message DeleteAtespaceAccessPolicyRequest {
   // +k8s:beta(since: "0.0")=+k8s:subfield(atespace)=+k8s:forbidden # TODO: get rid of beta prefix
   ObjectRef atespace = 1;
 
+  // Name of the singleton access policy. Must be "default".
+  //
+  // +k8s:required
+  // +k8s:format=k8s-short-name
+  // +k8s:customValidation # must be "default"
+  string name = 2;
+
   // Optional per-delete preconditions.
   //
   // +k8s:optional
-  DeleteOptions options = 2;
+  DeleteOptions options = 3;
+}
+
+// ResourceAnnotation marks a message as an API resource. See
+// docs/resource-model.md.
+message ResourceAnnotation {
+  // The resource types this resource is a subresource of: another resource's
+  // message name, or "Global" for the whole Substrate installation. Empty for
+  // a top-level resource.
+  repeated string parents = 1;
+
+  // Whether each parent has at most one instance of this resource.
+  bool singleton = 2;
+
+  // Whether a top-level resource belongs to an atespace. Set only on a
+  // top-level resource: a subresource has its parent's scope.
+  Scope scope = 3;
+
+  // The resource's plural name, as List methods and their response fields
+  // use it. For example, "AccessPolicies" for AccessPolicy.
+  string plural = 4;
+}
+
+// Scope is whether a top-level resource belongs to an atespace.
+enum Scope {
+  // The scope is not set.
+  SCOPE_UNSPECIFIED = 0;
+  // The resource belongs to an atespace, identified by (atespace, name).
+  SCOPE_ATESPACE = 1;
+  // The resource belongs to no atespace, identified by its name alone.
+  SCOPE_GLOBAL = 2;
+}
+
+// MethodAnnotation describes an RPC of the API.
+message MethodAnnotation {
+  // The message name of the resource the method operates on. For example,
+  // "Actor" for SuspendActor, or "EgressPolicy" for GetActorEgressPolicy.
+  string resource = 1;
+}
+
+extend google.protobuf.MessageOptions {
+  ResourceAnnotation resource = 50000;
+}
+
+extend google.protobuf.MethodOptions {
+  MethodAnnotation method = 50000;
 }

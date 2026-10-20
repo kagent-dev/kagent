@@ -3,22 +3,22 @@ package agent
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 func TestGenerateContentConfig(t *testing.T) {
 	tests := []struct {
 		name  string
-		model adk.Model
+		model *configv1.ADKModelConfig
 		want  int32 // 0 means expect nil config
 	}{
-		{name: "gemini with max output tokens", model: &adk.Gemini{MaxOutputTokens: new(1024)}, want: 1024},
-		{name: "vertex with max output tokens", model: &adk.GeminiVertexAI{MaxOutputTokens: new(512)}, want: 512},
-		{name: "gemini unset", model: &adk.Gemini{}, want: 0},
-		{name: "vertex unset", model: &adk.GeminiVertexAI{}, want: 0},
-		{name: "gemini zero", model: &adk.Gemini{MaxOutputTokens: new(0)}, want: 0},
-		{name: "gemini negative", model: &adk.Gemini{MaxOutputTokens: new(-1)}, want: 0},
-		{name: "non-gemini model", model: &adk.OpenAI{}, want: 0},
+		{name: "gemini with max output tokens", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{MaxOutputTokens: new(int64(1024))}}}, want: 1024},
+		{name: "vertex with max output tokens", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_GeminiVertexAi{GeminiVertexAi: &configv1.ADKGeminiVertexAI{MaxOutputTokens: new(int64(512))}}}, want: 512},
+		{name: "gemini unset", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{}}}, want: 0},
+		{name: "vertex unset", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_GeminiVertexAi{GeminiVertexAi: &configv1.ADKGeminiVertexAI{}}}, want: 0},
+		{name: "gemini zero", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{MaxOutputTokens: new(int64(0))}}}, want: 0},
+		{name: "gemini negative", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{MaxOutputTokens: new(int64(-1))}}}, want: 0},
+		{name: "non-gemini model", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}}, want: 0},
 	}
 
 	for _, tt := range tests {

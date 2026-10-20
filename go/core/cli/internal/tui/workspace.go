@@ -12,8 +12,9 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
@@ -47,14 +48,12 @@ type Options struct {
 
 // sessionLister narrows the client so tests can supply a fake.
 type sessionLister interface {
-	ListSessions(context.Context, *apiv1alpha1.ListSessionsRequest) (*apiv1alpha1.ListSessionsResponse, error)
+	ListSessions(context.Context, *apiv1.ListSessionsRequest) (*apiv1.ListSessionsResponse, error)
 }
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
 func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, gateway *client.GatewayClientSet, verbose bool) error {
-	// A missing kubeconfig is not fatal; the reason is kept so panels can say why they fell back.
-	kubeCatalog, catalogErr := newKubeCatalog()
-	m := newWorkspaceModel(ctx, cfg, api, gateway, kubeCatalog, catalogErr, verbose)
+	m := newWorkspaceModel(ctx, cfg, api, gateway, &apiCatalog{agents: api.Agent}, nil, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
@@ -62,12 +61,12 @@ func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, ga
 }
 
 type sessionsLoadedMsg struct {
-	sessions  []*apiv1alpha1.Session
+	sessions  []*apiv1.Session
 	truncated bool
 	err       error
 }
 
-type sessionSelectedMsg struct{ session *apiv1alpha1.Session }
+type sessionSelectedMsg struct{ session *apiv1.Session }
 
 // sessionHistoryLoadedMsg names its session, so a late reply cannot land in the new chat.
 type sessionHistoryLoadedMsg struct {
@@ -76,7 +75,7 @@ type sessionHistoryLoadedMsg struct {
 	err       error
 }
 
-// catalogLoadedMsg carries Kubernetes names; on error the cascade falls back to session-derived ones.
+// catalogLoadedMsg carries Agent names; on error the cascade falls back to session-derived ones.
 type catalogLoadedMsg struct {
 	agents []string
 	err    error
@@ -110,9 +109,9 @@ type workspaceModel struct {
 	showDetails bool
 
 	// all holds every fetched Session; the cascade panels above narrow it.
-	all           []*apiv1alpha1.Session
+	all           []*apiv1.Session
 	catalogAgents []string
-	current       *apiv1alpha1.Session
+	current       *apiv1.Session
 	status        string
 
 	// Empty harness or agent means no filter; namespace is always set.
@@ -161,7 +160,7 @@ func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	}
 }
 
-// loadCatalog reads the Agent names from Kubernetes.
+// loadCatalog reads the Agent names through the kagent API.
 func (m *workspaceModel) loadCatalog() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
@@ -184,13 +183,13 @@ func (m *workspaceModel) loadSessions() tea.Cmd {
 		}
 
 		var (
-			sessions  []*apiv1alpha1.Session
+			sessions  []*apiv1.Session
 			pageToken string
 		)
 		for range maxSessionPages {
-			response, err := m.lister.ListSessions(m.ctx, &apiv1alpha1.ListSessionsRequest{
+			response, err := m.lister.ListSessions(m.ctx, &apiv1.ListSessionsRequest{
 
-				Page: &apiv1alpha1.PageRequest{Limit: sessionPageSize, PageToken: pageToken},
+				Page: &apiv1.PageRequest{Limit: sessionPageSize, PageToken: pageToken},
 			})
 			if err != nil {
 				return sessionsLoadedMsg{err: err}
@@ -206,7 +205,7 @@ func (m *workspaceModel) loadSessions() tea.Cmd {
 }
 
 // loadHistory preserves the durable task order returned by the gateway.
-func (m *workspaceModel) loadHistory(session *apiv1alpha1.Session) tea.Cmd {
+func (m *workspaceModel) loadHistory(session *apiv1.Session) tea.Cmd {
 	id := session.GetId()
 	return func() tea.Msg {
 		a2aClient, err := m.client.A2A.ForAgent(m.ctx, session.GetAgent())
@@ -383,12 +382,12 @@ func (m *workspaceModel) applySessions(msg sessionsLoadedMsg) tea.Cmd {
 		m.status = fmt.Sprintf("Showing the first %d Sessions; more pages are available.", len(msg.sessions))
 	}
 
-	// The API lists all sessions; this panel browses Kubernetes targets.
-	m.all = slices.DeleteFunc(msg.sessions, func(session *apiv1alpha1.Session) bool {
+	// The API lists all sessions; this panel browses one namespace.
+	m.all = slices.DeleteFunc(msg.sessions, func(session *apiv1.Session) bool {
 		targetNamespace := session.GetAgent().GetNamespace()
 		return targetNamespace != "" && targetNamespace != m.namespace
 	})
-	slices.SortStableFunc(m.all, func(a, b *apiv1alpha1.Session) int {
+	slices.SortStableFunc(m.all, func(a, b *apiv1.Session) int {
 		return b.GetCreatedAt().AsTime().Compare(a.GetCreatedAt().AsTime()) // newest first
 	})
 	m.rebuildPanels()
@@ -420,7 +419,7 @@ func (m *workspaceModel) rebuildPanels() {
 
 // rebuildAgents also rebuilds the sessions below it, since SetItems resets this panel's cursor.
 func (m *workspaceModel) rebuildAgents() {
-	m.agents.SetItems(countedNames(m.catalogAgents, m.all, func(i *apiv1alpha1.Session) string {
+	m.agents.SetItems(countedNames(m.catalogAgents, m.all, func(i *apiv1.Session) string {
 		return i.GetAgent().GetName()
 	}))
 	m.agent = ""
@@ -487,7 +486,7 @@ func selectedNamespace(panel list.Model) string {
 }
 
 // countedNames lists catalog names with session counts after an "(all)" row, including unused ones.
-func countedNames(catalogNames []string, sessions []*apiv1alpha1.Session, name func(*apiv1alpha1.Session) string) []list.Item {
+func countedNames(catalogNames []string, sessions []*apiv1.Session, name func(*apiv1.Session) string) []list.Item {
 	counts := map[string]int{}
 	for _, value := range catalogNames {
 		if value != "" {
@@ -515,8 +514,8 @@ func countedNames(catalogNames []string, sessions []*apiv1alpha1.Session, name f
 }
 
 // visibleSessions applies both cascade filters.
-func (m *workspaceModel) visibleSessions() []*apiv1alpha1.Session {
-	var kept []*apiv1alpha1.Session
+func (m *workspaceModel) visibleSessions() []*apiv1.Session {
+	var kept []*apiv1.Session
 	for _, session := range m.all {
 		if m.agent == "" || session.GetAgent().GetName() == m.agent {
 			kept = append(kept, session)
@@ -536,7 +535,7 @@ func (m *workspaceModel) openSelectedSession() tea.Cmd {
 }
 
 // selectSession opens a chat; a non-READY session is not dialed at all.
-func (m *workspaceModel) selectSession(session *apiv1alpha1.Session) tea.Cmd {
+func (m *workspaceModel) selectSession(session *apiv1.Session) tea.Cmd {
 	if session == nil {
 		return nil
 	}
@@ -766,10 +765,10 @@ func lineCount(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// noCatalogErr explains why there is no catalog, preserving the kubeconfig failure.
+// noCatalogErr explains why there is no catalog, preserving the construction failure.
 func (m *workspaceModel) noCatalogErr() error {
 	if m.catalogErr != nil {
 		return m.catalogErr
 	}
-	return errors.New("no Kubernetes client configured")
+	return errors.New("no Agent catalog configured")
 }

@@ -28,6 +28,9 @@ const (
 type UpstreamMCPServer struct {
 	URL     string
 	Headers map[string]string
+	// TokenPassthrough sends the caller's credential of the turn as the only
+	// Authorization, and refuses a request of a turn without one.
+	TokenPassthrough bool
 }
 
 // CallerCredentialBinder receives the caller's credential for the duration of
@@ -54,9 +57,10 @@ type CredentialForwarder struct {
 }
 
 type forwardTarget struct {
-	url     *url.URL
-	headers map[string]string
-	proxy   *httputil.ReverseProxy
+	url         *url.URL
+	headers     map[string]string
+	passthrough bool
+	proxy       *httputil.ReverseProxy
 }
 
 // NewCredentialForwarder binds an authenticated loopback endpoint per server.
@@ -87,7 +91,7 @@ func NewCredentialForwarder(servers map[string]UpstreamMCPServer, maxBodyBytes i
 		for header, value := range server.Headers {
 			headers[http.CanonicalHeaderKey(header)] = value
 		}
-		entry := &forwardTarget{url: target, headers: headers}
+		entry := &forwardTarget{url: target, headers: headers, passthrough: server.TokenPassthrough}
 		entry.proxy = &httputil.ReverseProxy{
 			Rewrite:       forwarder.rewrite(entry),
 			FlushInterval: -1,
@@ -174,11 +178,24 @@ func (f *CredentialForwarder) serve(response http.ResponseWriter, request *http.
 		http.NotFound(response, request)
 		return
 	}
-	request = request.WithContext(context.WithValue(request.Context(), pathSuffixKey{}, suffix))
+	credential := f.current()
+	if target.passthrough && credential == "" {
+		http.Error(response, "MCP token passthrough requires a caller bearer token", http.StatusUnauthorized)
+		return
+	}
+	request = request.WithContext(context.WithValue(request.Context(), forwardInfoKey{}, forwardInfo{suffix: suffix, credential: credential}))
 	target.proxy.ServeHTTP(response, request)
 }
 
-type pathSuffixKey struct{}
+// forwardInfo is what serve decided for one request: the path under the
+// server's endpoint, and the credential read once so the refusal above and
+// the header below agree.
+type forwardInfo struct {
+	suffix     string
+	credential string
+}
+
+type forwardInfoKey struct{}
 
 func (f *CredentialForwarder) rewrite(target *forwardTarget) func(*httputil.ProxyRequest) {
 	return func(proxied *httputil.ProxyRequest) {
@@ -186,16 +203,22 @@ func (f *CredentialForwarder) rewrite(target *forwardTarget) func(*httputil.Prox
 		out.URL.Scheme = target.url.Scheme
 		out.URL.Host = target.url.Host
 		out.Host = target.url.Host
-		suffix, _ := proxied.In.Context().Value(pathSuffixKey{}).(string)
-		out.URL.Path, out.URL.RawPath = joinPath(target.url, suffix)
+		info, _ := proxied.In.Context().Value(forwardInfoKey{}).(forwardInfo)
+		out.URL.Path, out.URL.RawPath = joinPath(target.url, info.suffix)
 		out.URL.RawQuery = joinQuery(target.url.RawQuery, proxied.In.URL.RawQuery)
 		// The loopback token authenticates Claude to this process only.
 		out.Header.Del("Authorization")
+		// The caller's credential first and the compiled headers last, so a
+		// static Authorization wins, as in the Go ADK. A passthrough server
+		// carries the caller's credential only; it compiles no static one.
+		if info.credential != "" {
+			out.Header.Set("Authorization", info.credential)
+		}
 		for header, value := range target.headers {
 			out.Header.Set(header, value)
 		}
-		if credential := f.current(); credential != "" {
-			out.Header.Set("Authorization", credential)
+		if target.passthrough {
+			out.Header.Set("Authorization", info.credential)
 		}
 	}
 }

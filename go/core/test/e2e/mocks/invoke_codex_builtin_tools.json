@@ -16,8 +16,8 @@
           "type": "function_call",
           "status": "completed",
           "call_id": "call_codex_shell",
-          "name": "shell_command",
-          "arguments": "{\"command\":\"printf CODEX_TOOL_FILE\",\"workdir\":\"/data/workspace\"}"
+          "name": "exec_command",
+          "arguments": "{\"cmd\":\"printf CODEX_TOOL_FILE\",\"workdir\":\"/data/workspace\"}"
         }],
         "parallel_tool_calls": false,
         "tools": [],
@@ -28,7 +28,7 @@
       "name": "codex_builtin_result",
       "match": {
         "match_type": "contains",
-        "input": "call_codex_shell"
+        "input": "CODEX_TOOL_FILE"
       },
       "response": {
         "id": "resp_codex_builtin_done",

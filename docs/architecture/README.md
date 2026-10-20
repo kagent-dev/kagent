@@ -14,6 +14,7 @@ the agent processes.
 | `Harness`                     | Kubernetes (`api.kagent.dev/v1alpha3`)       | Runtime implementation, workload, credentials, capacity, and snapshot policy |
 | `AgentTemplate`               | Kubernetes (`api.kagent.dev/v1alpha3`)       | Portable agent behavior: model, prompt, tools, skills, and plugins            |
 | `SandboxTemplate` | Kubernetes (`api.kagent.dev/v1alpha3`) | Tools image, environment, and preparation policy for standalone sandboxes |
+| `EgressPolicy` | Kubernetes (`api.kagent.dev/v1alpha3`) | Additional HTTP(S) origins and gateway credentials selected by Agents and SandboxTemplates |
 | prepared revision             | PostgreSQL and ate-api                   | Immutable compiled runtime input and its Substrate ActorTemplate              |
 | `Session`               | PostgreSQL, exposed by gRPC              | Stable conversation identity and runtime lifecycle                                      |
 | `Sandbox` | PostgreSQL, exposed by gRPC and MCP | Owner-scoped scratch environment with process/file access and expiration |
@@ -32,6 +33,22 @@ semantics; kagent does not maintain a parallel session or task API.
 | gRPC / gRPC-Web | Manage Sessions, sharing, checkpoints, sandboxes, and control-plane reads        |
 | A2A             | Invoke agents and manage durable tasks and streams                          |
 | MCP             | Discover, invoke, checkpoint, and fork Sessions; create and use standalone sandboxes |
+
+Public control-plane protobuf contracts use `kagent.api.v1` under
+[`proto/kagent/api/v1`](../../proto/kagent/api/v1). TaskStore and Memory contracts for
+agent runtimes use `kagent.runtime.v1` under
+[`proto/kagent/runtime/v1`](../../proto/kagent/runtime/v1). CLI, controller, and ADK
+configuration use `kagent.config.v1` under
+[`proto/kagent/config/v1`](../../proto/kagent/config/v1). All three use compatible
+field changes, deprecation, and reservation of removed field names and numbers. Kubernetes
+resources retain their separate API versions. See the
+[protobuf API conventions](../protobuf-api.md) for compatibility and generation rules.
+
+The public and runtime APIs share a gRPC listener and retain method-level authentication policies.
+TaskStore requires workload authority; Memory currently uses ordinary controller
+authentication. The runtime namespace identifies its consumers, not an additional
+access restriction. Configuration messages are process inputs, with no RPC services.
+Browser bindings exclude runtime and configuration contracts.
 
 ## End-to-end flow
 
@@ -79,6 +96,8 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 
 ## Documents
 
+- [Egress policies](egress-policies.md)
+- [Runtime credential injection](credential-injection.md)
 - [Configuration and compilation](configuration-and-compilation.md)
 - [Runtime and lifecycle](runtime-and-lifecycle.md)
 - [Client lifecycle retries](../lifecycle-retries.md)
@@ -91,6 +110,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [MCP](mcp.md)
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
+- [Token usage](usage-extension.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
 - [Structured output](structured-output.md)

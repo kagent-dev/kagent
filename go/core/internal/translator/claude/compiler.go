@@ -13,23 +13,25 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
-	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type Compiler struct {
-	settings    translator.CompilerSettings
+	settings    *configv1.RuntimeDefaultsConfig
 	ctx         krt.HandlerContext
 	collections translator.Collections
 }
 
-func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings translator.CompilerSettings) *Compiler {
+func NewCompiler(ctx krt.HandlerContext, collections translator.Collections, settings *configv1.RuntimeDefaultsConfig) *Compiler {
 	return &Compiler{settings: settings, ctx: ctx, collections: collections}
 }
 
@@ -41,10 +43,13 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if strings.TrimSpace(model.Spec.Model) == "" {
 		return nil, translator.NewValidationError("Claude ModelConfig model is required")
 	}
-	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.APIKeyPassthrough {
-		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or apiKeyPassthrough yet")
+	if len(model.Spec.DefaultHeaders) != 0 || !model.Spec.TLS.IsEmpty() || model.Spec.TokenPassthrough {
+		return nil, translator.NewValidationError("Claude does not support ModelConfig defaultHeaders, TLS, or tokenPassthrough yet")
 	}
-	telemetryConfig := c.settings.Telemetry
+	telemetryConfig, err := translator.TelemetryConfigFromSettings(c.settings.GetTelemetry())
+	if err != nil {
+		return nil, err
+	}
 	template, harness := input.Root.Template, input.Harness
 	// The runtime reports this identity on every invocation span and on its
 	// resource, so a user-supplied resource marker is never required.
@@ -55,7 +60,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, err
 	}
-	skillResources, skillEgress, err := translator.CompileSkillResources(input.Root.Template)
+	skills, err := translator.CompileSkillResources(input.Root.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -83,11 +88,12 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config := claudeconfig.Production(model.Spec.Model, input.Root.Instruction)
 	config.Agents = localAgents
 	config.RuntimeTelemetry = runtimeTelemetry
-	config.ControlPlaneURL = c.settings.APIURL
-	config.MaxContentLength = c.settings.Process.MaxContentLength
-	config.LogLevel = c.settings.LogLevel
-	if len(skillResources.Skills) != 0 || len(skillResources.Plugins) != 0 {
-		config.SkillResources = &skillResources
+	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
+	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
+	config.LogLevel = c.settings.GetLogging().GetLevel()
+	config.PropagateToken = c.settings.GetTokenPropagation().GetEnabled()
+	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
+		config.SkillResources = &skills.Resources
 	}
 	config.MCPServers = mcp.servers
 	if err := config.Validate(); err != nil {
@@ -105,25 +111,26 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	if err != nil {
 		return nil, fmt.Errorf("build Claude revision provenance: %w", err)
 	}
-	environment, credentials, err := translator.CompileCredentials(input, nil, environment)
+	environment, credentials, tokenPassthroughOrigins, err := translator.CompileCredentials(input, nil, environment)
 	if err != nil {
 		return nil, err
 	}
 
-	egress = append(egress, skillEgress...)
+	egress = append(egress, skills.Egress...)
 	egress = append(egress, mcp.egress...)
 	egress = append(egress, telemetryConfig.Destinations(environment)...)
-	egress = append(egress, c.settings.APIURL)
+	egress = append(egress, c.settings.GetControlPlaneUrl())
 	slices.Sort(egress)
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace: template.Namespace,
-			Image:     harness.Spec.Workload.Image, Environment: environment,
-			ConfigJSON: configJSON, AgentCard: card,
-			WorkerPoolName:   harness.Spec.Substrate.WorkerPoolRef.Name,
-			SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
-			Credentials:      credentials, Provenance: provenance, EgressDestinations: egress,
+			Namespace:   template.Namespace,
+			SkillImages: skills.Images,
+			Environment: environment,
+			ConfigJSON:  configJSON, AgentCard: card,
+			WorkerPoolName:          harness.Spec.Substrate.WorkerPoolRef.Name,
+			SnapshotLocation:        harness.Spec.Substrate.SnapshotPolicy.Location,
+			TokenPassthroughOrigins: tokenPassthroughOrigins, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},
 		Warnings: mcp.warnings,
 	}, nil

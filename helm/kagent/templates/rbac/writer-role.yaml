@@ -15,15 +15,6 @@
   - patch
   - delete
 - apiGroups:
-  - kagent.dev
-  resources:
-  - mcpservers
-  verbs:
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
   - api.kagent.dev
   resources:
   - sandboxtemplates/status
@@ -39,12 +30,6 @@
   - modelconfigs/finalizers
   - modelproviderconfigs/finalizers
   - remotemcpservers/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - kagent.dev
-  resources:
-  - mcpservers/finalizers
   verbs:
   - update
 - apiGroups:

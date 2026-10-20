@@ -1,5 +1,6 @@
+import json
 import logging
-from typing import Any, Callable, Literal, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import httpx
 import httpx2
@@ -10,10 +11,82 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
-from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from kagent.core._runtime_config import RuntimeConfig
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from google.protobuf.json_format import Parse, ParseDict
+from kagent.config.v1.adk_pb2 import (
+    ADKAgentConfig as AgentConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKAnthropic as Anthropic,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKAzureOpenAI as AzureOpenAI,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKBedrock as Bedrock,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKCompressionConfig as ContextCompressionSettings,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKConfig as Config,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKContextConfig as ContextConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKEmbeddingConfig as EmbeddingConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKFoundry as Foundry,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKGDCHTokenExchangeConfig as GDCHTokenExchangeConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKGemini as Gemini,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKGeminiAnthropic as GeminiAnthropic,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKGeminiVertexAI as GeminiVertexAI,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKHTTPMCPServerConfig as HttpMcpServerConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKMemoryConfig as MemoryConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKMistral as Mistral,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKModelConfig as ModelConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKNetworkConfig as NetworkConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKOllama as Ollama,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKOpenAI as OpenAI,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKRemoteAgentConfig as RemoteAgentConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKSAPAICore as SAPAICore,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKSSEMCPServerConfig as SseMcpServerConfig,
+)
+from kagent.config.v1.adk_pb2 import (
+    ADKTokenExchangeConfig as TokenExchangeConfig,
+)
+from kagent.core._runtime_config import optional_field
+from protovalidate import validate
 
 from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
@@ -25,7 +98,7 @@ from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._mistral import KAgentMistralLlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
-from kagent.adk.models._openai import FoundryOpenAI, OpenAIAPIFormat
+from kagent.adk.models._openai import FoundryOpenAI
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.tools.ask_user_tool import AskUserTool
@@ -182,590 +255,339 @@ def _build_tls_httpx_client_factory(
     return _factory
 
 
-class _McpTlsMixin(BaseModel):
-    tls_insecure_skip_verify: bool | None = None
-    tls_ca_cert_path: str | None = None
-    tls_disable_system_cas: bool | None = None
-    tools: list[str] = Field(default_factory=list)
+def parse_config(value: dict | str) -> Config:
+    config = Parse(value, Config()) if isinstance(value, str) else ParseDict(value, Config())
+    validate(config)
+    return config
 
-    @model_validator(mode="before")
-    @classmethod
-    def _lift_tls_from_params(cls, values: Any) -> Any:
-        if isinstance(values, dict) and isinstance(values.get("params"), dict):
-            params = values["params"]
-            for key in ("tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas"):
-                if key in params and key not in values:
-                    values[key] = params[key]
-        return values
 
-    @field_validator("tools", mode="before")
-    @classmethod
-    def _coerce_tools(cls, v: object) -> list:
-        return v or []
+def _timeout_seconds(config, name):
+    duration = optional_field(config, name)
+    return duration.seconds + duration.nanos / 1_000_000_000 if duration is not None else None
 
-    def _apply_tls_to_params(self, params: Any) -> None:
-        if (
-            self.tls_insecure_skip_verify is None
-            and self.tls_ca_cert_path is None
-            and self.tls_disable_system_cas is None
-        ):
-            return
-        factory = _build_tls_httpx_client_factory(
-            disable_verify=self.tls_insecure_skip_verify or False,
-            ca_cert_path=self.tls_ca_cert_path,
-            disable_system_cas=self.tls_disable_system_cas or False,
+
+def _mcp_params(config, params_type):
+    # Only pass present fields, so the ADK retains its own timeout defaults.
+    values = {"url": config.url, "headers": dict(config.headers)}
+    for name in ("timeout", "sse_read_timeout"):
+        if config.HasField(name):
+            values[name] = _timeout_seconds(config, name)
+    if params_type is StreamableHTTPConnectionParams and config.HasField("terminate_on_close"):
+        values["terminate_on_close"] = config.terminate_on_close
+    params = params_type(**values)
+    if any(
+        config.HasField(field) for field in ("tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas")
+    ):
+        params.httpx_client_factory = _build_tls_httpx_client_factory(
+            disable_verify=config.tls_insecure_skip_verify,
+            ca_cert_path=optional_field(config, "tls_ca_cert_path"),
+            disable_system_cas=config.tls_disable_system_cas,
         )
-        if hasattr(params, "httpx_client_factory"):
-            params.httpx_client_factory = factory
-        else:
-            logger.warning(
-                "TLS configuration ignored on %s: google-adk does not expose "
-                "httpx_client_factory on this params type — upgrade to >= 1.28.1.",
-                type(params).__name__,
+    return params
+
+
+def create_agent(
+    config: AgentConfig,
+    name: str,
+    sts_integration: Optional[ADKTokenPropagationPlugin] = None,
+    propagate_token: bool = False,
+) -> Agent:
+    validate(config)
+    if not config.HasField("model"):
+        raise ValueError("model is required")
+    if name is None or not str(name).strip():
+        raise ValueError("Agent name must be a non-empty string.")
+    tools: list[ToolUnion] = []
+    has_tools_requiring_approval = False
+    # Names of MCP App (UI-rendering) tools, filled in lazily as MCP tools
+    # are resolved; used to compact their results for the model.
+    mcp_app_tool_names = MCPAppToolNames()
+    sts_header_provider = None
+    if sts_integration:
+        sts_header_provider = sts_integration.header_provider
+    # TODO: implement RemoteMCPServer tokenPassthrough. Fail rather than
+    # connecting without the caller's credential.
+    for mcp_tool in [*config.http_tools, *config.sse_tools]:
+        if mcp_tool.token_passthrough:
+            raise NotImplementedError("MCP token passthrough is not yet supported by the Python ADK")
+    if config.http_tools:
+        for http_tool in config.http_tools:  # add http tools
+            # Install a TLS-aware httpx_client_factory on the params
+            # before constructing the toolset, so every MCP session
+            # the session manager opens trusts the configured CA.
+            params = _mcp_params(http_tool.params, StreamableHTTPConnectionParams)
+            # Create header provider combining STS and allowed headers for this tool
+            tool_header_provider = create_header_provider(
+                allowed_headers=http_tool.allowed_headers,
+                sts_header_provider=sts_header_provider,
+            )
+            tools.append(
+                KAgentMcpToolset(
+                    connection_params=params,
+                    tool_filter=list(http_tool.tools),
+                    header_provider=tool_header_provider,
+                    app_tool_names=mcp_app_tool_names,
+                    require_approval=http_tool.require_approval,
+                )
+            )
+            if http_tool.require_approval:
+                has_tools_requiring_approval = True
+    if config.sse_tools:
+        for sse_tool in config.sse_tools:  # add sse tools
+            params = _mcp_params(sse_tool.params, SseConnectionParams)
+            # Create header provider combining STS and allowed headers for this tool
+            tool_header_provider = create_header_provider(
+                allowed_headers=sse_tool.allowed_headers,
+                sts_header_provider=sts_header_provider,
+            )
+            tools.append(
+                KAgentMcpToolset(
+                    connection_params=params,
+                    tool_filter=list(sse_tool.tools),
+                    header_provider=tool_header_provider,
+                    app_tool_names=mcp_app_tool_names,
+                    require_approval=sse_tool.require_approval,
+                )
+            )
+            if sse_tool.require_approval:
+                has_tools_requiring_approval = True
+    if config.remote_agents:
+        for remote_agent in config.remote_agents:  # Add remote agents as tools
+            # Prepare httpx client parameters
+            timeout = httpx.Timeout(
+                timeout=_timeout_seconds(remote_agent, "timeout")
+                if remote_agent.HasField("timeout")
+                else DEFAULT_TIMEOUT
+            )
+            headers: dict[str, str] | None = dict(remote_agent.headers)
+            base_url: str | None = None
+            event_hooks: dict[str, list[Callable[[httpx.Request], None]]] | None = None
+
+            # If headers includes the proxy host header, it means we're using a proxy
+            # RemoteA2aAgent may use URLs from agent card response, so we need to
+            # rewrite all request URLs to use the proxy URL while preserving the proxy host header
+            if remote_agent.headers and PROXY_HOST_HEADER in remote_agent.headers:
+                # Parse the proxy URL to extract base URL
+                from urllib.parse import urlparse as parse_url
+
+                parsed_proxy = parse_url(remote_agent.url)
+                proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
+                target_host = remote_agent.headers[PROXY_HOST_HEADER]
+
+                # Event hook to rewrite request URLs to use proxy while preserving the proxy host header
+                # Note: Relative paths are handled by base_url below, so they'll already point to proxy_base
+                def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
+                    async def rewrite_url_to_proxy(request: httpx.Request) -> None:
+                        parsed = parse_url(str(request.url))
+                        proxy_netloc = parse_url(proxy_base).netloc
+
+                        # If URL is absolute and points to a different host, rewrite to the proxy base URL
+                        if parsed.netloc and parsed.netloc != proxy_netloc:
+                            # This is an absolute URL pointing to the target service, rewrite it
+                            new_url = f"{proxy_base}{parsed.path}"
+                            if parsed.query:
+                                new_url += f"?{parsed.query}"
+                            request.url = httpx.URL(new_url)
+
+                        # Always set proxy host header for Gateway API routing
+                        request.headers[PROXY_HOST_HEADER] = target_host
+
+                    return rewrite_url_to_proxy
+
+                # Set base_url so relative paths work correctly with httpx
+                # httpx requires either base_url or absolute URLs - relative paths will fail without base_url
+                base_url = proxy_base
+                event_hooks = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
+
+            # Note: httpx doesn't accept None for base_url/event_hooks, so we only pass the parameters if set
+            if base_url and event_hooks:
+                client = httpx.AsyncClient(
+                    timeout=timeout,
+                    headers=headers,
+                    base_url=base_url,
+                    event_hooks=event_hooks,
+                )
+            elif headers:
+                client = httpx.AsyncClient(
+                    timeout=timeout,
+                    headers=headers,
+                )
+            else:
+                client = httpx.AsyncClient(
+                    timeout=timeout,
+                )
+
+            a2a_header_provider = None
+            if propagate_token:
+                a2a_header_provider = create_header_provider(allowed_headers=["authorization"])
+            tools.append(
+                KAgentRemoteA2AToolset(
+                    name=remote_agent.name,
+                    description=remote_agent.description,
+                    agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
+                    httpx_client=client,
+                    header_provider=a2a_header_provider,
+                    isolate_sessions=remote_agent.isolate_sessions,
+                )
             )
 
+    model = _create_llm_from_model_config(config.model)
 
-class HttpMcpServerConfig(_McpTlsMixin):
-    params: StreamableHTTPConnectionParams
-    allowed_headers: list[str] | None = None
-    require_approval: bool = False
+    # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
+    tools.append(AskUserTool())
 
+    # Build before_tool_callback if any tools require approval
+    before_tool_callback = make_approval_callback() if has_tools_requiring_approval else None
+    # ADK 2.x filters its synthetic confirmation events before model calls.
+    before_model_callbacks = [make_mcp_app_model_result_callback(mcp_app_tool_names)]
 
-class SseMcpServerConfig(_McpTlsMixin):
-    params: SseConnectionParams
-    allowed_headers: list[str] | None = None
-    require_approval: bool = False
-
-
-class RemoteAgentConfig(BaseModel):
-    name: str
-    url: str
-    headers: dict[str, Any] | None = None
-    timeout: float = DEFAULT_TIMEOUT
-    description: str = ""
-    isolate_sessions: bool = False
-
-
-class BaseLLM(BaseModel):
-    model: str
-    headers: dict[str, str] | None = None
-
-    # TLS/SSL configuration (applies to all model types)
-    tls_disable_verify: bool | None = Field(
-        default=None,
-        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
+    # static_instruction is sent directly to the model without any placeholder processing
+    agent = Agent(
+        name=name,
+        model=model,
+        description=config.description,
+        static_instruction=config.instruction,
+        tools=tools,
+        before_tool_callback=before_tool_callback,
+        before_model_callback=before_model_callbacks,
     )
-    tls_ca_cert_path: str | None = None
-    tls_disable_system_cas: bool | None = None
 
-    # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
-    api_key_passthrough: bool | None = None
+    # Configure memory if enabled
+    if config.HasField("memory"):
+        _configure_memory(agent)
 
-
-class GDCHTokenExchangeConfig(BaseModel):
-    service_account_path: str
-    audience: str
+    return agent
 
 
-class TokenExchangeConfig(BaseModel):
-    type: Literal["GDCHServiceAccount"]
-    gdch_service_account: GDCHTokenExchangeConfig | None = None
+def _configure_memory(agent: Agent) -> None:
+    """Configures the agent to properly use memory.
 
+    1. Adds memory tools to the agent
+    2. Adds a callback to auto-save the session to memory
+    3. Adds instructions to the agent to use memory
+    """
+    try:
+        from kagent.adk.tools.memory_tools import LoadMemoryTool, SaveMemoryTool
+        from kagent.adk.tools.prefetch_memory_tool import PrefetchMemoryTool
 
-class OpenAI(BaseLLM):
-    base_url: str | None = None
-    api_format: OpenAIAPIFormat | None = None
-    frequency_penalty: float | None = None
-    max_tokens: int | None = None
-    max_completion_tokens: int | None = Field(default=None, ge=1)
-    n: int | None = None
-    presence_penalty: float | None = None
-    reasoning_effort: str | None = None
-    seed: int | None = None
-    temperature: float | None = None
-    timeout: int | None = None
-    top_p: float | None = None
+        agent.tools.append(PrefetchMemoryTool())
+        agent.tools.append(LoadMemoryTool())
+        agent.tools.append(SaveMemoryTool())
 
-    # Token exchange configuration
-    token_exchange: TokenExchangeConfig | None = None
+        memory_suffix = (
+            "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
+            "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
+        )
+        if agent.static_instruction:
+            agent.static_instruction += memory_suffix
+        else:
+            agent.instruction += memory_suffix
 
-    type: Literal["openai"]
+        # Define auto-save callback
+        async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
+            try:
+                session = callback_context._invocation_context.session
+                # Count user messages from events list
+                user_msg_count = sum(1 for e in session.events if e.author == "user")
 
+                # Save every 5 turns (skip 0)
+                if user_msg_count > 0 and user_msg_count % 5 == 0:
+                    logger.info("Auto-saving session %s to memory (turn %d)", session.id, user_msg_count)
 
-class AzureOpenAI(BaseLLM):
-    type: Literal["azure_openai"]
-
-
-class Foundry(BaseLLM):
-    endpoint: str | None = None
-    deployment: str | None = None
-    api_version: str | None = None
-    api_format: Literal["openai", "anthropic"] = "openai"
-    type: Literal["foundry"]
-
-
-class Anthropic(BaseLLM):
-    base_url: str | None = None
-    # prompt_caching enables Anthropic prompt caching: cache_control breakpoints
-    # are set on the last tool definition, the last system prompt block and the
-    # last block of the latest conversation turn, so the stable prefix of an
-    # agent loop is billed as a cache read instead of fresh input on every call.
-    prompt_caching: bool = False
-    # cache_ttl selects the cache retention window when prompt_caching is on:
-    # "5m" (default) for the standard 5-minute cache, or "1h" for the 1-hour
-    # cache. 1-hour cache writes are billed at a higher rate, so "1h" only pays
-    # off when the calls sharing a prefix are more than 5 minutes apart.
-    cache_ttl: Literal["5m", "1h"] | None = None
-
-    type: Literal["anthropic"]
-
-
-class GeminiVertexAI(BaseLLM):
-    max_output_tokens: int | None = Field(default=None, ge=1)
-    type: Literal["gemini_vertex_ai"]
-
-
-class GeminiAnthropic(BaseLLM):
-    type: Literal["gemini_anthropic"]
-
-
-class Ollama(BaseLLM):
-    options: dict[str, str] | None = None
-    type: Literal["ollama"]
-
-
-class Gemini(BaseLLM):
-    max_output_tokens: int | None = Field(default=None, ge=1)
-    type: Literal["gemini"]
-
-
-class Bedrock(BaseLLM):
-    region: str | None = None
-    # additional_model_request_fields passes model-specific parameters to Bedrock's
-    # additionalModelRequestFields in the Converse API. Use this for provider-specific
-    # options outside the standard InferenceConfiguration block.
-    additional_model_request_fields: dict | None = None
-    # prompt_caching enables Bedrock prompt caching: a CachePoint marker is
-    # appended to the end of the Converse request's system content array and
-    # toolConfig.tools array. Bedrock caches the prefix across requests in the
-    # same region; cached portion is billed at a reduced rate on hit.
-    prompt_caching: bool = False
-    # cache_ttl selects the cache retention window when prompt_caching is on:
-    # "5m" (default) for Bedrock's standard 5-minute cache, or "1h" for
-    # extended-TTL caching. "1h" is supported on fewer models and billed at a
-    # higher cache-write rate, so it is not strictly better than "5m".
-    cache_ttl: Literal["5m", "1h"] | None = None
-    # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
-    # ~60s default, which otherwise aborts long completions with a
-    # ReadTimeoutError. None keeps botocore's defaults. Constrained to >= 1 to
-    # match the ModelConfig CRD (readTimeout/connectTimeout minimum: 1).
-    read_timeout: int | None = Field(default=None, ge=1)
-    connect_timeout: int | None = Field(default=None, ge=1)
-    type: Literal["bedrock"]
-
-
-class SAPAICore(BaseLLM):
-    base_url: str | None = None
-    resource_group: str = "default"
-    auth_url: str | None = None
-    type: Literal["sap_ai_core"]
-
-
-class Mistral(BaseLLM):
-    base_url: str | None = None
-    max_tokens: int | None = Field(default=None, ge=1)
-    temperature: float | None = None
-    top_p: float | None = None
-    timeout: int | None = Field(default=None, ge=1)
-    type: Literal["mistral"]
-
-
-ModelUnion = Union[
-    OpenAI,
-    Anthropic,
-    GeminiVertexAI,
-    GeminiAnthropic,
-    Ollama,
-    AzureOpenAI,
-    Foundry,
-    Gemini,
-    Bedrock,
-    SAPAICore,
-    Mistral,
-]
-
-
-class ContextCompressionSettings(BaseModel):
-    compaction_interval: int
-    overlap_size: int
-    summarizer_model: ModelUnion | None = Field(default=None, discriminator="type")
-    prompt_template: str | None = None
-    token_threshold: int | None = None
-    event_retention_size: int | None = None
-
-
-class ContextConfig(BaseModel):
-    """Context management configuration containing compaction settings."""
-
-    compaction: ContextCompressionSettings | None = None
-
-
-class EmbeddingConfig(BaseModel):
-    model: str
-    provider: str
-    base_url: str | None = None
-    api_key_passthrough: bool = False
-    tls_disable_verify: bool | None = Field(
-        default=None,
-        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
-    )
-    tls_ca_cert_path: str | None = None
-    tls_disable_system_cas: bool | None = None
-    endpoint: str | None = None
-    deployment: str | None = None
-    api_version: str | None = None
-
-
-class MemoryConfig(BaseModel):
-    """Memory configuration. Its presence signals that memory is enabled."""
-
-    ttl_days: int = 0  # TTL for memory entries in days. 0 means use the server default.
-    embedding: EmbeddingConfig | None = None  # Embedding model config for memory tools.
-
-
-class NetworkConfig(BaseModel):
-    allowed_domains: list[str] = Field(default_factory=list)
-
-
-class AgentConfig(BaseModel):
-    @model_validator(mode="before")
-    @classmethod
-    def root_runtime_only(cls, values):
-        def check_children(document):
-            for child in document.get("sub_agents", []) or []:
-                if not isinstance(child, dict):
-                    raise ValueError("subagent must be an object")
-                if "runtime" in child:
-                    raise ValueError("runtime settings are only allowed on the root agent")
-                check_children(child)
-
-        if isinstance(values, dict):
-            check_children(values)
-        return values
-
-    runtime: RuntimeConfig | None = None
-    skills_directory: str = ""
-    model: ModelUnion = Field(discriminator="type")
-    description: str
-    instruction: str
-    http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
-    sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
-    remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
-    stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
-    memory: MemoryConfig | None = None  # Memory configuration
-    network: NetworkConfig | None = None
-    context_config: ContextConfig | None = None
-    share_tools: bool | None = None  # Enable built-in share link tools
-    # Selects a local (in-actor) session store when set — substrate sandbox agents with
-    # durable-dir session storage. Set by the controller in the rendered config.
-    session_db_url: str | None = None
-
-    def to_agent(
-        self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False
-    ) -> Agent:
-        if name is None or not str(name).strip():
-            raise ValueError("Agent name must be a non-empty string.")
-        tools: list[ToolUnion] = []
-        has_tools_requiring_approval = False
-        # Names of MCP App (UI-rendering) tools, filled in lazily as MCP tools
-        # are resolved; used to compact their results for the model.
-        mcp_app_tool_names = MCPAppToolNames()
-        sts_header_provider = None
-        if sts_integration:
-            sts_header_provider = sts_integration.header_provider
-        if self.http_tools:
-            for http_tool in self.http_tools:  # add http tools
-                # Install a TLS-aware httpx_client_factory on the params
-                # before constructing the toolset, so every MCP session
-                # the session manager opens trusts the configured CA.
-                http_tool._apply_tls_to_params(http_tool.params)
-                # Create header provider combining STS and allowed headers for this tool
-                tool_header_provider = create_header_provider(
-                    allowed_headers=http_tool.allowed_headers,
-                    sts_header_provider=sts_header_provider,
-                )
-                tools.append(
-                    KAgentMcpToolset(
-                        connection_params=http_tool.params,
-                        tool_filter=http_tool.tools,
-                        header_provider=tool_header_provider,
-                        app_tool_names=mcp_app_tool_names,
-                        require_approval=http_tool.require_approval,
-                    )
-                )
-                if http_tool.require_approval:
-                    has_tools_requiring_approval = True
-        if self.sse_tools:
-            for sse_tool in self.sse_tools:  # add sse tools
-                sse_tool._apply_tls_to_params(sse_tool.params)
-                # Create header provider combining STS and allowed headers for this tool
-                tool_header_provider = create_header_provider(
-                    allowed_headers=sse_tool.allowed_headers,
-                    sts_header_provider=sts_header_provider,
-                )
-                tools.append(
-                    KAgentMcpToolset(
-                        connection_params=sse_tool.params,
-                        tool_filter=sse_tool.tools,
-                        header_provider=tool_header_provider,
-                        app_tool_names=mcp_app_tool_names,
-                        require_approval=sse_tool.require_approval,
-                    )
-                )
-                if sse_tool.require_approval:
-                    has_tools_requiring_approval = True
-        if self.remote_agents:
-            for remote_agent in self.remote_agents:  # Add remote agents as tools
-                # Prepare httpx client parameters
-                timeout = httpx.Timeout(timeout=remote_agent.timeout)
-                headers: dict[str, str] | None = remote_agent.headers
-                base_url: str | None = None
-                event_hooks: dict[str, list[Callable[[httpx.Request], None]]] | None = None
-
-                # If headers includes the proxy host header, it means we're using a proxy
-                # RemoteA2aAgent may use URLs from agent card response, so we need to
-                # rewrite all request URLs to use the proxy URL while preserving the proxy host header
-                if remote_agent.headers and PROXY_HOST_HEADER in remote_agent.headers:
-                    # Parse the proxy URL to extract base URL
-                    from urllib.parse import urlparse as parse_url
-
-                    parsed_proxy = parse_url(remote_agent.url)
-                    proxy_base = f"{parsed_proxy.scheme}://{parsed_proxy.netloc}"
-                    target_host = remote_agent.headers[PROXY_HOST_HEADER]
-
-                    # Event hook to rewrite request URLs to use proxy while preserving the proxy host header
-                    # Note: Relative paths are handled by base_url below, so they'll already point to proxy_base
-                    def make_rewrite_url_to_proxy(proxy_base: str, target_host: str) -> Callable[[httpx.Request], None]:
-                        async def rewrite_url_to_proxy(request: httpx.Request) -> None:
-                            parsed = parse_url(str(request.url))
-                            proxy_netloc = parse_url(proxy_base).netloc
-
-                            # If URL is absolute and points to a different host, rewrite to the proxy base URL
-                            if parsed.netloc and parsed.netloc != proxy_netloc:
-                                # This is an absolute URL pointing to the target service, rewrite it
-                                new_url = f"{proxy_base}{parsed.path}"
-                                if parsed.query:
-                                    new_url += f"?{parsed.query}"
-                                request.url = httpx.URL(new_url)
-
-                            # Always set proxy host header for Gateway API routing
-                            request.headers[PROXY_HOST_HEADER] = target_host
-
-                        return rewrite_url_to_proxy
-
-                    # Set base_url so relative paths work correctly with httpx
-                    # httpx requires either base_url or absolute URLs - relative paths will fail without base_url
-                    base_url = proxy_base
-                    event_hooks = {"request": [make_rewrite_url_to_proxy(proxy_base, target_host)]}
-
-                # Note: httpx doesn't accept None for base_url/event_hooks, so we only pass the parameters if set
-                if base_url and event_hooks:
-                    client = httpx.AsyncClient(
-                        timeout=timeout,
-                        headers=headers,
-                        base_url=base_url,
-                        event_hooks=event_hooks,
-                    )
-                elif headers:
-                    client = httpx.AsyncClient(
-                        timeout=timeout,
-                        headers=headers,
+                    # Pass the agent's model directly for summarization
+                    await callback_context._invocation_context.memory_service.add_session_to_memory(
+                        session,
+                        model=agent.model,
                     )
                 else:
-                    client = httpx.AsyncClient(
-                        timeout=timeout,
-                    )
+                    logger.debug("Skipping auto-save for session %s (turn %d)", session.id, user_msg_count)
+            except Exception as e:
+                logger.error("Failed to auto-save session to memory: %s", e)
 
-                a2a_header_provider = None
-                if propagate_token:
-                    a2a_header_provider = create_header_provider(allowed_headers=["authorization"])
-                tools.append(
-                    KAgentRemoteA2AToolset(
-                        name=remote_agent.name,
-                        description=remote_agent.description,
-                        agent_card_url=f"{remote_agent.url}{AGENT_CARD_WELL_KNOWN_PATH}",
-                        httpx_client=client,
-                        header_provider=a2a_header_provider,
-                        isolate_sessions=remote_agent.isolate_sessions,
-                    )
-                )
+        # Append to after agent callback list
+        if not hasattr(agent, "after_agent_callback") or agent.after_agent_callback is None:
+            agent.after_agent_callback = []
+        agent.after_agent_callback.append(auto_save_session_to_memory_callback)
 
-        model = _create_llm_from_model_config(self.model)
-
-        # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
-        tools.append(AskUserTool())
-
-        # Build before_tool_callback if any tools require approval
-        before_tool_callback = make_approval_callback() if has_tools_requiring_approval else None
-        # ADK 2.x filters its synthetic confirmation events before model calls.
-        before_model_callbacks = [make_mcp_app_model_result_callback(mcp_app_tool_names)]
-
-        # static_instruction is sent directly to the model without any placeholder processing
-        agent = Agent(
-            name=name,
-            model=model,
-            description=self.description,
-            static_instruction=self.instruction,
-            tools=tools,
-            before_tool_callback=before_tool_callback,
-            before_model_callback=before_model_callbacks,
-        )
-
-        # Configure memory if enabled
-        if self.memory is not None:
-            self._configure_memory(agent)
-
-        return agent
-
-    def _configure_memory(self, agent: Agent) -> None:
-        """Configures the agent to properly use memory.
-
-        1. Adds memory tools to the agent
-        2. Adds a callback to auto-save the session to memory
-        3. Adds instructions to the agent to use memory
-        """
-        try:
-            from kagent.adk.tools.memory_tools import LoadMemoryTool, SaveMemoryTool
-            from kagent.adk.tools.prefetch_memory_tool import PrefetchMemoryTool
-
-            agent.tools.append(PrefetchMemoryTool())
-            agent.tools.append(LoadMemoryTool())
-            agent.tools.append(SaveMemoryTool())
-
-            memory_suffix = (
-                "\n\nYou have long-term memory: use save_memory to store important findings, learnings, and user preferences. "
-                "When you need more context or are unsure, use load_memory to search past conversations for relevant information."
-            )
-            if agent.static_instruction:
-                agent.static_instruction += memory_suffix
-            else:
-                agent.instruction += memory_suffix
-
-            # Define auto-save callback
-            async def auto_save_session_to_memory_callback(callback_context: CallbackContext):
-                try:
-                    session = callback_context._invocation_context.session
-                    # Count user messages from events list
-                    user_msg_count = sum(1 for e in session.events if e.author == "user")
-
-                    # Save every 5 turns (skip 0)
-                    if user_msg_count > 0 and user_msg_count % 5 == 0:
-                        logger.info("Auto-saving session %s to memory (turn %d)", session.id, user_msg_count)
-
-                        # Pass the agent's model directly for summarization
-                        await callback_context._invocation_context.memory_service.add_session_to_memory(
-                            session,
-                            model=agent.model,
-                        )
-                    else:
-                        logger.debug("Skipping auto-save for session %s (turn %d)", session.id, user_msg_count)
-                except Exception as e:
-                    logger.error("Failed to auto-save session to memory: %s", e)
-
-            # Append to after agent callback list
-            if not hasattr(agent, "after_agent_callback") or agent.after_agent_callback is None:
-                agent.after_agent_callback = []
-            agent.after_agent_callback.append(auto_save_session_to_memory_callback)
-
-        except ImportError as e:
-            logger.warning("Failed to import memory tools (google-adk update may be needed): %s", e)
-        except Exception as e:
-            logger.error("Failed to inject memory configuration: %s", e)
+    except ImportError as e:
+        logger.warning("Failed to import memory tools (google-adk update may be needed): %s", e)
+    except Exception as e:
+        logger.error("Failed to inject memory configuration: %s", e)
 
 
-def _transport_kwargs(model_config: BaseLLM) -> dict[str, Any]:
-    """Extract TLS/transport kwargs shared by most model types.
-
-    Returns a dict with api_key_passthrough and TLS fields so callers
-    can spread them with ``**_transport_kwargs(model_config)`` instead of
-    repeating the same four lines in every branch of
-    ``_create_llm_from_model_config``.
-    """
-    kwargs: dict[str, Any] = {}
-    if model_config.api_key_passthrough is not None:
-        kwargs["api_key_passthrough"] = model_config.api_key_passthrough
-    if model_config.tls_disable_verify is not None:
-        kwargs["tls_disable_verify"] = model_config.tls_disable_verify
-    if model_config.tls_ca_cert_path is not None:
-        kwargs["tls_ca_cert_path"] = model_config.tls_ca_cert_path
-    if model_config.tls_disable_system_cas is not None:
-        kwargs["tls_disable_system_cas"] = model_config.tls_disable_system_cas
+def _transport_kwargs(model_config: ModelConfig) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"api_key_passthrough": model_config.api_key_passthrough}
+    for source, target in (
+        ("tls_insecure_skip_verify", "tls_disable_verify"),
+        ("tls_ca_cert_path", "tls_ca_cert_path"),
+        ("tls_disable_system_cas", "tls_disable_system_cas"),
+    ):
+        if model_config.HasField(source):
+            kwargs[target] = getattr(model_config, source)
     return kwargs
 
 
-def _create_llm_from_model_config(model_config: ModelUnion):
-    extra_headers = model_config.headers or {}
-    base_url = getattr(model_config, "base_url", None)
+def _create_llm_from_model_config(model_config: ModelConfig):
+    validate(model_config)
+    provider = model_config.WhichOneof("provider")
+    settings = getattr(model_config, provider)
+    extra_headers = dict(model_config.headers)
+    base_url = getattr(settings, "base_url", "") or None
 
-    if model_config.type == "openai":
+    if provider == "openai":
         from .models._token_source import GDCHTokenSource
 
         token_exchange = None
-        te = model_config.token_exchange
+        te = optional_field(settings, "token_exchange")
         if te is not None:
-            if te.type == "GDCHServiceAccount":
-                if te.gdch_service_account is None:
-                    raise ValueError(
-                        "Invalid token_exchange configuration: "
-                        "gdch_service_account is required when token_exchange.type "
-                        "is 'GDCHServiceAccount'"
-                    )
+            if te.WhichOneof("source") == "gdch_service_account":
                 token_exchange = GDCHTokenSource(
                     service_account_path=te.gdch_service_account.service_account_path,
                     audience=te.gdch_service_account.audience,
-                    ca_cert_path=model_config.tls_ca_cert_path,
-                    tls_disable_verify=model_config.tls_disable_verify or False,
+                    ca_cert_path=optional_field(model_config, "tls_ca_cert_path"),
+                    tls_disable_verify=model_config.tls_insecure_skip_verify or False,
                 )
             else:
-                raise ValueError(f"Unsupported token_exchange type: {te.type}")
+                raise ValueError(f"Unsupported token_exchange type: {te.WhichOneof('source')}")
 
         return OpenAINative(
             type="openai",
             base_url=base_url,
             default_headers=extra_headers,
-            frequency_penalty=model_config.frequency_penalty,
-            max_tokens=model_config.max_tokens,
-            max_completion_tokens=model_config.max_completion_tokens,
+            frequency_penalty=optional_field(settings, "frequency_penalty"),
+            max_tokens=optional_field(settings, "max_tokens"),
+            max_completion_tokens=optional_field(settings, "max_completion_tokens"),
             model=model_config.model,
-            n=model_config.n,
-            presence_penalty=model_config.presence_penalty,
-            reasoning_effort=model_config.reasoning_effort,
-            seed=model_config.seed,
-            temperature=model_config.temperature,
-            timeout=model_config.timeout,
-            top_p=model_config.top_p,
-            api_format=model_config.api_format,
+            n=optional_field(settings, "n"),
+            presence_penalty=optional_field(settings, "presence_penalty"),
+            reasoning_effort=optional_field(settings, "reasoning_effort"),
+            seed=optional_field(settings, "seed"),
+            temperature=optional_field(settings, "temperature"),
+            timeout=_timeout_seconds(settings, "timeout"),
+            top_p=optional_field(settings, "top_p"),
+            api_format=settings.api_format or None,
             token_exchange=token_exchange,
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "anthropic":
+    if provider == "anthropic":
         return KAgentAnthropicLlm(
             model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
-            prompt_caching=model_config.prompt_caching,
-            cache_ttl=model_config.cache_ttl,
+            prompt_caching=settings.prompt_caching,
+            cache_ttl=settings.cache_ttl or None,
+            timeout=_timeout_seconds(settings, "timeout"),
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "gemini_vertex_ai":
+    if provider == "gemini_vertex_ai":
         return KAgentGeminiVertexAILlm(
             model=model_config.model,
-            max_output_tokens=model_config.max_output_tokens,
+            max_output_tokens=optional_field(settings, "max_output_tokens"),
         )
-    if model_config.type == "gemini_anthropic":
+    if provider == "gemini_anthropic":
         return ClaudeLLM(model=model_config.model)
-    if model_config.type == "ollama":
-        ollama_options = _convert_ollama_options(getattr(model_config, "options", None))
+    if provider == "ollama":
+        ollama_options = _convert_ollama_options(dict(settings.options))
         # api key passthrough is not applicable for ollama
         return create_ollama_llm(
             model=model_config.model,
@@ -773,72 +595,77 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             extra_headers=extra_headers,
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "azure_openai":
+    if provider == "azure_openai":
         return OpenAIAzure(
             model=model_config.model,
             type="azure_openai",
             default_headers=extra_headers,
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "foundry":
-        if model_config.api_format == "anthropic":
+    if provider == "foundry":
+        if settings.api_format == "anthropic":
             return FoundryAnthropic(
-                model=model_config.deployment or model_config.model,
-                endpoint=model_config.endpoint,
-                deployment=model_config.deployment,
+                model=settings.deployment or model_config.model,
+                endpoint=settings.endpoint or None,
+                deployment=settings.deployment or None,
                 extra_headers=extra_headers,
                 **_transport_kwargs(model_config),
             )
         return FoundryOpenAI(
             model=model_config.model,
             type="foundry",
-            endpoint=model_config.endpoint,
-            deployment=model_config.deployment,
-            api_version=model_config.api_version,
+            endpoint=settings.endpoint or None,
+            deployment=settings.deployment or None,
+            api_version=settings.api_version or None,
             default_headers=extra_headers,
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "gemini":
+    if provider == "gemini":
         return KAgentGeminiLlm(
             model=model_config.model,
             extra_headers=extra_headers,
-            max_output_tokens=model_config.max_output_tokens,
+            max_output_tokens=optional_field(settings, "max_output_tokens"),
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "bedrock":
+    if provider == "bedrock":
+        additional_fields = None
+        if settings.additional_model_request_fields:
+            additional_fields = json.loads(settings.additional_model_request_fields)
+            if not isinstance(additional_fields, dict):
+                raise ValueError("Bedrock additional_model_request_fields must be a JSON object")
         return KAgentBedrockLlm(
             model=model_config.model,
             extra_headers=extra_headers,
-            additional_model_request_fields=model_config.additional_model_request_fields,
-            prompt_caching=model_config.prompt_caching,
-            cache_ttl=model_config.cache_ttl,
-            read_timeout=model_config.read_timeout,
-            connect_timeout=model_config.connect_timeout,
+            additional_model_request_fields=additional_fields,
+            prompt_caching=settings.prompt_caching,
+            cache_ttl=settings.cache_ttl or None,
+            read_timeout=_timeout_seconds(settings, "read_timeout"),
+            connect_timeout=_timeout_seconds(settings, "connect_timeout"),
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "sap_ai_core":
+    if provider == "sap_ai_core":
         from .models._sap_ai_core import KAgentSAPAICoreLlm
 
         return KAgentSAPAICoreLlm(
             model=model_config.model,
             base_url=base_url,
-            resource_group=model_config.resource_group,
-            auth_url=model_config.auth_url,
+            resource_group=settings.resource_group or "default",
+            auth_url=settings.auth_url or None,
             **_transport_kwargs(model_config),
         )
-    if model_config.type == "mistral":
+    if provider == "mistral":
         return KAgentMistralLlm(
             type="mistral",
             model=model_config.model,
             base_url=base_url,
             default_headers=extra_headers,
-            max_tokens=model_config.max_tokens,
-            temperature=model_config.temperature,
-            top_p=model_config.top_p,
-            timeout=model_config.timeout,
+            max_tokens=optional_field(settings, "max_tokens"),
+            temperature=optional_field(settings, "temperature"),
+            top_p=optional_field(settings, "top_p"),
+            timeout=_timeout_seconds(settings, "timeout"),
             **_transport_kwargs(model_config),
         )
-    raise ValueError(f"Invalid model type: {model_config.type}")
+    raise ValueError(f"Invalid model type: {provider}")
 
 
 _KAGENT_TOOL_NAME_WARNING = (
@@ -870,11 +697,11 @@ def build_adk_context_configs(
 
     events_compaction_config = None
 
-    if context_config.compaction is not None:
+    if context_config.HasField("compaction"):
         comp = context_config.compaction
         summarizer = None
 
-        if comp.summarizer_model is not None:
+        if comp.HasField("summarizer_model"):
             from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
 
             summarizer = LlmEventSummarizer(
@@ -883,14 +710,11 @@ def build_adk_context_configs(
                 + (str() if not comp.prompt_template else _KAGENT_TOOL_NAME_WARNING),
             )
 
-        events_compaction_config = EventsCompactionConfig(
-            compaction_interval=comp.compaction_interval,
-            overlap_size=comp.overlap_size,
-            summarizer=summarizer,
-        )
-        if comp.token_threshold is not None and hasattr(EventsCompactionConfig, "token_threshold"):
-            events_compaction_config.token_threshold = comp.token_threshold
-        if comp.event_retention_size is not None and hasattr(EventsCompactionConfig, "event_retention_size"):
-            events_compaction_config.event_retention_size = comp.event_retention_size
+        settings = {
+            name: getattr(comp, name)
+            for name in ("compaction_interval", "overlap_size", "token_threshold", "event_retention_size")
+            if comp.HasField(name)
+        }
+        events_compaction_config = EventsCompactionConfig(summarizer=summarizer, **settings)
 
     return events_compaction_config, None

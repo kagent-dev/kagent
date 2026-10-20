@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,8 +12,9 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 type recordingSink struct {
@@ -43,31 +45,7 @@ func (s *recordingSink) ToolResult(event runtime.ToolResult) error {
 	s.results = append(s.results, event)
 	return nil
 }
-func (s *recordingSink) ModelCall(event runtime.ModelCall) {
-	s.models = append(s.models, event)
-}
-
-func TestResumedEventSinkDropsOnlyInterruptedResponseWarning(t *testing.T) {
-	underlying := &recordingSink{}
-	sink := resumedEventSink{EventSink: underlying}
-
-	if err := sink.TextDelta(runtime.TextDelta{Text: "\n" + interruptedResponseWarning + "\n"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := sink.TextDelta(runtime.TextDelta{Text: "continued"}); err != nil {
-		t.Fatal(err)
-	}
-	if underlying.text.String() != "continued" {
-		t.Fatalf("resumed text = %q, want continued", underlying.text.String())
-	}
-
-	if _, err := emitEvent(Event{Kind: EventTextDelta, Text: interruptedResponseWarning}, underlying, false); err != nil {
-		t.Fatal(err)
-	}
-	if underlying.text.String() != "continued"+interruptedResponseWarning {
-		t.Fatalf("ordinary text = %q, want the vendor warning preserved", underlying.text.String())
-	}
-}
+func (s *recordingSink) ModelCall(event runtime.ModelCall) { s.models = append(s.models, event) }
 
 func TestTraceEnvironment(t *testing.T) {
 	traceID, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
@@ -137,7 +115,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	agentsJSON := `{"reviewer":{"description":"Reviews changes","prompt":"Review carefully","tools":["Read"]}}`
 	mcpConfigPath := filepath.Join(dir, "mcp.json")
 	skillRoot := filepath.Join(dir, "generated-skills")
-	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, SkillRoot: skillRoot, PluginDirs: []string{filepath.Join(dir, "plugin-a")}, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	d := NewProcessDriver(ProcessConfig{Executable: executable, ExpectedVersion: pinnedClaudeVersion, StrictVersion: true, Workspace: dir, Model: "claude-test", AppendSystemPrompt: "extra", AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath, PluginDirs: []string{skillRoot, filepath.Join(dir, "plugin-a")}, Environment: []string{"CAPTURE=" + capture}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
 	if err := d.Validate(t.Context()); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -183,7 +161,7 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	if !strings.Contains(string(args), "--mcp-config\n"+mcpConfigPath+"\n") {
 		t.Error("arguments do not contain compiler-owned MCP configuration")
 	}
-	if !strings.Contains(string(args), "--add-dir\n"+skillRoot+"\n") {
+	if !strings.Contains(string(args), "--plugin-dir\n"+skillRoot+"\n") {
 		t.Error("arguments do not expose compiler-owned skills")
 	}
 	if !strings.Contains(string(args), "--plugin-dir\n"+filepath.Join(dir, "plugin-a")+"\n") {
@@ -271,34 +249,41 @@ func callerContext(t *testing.T, credential string) context.Context {
 }
 
 func TestProcessDriverBindsTheCallerCredentialPerTurn(t *testing.T) {
-	dir := t.TempDir()
-	decision := filepath.Join(dir, "decision")
-	executable := filepath.Join(dir, "claude")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\nwhile [ ! -f \"$DECISION\" ]; do sleep 0.01; done\nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\n"
-	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	broker := &ApprovalBroker{requests: make(chan *PendingApprovalRequest, 1)}
+	dir, executable := writeFakeClaude(t, `#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}'
+printf '%s\n' '{"type":"result","subtype":"success","session_id":"11111111-1111-4111-8111-111111111111"}'
+`)
+	broker := newTestBroker(t)
 	binder := &recordingBinder{}
-	driver := NewProcessDriver(ProcessConfig{
-		Executable: executable, Workspace: dir, Environment: []string{"DECISION=" + decision},
+	d := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir,
 		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
-		ApprovalBroker: broker, SettingsPath: filepath.Join(dir, "settings.json"), CallerCredentials: binder,
+		ApprovalBroker: broker, CallerCredentials: binder,
 	})
-	pending := newTestPending("approval-1", "call-1")
-	broker.requests <- pending
-	bridgeDecisionToFile(t, pending, decision)
 
-	outcome, err := driver.Run(callerContext(t, "Bearer first-sender"), runtime.Turn{Prompt: "write"}, &recordingSink{})
-	if err != nil || outcome.Pending == nil {
+	outcome, err := d.Run(callerContext(t, "Bearer first-sender"), runtime.Turn{Prompt: "write"}, &recordingSink{})
+	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
 		t.Fatalf("Run() = %#v, %v", outcome, err)
 	}
 	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear" {
-		t.Fatalf("a parked turn must hold no credential: binder events = %q", got)
+		t.Fatalf("a finished turn must hold no credential: binder events = %q", got)
 	}
-	outcome, err = outcome.Pending.Resume(callerContext(t, "Bearer second-sender"), &runtime.ApprovalDecision{ID: "approval-1", Approved: true}, &recordingSink{})
-	if err != nil || outcome.Pending != nil || outcome.Failure != nil {
-		t.Fatalf("Resume() = %#v, %v", outcome, err)
+
+	// A parked turn holds no credential while it waits, and resumes with the
+	// credential of the call that resumes it. The fake process does not replay
+	// the deferred call through its hook, so the resume ends abandoned; the
+	// binder still saw the resuming call's credential for the process's life.
+	r := testRecord()
+	if err := saveDeferred(broker.directory, 1<<20, &r); err != nil {
+		t.Fatal(err)
+	}
+	_, _, pending, err := d.RestorePending()
+	if err != nil || pending == nil {
+		t.Fatalf("RestorePending() = %v, %v", pending, err)
+	}
+	_, err = pending.Resume(callerContext(t, "Bearer second-sender"), &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}, &recordingSink{})
+	if !errors.Is(err, runtime.ErrSessionAbandoned) {
+		t.Fatalf("Resume() error = %v, want the abandoned session of a fake replay", err)
 	}
 	if got := strings.Join(binder.events, ","); got != "bind:Bearer first-sender,clear,bind:Bearer second-sender,clear" {
 		t.Fatalf("the resuming call's credential must replace the first: binder events = %q", got)

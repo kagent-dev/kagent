@@ -21,16 +21,17 @@ import (
 )
 
 type parser struct {
-	emitted          map[string]string
-	currentMessageID string
-	activeBlock      *contentBlockRef
-	tools            map[string]string
-	emittedToolCalls map[string]struct{}
-	emittedResults   map[string]struct{}
-	terminal         bool
-	now              func() time.Time
-	openCall         *runtime.ModelCall
-	openUsage        claudeUsage
+	emitted               map[string]string
+	currentMessageID      string
+	activeBlock           *contentBlockRef
+	tools                 map[string]string
+	emittedToolCalls      map[string]struct{}
+	emittedResults        map[string]struct{}
+	terminal              bool
+	now                   func() time.Time
+	openCall              *runtime.ModelCall
+	openUsage             claudeUsage
+	openCallToolRequested bool
 	// openCallDone is set once a user line follows the open call. A new stream after that is
 	// the next call; before it, the stream retries the open call.
 	openCallDone     bool
@@ -132,19 +133,26 @@ func (p *parser) flushOpenCall(emit func(Event) error) error {
 	return emit(Event{Kind: EventModelCall, ModelCall: call})
 }
 
-// failCall emits a request the API rejected. An error after message_start ends that
-// streamed call, so it stays one call.
+// failCall emits an API-rejected request. If an outstanding tool request already ended the
+// streamed response, classify the partial call as tool_call rather than an API failure.
 func (p *parser) failCall(parent, errorType string, at time.Time, emit func(Event) error) error {
 	call := &runtime.ModelCall{ParentToolID: parent, Start: cmp.Or(p.callStart[parent], at), End: at}
+	toolRequested := parent == "" && p.openCall != nil && p.openCallToolRequested && !p.openCallDone
 	if parent == "" && p.openCall != nil {
 		call, p.openCall = p.openCall, nil
 		call.End = cmp.Or(call.End, p.now())
+		p.openCallToolRequested = false
 	}
 	if parent == "" {
 		p.joinRetries(call)
 	}
 	p.callStart[parent] = at
-	call.StopReason, call.ErrorType, call.UsagePartial = tracing.FinishReasonError, errorType, true
+	call.StopReason, call.UsagePartial = tracing.FinishReasonError, true
+	if toolRequested {
+		call.StopReason = tracing.FinishReasonToolCall
+	} else {
+		call.ErrorType = errorType
+	}
 	return emit(Event{Kind: EventModelCall, ModelCall: call})
 }
 
@@ -227,14 +235,7 @@ type contentBlockRef struct {
 	index     int
 }
 
-// ParseJSONL parses a JSONL stream of Claude events and emits them to the
-// provided event sink.
-func ParseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, emit func(Event) error) error {
-	return parseJSONL(ctx, r, maxEventBytes, map[string]modelUsage{}, emit)
-}
-
-// parseJSONL is ParseJSONL for a process that resumes a session with startUsage.
-func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage map[string]modelUsage, emit func(Event) error) error {
+func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage map[string]modelUsage, seed *DeferredTool, emit func(Event) error) error {
 	if maxEventBytes <= 0 {
 		return fmt.Errorf("max event bytes must be positive")
 	}
@@ -243,6 +244,10 @@ func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage 
 	var arrived time.Time
 	p := newParser(func() time.Time { return arrived })
 	p.startUsage = startUsage
+	if seed != nil {
+		p.tools[seed.ID] = seed.Name
+		p.emittedToolCalls[seed.ID] = struct{}{}
+	}
 	emit = p.countEmitted(emit)
 	for item := range readStamped(r, maxEventBytes, done) {
 		arrived = item.arrived
@@ -268,8 +273,8 @@ func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage 
 	return nil
 }
 
-// waitingLines is how many lines can wait while an approval pause blocks the parser. Claude stops
-// printing once it asks; past this, reading pauses and later lines get the time the parser reads them.
+// waitingLines bounds the queue between the reader and parser. Beyond this limit,
+// reading pauses and later lines receive their timestamp when reading resumes.
 const waitingLines = 64
 
 type stampedLine struct {
@@ -278,8 +283,8 @@ type stampedLine struct {
 	err     error
 }
 
-// readStamped reads lines on its own goroutine and stamps each when it arrives. The parser
-// blocks on emit during an approval pause, so lines Claude already printed must not wait for it.
+// readStamped timestamps each line before queuing it for parsing.
+// The bounded queue still applies backpressure when the consumer falls behind.
 func readStamped(r io.Reader, max int, done <-chan struct{}) <-chan stampedLine {
 	lines := make(chan stampedLine, waitingLines)
 	go func() {
@@ -326,6 +331,8 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 		// ModelUsage is the session's totals so far, including subagents and earlier processes.
 		ModelUsage map[string]modelUsage `json:"modelUsage"`
 		Message    json.RawMessage       `json:"message"`
+		StopReason string                `json:"stop_reason"`
+		Deferred   *DeferredTool         `json:"deferred_tool_use"`
 		Origin     struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
@@ -383,14 +390,20 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 			return err
 		}
 		p.terminal = true
+		if envelope.StopReason == "tool_deferred" {
+			if envelope.IsError || envelope.Subtype != "success" || envelope.Deferred == nil || envelope.Deferred.ID == "" || envelope.Deferred.Name == "" || envelope.SessionID == "" {
+				return fmt.Errorf("invalid Claude deferred result")
+			}
+			return emit(Event{Kind: EventDeferred, SessionID: envelope.SessionID, Deferred: envelope.Deferred})
+		}
 		if envelope.IsError || envelope.Subtype != "success" {
 			message := envelope.Result
 			if message == "" {
 				message = "Claude execution failed"
 			}
-			return emit(Event{Kind: EventFailed, Category: envelope.Subtype, SafeMessage: message})
+			return emit(Event{Kind: EventFailed, SafeMessage: message})
 		}
-		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID, Result: envelope.Result})
+		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID})
 	}
 	return nil
 }
@@ -509,6 +522,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		p.streamedMessages[event.Message.ID] = struct{}{}
 		// message_start comes after the first token, so the call starts when the request was sent.
 		p.openCall = &runtime.ModelCall{ResponseModel: event.Message.Model, ResponseID: event.Message.ID, Start: cmp.Or(p.callStart[""], p.now())}
+		p.openCallToolRequested = false
 		p.openUsage = event.Message.Usage
 		event.Message.Usage.apply(p.openCall)
 	case "message_delta":
@@ -520,6 +534,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		p.openUsage.merge(event.Usage).apply(call)
 		p.joinRetries(call)
 		call.StopReason, call.End = claudeFinishReason(event.Delta.StopReason), p.now()
+		p.openCallToolRequested = false
 		p.callStart[""] = call.End
 		return emit(Event{Kind: EventModelCall, ModelCall: call})
 	case "content_block_delta":
@@ -639,8 +654,11 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, l
 			}
 			p.emittedToolCalls[content.ID] = struct{}{}
 			// A tool runs once its block is whole, so a reply that never gets final usage ends here.
-			if parent == "" && p.openCall != nil && p.openCall.End.IsZero() {
-				p.openCall.End = p.now()
+			if parent == "" && p.openCall != nil {
+				p.openCallToolRequested = true
+				if p.openCall.End.IsZero() {
+					p.openCall.End = p.now()
+				}
 			}
 			if err := emit(Event{Kind: EventToolActivity, ToolID: content.ID, ToolName: content.Name, ToolPhase: "started", Metadata: content.Input, ParentToolID: parent}); err != nil {
 				return err

@@ -242,15 +242,35 @@ tests:
   # Database Configuration Tests
   # =============================================================================
 
-  - it: should require an application Secret
+  - it: should require a read/write Secret
     template: controller-deployment.yaml
     set:
-      database.postgres.connectionStringSecretRef.name: ""
+      database.postgres.readWriteConnectionStringSecretRef.name: ""
     asserts:
       - failedTemplate:
-          errorMessage: database.postgres.connectionStringSecretRef.name is required
+          errorMessage: database.postgres.readWriteConnectionStringSecretRef.name is required
 
-  - it: should project a PostgreSQL client certificate when enabled
+  - it: should require an owner Secret when migrations run
+    template: controller-deployment.yaml
+    set:
+      database.postgres.ownerConnectionStringSecretRef.name: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: database.postgres.ownerConnectionStringSecretRef.name is required unless config.database.skipMigrations is true
+
+  - it: should not need an owner Secret when migrations are skipped
+    template: controller-deployment.yaml
+    set:
+      config.database.skipMigrations: true
+      database.postgres.ownerConnectionStringSecretRef: null
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[0].secret.name
+          value: kagent-postgres-readwrite
+      - notExists:
+          path: spec.template.spec.volumes[1].projected.sources[1]
+
+  - it: should project both PostgreSQL client certificates when enabled
     template: controller-deployment.yaml
     set:
       database:
@@ -267,9 +287,15 @@ tests:
                 - podCertificate:
                     signerName: postgres.podcert.ate.dev/identity
                     keyType: ECDSAP256
-                    credentialBundlePath: credential-bundle.pem
+                    credentialBundlePath: kagent_owner_user.pem
                     userAnnotations:
-                      postgres.podcert.ate.dev/username: kagent_user
+                      postgres.podcert.ate.dev/username: kagent_owner_user
+                - podCertificate:
+                    signerName: postgres.podcert.ate.dev/identity
+                    keyType: ECDSAP256
+                    credentialBundlePath: kagent_readwrite_user.pem
+                    userAnnotations:
+                      postgres.podcert.ate.dev/username: kagent_readwrite_user
                 - clusterTrustBundle:
                     signerName: servicedns.podcert.ate.dev/identity
                     labelSelector:
@@ -282,6 +308,31 @@ tests:
             name: postgres-client-certificate
             mountPath: /run/postgres.podcert.ate.dev
             readOnly: true
+
+  - it: should project only the read/write client certificate when migrations are skipped
+    template: controller-deployment.yaml
+    set:
+      config.database.skipMigrations: true
+      database.postgres.clientCertificate.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: postgres-client-certificate
+            projected:
+              sources:
+                - podCertificate:
+                    signerName: postgres.podcert.ate.dev/identity
+                    keyType: ECDSAP256
+                    credentialBundlePath: kagent_readwrite_user.pem
+                    userAnnotations:
+                      postgres.podcert.ate.dev/username: kagent_readwrite_user
+                - clusterTrustBundle:
+                    signerName: servicedns.podcert.ate.dev/identity
+                    labelSelector:
+                      matchLabels:
+                        podcert.ate.dev/canarying: live
+                    path: trust-bundle.pem
 
   - it: should use default httpGet startup probe
     template: controller-deployment.yaml

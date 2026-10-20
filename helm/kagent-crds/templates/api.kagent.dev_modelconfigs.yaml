@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: modelconfigs.api.kagent.dev
 spec:
   group: api.kagent.dev
@@ -145,13 +145,6 @@ spec:
                 - location
                 - projectID
                 type: object
-              apiKeyPassthrough:
-                description: |-
-                  APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
-                  directly to the LLM provider as the API key. This is useful for organizations
-                  with federated identity that want to avoid separate secret management.
-                  Mutually exclusive with apiKeySecret.
-                type: boolean
               apiKeySecret:
                 description: |-
                   The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
@@ -190,6 +183,7 @@ spec:
                     type: string
                   maxTokens:
                     description: Maximum tokens to generate
+                    minimum: 1
                     type: integer
                   temperature:
                     description: Temperature for sampling
@@ -214,6 +208,7 @@ spec:
                       options that are not part of the standard InferenceConfiguration block, such as
                       Claude extended thinking or top_k. Values are forwarded as-is to the API.
                       Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
+                    type: object
                     x-kubernetes-preserve-unknown-fields: true
                   cacheTTL:
                     default: 5m
@@ -499,6 +494,7 @@ spec:
                     type: integer
                   "n":
                     description: N value
+                    minimum: 1
                     type: integer
                   organization:
                     description: Organization ID for the OpenAI API
@@ -524,14 +520,18 @@ spec:
                     type: string
                   timeout:
                     description: Timeout
+                    maximum: 9223372036
+                    minimum: 1
                     type: integer
                   topP:
                     description: Top-p sampling parameter
                     type: string
                 type: object
                 x-kubernetes-validations:
-                - message: maxTokens and maxCompletionTokens are mutually exclusive
-                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+                - message: at most one of the fields in [maxTokens maxCompletionTokens]
+                    may be set
+                  rule: (has(self.maxTokens)?1:0)+(has(self.maxCompletionTokens)?1:0)
+                    <= 1
               provider:
                 default: OpenAI
                 description: The provider of the model
@@ -586,6 +586,13 @@ spec:
                       Production deployments MUST use proper certificates.
                     type: boolean
                 type: object
+              tokenPassthrough:
+                description: |-
+                  TokenPassthrough enables forwarding the bearer token from incoming A2A requests
+                  directly to the LLM provider as the API key. This is useful for organizations
+                  with federated identity that want to avoid separate secret management.
+                  Mutually exclusive with apiKeySecret.
+                type: boolean
             required:
             - model
             type: object
@@ -620,11 +627,11 @@ spec:
                 for Bedrock and SAPAICore providers)
               rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
                 != ''Bedrock'' && self.provider != ''SAPAICore'')'
-            - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
-              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
+            - message: tokenPassthrough and apiKeySecret are mutually exclusive
+              rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough && has(self.apiKeySecret)
                 && size(self.apiKeySecret) > 0)'
-            - message: apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
-              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
+            - message: tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
+              rule: '!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider
                 == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
                 == ''AnthropicVertexAI''))'
           status:

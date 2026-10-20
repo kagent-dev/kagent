@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/harness/runtime"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
+	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 func TestModelCallRecordsInferenceMetrics(t *testing.T) {
@@ -196,6 +197,10 @@ func TestToolAndInvocationMetrics(t *testing.T) {
 	run := func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 		for _, err := range []error{
 			sink.ToolCall(runtime.ToolCall{ID: "bash-1", Name: "Bash"}),
+			func() error {
+				sink.(runtime.ToolExecutionSink).ToolExecutionStarted(runtime.ToolCall{ID: "bash-1", Name: "Bash"})
+				return nil
+			}(),
 			sink.ToolResult(runtime.ToolResult{ID: "bash-1", Name: "Bash", Result: "boom", IsError: true}),
 			sink.ToolCall(runtime.ToolCall{ID: "agent-1", Name: "Agent"}),
 			sink.ToolCall(runtime.ToolCall{ID: "read-1", Name: "Read", ParentToolID: "agent-1"}),

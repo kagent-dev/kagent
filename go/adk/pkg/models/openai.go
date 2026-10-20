@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 )
 
 // OpenAI API format values (ModelConfig openAI.apiFormat).
@@ -27,12 +28,12 @@ type OpenAIConfig struct {
 	// If both keys are empty, only a custom BaseUrl may be used without authentication.
 	APIKey              string
 	FrequencyPenalty    *float64
-	MaxTokens           *int
-	MaxCompletionTokens *int
-	N                   *int
+	MaxTokens           *int64
+	MaxCompletionTokens *int64
+	N                   *int64
 	PresencePenalty     *float64
 	ReasoningEffort     *string
-	Seed                *int
+	Seed                *int64
 	Temperature         *float64
 	TopP                *float64
 	// APIFormat selects chatCompletions (default) or responses.
