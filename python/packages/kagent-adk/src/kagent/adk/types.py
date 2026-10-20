@@ -433,8 +433,8 @@ def create_agent(
 
     model = _create_llm_from_model_config(config.model)
 
-    # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
-    tools.append(AskUserTool())
+    if not config.HasField("ask_user") or config.ask_user:
+        tools.append(AskUserTool())
 
     # Build before_tool_callback if any tools require approval
     before_tool_callback = make_approval_callback() if has_tools_requiring_approval else None

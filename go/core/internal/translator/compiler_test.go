@@ -524,6 +524,108 @@ func TestCompilerRejectsStructuredOutputForUnsupportedHarness(t *testing.T) {
 	require.Nil(t, adapter.input)
 }
 
+func TestCompileAgentAskUser(t *testing.T) {
+	for _, source := range []string{"inline", "ref"} {
+		for _, tc := range []struct {
+			name    string
+			enabled *bool
+		}{
+			{name: "omitted"}, {name: "enabled", enabled: new(true)}, {name: "disabled", enabled: new(false)},
+		} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				harness := &v1alpha3.Harness{
+					ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+					Spec: v1alpha3.HarnessSpec{
+						Kagent:    &v1alpha3.KagentHarness{},
+						Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+					},
+				}
+				template := &v1alpha3.AgentTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+					Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, AskUser: tc.enabled},
+				}
+				agent := inlineAgent(harness, template)
+				if source == "ref" {
+					agent.Spec.Template = v1alpha3.AgentTemplateSource{Ref: &corev1.LocalObjectReference{Name: template.Name}}
+				}
+				result, err := compiler(t, modelConfig(), harness, template).CompileAgent(t.Context(), agent)
+				require.NoError(t, err)
+				var config configv1.ADKConfig
+				require.NoError(t, runtimeconfig.Unmarshal(result.ConfigJSON, &config))
+				if tc.enabled == nil || *tc.enabled {
+					require.Nil(t, config.Agent.AskUser)
+				} else {
+					require.Equal(t, tc.enabled, config.Agent.AskUser)
+				}
+			})
+		}
+	}
+}
+
+func TestCompileAgentAskUserRevisionStability(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec v1alpha3.HarnessSpec
+	}{
+		{name: "kagent", spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+		{name: "byo", spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := tc.spec
+			spec.Workload.Image = new(testHarnessImages.GetKagent())
+			spec.Substrate.WorkerPoolRef.Name = "default"
+			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: "test"}, Spec: spec}
+			compile := func(enabled *bool) *translator.CompileResult {
+				template := &v1alpha3.AgentTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+					Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, AskUser: enabled},
+				}
+				result, err := compiler(t, modelConfig(), harness).CompileAgent(t.Context(), inlineAgent(harness, template))
+				require.NoError(t, err)
+				return result
+			}
+			omitted, enabled := compile(nil), compile(new(true))
+			require.JSONEq(t, string(omitted.ConfigJSON), string(enabled.ConfigJSON), "enabling the existing default must not change runtime configuration")
+			omittedID, err := omitted.Digest()
+			require.NoError(t, err)
+			enabledID, err := enabled.Digest()
+			require.NoError(t, err)
+			require.Equal(t, omittedID, enabledID, "enabling the existing default must not replace the actor")
+			if tc.name == "kagent" {
+				disabled := compile(new(false))
+				disabledID, err := disabled.Digest()
+				require.NoError(t, err)
+				require.NotEqual(t, omittedID, disabledID, "disabling the tool must create a new runtime revision")
+			}
+		})
+	}
+}
+
+func TestCompilerRejectsAskUserDisabledForUnsupportedHarness(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec v1alpha3.HarnessSpec
+	}{
+		{name: "codex", spec: v1alpha3.HarnessSpec{Codex: &v1alpha3.CodexHarness{}}},
+		{name: "claude", spec: v1alpha3.HarnessSpec{Claude: &v1alpha3.ClaudeHarness{}}},
+		{name: "byo", spec: v1alpha3.HarnessSpec{BYO: &v1alpha3.BYOHarness{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := &testHarnessCompiler{}
+			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: "test"}, Spec: tc.spec}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "default-model"}, AskUser: new(false)},
+			}
+			_, err := translator.NewCompiler(krt.TestingDummyContext{}, mockCollections(t, modelConfig(), harness), map[translator.HarnessType]translator.HarnessCompiler{
+				translator.HarnessTypeCodex: adapter, translator.HarnessTypeClaude: adapter, translator.HarnessTypeBYO: adapter,
+			}, testHarnessImages, testRuntimeDefaults()).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.ErrorContains(t, err, "askUser: false is supported only by the kagent harness")
+			require.Nil(t, adapter.input)
+		})
+	}
+}
+
 func TestCompilerRejectsUnusableModelConfigBeforeHarnessCompiler(t *testing.T) {
 	model := modelConfig()
 	model.Spec.APIKeySecret = "missing"

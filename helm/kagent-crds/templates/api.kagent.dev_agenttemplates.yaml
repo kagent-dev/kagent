@@ -45,6 +45,13 @@ spec:
           spec:
             description: AgentTemplateSpec defines portable agent behavior.
             properties:
+              askUser:
+                description: |-
+                  AskUser enables the built-in ask_user tool. Omitted or true preserves the
+                  default. False also disables it for Shared subagents, which cannot override
+                  a parent's restriction. Disabling it is supported only by the kagent harness.
+                  This does not disable MCP approval requirements or remote agents' questions.
+                type: boolean
               description:
                 type: string
               modelConfig:

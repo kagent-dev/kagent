@@ -100,8 +100,11 @@ type ADKAgentConfig struct {
 	SkillsDirectory string                     `protobuf:"bytes,16,opt,name=skills_directory,json=skillsDirectory,proto3" json:"skills_directory,omitempty"`
 	SubAgents       []*ADKAgentConfig          `protobuf:"bytes,17,rep,name=sub_agents,json=subAgents,proto3" json:"sub_agents,omitempty"`
 	Output          *ADKOutputConfig           `protobuf:"bytes,18,opt,name=output,proto3" json:"output,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Omitted or true enables the built-in ask_user tool. False also applies to
+	// shared descendants; a child cannot re-enable a parent's restriction.
+	AskUser       *bool `protobuf:"varint,19,opt,name=ask_user,json=askUser,proto3,oneof" json:"ask_user,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ADKAgentConfig) Reset() {
@@ -258,6 +261,13 @@ func (x *ADKAgentConfig) GetOutput() *ADKOutputConfig {
 		return x.Output
 	}
 	return nil
+}
+
+func (x *ADKAgentConfig) GetAskUser() bool {
+	if x != nil && x.AskUser != nil {
+		return *x.AskUser
+	}
+	return false
 }
 
 // ADKModelConfig shares transport settings across a single selected provider.
@@ -2928,7 +2938,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x1akagent/config/v1/adk.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1dkagent/config/v1/config.proto\"\x81\x01\n" +
 	"\tADKConfig\x12<\n" +
 	"\aruntime\x18\x01 \x01(\v2\".kagent.config.v1.ADKRuntimeConfigR\aruntime\x126\n" +
-	"\x05agent\x18\x02 \x01(\v2 .kagent.config.v1.ADKAgentConfigR\x05agent\"\xff\a\n" +
+	"\x05agent\x18\x02 \x01(\v2 .kagent.config.v1.ADKAgentConfigR\x05agent\"\xac\b\n" +
 	"\x0eADKAgentConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x05model\x18\x02 \x01(\v2 .kagent.config.v1.ADKModelConfigR\x05model\x12 \n" +
@@ -2952,9 +2962,11 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x10skills_directory\x18\x10 \x01(\tR\x0fskillsDirectory\x12?\n" +
 	"\n" +
 	"sub_agents\x18\x11 \x03(\v2 .kagent.config.v1.ADKAgentConfigR\tsubAgents\x129\n" +
-	"\x06output\x18\x12 \x01(\v2!.kagent.config.v1.ADKOutputConfigR\x06outputB\t\n" +
+	"\x06output\x18\x12 \x01(\v2!.kagent.config.v1.ADKOutputConfigR\x06output\x12\x1e\n" +
+	"\bask_user\x18\x13 \x01(\bH\x02R\aaskUser\x88\x01\x01B\t\n" +
 	"\a_streamB\x0e\n" +
-	"\f_share_tools\"\xa1\t\n" +
+	"\f_share_toolsB\v\n" +
+	"\t_ask_user\"\xa1\t\n" +
 	"\x0eADKModelConfig\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12G\n" +
 	"\aheaders\x18\x02 \x03(\v2-.kagent.config.v1.ADKModelConfig.HeadersEntryR\aheaders\x12<\n" +

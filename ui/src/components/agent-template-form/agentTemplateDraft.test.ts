@@ -38,6 +38,7 @@ function templateWithExtras(): AgentTemplate {
         modelConfig: { name: "gpt" },
         description: "A template with fields no form shows.",
         systemPrompt: "Be brief.",
+        askUser: false,
         outputSchema: {
           type: "object",
           properties: { status: { type: "string" } },
@@ -81,6 +82,7 @@ describe("the agent template draft", () => {
     );
     expect(spec.plugins).toEqual(template.resource.spec.plugins);
     expect(spec.promptTemplate).toEqual(template.resource.spec.promptTemplate);
+    expect(spec.askUser).toBe(false);
   });
 
   it("round-trips the fields it does show", () => {

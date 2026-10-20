@@ -50,6 +50,47 @@ func TestBuildModelStreaming(t *testing.T) {
 	}
 }
 
+func TestBuildAskUser(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		root, child *bool
+		want        []*bool
+	}{
+		{name: "omitted", want: []*bool{nil, nil, nil}},
+		{name: "enabled", root: new(true), want: []*bool{nil, nil, nil}},
+		{name: "disabled", root: new(false), want: []*bool{new(false), new(false), new(false)}},
+		{name: "child cannot reenable", root: new(false), child: new(true), want: []*bool{new(false), new(false), new(false)}},
+		{name: "child disables its subtree", child: new(false), want: []*bool{nil, new(false), new(false)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			collections := contextTestCollections(t, openAIModel("agent", "https://agent.example.com/v1"))
+			input := func(askUser *bool) *translator.AgentInput {
+				return &translator.AgentInput{
+					Template:            &translator.TemplateConfiguration{Spec: v1alpha3.AgentTemplateSpec{AskUser: askUser}},
+					ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+				}
+			}
+			root, child, grandchild := input(tc.root), input(tc.child), input(new(true))
+			root.Shared = []translator.AgentInputBinding{{Name: "child", Agent: child}}
+			child.Shared = []translator.AgentInputBinding{{Name: "grandchild", Agent: grandchild}}
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
+				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root:    root,
+			})
+			require.NoError(t, err)
+			payload, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: result.Config})
+			require.NoError(t, err)
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(payload, &config))
+			for i, agent := range []*configv1.ADKAgentConfig{config.Agent, config.Agent.SubAgents[0], config.Agent.SubAgents[0].SubAgents[0]} {
+				require.Equal(t, tc.want[i], agent.AskUser, "depth %d", i)
+			}
+			require.Equal(t, tc.child, child.Template.Spec.AskUser, "compilation must not change the reusable template")
+			require.True(t, *grandchild.Template.Spec.AskUser)
+		})
+	}
+}
+
 func TestBuildUsesDurableSessionStore(t *testing.T) {
 	result, err := NewBuilder(krt.TestingDummyContext{}, translator.Collections{}).Build(context.Background(),
 		&translator.HarnessInput{

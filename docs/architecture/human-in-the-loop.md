@@ -87,6 +87,40 @@ it activated the extension:
 
 The `hint` field of an activated payload holds that same string.
 
+## Configuring built-in questions
+
+The kagent harness enables the built-in `ask_user` tool by default. To remove it
+from an automated agent's available tools, set `askUser: false` in the agent's
+template. This works in both a reusable `AgentTemplate.spec` and an
+`Agent.spec.template.inline`:
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: automated-assistant
+spec:
+  modelConfig:
+    name: default-model-config
+  systemPrompt: Complete the task using the information provided.
+  askUser: false
+```
+
+Omitting `askUser` or setting it to `true` preserves the default. The compiler
+normalizes both to the same runtime configuration and revision identity.
+A disabled
+parent also disables the tool in its Shared subagents, including descendants;
+a child cannot re-enable it. A child can disable the tool for its own subtree.
+
+The Go and Python ADK configuration field is `agent.ask_user`, with the same
+default. The Go runtime also enforces the parent restriction when constructing
+a shared agent tree directly from ADK configuration.
+
+`askUser: false` is supported only by the kagent harness. Compilation rejects it
+for Codex, Claude, and BYO harnesses rather than silently ignoring the setting.
+It does not disable MCP tool approvals or questions from remote A2A agents, so
+it does not guarantee that every task can complete without human input.
+
 ## Ownership
 
 | Component | Responsibility |
