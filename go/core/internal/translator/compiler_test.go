@@ -419,6 +419,59 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 	require.NotEqual(t, original, updated, "resolved ConfigMap contents must still affect compiled runtime identity")
 }
 
+func TestCompileAgentOutputSchemaFromStringFormat(t *testing.T) {
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+		},
+	}
+	root := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:      &corev1.LocalObjectReference{Name: "default-model"},
+			OutputSchemaFrom: &v1alpha3.ConfigMapKeyReference{Name: "schemas", Key: "ticket.json"},
+		},
+	}
+	for _, tt := range []struct {
+		name    string
+		schema  string
+		wantErr string
+	}{
+		{
+			name:   "format and pattern",
+			schema: `{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"}},"required":["due","ticket"],"additionalProperties":false}`,
+		},
+		{
+			name:    "unsupported format",
+			schema:  `{"type":"object","properties":{"site":{"type":"string","format":"uri"}}}`,
+			wantErr: "invalid output schema",
+		},
+		{
+			name:    "word boundary pattern",
+			schema:  `{"type":"object","properties":{"code":{"type":"string","pattern":"\\b[A-Z]{3}\\b"}}}`,
+			wantErr: "uses a word boundary",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "schemas", Namespace: "test", UID: "schemas-uid"},
+				Data:       map[string]string{"ticket.json": tt.schema},
+			}
+			revision, err := compiler(t, modelConfig(), configMap, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
+			require.JSONEq(t, tt.schema, string(config.Agent.Output.JsonSchema))
+		})
+	}
+}
+
 func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
 	ref := &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint"}
 	const endpoint = "https://example.services.ai.azure.com"
