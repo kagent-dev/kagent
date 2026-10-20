@@ -11,7 +11,7 @@ upstream:
   refs: [kagent-dev/kagent#695]
   exit: file in the chart batch
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(helm): sanitise the chart version in the app.kubernetes.io/version label
 

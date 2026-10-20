@@ -8,10 +8,10 @@ commits:
   - 'fix(adk): load a SKILL.md whose frontmatter carries fields outside the agentskills.io set'
 upstream:
   outcome: to-file
-  refs: [kagent-dev/kagent#1296]
+  refs: []
   exit: adk-go fix lands
 depends_on: []
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # fix(adk): load a SKILL.md whose frontmatter carries fields outside the agentskills.io set
 
