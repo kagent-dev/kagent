@@ -94,6 +94,11 @@ type chatModel struct {
 	noticeID int
 	// cancelled is set when ctrl+c stopped the running turn.
 	cancelled bool
+	// prompts are the user's messages in this session, oldest first; promptAt is
+	// the one in the input, len(prompts) for the draft, which draft keeps meanwhile.
+	prompts  []string
+	promptAt int
+	draft    string
 	// queuePaused names how the last turn ended, "failed" or "cancelled", while that holds the queue.
 	queuePaused string
 
@@ -170,6 +175,11 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pullQueue()
 			return m, nil
 		}
+		// From the input's first or last row, up and down step through the prompts sent in this session.
+		if s := key.String(); s == "up" && m.inputAtFirstRow() && m.promptAt > 0 || s == "down" && m.inputAtLastRow() && m.promptAt < len(m.prompts) {
+			m.recallPrompt(s == "up")
+			return m, nil
+		}
 		// Up and down move between the input's rows, wrapped ones included; at its first or last row they scroll the transcript.
 		if s := key.String(); s == "up" && !m.inputAtFirstRow() || s == "down" && !m.inputAtLastRow() {
 			var cmd tea.Cmd
@@ -237,6 +247,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.sendQueued()
 			}
 			m.input.Reset()
+			m.promptAt, m.draft = len(m.prompts), ""
 			// A message typed during a turn waits in the queue for the turn to end.
 			if m.streaming {
 				m.queue = append(m.queue, text)
@@ -732,7 +743,38 @@ func (m *chatModel) replayParts(parts a2atype.ContentParts) int {
 
 func (m *chatModel) appendUser(text string) {
 	m.jumpToLatest() // sending shows the conversation's end
-	m.appendBlock(&block{text: sanitize(text), user: true})
+	text = sanitize(text)
+	m.appendBlock(&block{text: text, user: true})
+	// Past prompts, replayed or sent, are what up recalls; browsing them is not disturbed.
+	if m.promptAt == len(m.prompts) {
+		m.promptAt++
+	}
+	m.prompts = append(m.prompts, text)
+}
+
+// recallPrompt loads the previous prompt (back) or the next one, ending at the
+// unsent draft. Going back starts at the prompt's first row, so up keeps going back.
+func (m *chatModel) recallPrompt(back bool) {
+	if m.promptAt == len(m.prompts) {
+		m.draft = m.input.Value()
+	}
+	step := 1
+	if back {
+		step = -1
+	}
+	m.promptAt += step
+	text := m.draft
+	if m.promptAt < len(m.prompts) {
+		text = m.prompts[m.promptAt]
+	}
+	m.input.SetValue(text)
+	for back && !m.inputAtFirstRow() {
+		m.input.CursorUp()
+	}
+	if back {
+		m.input.CursorStart()
+	}
+	m.fitInput()
 }
 
 // appendTransportError reports a stream failure, distinct from a task the agent itself failed.
