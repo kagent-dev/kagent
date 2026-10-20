@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -67,6 +69,14 @@ type chatModel struct {
 	liveDone, liveOut string
 	// body is the laid-out transcript, without the running turn's status line.
 	body string
+	// unfocused is set while another workspace panel has focus, so the input's bar matches the dimmer border.
+	unfocused bool
+	// height is the chat's whole height, shared by the transcript and the growing input.
+	height int
+	// queue holds messages typed during a turn, sent one per turn as each ends.
+	queue []string
+	// queuePaused names how the last turn ended, "failed" or "cancelled", while that holds the queue.
+	queuePaused string
 
 	// projected is the assembler's last text projection, so cumulative chunks yield a delta not a duplicate.
 	assembler *clia2a.Assembler
@@ -91,9 +101,17 @@ func newChatModel(ctx context.Context, agentRef string, contextID string, send S
 	input := textarea.New()
 	input.Placeholder = "Type a message (Enter to send)"
 	input.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	input.Prompt = "> "
 	input.ShowLineNumbers = false
+	input.MaxHeight = 0 // the input grows with its content; fitInput sizes it
+	// Later lines sit under the first line's text, not under its prompt.
+	input.SetPromptFunc(2, func(line int) string {
+		if line == 0 {
+			return "> "
+		}
+		return "  "
+	})
 	input.SetHeight(1)
+	input.Cursor.SetMode(cursor.CursorStatic)
 	input.Focus()
 
 	vp := viewport.New(0, 0)
@@ -120,6 +138,19 @@ func (m *chatModel) Init() tea.Cmd {
 }
 
 func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyMsg); ok {
+		// Up pulls every queued message back into the input, after what is there, to edit as one.
+		if key.String() == "up" && len(m.queue) > 0 && m.input.Line() == 0 {
+			m.pullQueue()
+			return m, nil
+		}
+		// Up and down move between the input's lines; at its first or last line they scroll the transcript.
+		if s := key.String(); s == "up" && m.input.Line() > 0 || s == "down" && m.input.Line() < m.input.LineCount()-1 {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+	}
 	// Always let viewport handle scrolling keys and mouse
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
@@ -146,14 +177,10 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		// What View draws around the viewport: header and rule above; rule and input below.
-		const chromeHeight = 4
-		vpHeight := max(msg.Height-chromeHeight, 5)
-
 		oldWidth := m.vp.Width
-		m.vp.Width = msg.Width
-		m.vp.Height = vpHeight
+		m.vp.Width, m.height = msg.Width, msg.Height
 		m.input.SetWidth(msg.Width)
+		m.fitInput()
 
 		// Re-render content if width changed
 		if oldWidth != msg.Width && msg.Width > 0 {
@@ -168,31 +195,49 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		case "enter":
-			if m.streaming {
-				return m, nil
-			}
 			text := strings.TrimSpace(m.input.Value())
 			if text == "" {
+				m.queuePaused = "" // Enter on an empty input resumes a paused queue
+				return m, m.sendQueued()
+			}
+			m.input.Reset()
+			// A message typed during a turn waits in the queue for the turn to end.
+			if m.streaming {
+				m.queue = append(m.queue, text)
 				return m, nil
 			}
 			m.appendUser(text)
-			m.input.Reset()
 			return m, m.submit(text)
+		case "alt+enter", "ctrl+j":
+			// Shift+Enter arrives as alt+enter (see kittyInput); ctrl+j is the fallback everywhere.
+			m.input.InsertString("\n")
+			m.fitInput()
+			return m, nil
+		}
+		// A paste, newlines and all, is input to edit, never a send.
+		if msg.Paste {
+			m.input.InsertString(cleanPaste(string(msg.Runes)))
+			m.fitInput()
+			return m, nil
 		}
 	case clia2a.StreamResult:
 		if msg.Err != nil {
 			m.appendTransportError(msg.Err)
 			m.endStream()
-			return m, nil
+			if len(m.queue) > 0 {
+				m.queuePaused = "failed"
+			}
+			return m, m.sendQueued()
 		}
 		m.appendEvent(msg.Event)
 		return m, m.waitNext()
 	case streamDoneMsg:
 		m.endStream()
-		return m, nil
+		return m, m.sendQueued()
 	}
 
 	m.input, cmd = m.input.Update(msg)
+	m.fitInput()
 	if cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -204,14 +249,15 @@ func (m *chatModel) View() string {
 	if width <= 0 {
 		width = 80 // default width if not yet sized
 	}
+	m.fitInput()
 	rule := theme.SeparatorStyle().Render(strings.Repeat("─", max(10, width)))
-	return lipgloss.JoinVertical(lipgloss.Left,
-		m.headerView(width),
-		rule,
-		m.vp.View(),
-		rule,
-		m.input.View(),
-	)
+	// The bar above the input is the chat box's border colour, focused or not.
+	bar := lipgloss.NewStyle().Foreground(borderColor(!m.unfocused)).Render(strings.Repeat("▔", max(10, width)))
+	parts := []string{m.headerView(width), rule, m.vp.View()}
+	if queued := m.queueView(width); queued != "" {
+		parts = append(parts, queued)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, append(parts, bar, m.input.View())...)
 }
 
 // setHeaderMeta adds lifecycle detail to the header; the caller pre-renders state to keep this type-free.
@@ -278,6 +324,14 @@ func (m *chatModel) waitNext() tea.Cmd {
 func (m *chatModel) endStream() {
 	m.endThinking()
 	m.commitAgentText()
+	// A turn that failed or was cancelled pauses the queue rather than sending into the same trouble.
+	switch {
+	case len(m.queue) == 0:
+	case m.lastState == a2atype.TaskStateCanceled:
+		m.queuePaused = "cancelled"
+	case m.lastState == a2atype.TaskStateFailed || m.lastState == a2atype.TaskStateRejected:
+		m.queuePaused = "failed"
+	}
 	m.streaming = false
 	m.working = false
 	m.lastActive = time.Now()
@@ -706,6 +760,104 @@ func (m *chatModel) inlineStatus() string {
 		return ""
 	}
 	return theme.StatusStyle().Render(m.spin.View() + " " + m.statusText)
+}
+
+// maxQueueRows is how many queued messages show; the rest are counted.
+const maxQueueRows = 3
+
+// queueView lists queued messages faintly above the input, each on one line.
+func (m *chatModel) queueView(width int) string {
+	if len(m.queue) == 0 {
+		return ""
+	}
+	rows := []string{theme.FaintStyle().Render(fmt.Sprintf("⏳ Queued (%d) · ↑ edit", len(m.queue)))}
+	if m.queuePaused != "" {
+		rows[0] = theme.AttentionStyle().Render(fmt.Sprintf("⏸ Queue paused after a %s turn · Enter to resume · ↑ edit", m.queuePaused))
+	}
+	for i, text := range m.queue {
+		if i == maxQueueRows {
+			rows = append(rows, theme.FaintStyle().Render(fmt.Sprintf("  … %d more", len(m.queue)-i)))
+			break
+		}
+		first, _, _ := strings.Cut(sanitize(text), "\n")
+		rows = append(rows, theme.FaintStyle().Render(ansi.Truncate("  "+first, max(width, 8), "…")))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// sendQueued sends the next queued message once a turn has ended.
+func (m *chatModel) sendQueued() tea.Cmd {
+	if len(m.queue) == 0 || m.queuePaused != "" || m.streaming {
+		return nil
+	}
+	text := m.queue[0]
+	m.queue = m.queue[1:]
+	m.appendUser(text)
+	return m.submit(text)
+}
+
+// pullQueue empties the queue into the input, after any text already there.
+func (m *chatModel) pullQueue() {
+	text := strings.Join(m.queue, "\n")
+	if current := m.input.Value(); current != "" {
+		text = current + "\n" + text
+	}
+	m.queue, m.queuePaused = nil, ""
+	m.input.SetValue(text)
+	m.input.CursorEnd()
+	m.fitInput()
+}
+
+// minTranscriptRows is as far as a long input shrinks the transcript.
+const minTranscriptRows = 3
+
+// fitInput grows the input to show every line, and gives the transcript what is left.
+func (m *chatModel) fitInput() {
+	if m.height <= 0 {
+		return
+	}
+	chrome := 3 // the header, the rule under it, and the bar above the input
+	chrome += lineCount(m.queueView(max(m.vp.Width, 10)))
+	rows := min(m.inputRows(), max(m.height-chrome-minTranscriptRows, 1))
+	bottom := m.vp.AtBottom()
+	if rows != m.input.Height() {
+		m.input.SetHeight(rows)
+		// SetHeight leaves the input's scroll alone; View loads its lines, and Update then scrolls to the cursor.
+		_ = m.input.View()
+		m.input, _ = m.input.Update(nil)
+	}
+	m.vp.Height = max(m.height-chrome-rows, 1)
+	if bottom {
+		m.vp.GotoBottom()
+	}
+}
+
+// inputRows is how many rows the input's text wraps to, at least one.
+func (m *chatModel) inputRows() int {
+	width := max(m.input.Width()-1, 1) // one column spare for the cursor
+	rows := 0
+	for line := range strings.SplitSeq(m.input.Value(), "\n") {
+		rows += lineCount(ansi.Wrap(line, width, "")) + boolInt(line == "")
+	}
+	return max(rows, 1)
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// cleanPaste keeps pasted text's newlines and tabs and drops escape sequences and other control characters.
+func cleanPaste(text string) string {
+	text = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(ansi.Strip(text))
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, text)
 }
 
 type tickMsg time.Time

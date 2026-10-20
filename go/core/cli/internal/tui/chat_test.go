@@ -8,6 +8,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 
@@ -22,6 +23,21 @@ func newTestChatModel() *chatModel {
 		return ch
 	}
 	return newChatModel(context.Background(), "reporter", "ctx-1", send, false)
+}
+
+// sizedChat is a 100x40 chat that records what it sends.
+func sizedChat(t *testing.T) (*chatModel, *[]*a2atype.SendMessageRequest) {
+	t.Helper()
+	var sent []*a2atype.SendMessageRequest
+	m := newTestChatModel()
+	m.send = func(_ context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
+		sent = append(sent, req)
+		ch := make(chan clia2a.StreamResult)
+		close(ch)
+		return ch
+	}
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	return m, &sent
 }
 
 // transcript is everything the viewport shows: committed blocks plus the one being assembled.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"golang.org/x/term"
 
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
@@ -58,8 +60,14 @@ func RunWorkspace(ctx context.Context, cfg Options, api *client.APIClientSet, ga
 	m := newWorkspaceModel(ctx, cfg, api, gateway, &apiCatalog{agents: api.Agent}, nil, verbose)
 	// Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
 	// Focus reports tell the workspace when the user looks away, so a finished turn can ring the bell.
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus())
-	_, err := p.Run()
+	options := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithReportFocus()}
+	// Kitty keyboard reports give Shift+Enter its own code; Init asks for them once raw mode is on.
+	if runtime.GOOS != "windows" && term.IsTerminal(int(os.Stdin.Fd())) {
+		options = append(options, tea.WithInput(&kittyInput{File: os.Stdin}))
+		m.kittyKeys = true
+		defer fmt.Print(kittyPop)
+	}
+	_, err := tea.NewProgram(m, options...).Run()
 	return err
 }
 
@@ -125,6 +133,8 @@ type workspaceModel struct {
 	// away is set while the terminal reports it has lost focus; a terminal that
 	// sends no focus reports leaves it false, so the bell never rings there.
 	away bool
+	// kittyKeys is set when stdin is a terminal that may take the kitty keyboard protocol.
+	kittyKeys bool
 }
 
 // newWorkspaceModel builds the model from resolved dependencies; it reads no configuration of its own.
@@ -152,7 +162,11 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 }
 
 func (m *workspaceModel) Init() tea.Cmd {
-	return tea.Batch(m.loadSessions(), m.loadCatalog(), m.loadNamespaces())
+	cmds := []tea.Cmd{m.loadSessions(), m.loadCatalog(), m.loadNamespaces()}
+	if m.kittyKeys {
+		cmds = append(cmds, func() tea.Msg { fmt.Print(kittyPush); return nil })
+	}
+	return tea.Batch(cmds...)
 }
 
 // loadNamespaces lists the namespaces that hold Agents.
@@ -608,6 +622,10 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.focus = m.focus.next()
 		return m.resize(), true
 	case "0", "1", "2", "3", "4":
+		// In the chat a digit is text, so a message can hold numbers.
+		if m.focus == panelChat && m.chat != nil {
+			return nil, false
+		}
 		m.focus = panelID(msg.String()[0] - '0')
 		return m.resize(), true
 	case "enter":
@@ -766,6 +784,7 @@ func (m *workspaceModel) View() string {
 
 func (m *workspaceModel) centerView() string {
 	if m.chat != nil {
+		m.chat.unfocused = m.focus != panelChat
 		return m.chat.View()
 	}
 	if len(m.all) == 0 {
@@ -780,8 +799,13 @@ func (m *workspaceModel) centerView() string {
 
 // footerView is the keybinding hint bar, plus any current error.
 func (m *workspaceModel) footerView() string {
+	// Shift+Enter needs the kitty keyboard protocol; without it, the fallbacks are named.
+	newline := "newline: alt+enter or ctrl+j"
+	if kittyKeys.Load() {
+		newline = "newline: shift+enter"
+	}
 	hints := theme.DimStyle().Render(
-		"navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c")
+		"navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  " + newline + "  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c")
 	if m.status == "" {
 		return hints
 	}

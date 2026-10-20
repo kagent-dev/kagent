@@ -234,7 +234,7 @@ func TestWorkspaceKeys(t *testing.T) {
 		wantReload bool
 	}{
 		{
-			name: "a digit focuses its panel", focus: panelChat,
+			name: "a digit focuses its panel", focus: panelSessions,
 			key:       tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")},
 			wantFocus: panelAgents,
 		},
@@ -568,4 +568,18 @@ func TestWorkspaceRefreshDropsADeletedSession(t *testing.T) {
 	assert.Nil(t, m.chat, "a deleted session leaves no chat behind")
 	assert.Nil(t, m.current)
 	assert.Contains(t, m.status, "no longer exists")
+}
+
+// In an open chat a digit is text, not a panel switch.
+func TestWorkspaceDigitsTypeInTheChat(t *testing.T) {
+	session := readySession("44444444-4444-4444-4444-444444444444", "reporter")
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", session)}})
+	loaded(m)
+	m.selectSession(session)
+	m.focus = panelChat
+	for _, digit := range "3 pods" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{digit}})
+	}
+	assert.Equal(t, panelChat, m.focus)
+	assert.Equal(t, "3 pods", m.chat.input.Value())
 }
