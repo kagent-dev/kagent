@@ -170,14 +170,14 @@ helm unittest helm/kagent
 
 **Python Unit Tests**:
 
-   ```bash
+```bash
 cd python
 uv run pytest ./packages/**/tests/
-   ```
+```
 
 **UI Unit Tests**:
 
-   ```bash
+```bash
 cd ui
 npm run test
 ```
