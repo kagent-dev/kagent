@@ -594,10 +594,13 @@ carries, so every harness sends the placeholder to a server on one of those
 hosts that sets no `Authorization` of its own, whether or not it forwards the
 caller's credential (`workspace.ActorJWTHeaders`). The Claude harness writes
 such a server into the turn's MCP configuration with its own URL and the
-placeholder, unless the forwarder enforces a tool selection on it, so a turn
-whose every server is on one leaves no loopback token in the sandbox. A server
+placeholder, unless the forwarder enforces a tool selection on it. A server
 with a tool selection stays on the forwarder, which learns the turn's hosts and
-sends the placeholder there with or without the caller's credential.
+sends the placeholder there with or without the caller's credential; its entry
+carries the placeholder too, which the forwarder takes in place of its loopback
+token for a server on one of the turn's hosts, since it would send that server
+nothing else. A turn whose every server is on one of those hosts leaves no
+loopback token in the sandbox.
 
 ## Forwarder refusal metrics
 

@@ -326,3 +326,42 @@ func TestCredentialForwarderSendsThePlaceholderToActorJWTHosts(t *testing.T) {
 	seen = requests()
 	require.Empty(t, seen[len(seen)-1].Header.Values("Authorization"), "a cleared turn names no host and carries nothing")
 }
+
+// The placeholder authenticates Claude to the forwarder only for a server on
+// a host where the turn's Actor receives its own JWT: the forwarder sends that
+// server the placeholder itself, so no loopback token needs to be in the
+// sandbox. Every other server, and every server between turns, still needs
+// the token.
+func TestCredentialForwarderAdmitsThePlaceholderForActorJWTHosts(t *testing.T) {
+	upstream, requests := newRecordingUpstream(t)
+	port := strings.TrimPrefix(upstream.URL, "http://127.0.0.1")
+	forwarder, err := NewCredentialForwarder(map[string]UpstreamMCPServer{
+		"muster": {URL: "http://localhost" + port + "/mcp", Tools: []string{"list"}},
+		"tools":  {URL: upstream.URL + "/mcp"},
+		"static": {URL: "http://localhost" + port + "/static", Headers: map[string]string{"Authorization": workspace.CredentialPlaceholder}},
+	}, 1<<20)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = forwarder.Close() })
+	withPlaceholder := func(url string) int {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(`{"jsonrpc":"2.0"}`))
+		require.NoError(t, err)
+		request.Header.Set("Authorization", workspace.ActorJWTAuthorization)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+
+	require.Equal(t, http.StatusUnauthorized, withPlaceholder(forwarder.URL("muster")), "no turn names the host")
+	forwarder.Bind("", []string{"localhost"})
+	require.Equal(t, http.StatusOK, withPlaceholder(forwarder.URL("muster")))
+	require.Equal(t, http.StatusUnauthorized, withPlaceholder(forwarder.URL("tools")), "another host still needs the token")
+	require.Equal(t, http.StatusUnauthorized, withPlaceholder(forwarder.URL("static")), "a server owning its Authorization still needs the token")
+	require.Equal(t, http.StatusUnauthorized, withPlaceholder(forwarder.URL("unknown")))
+	forwarder.Clear()
+	require.Equal(t, http.StatusUnauthorized, withPlaceholder(forwarder.URL("muster")), "a cleared turn admits no placeholder")
+
+	seen := requests()
+	require.Len(t, seen, 1)
+	require.Equal(t, []string{workspace.ActorJWTAuthorization}, seen[0].Header.Values("Authorization"))
+}

@@ -293,8 +293,16 @@ type mcpConfigFile struct {
 func (m mcpConfigFile) write(actorJWTHosts []string) error {
 	servers := maps.Clone(m.servers)
 	for name, server := range m.compiled {
-		// The forwarder enforces a tool selection, which Claude Code cannot.
-		if len(server.Tools) != 0 || !workspace.TakesActorJWT(server.URL, server.Headers, actorJWTHosts) {
+		if !workspace.TakesActorJWT(server.URL, server.Headers, actorJWTHosts) {
+			continue
+		}
+		// The forwarder enforces a tool selection, which Claude Code cannot:
+		// such a server stays on loopback, where the forwarder takes the
+		// placeholder in place of its token.
+		if len(server.Tools) != 0 {
+			fronted := servers[name]
+			fronted.Headers = map[string]string{"Authorization": workspace.ActorJWTAuthorization}
+			servers[name] = fronted
 			continue
 		}
 		server.Headers = workspace.ActorJWTHeaders(server.URL, server.Headers, actorJWTHosts)

@@ -10,22 +10,23 @@ commits:
   - 'fix(harness): Claude sends the placeholder to actor-JWT hosts on every server'
   - 'fix(harness): the forwarder learns the turn''s actor-JWT hosts without the caller''s credential'
   - 'test(harness): the root adapter test reads the MCP configuration a turn writes'
+  - 'fix(harness): no loopback token for a tool selection on an actor-JWT host'
 upstream:
   outcome: to-file
   refs: [kagent-dev/kagent#3263, kagent-dev/kagent#3257, kagent-dev/kagent#3018]
   exit: 'with #3263: muster as a tokenPassthrough RemoteMCPServer delivered by the egress gateway, the placeholder compiled into mcp.json'
 depends_on: [harness-send-the-placeholder-to-actor-jwt-hosts, harness-codex-and-omp-send-the-placeholder-to-actor]
-verified: 2026-10-19
+verified: 2026-10-20
 ---
 # feat(harness): Claude reaches actor-JWT hosts without the forwarder
 
 ## Change
 
-`feat(harness): Claude reaches actor-JWT hosts without the forwarder`, `refactor(harness): one header rule for MCP servers on actor-JWT hosts`, `fix(harness): Claude sends the placeholder to actor-JWT hosts on every server`, `fix(harness): the forwarder learns the turn's actor-JWT hosts without the caller's credential` and `test(harness): the root adapter test reads the MCP configuration a turn writes`
+`feat(harness): Claude reaches actor-JWT hosts without the forwarder`, `refactor(harness): one header rule for MCP servers on actor-JWT hosts`, `fix(harness): Claude sends the placeholder to actor-JWT hosts on every server`, `fix(harness): the forwarder learns the turn's actor-JWT hosts without the caller's credential` `test(harness): the root adapter test reads the MCP configuration a turn writes` and `fix(harness): no loopback token for a tool selection on an actor-JWT host`
 
 ## Reason
 
-with the placeholder sent to actor-JWT hosts, the forwarder adds nothing to a call to muster that the egress gateway does not replace, yet `mcp.json`, readable by Claude's user and so by every process of the sandbox, still carried the forwarder's loopback token, which any of them could use during the turn. The harness now rewrites `mcp.json` before each turn's Claude process starts, and before anything runs as Claude's user, and writes a server on one of the turn's actor-JWT hosts without a tool selection with its compiled URL and headers and the placeholder bearer, with or without the caller's credential, so a Session whose every MCP server is on one holds no loopback token in the sandbox. A server with a tool selection stays on the forwarder, which learns the turn's hosts without the caller's credential too. The claude, codex and omp harnesses build a direct server's headers with one rule, `workspace.ActorJWTHeaders`. `TestMCPConfigLeavesTheLoopbackTokenOutOfAnActorJWTOnlyTurn`, `TestMCPConfigSendsThePlaceholderWithoutTheForwarder`, `TestMCPConfigKeepsASelectionOnTheForwarder`, `TestProcessDriverWritesTheMCPConfigBeforeTheSessionDirectory`, `TestProcessDriverBindsTheCallerCredentialPerTurn`, `TestActorJWTHostsOnlyBindsNoCallerCredential`, `TestActorJWTHeaders`
+with the placeholder sent to actor-JWT hosts, the forwarder adds nothing to a call to muster that the egress gateway does not replace, yet `mcp.json`, readable by Claude's user and so by every process of the sandbox, still carried the forwarder's loopback token, which any of them could use during the turn. The harness now rewrites `mcp.json` before each turn's Claude process starts, and before anything runs as Claude's user, and writes a server on one of the turn's actor-JWT hosts without a tool selection with its compiled URL and headers and the placeholder bearer, with or without the caller's credential, so a Session whose every MCP server is on one holds no loopback token in the sandbox. A server with a tool selection stays on the forwarder, which learns the turn's hosts without the caller's credential too; its entry carries the placeholder, which the forwarder takes in place of its loopback token for a server on one of the turn's hosts, so an agent that selects tools of muster holds no loopback token either. The claude, codex and omp harnesses build a direct server's headers with one rule, `workspace.ActorJWTHeaders`. `TestMCPConfigLeavesTheLoopbackTokenOutOfAnActorJWTOnlyTurn`, `TestMCPConfigSendsThePlaceholderWithoutTheForwarder`, `TestMCPConfigKeepsASelectionOnTheForwarder`, `TestProcessDriverWritesTheMCPConfigBeforeTheSessionDirectory`, `TestProcessDriverBindsTheCallerCredentialPerTurn`, `TestActorJWTHostsOnlyBindsNoCallerCredential`, `TestCredentialForwarderAdmitsThePlaceholderForActorJWTHosts`, `TestActorJWTHeaders`
 
 ## History
 

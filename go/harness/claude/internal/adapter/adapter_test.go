@@ -360,7 +360,8 @@ func TestMCPConfigSendsThePlaceholderWithoutTheForwarder(t *testing.T) {
 }
 
 // The forwarder enforces a tool selection, so such a server stays on loopback
-// on an actor-JWT host too.
+// on an actor-JWT host too, with the placeholder in place of the loopback
+// token; a turn without the Actor's JWT there keeps the token.
 func TestMCPConfigKeepsASelectionOnTheForwarder(t *testing.T) {
 	cfg := config.Production("claude-test", "help")
 	compiled := map[string]config.MCPServer{
@@ -373,8 +374,11 @@ func TestMCPConfigKeepsASelectionOnTheForwarder(t *testing.T) {
 	file := mcpConfigFile{servers: cfg.MCPServers, compiled: compiled, files: harnessFiles{dir: t.TempDir()}}
 
 	written := readMCPConfig(t, file, []string{"muster.example.svc"})
-	require.Contains(t, written, forwarder.URL("muster"))
-	require.NotContains(t, written, "muster.example.svc")
+	require.JSONEq(t, `{"mcpServers":{"muster":{"type":"http","url":"`+forwarder.URL("muster")+`",
+		"headers":{"Authorization":"Bearer kagent-credential-injected"}}}}`, written)
+	require.NotContains(t, written, forwarder.Headers()["Authorization"], "the loopback token stays out of the file")
+
+	require.Contains(t, readMCPConfig(t, file, nil), forwarder.Headers()["Authorization"])
 }
 
 func readMCPConfig(t *testing.T, file mcpConfigFile, actorJWTHosts []string) string {

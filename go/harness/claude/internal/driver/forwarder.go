@@ -55,7 +55,8 @@ type CallerCredentialBinder interface {
 // session's Actor its own JWT: there it sends a placeholder the gateway
 // replaces, and a turn whose every such server is on one holds no caller
 // credential at all. Claude receives the
-// loopback address and a per-process token only; the caller's credential never
+// loopback address and a per-process token only, or the placeholder for a
+// server on such a host (admitsPlaceholder); the caller's credential never
 // enters its environment, its configuration files or the Actor's filesystem,
 // and it is held in this process for one turn at a time.
 type CredentialForwarder struct {
@@ -217,9 +218,33 @@ func (t *forwardTarget) host() string {
 	return strings.ToLower(t.url.Hostname())
 }
 
+// admitsPlaceholder reports whether a request to path may authenticate with
+// the placeholder instead of the loopback token: its server takes the
+// caller's credential on a host where the current turn's Actor receives its
+// own JWT, so the forwarder sends that server nothing but the placeholder
+// itself, and the token would guard nothing a process of the sandbox cannot
+// reach through the egress gateway directly.
+func (f *CredentialForwarder) admitsPlaceholder(path string) bool {
+	rest, ok := strings.CutPrefix(path, forwarderPathPrefix)
+	if !ok {
+		return false
+	}
+	name, _, _ := strings.Cut(rest, "/")
+	target, ok := f.targets[name]
+	if !ok || !target.callerAuthorization {
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.actorJWTHosts, target.host())
+}
+
 func (f *CredentialForwarder) authorizeAndLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		want, got := "Bearer "+f.token, request.Header.Get("Authorization")
+		if got == workspace.ActorJWTAuthorization && f.admitsPlaceholder(request.URL.Path) {
+			want = workspace.ActorJWTAuthorization
+		}
 		if subtle.ConstantTimeCompare([]byte(want), []byte(got)) != 1 {
 			f.unauthorized.Add(1)
 			http.Error(response, "unauthorized", http.StatusUnauthorized)
