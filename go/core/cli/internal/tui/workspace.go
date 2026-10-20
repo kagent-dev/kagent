@@ -453,7 +453,13 @@ func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 	ox, oy := m.chatOrigin()
 	x, y := msg.X-ox, msg.Y-oy
 	if dragging {
-		x, y = min(max(x, 0), m.chatWidth()-1), min(max(y, m.chat.geo.top), max(m.chat.geo.top+m.chat.geo.rows-1, m.chat.geo.top))
+		// Clamp to the transcript only when the drag began there, so the input and header stay selectable.
+		geo := m.chat.geo
+		lo, hi := 0, max(len(geo.view)-1, 0)
+		if from := m.chat.dragFrom.y; from >= geo.top && from < geo.top+geo.rows {
+			lo, hi = geo.top, max(geo.top+geo.rows-1, geo.top)
+		}
+		x, y = min(max(x, 0), m.chatWidth()-1), min(max(y, lo), hi)
 	}
 	if msg.Action != tea.MouseActionRelease {
 		return m.chat.mouse(msg, x, y), true
