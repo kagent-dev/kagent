@@ -30,6 +30,8 @@ func TestRuntimeActorJWTAuthentication(t *testing.T) {
 		private := runtimev1.NewTaskStoreServiceClient(runtimeConn)
 		memory := runtimev1.NewMemoryServiceClient(runtimeConn)
 		request := &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: fixture.sessionID, TaskId: string(task.ID)}
+		// The E2E installation uses insecure user auth. These callers become
+		// users, but cannot acquire the actor identity required by runtime RPCs.
 		for _, test := range []struct {
 			name    string
 			headers []string
@@ -42,9 +44,9 @@ func TestRuntimeActorJWTAuthentication(t *testing.T) {
 			t.Run(test.name, func(t *testing.T) {
 				ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(test.headers...))
 				_, err := private.GetTask(ctx, request)
-				require.Equal(t, codes.Unauthenticated, status.Code(err))
+				require.Equal(t, codes.PermissionDenied, status.Code(err), "%v", err)
 				_, err = memory.Search(ctx, &runtimev1.MemoryServiceSearchRequest{AgentName: "forged", UserId: "forged"}) //nolint:staticcheck // Legacy identity fields cannot authenticate a caller.
-				require.Equal(t, codes.Unauthenticated, status.Code(err))
+				require.Equal(t, codes.PermissionDenied, status.Code(err), "%v", err)
 			})
 		}
 	})
