@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kagent-adk"
-version = "0.3.0"
+version = "0.3.1"
 description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
 requires-python = ">=3.11"

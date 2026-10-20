@@ -86,14 +86,19 @@ class AskUserTool(BaseTool):
         args: dict[str, Any],
         tool_context: ToolContext,
     ) -> Any:
-        questions: list[dict] = args.get("questions", [])
+        questions = args.get("questions", [])
 
+        # ADK wraps text in "result", which the model adapters preserve; raising aborts the turn.
+        if not isinstance(questions, list):
+            return "ask_user: questions must be a list of question objects"
         if not questions:
-            raise ValueError("ask_user: at least one question is required")
+            return "ask_user: at least one question is required"
         for index, question in enumerate(questions, start=1):
+            if not isinstance(question, dict):
+                return f"ask_user: question {index} must be an object"
             question_text = question.get("question")
             if not isinstance(question_text, str) or not question_text.strip():
-                raise ValueError(f"ask_user: question {index} must contain non-whitespace text")
+                return f"ask_user: question {index} must contain non-whitespace text"
 
         if tool_context.tool_confirmation is None:
             # First invocation — pause execution and ask the user.

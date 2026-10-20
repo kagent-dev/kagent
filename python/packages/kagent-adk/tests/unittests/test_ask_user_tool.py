@@ -12,10 +12,38 @@ from kagent.adk.tools.ask_user_tool import AskUserTool
 @pytest.mark.parametrize(
     ("args", "expected_error"),
     [
+        ({}, "ask_user: at least one question is required"),
+        (
+            {"questions": "Which environment?"},
+            "ask_user: questions must be a list of question objects",
+        ),
+        (
+            {"questions": {"question": "Which environment?"}},
+            "ask_user: questions must be a list of question objects",
+        ),
+        (
+            {"questions": None},
+            "ask_user: questions must be a list of question objects",
+        ),
+        (
+            {"questions": ["Which environment?"]},
+            "ask_user: question 1 must be an object",
+        ),
+        (
+            {"questions": [None]},
+            "ask_user: question 1 must be an object",
+        ),
+        (
+            {"questions": [{"question": "Which environment?"}, "Which region?"]},
+            "ask_user: question 2 must be an object",
+        ),
         (
             {"questions": []},
             "ask_user: at least one question is required",
         ),
+        ({"questions": [{}]}, "ask_user: question 1 must contain non-whitespace text"),
+        ({"questions": [{"question": None}]}, "ask_user: question 1 must contain non-whitespace text"),
+        ({"questions": [{"question": 42}]}, "ask_user: question 1 must contain non-whitespace text"),
         (
             {"questions": [{"question": ""}]},
             "ask_user: question 1 must contain non-whitespace text",
@@ -43,10 +71,22 @@ async def test_rejects_invalid_questions_without_requesting_confirmation(args, e
     context = Mock(spec=ToolContext)
     context.tool_confirmation = None
 
-    with pytest.raises(ValueError) as exc_info:
-        await AskUserTool().run_async(args=args, tool_context=context)
+    result = await AskUserTool().run_async(args=args, tool_context=context)
 
-    assert str(exc_info.value) == expected_error
+    assert result == expected_error
+    context.request_confirmation.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_question_returns_cancelled_without_new_confirmation():
+    context = Mock(spec=ToolContext)
+    context.tool_confirmation = ToolConfirmation(confirmed=False)
+
+    result = await AskUserTool().run_async(
+        args={"questions": [{"question": "Which environment?"}]}, tool_context=context
+    )
+
+    assert json.loads(result) == {"status": "cancelled"}
     context.request_confirmation.assert_not_called()
 
 
