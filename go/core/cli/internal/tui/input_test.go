@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
@@ -89,10 +88,11 @@ func TestKittyInputKeys(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
 	recorder := keyRecorder{keys: make(chan tea.KeyMsg, 16)}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	program := tea.NewProgram(recorder, tea.WithInput(&kittyInput{File: reader}), tea.WithOutput(os.Stderr), tea.WithoutRenderer(), tea.WithoutSignalHandler(), tea.WithContext(ctx))
-	go func() { _, _ = program.Run() }()
+	program := tea.NewProgram(recorder, tea.WithInput(&kittyInput{File: reader}), tea.WithOutput(os.Stderr), tea.WithoutRenderer(), tea.WithoutSignalHandler())
+	done := make(chan struct{})
+	go func() { _, _ = program.Run(); close(done) }()
+	// Quit, unlike a cancelled context or Kill, waits for the read loop before closing its reader.
+	t.Cleanup(func() { program.Quit(); <-done; _ = writer.Close(); _ = reader.Close() })
 
 	next := func(raw ...string) string {
 		for _, chunk := range raw {
