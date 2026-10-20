@@ -11,6 +11,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// CheckActorEgressPolicy compiles the revision's policy without applying it, so
+// a compiler failure stops lifecycle work before it is issued.
+func (c *Client) CheckActorEgressPolicy(ctx context.Context, atespace, revision string) error {
+	if c.cfg.EgressPolicies == nil {
+		return fmt.Errorf("actor egress policy store is required")
+	}
+	access, err := c.cfg.EgressPolicies.GetRuntimeEgressPolicy(ctx, revision)
+	if err != nil {
+		return fmt.Errorf("load intended actor egress: %w", err)
+	}
+	_, err = compileActorEgressPolicy(ctx, atespace, access, c.cfg.EgressPolicyCompilers)
+	return err
+}
+
 // EnsureActorEgressPolicy installs current authorization without restarting the
 // actor. Read the backend version before the controller's persisted inputs so
 // concurrent applications cannot overwrite a newer policy with an old one.
@@ -32,9 +46,10 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		if err != nil {
 			return fmt.Errorf("load intended actor egress: %w", err)
 		}
-		policy, err := ActorEgressPolicy(atespace, access.Destinations, access.Credentials)
-		if err != nil {
-			return err
+		policy, chainErr := compileActorEgressPolicy(ctx, atespace, access, c.cfg.EgressPolicyCompilers)
+		if chainErr != nil {
+			// No rules denies all; extensions may have removed built-in access.
+			policy, _ = ActorEgressPolicy(atespace, nil, nil)
 		}
 		if existing == nil {
 			_, err = c.CreateActorEgressPolicy(ctx, &ateapipb.CreateActorEgressPolicyRequest{Actor: actor, EgressPolicy: policy})
@@ -49,6 +64,9 @@ func (c *Client) EnsureActorEgressPolicy(ctx context.Context, atespace, name, re
 		}
 		if err != nil {
 			return err
+		}
+		if chainErr != nil {
+			return fmt.Errorf("denied actor egress after extension failure: %w", chainErr)
 		}
 		// A source update may have discovered this instance before its Actor
 		// existed. Recheck after applying so creation cannot miss that update.

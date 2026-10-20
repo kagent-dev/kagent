@@ -16,6 +16,7 @@ type LifecycleClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	CreateActorFromTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
+	CheckActorEgressPolicy(context.Context, string, string) error
 	EnsureActorEgressPolicy(context.Context, string, string, string) error
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
@@ -106,6 +107,12 @@ func prepareActorTransition(ctx context.Context, actors LifecycleClient, binding
 			default:
 				return nil, fmt.Errorf("actor cannot perform %s from %s", operation, actor.GetStatus().GetState())
 			}
+		}
+	}
+	// Issued retries skip this so Ensure can still apply the deny-all fallback.
+	if !reconcile && (operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE || operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME) {
+		if err := actors.CheckActorEgressPolicy(ctx, binding.Atespace, binding.Revision); err != nil {
+			return nil, fmt.Errorf("compile actor egress policy: %w", err)
 		}
 	}
 	return &ActorTransition{binding: binding, operation: operation, actor: actor, creation: creation}, nil

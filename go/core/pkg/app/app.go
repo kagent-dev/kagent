@@ -68,6 +68,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -118,6 +119,9 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
+	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
+	// all must be bound. Authenticator must not forward the caller token.
+	EgressPolicyCompilers []egresspolicy.Compiler
 }
 
 // resolve substitutes core's defaults for whichever components the caller left
@@ -277,11 +281,12 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		EgressPolicies: store,
-		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
-		CAFile:         cfg.GetSubstrate().GetCaFile(),
-		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
-		CallTimeout:    30 * time.Second,
+		EgressPolicies:        store,
+		EgressPolicyCompilers: opts.EgressPolicyCompilers,
+		AteAPIEndpoint:        cfg.GetSubstrate().GetApiEndpoint(),
+		CAFile:                cfg.GetSubstrate().GetCaFile(),
+		ClientCertFile:        cfg.GetSubstrate().GetClientCertFile(),
+		CallTimeout:           30 * time.Second,
 	})
 	if err != nil {
 		return err

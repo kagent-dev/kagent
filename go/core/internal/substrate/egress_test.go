@@ -3,6 +3,7 @@ package substrate
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 type egressPolicyStoreFunc func(context.Context, string) (egress.Access, error)
@@ -74,6 +76,33 @@ func TestEnsureActorEgressPolicyReloadsAfterConflict(t *testing.T) {
 	require.NoError(t, reconcile())
 	require.Empty(t, fake.policy.Rules)
 	require.Zero(t, fake.updated)
+}
+
+func TestEnsureActorEgressPolicyDeniesWhenExtensionFails(t *testing.T) {
+	const kept, denied = "https://mcp.example.com:443", "https://denied.example.com:443"
+	fake := &egressPolicyFake{}
+	access := egress.Access{
+		Destinations:            []string{kept, denied},
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: kept, Header: "authorization", Prefix: "Bearer "}},
+	}
+	store := egressPolicyStoreFunc(func(context.Context, string) (egress.Access, error) { return access, nil })
+	var failure error
+	extension := compilerFunc(func(_ context.Context, _ egresspolicy.Input, policy *ateapipb.EgressPolicy) error {
+		policy.Rules = slices.DeleteFunc(policy.Rules, func(rule *ateapipb.EgressRule) bool {
+			return slices.Contains(rule.GetHttps().GetHostnames(), "denied.example.com")
+		})
+		policy.Rules[0].GetHttps().Effects = &ateapipb.HttpRuleEffects{ReplaceHeaders: []*ateapipb.CredentialHeader{{Header: "authorization", Prefix: "Bearer ", CredentialUri: "ate-secret://k8s.io/default/team-a/token/value"}}}
+		return failure
+	})
+	client := &Client{ControlClient: fake, cfg: Config{EgressPolicies: store, EgressPolicyCompilers: []egresspolicy.Compiler{extension}}}
+	reconcile := func() error { return client.EnsureActorEgressPolicy(t.Context(), "team-a", "actor", "revision") }
+
+	require.NoError(t, reconcile())
+	require.Len(t, fake.policy.GetRules(), 1, "the extension removed a destination")
+	failure = errors.New("provider unavailable")
+	require.ErrorContains(t, reconcile(), "provider unavailable")
+	require.NotNil(t, fake.policy)
+	require.Empty(t, fake.policy.GetRules(), "a failed extension denies all egress instead of restoring the built-in policy")
 }
 
 type egressPolicyFake struct {

@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 const shortRevisionBytes = 6
@@ -67,8 +68,8 @@ type Revision struct {
 	Provenance json.RawMessage
 	// Credentials contains references resolved by the egress gateway.
 	Credentials []egress.Credential
-	// TokenPassthroughOrigins cannot receive gateway credentials, including live grants.
-	TokenPassthroughOrigins []string
+	// TokenPassthroughTargets reserve their origins against Secret credentials.
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	// EgressDestinations is the HTTP(S) origin allowlist required by this revision.
 	EgressDestinations []string
 }
@@ -95,23 +96,23 @@ func (r *Revision) Digest() (RevisionID, error) {
 		return RevisionID{}, fmt.Errorf("unsupported sandbox class %q", sandboxClass)
 	}
 	raw, err := json.Marshal(struct {
-		AgentName               string                   `json:"agentName"`
-		AgentUID                string                   `json:"agentUID"`
-		Namespace               string                   `json:"namespace"`
-		CPU                     string                   `json:"cpu"`
-		Memory                  string                   `json:"memory"`
-		Image                   string                   `json:"image"`
-		Command                 []string                 `json:"command,omitempty"`
-		Args                    []string                 `json:"args,omitempty"`
-		Environment             []corev1.EnvVar          `json:"environment"`
-		ConfigJSON              json.RawMessage          `json:"config"`
-		SkillImages             []SkillImage             `json:"skillImages,omitempty"`
-		WorkerPoolName          string                   `json:"workerPoolName"`
-		SnapshotLocation        string                   `json:"snapshotLocation"`
-		Credentials             []egress.Credential      `json:"credentials,omitempty"`
-		TokenPassthroughOrigins []string                 `json:"tokenPassthroughOrigins,omitempty"`
-		EgressDestinations      []string                 `json:"egressDestinations"`
-		SandboxClass            atev1alpha1.SandboxClass `json:"sandboxClass"`
+		AgentName               string                       `json:"agentName"`
+		AgentUID                string                       `json:"agentUID"`
+		Namespace               string                       `json:"namespace"`
+		CPU                     string                       `json:"cpu"`
+		Memory                  string                       `json:"memory"`
+		Image                   string                       `json:"image"`
+		Command                 []string                     `json:"command,omitempty"`
+		Args                    []string                     `json:"args,omitempty"`
+		Environment             []corev1.EnvVar              `json:"environment"`
+		ConfigJSON              json.RawMessage              `json:"config"`
+		SkillImages             []SkillImage                 `json:"skillImages,omitempty"`
+		WorkerPoolName          string                       `json:"workerPoolName"`
+		SnapshotLocation        string                       `json:"snapshotLocation"`
+		Credentials             []egress.Credential          `json:"credentials,omitempty"`
+		TokenPassthroughTargets []egresspolicy.GatewayTarget `json:"tokenPassthroughTargets,omitempty"`
+		EgressDestinations      []string                     `json:"egressDestinations"`
+		SandboxClass            atev1alpha1.SandboxClass     `json:"sandboxClass"`
 
 		// Placement now matches the pool's namespace as well as its name.
 		// Hash it explicitly so existing immutable templates do not conflict after upgrades.
@@ -122,7 +123,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,
-		TokenPassthroughOrigins: r.TokenPassthroughOrigins, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
+		TokenPassthroughTargets: r.TokenPassthroughTargets, Credentials: r.Credentials, EgressDestinations: r.EgressDestinations,
 		SandboxClass: sandboxClass, WorkerPoolNamespace: r.Namespace,
 	})
 	if err != nil {

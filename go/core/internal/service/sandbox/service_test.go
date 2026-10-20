@@ -16,12 +16,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -73,6 +75,7 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
+func (a *testActors) CheckActorEgressPolicy(context.Context, string, string) error { return nil }
 func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -305,4 +308,58 @@ func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
 	calls := actors.observedCalls()
 	require.Less(t, slices.Index(calls, "policy"), slices.Index(calls, "resume"))
 	require.Contains(t, calls, "policy")
+}
+
+type templateDenyingAuthorizer struct {
+	templates []auth.Resource
+	verbs     []auth.Verb
+}
+
+var _ auth.Authorizer = (*templateDenyingAuthorizer)(nil)
+
+func (a *templateDenyingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if resource.Type == v1alpha3.SandboxTemplateKind {
+		a.templates = append(a.templates, resource)
+		a.verbs = append(a.verbs, verb)
+		return errors.New("template denied")
+	}
+	return nil
+}
+
+func TestSandboxCreateRejectsDeniedTemplateBeforePersistence(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		objects []client.Object
+	}{
+		{name: "existing template", objects: []client.Object{&v1alpha3.SandboxTemplate{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch"},
+		}}},
+		{name: "missing template on retry"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha3.AddToScheme(scheme))
+			authorizer := &templateDenyingAuthorizer{}
+			// Missing store and actor dependencies make any persistence or runtime
+			// work fail the test. Denial must precede both, even when a repeated
+			// request names a template that no longer exists in Kubernetes.
+			service := &Service{config: Config{
+				Kube:       fake.NewClientBuilder().WithScheme(scheme).WithObjects(test.objects...).Build(),
+				Authorizer: authorizer,
+			}}
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			request := createRequest()
+			for range 2 {
+				instance, err := service.Create(ctx, request)
+				require.Nil(t, instance)
+				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+				require.Equal(t, "SandboxTemplate access denied", serviceerrors.MessageOf(err))
+			}
+			require.Equal(t, []auth.Resource{
+				{Type: v1alpha3.SandboxTemplateKind, Namespace: "team-a", Name: "scratch"},
+				{Type: v1alpha3.SandboxTemplateKind, Namespace: "team-a", Name: "scratch"},
+			}, authorizer.templates)
+			require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbGet}, authorizer.verbs)
+		})
+	}
 }

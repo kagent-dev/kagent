@@ -37,10 +37,10 @@ func newTemplateAndHarnessConnection(t *testing.T, objects ...ctrlclient.Object)
 	return newConfigurationConnection(t, kubeClient)
 }
 
-func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grpc.ClientConn {
+func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client, configure ...func(*Config)) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(DefaultMaxMessageSize)
-	server, err := New(Config{
+	config := Config{
 		Listener:               listener,
 		Authenticator:          &authimpl.InsecureAuthenticator{},
 		SystemService:          testSystemService(),
@@ -48,7 +48,11 @@ func newConfigurationConnection(t *testing.T, kubeClient ctrlclient.Client) *grp
 		AgentTemplateService:   kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.AgentTemplate{}, &v1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.Harness{}, &v1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: kubecrud.NewService(kubeClient, &pkgauth.NoopAuthorizer{}, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind),
-	})
+	}
+	for _, apply := range configure {
+		apply(&config)
+	}
+	server, err := New(config)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

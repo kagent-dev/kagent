@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -169,6 +170,7 @@ type lifecycleTestActors struct {
 	mu             sync.Mutex
 	actors         map[string]*ateapipb.Actor
 	policyErr      error
+	checkErr       error
 	policyRevision string
 	policyActor    string
 	policyCalls    int
@@ -337,6 +339,12 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	return fork, checkpoint.Id
 }
 
+func (a *lifecycleTestActors) CheckActorEgressPolicy(context.Context, string, string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checkErr
+}
+
 func (a *lifecycleTestActors) EnsureActorEgressPolicy(_ context.Context, atespace, name string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -376,6 +384,24 @@ func TestActorCreationRetainsEgressPolicyFailure(t *testing.T) {
 			require.Equal(t, callsBefore+2, base.policyCalls)
 		})
 	}
+}
+
+func TestActorCreationFailsBeforeIssueWhenEgressPolicyCannotCompile(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}, checkErr: errors.New("target not bound")}
+	actors := &retryTestActors{lifecycleTestActors: base}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+
+	_, err := workflow.Create(t.Context(), session)
+	require.ErrorContains(t, err, "target not bound")
+	require.Zero(t, actors.mutations.Load(), "no Actor is created")
+	current, err := store.GetSessionByID(t.Context(), session.Id)
+	require.NoError(t, err)
+	require.Equal(t, "PreparationFailed", current.GetFailure().GetReason())
+
+	deleted, err := workflow.Delete(t.Context(), current)
+	require.NoError(t, err)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 }
 
 func TestActorEgressPolicy(t *testing.T) {

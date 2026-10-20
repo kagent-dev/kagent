@@ -88,6 +88,11 @@ an origin with static gateway credentials, which would override the caller's
 authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
 `headersFrom`.
 
+Compilation records each passthrough client as a target {origin, header,
+prefix} in the revision. It rejects a client with no credential target (SAP AI
+Core), a client that shares its origin with an MCP server or model that did not
+opt in, and an explicit header that matches a target header.
+
 RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
 Codex and Claude reject it at compilation, and the Python runtime fails at
 startup. A request without a caller token fails instead of connecting
@@ -96,6 +101,24 @@ caller token. Controller discovery also has no caller token, so servers that
 require one should set the `kagent.dev/discovery: disabled` label. The runtime
 shares one MCP session per server. The standalone SSE stream and session
 teardown therefore carry the token of the caller that opened the session.
+
+### Gateway token passthrough
+
+Without `app.Options.EgressPolicyCompilers`, runtimes forward the caller token
+as described above. To keep it out of runtimes, an embedding program registers
+compilers and its `Authenticator.UpstreamAuth` must replace the caller's
+`Authorization` with `Bearer kagent-credential-injected`; registering compilers
+alone changes nothing, and a forwarding authenticator still exposes the token.
+The runtime forwards the placeholder as usual. Compilers run in order after the
+built-in EgressPolicy compiler and may change anything it produced. Kagent then
+validates the result, and every target must have a header. New create and resume
+operations compile the policy before they are issued, so a failure stops them
+before any lifecycle mutation. If a later compile or this validation fails, the
+actor gets no egress until a retry succeeds. Kagent never names a credential provider.
+
+This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
+embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and
+Codex still do not support passthrough.
 
 ## Deferred API fields
 

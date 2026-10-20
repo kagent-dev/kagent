@@ -34,7 +34,7 @@ type ATEClient interface {
 type Service struct {
 	kubeClient         client.Client
 	observedNamespaces []string
-	authorizer         auth.Authorizer
+	authorizer         auth.CollectionAuthorizer
 	ateClient          ATEClient
 }
 
@@ -46,7 +46,7 @@ type Namespace struct {
 func NewService(
 	kubeClient client.Client,
 	observedNamespaces []string,
-	authorizer auth.Authorizer,
+	authorizer auth.CollectionAuthorizer,
 	ateClient ATEClient,
 ) *Service {
 	return &Service{
