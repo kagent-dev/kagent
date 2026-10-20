@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
@@ -33,4 +34,20 @@ func TestFrameFillsTheWindow(t *testing.T) {
 			})
 		}
 	}
+}
+
+// An open chat's header row is its panel title: "[0]", the agent and the session, with no separate Chat row.
+func TestChatHeaderIsThePanelTitle(t *testing.T) {
+	m := openWorkspace(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	require.Len(t, rows, 30)
+	assert.NotContains(t, strings.Join(rows, "\n"), "Chat")
+	title := rows[2] // under the version line and the top border
+	assert.Contains(t, title, "│ [0] reporter · 44444444")
+	assert.Contains(t, title, "READY")
+
+	// The chat's rows line up with the screen, so a click on the header lands on it.
+	ox, oy := m.chatOrigin()
+	assert.Equal(t, "[0] reporter", ansi.Cut(rows[oy], ox, ox+len("[0] reporter")))
 }

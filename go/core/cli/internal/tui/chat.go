@@ -336,7 +336,8 @@ func (m *chatModel) stop() {
 // headerView pins who you are talking to; the ID is abbreviated so metadata survives a narrow pane.
 func (m *chatModel) headerView(width int) string {
 	parts := []string{
-		theme.HeadingStyle().Render(m.agentRef),
+		// The chat's panel key leads the row, which doubles as the panel's title.
+		panelKeyStyle(!m.unfocused).Render(fmt.Sprintf("[%d]", panelChat)) + " " + theme.HeadingStyle().Render(m.agentRef),
 		theme.DimStyle().Render(sessionview.ShortID(m.contextID)),
 	}
 	if m.state != "" {

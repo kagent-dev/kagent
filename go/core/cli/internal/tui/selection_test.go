@@ -132,9 +132,9 @@ func TestDragSelectsAcrossTheScreen(t *testing.T) {
 	copied := stubClipboard(t)
 	m := openWorkspace(t)
 
-	// From the version line, through the sidebar, to the chat panel's title.
-	from, to := screenCell(t, m, "kagent"), screenCell(t, m, "[0] Chat")
-	to.x += len("[0] Chat") - 1
+	// From the version line, through the sidebar, to the chat's title row.
+	from, to := screenCell(t, m, "kagent"), screenCell(t, m, "[0] reporter")
+	to.x += len("[0] reporter") - 1
 	m.Update(tea.MouseMsg{X: from.x, Y: from.y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	m.Update(tea.MouseMsg{X: to.x, Y: to.y, Button: tea.MouseButtonLeft, Action: tea.MouseActionMotion})
 	assert.Contains(t, m.View(), "\x1b[7mkagent", "the selection shows as it is dragged")
@@ -142,7 +142,7 @@ func TestDragSelectsAcrossTheScreen(t *testing.T) {
 	require.NotNil(t, cmd)
 	m.Update(cmd())
 	require.Len(t, *copied, 1)
-	assert.Equal(t, "kagent  dev\n[1] Namespaces  [0] Chat", (*copied)[0])
+	assert.Equal(t, "kagent  dev\n[1] Namespaces  [0] reporter", (*copied)[0])
 	assert.Contains(t, ansi.Strip(m.View()), "Copied ", "the chat's notice reports it, wherever focus is")
 
 	// The footer, and ctrl+c copies the selection again.

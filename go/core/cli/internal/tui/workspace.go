@@ -445,9 +445,9 @@ func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 	return tea.Batch(m.resize(), m.chat.mouse(msg, x, y)), true
 }
 
-// chatOrigin is the screen cell of the chat's top-left cell: inside the border and padding, below the title line.
+// chatOrigin is the screen cell of the chat's top-left cell, inside the border and padding.
 func (m *workspaceModel) chatOrigin() (int, int) {
-	return sidebarWidth + 2, lineCount(renderTitle()) + 2
+	return sidebarWidth + 2, lineCount(renderTitle()) + 1
 }
 
 // sidebarPanel is one stacked list panel, its drawn height, and how its rows render.
@@ -846,7 +846,7 @@ func (m *workspaceModel) resize() tea.Cmd {
 	if m.chat != nil {
 		_, cmd := m.chat.Update(tea.WindowSizeMsg{
 			Width:  panelInnerWidth(m.centerWidth()),
-			Height: panelInnerHeight(available),
+			Height: max(available-2, 1), // inside the border; the chat draws its own title row
 		})
 		return cmd
 	}
@@ -905,7 +905,7 @@ func (m *workspaceModel) View() string {
 
 	parts := []string{
 		sidebar,
-		panelBox(panelChat, m.centerView(), m.centerWidth(), available, m.focus == panelChat),
+		m.chatPanel(available),
 	}
 	if m.current != nil && m.showDetails {
 		parts = append(parts, lipgloss.NewStyle().
@@ -937,6 +937,14 @@ func fitScreen(rows []string, width, height int) []string {
 		rows = append(rows, "")
 	}
 	return rows
+}
+
+// chatPanel boxes the center pane. An open chat's own header row is its title, so it has no separate title row.
+func (m *workspaceModel) chatPanel(available int) string {
+	if m.chat == nil {
+		return panelBox(panelChat, m.centerView(), m.centerWidth(), available, m.focus == panelChat)
+	}
+	return untitledBox(m.centerView(), m.centerWidth(), available, m.focus == panelChat)
 }
 
 func (m *workspaceModel) centerView() string {
