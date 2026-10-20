@@ -676,8 +676,16 @@ type CreateSessionRequest struct {
 	// Optional. The proof the admission verifies for volume_source, opaque to
 	// kagent. Never stored and never shown.
 	AdmissionToken string `protobuf:"bytes,7,opt,name=admission_token,json=admissionToken,proto3" json:"admission_token,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Optional. The caller binds the session's actor to its person at the
+	// installation's providers that verify the actor's own JWT once the session
+	// exists. A session without volume_source then lists those providers, so the
+	// egress gateway hands its actor that JWT on their hosts; without it, such a
+	// session lists none and its runtime keeps sending the caller's credential
+	// there, since a provider refuses an actor nobody bound. A session with
+	// volume_source gets what its admission admits either way.
+	BindActor     bool `protobuf:"varint,8,opt,name=bind_actor,json=bindActor,proto3" json:"bind_actor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateSessionRequest) Reset() {
@@ -743,6 +751,13 @@ func (x *CreateSessionRequest) GetAdmissionToken() string {
 		return x.AdmissionToken
 	}
 	return ""
+}
+
+func (x *CreateSessionRequest) GetBindActor() bool {
+	if x != nil {
+		return x.BindActor
+	}
+	return false
 }
 
 type CreateSessionResponse struct {
@@ -1787,7 +1802,7 @@ const file_kagent_api_v1alpha1_sessions_proto_rawDesc = "" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x127\n" +
-	"\tfailed_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bfailedAt\"\x95\x03\n" +
+	"\tfailed_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bfailedAt\"\xb4\x03\n" +
 	"\x14CreateSessionRequest\x12D\n" +
 	"\x05agent\x18\x05 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceB\x06\xbaH\x03\xc8\x01\x01R\x05agent\x12)\n" +
 	"\n" +
@@ -1795,7 +1810,9 @@ const file_kagent_api_v1alpha1_sessions_proto_rawDesc = "" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12Q\n" +
 	"\x04name\x18\x04 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\x12M\n" +
 	"\rvolume_source\x18\x06 \x01(\v2(.kagent.api.v1alpha1.SessionVolumeSourceR\fvolumeSource\x12E\n" +
-	"\x0fadmission_token\x18\a \x01(\tB\x1c\xbaH\x19r\x17\x18\x80\x80\x012\x11^[^\\p{Z}\\p{Cc}]*$R\x0eadmissionTokenJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aharnessR\x0eagent_template\"O\n" +
+	"\x0fadmission_token\x18\a \x01(\tB\x1c\xbaH\x19r\x17\x18\x80\x80\x012\x11^[^\\p{Z}\\p{Cc}]*$R\x0eadmissionToken\x12\x1d\n" +
+	"\n" +
+	"bind_actor\x18\b \x01(\bR\tbindActorJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\aharnessR\x0eagent_template\"O\n" +
 	"\x15CreateSessionResponse\x126\n" +
 	"\asession\x18\x01 \x01(\v2\x1c.kagent.api.v1alpha1.SessionR\asession\"<\n" +
 	"\x11GetSessionRequest\x12'\n" +

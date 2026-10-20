@@ -316,10 +316,12 @@ func stringValues(value any) []string {
 // Session's Actor. The sandbox's environment, /data and the Session's
 // directory hold no JWT and no credential, and the commit is the person's. A
 // caller whose provider refuses the credential gets the gateway's refusal in
-// the tool result. A Session of the same Agent without a grant reaches the
-// forge's host as its own Actor too, since the installation's providers that
-// verify the Actor's JWT are every Session's, and gets the gateway's 403 on
-// the hosts a grant admits by credential URI. Each Session writes only its own
+// the tool result. A Session of the same Agent without a grant whose creator
+// binds its Actor reaches the forge's host as its own Actor too, since it then
+// lists the installation's providers that verify the Actor's JWT, and gets the
+// gateway's 403 on the hosts a grant admits by credential URI; one nobody
+// binds lists none, sends no credential and gets the gateway's 403 on the
+// forge's host as well. Each Session writes only its own
 // directory and never the mirrors.
 //
 // It stays sequential: it rolls the controller onto trusted-proxy
@@ -415,8 +417,8 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 				own[refused.sessionID] = probed["own"]
 			})
 
-			t.Run("without a grant", func(t *testing.T) {
-				plain := session(t, nil)
+			t.Run("without a grant, its actor bound", func(t *testing.T) {
+				plain := session(t, func(request *apiv1alpha1.CreateSessionRequest) { request.BindActor = true })
 				started := time.Now()
 				probed := gitAsThePersonProbe(t, plain, harness.shellTool)
 				require.Equal(t, "/data/workspace", probed["pwd"])
@@ -433,6 +435,22 @@ func TestGitAsThePersonKagentHarness(t *testing.T) {
 				require.Equal(t, "none", probed["jwt_env"], "the sandbox's environment holds no JWT")
 				require.Equal(t, "none", probed["jwt_files"], "/data and the Session's directory hold no JWT")
 				require.Equal(t, "none", probed["credential_env"], "the sandbox's environment holds no provider credential")
+			})
+
+			t.Run("without a grant, nobody binding its actor", func(t *testing.T) {
+				started := time.Now()
+				probed := gitAsThePersonProbe(t, session(t, nil), harness.shellTool)
+				require.Equal(t, "/data/workspace", probed["pwd"])
+				for _, key := range []string{"fetch", "gh"} {
+					require.True(t, strings.HasPrefix(probed[key], "failed "), "%s failed: %s", key, probed[key])
+					require.Contains(t, probed[key], "403", "%s got the gateway's 403", key)
+					require.Contains(t, probed[key], gatewayDeniedDestination, "%s got the gateway's refusal", key)
+				}
+				// busybox wget reports the status, not the body.
+				require.True(t, strings.HasPrefix(probed["uri_api"], "failed "), "uri_api failed: %s", probed["uri_api"])
+				require.Contains(t, probed["uri_api"], "403", "uri_api got the gateway's 403")
+				require.Empty(t, origin.requestsSince(forgeHost, started), "a Session nobody binds reached the forge")
+				require.Empty(t, origin.requestsSince(forgeURIHost, started), "a Session without a grant reached the forge on the credential URI's host")
 			})
 		})
 	}

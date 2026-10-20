@@ -949,8 +949,9 @@ func actorJWTVerifier(actorJWT map[string]egress.ActorJWTProvider, provider *api
 
 // ActorJWTSessionProviders are the Session providers of the instances that
 // verify the Actor's own JWT: one Bearer provider on each instance's host,
-// sorted by instance. Every Session gets them, with or without an admission
-// grant, so the egress gateway hands its Actor that JWT on those hosts.
+// sorted by instance. An admitted Session gets them, and so does one without
+// an admission grant whose creator binds its Actor, so the egress gateway hands
+// its Actor that JWT on those hosts.
 func ActorJWTSessionProviders(actorJWT map[string]egress.ActorJWTProvider) []*apiv1alpha1.SessionProvider {
 	var providers []*apiv1alpha1.SessionProvider
 	for _, instance := range slices.Sorted(maps.Keys(actorJWT)) {

@@ -180,7 +180,7 @@ a Session admitted with a grant gets
 providers is refused. `actorJWTProviders`
 (`KAGENT_SESSION_ACTOR_JWT_PROVIDERS`) names the provider instances that verify
 the Session Actor's own JWT themselves, each with its hostname and audience:
-every Session, with or without a grant, gets each as a `Bearer` provider, on whose
+every Session admitted with a grant, or created without one with `bind_actor`, gets each as a `Bearer` provider, on whose
 host the egress gateway replaces `Authorization` with the JWT it mints for the
 Actor, bound to the audience. It needs no `credentialAuthority`; a grant naming
 the instance or its host is refused.

@@ -210,6 +210,14 @@ message CreateSessionRequest {
     max_len: 16384
     pattern: "^[^\\p{Z}\\p{Cc}]*$"
   }];
+  // Optional. The caller binds the session's actor to its person at the
+  // installation's providers that verify the actor's own JWT once the session
+  // exists. A session without volume_source then lists those providers, so the
+  // egress gateway hands its actor that JWT on their hosts; without it, such a
+  // session lists none and its runtime keeps sending the caller's credential
+  // there, since a provider refuses an actor nobody bound. A session with
+  // volume_source gets what its admission admits either way.
+  bool bind_actor = 8;
 }
 
 message CreateSessionResponse {

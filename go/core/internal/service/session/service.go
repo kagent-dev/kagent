@@ -89,6 +89,12 @@ type CreateRequest struct {
 	// AdmissionToken is the proof the configured admission verifies for
 	// VolumeSource. It is read by the admission and nowhere else.
 	AdmissionToken string
+	// BindActor says the caller binds the session's actor to its person at
+	// the providers that verify the actor's own JWT. Only then does a session
+	// without VolumeSource list those providers: a provider refuses an actor
+	// nobody bound, and the egress gateway would hand it that JWT in place of
+	// the caller's credential.
+	BindActor bool
 }
 
 type ListRequest struct {
@@ -141,9 +147,10 @@ func WithVolumeAdmission(admission VolumeAdmission) Option {
 
 // WithSessionActorJWTProviders names the provider instances that verify the
 // Actor's own JWT themselves (the workflow's WithActorJWTProviders). A Session
-// created without a volume source gets each as a provider, as an admitted one
-// does, so its Actor reaches them as the Session's person once that person
-// binds it; a Session that names a source gets what its admission admits.
+// created without a volume source by a caller that binds its Actor gets each
+// as a provider, as an admitted one does, so its Actor reaches them as the
+// Session's person; a Session that names a source gets what its admission
+// admits.
 func WithSessionActorJWTProviders(providers map[string]egress.ActorJWTProvider) Option {
 	return func(service *Service) {
 		service.actorJWT = providers
@@ -335,11 +342,15 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1alph
 
 // admitVolume refuses a volume source the installation's admission does not
 // admit, and returns what it admits otherwise. A request without the volume
-// fields is admitted with the providers that verify the Actor's own JWT. The
-// admission token is handed to the admission and to nothing else: it never
-// reaches the store or a response.
+// fields is admitted with the providers that verify the Actor's own JWT when
+// its caller binds the Actor, with none otherwise. The admission token is
+// handed to the admission and to nothing else: it never reaches the store or
+// a response.
 func (s *Service) admitVolume(ctx context.Context, caller string, request CreateRequest) (Admitted, error) {
 	if request.VolumeSource == nil && request.AdmissionToken == "" {
+		if !request.BindActor {
+			return Admitted{}, nil
+		}
 		return Admitted{Providers: ActorJWTSessionProviders(s.actorJWT)}, nil
 	}
 	if s.volumeAdmission == nil {

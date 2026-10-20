@@ -141,10 +141,11 @@ func TestServiceCreateWithoutTheVolumeFieldsNeverAsksTheAdmission(t *testing.T) 
 	}
 }
 
-// A Session created without the volume fields carries the providers that
-// verify the Actor's own JWT, as an admitted one does, so a Session started
-// outside a workspace reaches them as its person once bound; a request with a
-// source gets only what its admission admits.
+// A Session created without the volume fields by a caller that binds its
+// Actor carries the providers that verify the Actor's own JWT, as an admitted
+// one does, so a Session started outside a workspace reaches them as its
+// person; one nobody binds carries none, and a request with a source gets only
+// what its admission admits.
 func TestServiceCreateGivesASessionWithoutAVolumeTheActorJWTProviders(t *testing.T) {
 	actorJWT := map[string]egress.ActorJWTProvider{
 		"muster": {Hostname: "muster.muster.svc", Audience: "https://muster.example.com"},
@@ -155,10 +156,12 @@ func TestServiceCreateGivesASessionWithoutAVolumeTheActorJWTProviders(t *testing
 		{Hostname: "muster.muster.svc", Scheme: "Bearer", Provider: "muster", Audience: "muster"},
 	}
 
-	t.Run("without a volume", func(t *testing.T) {
+	t.Run("without a volume, the caller binding the actor", func(t *testing.T) {
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithSessionActorJWTProviders(actorJWT))
-		session, err := service.Create(serviceTestContext("alice"), testCreateRequest())
+		request := testCreateRequest()
+		request.BindActor = true
+		session, err := service.Create(serviceTestContext("alice"), request)
 		require.NoError(t, err)
 		require.Len(t, store.createInput.GetProviders(), len(want))
 		for i := range want {
@@ -168,10 +171,21 @@ func TestServiceCreateGivesASessionWithoutAVolumeTheActorJWTProviders(t *testing
 		require.Equal(t, []string{"argo.argo.svc", "muster.muster.svc"}, ActorJWTHosts(actorJWT, session.GetProviders()))
 	})
 
+	t.Run("without a volume, nobody binding the actor", func(t *testing.T) {
+		store := &serviceTestStore{}
+		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{}, WithSessionActorJWTProviders(actorJWT))
+		session, err := service.Create(serviceTestContext("alice"), testCreateRequest())
+		require.NoError(t, err)
+		require.Empty(t, store.createInput.GetProviders())
+		require.Empty(t, ActorJWTHosts(actorJWT, session.GetProviders()))
+	})
+
 	t.Run("without configured providers", func(t *testing.T) {
 		store := &serviceTestStore{}
 		service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
-		_, err := service.Create(serviceTestContext("alice"), testCreateRequest())
+		request := testCreateRequest()
+		request.BindActor = true
+		_, err := service.Create(serviceTestContext("alice"), request)
 		require.NoError(t, err)
 		require.Empty(t, store.createInput.GetProviders())
 	})
