@@ -171,6 +171,23 @@ func TestAnthropicUsageToGenai(t *testing.T) {
 	}
 }
 
+func TestGenaiContentsToAnthropicMessagesKeepsAssistantTextRole(t *testing.T) {
+	contents := []*genai.Content{
+		{Role: "user", Parts: []*genai.Part{{Text: "hi"}}},
+		{Role: "model", Parts: []*genai.Part{{Text: "hello, how can I help?"}}},
+		{Role: "user", Parts: []*genai.Part{{Text: "list the pods"}}},
+		{Role: "assistant", Parts: []*genai.Part{{Text: "there are no pods"}}},
+	}
+
+	messages, _ := genaiContentsToAnthropicMessages(contents, nil)
+
+	require.Len(t, messages, 4)
+	assert.Equal(t, anthropic.MessageParamRoleUser, messages[0].Role)
+	assert.Equal(t, anthropic.MessageParamRoleAssistant, messages[1].Role)
+	assert.Equal(t, anthropic.MessageParamRoleUser, messages[2].Role)
+	assert.Equal(t, anthropic.MessageParamRoleAssistant, messages[3].Role)
+}
+
 // anthropicTestServer serves canned Messages API responses and records the
 // request body the SDK sent.
 func anthropicTestServer(t *testing.T, handler func(w http.ResponseWriter)) (*AnthropicModel, *[]byte) {
