@@ -431,7 +431,7 @@ func (m *workspaceModel) inChatRows(x, y int) bool {
 	}
 	ox, oy := m.chatOrigin()
 	cx, cy := x-ox, y-oy
-	return cx >= 0 && cx < panelInnerWidth(m.centerWidth()) && cy >= 0 && cy < len(m.chat.geo.view)
+	return cx >= 0 && cx < m.chatWidth() && cy >= 0 && cy < len(m.chat.geo.view)
 }
 
 // copyScreen copies the whole-screen selection, reporting through the chat's notice.
@@ -464,7 +464,31 @@ func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 
 // chatOrigin is the screen cell of the chat's top-left cell, inside the border and padding.
 func (m *workspaceModel) chatOrigin() (int, int) {
-	return m.sidebarCols() + 2, lineCount(renderTitle()) + 1
+	if m.chatBoxed() {
+		return m.sidebarCols() + 2, lineCount(renderTitle()) + 1
+	}
+	return 1, lineCount(renderTitle())
+}
+
+// chatBoxed reports whether an open chat sits in a bordered panel: only beside the sidebar.
+func (m *workspaceModel) chatBoxed() bool {
+	return m.chat == nil || m.showSidebar()
+}
+
+// chatWidth and chatHeight are the chat's own cells: inside its box, or the
+// full width less a one-column margin each side when it has none.
+func (m *workspaceModel) chatWidth() int {
+	if m.chatBoxed() {
+		return panelInnerWidth(m.centerWidth())
+	}
+	return max(m.centerWidth()-2, 8)
+}
+
+func (m *workspaceModel) chatHeight(available int) int {
+	if m.chatBoxed() {
+		return max(available-2, 1) // inside the border; the chat draws its own title row
+	}
+	return available
 }
 
 // sidebarPanel is one stacked list panel, its drawn height, and how its rows render.
@@ -865,8 +889,8 @@ func (m *workspaceModel) resize() tea.Cmd {
 
 	if m.chat != nil {
 		_, cmd := m.chat.Update(tea.WindowSizeMsg{
-			Width:  panelInnerWidth(m.centerWidth()),
-			Height: max(available-2, 1), // inside the border; the chat draws its own title row
+			Width:  m.chatWidth(),
+			Height: m.chatHeight(available),
 		})
 		return cmd
 	}
@@ -977,12 +1001,16 @@ func (m *workspaceModel) chatPanel(available int) string {
 	if m.chat == nil {
 		return panelBox(panelChat, m.centerView(), m.centerWidth(), available, m.focus == panelChat)
 	}
+	if !m.chatBoxed() {
+		return lipgloss.NewStyle().Width(m.centerWidth()).Height(available).Padding(0, 1).Render(m.centerView())
+	}
 	return untitledBox(m.centerView(), m.centerWidth(), available, m.focus == panelChat)
 }
 
 func (m *workspaceModel) centerView() string {
 	if m.chat != nil {
 		m.chat.unfocused = m.focus != panelChat
+		m.chat.open = !m.chatBoxed()
 		return m.chat.View()
 	}
 	if len(m.all) == 0 {

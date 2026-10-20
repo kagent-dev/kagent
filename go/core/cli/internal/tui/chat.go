@@ -86,6 +86,8 @@ type chatModel struct {
 	unfocused bool
 	// height is the chat's whole height, shared by the transcript and the growing input.
 	height int
+	// open is set when the chat has no box around it, so a bar closes the input below as well.
+	open bool
 	// inputCapped is set while the input has more rows than it has room to show.
 	inputCapped bool
 	// queue holds messages typed during a turn, sent one per turn as each ends.
@@ -327,7 +329,12 @@ func (m *chatModel) View() string {
 		m.geo.status = lineCount(strings.Join(parts, "\n"))
 		parts = append(parts, m.withPill(status, width))
 	}
-	view := lipgloss.JoinVertical(lipgloss.Left, append(parts, bar, m.input.View())...)
+	parts = append(parts, bar, m.input.View())
+	if m.open {
+		// Without a box around the chat, a second bar closes the input from below.
+		parts = append(parts, lipgloss.NewStyle().Foreground(borderColor(!m.unfocused)).Render(strings.Repeat("▁", max(10, width))))
+	}
+	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	m.geo.view = strings.Split(view, "\n")
 	return strings.Join(highlightRows(slices.Clone(m.geo.view), m.selection, width), "\n")
 }
@@ -1092,7 +1099,7 @@ func (m *chatModel) fitInput() {
 	if m.height <= 0 {
 		return
 	}
-	chrome := 3 + boolInt(m.noticeRow()) // the header, the rule under it, the bar above the input, and any notice row
+	chrome := 3 + boolInt(m.noticeRow()) + boolInt(m.open) // the header, the rule under it, the bars around the input, and any notice row
 	chrome += lineCount(m.queueView(max(m.vp.Width, 10)))
 	rows := min(m.inputRows(), max(m.height-chrome-minTranscriptRows, 1))
 	bottom := m.vp.AtBottom()

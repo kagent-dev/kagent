@@ -46,7 +46,7 @@ func TestSidebarStartsHiddenAndToggles(t *testing.T) {
 	assert.NotContains(t, view, "Namespaces", "hidden from the start")
 	assert.Contains(t, view, "sidebar: /sidebar")
 	assert.NotContains(t, view, "focus: click, tab or 0-4", "no hints for panels that are not there")
-	assert.Equal(t, 120-4, m.chat.vp.Width, "the chat takes the full width")
+	assert.Equal(t, 120-2, m.chat.vp.Width, "the chat takes the full width, less a margin each side")
 	assert.Equal(t, panelChat, m.focus)
 
 	_, handled := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
@@ -88,12 +88,40 @@ func TestOtherSlashTextIsSent(t *testing.T) {
 // With the sidebar hidden the frame still fills the window exactly.
 func TestHiddenSidebarFrameFillsTheWindow(t *testing.T) {
 	m := hiddenWorkspace(t)
-	for _, size := range [][2]int{{60, 12}, {100, 30}, {220, 50}} {
-		m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
-		view := m.View()
-		assert.Equal(t, size[1], lineCount(view), "%v", size)
-		for row := range strings.SplitSeq(view, "\n") {
-			assert.LessOrEqual(t, ansi.StringWidth(row), size[0])
+	for _, width := range []int{40, 60, 80, 100, 120, 160, 220} {
+		for _, height := range []int{12, 20, 30, 50} {
+			m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+			m.chat.appendUser("hello")
+			view := m.View()
+			assert.Equal(t, height, lineCount(view), "%dx%d", width, height)
+			for row := range strings.SplitSeq(view, "\n") {
+				assert.LessOrEqual(t, ansi.StringWidth(row), width, "%dx%d", width, height)
+			}
 		}
 	}
+}
+
+// Without the sidebar the chat has no box: a one-column margin each side, its
+// header row and rule on top, and border-coloured bars above and below the input.
+func TestHiddenSidebarChatHasNoBox(t *testing.T) {
+	m := hiddenWorkspace(t)
+	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	require.Len(t, rows, 30)
+	view := strings.Join(rows, "\n")
+	assert.NotContains(t, view, "╭")
+	assert.NotContains(t, view, "│ ")
+	assert.True(t, strings.HasPrefix(rows[1], " [0] reporter · 44444444"), "%q", rows[1])
+	assert.True(t, strings.HasPrefix(rows[2], " ───"), "the rule under the header: %q", rows[2])
+	footer := lineCount(m.footerView())
+	input := trimAll(rows[len(rows)-footer-3 : len(rows)-footer])
+	assert.Equal(t, []string{" " + strings.Repeat("▔", 118), " > Type a message (Enter to send)", " " + strings.Repeat("▁", 118)}, input)
+
+	ox, oy := m.chatOrigin()
+	assert.Equal(t, "[0] reporter", ansi.Cut(rows[oy], ox, ox+len("[0] reporter")), "clicks map onto the chat's cells")
+
+	m.chat.input.SetValue("/sidebar")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(m, cmd)
+	assert.Contains(t, m.View(), "╭", "beside the sidebar, the chat keeps its box")
+	assert.NotContains(t, ansi.Strip(m.View()), "▁▁▁", "and its border closes the input")
 }
