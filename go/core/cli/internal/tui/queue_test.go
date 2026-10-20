@@ -26,7 +26,7 @@ func queueChat(t *testing.T) (*chatModel, *[]string, func()) {
 	end := func() {
 		m.appendEvent(a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateCompleted, nil))
 		close(open)
-		m.Update(streamDoneMsg{}) // a queued send happens here; its stream waits are left unrun
+		m.Update(streamDoneMsg{ch: m.streamCh}) // a queued send happens here; its stream waits are left unrun
 	}
 	return m, &sent, end
 }
@@ -84,7 +84,7 @@ func TestQueuePausesOnFailure(t *testing.T) {
 	enter(m, "go")
 	enter(m, "next")
 	m.appendEvent(a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateFailed, nil))
-	m.Update(streamDoneMsg{})
+	m.Update(streamDoneMsg{ch: m.streamCh})
 	assert.Equal(t, []string{"go"}, *sent, "a failure holds the queue")
 	assert.Contains(t, ansi.Strip(m.View()), "⏸ Queue paused after a failed turn · Enter to resume · ↑ edit")
 
@@ -98,7 +98,7 @@ func TestFailureWithEmptyQueueDoesNotPause(t *testing.T) {
 	m, sent, end := queueChat(t)
 	enter(m, "go")
 	m.appendEvent(a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateFailed, nil))
-	m.Update(streamDoneMsg{})
+	m.Update(streamDoneMsg{ch: m.streamCh})
 	assert.Empty(t, m.queuePaused)
 	enter(m, "again")
 	enter(m, "queued")

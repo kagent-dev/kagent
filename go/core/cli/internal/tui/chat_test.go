@@ -158,7 +158,7 @@ func TestChatModelRendersStateClasses(t *testing.T) {
 		{
 			name: "a transport failure is not a task failure",
 			apply: func(m *chatModel) {
-				m.Update(clia2a.StreamResult{Err: errors.New("stream disconnected")})
+				m.Update(streamMsg{ch: m.streamCh, StreamResult: clia2a.StreamResult{Err: errors.New("stream disconnected")}})
 			},
 			want: "Connection error: stream disconnected", wantAbsent: "✗ Task",
 		},

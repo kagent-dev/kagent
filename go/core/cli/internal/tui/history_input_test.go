@@ -18,7 +18,7 @@ func press(m *chatModel, keys ...tea.KeyType) {
 // send enters a prompt and ends its turn.
 func send(m *chatModel, text string) {
 	enter(m, text)
-	m.Update(streamDoneMsg{})
+	m.Update(streamDoneMsg{ch: m.streamCh})
 }
 
 // Up from the input's first row recalls earlier prompts; down walks forward to the draft, which is kept.

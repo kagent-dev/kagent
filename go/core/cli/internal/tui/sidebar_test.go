@@ -18,7 +18,7 @@ func hiddenWorkspace(t *testing.T) *workspaceModel {
 	t.Helper()
 	session := readySession("44444444-4444-4444-4444-444444444444", "reporter")
 	m := testWorkspace(t, &fakeLister{pages: []*apiv1.ListSessionsResponse{page("", session)}})
-	m.cfg.HideSidebar, m.sidebar, m.focus = true, false, panelChat
+	m.cfg.HideSidebar, m.sidebar = true, false
 	loaded(m)
 	m.selectSession(session)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})

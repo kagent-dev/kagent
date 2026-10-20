@@ -550,7 +550,7 @@ func TestWorkspaceRoutesStreamMessagesRegardlessOfFocus(t *testing.T) {
 	m.selectSession(ready)
 	m.focus = panelSessions
 
-	m.Update(clia2a.StreamResult{Err: errors.New("stream disconnected")})
+	m.Update(streamMsg{ch: m.chat.streamCh, StreamResult: clia2a.StreamResult{Err: errors.New("stream disconnected")}})
 
 	assert.Contains(t, transcript(m.chat), "Connection error")
 }

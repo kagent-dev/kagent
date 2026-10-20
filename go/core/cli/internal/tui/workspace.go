@@ -158,11 +158,6 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 		lister = api.Session
 	}
 
-	// With the sidebar hidden, the chat is the only panel to type into.
-	focus := panelSessions
-	if cfg.HideSidebar {
-		focus = panelChat
-	}
 	return &workspaceModel{
 		ctx:        ctx,
 		cfg:        cfg,
@@ -176,7 +171,7 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 		agents:     newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
 		sessions:   newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: sessionRow}),
 		namespace:  cfg.Namespace,
-		focus:      focus,
+		focus:      panelSessions,
 		sidebar:    !cfg.HideSidebar,
 	}
 }
@@ -330,7 +325,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	// Stream and timer messages go to the chat wherever focus is, or a reply is stranded.
-	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg, noticeDoneMsg, copiedMsg:
+	case streamMsg, streamDoneMsg, spinner.TickMsg, tickMsg, noticeDoneMsg, copiedMsg:
 		if m.chat == nil {
 			return m, nil
 		}
@@ -450,11 +445,16 @@ func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 	if m.chat == nil || (msg.Button != tea.MouseButtonLeft && msg.Action != tea.MouseActionMotion) {
 		return nil, false
 	}
-	if target, ok := m.panelAt(msg.X, msg.Y); !ok || target != panelChat {
+	// A drag that began in the chat stays the chat's wherever it moves or ends.
+	dragging := m.chat.dragFrom != nil && msg.Action != tea.MouseActionPress
+	if target, ok := m.panelAt(msg.X, msg.Y); !dragging && (!ok || target != panelChat) {
 		return nil, false
 	}
 	ox, oy := m.chatOrigin()
 	x, y := msg.X-ox, msg.Y-oy
+	if dragging {
+		x, y = min(max(x, 0), m.chatWidth()-1), min(max(y, 0), max(len(m.chat.geo.view)-1, 0))
+	}
 	if msg.Action != tea.MouseActionRelease {
 		return m.chat.mouse(msg, x, y), true
 	}
@@ -735,6 +735,9 @@ func (m *workspaceModel) selectSession(session *apiv1.Session) tea.Cmd {
 	}
 	m.chat = newChatModel(m.ctx, session.GetAgent().GetName(), session.GetId(), send, m.verbose)
 	m.chat.setHeaderMeta(stateBadge(session.GetState()), session.GetUpdatedAt().AsTime())
+	if !m.sidebar {
+		m.focus = panelChat // the sidebar hides once a chat opens, so the chat is the only panel left
+	}
 	// Bubble Tea calls Init only on the root model, so start the chat's here.
 	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(session))
 }
@@ -748,12 +751,16 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "ctrl+c":
-		// With text selected, ctrl+c copies it, as in a terminal.
+		// With text selected, ctrl+c copies it once, as in a terminal; the next press cancels or quits.
 		if m.screenSel != nil {
-			return m.copyScreen(), true
+			cmd := m.copyScreen()
+			m.screenSel = nil
+			return cmd, true
 		}
 		if m.chat.hasSelection() {
-			return m.chat.copySelection(), true
+			cmd := m.chat.copySelection()
+			m.chat.selection = nil
+			return cmd, true
 		}
 		if m.chat == nil || time.Since(m.quitArmed) < noticeTTL {
 			// Cancel the in-flight stream before teardown rather than letting process exit drop it.

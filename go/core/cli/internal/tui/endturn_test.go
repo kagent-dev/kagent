@@ -82,7 +82,7 @@ func TestBellWhenAway(t *testing.T) {
 			return ch
 		}
 		m.chat.submit("go")
-		m.Update(clia2a.StreamResult{Event: a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateCompleted, nil)})
+		m.Update(streamMsg{ch: m.chat.streamCh, StreamResult: clia2a.StreamResult{Event: a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateCompleted, nil)}})
 	}
 
 	finish()
@@ -93,7 +93,7 @@ func TestBellWhenAway(t *testing.T) {
 	assert.Equal(t, 1, rings, "unfocused when the turn finished")
 
 	m.chat.submit("again")
-	m.Update(clia2a.StreamResult{Event: a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateInputRequired, nil)})
+	m.Update(streamMsg{ch: m.chat.streamCh, StreamResult: clia2a.StreamResult{Event: a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateInputRequired, nil)}})
 	assert.Equal(t, 2, rings, "unfocused when the turn began waiting for input")
 
 	t.Setenv("KAGENT_TUI_BELL", "false")

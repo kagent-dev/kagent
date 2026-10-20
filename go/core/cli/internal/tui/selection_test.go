@@ -80,7 +80,7 @@ func TestDragCopiesPlainText(t *testing.T) {
 	assert.NotContains(t, strings.Join(*copied, ""), "\x1b")
 }
 
-// ctrl+c copies a selection instead of quitting, and esc clears it.
+// ctrl+c copies a selection once instead of quitting; the next press cancels as usual.
 func TestCtrlCCopiesASelection(t *testing.T) {
 	copied := stubClipboard(t)
 	m := openWorkspace(t)
@@ -96,9 +96,7 @@ func TestCtrlCCopiesASelection(t *testing.T) {
 	assert.False(t, quit, "ctrl+c copies rather than quits")
 	assert.Equal(t, []string{"copy me please", "copy me please"}, *copied)
 
-	_, handled = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
-	assert.True(t, handled)
-	assert.False(t, m.chat.hasSelection())
+	assert.False(t, m.chat.hasSelection(), "a copied selection is cleared")
 	// The first press returns only the notice's timer, so it is not run here.
 	m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
 	assert.Contains(t, ansi.Strip(m.View()), "Press ctrl+c again to exit")

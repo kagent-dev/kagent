@@ -32,7 +32,13 @@ import (
 // SendMessageFn abstracts the A2A client's SendStreamingMessage method for easier testing.
 type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult
 
-type streamDoneMsg struct{}
+// streamMsg and streamDoneMsg name the stream they came from, so a replaced turn or chat drops them.
+type streamMsg struct {
+	ch <-chan clia2a.StreamResult
+	clia2a.StreamResult
+}
+
+type streamDoneMsg struct{ ch <-chan clia2a.StreamResult }
 
 // toggleSidebarMsg asks the workspace to show or hide its sidebar for this run.
 type toggleSidebarMsg struct{}
@@ -276,7 +282,10 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fitInput()
 			return m, nil
 		}
-	case clia2a.StreamResult:
+	case streamMsg:
+		if msg.ch != m.streamCh {
+			return m, nil
+		}
 		if msg.Err != nil {
 			if m.cancelled {
 				m.endStream()
@@ -292,6 +301,9 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendEvent(msg.Event)
 		return m, m.waitNext()
 	case streamDoneMsg:
+		if msg.ch != m.streamCh {
+			return m, nil
+		}
 		m.endStream()
 		return m, m.sendQueued()
 	}
@@ -402,9 +414,9 @@ func (m *chatModel) waitNext() tea.Cmd {
 	return func() tea.Msg {
 		result, ok := <-ch
 		if !ok {
-			return streamDoneMsg{}
+			return streamDoneMsg{ch: ch}
 		}
-		return result
+		return streamMsg{ch: ch, StreamResult: result}
 	}
 }
 
@@ -439,10 +451,15 @@ func (m *chatModel) appendEvent(ev a2atype.Event) {
 		m.assembler = &clia2a.Assembler{}
 	}
 	if err := m.assembler.Apply(ev); err != nil {
-		m.appendLine(theme.ErrorStyle().Render(fmt.Sprintf("Protocol error: %v", err)))
+		m.appendLine(theme.ErrorStyle().Render("Protocol error: " + sanitize(err.Error())))
 		return
 	}
-	m.turnTokens += eventTokens(ev)
+	// The terminal update carries the task's own total, which beats summing per-event usage.
+	if usage, ok := kagenta2a.UsageFromMetadata(ev.Meta()); ok {
+		m.turnTokens = usage.TotalTokens
+	} else {
+		m.turnTokens += eventTokens(ev)
+	}
 	m.renderThoughts()
 	m.renderToolActivity(eventParts(ev))
 	m.renderAssembledText()
@@ -706,6 +723,9 @@ func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 		tools += m.replayParts(artifact.Parts)
 		tokens += eventTokens(&a2atype.TaskArtifactUpdateEvent{Artifact: artifact})
 	}
+	if usage, ok := kagenta2a.UsageFromMetadata(task.Metadata); ok {
+		tokens = usage.TotalTokens
+	}
 	// A past turn's length is not recorded, so its closing line names none.
 	switch task.Status.State {
 	case a2atype.TaskStateCompleted:
@@ -793,7 +813,7 @@ func (m *chatModel) recallPrompt(back bool) {
 
 // appendTransportError reports a stream failure, distinct from a task the agent itself failed.
 func (m *chatModel) appendTransportError(err error) {
-	m.appendLine(theme.ErrorStyle().Render(fmt.Sprintf("Connection error: %v", err)))
+	m.appendLine(theme.ErrorStyle().Render("Connection error: " + sanitize(err.Error())))
 }
 
 // renderToolActivity shows kagent data parts; the reducer has no opinion about them.
