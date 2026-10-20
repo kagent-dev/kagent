@@ -172,3 +172,58 @@ func TestDividerMatchesTheBorder(t *testing.T) {
 		assert.Contains(t, box, color+"╭", "the border starts in the same colour")
 	}
 }
+
+// typeKeys sends text one key at a time, drawing after each as the program does; "\n" is ctrl+j.
+func typeKeys(m *chatModel, text string) {
+	for _, r := range text {
+		if r == '\n' {
+			m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+		} else {
+			m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		m.View()
+	}
+}
+
+// Every line of the input shows, however it got there: typed newlines, a paste, or a long line that wraps.
+func TestInputShowsEveryLine(t *testing.T) {
+	inputRows := func(m *chatModel, n int) []string {
+		rows := strings.Split(ansi.Strip(m.View()), "\n")
+		return trimAll(rows[len(rows)-n:])
+	}
+	t.Run("typed newlines", func(t *testing.T) {
+		m, _ := sizedChat(t)
+		typeKeys(m, "one\ntwo\nthree")
+		assert.Equal(t, []string{"> one", "  two", "  three"}, inputRows(m, 3))
+	})
+	t.Run("a pasted block", func(t *testing.T) {
+		m, _ := sizedChat(t)
+		typeKeys(m, "start ")
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a\nb\nc"), Paste: true})
+		assert.Equal(t, []string{"> start a", "  b", "  c"}, inputRows(m, 3))
+	})
+	t.Run("a long line wraps", func(t *testing.T) {
+		m, _ := sizedChat(t)
+		typeKeys(m, strings.Repeat("word ", 45))
+		rows := inputRows(m, 3)
+		assert.True(t, strings.HasPrefix(rows[0], "> word"), "the first row stays in view: %q", rows)
+		assert.Equal(t, 3, m.input.Height())
+		typeKeys(m, "end")
+		assert.True(t, strings.HasSuffix(m.input.Value(), "word end"), "typing goes on at the cursor")
+		assert.True(t, strings.HasSuffix(inputRows(m, 1)[0], "word end"))
+	})
+	t.Run("a capped input that shrinks back shows from its top", func(t *testing.T) {
+		m, _ := sizedChat(t)
+		typeKeys(m, strings.Repeat("x\n", 40)+"last")
+		assert.Equal(t, minTranscriptRows, m.vp.Height, "capped, the transcript keeps a few rows")
+		for range 36 * 2 {
+			m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+			m.View()
+		}
+		rows := inputRows(m, m.input.Height())
+		assert.Equal(t, "> x", rows[0], "%q", rows)
+		lines := strings.Split(m.input.Value(), "\n")
+		assert.Len(t, rows, len(lines), "every line shows")
+		assert.Equal(t, strings.TrimRight("  "+lines[len(lines)-1], " "), rows[len(rows)-1])
+	})
+}

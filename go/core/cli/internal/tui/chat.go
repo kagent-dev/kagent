@@ -83,6 +83,8 @@ type chatModel struct {
 	unfocused bool
 	// height is the chat's whole height, shared by the transcript and the growing input.
 	height int
+	// inputCapped is set while the input has more rows than it has room to show.
+	inputCapped bool
 	// queue holds messages typed during a turn, sent one per turn as each ends.
 	queue []string
 	// unseen counts transcript lines added while scrolled up, for the jump-to-latest pill.
@@ -1045,16 +1047,47 @@ func (m *chatModel) fitInput() {
 	chrome += lineCount(m.queueView(max(m.vp.Width, 10)))
 	rows := min(m.inputRows(), max(m.height-chrome-minTranscriptRows, 1))
 	bottom := m.vp.AtBottom()
-	if rows != m.input.Height() {
+	fits := rows == m.inputRows()
+	if rows != m.input.Height() || fits && m.inputCapped {
 		m.input.SetHeight(rows)
 		// SetHeight leaves the input's scroll alone; View loads its lines, and Update then scrolls to the cursor.
 		_ = m.input.View()
 		m.input, _ = m.input.Update(nil)
+		if fits {
+			m.scrollInputToTop()
+		}
 	}
+	m.inputCapped = !fits
 	m.vp.Height = max(m.height-chrome-rows, 1)
 	if bottom {
 		m.vp.GotoBottom()
 	}
+}
+
+// scrollInputToTop shows the input from its first row, keeping the cursor where it is.
+// The textarea scrolls only as far as its cursor needs, so rows that wrapped above
+// the cursor before it grew stay hidden until the cursor visits them.
+func (m *chatModel) scrollInputToTop() {
+	col, ups := m.input.LineInfo().StartColumn+m.input.LineInfo().ColumnOffset, 0
+	for ; !m.inputAtFirstRow() && ups <= m.inputRows(); ups++ {
+		m.input.CursorUp()
+	}
+	_ = m.input.View()
+	m.input, _ = m.input.Update(nil)
+	for range ups {
+		m.input.CursorDown()
+	}
+	m.input.SetCursor(col)
+}
+
+// inputAtFirstRow and inputAtLastRow report whether the cursor is on the input's first or last drawn row.
+func (m *chatModel) inputAtFirstRow() bool {
+	return m.input.Line() == 0 && m.input.LineInfo().RowOffset == 0
+}
+
+func (m *chatModel) inputAtLastRow() bool {
+	info := m.input.LineInfo()
+	return m.input.Line() == m.input.LineCount()-1 && info.RowOffset >= info.Height-1
 }
 
 // inputRows is how many rows the input's text wraps to, at least one.
