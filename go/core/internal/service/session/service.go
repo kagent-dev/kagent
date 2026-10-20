@@ -102,6 +102,12 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 	if _, shared := auth.ShareContextFrom(ctx); shared {
 		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
 	}
+	authSession, _ := auth.AuthSessionFrom(ctx)
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{
+		Type: "Agent", Namespace: agent.Namespace, Name: agent.Name,
+	}); err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized to access target Agent", err)
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate Session identifier", err)
@@ -214,12 +220,12 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		}
 		return result, nil
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "")
+	userID, err := s.authorize(ctx, auth.VerbList, "")
 	if err != nil {
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
+		if _, err := s.authorizeType(ctx, auth.VerbList, "SessionAllCreators", ""); err != nil {
 			return ListResult{}, err
 		}
 	}
@@ -358,7 +364,7 @@ func (s *Service) ListShares(ctx context.Context, sessionID string, pageSize int
 	if err := validateIdentity(sessionID); err != nil {
 		return ShareListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, sessionID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbList, sessionID+"/shares")
 	if err != nil {
 		return ShareListResult{}, err
 	}
@@ -413,12 +419,15 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 		if session.Principal().Actor != nil {
 			return "", serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
 		}
-		if verb != auth.VerbGet {
-			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
+		if verb != auth.VerbGet || !share.IsForSession(name) {
+			return "", serviceerrors.NewPermissionDenied("This share link only permits reading its Session", nil)
 		}
-		if share.IsForSession(name) {
-			return share.UserID, nil
+		// The recipient supplies policy identity; the share supplies only the
+		// storage owner. Checking the owner would lend their grants to visitors.
+		if _, err := s.authorizeType(ctx, verb, "Session", name); err != nil {
+			return "", err
 		}
+		return share.UserID, nil
 	}
 	return s.authorizeType(ctx, verb, "Session", name)
 }

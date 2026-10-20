@@ -200,7 +200,8 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
 			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
 			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, getErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
-			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true},
+			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
+			{name: "denied share recipient", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
 			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, denied: true, want: a2atype.ErrUnauthorized},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {

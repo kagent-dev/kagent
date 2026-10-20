@@ -68,6 +68,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*apiv1.Sch
 	hash := sha256.Sum256(data)
 	existing, err := s.store.FindScheduledRunRequest(ctx, creator, request.RequestID, hash[:])
 	if err == nil {
+		if err := s.authorizeTarget(ctx, existing); err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if !errors.Is(err, database.ErrNotFound) {
@@ -97,7 +100,7 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (*apiv1.ScheduledRun, e
 }
 
 func (s *Service) List(ctx context.Context, page *apiv1.PageRequest) ([]*apiv1.ScheduledRun, string, error) {
-	creator, err := s.authorize(ctx, auth.VerbGet, "")
+	creator, err := s.authorize(ctx, auth.VerbList, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -172,7 +175,7 @@ func (s *Service) GetExecution(ctx context.Context, id uuid.UUID) (*apiv1.Schedu
 }
 
 func (s *Service) ListExecutions(ctx context.Context, id uuid.UUID, page *apiv1.PageRequest) ([]*apiv1.ScheduledRunExecution, string, error) {
-	creator, err := s.authorize(ctx, auth.VerbGet, id.String()+"/executions")
+	creator, err := s.authorize(ctx, auth.VerbList, id.String()+"/executions")
 	if err != nil {
 		return nil, "", err
 	}

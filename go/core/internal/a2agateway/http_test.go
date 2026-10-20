@@ -387,8 +387,10 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 				storeErr   error
 				wantStatus int
 				canRead    bool
+				denied     bool
 			}{
 				{name: "read only", sessionID: gatewayTestID, canRead: true},
+				{name: "policy denied", sessionID: gatewayTestID, denied: true},
 				{name: "other session", sessionID: "12345678-1234-4234-8234-123456789abc"},
 				{name: "expired", storeErr: database.ErrNotFound, wantStatus: 403},
 				{name: "store unavailable", storeErr: errors.New("database credentials"), wantStatus: 500},
@@ -397,7 +399,11 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 					store := &gatewayTestStore{session: gatewayTestSession(), task: &a2atype.Task{ID: "task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 					shares := &httpTestShares{sessionID: test.sessionID, err: test.storeErr}
 					runtime := &gatewayTestRuntime{cancelErr: a2atype.ErrTaskNotFound}
-					gateway := newTestGateway(store, &gatewayDenyAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+					authorizer := &gatewayTestAuthorizer{}
+					if test.denied {
+						authorizer.err = errors.New("denied")
+					}
+					gateway := newTestGateway(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 					address := startCoreTestServer(t, gateway, shares)
 					transport := newGatewayTestTransport(t, address, protocol)
 					params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}, "x-share-token": {"share"}}
@@ -408,6 +414,16 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 					} else {
 						require.Error(t, err)
 					}
+					subscriptionEvents := 0
+					for _, err := range transport.SubscribeToTask(t.Context(), params, &a2atype.SubscribeToTaskRequest{Tenant: gatewayTestAgent, ID: "task"}) {
+						subscriptionEvents++
+						if test.canRead {
+							require.NoError(t, err)
+						} else {
+							require.Error(t, err)
+						}
+					}
+					require.Equal(t, 1, subscriptionEvents)
 					digest := sha256.Sum256([]byte("share"))
 					require.Equal(t, digest[:], shares.digest)
 					_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: "task"})

@@ -13,7 +13,9 @@ import (
 	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/status"
 
+	"github.com/kagent-dev/kagent/go/api/authorization"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/service/inventoryauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -25,9 +27,11 @@ import (
 const defaultSubstratePageSize int32 = 50
 
 const (
-	workerPoolResource    = "WorkerPool"
-	substrateResource     = "Substrate"
-	systemSummaryResource = "SystemSummary"
+	workerPoolResource             = "WorkerPool"
+	substrateActorResource         = "SubstrateActor"
+	substrateActorTemplateResource = "SubstrateActorTemplate"
+	substrateWorkerResource        = "SubstrateWorker"
+	systemSummaryResource          = "SystemSummary"
 )
 
 // How many ate-api pages a walk will read before giving up. Each page carries its own
@@ -80,8 +84,8 @@ type SubstrateActorStatusCount struct {
 	Count int64
 }
 
-// GetSubstrateSummary requires the SystemSummary capability and filters pool rows
-// by their collection scope before counting the ATE inventory.
+// GetSubstrateSummary requires the SystemSummary capability, then applies each
+// inventory family's independent scope before returning rows or counting status.
 //
 // ate-api reports no totals, so every count costs a walk of its pages. The walk holds
 // one page at a time and keeps only tallies.
@@ -98,6 +102,18 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 		return SubstrateSummary{}, err
 	}
 	actorScope, err := s.resolveSubstrateScope(atespace)
+	if err != nil {
+		return SubstrateSummary{}, err
+	}
+	actorMatcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateActorResource, authorization.AttributeAtespace)
+	if err != nil {
+		return SubstrateSummary{}, err
+	}
+	templateMatcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateActorTemplateResource, authorization.AttributeAtespace)
+	if err != nil {
+		return SubstrateSummary{}, err
+	}
+	workerMatcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateWorkerResource, authorization.AttributeNamespace)
 	if err != nil {
 		return SubstrateSummary{}, err
 	}
@@ -130,36 +146,47 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 
 	// Three independent reads: none gates the others, so one failure leaves the rest
 	// counted rather than zeroing the whole summary.
-	if templates, err := s.substrateActorTemplates(ctx, actorScope); err != nil {
-		result.recordATEError(ctx, err)
-	} else {
-		result.ActorTemplates = templates
+	if !templateMatcher.Empty() {
+		if templates, err := s.substrateActorTemplates(ctx, actorScope); err != nil {
+			result.recordATEError(ctx, err)
+		} else {
+			for _, template := range templates {
+				metadata := template.GetMetadata()
+				if templateMatcher.Matches(metadata.GetAtespace(), metadata.GetName()) && (atespace == "" || metadata.GetAtespace() == atespace) {
+					result.ActorTemplates = append(result.ActorTemplates, template)
+				}
+			}
+		}
 	}
 
 	statusCounts := map[ateapipb.ActorState]int64{}
-	if err := s.walkActors(ctx, actorScope, func(actor *ateapipb.Actor) {
-		if actor == nil {
-			return
+	if !actorMatcher.Empty() {
+		if err := s.walkActors(ctx, actorScope, func(actor *ateapipb.Actor) {
+			metadata := actor.GetMetadata()
+			if !actorMatcher.Matches(metadata.GetAtespace(), metadata.GetName()) || (atespace != "" && metadata.GetAtespace() != atespace) {
+				return
+			}
+			result.ActorCount++
+			statusCounts[actor.GetStatus().GetState()]++
+			if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_RUNNING {
+				result.RunningActorCount++
+			}
+		}); err != nil {
+			result.recordATEError(ctx, err)
 		}
-		result.ActorCount++
-		statusCounts[actor.GetStatus().GetState()]++
-		if actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_RUNNING {
-			result.RunningActorCount++
-		}
-	}); err != nil {
-		result.recordATEError(ctx, err)
 	}
-
-	if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
-		if worker == nil || !workerScope.contains(worker.GetWorkerNamespace()) {
-			return
+	if !workerMatcher.Empty() {
+		if err := s.walkWorkers(ctx, func(worker *ateapipb.Worker) {
+			if !workerMatcher.Matches(worker.GetWorkerNamespace(), worker.GetMetadata().GetName()) || !workerScope.contains(worker.GetWorkerNamespace()) {
+				return
+			}
+			result.WorkerCount++
+			if worker.GetStatus().GetAllocated().GetActors() > 0 {
+				result.BusyWorkerCount++
+			}
+		}); err != nil {
+			result.recordATEError(ctx, err)
 		}
-		result.WorkerCount++
-		if worker.GetStatus().GetAllocated().GetActors() > 0 {
-			result.BusyWorkerCount++
-		}
-	}); err != nil {
-		result.recordATEError(ctx, err)
 	}
 
 	result.ActorStatusCounts = make([]SubstrateActorStatusCount, 0, len(statusCounts))
@@ -174,7 +201,13 @@ func (s *Service) GetSubstrateSummary(ctx context.Context, requestedNamespace, a
 
 // ListSubstrateActors returns one page of actors.
 func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubstrateActorsRequest) (SubstrateActorPage, error) {
-	scope, err := s.authorizeSubstrateScope(ctx, input.GetAtespace())
+	matcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateActorResource, authorization.AttributeAtespace)
+	if err != nil {
+		return SubstrateActorPage{}, err
+	}
+	if matcher.Empty() {
+		return SubstrateActorPage{}, serviceerrors.NewPermissionDenied("Actor inventory access denied", nil)
+	scope, err := s.resolveSubstrateScope( input.GetAtespace())
 	if err != nil {
 		return SubstrateActorPage{}, err
 	}
@@ -197,7 +230,8 @@ func (s *Service) ListSubstrateActors(ctx context.Context, input *apiv1.ListSubs
 		return result, nil
 	}
 	for _, actor := range actors {
-		if actor != nil && scope.contains(actor.GetMetadata().GetAtespace()) {
+		metadata := actor.GetMetadata()
+		if matcher.Matches(metadata.GetAtespace(), metadata.GetName()) && scope.contains(metadata.GetAtespace()) {
 			result.Actors = append(result.Actors, actor)
 		}
 	}
@@ -254,7 +288,14 @@ func (s *Service) listScopedActors(ctx context.Context, atespaces []string, inne
 
 // ListSubstrateWorkers returns one page of workers.
 func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSubstrateWorkersRequest) (SubstrateWorkerPage, error) {
-	scope, err := s.authorizeSubstrateScope(ctx, input.GetNamespace())
+	matcher, err := inventoryauth.CollectionMatcher(ctx, s.authorizer, substrateWorkerResource, authorization.AttributeNamespace)
+	if err != nil {
+		return SubstrateWorkerPage{}, err
+	}
+	if matcher.Empty() {
+		return SubstrateWorkerPage{}, serviceerrors.NewPermissionDenied("Worker inventory access denied", nil)
+	}
+	scope, err := s.resolveSubstrateScope( input.GetNamespace())
 	if err != nil {
 		return SubstrateWorkerPage{}, err
 	}
@@ -277,7 +318,7 @@ func (s *Service) ListSubstrateWorkers(ctx context.Context, input *apiv1.ListSub
 		return result, nil
 	}
 	for _, worker := range workers {
-		if worker != nil && scope.contains(worker.GetWorkerNamespace()) {
+		if matcher.Matches(worker.GetWorkerNamespace(), worker.GetMetadata().GetName()) && scope.contains(worker.GetWorkerNamespace()) {
 			result.Workers = append(result.Workers, worker)
 		}
 	}
@@ -361,13 +402,6 @@ func walkSubstrate[Row any](
 type substrateScope struct {
 	all        bool
 	namespaces []string
-}
-
-func (s *Service) authorizeSubstrateScope(ctx context.Context, requested string) (substrateScope, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: substrateResource}); err != nil {
-		return substrateScope{}, err
-	}
-	return s.resolveSubstrateScope(requested)
 }
 
 func (s *Service) resolveSubstrateScope(requested string) (substrateScope, error) {

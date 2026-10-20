@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	corev1 "k8s.io/api/core/v1"
@@ -133,4 +134,74 @@ func TestSummaryCapabilityDeniedThroughGeneratedClient(t *testing.T) {
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
 	_, err := apiv1.NewSystemServiceClient(connection).GetSubstrateSummary(ctx, &apiv1.GetSubstrateSummaryRequest{})
 	assertGRPCCode(t, err, codes.PermissionDenied)
+}
+
+type inventoryRPCPolicy struct{ auth.NoopAuthorizer }
+
+func (inventoryRPCPolicy) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resource string) (apiauthorization.AuthorizationScope, error) {
+	if verb != auth.VerbList {
+		return apiauthorization.AuthorizationScope{}, errors.New("unexpected verb")
+	}
+	var location, value, name string
+	switch resource {
+	case "SubstrateActor", "SubstrateActorTemplate":
+		location, value, name = apiauthorization.AttributeAtespace, "visible", "allowed"
+	case "SubstrateWorker":
+		location, value, name = apiauthorization.AttributeNamespace, "workers", "worker"
+	default:
+		return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, nil
+	}
+	return apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf, AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{{Attribute: location, Operator: apiauthorization.ScopeIn, Values: []string{value}}, {Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{name}}}}}}, nil
+}
+
+type inventoryRPCATE struct{}
+
+func (inventoryRPCATE) ListActorsPage(_ context.Context, _ string, _ int32, token string) ([]*ateapipb.Actor, string, error) {
+	space, next := "hidden", "second"
+	if token != "" {
+		space, next = "visible", ""
+	}
+	return []*ateapipb.Actor{{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: "allowed"}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING}}}, next, nil
+}
+func (inventoryRPCATE) ListWorkersPage(_ context.Context, _ int32, token string) ([]*ateapipb.Worker, string, error) {
+	namespace, next := "hidden", "second"
+	if token != "" {
+		namespace, next = "workers", ""
+	}
+	return []*ateapipb.Worker{{Metadata: &ateapipb.ResourceMetadata{Name: "worker"}, WorkerNamespace: namespace, WorkerPod: "different-pod", Status: &ateapipb.WorkerStatus{Allocated: &ateapipb.WorkerResources{Actors: 1}}}}, next, nil
+}
+func (inventoryRPCATE) ListActorTemplates(context.Context, string) ([]*ateapipb.ActorTemplate, error) {
+	return []*ateapipb.ActorTemplate{{Metadata: &ateapipb.ResourceMetadata{Atespace: "visible", Name: "allowed"}, Containers: []*ateapipb.Container{{Env: []*ateapipb.EnvVar{{Name: "SECRET", Value: "hidden"}}}}}, {Metadata: &ateapipb.ResourceMetadata{Atespace: "hidden", Name: "allowed"}}}, nil
+}
+func TestInventoryScopesAndEmptyPagesThroughGeneratedClient(t *testing.T) {
+	connection := newConfigurationConnection(t, nil, func(config *Config) {
+		config.SystemService = systemservice.NewService(nil, nil, inventoryRPCPolicy{}, inventoryRPCATE{})
+	})
+	client := apiv1.NewSystemServiceClient(connection)
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "reader"))
+	actors, err := client.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{})
+	require.NoError(t, err)
+	require.Empty(t, actors.Actors)
+	require.Equal(t, "second", actors.GetPage().GetNextPageToken())
+	actors, err = client.ListSubstrateActors(ctx, &apiv1.ListSubstrateActorsRequest{Page: &apiv1.PageRequest{PageToken: "second"}})
+	require.NoError(t, err)
+	require.Len(t, actors.Actors, 1)
+	require.Equal(t, "visible", actors.Actors[0].GetMetadata().GetAtespace())
+	workers, err := client.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{})
+	require.NoError(t, err)
+	require.Empty(t, workers.Workers)
+	require.Equal(t, "second", workers.GetPage().GetNextPageToken())
+	workers, err = client.ListSubstrateWorkers(ctx, &apiv1.ListSubstrateWorkersRequest{Page: &apiv1.PageRequest{PageToken: "second"}})
+	require.NoError(t, err)
+	require.Len(t, workers.Workers, 1)
+	require.Equal(t, "worker", workers.Workers[0].GetMetadata().GetName())
+	summary, err := client.GetSubstrateSummary(ctx, &apiv1.GetSubstrateSummaryRequest{})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.ActorCount)
+	require.EqualValues(t, 1, summary.WorkerCount)
+	require.EqualValues(t, 1, summary.RunningActorCount)
+	require.EqualValues(t, 1, summary.BusyWorkerCount)
+	require.Len(t, summary.ActorTemplates, 1)
+	require.Empty(t, summary.ActorTemplates[0].Containers)
+	require.Empty(t, summary.WorkerPools)
 }

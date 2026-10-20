@@ -27,9 +27,11 @@ const (
 )
 
 type store interface {
+	GetSession(context.Context, string, string) (*apiv1.Session, error)
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
+	GetSessionCheckpointAgent(context.Context, string, string) (*apiv1.ResourceReference, error)
 	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
 	GetSessionCheckpointSnapshot(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
@@ -82,8 +84,11 @@ func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHead
 	if expectedHeadTaskID == "" {
 		return nil, status.Error(codes.InvalidArgument, "expected_head_task_id is required")
 	}
-	userID, err := s.authorize(ctx, auth.VerbCreate, "Session", sessionID)
+	userID, err := s.authorize(ctx, auth.VerbCreate, "Checkpoint", "")
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.sourceSession(ctx, sessionID, userID); err != nil {
 		return nil, err
 	}
 	key := fmt.Sprintf("%q/%q/%q/%q", userID, sessionID, requestID, expectedHeadTaskID)
@@ -222,7 +227,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err := validateIdentity(request.SessionID); err != nil {
 		return ListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.SessionID)
+	userID, err := s.authorize(ctx, auth.VerbList, "Checkpoint", "")
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -313,6 +318,29 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err != nil {
 		return nil, err
 	}
+	checkpoint, err := s.Get(ctx, checkpointID)
+	if err != nil {
+		return nil, err
+	}
+	// A retained checkpoint outlives its source Session. Check permission on the
+	// saved source ID, then resolve the Agent through the owned checkpoint.
+	if _, err := s.authorize(ctx, auth.VerbGet, "Session", checkpoint.GetSessionId()); err != nil {
+		return nil, err
+	}
+	agent, err := s.store.GetSessionCheckpointAgent(ctx, checkpointID, userID)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get checkpoint Agent", err)
+	}
+	authSession, _ := auth.AuthSessionFrom(ctx)
+	if agent.GetNamespace() == "" || agent.GetName() == "" {
+		return nil, serviceerrors.NewFailedPrecondition("Checkpoint has no target Agent", nil)
+	}
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Namespace: agent.Namespace, Name: agent.Name}); err != nil {
+		return nil, serviceerrors.NewPermissionDenied("Not authorized to access target Agent", err)
+	}
 	snapshot, tagUID, err := s.store.GetSessionCheckpointSnapshot(ctx, checkpointID, userID)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
@@ -363,10 +391,32 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	return session, nil
 }
 
+// sourceSession checks the source independently of destination creation authority.
+// Storage enforces ownership before any snapshot read, reservation, or tag request.
+func (s *Service) sourceSession(ctx context.Context, id, owner string) (*apiv1.Session, error) {
+	if err := validateIdentity(id); err != nil {
+		return nil, err
+	}
+	if _, err := s.authorize(ctx, auth.VerbGet, "Session", id); err != nil {
+		return nil, err
+	}
+	source, err := s.store.GetSession(ctx, id, owner)
+	if errors.Is(err, database.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Source Session not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get source Session", err)
+	}
+	return source, nil
+}
+
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+	}
+	if _, shared := auth.ShareContextFrom(ctx); shared {
+		return "", serviceerrors.NewPermissionDenied("Session shares do not grant checkpoint access", nil)
 	}
 	principal := session.Principal()
 	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
