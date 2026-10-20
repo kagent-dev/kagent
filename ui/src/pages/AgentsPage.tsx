@@ -72,7 +72,6 @@ export function AgentsTab() {
     [definitions.data, templates.data],
   );
   const loadFailure = namespaces.error ?? definitions.error;
-  // Everyone's conversations, so a count means what the agent is doing, not what this reader did.
   const conversations = useAgentInstances(true);
 
   const conversationCounts = useMemo(() => {
@@ -179,7 +178,7 @@ export function AgentsTab() {
         render: (_, row) => <AgentStatusTag agent={row} testId={`agent-revision-${row.ref}`} />,
       },
       {
-        title: "Conversations",
+        title: conversations.widerReadRefused !== undefined ? "Your conversations" : "Visible conversations",
         key: "conversations",
         width: 140,
         sorter: byNumber<Agent>((row) => conversationCounts.get(row.ref) ?? 0),
@@ -226,7 +225,7 @@ export function AgentsTab() {
         ),
       },
     ],
-    [conversationCounts, conversations.data, conversations.error, descriptions, invalidateAgents, theme, view],
+    [conversationCounts, conversations.data, conversations.error, conversations.widerReadRefused, descriptions, invalidateAgents, theme, view],
   );
 
   return (
@@ -276,6 +275,10 @@ export function AgentsTab() {
             </Button>
           }
         />
+      ) : null}
+
+      {conversations.widerReadRefused !== undefined && !conversations.error ? (
+        <Alert type="info" showIcon title="Showing your conversations only" data-testid="agents-owned-conversations" />
       ) : null}
 
       {orphanedConversations > 0 ? (
