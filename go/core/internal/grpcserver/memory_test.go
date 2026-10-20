@@ -58,6 +58,7 @@ func (s *userMemoryStore) DeleteAgentMemory(_ context.Context, agentName, userID
 	return nil
 }
 
+//nolint:staticcheck // Forged legacy identity fields must not override authenticated memory scope.
 func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	id := uuid.NewString()
 	store := &userMemoryStore{memories: []database.Memory{

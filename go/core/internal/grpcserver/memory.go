@@ -52,11 +52,9 @@ func (s *memoryServer) AddSessionBatch(ctx context.Context, request *runtimev1.M
 
 func (s *memoryServer) Search(ctx context.Context, request *runtimev1.MemoryServiceSearchRequest) (*runtimev1.MemoryServiceSearchResponse, error) {
 	results, err := s.service.Search(ctx, memoryservice.SearchRequest{
-		AgentName: request.GetAgentName(),
-		UserID:    request.GetUserId(),
-		Vector:    request.GetVector(),
-		Limit:     int(request.GetLimit()),
-		MinScore:  request.GetMinScore(),
+		Vector:   request.GetVector(),
+		Limit:    int(request.GetLimit()),
+		MinScore: request.GetMinScore(),
 	})
 	if err != nil {
 		return nil, err
@@ -115,12 +113,10 @@ func memoryInputFromProto(input *runtimev1.SessionMemoryInput) (memoryservice.In
 		metadata = encoded
 	}
 	return memoryservice.Input{
-		AgentName: input.GetAgentName(),
-		UserID:    input.GetUserId(),
-		Content:   input.GetContent(),
-		Vector:    input.GetVector(),
-		Metadata:  metadata,
-		TTLDays:   int(input.GetTtlDays()),
+		Content:  input.GetContent(),
+		Vector:   input.GetVector(),
+		Metadata: metadata,
+		TTLDays:  int(input.GetTtlDays()),
 	}, nil
 }
 

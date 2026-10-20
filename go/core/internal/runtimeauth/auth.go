@@ -46,7 +46,7 @@ func (a *Authenticator) Authenticate(ctx context.Context, headers http.Header, _
 	}
 	identity, err := a.verifier.Verify(ctx, token)
 	if err != nil {
-		logging.FromContext(ctx).DebugContext(ctx, "runtime actor authentication failed", "error", err)
+		logging.FromContext(ctx).WarnContext(ctx, "runtime actor authentication failed", "error", err)
 		return nil, err
 	}
 	id, ok := strings.CutPrefix(identity.ActorName, "session-")

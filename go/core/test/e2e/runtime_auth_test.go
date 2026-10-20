@@ -43,7 +43,7 @@ func TestRuntimeActorJWTAuthentication(t *testing.T) {
 				ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(test.headers...))
 				_, err := private.GetTask(ctx, request)
 				require.Equal(t, codes.Unauthenticated, status.Code(err))
-				_, err = memory.Search(ctx, &runtimev1.MemoryServiceSearchRequest{AgentName: "forged", UserId: "forged"})
+				_, err = memory.Search(ctx, &runtimev1.MemoryServiceSearchRequest{AgentName: "forged", UserId: "forged"}) //nolint:staticcheck // Legacy identity fields cannot authenticate a caller.
 				require.Equal(t, codes.Unauthenticated, status.Code(err))
 			})
 		}
