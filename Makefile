@@ -714,9 +714,12 @@ audit: ## Run CVE audits for Go, UI, and Python dependencies
 	echo "Running CVE audit PYTHON"
 	make -C python audit
 
+SEMVER ?= $(VERSION)
+
 .PHONY: report/image-cve
 report/image-cve: ## Scan built images with grype and write CVE CSV reports to reports/
 report/image-cve: audit build
+	mkdir -p reports/$(SEMVER)
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
