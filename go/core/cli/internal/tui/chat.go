@@ -166,12 +166,12 @@ func (m *chatModel) Init() tea.Cmd {
 func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyMsg); ok {
 		// Up pulls every queued message back into the input, after what is there, to edit as one.
-		if key.String() == "up" && len(m.queue) > 0 && m.input.Line() == 0 {
+		if key.String() == "up" && len(m.queue) > 0 && m.inputAtFirstRow() {
 			m.pullQueue()
 			return m, nil
 		}
-		// Up and down move between the input's lines; at its first or last line they scroll the transcript.
-		if s := key.String(); s == "up" && m.input.Line() > 0 || s == "down" && m.input.Line() < m.input.LineCount()-1 {
+		// Up and down move between the input's rows, wrapped ones included; at its first or last row they scroll the transcript.
+		if s := key.String(); s == "up" && !m.inputAtFirstRow() || s == "down" && !m.inputAtLastRow() {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd

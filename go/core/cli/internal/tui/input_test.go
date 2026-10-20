@@ -227,3 +227,25 @@ func TestInputShowsEveryLine(t *testing.T) {
 		assert.Equal(t, strings.TrimRight("  "+lines[len(lines)-1], " "), rows[len(rows)-1])
 	})
 }
+
+// Up and down walk a wrapped line's rows before they leave the input.
+func TestArrowsWalkWrappedRows(t *testing.T) {
+	m, _ := sizedChat(t)
+	for range 80 {
+		m.appendLine("x")
+	}
+	typeKeys(m, strings.Repeat("word ", 45)) // one line, three rows at this width
+	require.Equal(t, 3, m.input.Height())
+	bottom := m.vp.YOffset
+	for range 2 {
+		m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	}
+	assert.True(t, m.inputAtFirstRow(), "up walked to the first row")
+	assert.Equal(t, bottom, m.vp.YOffset, "the transcript holds still")
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Less(t, m.vp.YOffset, bottom, "past the first row, up leaves the input")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.False(t, m.inputAtFirstRow(), "down walks back into the wrapped rows")
+	assert.Equal(t, 0, m.input.Line(), "still the one line")
+}
