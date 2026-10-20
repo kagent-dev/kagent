@@ -35,6 +35,8 @@ database:
   owner:
     urlFile: secrets/postgres-owner-url
     role: kagent_owner
+tui:
+  sidebar: shown
 ```
 
 ```bash
@@ -48,6 +50,10 @@ prints resolved settings and file references, never secret file contents. These
 commands make no service connections. Database credentials are opened only by
 database commands, which connect as `database.owner`; `--db-url-file` and
 `--db-role` override its configured values.
+
+`tui.sidebar: hidden` starts the interactive `kagent` workspace with only the
+chat showing. Typing `/sidebar` in the chat toggles the panels for that run and
+changes no file.
 
 `install.bundledPostgresImage` selects the development PostgreSQL image, including
 mirrors.

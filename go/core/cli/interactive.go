@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 )
@@ -30,7 +31,7 @@ func runInteractive(cmd *cobra.Command, _ []string) (err error) {
 		err = errors.Join(err, session.Close())
 	}()
 
-	workspace := tui.Options{Namespace: session.Namespace}
+	workspace := tui.Options{Namespace: session.Namespace, HideSidebar: config.FromContext(cmd.Context()).GetTui().GetSidebar() == "hidden"}
 	if runErr := tui.RunWorkspace(cmd.Context(), workspace, session.API, session.Gateway, options.Verbose); runErr != nil {
 		return fmt.Errorf("run kagent workspace: %w", runErr)
 	}

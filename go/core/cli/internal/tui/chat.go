@@ -34,6 +34,9 @@ type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) <-
 
 type streamDoneMsg struct{}
 
+// toggleSidebarMsg asks the workspace to show or hide its sidebar for this run.
+type toggleSidebarMsg struct{}
+
 type chatModel struct {
 	agentRef  string
 	contextID string
@@ -248,6 +251,10 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input.Reset()
 			m.promptAt, m.draft = len(m.prompts), ""
+			// The one command the input takes; any other text, slashes included, is a message.
+			if text == "/sidebar" {
+				return m, func() tea.Msg { return toggleSidebarMsg{} }
+			}
 			// A message typed during a turn waits in the queue for the turn to end.
 			if m.streaming {
 				m.queue = append(m.queue, text)

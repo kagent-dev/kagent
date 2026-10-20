@@ -49,6 +49,8 @@ const (
 type Options struct {
 	// Namespace is the connection's namespace; the browsing namespace changes, this one does not.
 	Namespace string
+	// HideSidebar starts the chat at full width, without the Namespaces, Agents and Sessions panels.
+	HideSidebar bool
 }
 
 // sessionLister narrows the client so tests can supply a fake.
@@ -131,6 +133,8 @@ type workspaceModel struct {
 	agent     string
 
 	focus panelID
+	// sidebar shows the Namespaces, Agents and Sessions panels; /sidebar toggles it for the run.
+	sidebar bool
 	// away is set while the terminal reports it has lost focus; a terminal that
 	// sends no focus reports leaves it false, so the bell never rings there.
 	away bool
@@ -154,6 +158,11 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 		lister = api.Session
 	}
 
+	// With the sidebar hidden, the chat is the only panel to type into.
+	focus := panelSessions
+	if cfg.HideSidebar {
+		focus = panelChat
+	}
 	return &workspaceModel{
 		ctx:        ctx,
 		cfg:        cfg,
@@ -167,7 +176,8 @@ func newWorkspaceModel(ctx context.Context, cfg Options, api *client.APIClientSe
 		agents:     newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
 		sessions:   newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: sessionRow}),
 		namespace:  cfg.Namespace,
-		focus:      panelSessions,
+		focus:      focus,
+		sidebar:    !cfg.HideSidebar,
 	}
 }
 
@@ -329,6 +339,13 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ringIfAway()
 		return m, cmd
 
+	case toggleSidebarMsg:
+		m.sidebar = !m.sidebar
+		if !m.sidebar {
+			m.focus = panelChat
+		}
+		return m, m.resize()
+
 	case tea.BlurMsg:
 		m.away = true
 		return m, nil
@@ -447,7 +464,7 @@ func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 
 // chatOrigin is the screen cell of the chat's top-left cell, inside the border and padding.
 func (m *workspaceModel) chatOrigin() (int, int) {
-	return sidebarWidth + 2, lineCount(renderTitle()) + 1
+	return m.sidebarCols() + 2, lineCount(renderTitle()) + 1
 }
 
 // sidebarPanel is one stacked list panel, its drawn height, and how its rows render.
@@ -475,8 +492,8 @@ func (m *workspaceModel) panelAt(x, y int) (panelID, bool) {
 	if y < header || y >= header+m.bodyHeight() {
 		return 0, false
 	}
-	if x >= sidebarWidth {
-		if m.showDetails && x >= sidebarWidth+m.centerWidth() {
+	if x >= m.sidebarCols() {
+		if m.showDetails && x >= m.sidebarCols()+m.centerWidth() {
 			return 0, false // the details pane is not focusable
 		}
 		return panelChat, true
@@ -749,6 +766,9 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.showDetails = !m.showDetails
 		return m.resize(), true
 	case "tab":
+		if !m.showSidebar() {
+			return nil, true // the chat is the only panel showing
+		}
 		m.focus = m.focus.next()
 		return m.resize(), true
 	case "0", "1", "2", "3", "4":
@@ -863,8 +883,22 @@ func (m *workspaceModel) bodyHeight() int {
 	return max(m.height-lineCount(renderTitle())-lineCount(m.footerView()), 1)
 }
 
+// showSidebar reports whether the sidebar draws. Without an open chat there is no
+// input to type /sidebar into, so the panels show regardless.
+func (m *workspaceModel) showSidebar() bool {
+	return m.sidebar || m.chat == nil
+}
+
+// sidebarCols is how wide the sidebar draws: none while hidden.
+func (m *workspaceModel) sidebarCols() int {
+	if m.showSidebar() {
+		return sidebarWidth
+	}
+	return 0
+}
+
 func (m *workspaceModel) centerWidth() int {
-	width := m.width - sidebarWidth
+	width := m.width - m.sidebarCols()
 	if m.showDetails {
 		width -= detailsWidth
 	}
@@ -897,16 +931,15 @@ func (m *workspaceModel) View() string {
 	footer := m.footerView()
 	available := m.bodyHeight()
 
-	boxes := make([]string, 0, 4)
-	for _, panel := range m.sidebarPanels() {
-		boxes = append(boxes, panelBox(panel.id, panel.list.View(), sidebarWidth, panel.height, m.focus == panel.id))
+	var parts []string
+	if m.showSidebar() {
+		boxes := make([]string, 0, 4)
+		for _, panel := range m.sidebarPanels() {
+			boxes = append(boxes, panelBox(panel.id, panel.list.View(), sidebarWidth, panel.height, m.focus == panel.id))
+		}
+		parts = append(parts, lipgloss.JoinVertical(lipgloss.Left, boxes...))
 	}
-	sidebar := lipgloss.JoinVertical(lipgloss.Left, boxes...)
-
-	parts := []string{
-		sidebar,
-		m.chatPanel(available),
-	}
+	parts = append(parts, m.chatPanel(available))
 	if m.current != nil && m.showDetails {
 		parts = append(parts, lipgloss.NewStyle().
 			Width(detailsWidth).
@@ -969,7 +1002,11 @@ func (m *workspaceModel) footerView() string {
 	if kittyKeys.Load() {
 		newline = "newline: shift+enter"
 	}
-	line := "navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  " + newline + "  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c"
+	line := "navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  " + newline + "  sidebar: /sidebar  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c"
+	if !m.showSidebar() {
+		// Only the chat shows, so the panel hints would point at nothing.
+		line = newline + "  sidebar: /sidebar  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c"
+	}
 	status := m.status
 	if m.width > 0 {
 		// A line wider than the window would wrap in the terminal and push the frame past its height.

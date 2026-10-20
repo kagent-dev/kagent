@@ -22,6 +22,7 @@ func DefaultCLI(cfg *configv1.CLIConfig) {
 		Logging:    &configv1.LoggingConfig{Level: new("info")},
 		Install:    &configv1.InstallConfig{DefaultModelProvider: new("OpenAI"), BundledPostgresImage: new("postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"), Kagent: &configv1.ChartConfig{Repository: new("oci://ghcr.io/kagent-dev/kagent/helm/"), Version: new(version.Version)}, Substrate: &configv1.ChartConfig{Repository: new("oci://ghcr.io/kagent-dev/substrate/helm/"), Version: new(version.SubstrateVersion)}},
 		Database:   defaultDatabase(),
+		Tui:        &configv1.TUIConfig{Sidebar: new("shown")},
 	})
 	if cfg.Install.PodCertificate == nil {
 		cfg.Install.PodCertificate = &configv1.ChartConfig{}
