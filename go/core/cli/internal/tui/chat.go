@@ -12,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -75,6 +76,13 @@ type chatModel struct {
 	height int
 	// queue holds messages typed during a turn, sent one per turn as each ends.
 	queue []string
+	// unseen counts transcript lines added while scrolled up, for the jump-to-latest pill.
+	unseen int
+	// notice briefly takes the row above the input's bar, such as the exit prompt.
+	notice   string
+	noticeID int
+	// cancelled is set when ctrl+c stopped the running turn.
+	cancelled bool
 	// queuePaused names how the last turn ended, "failed" or "cancelled", while that holds the queue.
 	queuePaused string
 
@@ -116,6 +124,13 @@ func newChatModel(ctx context.Context, agentRef string, contextID string, send S
 
 	vp := viewport.New(0, 0)
 	vp.MouseWheelEnabled = true
+	// Letter keys are the input's, so typing never scrolls.
+	vp.KeyMap = viewport.KeyMap{
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
+		Up:       key.NewBinding(key.WithKeys("up")),
+		Down:     key.NewBinding(key.WithKeys("down")),
+	}
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Spinner{Frames: []string{"◐", "◓", "◑", "◒"}, FPS: time.Second / 6}
@@ -187,13 +202,21 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.render()
 		}
 		return m, nil
+	case noticeDoneMsg:
+		if msg.id == m.noticeID {
+			m.notice = ""
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
-			if m.cancel != nil {
-				m.cancel()
+		case "ctrl+end":
+			m.jumpToLatest()
+			return m, nil
+		case "end":
+			if m.input.Value() == "" {
+				m.jumpToLatest()
+				return m, nil
 			}
-			return m, tea.Quit
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
 			if text == "" {
@@ -222,6 +245,10 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case clia2a.StreamResult:
 		if msg.Err != nil {
+			if m.cancelled {
+				m.endStream()
+				return m, m.sendQueued()
+			}
 			m.appendTransportError(msg.Err)
 			m.endStream()
 			if len(m.queue) > 0 {
@@ -257,12 +284,28 @@ func (m *chatModel) View() string {
 	if queued := m.queueView(width); queued != "" {
 		parts = append(parts, queued)
 	}
+	// The row above the bar holds notices and the jump-to-latest pill; with neither, it takes no space.
+	if m.noticeRow() {
+		status := ""
+		if m.notice != "" {
+			status = theme.StatusStyle().Render(m.notice)
+		}
+		parts = append(parts, m.withPill(status, width))
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, append(parts, bar, m.input.View())...)
 }
 
 // setHeaderMeta adds lifecycle detail to the header; the caller pre-renders state to keep this type-free.
 func (m *chatModel) setHeaderMeta(state string, lastActive time.Time) {
 	m.state, m.lastActive = state, lastActive
+}
+
+// cancelTurn stops a running turn; its stream then ends with an error that reads as cancelled.
+func (m *chatModel) cancelTurn() {
+	if m.streaming && m.cancel != nil {
+		m.cancelled = true
+		m.stop()
+	}
 }
 
 // stop cancels an in-flight stream, so a replaced chat stops delivering.
@@ -324,14 +367,18 @@ func (m *chatModel) waitNext() tea.Cmd {
 func (m *chatModel) endStream() {
 	m.endThinking()
 	m.commitAgentText()
+	if m.cancelled && m.lastState != a2atype.TaskStateCanceled {
+		m.appendLine(theme.AttentionStyle().Render("⊘ Cancelled"))
+	}
 	// A turn that failed or was cancelled pauses the queue rather than sending into the same trouble.
 	switch {
 	case len(m.queue) == 0:
-	case m.lastState == a2atype.TaskStateCanceled:
+	case m.cancelled || m.lastState == a2atype.TaskStateCanceled:
 		m.queuePaused = "cancelled"
 	case m.lastState == a2atype.TaskStateFailed || m.lastState == a2atype.TaskStateRejected:
 		m.queuePaused = "failed"
 	}
+	m.cancelled = false
 	m.streaming = false
 	m.working = false
 	m.lastActive = time.Now()
@@ -616,6 +663,7 @@ func (m *chatModel) AppendHistoryTask(task *a2atype.Task) {
 }
 
 func (m *chatModel) appendUser(text string) {
+	m.jumpToLatest() // sending shows the conversation's end
 	m.appendBlock(&block{text: sanitize(text), user: true})
 }
 
@@ -736,12 +784,17 @@ func (m *chatModel) render() {
 	if width <= 0 {
 		width = 80
 	}
+	before := lineCount(m.body)
 	m.body = m.layout(width)
+	if !m.vp.AtBottom() {
+		m.unseen += max(lineCount(m.body)-before, 0) // scrolled up, new output counts for the pill
+	}
 	m.showContent()
 }
 
 // showContent puts the transcript and the running turn's status line in the
-// viewport. Status ticks call it without laying the transcript out again.
+// viewport, following the end only from the bottom. Status ticks call it
+// without laying the transcript out again.
 func (m *chatModel) showContent() {
 	content := m.body
 	if line := m.inlineStatus(); line != "" {
@@ -750,8 +803,66 @@ func (m *chatModel) showContent() {
 		}
 		content += line
 	}
+	follow := m.vp.AtBottom()
 	m.vp.SetContent(content)
+	if follow {
+		m.jumpToLatest()
+	}
+}
+
+// noticeTTL is how long a notice stays above the input.
+const noticeTTL = 2 * time.Second
+
+type noticeDoneMsg struct{ id int }
+
+// showNotice puts a short line above the input and clears it after noticeTTL, unless a newer one replaced it.
+func (m *chatModel) showNotice(text string) tea.Cmd {
+	m.noticeID++
+	id := m.noticeID
+	m.notice = text
+	return tea.Tick(noticeTTL, func(time.Time) tea.Msg { return noticeDoneMsg{id: id} })
+}
+
+// noticeRow reports whether the row above the input's bar shows: a notice or the pill.
+func (m *chatModel) noticeRow() bool {
+	return m.notice != "" || !m.vp.AtBottom()
+}
+
+// jumpToLatest scrolls the transcript to its end.
+func (m *chatModel) jumpToLatest() {
 	m.vp.GotoBottom()
+	m.unseen = 0
+}
+
+// pillLabel is the jump-to-latest pill's text, or "" at the bottom.
+func (m *chatModel) pillLabel() string {
+	if m.vp.AtBottom() {
+		m.unseen = 0
+		return ""
+	}
+	label := "↓ Jump to latest"
+	switch activity, _ := m.activity(); {
+	case m.working:
+		label = "↓ " + activity // the turn's status line is out of sight
+	case m.unseen > 0:
+		label = "↓ " + plural(m.unseen, "new line")
+	}
+	key := "ctrl+end"
+	if m.input.Value() == "" {
+		key = "end"
+	}
+	return "[ " + label + " · " + key + " ]"
+}
+
+// withPill fits the notice row to width, with the jump-to-latest pill at its right end.
+func (m *chatModel) withPill(status string, width int) string {
+	label := m.pillLabel()
+	if label == "" {
+		return ansi.Truncate(status, width, "…") // a wrapped row would push the frame past the window
+	}
+	pill := max(width-ansi.StringWidth(label), 0)
+	status = ansi.Truncate(status, max(pill-1, 0), "…")
+	return status + strings.Repeat(" ", max(pill-ansi.StringWidth(status), 0)) + lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(label)
 }
 
 // inlineStatus is the running turn's status line, or "" between turns, whose closing line says how it went.
@@ -816,7 +927,7 @@ func (m *chatModel) fitInput() {
 	if m.height <= 0 {
 		return
 	}
-	chrome := 3 // the header, the rule under it, and the bar above the input
+	chrome := 3 + boolInt(m.noticeRow()) // the header, the rule under it, the bar above the input, and any notice row
 	chrome += lineCount(m.queueView(max(m.vp.Width, 10)))
 	rows := min(m.inputRows(), max(m.height-chrome-minTranscriptRows, 1))
 	bottom := m.vp.AtBottom()

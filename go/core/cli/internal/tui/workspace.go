@@ -8,12 +8,14 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 
 	"github.com/kagent-dev/kagent/go/api/client"
@@ -133,6 +135,10 @@ type workspaceModel struct {
 	// away is set while the terminal reports it has lost focus; a terminal that
 	// sends no focus reports leaves it false, so the bell never rings there.
 	away bool
+	// quitArmed is when ctrl+c last asked for a second press to exit.
+	quitArmed time.Time
+	// sizedBody is the body height the panels were last sized to.
+	sizedBody int
 	// kittyKeys is set when stdin is a terminal that may take the kitty keyboard protocol.
 	kittyKeys bool
 }
@@ -300,7 +306,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	// Stream and timer messages go to the chat wherever focus is, or a reply is stranded.
-	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg:
+	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg, noticeDoneMsg:
 		if m.chat == nil {
 			return m, nil
 		}
@@ -604,9 +610,19 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "ctrl+c":
-		// Cancel the in-flight stream before teardown rather than letting process exit drop it.
-		m.chat.stop()
-		return tea.Quit, true
+		if m.chat == nil || time.Since(m.quitArmed) < noticeTTL {
+			// Cancel the in-flight stream before teardown rather than letting process exit drop it.
+			m.chat.stop()
+			return tea.Quit, true
+		}
+		// The first press cancels a running turn and arms exit for a second press.
+		m.chat.cancelTurn()
+		m.quitArmed = time.Now()
+		notice := "Press ctrl+c again to exit"
+		if n := len(m.chat.queue); n > 0 {
+			notice += " · " + plural(n, "queued message") + " will be dropped"
+		}
+		return m.chat.showNotice(notice), true
 	case "ctrl+r":
 		return m.loadSessions(), true
 	case "ctrl+x":
@@ -705,6 +721,7 @@ func (m *workspaceModel) resize() tea.Cmd {
 		return nil
 	}
 	available := m.bodyHeight()
+	m.sizedBody = available
 	inner := panelInnerWidth(sidebarWidth)
 	for _, panel := range m.sidebarPanels() {
 		panel.list.SetSize(inner, panelInnerHeight(panel.height))
@@ -758,6 +775,10 @@ func (m *workspaceModel) renderDetails() {
 }
 
 func (m *workspaceModel) View() string {
+	// A status line that came or went changes the footer's height, so the body resizes to match.
+	if m.bodyHeight() != m.sizedBody {
+		m.resize()
+	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(theme.ColorPrimary).Render(renderTitle())
 	footer := m.footerView()
 	available := m.bodyHeight()
@@ -779,7 +800,28 @@ func (m *workspaceModel) View() string {
 			Render(m.details))
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.JoinHorizontal(lipgloss.Top, parts...), footer)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.JoinHorizontal(lipgloss.Top, parts...), footer)
+	return strings.Join(fitScreen(strings.Split(view, "\n"), m.width, m.height), "\n")
+}
+
+// fitScreen makes the frame exactly the window's size, so the terminal never
+// scrolls: too narrow a window cuts rows, too short a one loses the top rows first.
+func fitScreen(rows []string, width, height int) []string {
+	if width <= 0 || height <= 0 {
+		return rows
+	}
+	for i, row := range rows {
+		if ansi.StringWidth(row) > width {
+			rows[i] = ansi.Truncate(row, width, "")
+		}
+	}
+	if len(rows) > height {
+		return rows[len(rows)-height:]
+	}
+	for len(rows) < height {
+		rows = append(rows, "")
+	}
+	return rows
 }
 
 func (m *workspaceModel) centerView() string {
@@ -804,12 +846,30 @@ func (m *workspaceModel) footerView() string {
 	if kittyKeys.Load() {
 		newline = "newline: shift+enter"
 	}
-	hints := theme.DimStyle().Render(
-		"navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  " + newline + "  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c")
-	if m.status == "" {
+	line := "navigate: ↑↓  focus: click, tab or 0-4  search: /  enter: drill down, open  " + newline + "  refresh: ctrl+r  details: ctrl+d  tool output: ctrl+x  quit: ctrl+c"
+	status := m.status
+	if m.width > 0 {
+		// A line wider than the window would wrap in the terminal and push the frame past its height.
+		line, status = packHints(strings.Split(line, "  "), m.width), ansi.Wrap(status, m.width, "")
+	}
+	hints := theme.DimStyle().Render(line)
+	if status == "" {
 		return hints
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, theme.ErrorStyle().Render(m.status), hints)
+	return lipgloss.JoinVertical(lipgloss.Left, theme.ErrorStyle().Render(status), hints)
+}
+
+// packHints joins hints two spaces apart, starting a new line rather than splitting one.
+func packHints(hints []string, width int) string {
+	var lines []string
+	for _, hint := range hints {
+		if last := len(lines) - 1; last >= 0 && ansi.StringWidth(lines[last])+2+ansi.StringWidth(hint) <= width {
+			lines[last] += "  " + hint
+		} else {
+			lines = append(lines, hint)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderTitle returns the styled header line.
