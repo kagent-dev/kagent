@@ -34,7 +34,10 @@ session under `/data/omp`.
   Session's Actor its own JWT, is sent the placeholder
   `Authorization: Bearer kagent-credential-injected` that the gateway replaces,
   by omp or by its bridge, unless the server sets its own `Authorization`.
-- Standalone skills, written to omp's user skills directory.
+- Standalone skills and the skills an Agent selects from Agent Plugins
+  (`plugin.json` at the package root), written to omp's user skills directory
+  by the shared materialiser; a plugin's unselected skills, `mcp.json` and
+  other parts are not loaded.
 - Streaming text, tool calls and results; one turn's usage (the difference of
   omp's session totals around the prompt, every prompt token counted as input
   and cache reads among them) on its final task status.
@@ -43,7 +46,10 @@ session under `/data/omp`.
 
 Refused with the reason: other model providers, API-key passthrough, custom
 TLS, SSE and stdio MCP servers, tool approval, sub-agents and remote agents,
-memory, structured output and plugins.
+memory, structured output and Claude-format plugins (`.claude-plugin/plugin.json`
+without a root `plugin.json`): omp would load one only through its
+`claude-plugins` provider, which also reads a workspace's
+`.omp/plugins/installed_plugins.json` and runs no `hooks/hooks.json` hook.
 
 ## Isolation
 

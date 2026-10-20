@@ -53,6 +53,11 @@ func TestOmpTurnsAgainstFakeModel(t *testing.T) {
 	workspace := filepath.Join(durable, "workspace")
 	marker := filepath.Join(t.TempDir(), "hook-ran")
 	writeHostileWorkspace(t, workspace, hostileServer.URL, marker)
+	pluginRepo, pluginCommit := pluginRepository(t, map[string]string{
+		"plugin.json":                  `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"skills/selected/SKILL.md":     "---\nname: selected\ndescription: saffron-viaduct skill\n---\nselected\n",
+		"skills/not-selected/SKILL.md": "---\nname: not-selected\ndescription: pewter-orchard skill\n---\nunselected\n",
+	})
 
 	agentConfig := map[string]any{
 		"model": map[string]any{
@@ -64,6 +69,10 @@ func TestOmpTurnsAgainstFakeModel(t *testing.T) {
 			"params": map[string]any{"url": mcpURL, "headers": map[string]string{"Authorization": "__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}},
 			"tools":  []string{"allowed_tool"},
 		}},
+		"agent_plugins": map[string]any{"plugins": []map[string]any{{
+			"source": map[string]any{"git": map[string]any{"url": "file://" + pluginRepo, "commit": pluginCommit}},
+			"skills": []string{"selected"},
+		}}},
 	}
 	raw, err := json.Marshal(agentConfig)
 	require.NoError(t, err)
@@ -112,6 +121,8 @@ func TestOmpTurnsAgainstFakeModel(t *testing.T) {
 			"only the default tools and the bound MCP tool reach the model")
 		assert.True(t, strings.Contains(request.system, "Answer tersely."), "the instruction is in the system prompt")
 		assert.False(t, strings.Contains(request.system, "hostile"), "no workspace skill, rule or context file is in the system prompt")
+		assert.True(t, strings.Contains(request.system, "saffron-viaduct"), "the plugin's selected skill is in the system prompt")
+		assert.False(t, strings.Contains(request.system, "pewter-orchard"), "the plugin's unselected skill is not")
 		assert.False(t, strings.Contains(request.system, "other_tool"), "an unbound MCP tool is not reachable as an xd:// device")
 	}
 	assert.Equal(t, placeholder, mcpAuth(), "the Secret-backed header carries the placeholder")

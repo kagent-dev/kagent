@@ -3,10 +3,13 @@ package config
 import (
 	"encoding/json"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
 
 var environment = map[string]string{"KAGENT_CREDENTIAL_A": "placeholder-a", "KAGENT_CREDENTIAL_B": "placeholder-b"}
@@ -68,6 +71,20 @@ func TestParse(t *testing.T) {
 	assert.Equal(t, "10", cfg.MCPServers[2].Name)
 }
 
+func TestParseCarriesThePlugins(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	cfg, err := Parse(agent(map[string]any{"agent_plugins": map[string]any{"plugins": []map[string]any{{
+		"source": map[string]any{"git": map[string]any{"url": "https://example.com/plugins.git", "commit": commit}},
+		"skills": []string{"review"},
+	}}}}), lookupEnv)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Skills)
+	assert.Equal(t, []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "https://example.com/plugins.git", Commit: commit}},
+		Skills: []string{"review"},
+	}}, cfg.Skills.Plugins)
+}
+
 func TestParseDefaultsTheAnthropicEndpoint(t *testing.T) {
 	cfg, err := Parse(agent(nil), lookupEnv)
 	require.NoError(t, err)
@@ -104,7 +121,6 @@ func TestParseRefuses(t *testing.T) {
 		"approval":         {server(map[string]any{"url": url}, map[string]any{"require_approval": true}), "tool approval"},
 		"server TLS":       {server(map[string]any{"url": url, "tls_insecure_skip_verify": true}, nil), "custom TLS"},
 		"server URL":       {server(map[string]any{"url": "file:///etc/passwd"}, nil), "MCP server 0 URL must be an absolute HTTP(S) URL"},
-		"plugins":          {map[string]any{"agent_plugins": map[string]any{"plugins": []map[string]any{{"name": "p", "ref": "oci://r/p:1"}}}}, "plugins are not supported"},
 		"malformed config": {map[string]any{"http_tools": "nope"}, "decode agent configuration"},
 	} {
 		t.Run(name, func(t *testing.T) {

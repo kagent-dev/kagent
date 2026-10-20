@@ -4,12 +4,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kagent-dev/kagent/go/api/agentplugin"
 	"github.com/kagent-dev/kagent/go/harness/omp/internal/config"
 )
 
@@ -151,4 +154,67 @@ func TestBridgeTransportSendsThePlaceholderDuringAnActorJWTTurn(t *testing.T) {
 	actorJWT.set(nil)
 	send(nil)
 	assert.Equal(t, []string{"", "Bearer kagent-credential-injected", "Bearer own", ""}, got)
+}
+
+func TestMaterializeSkillsWritesOnlyThePluginsSelectedSkills(t *testing.T) {
+	repository, commit := pluginRepository(t, map[string]string{
+		"plugin.json":                  `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.test"}`,
+		"skills/selected/SKILL.md":     "---\nname: selected\ndescription: selected skill\n---\nselected\n",
+		"skills/not-selected/SKILL.md": "---\nname: not-selected\ndescription: unselected skill\n---\nunselected\n",
+	})
+	p := newPaths(t.TempDir())
+	require.NoError(t, os.MkdirAll(filepath.Join(p.skills, "stale"), 0o700))
+	cfg := config.Config{Skills: &agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "file://" + repository, Commit: commit}},
+		Skills: []string{"selected"},
+	}}}}
+
+	require.NoError(t, materializeSkills(t.Context(), cfg, p))
+
+	entries, err := os.ReadDir(p.skills)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "a previous revision's skill and the unselected skill are gone")
+	assert.FileExists(t, filepath.Join(p.skills, "selected", "SKILL.md"))
+}
+
+func TestMaterializeSkillsRefusesAClaudeFormatPlugin(t *testing.T) {
+	repository, commit := pluginRepository(t, map[string]string{
+		".claude-plugin/plugin.json": `{"name":"claude-only"}`,
+		"skills/review/SKILL.md":     "---\nname: review\ndescription: review\n---\nreview\n",
+		"hooks/hooks.json":           `{"hooks":{"SessionStart":[]}}`,
+	})
+	cfg := config.Config{Skills: &agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+		Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "file://" + repository, Commit: commit}},
+	}}}}
+
+	err := materializeSkills(t.Context(), cfg, newPaths(t.TempDir()))
+	assert.ErrorContains(t, err, "plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
+}
+
+// pluginRepository commits files to a fresh repository. Git runs without the
+// user's or system configuration, so a credential helper or extra header of
+// the host does not reach the fixture.
+func pluginRepository(t *testing.T, files map[string]string) (repository, commit string) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	repository = t.TempDir()
+	git := func(args ...string) string {
+		command := exec.Command("git", append([]string{"-C", repository}, args...)...)
+		command.Dir = t.TempDir()
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, output)
+		return strings.TrimSpace(string(output))
+	}
+	git("init")
+	git("config", "user.email", "test@example.com")
+	git("config", "user.name", "Test")
+	for name, contents := range files {
+		path := filepath.Join(repository, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(contents), 0o644))
+	}
+	git("add", ".")
+	git("commit", "-m", "plugin")
+	return repository, git("rev-parse", "HEAD")
 }

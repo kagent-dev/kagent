@@ -79,9 +79,6 @@ func Parse(raw []byte, lookupEnv func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{Model: model, Instruction: agent.Instruction, Skills: agent.AgentPlugins}
-	if cfg.Skills != nil && len(cfg.Skills.Plugins) > 0 {
-		return Config{}, fmt.Errorf("plugins are not supported by the omp Harness; bind the plugin's skills instead")
-	}
 	used := map[string]int{}
 	for index, tool := range agent.HttpTools {
 		server, err := parseMCPServer(index, tool, lookupEnv)

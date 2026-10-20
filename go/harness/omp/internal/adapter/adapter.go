@@ -285,8 +285,11 @@ func mcpFile(servers []config.MCPServer, bridged map[string]string, actorJWTHost
 	return result
 }
 
-// materializeSkills writes the Agent's skills to omp's user skills directory,
-// removing those a previous revision wrote.
+// materializeSkills writes the Agent's standalone skills and the skills it
+// selects from Agent Plugins to omp's user skills directory, removing those a
+// previous revision wrote. A Claude-format plugin is refused: omp would load
+// it only through its claude-plugins provider, which also reads a workspace's
+// plugin registry and runs no hooks.json hook.
 func materializeSkills(ctx context.Context, cfg config.Config, paths paths) error {
 	if err := os.RemoveAll(paths.skills); err != nil {
 		return fmt.Errorf("reset omp skills: %w", err)
@@ -297,10 +300,14 @@ func materializeSkills(ctx context.Context, cfg config.Config, paths paths) erro
 	if cfg.Skills == nil {
 		return nil
 	}
-	if _, err := agentplugins.Materialize(ctx, *cfg.Skills, agentplugins.Paths{
+	materialized, err := agentplugins.Materialize(ctx, *cfg.Skills, agentplugins.Paths{
 		Packages: filepath.Join(filepath.Dir(paths.agent), "packages"), Skills: paths.skills,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("materialize omp skills: %w", err)
+	}
+	if len(materialized.ClaudeFormatPluginRoots()) > 0 {
+		return fmt.Errorf("plugin is Claude-format; only the Agent Plugins format (plugin.json at the plugin root) is supported here")
 	}
 	return nil
 }
