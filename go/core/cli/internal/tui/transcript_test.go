@@ -134,3 +134,23 @@ func TestChatModelRendersMarkdownLinks(t *testing.T) {
 	assert.Contains(t, view, ansi.SetHyperlink("https://kagent.dev/docs")+"https://kagent.dev/docs"+ansi.ResetHyperlink())
 	assert.NotContains(t, ansi.Strip(view), "**")
 }
+
+// Angle brackets read as text, not HTML, so glamour keeps them; code shows them unescaped.
+func TestRenderMarkdownKeepsAngleBrackets(t *testing.T) {
+	renderer, err := markdownRenderer(80)
+	require.NoError(t, err)
+	for _, tc := range []struct{ name, doc, want string }{
+		{"plain text", "Run kubectl logs <pod-name> -f.", "kubectl logs <pod-name> -f."},
+		{"inline code", "Run `kubectl logs <pod-name>` now.", "kubectl logs <pod-name>"},
+		{"double backtick code", "Run ``a `<b>` c`` now.", "a `<b>` c"},
+		{"fenced block", "```sh\nkubectl logs <pod-name>\n```", "kubectl logs <pod-name>"},
+		{"already escaped", `Use \<tag> here.`, "Use <tag> here."},
+		{"link", "See [docs](https://kagent.dev/docs) for <name>.", "docs https://kagent.dev/docs for <name>."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ansi.Strip(renderMarkdown(renderer, tc.doc))
+			assert.Contains(t, got, tc.want)
+			assert.NotContains(t, got, `\`)
+		})
+	}
+}

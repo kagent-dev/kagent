@@ -363,13 +363,62 @@ func markdownRenderer(width int) (*glamour.TermRenderer, error) {
 	)
 }
 
+// escapeHTML backslash-escapes "<" outside code, since glamour strips raw HTML
+// and would drop text like <pod-name> that the streaming tail still shows.
+func escapeHTML(text string) string {
+	var b strings.Builder
+	inFence := false
+	for line := range strings.SplitAfterSeq(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			b.WriteString(line)
+			continue
+		}
+		if inFence {
+			b.WriteString(line)
+			continue
+		}
+		for i := 0; i < len(line); {
+			switch {
+			case line[i] == '`':
+				// A code span runs to the next backtick run of the same length; unclosed ticks are literal.
+				ticks := len(line[i:]) - len(strings.TrimLeft(line[i:], "`"))
+				end := i + ticks
+				for j := end; j < len(line); {
+					k := strings.IndexByte(line[j:], '`')
+					if k < 0 {
+						break
+					}
+					k += j
+					run := len(line[k:]) - len(strings.TrimLeft(line[k:], "`"))
+					if run == ticks {
+						end = k + run
+						break
+					}
+					j = k + run
+				}
+				b.WriteString(line[i:end])
+				i = end
+			case line[i] == '<' && (i == 0 || line[i-1] != '\\'):
+				b.WriteString(`\<`)
+				i++
+			default:
+				b.WriteByte(line[i])
+				i++
+			}
+		}
+	}
+	return b.String()
+}
+
 // renderMarkdown renders agent text, falling back to the raw text if glamour fails.
 func renderMarkdown(renderer *glamour.TermRenderer, text string) string {
 	text = sanitize(text)
 	if renderer == nil {
 		return text
 	}
-	out, err := renderer.Render(text)
+	out, err := renderer.Render(escapeHTML(text))
 	if err != nil {
 		return text
 	}
