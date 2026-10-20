@@ -3,9 +3,9 @@ package theme
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	ColorPrimary = lipgloss.AdaptiveColor{Light: "#7C3AED", Dark: "#6D28D9"} // primary/ring
+	ColorPrimary = lipgloss.AdaptiveColor{Light: "#7C3AED", Dark: "#A78BFA"} // primary/ring, the focused border
 	ColorMuted   = lipgloss.AdaptiveColor{Light: "#64748B", Dark: "#94A3B8"} // muted-foreground
-	ColorBorder  = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#1F2937"} // border
+	ColorBorder  = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#525C6B"} // border, unfocused
 
 	ColorError    = lipgloss.AdaptiveColor{Light: "#991B1B", Dark: "#7F1D1D"} // destructive
 	ColorSelected = lipgloss.AdaptiveColor{Light: "#7C3AED", Dark: "#6D28D9"} // primary/ring
