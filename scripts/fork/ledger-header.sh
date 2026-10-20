@@ -158,7 +158,7 @@ for f in "$dir"/*.md; do
       return n
     }
     BEGIN {
-      split("session-lifecycle workspace-volumes credential-injection durable-pause egress-policies providers-vertex harness-variety golden-boot identity-authorizer mcp-forwarder jwks tenancy compat-migrations chart-knobs chart-shape ci-publish-infra test-flakes version-pins new-rpcs never-filed", t, " ")
+      split("session-lifecycle workspace-volumes credential-injection durable-pause egress-policies providers-vertex harness-variety golden-boot identity-authorizer mcp-forwarder jwks tenancy compat-migrations chart-knobs chart-shape ci-publish-infra test-flakes version-pins new-rpcs", t, " ")
       for (i in t) themes[t[i]] = 1
       split("pin infra bugfix feature gs-specific compat test", c, " "); for (i in c) categories[c[i]] = 1
       split("carried dropped superseded", s, " "); for (i in s) statuses[s[i]] = 1

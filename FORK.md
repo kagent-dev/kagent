@@ -38,7 +38,7 @@ in stack order (subjects, change, upstream outcome and exit); `scripts/fork/carr
 every subject it names is a commit on top of the pin and that no commit is recorded twice.
 
 The header is the ledger's single source: `id` (the file name), `fork` (`kagent`), `theme` (one of the shared
-theme slugs, `session-lifecycle` to `never-filed`), `category` (`pin`, `infra`, `bugfix`, `feature`,
+theme slugs, `session-lifecycle` to `new-rpcs`), `category` (`pin`, `infra`, `bugfix`, `feature`,
 `gs-specific`, `compat` or `test`), `status` (`carried`, `dropped` or `superseded`), `commits` (the carried
 commits by exact subject, the pull request number GitHub appends left out: a re-pin rewrites every SHA and
 keeps every subject), `upstream.outcome` (`merged`, `open`, `declined`, `superseded`, `to-file`, `fork-only`,
