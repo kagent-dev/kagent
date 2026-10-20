@@ -453,7 +453,7 @@ func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 	ox, oy := m.chatOrigin()
 	x, y := msg.X-ox, msg.Y-oy
 	if dragging {
-		x, y = min(max(x, 0), m.chatWidth()-1), min(max(y, 0), max(len(m.chat.geo.view)-1, 0))
+		x, y = min(max(x, 0), m.chatWidth()-1), min(max(y, m.chat.geo.top), max(m.chat.geo.top+m.chat.geo.rows-1, m.chat.geo.top))
 	}
 	if msg.Action != tea.MouseActionRelease {
 		return m.chat.mouse(msg, x, y), true
