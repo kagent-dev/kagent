@@ -41,12 +41,22 @@ const egressProbeScript = `#!/bin/sh
 control=$1
 target=$2
 run=$3
+control_log=$(mktemp)
+trap 'rm -f "$control_log"' EXIT
+control_get() {
+  if wget -T 5 -O- "$control/$1" 2>"$control_log"; then
+    return 0
+  fi
+  echo "EGRESS_CONTROL_FAILED_$1" >&2
+  cat "$control_log" >&2
+  return 1
+}
 echo "EGRESS_PROBE_STARTED_$run"
 for i in $(seq 1 900); do
-  phase=$(wget -T 5 -qO- "$control/phase") || exit 1
+  phase=$(control_get phase) || exit 1
   if [ "$phase" = stop ]; then
     echo "EGRESS_PROBE_FINISHED_$run"
-    wget -T 5 -qO- "$control/stopped" >/dev/null
+    control_get stopped >/dev/null
     exit
   fi
   if wget -T 3 -qO- --header 'Authorization: Bearer kagent-credential-injected' --header 'X-API-Key: kagent-credential-injected' "$target/?phase=$phase"; then
@@ -55,7 +65,7 @@ for i in $(seq 1 900); do
     result=DENIED
   fi
   echo "EGRESS_RESULT_${phase}_$result"
-  wget -T 5 -qO- "$control/result?phase=$phase&result=$result" >/dev/null || exit 1
+  control_get "result?phase=$phase&result=$result" >/dev/null || exit 1
   sleep 0.2
 done
 exit 1
