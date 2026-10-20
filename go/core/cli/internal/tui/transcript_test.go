@@ -122,3 +122,15 @@ func TestRenderMarkdownTrimsBlankEdges(t *testing.T) {
 	got := renderMarkdown(renderer, "- one\n- two")
 	assert.Equal(t, "• one\n• two", ansi.Strip(got))
 }
+
+// Agent markdown wraps to the pane, and its links stay Cmd+clickable.
+func TestChatModelRendersMarkdownLinks(t *testing.T) {
+	m := newTestChatModel()
+	m.vp.Width, m.vp.Height = 62, 40
+	m.agentText = "See [docs](https://kagent.dev/docs) for **more**."
+	m.commitAgentText()
+	m.render()
+	view := m.vp.View()
+	assert.Contains(t, view, ansi.SetHyperlink("https://kagent.dev/docs")+"https://kagent.dev/docs"+ansi.ResetHyperlink())
+	assert.NotContains(t, ansi.Strip(view), "**")
+}

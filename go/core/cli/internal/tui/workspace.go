@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/list"
@@ -139,6 +140,11 @@ type workspaceModel struct {
 	quitArmed time.Time
 	// sizedBody is the body height the panels were last sized to.
 	sizedBody int
+	// screen is the last drawn view's rows. screenFrom and screenSel are a drag
+	// that began outside the chat's rows, so it selects across the whole screen.
+	screen     []string
+	screenFrom *cell
+	screenSel  *selection
 	// kittyKeys is set when stdin is a terminal that may take the kitty keyboard protocol.
 	kittyKeys bool
 }
@@ -306,7 +312,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	// Stream and timer messages go to the chat wherever focus is, or a reply is stranded.
-	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg, noticeDoneMsg:
+	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg, noticeDoneMsg, copiedMsg:
 		if m.chat == nil {
 			return m, nil
 		}
@@ -329,6 +335,12 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleMouse focuses the clicked panel and selects the clicked row.
 func (m *workspaceModel) handleMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
+	if cmd, handled := m.screenMouse(msg); handled {
+		return cmd, true
+	}
+	if cmd, handled := m.chatMouse(msg); handled {
+		return cmd, true
+	}
 	if msg.Action != tea.MouseActionRelease || msg.Button != tea.MouseButtonLeft {
 		return nil, false
 	}
@@ -351,6 +363,83 @@ func (m *workspaceModel) handleMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 		}
 	}
 	return m.resize(), true
+}
+
+// screenMouse selects by dragging from anywhere outside the chat's own rows:
+// the title line, panel titles, the sidebar and the footer. A press there that never moves stays a click.
+func (m *workspaceModel) screenMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
+	here := cell{msg.X, msg.Y}
+	switch {
+	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
+		m.screenSel, m.screenFrom = nil, nil
+		if m.inChatRows(msg.X, msg.Y) {
+			return nil, false
+		}
+		m.screenFrom = &here
+		if m.chat != nil {
+			m.chat.selection, m.chat.dragFrom = nil, nil
+		}
+		return nil, true
+	case msg.Action == tea.MouseActionMotion && m.screenFrom != nil:
+		if here != *m.screenFrom {
+			m.screenSel = &selection{from: *m.screenFrom, to: here}
+		}
+		return nil, true
+	case msg.Action == tea.MouseActionRelease && m.screenFrom != nil:
+		m.screenFrom = nil
+		if m.screenSel == nil {
+			return nil, false // a click
+		}
+		m.screenSel.to = here
+		return m.copyScreen(), true
+	}
+	return nil, false
+}
+
+// inChatRows reports whether a screen cell is one of the chat's own drawn rows, where the chat selects.
+func (m *workspaceModel) inChatRows(x, y int) bool {
+	if m.chat == nil {
+		return false
+	}
+	if target, ok := m.panelAt(x, y); !ok || target != panelChat {
+		return false
+	}
+	ox, oy := m.chatOrigin()
+	cx, cy := x-ox, y-oy
+	return cx >= 0 && cx < panelInnerWidth(m.centerWidth()) && cy >= 0 && cy < len(m.chat.geo.view)
+}
+
+// copyScreen copies the whole-screen selection, reporting through the chat's notice.
+func (m *workspaceModel) copyScreen() tea.Cmd {
+	text := screenText(m.screen, *m.screenSel, m.width)
+	if text == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		return copiedMsg{chars: utf8.RuneCountInString(text), err: copyText(text)}
+	}
+}
+
+// chatMouse passes a left-button event inside the chat panel to the chat, in the chat's own cells.
+func (m *workspaceModel) chatMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
+	if m.chat == nil || (msg.Button != tea.MouseButtonLeft && msg.Action != tea.MouseActionMotion) {
+		return nil, false
+	}
+	if target, ok := m.panelAt(msg.X, msg.Y); !ok || target != panelChat {
+		return nil, false
+	}
+	ox, oy := m.chatOrigin()
+	x, y := msg.X-ox, msg.Y-oy
+	if msg.Action != tea.MouseActionRelease {
+		return m.chat.mouse(msg, x, y), true
+	}
+	m.focus = panelChat
+	return tea.Batch(m.resize(), m.chat.mouse(msg, x, y)), true
+}
+
+// chatOrigin is the screen cell of the chat's top-left cell: inside the border and padding, below the title line.
+func (m *workspaceModel) chatOrigin() (int, int) {
+	return sidebarWidth + 2, lineCount(renderTitle()) + 2
 }
 
 // sidebarPanel is one stacked list panel, its drawn height, and how its rows render.
@@ -610,6 +699,13 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 
 	switch msg.String() {
 	case "ctrl+c":
+		// With text selected, ctrl+c copies it, as in a terminal.
+		if m.screenSel != nil {
+			return m.copyScreen(), true
+		}
+		if m.chat.hasSelection() {
+			return m.chat.copySelection(), true
+		}
 		if m.chat == nil || time.Since(m.quitArmed) < noticeTTL {
 			// Cancel the in-flight stream before teardown rather than letting process exit drop it.
 			m.chat.stop()
@@ -623,6 +719,16 @@ func (m *workspaceModel) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			notice += " · " + plural(n, "queued message") + " will be dropped"
 		}
 		return m.chat.showNotice(notice), true
+	case "esc":
+		if m.screenSel != nil {
+			m.screenSel = nil
+			return nil, true
+		}
+		if !m.chat.hasSelection() {
+			return nil, false
+		}
+		m.chat.selection = nil
+		return nil, true
 	case "ctrl+r":
 		return m.loadSessions(), true
 	case "ctrl+x":
@@ -801,7 +907,8 @@ func (m *workspaceModel) View() string {
 	}
 
 	view := lipgloss.JoinVertical(lipgloss.Left, header, lipgloss.JoinHorizontal(lipgloss.Top, parts...), footer)
-	return strings.Join(fitScreen(strings.Split(view, "\n"), m.width, m.height), "\n")
+	m.screen = fitScreen(strings.Split(view, "\n"), m.width, m.height)
+	return strings.Join(highlightRows(slices.Clone(m.screen), m.screenSel, m.width), "\n")
 }
 
 // fitScreen makes the frame exactly the window's size, so the terminal never

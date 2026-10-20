@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -70,6 +71,14 @@ type chatModel struct {
 	liveDone, liveOut string
 	// body is the laid-out transcript, without the running turn's status line.
 	body string
+	// spans maps content lines to blocks, and lines holds the shown content, so a click finds what it landed on.
+	spans []span
+	lines []string
+	// geo is where View last drew the transcript, for the mouse.
+	geo viewGeometry
+	// selection is the text a drag selected, and dragFrom where the button went down.
+	selection *selection
+	dragFrom  *cell
 	// unfocused is set while another workspace panel has focus, so the input's bar matches the dimmer border.
 	unfocused bool
 	// height is the chat's whole height, shared by the transcript and the growing input.
@@ -202,6 +211,8 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.render()
 		}
 		return m, nil
+	case copiedMsg:
+		return m, m.copiedNotice(msg)
 	case noticeDoneMsg:
 		if msg.id == m.noticeID {
 			m.notice = ""
@@ -280,7 +291,10 @@ func (m *chatModel) View() string {
 	rule := theme.SeparatorStyle().Render(strings.Repeat("─", max(10, width)))
 	// The bar above the input is the chat box's border colour, focused or not.
 	bar := lipgloss.NewStyle().Foreground(borderColor(!m.unfocused)).Render(strings.Repeat("▔", max(10, width)))
-	parts := []string{m.headerView(width), rule, m.vp.View()}
+	parts := []string{m.headerView(width), rule}
+	transcript := m.vp.View()
+	m.geo = viewGeometry{top: len(parts), rows: lineCount(transcript), status: -1, pill: -1}
+	parts = append(parts, transcript)
 	if queued := m.queueView(width); queued != "" {
 		parts = append(parts, queued)
 	}
@@ -290,9 +304,12 @@ func (m *chatModel) View() string {
 		if m.notice != "" {
 			status = theme.StatusStyle().Render(m.notice)
 		}
+		m.geo.status = lineCount(strings.Join(parts, "\n"))
 		parts = append(parts, m.withPill(status, width))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, append(parts, bar, m.input.View())...)
+	view := lipgloss.JoinVertical(lipgloss.Left, append(parts, bar, m.input.View())...)
+	m.geo.view = strings.Split(view, "\n")
+	return strings.Join(highlightRows(slices.Clone(m.geo.view), m.selection, width), "\n")
 }
 
 // setHeaderMeta adds lifecycle detail to the header; the caller pre-renders state to keep this type-free.
@@ -725,7 +742,7 @@ func (m *chatModel) toggleTools() {
 			b.expanded = m.expanded
 		}
 	}
-	m.render()
+	m.redraw()
 }
 
 // commitAgentText closes the in-flight block so another can follow it.
@@ -747,35 +764,82 @@ func (m *chatModel) appendBlock(b *block) {
 	m.render()
 }
 
-// layout renders the transcript at width: each block, then the agent text still streaming.
-func (m *chatModel) layout(width int) string {
+// layout renders the transcript at width: each block, then the agent text
+// still streaming. It also reports which lines each block took, for clicks.
+func (m *chatModel) layout(width int) (string, []span) {
 	if width != m.mdWidth || m.md == nil {
 		m.md, _ = markdownRenderer(width) // nil renders markdown raw
 		m.liveOut = ""
 		m.mdWidth = width
 	}
 	rendered := make([]string, 0, len(m.blocks)+1)
+	var spans []span
+	line := 0
+	add := func(text string, b *block) {
+		text = wrapText(text, width)
+		spans = append(spans, span{start: line, end: line + lineCount(text), block: b})
+		line += lineCount(text) + 1 // blocks sit a blank line apart
+		rendered = append(rendered, text)
+	}
 	for _, b := range m.blocks {
 		switch {
 		case b.tool != nil:
-			rendered = append(rendered, renderTool(b.tool, width, b.expanded))
+			add(renderTool(b.tool, width, b.expanded), b)
 		case b.thought != nil:
-			rendered = append(rendered, renderThought(b.thought, width, b.expanded))
+			add(renderThought(b.thought, width, b.expanded), b)
 		case b.user:
-			rendered = append(rendered, renderUser(b.text, width))
+			add(renderUser(b.text, width), b)
 		case b.markdown:
 			if b.cacheWidth != width || b.cache == "" {
 				b.cache, b.cacheWidth = renderMarkdown(m.md, b.text), width
 			}
-			rendered = append(rendered, b.cache)
+			add(b.cache, b)
 		default:
-			rendered = append(rendered, wordwrap.String(b.text, width))
+			add(b.text, b)
 		}
 	}
 	if m.agentText != "" {
-		rendered = append(rendered, m.renderLive())
+		add(m.renderLive(), nil)
 	}
-	return strings.Join(rendered, "\n\n")
+	return strings.Join(rendered, "\n\n"), spans
+}
+
+// urlPattern matches a web URL up to whitespace or an escape sequence.
+var urlPattern = regexp.MustCompile("https?://[^\\s\x1b<>\"'`]+")
+
+// hyperlinks marks each URL as an OSC 8 hyperlink, so Cmd+click opens it even when it wraps.
+func hyperlinks(text string) string {
+	return urlPattern.ReplaceAllStringFunc(text, func(url string) string {
+		trimmed := strings.TrimRight(url, ".,;:!?)]}")
+		return ansi.SetHyperlink(trimmed) + trimmed + ansi.ResetHyperlink() + url[len(trimmed):]
+	})
+}
+
+// osc8 matches an OSC 8 hyperlink sequence; an empty URL closes the link.
+var osc8 = regexp.MustCompile("\x1b\\]8;[^;]*;([^\x1b\a]*)(?:\a|\x1b\\\\)")
+
+// wrapText wraps at spaces but never inside a URL, then hard-wraps rows still too wide.
+// Each row closes and reopens its link, so every piece of a wrapped URL opens all of it.
+func wrapText(text string, width int) string {
+	w := wordwrap.NewWriter(width)
+	w.Breakpoints = nil // URLs are full of hyphens
+	_, _ = w.Write([]byte(text))
+	_ = w.Close()
+	lines := strings.Split(ansi.Hardwrap(hyperlinks(w.String()), width, true), "\n")
+	open := ""
+	for i, line := range lines {
+		if open != "" {
+			line = ansi.SetHyperlink(open) + line
+		}
+		for _, match := range osc8.FindAllStringSubmatch(line, -1) {
+			open = match[1]
+		}
+		if open != "" {
+			line += ansi.ResetHyperlink()
+		}
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // render lays the transcript out again at the current width, less 2 for padding.
@@ -785,7 +849,7 @@ func (m *chatModel) render() {
 		width = 80
 	}
 	before := lineCount(m.body)
-	m.body = m.layout(width)
+	m.body, m.spans = m.layout(width)
 	if !m.vp.AtBottom() {
 		m.unseen += max(lineCount(m.body)-before, 0) // scrolled up, new output counts for the pill
 	}
@@ -804,6 +868,7 @@ func (m *chatModel) showContent() {
 		content += line
 	}
 	follow := m.vp.AtBottom()
+	m.lines = strings.Split(content, "\n")
 	m.vp.SetContent(content)
 	if follow {
 		m.jumpToLatest()
@@ -860,9 +925,9 @@ func (m *chatModel) withPill(status string, width int) string {
 	if label == "" {
 		return ansi.Truncate(status, width, "…") // a wrapped row would push the frame past the window
 	}
-	pill := max(width-ansi.StringWidth(label), 0)
-	status = ansi.Truncate(status, max(pill-1, 0), "…")
-	return status + strings.Repeat(" ", max(pill-ansi.StringWidth(status), 0)) + lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(label)
+	m.geo.pill = max(width-ansi.StringWidth(label), 0)
+	status = ansi.Truncate(status, max(m.geo.pill-1, 0), "…")
+	return status + strings.Repeat(" ", max(m.geo.pill-ansi.StringWidth(status), 0)) + lipgloss.NewStyle().Foreground(theme.ColorAccent).Bold(true).Render(label)
 }
 
 // inlineStatus is the running turn's status line, or "" between turns, whose closing line says how it went.

