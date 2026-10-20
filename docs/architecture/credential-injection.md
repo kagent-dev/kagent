@@ -88,11 +88,14 @@ an origin with static gateway credentials, which would override the caller's
 authentication. A passthrough RemoteMCPServer cannot set `Authorization` in
 `headersFrom`.
 
-RemoteMCPServer passthrough is implemented only by the Go kagent runtime.
-Codex and Claude reject it at compilation, and the Python runtime fails at
+RemoteMCPServer passthrough is implemented by the Go kagent runtime and the
+Claude harness. Codex rejects it at compilation, and the Python runtime fails at
 startup. A request without a caller token fails instead of connecting
-anonymously. The runtime discovers tools on first use, because startup has no
-caller token. Controller discovery also has no caller token, so servers that
+anonymously. The Go runtime discovers tools on first use, because startup has no
+caller token. The Claude harness fronts a passthrough server on a loopback
+endpoint that adds the caller's credential of the turn, and starts Claude per
+turn, so discovery runs with the token; it supports passthrough for streamable
+HTTP servers only. Controller discovery also has no caller token, so servers that
 require one should set the `kagent.dev/discovery: disabled` label. The runtime
 shares one MCP session per server. The standalone SSE stream and session
 teardown therefore carry the token of the caller that opened the session.

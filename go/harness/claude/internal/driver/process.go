@@ -46,6 +46,10 @@ type ProcessConfig struct {
 	// AwaitTelemetry holds each prompt until Claude Code telemetry has
 	// initialized.
 	AwaitTelemetry bool
+	// CallerCredentials receives the caller's credential of each turn and is
+	// cleared before the turn's outcome is returned, so a parked or suspended
+	// Actor holds none.
+	CallerCredentials CallerCredentialBinder
 }
 
 // ProcessDriver supervises one Claude Code process per ordinary runtime turn
@@ -167,6 +171,7 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	if strings.TrimSpace(turn.Prompt) == "" && seed == nil {
 		return runtime.Outcome{}, fmt.Errorf("Claude prompt is required")
 	}
+	defer d.bindCallerCredential(ctx)()
 	message, err := userMessage(turn.Prompt)
 	if err != nil {
 		return runtime.Outcome{}, err
@@ -243,6 +248,18 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 		return d.parkDeferred(turn, session.sessionID, session.deferred)
 	}
 	return outcome, err
+}
+
+// bindCallerCredential hands the turn's caller credential to the binder and
+// returns the function that clears it. The credential lives in this process
+// only while a turn runs; a parked turn resumes with the credential of the
+// call that resumes it.
+func (d *ProcessDriver) bindCallerCredential(ctx context.Context) func() {
+	if d.config.CallerCredentials == nil {
+		return func() {}
+	}
+	d.config.CallerCredentials.Bind(CallerCredential(ctx))
+	return d.config.CallerCredentials.Clear
 }
 
 // sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
@@ -425,12 +442,17 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 	}
 }
 
-// Close releases the ephemeral permission and hook listener.
+// Close releases the ephemeral permission and hook listener, and the credential
+// forwarder when one fronts the MCP servers.
 func (d *ProcessDriver) Close() error {
+	var errs []error
 	if d.config.ApprovalBroker != nil {
-		return d.config.ApprovalBroker.Close()
+		errs = append(errs, d.config.ApprovalBroker.Close())
 	}
-	return nil
+	if forwarder, ok := d.config.CallerCredentials.(*CredentialForwarder); ok && forwarder != nil {
+		errs = append(errs, forwarder.Close())
+	}
+	return errors.Join(errs...)
 }
 
 // emitEvent translates a Claude event to a runtime event and emits it to the

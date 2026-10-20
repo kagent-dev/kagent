@@ -625,12 +625,40 @@ func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
 
-func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
+func TestCompileMCPTokenPassthrough(t *testing.T) {
 	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
 		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
 	}}
-	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
-	if want := "Claude does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
+	compiled, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.servers["user"]; !got.TokenPassthrough || got.Type != "http" || got.URL != server.Spec.URL {
+		t.Fatalf("compiled passthrough server = %+v", got)
+	}
+	server.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
+	_, err = (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if want := "tokenPassthrough for streamable HTTP servers only"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("expected %q, got %v", want, err)
+	}
+}
+
+func TestCompilePropagatesTheCallerTokenFromRuntimeDefaults(t *testing.T) {
+	model := v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderAnthropic, Model: "claude", APIKeySecret: "model-auth", APIKeySecretKey: "api-key"}
+	for _, enabled := range []bool{false, true} {
+		input, reader := testInput(t, model, map[string][]byte{"api-key": []byte("secret")})
+		settings := testRuntimeDefaults()
+		settings.TokenPropagation = &configv1.TokenPropagationConfig{Enabled: enabled}
+		revision, err := NewCompiler(krt.TestingDummyContext{}, reader, settings).Compile(context.Background(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		config, err := claudeconfig.Parse(revision.ConfigJSON)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if config.PropagateToken != enabled {
+			t.Fatalf("propagate_token = %v with token propagation enabled = %v", config.PropagateToken, enabled)
+		}
 	}
 }

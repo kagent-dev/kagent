@@ -65,6 +65,26 @@ func TestMCPConfigJSONAndSkillsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfigTokenPassthroughRequiresHTTP(t *testing.T) {
+	cfg := Production("claude-test", "help")
+	cfg.MCPServers = map[string]MCPServer{"user": {Type: "http", URL: "https://mcp.example.com/mcp", TokenPassthrough: true}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cfg.MCPConfigJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The flag is the adapter's to act on; Claude's own file never sees it.
+	if strings.Contains(string(raw), "passthrough") {
+		t.Fatalf("MCPConfigJSON() carries the passthrough flag: %s", raw)
+	}
+	cfg.MCPServers = map[string]MCPServer{"legacy": {Type: "sse", URL: "https://mcp.example.com/sse", TokenPassthrough: true}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "token passthrough requires the http transport") {
+		t.Fatalf("Validate() = %v, want the passthrough transport error", err)
+	}
+}
+
 func TestAgentsJSON(t *testing.T) {
 	cfg := Production("claude-test", "help")
 	cfg.Agents = map[string]Agent{

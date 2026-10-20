@@ -41,9 +41,6 @@ func (c *Compiler) compileMCP(
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Claude MCP binding has no server")
 		}
-		if server.Spec.TokenPassthrough {
-			return mcpCompilation{}, translator.NewValidationError("Claude does not support RemoteMCPServer %q tokenPassthrough", server.Name)
-		}
 		name := strings.ReplaceAll(server.Name, ".", "_")
 		if previous, exists := identities[name]; exists {
 			return mcpCompilation{}, translator.NewValidationError("Claude MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
@@ -63,6 +60,12 @@ func (c *Compiler) compileMCP(
 		if compatibilityWarning != "" {
 			result.warnings = append(result.warnings, compatibilityWarning)
 		}
+		// The harness fronts a passthrough server on loopback to add the
+		// caller's credential; an SSE server announces its message endpoint
+		// from the upstream host, which that forwarder does not rewrite.
+		if server.Spec.TokenPassthrough && transport != "http" {
+			return mcpCompilation{}, translator.NewValidationError("Claude supports RemoteMCPServer %q tokenPassthrough for streamable HTTP servers only", server.Name)
+		}
 		hostname, err := mcpOrigin(server.Spec.URL)
 		if err != nil {
 			return mcpCompilation{}, err
@@ -73,7 +76,7 @@ func (c *Compiler) compileMCP(
 		}
 		result.servers[name] = claudeconfig.MCPServer{
 			Type: transport, URL: server.Spec.URL, Headers: headers,
-			RequireApproval: tool.Binding.RequireApproval,
+			RequireApproval: tool.Binding.RequireApproval, TokenPassthrough: server.Spec.TokenPassthrough,
 		}
 		result.environment = append(result.environment, headerEnvironment...)
 		result.egress = append(result.egress, hostname)

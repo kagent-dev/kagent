@@ -91,6 +91,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	config.ControlPlaneURL = c.settings.GetControlPlaneUrl()
 	config.MaxContentLength = c.settings.MaxContentLength // Preserve unset versus unlimited.
 	config.LogLevel = c.settings.GetLogging().GetLevel()
+	config.PropagateToken = c.settings.GetTokenPropagation().GetEnabled()
 	if len(skills.Resources.Skills) != 0 || len(skills.Resources.Plugins) != 0 {
 		config.SkillResources = &skills.Resources
 	}
