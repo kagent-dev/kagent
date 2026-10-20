@@ -251,7 +251,11 @@ a 60-second default timeout; `timeout_seconds` can select up to 600 seconds.
 Stdout and stderr are combined, captured up to 64 KiB, and returned with an
 explicit truncation marker. Large results should be redirected to workspace files.
 Commands and their process groups are stopped when a call finishes, times out,
-or is canceled. Background processes are not durable work and have no process
+or is canceled. Each call also marks its processes' environment
+(`KAGENT_BASH_CALL`), so a process that left the group with `setsid` is found in
+`/proc` and stopped too; only one started with a cleared environment escapes.
+The runtime reaps the stopped processes reparented to it, as they are when it
+is the sandbox's PID 1, so none is left as a zombie. Background processes are not durable work and have no process
 handle API in the bash tool. Suspending an Actor preserves files, not running
 commands. Command payloads and output are not logged by the shell helpers.
 
