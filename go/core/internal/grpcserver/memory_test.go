@@ -59,7 +59,6 @@ func (s *userMemoryStore) DeleteAgentMemory(_ context.Context, agentName, userID
 	return nil
 }
 
-//nolint:staticcheck // Forged legacy identity fields must not override authenticated memory scope.
 func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	id := uuid.NewString()
 	store := &userMemoryStore{memories: []database.Memory{
@@ -90,8 +89,8 @@ func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
 	client := runtimev1.NewMemoryServiceClient(conn)
-	list := &runtimev1.MemoryServiceListRequest{AgentName: "team/agent", UserId: "bob"}
-	deleteRequest := &runtimev1.MemoryServiceDeleteRequest{AgentName: "team/agent", UserId: "bob"}
+	list := &runtimev1.MemoryServiceListRequest{AgentName: "team/agent"}
+	deleteRequest := &runtimev1.MemoryServiceDeleteRequest{AgentName: "team/agent"}
 
 	for _, claims := range []string{"", `{"iss":"` + issuer.URL + `","sub":"alice"}`} {
 		unauthenticated := t.Context()
@@ -105,7 +104,7 @@ func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	}
 	actor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization",
 		"Bearer "+issuer.Token(t, issuer.Claims("team", substrate.ActorName(id), "actor-uid")), "x-user-id", "alice"))
-	actorList := &runtimev1.MemoryServiceListRequest{AgentName: "team/other", UserId: "alice"}
+	actorList := &runtimev1.MemoryServiceListRequest{AgentName: "team/other"}
 	listed, err := client.List(actor, actorList)
 	require.NoError(t, err)
 	require.Len(t, listed.Memories, 1)
@@ -114,8 +113,8 @@ func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.List(metadata.AppendToOutgoingContext(actor, "x-share-token", "share"), actorList)
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
-	// The configured proxy authenticates the bearer claims. Neither the request
-	// user_id nor a conflicting forwarded user header selects another user's data.
+	// The configured proxy authenticates the bearer claims. A conflicting
+	// forwarded user header cannot select another user's data.
 	user := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization",
 		"Bearer e30."+base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"alice"}`))+".signature", "x-user-id", "bob"))
 	listed, err = client.List(user, list)
@@ -130,7 +129,7 @@ func TestMemoryUsersAndActorsShareEndpointWithSeparateScopes(t *testing.T) {
 	require.Len(t, store.memories, 2)
 	require.Equal(t, "other-user", store.memories[0].ID)
 	require.Equal(t, "other-agent", store.memories[1].ID)
-	_, err = client.Delete(actor, &runtimev1.MemoryServiceDeleteRequest{AgentName: "team/other", UserId: "alice"})
+	_, err = client.Delete(actor, &runtimev1.MemoryServiceDeleteRequest{AgentName: "team/other"})
 	require.NoError(t, err)
 	require.Len(t, store.memories, 1)
 	require.Equal(t, "other-agent", store.memories[0].ID, "actor deletion cannot select another user's memory")

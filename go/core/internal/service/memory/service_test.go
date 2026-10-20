@@ -69,10 +69,8 @@ func TestAddDefaultsMetadataAndTTL(t *testing.T) {
 	service := NewService(store, auth.NoopAuthorizer{}, WithClock(func() time.Time { return now }))
 
 	id, err := service.Add(memoryContext(t), Input{
-		AgentName: "team-a/agent",
-		UserID:    "user",
-		Content:   "remember this",
-		Vector:    vector(VectorDimension, 0.25),
+		Content: "remember this",
+		Vector:  vector(VectorDimension, 0.25),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "memory-1", id)
@@ -85,11 +83,11 @@ func TestAddDefaultsMetadataAndTTL(t *testing.T) {
 func TestAddAndBatchValidation(t *testing.T) {
 	service := NewService(&memoryStore{}, auth.NoopAuthorizer{})
 
-	_, err := service.Add(memoryContext(t), Input{AgentName: "team-a/agent", UserID: "user", Vector: vector(16, 1)})
+	_, err := service.Add(memoryContext(t), Input{Vector: vector(16, 1)})
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
 	assert.EqualError(t, err, "vector must have exactly 768 dimensions, got 16")
 
-	_, err = service.Add(memoryContext(t), Input{AgentName: "team-a/agent", UserID: "user", Vector: vector(VectorDimension, 1), Metadata: []byte("{")})
+	_, err = service.Add(memoryContext(t), Input{Vector: vector(VectorDimension, 1), Metadata: []byte("{")})
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument))
 
 	_, err = service.AddBatch(memoryContext(t), nil)
@@ -110,10 +108,8 @@ func TestSearchDefaultsFiltersAndNormalizesMetadata(t *testing.T) {
 	service := NewService(store, auth.NoopAuthorizer{})
 
 	results, err := service.Search(memoryContext(t), SearchRequest{
-		AgentName: "team-a/agent",
-		UserID:    "user",
-		Vector:    vector(VectorDimension, 0.25),
-		MinScore:  0.5,
+		Vector:   vector(VectorDimension, 0.25),
+		MinScore: 0.5,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, DefaultSearchLimit, store.searchLimit)
@@ -135,7 +131,7 @@ func TestListDeleteAndStoreErrors(t *testing.T) {
 	assert.Equal(t, "user", store.deletedUser)
 
 	store.err = errors.New("database unavailable")
-	_, err = service.Search(memoryContext(t), SearchRequest{AgentName: "team-a/agent", UserID: "user", Vector: vector(VectorDimension, 1)})
+	_, err = service.Search(memoryContext(t), SearchRequest{Vector: vector(VectorDimension, 1)})
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeInternal))
 	assert.ErrorContains(t, err, "database unavailable")
 }
@@ -169,11 +165,11 @@ func memoryContext(t *testing.T) context.Context {
 	return auth.AuthSessionTo(t.Context(), session)
 }
 
-func TestActorMemoryScopeIgnoresCallerIdentity(t *testing.T) {
+func TestActorMemoryUsesSessionScope(t *testing.T) {
 	store := &memoryStore{}
 	service := NewService(store, auth.NoopAuthorizer{})
 	ctx := memoryContext(t)
-	input := Input{AgentName: "other/agent", UserID: "victim", Content: "scoped", Vector: vector(VectorDimension, 1)}
+	input := Input{Content: "scoped", Vector: vector(VectorDimension, 1)}
 	_, err := service.Add(ctx, input)
 	require.NoError(t, err)
 	_, err = service.AddBatch(ctx, []Input{input})
@@ -190,7 +186,7 @@ func TestActorMemoryScopeIgnoresCallerIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "team-a/agent", store.readAgent)
 	require.Equal(t, "user", store.readUser)
-	_, err = service.Search(ctx, SearchRequest{AgentName: "other/agent", UserID: "victim", Vector: input.Vector})
+	_, err = service.Search(ctx, SearchRequest{Vector: input.Vector})
 	require.NoError(t, err)
 	require.Equal(t, "team-a/agent", store.readAgent)
 	require.Equal(t, "user", store.readUser)

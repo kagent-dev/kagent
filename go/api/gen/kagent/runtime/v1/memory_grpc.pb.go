@@ -31,8 +31,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // Memory is scoped to an agent and a user. Actor calls derive both from the
-// persisted session bound to the verified Actor JWT; request identity fields
-// cannot override that scope. List and Delete also accept user authentication.
+// persisted session bound to the verified Actor JWT. List and Delete also
+// accept user authentication and use the authenticated user's identity.
 type MemoryServiceClient interface {
 	// Requires an Actor JWT.
 	AddSession(ctx context.Context, in *MemoryServiceAddSessionRequest, opts ...grpc.CallOption) (*MemoryServiceAddSessionResponse, error)
@@ -109,8 +109,8 @@ func (c *memoryServiceClient) Delete(ctx context.Context, in *MemoryServiceDelet
 // for forward compatibility.
 //
 // Memory is scoped to an agent and a user. Actor calls derive both from the
-// persisted session bound to the verified Actor JWT; request identity fields
-// cannot override that scope. List and Delete also accept user authentication.
+// persisted session bound to the verified Actor JWT. List and Delete also
+// accept user authentication and use the authenticated user's identity.
 type MemoryServiceServer interface {
 	// Requires an Actor JWT.
 	AddSession(context.Context, *MemoryServiceAddSessionRequest) (*MemoryServiceAddSessionResponse, error)

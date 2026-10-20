@@ -189,7 +189,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, err)
 	_, err = publicSessions.GetSession(authenticated, &apiv1.GetSessionRequest{SessionId: uuid.NewString()})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	_, err = controller.MemoryService().List(authenticated, &runtimev1.MemoryServiceListRequest{AgentName: "forged/agent", UserId: "another-user"}) //nolint:staticcheck // Legacy user_id must not override actor scope.
+	_, err = controller.MemoryService().List(authenticated, &runtimev1.MemoryServiceListRequest{AgentName: "forged/agent"})
 	require.NoError(t, err)
 	require.Equal(t, session.Agent.Namespace+"/"+session.Agent.Name, memories.agentName)
 	require.Equal(t, session.Creator, memories.userID)

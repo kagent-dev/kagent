@@ -8,8 +8,8 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1;runtimev1";
 
 // Memory is scoped to an agent and a user. Actor calls derive both from the
-// persisted session bound to the verified Actor JWT; request identity fields
-// cannot override that scope. List and Delete also accept user authentication.
+// persisted session bound to the verified Actor JWT. List and Delete also
+// accept user authentication and use the authenticated user's identity.
 service MemoryService {
   // Requires an Actor JWT.
   rpc AddSession(MemoryServiceAddSessionRequest) returns (MemoryServiceAddSessionResponse);
@@ -24,10 +24,8 @@ service MemoryService {
 }
 
 message SessionMemoryInput {
-  // Ignored. The agent is derived from the actor's persisted session.
-  string agent_name = 1 [deprecated = true];
-  // Ignored. The user is derived from the actor's persisted session owner.
-  string user_id = 2 [deprecated = true];
+  reserved 1, 2;
+  reserved "agent_name", "user_id";
   string content = 3;
   repeated float vector = 4;
   google.protobuf.Struct metadata = 5;
@@ -67,10 +65,8 @@ message MemoryServiceAddSessionBatchResponse {
 }
 
 message MemoryServiceSearchRequest {
-  // Ignored. The agent is derived from the actor's persisted session.
-  string agent_name = 1 [deprecated = true];
-  // Ignored. The user is derived from the actor's persisted session owner.
-  string user_id = 2 [deprecated = true];
+  reserved 1, 2;
+  reserved "agent_name", "user_id";
   repeated float vector = 3;
   optional int32 limit = 4;
   optional double min_score = 5;
@@ -81,13 +77,13 @@ message MemoryServiceSearchResponse {
 }
 
 message MemoryServiceListRequest {
+  reserved 2;
+  reserved "user_id";
+
   // User calls must supply the stored agent key. Actor-created memories use
   // "namespace/name"; legacy keys remain valid for managing older memories.
   // Actor calls ignore this field and use the agent from their persisted session.
   string agent_name = 1;
-  // Ignored. User calls use the authenticated user; actor calls use the
-  // persisted session owner. Neither path can select another user.
-  string user_id = 2 [deprecated = true];
 }
 
 message MemoryServiceListResponse {
@@ -95,13 +91,13 @@ message MemoryServiceListResponse {
 }
 
 message MemoryServiceDeleteRequest {
+  reserved 2;
+  reserved "user_id";
+
   // User calls must supply the stored agent key. Actor-created memories use
   // "namespace/name"; legacy keys remain valid for managing older memories.
   // Actor calls ignore this field and use the agent from their persisted session.
   string agent_name = 1;
-  // Ignored. User calls use the authenticated user; actor calls use the
-  // persisted session owner. Neither path can select another user.
-  string user_id = 2 [deprecated = true];
 }
 
 message MemoryServiceDeleteResponse {

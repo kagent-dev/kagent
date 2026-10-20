@@ -30,20 +30,16 @@ type Store interface {
 }
 
 type Input struct {
-	AgentName string
-	UserID    string
-	Content   string
-	Vector    []float32
-	Metadata  json.RawMessage
-	TTLDays   int
+	Content  string
+	Vector   []float32
+	Metadata json.RawMessage
+	TTLDays  int
 }
 
 type SearchRequest struct {
-	AgentName string
-	UserID    string
-	Vector    []float32
-	Limit     int
-	MinScore  float64
+	Vector   []float32
+	Limit    int
+	MinScore float64
 }
 
 type SearchResult struct {
@@ -81,14 +77,13 @@ func (s *Service) Add(ctx context.Context, input Input) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	input.AgentName, input.UserID = agentName, userID
-	if err := validateInput(input, "Missing required fields (agent_name, user_id, vector)"); err != nil {
+	if err := validateVector(input.Vector); err != nil {
 		return "", err
 	}
 	if s.store == nil {
 		return "", serviceerrors.NewInternal("failed to save memory", fmt.Errorf("database client is not configured"))
 	}
-	memory, err := s.toMemory(input)
+	memory, err := s.toMemory(input, agentName, userID)
 	if err != nil {
 		return "", err
 	}
@@ -118,11 +113,10 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 	}
 	memories := make([]*database.Memory, 0, len(inputs))
 	for _, input := range inputs {
-		input.AgentName, input.UserID = agentName, userID
-		if err := validateInput(input, "Missing required fields in batch item"); err != nil {
+		if err := validateVector(input.Vector); err != nil {
 			return 0, err
 		}
-		memory, err := s.toMemory(input)
+		memory, err := s.toMemory(input, agentName, userID)
 		if err != nil {
 			return 0, err
 		}
@@ -139,10 +133,6 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchRe
 	if err != nil {
 		return nil, err
 	}
-	request.AgentName, request.UserID = agentName, userID
-	if request.AgentName == "" || request.UserID == "" || len(request.Vector) == 0 {
-		return nil, serviceerrors.NewInvalidArgument("Missing required fields (agent_name, user_id, vector)", nil)
-	}
 	if err := validateVector(request.Vector); err != nil {
 		return nil, err
 	}
@@ -154,8 +144,8 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchRe
 	}
 	results, err := s.store.SearchAgentMemory(
 		ctx,
-		request.AgentName,
-		request.UserID,
+		agentName,
+		userID,
 		pgvector.NewVector(request.Vector),
 		request.Limit,
 	)
@@ -257,7 +247,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, agentName strin
 	return nil
 }
 
-func (s *Service) toMemory(input Input) (*database.Memory, error) {
+func (s *Service) toMemory(input Input, agentName, userID string) (*database.Memory, error) {
 	metadata := input.Metadata
 	if len(metadata) == 0 {
 		metadata = json.RawMessage("{}")
@@ -270,20 +260,13 @@ func (s *Service) toMemory(input Input) (*database.Memory, error) {
 	}
 	expiresAt := s.now().Add(time.Duration(ttlDays) * 24 * time.Hour)
 	return &database.Memory{
-		AgentName: input.AgentName,
-		UserID:    input.UserID,
+		AgentName: agentName,
+		UserID:    userID,
 		Content:   input.Content,
 		Embedding: pgvector.NewVector(input.Vector),
 		Metadata:  string(metadata),
 		ExpiresAt: &expiresAt,
 	}, nil
-}
-
-func validateInput(input Input, missingFieldsMessage string) error {
-	if input.AgentName == "" || input.UserID == "" || len(input.Vector) == 0 {
-		return serviceerrors.NewInvalidArgument(missingFieldsMessage, nil)
-	}
-	return validateVector(input.Vector)
 }
 
 func validateVector(vector []float32) error {
