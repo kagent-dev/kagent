@@ -9,10 +9,10 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -122,7 +122,7 @@ func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
 		actor.GetSourceTag().GetName() != "checkpoint-"+checkpointID {
 		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
 	}
-	actor.Status.ExternalSnapshot.SnapshotUri = "s3://snapshots/later-turn"
+	actor.Status.Snapshots[0].DurableSnapshot.Object.SnapshotUri = "s3://snapshots/later-turn"
 	replayed, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(fork, replayed), "a retry returns the current session without revalidating later Actor state")
@@ -206,8 +206,8 @@ func (a *lifecycleTestActors) CreateActorFromTag(_ context.Context, atespace, na
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: templateNamespace, Name: templateName},
 		SourceTag:     &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
 		Status: &ateapipb.ActorStatus{
-			State:            ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-			ExternalSnapshot: &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/snapshot-1", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA},
+			State:     ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+			Snapshots: []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}},
 		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
@@ -227,7 +227,7 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 	defer a.mu.Unlock()
 	actor := a.actors[actorKey(atespace, name)]
 	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	actor.Status.ExternalSnapshot = &ateapipb.ExternalSnapshot{SnapshotUri: "s3://snapshots/snapshot-1", ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA}
+	actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, ActorTemplateUid: "template-uid", DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/snapshot-1"}}}}
 	return proto.CloneOf(actor), nil
 }
 
@@ -252,6 +252,58 @@ func TestQuiesceRejectsWrongActorIdentity(t *testing.T) {
 	}
 }
 
+type snapshotTestActors struct {
+	*lifecycleTestActors
+	snapshots []*ateapipb.Snapshot
+}
+
+func (a *snapshotTestActors) SuspendActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor, err := a.lifecycleTestActors.SuspendActor(ctx, atespace, name)
+	if err == nil {
+		actor.Status.Snapshots = a.snapshots
+	}
+	return actor, err
+}
+
+func TestQuiesceRequiresDurableVolumesSnapshot(t *testing.T) {
+	store, session := lifecycleFixture(t)
+	actors := &snapshotTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	created, err := workflow.Create(t.Context(), session)
+	require.NoError(t, err)
+
+	for _, fidelity := range []ateapipb.SnapshotFidelity{
+		ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_UNSPECIFIED,
+		ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+		ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_ROOTFS,
+		ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_MEMORY,
+	} {
+		t.Run(fidelity.String(), func(t *testing.T) {
+			actors.snapshots = []*ateapipb.Snapshot{{Generation: 2, Fidelity: fidelity,
+				DurableSnapshot: &ateapipb.SnapshotStorage{
+					Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED,
+					Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"},
+				}}}
+			boundary, err := workflow.Quiesce(t.Context(), created)
+			if fidelity != ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES {
+				require.ErrorContains(t, err, "invalid snapshot fidelity")
+				require.Nil(t, boundary)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, fidelity.String(), boundary.Fidelity)
+			require.Equal(t, "s3://snapshots/new", boundary.URI)
+
+			older := proto.CloneOf(actors.snapshots[0])
+			older.Generation = 1
+			actors.snapshots[0].DurableSnapshot.Status = ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_PENDING
+			actors.snapshots = append(actors.snapshots, older)
+			_, err = workflow.Quiesce(t.Context(), created)
+			require.ErrorContains(t, err, "returned no snapshot", "a previous durable snapshot cannot cover the current boundary")
+		})
+	}
+}
+
 // lifecycleForkFixture retains a real checkpoint and its independent fork history.
 func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifecycleTestActors, source *apiv1.Session) (*apiv1.Session, string) {
 	t.Helper()
@@ -271,7 +323,7 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	boundary, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), boundary,
-		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", ContentScope: "DATA"}))
+		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	checkpoint, _, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(task.ID)}, source.Creator, uuid.NewString())
 	require.NoError(t, err)
 	_, err = store.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshots/snapshot-1", "")
@@ -398,28 +450,4 @@ func TestServiceLifecycleRetriesUseCurrentStateAndRespectDeletion(t *testing.T) 
 	_, err = service.Resume(ctx, session.Id)
 	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound))
 	require.Equal(t, mutations, actors.mutations.Load(), "a tombstoned request must not create or touch compute")
-}
-
-// wrongScopeActors simulates a stale template still producing a memory snapshot.
-type wrongScopeActors struct{ *lifecycleTestActors }
-
-func (a *wrongScopeActors) SuspendActor(ctx context.Context, space, name string) (*ateapipb.Actor, error) {
-	actor, err := a.lifecycleTestActors.SuspendActor(ctx, space, name)
-	if err == nil {
-		actor.Status.ExternalSnapshot.ContentScope = ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL
-	}
-	return actor, err
-}
-
-var _ actorClient = (*wrongScopeActors)(nil)
-
-func TestQuiesceRejectsFullSnapshot(t *testing.T) {
-	store, session := lifecycleFixture(t)
-	actors := &wrongScopeActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
-	session, err := workflow.Create(t.Context(), session)
-	require.NoError(t, err)
-	snapshot, err := workflow.Quiesce(t.Context(), session)
-	require.ErrorContains(t, err, "invalid snapshot content scope")
-	require.Nil(t, snapshot)
 }

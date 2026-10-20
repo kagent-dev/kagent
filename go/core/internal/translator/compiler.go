@@ -21,6 +21,7 @@ type Compiler struct {
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
 	images           *configv1.HarnessImagesConfig
+	settings         *configv1.RuntimeDefaultsConfig
 }
 
 // HarnessType identifies the runtime selected by a Harness.
@@ -91,8 +92,8 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images, settings: settings}
 }
 
 // CompileAgent resolves inline or referenced behavior with its referenced
@@ -172,7 +173,9 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	}
 	result.AgentName = agent.Name
 	result.Image = image
-	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	result.CPU = c.settings.GetCpu()
+	result.Memory = c.settings.GetMemory()
+	result.SandboxClass = (*workerPool).Spec.DefaultSandboxClass()
 	// Shared agents and plugin selections can contribute the same image.
 	// Normalize once after the complete harness configuration has been compiled.
 	slices.Sort(result.SkillImages)

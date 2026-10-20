@@ -175,7 +175,7 @@ compiles `runtimeDefaults` into these payloads independently of its own settings
     "log_level": "info",
     "port": 80,
     "max_content_length": "0",
-    "skill_tools": { "file_search_tools": false },
+    "builtin_tools": { "disable_file_search": false },
     "token_propagation": { "enabled": false }
   }
 }
@@ -211,17 +211,22 @@ the same `TelemetryConfig` as controller settings (including protobuf durations)
 
 An absent request size limit uses the runtime default; zero means unlimited.
 
-Skill tool settings live together under `runtime.skill_tools`:
-`file_search_tools`, `bash_venv_path`, and `disable_bash`. Move existing flat
-settings into this block when updating configuration files.
-Go ADK automatically registers the built-in `bash` tool when skills are loaded.
-Set `runtime.skill_tools.disable_bash` to `true` to omit it for the root agent and all
-subagents. Skill discovery and loading, `read_file`, `write_file`, and `edit_file`
-remain available; `list_files` and `grep_file` still depend on
-`runtime.skill_tools.file_search_tools`. For controller-managed runtimes, set
-`config.runtimeDefaults.skillTools.disableBash: true` in Helm values. The default is `false`;
-this setting affects only the built-in Go ADK bash tool, not Python or tools
-provided through MCP or other integrations.
+Built-in tool settings live under `runtime.builtin_tools`:
+`disable_file_search`, `bash_venv_path`, and `disable_bash`. This replaces the
+former `runtime.skill_tools` block (Helm: `config.runtimeDefaults.builtinTools`).
+Replace the former `file_search_tools` flag with `disable_file_search`, reversing
+its value: `file_search_tools: true` becomes `disable_file_search: false`.
+Go and Python ADK register `read_file`, `write_file`, `edit_file`, `list_files`,
+`grep_file`, and `bash` for the root agent and subagents, even when no skills are
+configured or installed.
+Set `runtime.builtin_tools.disable_bash` to `true` to omit built-in bash.
+Set `runtime.builtin_tools.disable_file_search` to `true` to omit `list_files`
+and `grep_file`. Both opt-outs default to `false`. Skill discovery and loading
+remain conditional on installed skills.
+For controller-managed runtimes, set
+`config.runtimeDefaults.builtinTools.disableBash: true` in Helm values.
+`bash_venv_path` selects a separate environment for shell commands in both runtimes:
+its `bin` directory is prepended to `PATH`, and `VIRTUAL_ENV` is set.
 
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with

@@ -70,6 +70,15 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
+	builtinTools := runtime.GetBuiltinTools()
+	executionTools, err := tools.NewBuiltinTools(tools.BuiltinToolsConfig{
+		SkillsDirectory: skillsDirectory, BashVenvPath: builtinTools.GetBashVenvPath(),
+		DisableFileSearch: builtinTools.GetDisableFileSearch(), DisableBash: builtinTools.GetDisableBash(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create built-in tools: %w", err)
+	}
+	extraTools = append(extraTools, executionTools...)
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
 		skills, err := skillsSource.ListFrontmatters(ctx)
@@ -80,19 +89,12 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 		// task; the skill toolset lists the directory on every request.
 		deferredSkills := len(agentConfig.GetAgentPlugins().GetSkills()) > 0
 		if len(skills) > 0 || deferredSkills {
-			skillTools := runtime.GetSkillTools()
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, skillTools.GetFileSearchTools(), skillTools.GetDisableBash())
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
-			}
-			extraTools = append(extraTools, executionTools...)
-
 			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
 			}
 			toolsets = append(toolsets, skillsToolset)
-			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills), "execution_tool_count", len(executionTools))
+			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills))
 		}
 	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)

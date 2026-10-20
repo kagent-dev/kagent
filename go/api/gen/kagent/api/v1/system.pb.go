@@ -8,7 +8,7 @@ package apiv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	ateapipb "github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	ateapipb "go.ate.dev/substrate/pkg/proto/ateapipb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"

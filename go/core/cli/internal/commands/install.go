@@ -173,8 +173,8 @@ func chartConfig(chart *configv1.ChartConfig) helmConfig {
 
 // install installs the Substrate and Kagent releases.
 func install(ctx context.Context, cfg *connection.Options, helmConfig, substrateHelmConfig, podCertificateHelmConfig helmConfig, modelProvider v1alpha3.ModelProvider, skipDatabaseSetup bool, postgresImage string) error {
-	substrateHelmConfig.inlineValues = fmt.Sprintf("credentialProvider:\n  namespacePolicies:\n    - atespace: %s\n      allowedNamespaces: [%s]\n", strconv.Quote(cfg.Namespace), strconv.Quote(cfg.Namespace))
-	helmConfig.inlineValues += fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote("ghcr.io/kagent-dev/substrate/ateom-gvisor:v"+strings.TrimPrefix(substrateHelmConfig.version, "v")))
+	substrateHelmConfig.inlineValues = substrateInstallValues(cfg.Namespace)
+	helmConfig.inlineValues += fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote("ghcr.io/kagent-dev/substrate/ateworker-gvisor:v"+strings.TrimPrefix(substrateHelmConfig.version, "v")))
 
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
@@ -198,7 +198,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	}
 
 	s.Suffix = " Preparing Substrate prerequisites"
-	if err := prepareSubstrate(ctx); err != nil {
+	if err := prepareSubstrate(ctx, cfg.Namespace); err != nil {
 		return fmt.Errorf("prepare Substrate prerequisites: %w", err)
 	}
 
@@ -408,4 +408,18 @@ func NewUninstallCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// substrateInstallValues grants the default controller's pod-certificate identity
+// access to the Substrate control plane. Explicit values files override defaults.
+func substrateInstallValues(namespace string) string {
+	return fmt.Sprintf(`ateApi:
+  authorization:
+    bootstrapOwners:
+      - %s
+credentialProvider:
+  namespacePolicies:
+    - atespace: %s
+      allowedNamespaces: [%s]
+`, strconv.Quote("spiffe://cluster.local/ns/"+namespace+"/sa/kagent-controller"), strconv.Quote(namespace), strconv.Quote(namespace))
 }

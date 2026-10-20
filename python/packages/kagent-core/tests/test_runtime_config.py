@@ -14,9 +14,9 @@ def test_shared_go_runtime_contract():
     cfg = parse_runtime_config(path.read_text())
     assert cfg.max_content_length == 0
     assert cfg.token_propagation.enabled is False
-    assert cfg.skill_tools.bash_venv_path == "/opt/venv"
-    assert cfg.skill_tools.file_search_tools is False
-    assert cfg.skill_tools.disable_bash is True
+    assert cfg.builtin_tools.bash_venv_path == "/opt/venv"
+    assert cfg.builtin_tools.disable_file_search is False
+    assert cfg.builtin_tools.disable_bash is True
     assert cfg.telemetry.capture_content is False
     assert cfg.telemetry.traces.timeout.ToMilliseconds() == 1500
     assert KAgentConfig(runtime=cfg).api_url == "http://controller:8083"
@@ -25,8 +25,8 @@ def test_shared_go_runtime_contract():
 def test_runtime_defaults():
     cfg = RuntimeConfig()
     assert not cfg.HasField("max_content_length")
-    assert not cfg.skill_tools.file_search_tools
-    assert not cfg.skill_tools.disable_bash
+    assert not cfg.builtin_tools.disable_file_search
+    assert not cfg.builtin_tools.disable_bash
     assert not cfg.HasField("telemetry")
 
 
@@ -41,8 +41,8 @@ def test_runtime_defaults():
         {"telemetry": {"resource_attributes": {"service.name": "shared"}}},
         {"telemetry": {"resource_attributes": {"service.namespace": "shared"}}},
         {"log_level": "verbose"},
-        {"skill_tools": {"file_search_tools": "false"}},
-        {"skill_tools": {"disable_bash": "true"}},
+        {"builtin_tools": {"disable_file_search": "false"}},
+        {"builtin_tools": {"disable_bash": "true"}},
         {"unknown": True},
     ],
 )

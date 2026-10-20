@@ -1,28 +1,26 @@
 [project]
-name = "kagent-skills"
+name = "kagent-tools"
 version = "0.1.0"
-description = "Core library for discovering and loading KAgent skills."
+description = "Shared filesystem, shell, and workspace helpers for kagent Python adapters."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-  "pydantic>=2.0.0",
-  "pyyaml>=6.0"
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.17.0",
+    "ruff>=0.17.1",
 ]
 
 [build-system]
 requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/kagent"]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kagent.tools*"]
 
 [tool.black]
 line-length = 120

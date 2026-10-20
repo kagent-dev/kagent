@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,23 +17,6 @@ func createTempDir(t *testing.T) string {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	return tmpDir
-}
-
-func TestGetSessionPath(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
-	skillsDir := t.TempDir()
-
-	sessionPath, err := GetSessionPath("test-session", skillsDir)
-	if err != nil {
-		t.Fatalf("GetSessionPath() error = %v", err)
-	}
-	target, err := os.Readlink(filepath.Join(sessionPath, "skills"))
-	if err != nil {
-		t.Fatalf("Readlink() error = %v", err)
-	}
-	if target != skillsDir {
-		t.Fatalf("skills link = %q, want %q", target, skillsDir)
-	}
 }
 
 func TestReadFileContent(t *testing.T) {
@@ -147,7 +129,7 @@ func TestReadFileContent(t *testing.T) {
 				}
 			}
 
-			result, err := ReadFileContent(tt.path, tt.offset, tt.limit)
+			result, err := readFileContent(t.Context(), tt.path, tt.offset, tt.limit)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -156,7 +138,7 @@ func TestReadFileContent(t *testing.T) {
 			}
 
 			if err != nil {
-				t.Fatalf("ReadFileContent() error = %v", err)
+				t.Fatalf("readFileContent(t.Context(), ) error = %v", err)
 			}
 
 			// Check line number format (skip for empty file message)
@@ -193,9 +175,9 @@ func TestReadFileContent_LongLineIsTruncatedNotFatal(t *testing.T) {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	result, err := ReadFileContent(path, 0, 0)
+	result, err := readFileContent(t.Context(), path, 0, 0)
 	if err != nil {
-		t.Fatalf("ReadFileContent() error = %v, want the long line truncated instead", err)
+		t.Fatalf("readFileContent(t.Context(), ) error = %v, want the long line truncated instead", err)
 	}
 
 	lines := strings.Split(result, "\n")
@@ -228,7 +210,7 @@ func TestReadFileContent_LineOverMaxBytesErrors(t *testing.T) {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	if _, err := ReadFileContent(path, 0, 0); err == nil {
+	if _, err := readFileContent(t.Context(), path, 0, 0); err == nil {
 		t.Fatal("expected a line over maxLineBytes to error, got nil")
 	}
 }
@@ -248,14 +230,14 @@ func TestReadFileContent_FIFOReturnsErrorInsteadOfHanging(t *testing.T) {
 	done := make(chan struct{})
 	var err error
 	go func() {
-		_, err = ReadFileContent(fifoPath, 0, 0)
+		_, err = readFileContent(t.Context(), fifoPath, 0, 0)
 		close(done)
 	}()
 
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("ReadFileContent hung opening a FIFO instead of erroring")
+		t.Fatal("readFileContent hung opening a FIFO instead of erroring")
 	}
 
 	if err == nil {
@@ -312,9 +294,9 @@ func TestWriteFileContent(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "subdir", "test.txt")
 	content := "test content\nline 2"
 
-	err := WriteFileContent(filePath, content)
+	err := writeFileContent(filePath, content)
 	if err != nil {
-		t.Fatalf("WriteFileContent() error = %v", err)
+		t.Fatalf("writeFileContent() error = %v", err)
 	}
 
 	// Verify file was created
@@ -348,8 +330,8 @@ func TestEditFileContent(t *testing.T) {
 	}{
 		{
 			name:       "single replacement",
-			oldString:  "old text",
-			newString:  "new text",
+			oldString:  "old text\nline 3",
+			newString:  "new text\nline 3",
 			replaceAll: false,
 			checkFn: func(t *testing.T, content string) {
 				count := strings.Count(content, "new text")
@@ -362,6 +344,8 @@ func TestEditFileContent(t *testing.T) {
 				}
 			},
 		},
+		{name: "repeated long string is ambiguous", oldString: "old text", newString: "new text", wantErr: true},
+		{name: "empty old string", oldString: "", newString: "insert", replaceAll: true, wantErr: true},
 		{
 			name:       "replace all",
 			oldString:  "old text",
@@ -408,7 +392,7 @@ func TestEditFileContent(t *testing.T) {
 				t.Fatalf("Failed to reset file: %v", err)
 			}
 
-			err := EditFileContent(filePath, tt.oldString, tt.newString, tt.replaceAll)
+			err := editFileContent(filePath, tt.oldString, tt.newString, tt.replaceAll)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -417,7 +401,7 @@ func TestEditFileContent(t *testing.T) {
 			}
 
 			if err != nil {
-				t.Fatalf("EditFileContent() error = %v", err)
+				t.Fatalf("editFileContent() error = %v", err)
 			}
 
 			// Read and verify content
@@ -445,9 +429,9 @@ func TestListDirContent(t *testing.T) {
 	}
 
 	t.Run("lists files and directories", func(t *testing.T) {
-		result, err := ListDirContent(tmpDir)
+		result, err := listDirContent(t.Context(), tmpDir)
 		if err != nil {
-			t.Fatalf("ListDirContent() error = %v", err)
+			t.Fatalf("listDirContent(t.Context(), ) error = %v", err)
 		}
 		if !strings.Contains(result, "a-subdir/") {
 			t.Errorf("expected directory entry with trailing slash, got %q", result)
@@ -459,9 +443,9 @@ func TestListDirContent(t *testing.T) {
 
 	t.Run("empty directory", func(t *testing.T) {
 		emptyDir := filepath.Join(tmpDir, "a-subdir")
-		result, err := ListDirContent(emptyDir)
+		result, err := listDirContent(t.Context(), emptyDir)
 		if err != nil {
-			t.Fatalf("ListDirContent() error = %v", err)
+			t.Fatalf("listDirContent(t.Context(), ) error = %v", err)
 		}
 		if result != "Directory is empty." {
 			t.Errorf("expected empty directory message, got %q", result)
@@ -469,7 +453,7 @@ func TestListDirContent(t *testing.T) {
 	})
 
 	t.Run("nonexistent path", func(t *testing.T) {
-		if _, err := ListDirContent(filepath.Join(tmpDir, "does-not-exist")); err == nil {
+		if _, err := listDirContent(t.Context(), filepath.Join(tmpDir, "does-not-exist")); err == nil {
 			t.Fatal("expected error for nonexistent path")
 		}
 	})
@@ -482,9 +466,9 @@ func TestListDirContent(t *testing.T) {
 		}
 		defer os.Remove(linkPath)
 
-		result, err := ListDirContent(tmpDir)
+		result, err := listDirContent(t.Context(), tmpDir)
 		if err != nil {
-			t.Fatalf("ListDirContent() error = %v", err)
+			t.Fatalf("listDirContent(t.Context(), ) error = %v", err)
 		}
 		if !strings.Contains(result, "dir-link/") {
 			t.Errorf("expected symlinked directory to be listed with a trailing slash, got %q", result)
@@ -511,9 +495,9 @@ func TestListDirContent(t *testing.T) {
 			t.Skipf("symlinks not supported: %v", err)
 		}
 
-		result, err := ListDirContent(linkDir)
+		result, err := listDirContent(t.Context(), linkDir)
 		if err != nil {
-			t.Fatalf("ListDirContent() error = %v", err)
+			t.Fatalf("listDirContent(t.Context(), ) error = %v", err)
 		}
 		if !strings.Contains(result, fmt.Sprintf("file-link\t%d", len(contents))) {
 			t.Errorf("expected symlinked file to report the target's size (%d), got %q", len(contents), result)
@@ -532,9 +516,9 @@ func TestListDirContent(t *testing.T) {
 			t.Skipf("symlinks not supported: %v", err)
 		}
 
-		result, err := ListDirContent(linkDir)
+		result, err := listDirContent(t.Context(), linkDir)
 		if err != nil {
-			t.Fatalf("ListDirContent() error = %v", err)
+			t.Fatalf("listDirContent(t.Context(), ) error = %v", err)
 		}
 		// Bare name, no size and no trailing slash -- matching Python's
 		// list_dir_content, whose stat() raises on a dangling link.
@@ -545,160 +529,4 @@ func TestListDirContent(t *testing.T) {
 			t.Errorf("expected broken symlink to be listed with no size and no trailing slash, got %q", result)
 		}
 	})
-}
-
-func TestExecuteCommand(t *testing.T) {
-	tmpDir := createTempDir(t)
-	defer os.RemoveAll(tmpDir)
-
-	ctx := context.Background()
-	executor := NewCommandExecutor()
-
-	tests := []struct {
-		name       string
-		command    string
-		workingDir string
-		wantErr    bool
-		checkFn    func(t *testing.T, result string)
-	}{
-		{
-			name:       "simple echo command",
-			command:    "echo 'hello world'",
-			workingDir: tmpDir,
-			checkFn: func(t *testing.T, result string) {
-				if !strings.Contains(result, "hello world") {
-					t.Errorf("Expected 'hello world' in result, got %q", result)
-				}
-			},
-		},
-		{
-			name:       "command with output",
-			command:    "echo -n 'test'",
-			workingDir: tmpDir,
-			checkFn: func(t *testing.T, result string) {
-				if result != "test" {
-					t.Errorf("Expected 'test', got %q", result)
-				}
-			},
-		},
-		{
-			name:       "command that creates file",
-			command:    "echo 'content' > test.txt",
-			workingDir: tmpDir,
-			checkFn: func(t *testing.T, result string) {
-				// Check if file was created
-				filePath := filepath.Join(tmpDir, "test.txt")
-				content, err := os.ReadFile(filePath)
-				if err != nil {
-					t.Fatalf("Failed to read created file: %v", err)
-				}
-				if !strings.Contains(string(content), "content") {
-					t.Errorf("Expected 'content' in file, got %q", string(content))
-				}
-			},
-		},
-		{
-			name:       "failing command",
-			command:    "false",
-			workingDir: tmpDir,
-			wantErr:    true,
-		},
-		{
-			name:       "command with stderr",
-			command:    "echo 'error' >&2 && echo 'output'",
-			workingDir: tmpDir,
-			checkFn: func(t *testing.T, result string) {
-				// Should include both stdout and stderr
-				if !strings.Contains(result, "output") {
-					t.Error("Expected 'output' in result")
-				}
-				// stderr should be included (non-WARNING stderr is appended)
-				if !strings.Contains(result, "error") {
-					t.Error("Expected 'error' (from stderr) in result")
-				}
-			},
-		},
-		{
-			name:       "empty output command",
-			command:    "true",
-			workingDir: tmpDir,
-			checkFn: func(t *testing.T, result string) {
-				// Empty output should return success message
-				if result == "" {
-					t.Error("Expected success message for empty output")
-				}
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := executor.ExecuteCommand(ctx, tt.command, tt.workingDir)
-			if tt.wantErr {
-				if err == nil {
-					t.Error("Expected error, got nil")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("ExecuteCommand() error = %v", err)
-			}
-
-			if tt.checkFn != nil {
-				tt.checkFn(t, result)
-			}
-		})
-	}
-}
-
-func TestExecuteCommand_Timeout(t *testing.T) {
-	// Skip this test if running in CI or if test timeout is too short
-	// This test requires at least 35 seconds to run properly
-	if testing.Short() {
-		t.Skip("Skipping timeout test in short mode")
-	}
-
-	tmpDir := createTempDir(t)
-	defer os.RemoveAll(tmpDir)
-
-	ctx := context.Background()
-	executor := NewCommandExecutor()
-
-	// Test timeout for long-running command
-	// The timeout is 30 seconds for non-python commands
-	// Use a command that will definitely exceed the timeout
-	// Use sleep 31 to ensure it exceeds 30s timeout but completes faster for testing
-	command := "sleep 31" // This should timeout after 30 seconds
-
-	start := time.Now()
-	result, err := executor.ExecuteCommand(ctx, command, tmpDir)
-	elapsed := time.Since(start)
-
-	// When a command times out, ExecuteCommand should return an error
-	if err == nil {
-		// If no error, the command completed (shouldn't happen with sleep 31)
-		// This could happen if the test environment is very slow or timeout isn't working
-		t.Errorf("Expected timeout error for sleep 31, but command completed with result: %q (elapsed: %v)", result, elapsed)
-		return
-	}
-
-	// Verify the error is a timeout error
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Errorf("Expected timeout error, got: %v (elapsed: %v)", err, elapsed)
-		return
-	}
-
-	// Verify it actually timed out (should be around 30 seconds, not 31+)
-	if elapsed < 25*time.Second {
-		t.Errorf("Command should have taken ~30 seconds to timeout, but only took %v", elapsed)
-	}
-	if elapsed > 35*time.Second {
-		t.Logf("Warning: Timeout took longer than expected (%v), but test passed", elapsed)
-	}
-
-	// Result should be empty when there's an error
-	if result != "" {
-		t.Logf("Note: Got non-empty result on timeout: %q", result)
-	}
 }

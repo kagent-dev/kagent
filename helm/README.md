@@ -28,6 +28,46 @@ The Kagent chart does not deploy or initialize PostgreSQL, and it does not insta
 
 `kagent install` does all of this for development: it installs Substrate in `ate-system`, deploys a PostgreSQL instance in the Kagent namespace, creates the identities and schemas below, writes the connection Secrets, and then installs Kagent. Kagent, Substrate, and PostgreSQL authenticate with Pod Certificates rather than passwords. The development database has no pgvector extension and is not intended for production. It pulls `postgres:18-alpine` from Docker Hub; set `install.bundledPostgresImage` in the CLI config to use a mirror.
 
+Substrate v0.6.0-alpha3 restricts API ingress to namespaces labeled
+`ate.dev/api-access=true`. The CLI installer applies this label to the Kagent
+namespace. For direct Helm installations, label the controller namespace before
+starting Kagent:
+
+```sh
+kubectl label namespace kagent ate.dev/api-access=true --overwrite
+```
+
+Upgrade the Substrate CRDs, control plane, and workers together. This upgrade
+requires a fresh development database and recreated Actors, Tags, and WorkerPools;
+Substrate does not migrate the previous snapshot metadata. WorkerPools now use
+`spec.sandboxClasses[]`, with an existing `configRef` of the same runtime class.
+
+Runtime-facing URLs must use full DNS names because Substrate only permits DNS
+queries matching the egress policy. The chart generates controller and API tool
+URLs using `global.clusterDomain` (default `cluster.local`). Set this to your
+cluster's DNS domain and use full names in custom model, MCP, and telemetry URLs.
+
+Substrate alpha3 returns `NXDOMAIN` for denied DNS lookups, allowing musl-based
+Codex and Claude clients to continue past Kubernetes search-domain expansions.
+Service URLs no longer need the trailing-dot workaround. Continue using full
+service names; short-name aliases are not inferred from egress policies.
+Native retry caps remain temporary: even with the DNS fix, denied connections
+can trigger minutes of native retries.
+
+Alpha3 enables API authorization by default. `kagent install` grants its default
+controller pod-certificate identity (`spiffe://cluster.local/ns/<namespace>/sa/kagent-controller`)
+global owner access, which is required to create atespaces. Direct Helm installs
+must grant their controller access through Substrate's access policy API or
+`ateApi.authorization.bootstrapOwners`. If you customize the controller's
+ServiceAccount, chart fullname, or certificate trust domain, set the matching
+principal in `install.substrate.valuesFiles`; these files override the CLI's
+bootstrap defaults. Preserve any operator principals you still need in that list.
+
+Every agent runtime now requires CPU and memory limits. Defaults are 1 CPU and
+1 GiB; configure `config.runtimeDefaults.cpu` and `config.runtimeDefaults.memory`
+using Kubernetes quantities. Standalone sandboxes use `config.sandboxes.cpu` and
+`config.sandboxes.memory`. Changing limits creates a new immutable revision.
+
 To run `kagent install` against a database you prepared yourself (see [Preparing your own database](#preparing-your-own-database)), pass `--skip-database-setup` and point each chart at your Secrets through `install.kagent.valuesFiles` and `install.substrate.valuesFiles` in the CLI config.
 
 `kagent install` creates Substrate's certificate authorities once, and they expire one year later. Nothing renews them, and re-running `kagent install` keeps the existing ones. To replace them, delete the CA Secrets, re-run `kagent install`, and restart the Substrate and Kagent workloads:
@@ -118,7 +158,7 @@ Each run sets each login's password to its variable. An empty value removes the 
 
 Set `config.database.owner.role`, `config.database.readWrite.role` and `config.database.schema` to the values you used, and put a connection string for each login in the Secrets that `database.postgres.ownerConnectionStringSecretRef` and `database.postgres.readWriteConnectionStringSecretRef` name. Leave role settings out of the connection strings: Kagent assumes each role after it connects. With `config.database.skipMigrations: true`, only the read/write Secret and role are needed.
 
-Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v0.5.0-alpha2/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
+Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v0.6.0-alpha3/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
 
 When vectors are enabled, install pgvector into `config.database.vectorSchema` before Kagent starts, and grant both Kagent roles `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 
@@ -157,7 +197,7 @@ substrateWorkerPool:
 ```
 
 Substrate worker images are published to GHCR, for example
-`ghcr.io/kagent-dev/substrate/ateom-microvm:latest`. For a pinned installation,
+`ghcr.io/kagent-dev/substrate/ateworker-microvm:latest`. For a pinned installation,
 use a release tag matching your Substrate version.
 
 Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.

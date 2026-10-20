@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
 	"istio.io/istio/pkg/config/schema/kubeclient"
 	"istio.io/istio/pkg/kube/kubetypes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

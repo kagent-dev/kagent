@@ -1,7 +1,7 @@
 import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
 import { AgentService, type Agent as PbAgent } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent, AgentResource } from "../domain/agents";
-import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SandboxClass } from "@/generated/ateapi_pb";
+import { ActorState, type Actor as PbActor, type ActorTemplate as PbActorTemplate, type Worker as PbWorker, SnapshotStorageStatus } from "@/generated/ateapi_pb";
 import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb";
 /**
  * What each operation id actually calls.
@@ -1236,10 +1236,6 @@ function toActorTemplateEntry(
       ? "Failed"
       : golden?.goldenTag ? "Ready" : "Pending",
     goldenTag: golden?.goldenTag ? `${golden.goldenTag.atespace}/${golden.goldenTag.name}` : undefined,
-    sandboxClass:
-      SandboxClass[
-        actorTemplate.sandboxConfig?.sandboxClass ?? SandboxClass.UNSPECIFIED
-      ]?.toLowerCase(),
     workerSelector: orUndefined(
       Object.entries(actorTemplate.workerSelector?.matchLabels ?? {})
         .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
@@ -1256,8 +1252,6 @@ const ACTOR_STATUS_LABELS: Record<ActorState, string> = {
   [ActorState.RUNNING]: "Running",
   [ActorState.SUSPENDING]: "Suspending",
   [ActorState.SUSPENDED]: "Suspended",
-  [ActorState.PAUSING]: "Pausing",
-  [ActorState.PAUSED]: "Paused",
   [ActorState.CRASHED]: "ACTOR_STATE_CRASHED",
   [ActorState.DELETING]: "ACTOR_STATE_DELETING",
   [ActorState.REVERTING]: "Reverting",
@@ -1267,18 +1261,24 @@ function toActorEntry(actor: PbActor): SubstrateActorEntry {
   const metadata = required(actor.metadata, "Substrate", "actor metadata");
   const state = actor.status?.state ?? ActorState.UNSPECIFIED;
   const assignment = actor.status?.workerAssignment;
+  const snapshots = [...(actor.status?.snapshots ?? [])].sort((a, b) => b.generation - a.generation);
+  const latest = snapshots[0];
+  const paused = state === ActorState.SUSPENDED && latest?.locality && !latest.durableSnapshot;
+  const durable = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.COMPLETED);
+  const pending = snapshots.find((snapshot) => snapshot.durableSnapshot?.status === SnapshotStorageStatus.PENDING
+    || (state === ActorState.SUSPENDING && !snapshot.locality && !snapshot.durableSnapshot));
   return {
     actorId: metadata.name,
     atespace: metadata.atespace,
-    status: ACTOR_STATUS_LABELS[state] ?? String(state),
+    status: paused ? "Paused" : ACTOR_STATUS_LABELS[state] ?? String(state),
     actorTemplateAtespace: orUndefined(actor.actorTemplate?.atespace),
     actorTemplateName: orUndefined(actor.actorTemplate?.name),
     ateomPodNamespace: orUndefined(assignment?.workerNamespace),
     ateomPodName: orUndefined(assignment?.workerPod),
     ateomPodIp: orUndefined(assignment?.workerPodIps[0]),
-    latestSnapshot: orUndefined(actor.status?.externalSnapshot?.snapshotUri),
+    latestSnapshot: orUndefined(durable?.durableSnapshot?.object?.snapshotUri),
     workerPoolName: orUndefined(assignment?.workerPool),
-    inProgressSnapshot: orUndefined(actor.status?.inProgressLocalSnapshotName),
+    inProgressSnapshot: orUndefined(pending?.uuid),
     version: toNumber(metadata.version),
   };
 }

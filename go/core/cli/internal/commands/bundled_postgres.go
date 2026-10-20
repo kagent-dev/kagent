@@ -22,8 +22,8 @@ import (
 	"os/exec"
 	"strings"
 
-	substratesetup "github.com/agent-substrate/substrate/pkg/postgressetup"
 	"github.com/google/go-containerregistry/pkg/name"
+	substratesetup "go.ate.dev/substrate/pkg/postgressetup"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"

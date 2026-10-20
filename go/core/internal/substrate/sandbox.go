@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -40,15 +39,14 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	if !image.IsDigestPinned(policy.GuestImage) || !image.IsDigestPinned(template.Spec.Workload.Image) {
 		return nil, "", nil, fmt.Errorf("sandbox workload and guest images must be pinned by sha256 digest")
 	}
-	for name, value := range map[string]string{"cpu": policy.CPU, "memory": policy.Memory} {
-		q, err := resource.ParseQuantity(value)
-		if err != nil || q.Sign() <= 0 || (name == "cpu" && q.Cmp(resource.MustParse("1000")) >= 0) {
-			return nil, "", nil, fmt.Errorf("invalid sandbox %s limit %q", name, value)
-		}
-	}
-	config, err := sandboxConfigForClass(class)
+	resources, err := actorResources(policy.CPU, policy.Memory)
 	if err != nil {
 		return nil, "", nil, err
+	}
+	switch class {
+	case "", atev1alpha1.SandboxClassGvisor, atev1alpha1.SandboxClassMicroVM:
+	default:
+		return nil, "", nil, fmt.Errorf("unsupported sandbox class %q", class)
 	}
 	if class == "" {
 		class = atev1alpha1.SandboxClassGvisor
@@ -74,15 +72,14 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	}
 	result := &ateapipb.ActorTemplate{
 		Metadata:       &ateapipb.ResourceMetadata{Atespace: template.Namespace},
-		SandboxConfig:  config,
 		WorkerSelector: workerSelectorForPool(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.Substrate.WorkerPoolRef.Name}),
-		Resources:      &ateapipb.Resources{Limits: []*ateapipb.Limits{{Name: "cpu", Quantity: policy.CPU}, {Name: "memory", Quantity: policy.Memory}}},
+		Resources:      resources,
 		Containers: []*ateapipb.Container{{
 			Name: "sandbox", Image: template.Spec.Workload.Image,
 			Command:      []string{"/run/kagent/guest/usr/local/bin/kagent-sandbox-guest"},
 			Args:         []string{"--listen=:80", "--workspace=/data/workspace", "--log-dir=/data/guest-logs"},
 			Env:          environment,
-			WakeupProbe:  &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{Path: "/readyz", Port: 80}, TimeoutSeconds: 30},
+			WakeupProbe:  &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{Path: "/readyz", Port: 80}, TimeoutSeconds: 30},
 			VolumeMounts: []*ateapipb.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}, {Name: "guest", MountPath: "/run/kagent/guest"}, {Name: egressTrustVolume, MountPath: egressTrustMount}},
 		}},
 		Volumes: []*ateapipb.Volume{
@@ -91,8 +88,10 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 			{Name: egressTrustVolume, SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}}}}},
 		},
 		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: template.Spec.Substrate.SnapshotPolicy.Location,
-			OnCommit:        ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA,
+			StorageLocation:   template.Spec.Substrate.SnapshotPolicy.Location,
+			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			// Pin the server default so immutable comparison survives creation.
+			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
 	}
 	// Hash the compiled template and source identity. Live policy references
@@ -104,8 +103,9 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1alpha1.
 	identity, err := json.Marshal(struct {
 		Name     string
 		UID      string
+		Class    atev1alpha1.SandboxClass
 		Template []byte
-	}{template.Name, string(template.UID), compiled})
+	}{template.Name, string(template.UID), class, compiled})
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("encode sandbox revision: %w", err)
 	}

@@ -69,7 +69,7 @@ func TestHelmControllerConfig(t *testing.T) {
 	base, checksum, err := render("{}")
 	require.NoError(t, err)
 	require.Equal(t, "team", base.Kubernetes.GetNamespace())
-	require.Equal(t, "http://demo-controller.team.svc:8083", base.RuntimeDefaults.GetControlPlaneUrl())
+	require.Equal(t, "http://demo-controller.team.svc.cluster.local:8083", base.RuntimeDefaults.GetControlPlaneUrl())
 	require.NotEmpty(t, checksum)
 	require.Equal(t, "kagent", base.Database.GetSchema())
 	require.Equal(t, "extensions", base.Database.GetVectorSchema())

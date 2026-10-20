@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
@@ -142,4 +142,15 @@ func TestRevisionDigestIncludesBinaryAgentCard(t *testing.T) {
 	revision.AgentCard.Name = string([]byte{0xff})
 	_, err = revision.Digest()
 	require.Error(t, err)
+}
+
+func TestRevisionDigestIncludesResources(t *testing.T) {
+	revision := Revision{CPU: "1", Memory: "1Gi"}
+	before, err := revision.Digest()
+	require.NoError(t, err)
+	for _, changed := range []Revision{{CPU: "2", Memory: "1Gi"}, {CPU: "1", Memory: "2Gi"}} {
+		after, err := changed.Digest()
+		require.NoError(t, err)
+		require.NotEqual(t, before, after)
+	}
 }

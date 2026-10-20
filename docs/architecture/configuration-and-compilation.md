@@ -201,21 +201,18 @@ completion.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. The pool's `spec.sandboxClass` selects
-the ActorTemplate's sandbox configuration:
+in the Agent namespace. Substrate v0.6.0-alpha3 chooses the sandbox runtime from
+the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
+no longer specify a SandboxConfig. Operators must install the referenced
+cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
+Selecting `microvm` does not install those prerequisites or configure a Kubernetes
+RuntimeClass. The standard configurations are `gvisor-default` and `microvm`.
 
-| WorkerPool class | ActorTemplate sandbox class | SandboxConfig name |
-| --- | --- | --- |
-| Empty or `gvisor` | `SANDBOX_CLASS_GVISOR` | `gvisor-default` |
-| `microvm` | `SANDBOX_CLASS_MICROVM` | `microvm` |
-
-These names follow Substrate v0.4.0-alpha1's standard gVisor installation and
-MicroVM setup/E2E convention. They are not API-level defaults or discovery:
-Substrate requires an explicit name and rejects a missing SandboxConfig or a
-class mismatch. Operators must install the corresponding cluster-scoped
-SandboxConfig and provision compatible workers and runtime assets. Selecting
-`microvm` does not install those prerequisites or configure a Kubernetes
-RuntimeClass.
+The central compiler also resolves operator-owned `runtimeDefaults.cpu` and
+`runtimeDefaults.memory` into each agent revision. Both limits are required by
+Substrate, default to 1 CPU and 1 GiB, and participate in the digest. The Substrate
+adapter validates their quantities and emits ActorTemplate resources for every
+harness. Standalone sandbox limits remain under `sandboxes` configuration.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
@@ -223,7 +220,9 @@ are tracked through KRT and recompute the desired revision.
 Empty and explicit `gvisor` hash the explicit `gvisor`
 class; both sandbox classes participate in the digest, so a prepared MicroVM runtime
 cannot be confused with a gVisor revision. Returning to gVisor restores the
-original digest. Existing Sessions remain pinned to their revisions.
+original digest. Existing Sessions remain pinned to their revisions, but the
+WorkerPool owns runtime selection. Use a separate pool when existing revisions
+must keep using the previous runtime.
 
 Generated ActorTemplates select workers with both `kagent.dev/worker-pool-name`
 and `kagent.dev/worker-pool-namespace`. The labels identify the referenced pool's
@@ -234,9 +233,8 @@ namespace only while every pool's labels name the pool's own namespace.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining
-silently pending. Status includes a safe error code; a failed precondition also
-names the expected SandboxConfig and class. Raw backend error messages are not
-copied into Kubernetes status. The reconciliation queue owns failure retries,
+silently pending. Status includes a safe error code. Raw backend error messages
+are not copied into Kubernetes status. The reconciliation queue owns failure retries,
 with exponential backoff from one second to thirty seconds and no operational
 attempt budget. It clears the failure after the prerequisite or service recovers.
 Periodic polling only checks observed templates whose golden snapshots are still

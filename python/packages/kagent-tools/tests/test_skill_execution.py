@@ -1,26 +1,24 @@
 import concurrent.futures
 import json
 import os
+import shlex
 import shutil
+import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from kagent.skills import (
-    discover_skills,
-    edit_file_content,
+from kagent.tools import (
     execute_command,
     grep_content,
     list_dir_content,
-    load_skill_content,
     read_file_content,
-    write_file_content,
 )
-from kagent.skills.prompts import get_bash_description
-from kagent.skills.shell import _classify_walk_entry, _sanitize_env, _WalkEntryAction
+from kagent.tools.prompts import get_bash_description
+from kagent.tools.shell import _classify_walk_entry, _WalkEntryAction
 
 
 @pytest.fixture
@@ -111,7 +109,9 @@ async def test_skill_core_logic(skill_test_env: Path):
 
     # 2. Execute the skill's core command, just as an agent would
     # We use the centralized `execute_command` function directly
-    command = "python skills/csv-to-json/scripts/convert.py uploads/data.csv outputs/result.json"
+    command = (
+        f"{shlex.quote(sys.executable)} skills/csv-to-json/scripts/convert.py uploads/data.csv outputs/result.json"
+    )
     result = await execute_command(command, working_dir=session_dir, skills_dir=Path("/skills"))
 
     assert "Successfully converted" in result
@@ -136,29 +136,19 @@ async def test_execute_command_passes_command_as_one_argument(tmp_path):
     The command is passed as one argument to bash rather than interpolated into
     another shell command.
     """
+    import asyncio
+
+    actual_exec = asyncio.create_subprocess_exec
     captured = {}
 
-    async def mock_exec(*args, **kwargs):
+    async def capture(*args, **kwargs):
         captured["args"] = args
-        mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
-        mock_process.returncode = 0
-        return mock_process
+        return await actual_exec(*args, **kwargs)
 
-    injection_payload = 'ls"; cat /etc/passwd; echo "pwned'
-
-    with (
-        patch("asyncio.create_subprocess_shell") as mock_shell,
-        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
-    ):
-        await execute_command(injection_payload, working_dir=tmp_path, skills_dir=Path("/skills"))
-
-    # Invariant 1: create_subprocess_shell must never be used.
-    assert not mock_shell.called
-
-    # The payload must arrive as one argument to bash.
-    args = captured["args"]
-    assert args == ("bash", "-c", injection_payload)
+    command = "printf '%s' 'a; b'"
+    with patch("asyncio.create_subprocess_exec", side_effect=capture):
+        assert await execute_command(command, working_dir=tmp_path) == "a; b"
+    assert captured["args"] == ("bash", "-c", command)
 
 
 def test_get_bash_description_omits_file_search_tools_by_default():
@@ -172,42 +162,14 @@ def test_get_bash_description_mentions_file_search_tools_when_enabled():
     assert "list_files and grep_file" in desc
 
 
-# --- Path traversal tests ---
-
-
-def test_read_file_blocks_path_traversal(tmp_path):
-    """Reading a file outside the allowed root must raise PermissionError."""
-    outside_file = tmp_path.parent / "outside.txt"
-    outside_file.write_text("secret")
-
-    try:
-        with pytest.raises(PermissionError, match="outside the allowed director"):
-            read_file_content(outside_file, allowed_root=tmp_path)
-    finally:
-        outside_file.unlink(missing_ok=True)
-
-
-def test_read_file_blocks_relative_traversal(tmp_path):
-    """Relative paths like ../foo that escape the root must be blocked."""
-    (tmp_path / "subdir").mkdir()
-    outside = tmp_path.parent / "secret.txt"
-    outside.write_text("secret")
-
-    try:
-        with pytest.raises(PermissionError, match="outside the allowed director"):
-            read_file_content(
-                tmp_path / "subdir" / "../../secret.txt",
-                allowed_root=tmp_path,
-            )
-    finally:
-        outside.unlink(missing_ok=True)
+# --- File reads ---
 
 
 def test_read_file_allows_path_inside_root(tmp_path):
-    """Files inside the allowed root should work normally."""
+    """Read an ordinary file inside the sandbox."""
     f = tmp_path / "hello.txt"
     f.write_text("hello world")
-    result = read_file_content(f, allowed_root=tmp_path)
+    result = read_file_content(f)
     assert "hello world" in result
 
 
@@ -223,7 +185,7 @@ def test_read_file_truncates_a_long_line_without_failing_the_file(tmp_path):
     f = tmp_path / "bundle.min.js"
     f.write_text("a" * 100_000 + "\nsecond line\n")
 
-    result = read_file_content(f, allowed_root=tmp_path)
+    result = read_file_content(f)
 
     lines = result.split("\n")
     assert len(lines) == 2
@@ -232,49 +194,6 @@ def test_read_file_truncates_a_long_line_without_failing_the_file(tmp_path):
     assert len(body.removesuffix("...")) == 2000
     # The whole point: the rest of the file survives.
     assert "second line" in lines[1]
-
-
-def test_read_file_allows_multiple_roots(tmp_path):
-    """Read should succeed when the file is inside any of the allowed roots."""
-    skills_dir = tmp_path / "skills"
-    skills_dir.mkdir()
-    skill_file = skills_dir / "script.py"
-    skill_file.write_text("print('hello')")
-
-    session_dir = tmp_path / "session"
-    session_dir.mkdir()
-
-    # File is in skills_dir, not session_dir — should still be allowed
-    result = read_file_content(skill_file, allowed_root=[session_dir, skills_dir])
-    assert "print('hello')" in result
-
-    # File outside both roots should be blocked
-    outside = tmp_path / "outside.txt"
-    outside.write_text("secret")
-    with pytest.raises(PermissionError, match="outside the allowed directories"):
-        read_file_content(outside, allowed_root=[session_dir, skills_dir])
-
-
-def test_write_file_blocks_path_traversal(tmp_path):
-    """Writing a file outside the allowed root must raise PermissionError."""
-    outside_path = tmp_path.parent / "evil.txt"
-    with pytest.raises(PermissionError, match="outside the allowed director"):
-        write_file_content(outside_path, "malicious", allowed_root=tmp_path)
-    assert not outside_path.exists()
-
-
-def test_edit_file_blocks_path_traversal(tmp_path):
-    """Editing a file outside the allowed root must raise PermissionError."""
-    outside_file = tmp_path.parent / "target.txt"
-    outside_file.write_text("original")
-
-    try:
-        with pytest.raises(PermissionError, match="outside the allowed director"):
-            edit_file_content(outside_file, "original", "hacked", allowed_root=tmp_path)
-        # File must not have been modified
-        assert outside_file.read_text() == "original"
-    finally:
-        outside_file.unlink(missing_ok=True)
 
 
 # --- list_dir_content / grep_content tests ---
@@ -296,16 +215,6 @@ def test_list_dir_content_empty_directory(tmp_path):
 def test_list_dir_content_nonexistent_path(tmp_path):
     with pytest.raises(FileNotFoundError):
         list_dir_content(tmp_path / "does-not-exist")
-
-
-def test_list_dir_content_blocks_path_traversal(tmp_path):
-    outside = tmp_path.parent / "outside-dir"
-    outside.mkdir(exist_ok=True)
-    try:
-        with pytest.raises(PermissionError, match="outside the allowed director"):
-            list_dir_content(outside, allowed_root=tmp_path)
-    finally:
-        shutil.rmtree(outside, ignore_errors=True)
 
 
 def test_grep_content_finds_match(tmp_path):
@@ -356,17 +265,6 @@ def test_grep_content_invalid_pattern(tmp_path):
         grep_content(f, "(")
 
 
-def test_grep_content_blocks_path_traversal(tmp_path):
-    outside = tmp_path.parent / "outside.txt"
-    outside.write_text("secret")
-
-    try:
-        with pytest.raises(PermissionError, match="outside the allowed director"):
-            grep_content(outside, "secret", allowed_root=tmp_path)
-    finally:
-        outside.unlink(missing_ok=True)
-
-
 def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
     outside_dir = tmp_path.parent / "grep_symlink_outside"
     outside_dir.mkdir(exist_ok=True)
@@ -383,7 +281,7 @@ def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
         pytest.skip("symlinks not supported")
 
     try:
-        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = grep_content(tmp_path, "foo", recursive=True)
         assert "top secret" not in result
     finally:
         link.unlink(missing_ok=True)
@@ -394,10 +292,8 @@ def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
 def test_grep_content_recursive_skips_symlinks_that_escape_the_searched_directory(tmp_path):
     """A symlink may not pull in a file from outside the directory being searched.
 
-    allowed_root in production is the whole session dir plus the skills dir --
-    wider than the search root -- so validating against it alone would let a
-    link in the searched subdirectory read a sibling the caller never asked
-    about. Go bounds each entry by the search root; this pins the same rule.
+    Both runtimes limit recursive searches to the requested tree, even when
+    sibling paths are also accessible within the sandbox.
     """
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -413,9 +309,7 @@ def test_grep_content_recursive_skips_symlinks_that_escape_the_searched_director
     except (OSError, NotImplementedError):
         pytest.skip("symlinks not supported")
 
-    # allowed_root is tmp_path (the shared parent), so the link's target IS
-    # inside the sandbox -- only the search-root check can exclude it.
-    result = grep_content(searched, "foo", recursive=True, allowed_root=tmp_path)
+    result = grep_content(searched, "foo", recursive=True)
 
     assert "own foo" in result
     assert "sibling foo" not in result
@@ -431,7 +325,7 @@ def test_grep_content_counts_broken_symlink_as_unreadable(tmp_path):
     except (OSError, NotImplementedError):
         pytest.skip("symlinks not supported")
 
-    result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    result = grep_content(tmp_path, "foo", recursive=True)
 
     assert "match.txt:1:foo readable" in result
     assert "could not be read" in result
@@ -530,7 +424,7 @@ def test_grep_content_does_not_count_fifo_as_unreadable(tmp_path):
     except (AttributeError, NotImplementedError, OSError):
         pytest.skip("FIFOs not supported")
 
-    result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    result = grep_content(tmp_path, "foo", recursive=True)
 
     assert "match.txt:1:foo readable" in result
     assert "could not be read" not in result
@@ -559,7 +453,7 @@ def test_grep_content_recursive_skips_fifo_and_finds_matches_around_it(tmp_path)
     (tmp_path / "zzz_after.txt").write_text("foo after\n")
 
     try:
-        result = _call_with_timeout(grep_content, tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = _call_with_timeout(grep_content, tmp_path, "foo", recursive=True)
     except concurrent.futures.TimeoutError:
         pytest.fail("grep_content hung on a FIFO instead of skipping it")
     assert "aaa_before.txt:1:foo before" in result
@@ -575,7 +469,7 @@ def test_grep_content_single_target_fifo_raises_instead_of_hanging(tmp_path):
 
     try:
         with pytest.raises(OSError, match="not a regular file"):
-            _call_with_timeout(grep_content, fifo_path, "foo", allowed_root=tmp_path)
+            _call_with_timeout(grep_content, fifo_path, "foo")
     except concurrent.futures.TimeoutError:
         pytest.fail("grep_content hung opening a FIFO directly instead of erroring")
 
@@ -591,7 +485,7 @@ def test_grep_content_no_matches_found_is_annotated_when_a_file_could_not_be_rea
     unreadable.chmod(0o000)
 
     try:
-        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = grep_content(tmp_path, "foo", recursive=True)
     finally:
         unreadable.chmod(0o644)
 
@@ -613,7 +507,7 @@ def test_grep_content_recursive_does_not_abort_or_discard_matches_on_an_unreadab
     noperm_sub.chmod(0o000)
 
     try:
-        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = grep_content(tmp_path, "foo", recursive=True)
     finally:
         noperm_sub.chmod(0o755)
 
@@ -642,7 +536,7 @@ def test_grep_content_keeps_sibling_matches_when_an_entry_cannot_be_statted(tmp_
     locked_sub.chmod(0o444)
 
     try:
-        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = grep_content(tmp_path, "foo", recursive=True)
     finally:
         locked_sub.chmod(0o755)
 
@@ -665,7 +559,7 @@ def test_grep_content_annotates_skip_count_alongside_real_matches(tmp_path):
     noperm_sub.chmod(0o000)
 
     try:
-        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = grep_content(tmp_path, "foo", recursive=True)
     finally:
         noperm_sub.chmod(0o755)
 
@@ -689,7 +583,7 @@ def test_grep_content_no_matches_found_is_annotated_when_a_subdirectory_could_no
     noperm_sub.chmod(0o000)
 
     try:
-        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        result = grep_content(tmp_path, "foo", recursive=True)
     finally:
         noperm_sub.chmod(0o755)
 
@@ -706,7 +600,7 @@ def test_grep_content_recursive_on_fully_unreadable_root_raises_instead_of_empty
 
     try:
         with pytest.raises(OSError, match="could not be read"):
-            grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+            grep_content(tmp_path, "foo", recursive=True)
     finally:
         tmp_path.chmod(0o755)
 
@@ -716,111 +610,14 @@ def test_grep_content_truncates_long_matched_lines(tmp_path):
     f = tmp_path / "long.txt"
     f.write_text(long_line + "\n")
 
-    result = grep_content(f, "foo", allowed_root=tmp_path)
+    result = grep_content(f, "foo")
     assert result.endswith("...")
     assert long_line not in result
     matched_line = result.split(":", 2)[-1]
     assert len(matched_line) < 2100
 
 
-def test_skill_discovery_and_loading(skill_test_env: Path):
-    """
-    Tests the core logic of discovering a skill and loading its instructions.
-    """
-    # The fixture creates the session dir, the skills are one level up in a separate dir
-    skills_root_dir = skill_test_env.parent / "skills_root"
-
-    # 1. Test skill discovery
-    discovered = discover_skills(skills_root_dir)
-    assert len(discovered) == 1
-    skill_meta = discovered[0]
-    assert skill_meta.name == "csv-to-json"
-    assert "Converts a CSV file" in skill_meta.description
-
-    # 2. Test skill content loading
-    skill_content = load_skill_content(skills_root_dir, "csv-to-json")
-    assert "name: csv-to-json" in skill_content
-    assert "# CSV to JSON Conversion" in skill_content
-    assert 'Example: `bash("python skills/csv-to-json/scripts/convert.py' in skill_content
-
-
-def test_sanitize_env_strips_secrets():
-    """Verify _sanitize_env removes env vars matching secret patterns."""
-    secret_vars = {
-        # Regex-matched vars
-        "OPENAI_API_KEY": "sk-secret",
-        "AZURE_OPENAI_API_KEY": "az-secret",
-        "ANTHROPIC_API_KEY": "ant-secret",
-        "GOOGLE_API_KEY": "goog-secret",
-        "SERPER_API_KEY": "serp-secret",
-        "LANGSMITH_API_KEY": "ls-secret",
-        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "graf-token",
-        "DATABASE_PASSWORD": "db-pass",
-        "MY_SECRET": "shh",
-        "AWS_SECRET_ACCESS_KEY": "aws-secret",
-        "SSH_PRIVATE_KEY": "key-data",
-        "GIT_CREDENTIAL": "cred",
-        "GIT_CREDENTIALS": "cred-plural",
-        # Vars from providers.go that previously leaked
-        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
-        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
-        "AZURE_AD_TOKEN": "az-ad-token",
-        "AWS_SESSION_TOKEN": "session-tok",
-        "AWS_BEARER_TOKEN_BEDROCK": "bearer-tok",
-    }
-    safe_vars = {
-        "PATH": "/usr/bin",
-        "HOME": "/home/user",
-        "PYTHONPATH": "/some/path",
-        "LANG": "en_US.UTF-8",
-        "TOKENIZERS_PARALLELISM": "true",
-        "GOOGLE_CLOUD_PROJECT": "my-project",
-        "AWS_REGION": "us-east-1",
-    }
-
-    result = _sanitize_env({**secret_vars, **safe_vars})
-
-    for key in secret_vars:
-        assert key not in result, f"{key} should have been stripped"
-
-    for key, value in safe_vars.items():
-        assert result[key] == value, f"{key} should be preserved"
-
-
 @pytest.mark.asyncio
-async def test_execute_command_strips_secret_env_vars(tmp_path):
-    """Secret env vars must not be passed to sandboxed subprocesses."""
-    captured = {}
-
-    async def mock_exec(*args, **kwargs):
-        captured["env"] = kwargs.get("env", {})
-        mock_process = MagicMock()
-        mock_process.communicate = AsyncMock(return_value=(b"ok", b""))
-        mock_process.returncode = 0
-        return mock_process
-
-    env_overrides = {
-        "OPENAI_API_KEY": "sk-secret",
-        "ANTHROPIC_API_KEY": "ant-secret",
-        "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/sa.json",
-        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
-        "PATH": "/usr/bin",
-        "HOME": "/home/user",
-    }
-
-    with (
-        patch.dict(
-            "os.environ",
-            env_overrides,
-            clear=True,
-        ),
-        patch("asyncio.create_subprocess_exec", side_effect=mock_exec),
-    ):
-        await execute_command("echo hello", working_dir=tmp_path)
-
-    env = captured["env"]
-    assert "OPENAI_API_KEY" not in env
-    assert "ANTHROPIC_API_KEY" not in env
-    assert "GOOGLE_APPLICATION_CREDENTIALS" not in env
-    assert "AWS_ACCESS_KEY_ID" not in env
-    assert env["HOME"] == "/home/user"
+async def test_command_inherits_actor_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "egress-placeholder")
+    assert await execute_command('printf "%s" "$OPENAI_API_KEY"', working_dir=tmp_path) == "egress-placeholder"

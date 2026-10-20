@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
 	"slices"
@@ -164,9 +163,8 @@ func startMountedSkillsMock(t *testing.T, root string) (*modelRecorder, func(str
 	}
 	var active atomic.Pointer[httputil.ReverseProxy]
 	active.Store(proxies["initial"])
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		active.Load().ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	return startModelRecorder(t, server.URL, nil), func(phase string) { active.Store(proxies[phase]) }
+	})
+	return startModelRecorder(t, upstream, nil), func(phase string) { active.Store(proxies[phase]) }
 }

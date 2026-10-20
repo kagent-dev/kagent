@@ -18,7 +18,7 @@ from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
 from . import Config, KAgentApp
-from .tools import add_skills_tool_to_agent
+from .tools import add_builtin_tools_to_agent
 from .types import create_agent, parse_config
 
 logger = logging.getLogger(__name__)
@@ -36,15 +36,23 @@ def create_sts_integration(settings: TokenPropagationConfig) -> Optional[ADKToke
     return None
 
 
-def maybe_add_skills_with_config(root_agent: BaseAgent, config: Optional[Config] = None):
-    if config and config.agent.skills_directory:
-        runtime = config.runtime
-        add_skills_tool_to_agent(
-            config.agent.skills_directory,
-            root_agent,
-            file_search_tools=runtime.skill_tools.file_search_tools,
-            bash_venv_path=runtime.skill_tools.bash_venv_path,
+def add_tools_with_config(root_agent: BaseAgent, config: Optional[Config] = None):
+    runtime = config.runtime if config is not None else RuntimeConfig()
+
+    def add_tools(agent: BaseAgent, agent_config=None):
+        settings = runtime.builtin_tools
+        add_builtin_tools_to_agent(
+            agent_config.skills_directory if agent_config and agent_config.skills_directory else None,
+            agent,
+            disable_file_search=settings.disable_file_search,
+            bash_venv_path=settings.bash_venv_path,
+            disable_bash=settings.disable_bash,
         )
+        child_configs = {child.name: child for child in agent_config.sub_agents} if agent_config else {}
+        for child in agent.sub_agents:
+            add_tools(child, child_configs.get(child.name))
+
+    add_tools(root_agent, config.agent if config is not None else None)
 
 
 def parse_agent_card(data: dict) -> AgentCard:
@@ -87,7 +95,7 @@ def static(
     def root_agent_factory() -> BaseAgent:
         root_agent = create_agent(config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
 
-        maybe_add_skills_with_config(root_agent, config)
+        add_tools_with_config(root_agent, config)
 
         return root_agent
 
@@ -175,7 +183,7 @@ def run(
         if sts_integration:
             add_to_agent(sts_integration, root_agent)
 
-        maybe_add_skills_with_config(root_agent, config)
+        add_tools_with_config(root_agent, config)
 
         return root_agent
 
@@ -237,7 +245,7 @@ async def test_agent(config: Config, agent_card: AgentCard, task: str):
 
     def root_agent_factory() -> BaseAgent:
         root_agent = create_agent(config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
-        maybe_add_skills_with_config(root_agent, config)
+        add_tools_with_config(root_agent, config)
         return root_agent
 
     app = KAgentApp(root_agent_factory, agent_card, app_cfg.api_url, app_cfg.app_name, plugins=plugins, config=config)

@@ -3,7 +3,7 @@ package substrate
 import (
 	"strconv"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 )
@@ -30,9 +30,9 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		// One rule per origin: exact matches win over wildcard rules, keeping
 		// credentials on their exact origin even when a wildcard also grants access.
 		if target.Scheme == "https" {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HTTPSRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
+			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Https: &ateapipb.HttpsRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
 		} else {
-			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Http: &ateapipb.HTTPRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
+			policy.Rules = append(policy.Rules, &ateapipb.EgressRule{Http: &ateapipb.HttpRule{Hostnames: []string{target.Hostname()}, Ports: ports, Effects: effects[origin]}})
 		}
 	}
 	return policy, nil
