@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/png"
@@ -14,6 +15,7 @@ import (
 	"testing/iotest"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +28,27 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
+
+func TestSandboxProcessExitCode(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		state guestpb.ProcessState
+		code  int32
+		want  string
+	}{
+		{"running", guestpb.ProcessState_PROCESS_STATE_RUNNING, 0, `{"process_id":"process","state":"PROCESS_STATE_RUNNING"}`},
+		{"success", guestpb.ProcessState_PROCESS_STATE_EXITED, 0, `{"process_id":"process","state":"PROCESS_STATE_EXITED","exit_code":0}`},
+		{"failure", guestpb.ProcessState_PROCESS_STATE_EXITED, 7, `{"process_id":"process","state":"PROCESS_STATE_EXITED","exit_code":7}`},
+		{"killed", guestpb.ProcessState_PROCESS_STATE_EXITED, 137, `{"process_id":"process","state":"PROCESS_STATE_EXITED","exit_code":137}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := summarizeProcess(&guestpb.Process{ProcessId: "process", State: test.state, ExitCode: test.code})
+			data, err := json.Marshal(output)
+			require.NoError(t, err)
+			require.JSONEq(t, test.want, string(data))
+		})
+	}
+}
 
 func TestSandboxToolsRegisteredAndValidateBeforeDispatch(t *testing.T) {
 	// A service without dependencies proves invalid input never reaches I/O.

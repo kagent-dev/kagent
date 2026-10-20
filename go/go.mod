@@ -8,7 +8,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
 	github.com/a2aproject/a2a-go/v2 v2.6.0
-	github.com/agent-substrate/env v0.0.11-0.20260911201957-ab40c7bfb204
+	github.com/agent-substrate/env v0.0.11-0.20261007184417-0d359ea73823
 	github.com/anthropics/anthropic-sdk-go v1.82.0
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9

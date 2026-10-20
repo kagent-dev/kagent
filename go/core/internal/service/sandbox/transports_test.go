@@ -83,14 +83,14 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		contents = append(contents, chunk.Data...)
+		contents = append(contents, chunk.GetChunk()...)
 	}
 	require.Equal(t, []byte{0, 128, 255}, contents)
 	require.Equal(t, "team-a/"+substrate.ActorName(id), headers().Get("ate-target-actor"))
 	require.Equal(t, "alice", headers().Get("x-user-id"))
 	started, err := processes.StartProcess(ctx, &guestpb.StartProcessRequest{Command: []string{"sh", "-c", "printf grpc"}})
 	require.NoError(t, err)
-	outputs, err := processes.StreamProcessOutputs(ctx, &guestpb.StreamProcessOutputsRequest{ProcessId: started.ProcessId, Follow: true})
+	outputs, err := processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: started.ProcessId, Follow: true})
 	require.NoError(t, err)
 	var output []byte
 	for {
@@ -99,7 +99,7 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		output = append(output, chunk.Data...)
+		output = append(output, chunk.GetStdout()...)
 	}
 	require.Equal(t, "grpc", string(output))
 	// Every upstream method must apply kagent routing and ownership checks.
@@ -115,12 +115,12 @@ func TestSandboxTransports(t *testing.T) {
 			_, err := processes.GetProcess(ctx, &guestpb.GetProcessRequest{ProcessId: started.ProcessId})
 			return err
 		}},
-		{"kill", func(ctx context.Context) error {
-			_, err := processes.KillProcess(ctx, &guestpb.KillProcessRequest{ProcessId: started.ProcessId})
+		{"signal", func(ctx context.Context) error {
+			_, err := processes.SignalProcess(ctx, &guestpb.SignalProcessRequest{ProcessId: started.ProcessId, Signal: guestpb.Signal_SIGNAL_KILL})
 			return err
 		}},
 		{"outputs", func(ctx context.Context) error {
-			stream, err := processes.StreamProcessOutputs(ctx, &guestpb.StreamProcessOutputsRequest{ProcessId: started.ProcessId})
+			stream, err := processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: started.ProcessId})
 			if err != nil {
 				return err
 			}
@@ -178,6 +178,24 @@ func TestSandboxTransports(t *testing.T) {
 		require.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
+	t.Run("stdin is not forwarded", func(t *testing.T) {
+		stream, err := processes.WriteProcessInput(ctx)
+		require.NoError(t, err)
+		_, err = stream.CloseAndRecv()
+		require.Equal(t, codes.PermissionDenied, status.Code(err))
+	})
+
+	t.Run("read can create an empty file", func(t *testing.T) {
+		stream, err := files.ReadFile(ctx, &guestpb.ReadFileRequest{Path: "created-by-read", Mode: 0o600})
+		require.NoError(t, err)
+		_, err = stream.Recv()
+		require.ErrorIs(t, err, io.EOF)
+		stream, err = files.ReadFile(ctx, &guestpb.ReadFileRequest{Path: "created-by-read"})
+		require.NoError(t, err)
+		_, err = stream.Recv()
+		require.ErrorIs(t, err, io.EOF)
+	})
+
 	handler, err := toolserver.New(&session.Service{}, &checkpoint.Service{}, &a2asrv.InterceptedHandler{}, service, nil)
 	require.NoError(t, err)
 	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +220,7 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		contents = append(contents, chunk.Data...)
+		contents = append(contents, chunk.GetChunk()...)
 	}
 	require.Equal(t, "mcp", string(contents))
 	result, err = session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "start_sandbox_process", Arguments: map[string]any{
@@ -216,7 +234,7 @@ func TestSandboxTransports(t *testing.T) {
 	content, ok := result.Content[0].(*sdkmcp.TextContent)
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(content.Text), &process))
-	outputs, err = processes.StreamProcessOutputs(ctx, &guestpb.StreamProcessOutputsRequest{ProcessId: process.ID, Follow: true})
+	outputs, err = processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: process.ID, Follow: true})
 	require.NoError(t, err)
 	output = nil
 	for {
@@ -225,9 +243,56 @@ func TestSandboxTransports(t *testing.T) {
 			break
 		}
 		require.NoError(t, err)
-		output = append(output, chunk.Data...)
+		output = append(output, chunk.GetStdout()...)
 	}
 	require.Equal(t, "mcp", string(output))
+
+	t.Run("process state and exit code", func(t *testing.T) {
+		call := func(name, processID string) map[string]any {
+			t.Helper()
+			result, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: name, Arguments: map[string]any{
+				"sandbox_id": id, "process_id": processID,
+			}})
+			require.NoError(t, err)
+			require.False(t, result.IsError, "%+v", result.Content)
+			content, ok := result.Content[0].(*sdkmcp.TextContent)
+			require.True(t, ok)
+			var value map[string]any
+			require.NoError(t, json.Unmarshal([]byte(content.Text), &value))
+			return value
+		}
+		finished := call("get_sandbox_process", process.ID)
+		require.Equal(t, "PROCESS_STATE_EXITED", finished["state"])
+		require.EqualValues(t, 0, finished["exit_code"])
+		output := call("read_sandbox_outputs", process.ID)
+		require.Equal(t, "bWNw", output["stdout_base64"])
+		require.EqualValues(t, 3, output["stdout_offset"])
+		require.Equal(t, false, output["truncated"])
+		running, err := processes.StartProcess(ctx, &guestpb.StartProcessRequest{Command: []string{"sleep", "60"}})
+		require.NoError(t, err)
+		current := call("get_sandbox_process", running.ProcessId)
+		require.Equal(t, "PROCESS_STATE_RUNNING", current["state"])
+		require.NotContains(t, current, "exit_code")
+		killed := call("kill_sandbox_process", running.ProcessId)
+		require.Equal(t, running.ProcessId, killed["process_id"])
+		if killed["state"] == "PROCESS_STATE_RUNNING" {
+			require.NotContains(t, killed, "exit_code")
+		} else {
+			require.Equal(t, "PROCESS_STATE_EXITED", killed["state"])
+			require.EqualValues(t, 137, killed["exit_code"])
+		}
+		stream, err := processes.StreamProcessOutput(ctx, &guestpb.StreamProcessOutputRequest{ProcessId: running.ProcessId, Follow: true})
+		require.NoError(t, err)
+		exit, err := stream.Recv()
+		require.NoError(t, err)
+		require.NotNil(t, exit.GetExit())
+		require.Equal(t, guestpb.ProcessState_PROCESS_STATE_EXITED, exit.GetExit().State)
+		require.EqualValues(t, 137, exit.GetExit().ExitCode)
+		_, err = stream.Recv()
+		require.ErrorIs(t, err, io.EOF)
+		finished = call("get_sandbox_process", running.ProcessId)
+		require.EqualValues(t, 137, finished["exit_code"])
+	})
 	_, err = processes.GetProcess(ctx, &guestpb.GetProcessRequest{ProcessId: "unknown-guest-process"})
 	require.Equal(t, codes.NotFound, status.Code(err))
 	require.Equal(t, []string{"create", "policy", "resume"}, actors.observedCalls(), "guest traffic must never call the Substrate control-plane client")

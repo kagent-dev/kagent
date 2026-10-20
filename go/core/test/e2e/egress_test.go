@@ -468,7 +468,7 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 		command := fmt.Sprintf("if wget -T 3 -qO- '%s/?phase=%s'; then printf ALLOWED; else printf DENIED; fi", destination, phase)
 		process, err := f.processes.StartProcess(f.guestContext(instance.Id), &guestpb.StartProcessRequest{Command: []string{"sh", "-c", command}})
 		require.NoError(t, err)
-		outputs, err := f.processes.StreamProcessOutputs(f.guestContext(instance.Id), &guestpb.StreamProcessOutputsRequest{ProcessId: process.ProcessId, Follow: true})
+		outputs, err := f.processes.StreamProcessOutput(f.guestContext(instance.Id), &guestpb.StreamProcessOutputRequest{ProcessId: process.ProcessId, Follow: true})
 		require.NoError(t, err)
 		var result strings.Builder
 		for {
@@ -477,9 +477,7 @@ func TestSandboxEgressPolicyUpdatesLiveActor(t *testing.T) {
 				break
 			}
 			require.NoError(t, err)
-			if chunk.Source == guestpb.OutputSource_OUTPUT_SOURCE_STDOUT {
-				result.Write(chunk.Data)
-			}
+			result.Write(chunk.GetStdout())
 		}
 		return result.String()
 	}
