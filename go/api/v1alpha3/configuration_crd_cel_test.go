@@ -346,10 +346,16 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			Egress: []string{"https://proxy.golang.org", "http://mirror.internal:8080", "https://git.internal:65535", "https://*.githubusercontent.com"}}
 		require.NoError(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress"}, Spec: spec}))
 	})
+	t.Run("Agent egress accepts TLS passthrough destinations", func(t *testing.T) {
+		spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"},
+			Egress: []string{"tls://db.example.com:5432", "tls://*.kafka.example.com:9093", "https://proxy.golang.org"}}
+		require.NoError(t, cl.Create(ctx, &Agent{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress-tls"}, Spec: spec}))
+	})
 	for i, origin := range []string{
 		"proxy.golang.org", "ftp://proxy.golang.org", "https://*", "https://*.com", "https://a.*.example.com", "https://192.0.2.1", "https://[2001:db8::1]",
 		"https://proxy.golang.org/path", "https://Proxy.Golang.org", "https://user@proxy.golang.org", "https://proxy.golang.org?x=1",
 		"https://proxy.golang.org#f", "https://proxy.golang.org:0", "https://proxy.golang.org:70000",
+		"tls://db.example.com", "tls://*:443", "tls://*.com:443", "tls://192.0.2.1:5432", "tls://db.example.com:5432/db", "tls://db.example.com:0", "tls:db.example.com:5432",
 	} {
 		t.Run("Agent egress rejects "+origin, func(t *testing.T) {
 			spec := AgentSpec{TemplateRef: &corev1.LocalObjectReference{Name: "behavior"}, HarnessRef: &corev1.LocalObjectReference{Name: "runner"}, Egress: []string{origin}}

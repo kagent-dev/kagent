@@ -99,8 +99,8 @@ spec:
     - name: node-dependencies
 ```
 
-`Agent.spec.egress` lists origins inline on a single Agent; an EgressPolicy is the
-reusable, credential-bearing form, and the two combine.
+`Agent.spec.egress` lists origins inline on a single Agent, `tls://` destinations
+included; an EgressPolicy is the reusable, credential-bearing form, and the two combine.
 
 Each workload can select up to 16 policies, each containing 1–64 destinations.
 The compiler combines them with inferred integration access, removes equivalent

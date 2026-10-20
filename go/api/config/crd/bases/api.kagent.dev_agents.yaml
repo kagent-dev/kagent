@@ -54,16 +54,24 @@ spec:
             properties:
               egress:
                 description: |-
-                  Egress lists HTTP(S) origins the Agent may reach besides the destinations
-                  its revision compiles (the model, its MCP servers, its skill and plugin
-                  sources, telemetry), such as "https://proxy.golang.org". The host may
+                  Egress lists HTTP(S) origins and TLS passthrough destinations the Agent
+                  may reach besides the destinations its revision compiles (the model, its
+                  MCP servers, its skill and plugin sources, telemetry), such as
+                  "https://proxy.golang.org". The host may
                   have "*" as its leftmost label: "https://*.githubusercontent.com" matches
                   one label, such as raw.githubusercontent.com. A wildcard needs two labels
-                  under it, so nothing opens a whole top-level domain or every host.
+                  under it, so nothing opens a whole top-level domain or every host. A
+                  tls:// entry, such as "tls://db.example.com:5432", allows TLS that the
+                  gateway forwards without decryption, matched on the SNI server name and
+                  port; its port is required. A hostname pattern and port take one
+                  protocol: HTTP, HTTPS and TLS passthrough cannot share them.
                 items:
                   maxLength: 270
-                  pattern: ^https?://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
+                  pattern: ^(https?|tls)://(\*\.([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)+|([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.)*)[a-z]([-a-z0-9]{0,61}[a-z0-9])?(:([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$
                   type: string
+                  x-kubernetes-validations:
+                  - message: a tls:// origin requires a port
+                    rule: '!self.startsWith(''tls://'') || self.matches('':[0-9]+$'')'
                 maxItems: 64
                 type: array
                 x-kubernetes-list-type: set

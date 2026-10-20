@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -150,17 +151,30 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 
 // withAgentEgress adds the Agent's declared origins to the destinations its
 // runtime compiled, in canonical form and once each. Every runtime gets the
-// same treatment, so no runtime compiler reads the Agent's egress.
+// same treatment, so no runtime compiler reads the Agent's egress. A declared
+// origin whose hostname pattern and port another destination reaches over a
+// different protocol (HTTP, HTTPS or TLS passthrough) is refused.
 func withAgentEgress(compiled, declared []string) ([]string, error) {
 	if len(declared) == 0 {
 		return compiled, nil
 	}
 	destinations := slices.Clone(compiled)
+	protocols := map[string]string{}
+	for _, origin := range compiled {
+		if u, err := url.Parse(origin); err == nil && u.Host != "" {
+			protocols[u.Host] = u.Scheme
+		}
+	}
 	for _, value := range declared {
 		origin, err := egress.ParseOrigin(value)
 		if err != nil {
 			return nil, NewValidationError("Agent egress: %v", err)
 		}
+		u, _ := url.Parse(origin)
+		if scheme, found := protocols[u.Host]; found && scheme != u.Scheme {
+			return nil, NewValidationError("Agent egress: %v", egress.ProtocolConflict(u.Host, scheme, u.Scheme))
+		}
+		protocols[u.Host] = u.Scheme
 		if !slices.Contains(destinations, origin) {
 			destinations = append(destinations, origin)
 		}

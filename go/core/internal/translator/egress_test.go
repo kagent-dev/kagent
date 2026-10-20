@@ -140,6 +140,29 @@ func TestEgressPolicyTLSPassthrough(t *testing.T) {
 	require.ErrorContains(t, err, "requires a port")
 }
 
+func TestAgentEgressTLSConflictsWithEgressPolicy(t *testing.T) {
+	policy, secret := egressPolicy()
+	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runner"}, Spec: v1alpha3.HarnessSpec{
+		Kagent:    &v1alpha3.KagentHarness{},
+		Workload:  v1alpha3.HarnessWorkload{Image: "runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+	}}
+	model := modelConfig()
+	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "helper"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "help"}}
+	agent := inlineAgent(harness, template)
+	agent.Spec.EgressPolicyRefs = []corev1.LocalObjectReference{{Name: policy.Name}}
+	agent.Spec.Egress = []string{"tls://tickets.example.com:443"}
+	_, err := compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
+	var validation *translator.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.ErrorContains(t, err, "both HTTPS and TLS")
+
+	agent.Spec.Egress = []string{"tls://tickets.example.com:5432"}
+	result, err := compiler(t, model, harness, policy, secret).CompileAgent(t.Context(), agent)
+	require.NoError(t, err)
+	require.Subset(t, result.EgressDestinations, []string{"https://tickets.example.com:443", "tls://tickets.example.com:5432"}, "another port of the host takes another protocol")
+}
+
 func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "HTTP auth", "wildcard auth", "TLS auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix"} {
 		t.Run(name, func(t *testing.T) {

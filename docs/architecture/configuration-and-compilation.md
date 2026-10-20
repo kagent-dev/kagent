@@ -24,7 +24,13 @@ Dedicated `agentRef` bindings are deferred and are not part of the served API.
 destinations its revision compiles, such as `https://proxy.golang.org`. A host
 may have `*` as its leftmost label (`https://*.githubusercontent.com` matches
 one label), with at least two labels under it, so nothing opens a top-level
-domain or every host. The field is on the Agent, not the
+domain or every host. An entry may also be a TLS passthrough destination,
+`tls://<host>:<port>` with the same host rules and a required port, such as
+`tls://db.example.com:5432`: each compiles to one TLS passthrough rule, as an
+EgressPolicy's `tls://` destination does. A hostname pattern and port take one
+protocol across the Agent's egress, its EgressPolicies and its inferred
+destinations; HTTP, HTTPS and TLS passthrough on the same one are refused as a
+validation error. The field is on the Agent, not the
 template or the Harness: the hosts are a property of the workload in the place
 where it runs (an internal git host, a registry mirror), so a template stays
 portable and a Harness stays about the runtime. The compiler adds the origins,

@@ -1239,6 +1239,34 @@ func TestCompileAgentAddsTheAgentEgress(t *testing.T) {
 	_, err = c.CompileAgent(t.Context(), invalid)
 	var validation *translator.ValidationError
 	require.ErrorAs(t, err, &validation)
+
+	passthrough := referenced.DeepCopy()
+	passthrough.Spec.Egress = []string{"tls://db.example.com:5432", "tls://*.kafka.example.com:9093"}
+	result, err := c.CompileAgent(t.Context(), passthrough)
+	require.NoError(t, err)
+	require.Subset(t, result.EgressDestinations, passthrough.Spec.Egress)
+	policy, err := substrate.ActorEgressPolicy("test", result.EgressDestinations, result.Credentials)
+	require.NoError(t, err)
+	var passthroughHosts []string
+	for _, rule := range policy.Rules {
+		passthroughHosts = append(passthroughHosts, rule.GetTlsPassthrough().GetHostnames()...)
+	}
+	require.ElementsMatch(t, []string{"db.example.com", "*.kafka.example.com"}, passthroughHosts, "one TLS passthrough rule per entry")
+	require.Contains(t, result.EgressDestinations, "https://api.openai.com:443", "the model infers its HTTPS destination")
+
+	for name, declared := range map[string][]string{
+		"declared":               {"tls://api.example.com:443", "https://api.example.com"},
+		"declared and HTTP":      {"http://db.example.com:5432", "tls://db.example.com:5432"},
+		"declared and its model": {"tls://api.openai.com:443"},
+		"without port":           {"tls://db.example.com"},
+	} {
+		t.Run("refuses "+name, func(t *testing.T) {
+			refused := referenced.DeepCopy()
+			refused.Spec.Egress = declared
+			_, err := c.CompileAgent(t.Context(), refused)
+			require.ErrorAs(t, err, &validation)
+		})
+	}
 }
 
 func countOf(values []string, want string) int {
