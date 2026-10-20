@@ -891,14 +891,14 @@ func (m *chatModel) layout(width int) (string, []span) {
 	for _, b := range m.blocks {
 		switch {
 		case b.tool != nil:
-			add(renderTool(b.tool, width, b.expanded), b)
+			add(colorLinks(renderTool(b.tool, width, b.expanded)), b)
 		case b.thought != nil:
 			add(renderThought(b.thought, width, b.expanded), b)
 		case b.user:
 			add(renderUser(b.text, width), b)
 		case b.markdown:
 			if b.cacheWidth != width || b.cache == "" {
-				b.cache, b.cacheWidth = renderMarkdown(m.md, b.text), width
+				b.cache, b.cacheWidth = colorLinks(renderMarkdown(m.md, b.text)), width
 			}
 			add(b.cache, b)
 		default:
@@ -906,7 +906,7 @@ func (m *chatModel) layout(width int) (string, []span) {
 		}
 	}
 	if m.agentText != "" {
-		add(m.renderLive(), nil)
+		add(colorLinks(m.renderLive()), nil)
 	}
 	return strings.Join(rendered, "\n\n"), spans
 }

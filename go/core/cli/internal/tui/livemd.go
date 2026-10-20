@@ -35,7 +35,7 @@ func splitMarkdown(text string) (done, tail string) {
 // renderTail draws an unfinished markdown block as lightly styled text, so every
 // token shows at once: code lines in the code colour, table rows as their pipes.
 func renderTail(tail string) string {
-	code := lipgloss.NewStyle().Foreground(theme.ColorAttention)
+	code, text := lipgloss.NewStyle().Foreground(theme.ColorCodeBlock), lipgloss.NewStyle().Foreground(theme.ColorText)
 	var rows []string
 	inFence := false
 	for line := range strings.SplitSeq(strings.TrimRight(sanitize(tail), "\n"), "\n") {
@@ -48,9 +48,9 @@ func renderTail(tail string) string {
 		case strings.HasPrefix(trimmed, "#"):
 			rows = append(rows, theme.HeadingStyle().Render(strings.TrimSpace(strings.TrimLeft(trimmed, "#"))))
 		case strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* "):
-			rows = append(rows, strings.Replace(line, trimmed[:2], "• ", 1))
+			rows = append(rows, text.Render(strings.Replace(line, trimmed[:2], "• ", 1)))
 		default:
-			rows = append(rows, line)
+			rows = append(rows, text.Render(line))
 		}
 	}
 	return strings.Join(rows, "\n")

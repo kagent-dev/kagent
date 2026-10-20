@@ -15,8 +15,16 @@ var (
 	ColorAttention = lipgloss.AdaptiveColor{Light: "#B45309", Dark: "#FBBF24"}
 	// ColorAccent is primary at text contrast: violet-700 on white, violet-400 on black, both over 7:1.
 	ColorAccent = lipgloss.AdaptiveColor{Light: "#6D28D9", Dark: "#A78BFA"}
-	// ColorFaint recedes behind muted text but stays readable: 4.6:1 on white, 5.1:1 on #0d1117.
-	ColorFaint = lipgloss.AdaptiveColor{Light: "#6E7681", Dark: "#7D8590"}
+	// ColorText is agent text: 16:1 on #0d1117 and 15:1 on white.
+	ColorText = lipgloss.AdaptiveColor{Light: "#1F2328", Dark: "#E6EDF3"}
+	// ColorStrong is bold text, a step past ColorText so it stands out.
+	ColorStrong = lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}
+	// ColorLink is links and file paths: 5.1:1 on white, 9:1 on #0d1117.
+	ColorLink = lipgloss.AdaptiveColor{Light: "#0969DA", Dark: "#79C0FF"}
+	// ColorCodeBlock is code block text, readable but set apart from prose.
+	ColorCodeBlock = lipgloss.AdaptiveColor{Light: "#24292F", Dark: "#C9D1D9"}
+	// ColorFaint recedes behind body text but stays over 4.5:1 on white, #0d1117 and #1e1e2e.
+	ColorFaint = lipgloss.AdaptiveColor{Light: "#6E7681", Dark: "#8B949E"}
 )
 
 func HeadingStyle() lipgloss.Style {
@@ -35,6 +43,11 @@ func SeparatorStyle() lipgloss.Style {
 
 func StatusStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(ColorMuted)
+}
+
+// LinkStyle marks links and file paths.
+func LinkStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(ColorLink).Underline(true)
 }
 
 // ReadyStyle marks success: a finished tool call and added lines.

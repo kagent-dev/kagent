@@ -325,25 +325,32 @@ func firstLine(s string, expanded bool) string {
 // renderUser marks the user's own message with a prompt glyph in the accent
 // color, wrapping the text to width and indenting every further line under it.
 func renderUser(text string, width int) string {
-	return theme.UserStyle().Render("❯") + " " + strings.ReplaceAll(ansi.Wrap(text, max(width-2, 8), ""), "\n", "\n  ")
+	rows := strings.Split(ansi.Wrap(text, max(width-2, 8), ""), "\n")
+	for i, row := range rows {
+		rows[i] = theme.HeadingStyle().Render(row) // bold, so the prompt stands apart from replies
+	}
+	return theme.UserStyle().Render("❯") + " " + strings.Join(rows, "\n  ")
 }
 
 // markdownStyle is glamour's style for the terminal's background, recolored
 // to the theme, with the document margin removed since the pane has its own.
 func markdownStyle() glamouransi.StyleConfig {
-	style, accent, code := styles.LightStyleConfig, theme.ColorAccent.Light, theme.ColorAttention.Light
+	style, pick := styles.LightStyleConfig, func(c lipgloss.AdaptiveColor) *string { return &c.Light }
 	if lipgloss.HasDarkBackground() {
-		style, accent, code = styles.DarkStyleConfig, theme.ColorAccent.Dark, theme.ColorAttention.Dark
+		style, pick = styles.DarkStyleConfig, func(c lipgloss.AdaptiveColor) *string { return &c.Dark }
 	}
-	str := func(s string) *string { return &s }
 	zero := uint(0)
 	style.Document = glamouransi.StyleBlock{Margin: &zero}
-	style.Heading.Color = str(accent)
+	style.Document.Color = pick(theme.ColorText)
+	style.Strong.Color = pick(theme.ColorStrong)
+	style.Heading.Color = pick(theme.ColorAccent)
 	style.H1 = glamouransi.StyleBlock{}
 	style.H2, style.H3, style.H4, style.H5 = style.H1, style.H1, style.H1, style.H1
 	style.H6 = glamouransi.StyleBlock{StylePrimitive: glamouransi.StylePrimitive{Bold: new(false)}}
-	style.Link.Color, style.LinkText.Color = str(accent), str(accent)
-	style.Code.Color = str(code)
+	style.Link = glamouransi.StylePrimitive{Color: pick(theme.ColorLink), Underline: new(true)}
+	style.LinkText = style.Link
+	style.Code.Color = pick(theme.ColorAttention)
+	style.CodeBlock.Color = pick(theme.ColorCodeBlock)
 	return style
 }
 
@@ -379,4 +386,74 @@ func renderMarkdown(renderer *glamour.TermRenderer, text string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// escapeSeq is one terminal escape sequence: styling, or an OSC such as a hyperlink.
+var escapeSeq = regexp.MustCompile("\x1b(?:\\[[0-9;:?]*[A-Za-z]|\\][^\x07\x1b]*(?:\x07|\x1b\\\\))")
+
+// linkish is a web URL, or a file path that starts /, ~/, ./ or ../.
+var linkish = regexp.MustCompile("https?://[^\\s<>\"'`\x1b]+|(?:~|\\.{1,2})?/[\\w.\\-]+(?:/[\\w.\\-]*)*")
+
+// proseColors are the foreground escapes of text that links may sit in: body,
+// bold, faint and error text, in the terminal's colour profile.
+func proseColors() []string {
+	var out []string
+	for _, c := range []lipgloss.AdaptiveColor{theme.ColorText, theme.ColorStrong, theme.ColorFaint, theme.ColorError} {
+		if start, _, _ := strings.Cut(lipgloss.NewStyle().Foreground(c).Render("x"), "x"); start != "" {
+			out = append(out, strings.TrimSuffix(strings.TrimPrefix(start, "\x1b["), "m"))
+		}
+	}
+	return out
+}
+
+// colorLinks draws the URLs and file paths in styled text in the link colour,
+// then restores the styling in force.
+// Paths are only coloured: a click opens web links alone.
+func colorLinks(s string) string {
+	link, _, _ := strings.Cut(theme.LinkStyle().Render("x"), "x")
+	if link == "" {
+		return s // no colours in this terminal
+	}
+	var out strings.Builder
+	active := ""
+	for s != "" {
+		loc := escapeSeq.FindStringIndex(s)
+		text := s
+		if loc != nil {
+			text = s[:loc[0]]
+		}
+		out.WriteString(colorRun(text, link, active))
+		if loc == nil {
+			break
+		}
+		seq := s[loc[0]:loc[1]]
+		switch {
+		case seq == "\x1b[0m" || seq == "\x1b[m":
+			active = ""
+		case strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "m"):
+			active += seq
+		}
+		out.WriteString(seq)
+		s = s[loc[1]:]
+	}
+	return out.String()
+}
+
+// colorRun colours the links that start a word in one run of text. Only plain
+// prose and tool output qualify: code, headings and highlighted text keep their colours.
+func colorRun(text, link, active string) string {
+	if active != "" && !slices.ContainsFunc(proseColors(), func(fg string) bool { return strings.Contains(active, fg) }) || strings.Contains(active, "48;") {
+		return text
+	}
+	var out strings.Builder
+	last := 0
+	for _, loc := range linkish.FindAllStringIndex(text, -1) {
+		if loc[0] > 0 && !strings.ContainsRune(" \t([\"'`", rune(text[loc[0]-1])) {
+			continue
+		}
+		end := loc[0] + len(strings.TrimRight(text[loc[0]:loc[1]], ".,;:!?)]}"))
+		out.WriteString(text[last:loc[0]] + link + text[loc[0]:end] + "\x1b[0m" + active)
+		last = end
+	}
+	return out.String() + text[last:]
 }

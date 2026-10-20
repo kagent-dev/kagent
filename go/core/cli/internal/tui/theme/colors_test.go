@@ -42,3 +42,30 @@ func TestBorderContrast(t *testing.T) {
 		t.Errorf("dark unfocused border is only %.2f:1 against the focused one", got)
 	}
 }
+
+// Chat text reads clearly on common dark backgrounds and on white; faint text stays at least 4.5:1.
+func TestTextContrast(t *testing.T) {
+	darks := []string{"#000000", "#0D1117", "#1E1E2E"}
+	check := func(name, color string, backgrounds []string, least float64) {
+		for _, background := range backgrounds {
+			if got := contrast(color, background); got < least {
+				t.Errorf("%s %s is %.2f:1 on %s, want %.1f", name, color, got, background, least)
+			}
+		}
+	}
+	check("text", ColorText.Dark, darks, 10)
+	check("text", ColorText.Light, []string{"#FFFFFF"}, 10)
+	check("bold", ColorStrong.Dark, darks, 15)
+	check("bold", ColorStrong.Light, []string{"#FFFFFF"}, 15)
+	for name, c := range map[string]struct{ dark, light string }{
+		"link": {ColorLink.Dark, ColorLink.Light}, "heading": {ColorAccent.Dark, ColorAccent.Light},
+		"code": {ColorAttention.Dark, ColorAttention.Light}, "faint": {ColorFaint.Dark, ColorFaint.Light},
+		"muted": {ColorMuted.Dark, ColorMuted.Light}, "code block": {ColorCodeBlock.Dark, ColorCodeBlock.Light},
+	} {
+		check(name, c.dark, darks, 4.5)
+		check(name, c.light, []string{"#FFFFFF"}, 4.5)
+	}
+	if luminance(ColorStrong.Dark) <= luminance(ColorText.Dark) || luminance(ColorStrong.Light) >= luminance(ColorText.Light) {
+		t.Error("bold must stand out from body text in both themes")
+	}
+}
