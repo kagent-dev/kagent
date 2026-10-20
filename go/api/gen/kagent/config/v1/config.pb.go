@@ -719,10 +719,8 @@ type ControllerServerConfig struct {
 	BindAddress    *string                `protobuf:"bytes,1,opt,name=bind_address,json=bindAddress,proto3,oneof" json:"bind_address,omitempty"`
 	GrpcReflection bool                   `protobuf:"varint,2,opt,name=grpc_reflection,json=grpcReflection,proto3" json:"grpc_reflection,omitempty"`
 	Auth           *AuthenticationConfig  `protobuf:"bytes,3,opt,name=auth,proto3" json:"auth,omitempty"`
-	// Actor-only listener. Every runtime call requires a Substrate Actor JWT.
-	RuntimeBindAddress *string `protobuf:"bytes,4,opt,name=runtime_bind_address,json=runtimeBindAddress,proto3,oneof" json:"runtime_bind_address,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ControllerServerConfig) Reset() {
@@ -774,13 +772,6 @@ func (x *ControllerServerConfig) GetAuth() *AuthenticationConfig {
 		return x.Auth
 	}
 	return nil
-}
-
-func (x *ControllerServerConfig) GetRuntimeBindAddress() string {
-	if x != nil && x.RuntimeBindAddress != nil {
-		return *x.RuntimeBindAddress
-	}
-	return ""
 }
 
 type AuthenticationConfig struct {
@@ -2046,14 +2037,12 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x0fleader_election\x18\x03 \x01(\bH\x01R\x0eleaderElection\x88\x01\x01B\f\n" +
 	"\n" +
 	"_namespaceB\x12\n" +
-	"\x10_leader_election\"\x98\x02\n" +
+	"\x10_leader_election\"\xbf\x01\n" +
 	"\x16ControllerServerConfig\x12/\n" +
 	"\fbind_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\vbindAddress\x88\x01\x01\x12'\n" +
 	"\x0fgrpc_reflection\x18\x02 \x01(\bR\x0egrpcReflection\x12:\n" +
-	"\x04auth\x18\x03 \x01(\v2&.kagent.config.v1.AuthenticationConfigR\x04auth\x12>\n" +
-	"\x14runtime_bind_address\x18\x04 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x01R\x12runtimeBindAddress\x88\x01\x01B\x0f\n" +
-	"\r_bind_addressB\x17\n" +
-	"\x15_runtime_bind_address\"|\n" +
+	"\x04auth\x18\x03 \x01(\v2&.kagent.config.v1.AuthenticationConfigR\x04authB\x0f\n" +
+	"\r_bind_address\"|\n" +
 	"\x14AuthenticationConfig\x127\n" +
 	"\x04mode\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19R\binsecureR\rtrusted-proxyH\x00R\x04mode\x88\x01\x01\x12\"\n" +
 	"\ruser_id_claim\x18\x02 \x01(\tR\vuserIdClaimB\a\n" +

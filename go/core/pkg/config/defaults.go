@@ -34,7 +34,7 @@ func DefaultCLI(cfg *configv1.CLIConfig) {
 func DefaultController(cfg *configv1.ControllerConfig) {
 	defaults(cfg, &configv1.ControllerConfig{
 		Kubernetes:       &configv1.KubernetesConfig{Namespace: new("kagent"), LeaderElection: new(true)},
-		Server:           &configv1.ControllerServerConfig{BindAddress: new(":8083"), RuntimeBindAddress: new(":8084"), Auth: &configv1.AuthenticationConfig{Mode: new("insecure")}},
+		Server:           &configv1.ControllerServerConfig{BindAddress: new(":8083"), Auth: &configv1.AuthenticationConfig{Mode: new("insecure")}},
 		Database:         defaultDatabase(),
 		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("http://atenet-router.ate-system.svc:80"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
 		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
@@ -46,7 +46,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Metrics:          &configv1.MetricsConfig{BindAddress: new("0")},
 		Logging:          &configv1.LoggingConfig{Level: new("info")},
 		Telemetry:        &configv1.TelemetryConfig{},
-		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8084"), GatewayUrl: new("http://kagent-controller.kagent:8084"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
+		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
 	})
 	if cfg.Push.Issuer == nil {
 		cfg.Push.Issuer = new(cfg.Gateway.GetPublicUrl())

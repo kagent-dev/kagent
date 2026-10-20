@@ -62,11 +62,11 @@ The opaque BYO fixture has its own test because it does not consume managed
 agent configuration.
 
 `TestRuntimeActorJWTAuthentication` exercises real Substrate Actor JWT injection
-for every harness. The chart exposes the actor-only runtime listener on its named
-`runtime` service port (8084 by default). The test uses the controller's reachable
-host with that service port to verify missing, forged, and uninjected credentials
-are rejected for both TaskStore and Memory. It also checks that user APIs are
-denied on the runtime listener. Controller and runtime images must match.
+for every harness on the same controller endpoint used by user calls. It verifies
+that missing, forged, and uninjected credentials are rejected for TaskStore and
+actor-only Memory methods. Controller and runtime images must match. The gRPC
+integration tests cover user and actor memory access on a shared listener, actor
+API restrictions, and rejection of invalid Actor JWTs in both user auth modes.
 
 Add portable tests using this pattern:
 

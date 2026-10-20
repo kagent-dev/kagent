@@ -188,20 +188,26 @@ execution. Other harnesses retain their existing policy for parked tasks. All ha
 
 ## Runtime authority
 
-Actor calls use the controller's runtime listener (`server.runtimeBindAddress`,
-`:8084` by default). Every permitted RPC requires a Substrate-issued Actor JWT in
+Actor and user calls use the same controller listener (`server.bindAddress`,
+`:8083` by default). Actor calls require a Substrate-issued Actor JWT in
 `Authorization`. Go and Python controller clients send `Bearer placeholder`;
 the exact control-plane origin's egress rule replaces it with a five-minute JWT
 bound to the `kagent-runtime` audience. Other destinations receive no runtime JWT,
 and this rule does not grant network access to sandboxes that cannot already
 reach the control plane.
 
-The runtime method allowlist contains TaskStore and Memory only. User APIs,
-A2A, MCP, reflection, and unconfigured methods are not available through that
-listener. Actors do not inherit their session owner's general permissions.
-The user listener retains configured authentication and rejects Actor JWTs as
-user credentials. Insecure user authentication remains insecure by design;
-protect access to that listener according to the selected user authentication mode.
+The runtime method allowlist contains TaskStore and Memory only. Actor JWTs
+cannot authorize user APIs, A2A, MCP, reflection, or unconfigured methods. Actors
+do not inherit their session owner's general permissions. The user authenticator
+identifies actor credentials without trusting their claims, then the gRPC
+interceptor sends them to the Actor JWT verifier and enforces the allowlist.
+Invalid actor credentials never fall back to user authentication.
+
+User calls retain configured authentication. Insecure mode intentionally permits
+unauthenticated user access. Substrate replaces Authorization only when the actor
+sends the header; a request without it follows the configured user authentication
+policy. TaskStore and actor-only Memory methods always require an Actor JWT.
+Secure user access still requires the configured trusted authentication boundary.
 
 The controller trusts `substrate.actorJwtIssuer` (default
 `https://idp.ate-system.svc`). It fetches OIDC discovery and JWKS over TLS using
@@ -214,11 +220,11 @@ minute; publish new verification keys at least a minute before using them.
 The service checks the verified actor name against the requested session and
 matches its atespace and recorded Actor UID. Memory derives its agent namespace
 and user from that persisted session binding, ignoring caller-supplied identity
-fields. Users can also list and delete their own memories through the user
-listener. These calls use the requested agent key and the authenticated user ID,
+fields. Users can also list and delete their own memories on the same endpoint.
+These calls use the requested agent key and the authenticated user ID,
 ignoring the request's user ID, and do not require a live actor or session.
-Public and share credentials cannot grant runtime access. The unsigned identity
-header is not accepted.
+User and share credentials cannot grant access to actor-only methods. The
+unsigned identity header is not accepted.
 
 Substrate supplies the calling Actor's current identity after restore and fork;
 no token is persisted in a runtime snapshot. Only the projected actor name is

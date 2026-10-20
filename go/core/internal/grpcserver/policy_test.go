@@ -2,8 +2,12 @@ package grpcserver
 
 import (
 	"testing"
+	"time"
 
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -11,6 +15,10 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -100,24 +108,69 @@ func TestSandboxGuestPoliciesMatchTheirEffect(t *testing.T) {
 	}
 }
 
-func TestRuntimeEndpointDeniesUserAndUnconfiguredMethods(t *testing.T) {
-	actor := &testAuthenticator{session: &testSession{principal: pkgauth.Principal{Agent: pkgauth.Agent{ID: "actor"}}}}
-	for _, method := range []string{
-		apiv1.SessionService_CreateSession_FullMethodName,
-		apiv1.AgentService_DeleteAgent_FullMethodName,
-		apiv1.SystemService_GetVersion_FullMethodName,
-		"/a2a.v1.A2AService/SendMessage",
-		"/extension.Service/Call",
+func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
+	issuer := jwttest.New(t)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	require.NoError(t, err)
+	actors := runtimeauth.NewAuthenticator(verifier)
+	sessionID := uuid.NewString()
+	claims := issuer.Claims("team-a", "session-"+sessionID, "actor-uid")
+	actor := "Bearer " + issuer.Token(t, claims)
+	claims["exp"] = time.Now().Add(-time.Minute).Unix()
+	expired := "Bearer " + issuer.Token(t, claims)
+	forged := "Bearer " + issuer.Token(t, jwt.MapClaims{"iss": issuer.URL, "sub": "alice"})
+	user := "Bearer " + issuer.Token(t, jwt.MapClaims{"iss": "https://users.example", "sub": "alice"})
+	policies := DefaultMethodPolicies()
+	policies["/extension.Service/Call"] = pkgauth.AccessRead
+	for _, mode := range []struct {
+		name      string
+		provider  pkgauth.AuthProvider
+		anonymous codes.Code
+	}{
+		{"insecure", &authimpl.InsecureAuthenticator{}, codes.OK},
+		{"trusted proxy", authimpl.NewProxyAuthenticator("sub"), codes.Unauthenticated},
 	} {
-		t.Run(method, func(t *testing.T) {
-			_, err := authenticate(t.Context(), method, actor, actor, nil, RuntimeMethodPolicies())
+		t.Run(mode.name, func(t *testing.T) {
+			users := runtimeauth.Users(mode.provider, issuer.URL)
+			for _, test := range []struct {
+				name, token, method string
+				want                codes.Code
+			}{
+				{"actor task", actor, runtimev1.TaskStoreService_GetTask_FullMethodName, codes.OK},
+				{"actor memory list", actor, runtimev1.MemoryService_List_FullMethodName, codes.OK},
+				{"actor memory delete", actor, runtimev1.MemoryService_Delete_FullMethodName, codes.OK},
+				{"user memory list", user, runtimev1.MemoryService_List_FullMethodName, codes.OK},
+				{"user memory delete", user, runtimev1.MemoryService_Delete_FullMethodName, codes.OK},
+				{"user task denied", user, runtimev1.TaskStoreService_GetTask_FullMethodName, codes.Unauthenticated},
+				{"anonymous task denied", "", runtimev1.TaskStoreService_GetTask_FullMethodName, codes.Unauthenticated},
+				{"anonymous memory uses configured auth", "", runtimev1.MemoryService_List_FullMethodName, mode.anonymous},
+				{"anonymous user API uses configured auth", "", apiv1.SessionService_ListSessions_FullMethodName, mode.anonymous},
+				{"anonymous public API", "", apiv1.SystemService_GetVersion_FullMethodName, codes.OK},
+				{"actor user API denied", actor, apiv1.SessionService_CreateSession_FullMethodName, codes.PermissionDenied},
+				{"actor public API denied", actor, apiv1.SystemService_GetVersion_FullMethodName, codes.PermissionDenied},
+				{"actor A2A denied", actor, a2apb.A2AService_SendMessage_FullMethodName, codes.PermissionDenied},
+				{"actor streaming A2A denied", actor, a2apb.A2AService_SendStreamingMessage_FullMethodName, codes.PermissionDenied},
+				{"actor extension denied", actor, "/extension.Service/Call", codes.PermissionDenied},
+				{"unknown method denied", actor, "/unconfigured.Service/Call", codes.PermissionDenied},
+				{"expired actor has no user fallback", expired, runtimev1.MemoryService_List_FullMethodName, codes.Unauthenticated},
+				{"forged actor has no user fallback", forged, runtimev1.MemoryService_Delete_FullMethodName, codes.Unauthenticated},
+				{"expired actor cannot use public API", expired, apiv1.SystemService_GetVersion_FullMethodName, codes.Unauthenticated},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", test.token, "x-user-id", "alice"))
+					result, err := authenticate(ctx, test.method, users, actors, nil, policies)
+					require.Equal(t, test.want, status.Code(err), "%v", err)
+					if test.want == codes.OK && test.token == actor {
+						identity, ok := pkgauth.AuthSessionFrom(result)
+						require.True(t, ok)
+						require.Empty(t, identity.Principal().User.ID)
+						require.Equal(t, sessionID, identity.Principal().Agent.ID)
+					}
+				})
+			}
+			shared := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", actor, "x-share-token", "share"))
+			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, actors, nil, policies)
 			require.Equal(t, codes.PermissionDenied, status.Code(err))
 		})
-	}
-	for _, method := range []string{runtimev1.TaskStoreService_GetTask_FullMethodName, runtimev1.MemoryService_List_FullMethodName} {
-		_, err := authenticate(t.Context(), method, actor, nil, nil, RuntimeMethodPolicies())
-		require.Equal(t, codes.Unauthenticated, status.Code(err))
-		_, err = authenticate(t.Context(), method, nil, actor, nil, RuntimeMethodPolicies())
-		require.NoError(t, err)
 	}
 }

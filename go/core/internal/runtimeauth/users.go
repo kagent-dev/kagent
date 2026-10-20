@@ -2,7 +2,7 @@ package runtimeauth
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +19,10 @@ type userAuthenticator struct {
 
 var _ auth.AuthProvider = (*userAuthenticator)(nil)
 
+// ErrActorCredentials directs transports to the Actor JWT authenticator.
+// It never establishes an identity or grants access on its own.
+var ErrActorCredentials = errors.New("actor credentials require Actor JWT verification")
+
 // Users preserves the configured user authentication mode while preventing
 // workload tokens from being interpreted as user credentials, including in
 // insecure or trusted-proxy mode.
@@ -33,7 +37,8 @@ func (u *userAuthenticator) Authenticate(ctx context.Context, headers http.Heade
 			continue
 		}
 		claims := jwt.MapClaims{}
-		// Unverified claims can only reject a request here; they never grant access.
+		// Unverified claims only exclude user authentication; actor identity must
+		// be verified separately.
 		// Opaque user credentials remain the configured provider's responsibility.
 		if _, _, err := jwt.NewParser().ParseUnverified(raw, claims); err != nil && len(claims) == 0 {
 			continue
@@ -41,7 +46,7 @@ func (u *userAuthenticator) Authenticate(ctx context.Context, headers http.Heade
 		issuer, issuerErr := claims.GetIssuer()
 		_, actor := claims["actor.ate.dev"]
 		if actor || (issuerErr == nil && issuer == u.actorIssuer) {
-			return nil, fmt.Errorf("actor credentials require the runtime endpoint")
+			return nil, ErrActorCredentials
 		}
 	}
 	return u.AuthProvider.Authenticate(ctx, headers, query)

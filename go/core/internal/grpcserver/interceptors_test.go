@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -217,7 +218,7 @@ func TestA2AShareAuthorizationIsDelegatedToGateway(t *testing.T) {
 }
 
 func TestRuntimeIdentityDoesNotAuthorizePublicAPI(t *testing.T) {
-	const runtimeMethod = "/test.TaskStore/Get"
+	const runtimeMethod = runtimev1.TaskStoreService_GetTask_FullMethodName
 	policies := MethodPolicies{runtimeMethod: pkgauth.AccessRuntime, readMethod: pkgauth.AccessRead}
 	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", "Bearer signed-actor-token"))
 	public := &testAuthenticator{err: errors.New("public credentials required")}

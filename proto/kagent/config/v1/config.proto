@@ -134,8 +134,6 @@ message ControllerServerConfig {
   optional string bind_address = 1 [(buf.validate.field).string.min_len = 1];
   bool grpc_reflection = 2;
   AuthenticationConfig auth = 3;
-  // Actor-only listener. Every runtime call requires a Substrate Actor JWT.
-  optional string runtime_bind_address = 4 [(buf.validate.field).string.min_len = 1];
 }
 
 message AuthenticationConfig {

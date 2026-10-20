@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -56,24 +57,33 @@ func authenticate(ctx context.Context, fullMethod string, authenticator, runtime
 	if !ok {
 		return ctx, status.Error(codes.PermissionDenied, "RPC authorization policy is not configured")
 	}
-	if access == auth.AccessPublic {
+	headers := incomingHTTPHeaders(ctx)
+	if access == auth.AccessPublic && len(headers.Values("Authorization")) == 0 {
 		return ctx, nil
 	}
-	if access == auth.AccessRuntime {
-		authenticator = runtimeAuthenticator
+	var session auth.Session
+	var err error
+	if access != auth.AccessRuntime && authenticator != nil {
+		session, err = authenticator.Authenticate(ctx, headers, url.Values{})
 	}
-	if authenticator == nil {
-		return ctx, status.Error(codes.Unauthenticated, "authentication is not configured")
+	actor := access == auth.AccessRuntime || errors.Is(err, runtimeauth.ErrActorCredentials)
+	if actor {
+		if runtimeAuthenticator == nil {
+			return ctx, status.Error(codes.Unauthenticated, "runtime authentication is not configured")
+		}
+		session, err = runtimeAuthenticator.Authenticate(ctx, headers, url.Values{})
+	} else if access == auth.AccessPublic {
+		return ctx, nil
 	}
-
-	headers := incomingHTTPHeaders(ctx)
-	session, err := authenticator.Authenticate(ctx, headers, url.Values{})
 	if err != nil || session == nil {
 		return ctx, status.Error(codes.Unauthenticated, "invalid credentials")
 	}
 
 	authenticatedContext := auth.AuthSessionTo(ctx, session)
-	if access == auth.AccessRuntime {
+	if actor {
+		if _, allowed := RuntimeMethodPolicies()[fullMethod]; !allowed {
+			return ctx, status.Error(codes.PermissionDenied, "actors cannot access this RPC")
+		}
 		if headers.Get("X-Share-Token") != "" {
 			return ctx, status.Error(codes.PermissionDenied, "share credentials cannot access runtime storage")
 		}

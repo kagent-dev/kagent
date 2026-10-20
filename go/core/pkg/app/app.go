@@ -429,6 +429,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		BindAddress:           cfg.GetServer().GetBindAddress(),
 		Reflection:            cfg.GetServer().GetGrpcReflection(),
 		Authenticator:         authenticator,
+		RuntimeAuthenticator:  runtimeauth.NewAuthenticator(actorVerifier),
 		ShareStore:            store,
 		ModelService:          models,
 		ToolService:           tools,
@@ -452,26 +453,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 
-	actorAuthenticator := runtimeauth.NewAuthenticator(actorVerifier)
-	runtimeServer, err := grpcserver.New(grpcserver.Config{
-		BindAddress:          cfg.GetServer().GetRuntimeBindAddress(),
-		MethodPolicies:       grpcserver.RuntimeMethodPolicies(),
-		Authenticator:        actorAuthenticator,
-		RuntimeAuthenticator: actorAuthenticator,
-		SystemService:        system,
-		MemoryService:        memory,
-		TaskStoreService:     runtimeTasks,
-		HTTPHandler:          auth.AuthnMiddleware(actorAuthenticator)(http.NotFoundHandler()),
-	})
-	if err != nil {
-		return err
-	}
-
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return runtime.Start(ctx) })
 	group.Go(func() error { return manager.Start(ctx) })
 	group.Go(func() error { return server.Start(ctx) })
-	group.Go(func() error { return runtimeServer.Start(ctx) })
 	return group.Wait()
 }
 

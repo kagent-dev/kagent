@@ -84,12 +84,8 @@ tests:
             PrivateDNSName: kagent
             service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
 
-  - it: should expose the actor-only runtime endpoint
+  - it: should use one controller port for users and actors
     asserts:
-      - equal:
-          path: spec.ports[1]
-          value:
-            name: runtime
-            port: 8084
-            targetPort: 8084
-            protocol: TCP
+      - lengthEqual:
+          path: spec.ports
+          count: 1

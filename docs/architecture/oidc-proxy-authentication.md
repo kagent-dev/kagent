@@ -102,10 +102,11 @@ claim. Headers alone do not authenticate an agent. This path does not perform a
 Kubernetes TokenReview or otherwise validate a service-account token.
 
 The [gRPC interceptors](../../go/core/internal/grpcserver/interceptors.go) pass
-incoming authentication metadata to the configured provider. Actor calls use the separate
-runtime listener, which always verifies Actor JWTs and allows only TaskStore and
-Memory. The user listener rejects Actor JWTs; the proxy's agent-header path
-does not define authentication for runtime methods. See the
+incoming authentication metadata to the configured provider. Actor calls use the
+same listener, but the controller routes Actor JWTs to its dedicated verifier and
+allows only TaskStore and Memory. Invalid actor credentials cannot fall back to
+user authentication. The proxy's agent-header path does not define authentication
+for runtime methods. See the
 [A2A gateway](a2a-gateway.md) for the runtime boundary.
 
 ## Deployment configuration

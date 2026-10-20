@@ -125,7 +125,7 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 	}
 }
 
-// Exercise the real SDK -> private gRPC -> PostgreSQL path. The public observer
+// Exercise the real SDK -> controller gRPC -> PostgreSQL path. The public observer
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
@@ -147,10 +147,10 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	memories := &runtimeMemoryStore{Client: store.Client}
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
-		Authenticator: runtimeauth.NewAuthenticator(verifier), RuntimeAuthenticator: runtimeauth.NewAuthenticator(verifier),
-		MethodPolicies:   RuntimeMethodPolicies(),
-		TaskStoreService: tasks,
-		MemoryService:    memoryservice.NewService(memories),
+		Authenticator:        runtimeauth.Users(&authimpl.InsecureAuthenticator{}, issuer.URL),
+		RuntimeAuthenticator: runtimeauth.NewAuthenticator(verifier),
+		TaskStoreService:     tasks,
+		MemoryService:        memoryservice.NewService(memories),
 	})
 	require.NoError(t, err)
 	serverCtx, stopServer := context.WithCancel(t.Context())

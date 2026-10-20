@@ -301,8 +301,6 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-      runtimePort: 8084
-      runtimeTargetPort: 8084
     annotations: {}
   # Kubernetes packaging for the controller's Prometheus listener. Its address
   # and TLS mode come from config.metrics.

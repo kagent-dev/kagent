@@ -1,6 +1,5 @@
 {{- $namespace := include "kagent.namespace" . -}}
 {{- $apiURL := printf "http://%s" (include "kagent.controllerServiceAuthority" .) -}}
-{{- $runtimeURL := printf "http://%s" (include "kagent.controllerRuntimeAuthority" .) -}}
 {{- $watch := list -}}
 {{- with include "kagent.watchNamespaces" . -}}{{- $watch = splitList "," . -}}{{- end -}}
 {{- $database := dict "readWrite" (dict "urlFile" "/etc/kagent/secrets/database-readwrite-url") -}}
@@ -9,11 +8,11 @@
 {{- end -}}
 {{- $base := dict
   "kubernetes" (dict "namespace" $namespace "watchNamespaces" $watch)
-  "server" (dict "bindAddress" (printf ":%v" .Values.controller.service.ports.targetPort) "runtimeBindAddress" (printf ":%v" .Values.controller.service.ports.runtimeTargetPort))
+  "server" (dict "bindAddress" (printf ":%v" .Values.controller.service.ports.targetPort))
   "database" $database
   "gateway" (dict "publicUrl" $apiURL)
   "push" (dict)
-  "runtimeDefaults" (dict "controlPlaneUrl" $runtimeURL "gatewayUrl" $runtimeURL)
+  "runtimeDefaults" (dict "controlPlaneUrl" $apiURL "gatewayUrl" $apiURL)
 -}}
 {{- $config := mergeOverwrite $base (deepCopy .Values.config) -}}
 {{- if and $config.sandboxes $config.sandboxes.guestImage -}}
