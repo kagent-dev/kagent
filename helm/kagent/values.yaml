@@ -23,7 +23,7 @@ global:
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # grafana-mcp, substrateWorkerPool.workerImage, and built-in Harness images
+  # substrateWorkerPool.workerImage, and built-in Harness images
   # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
   # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
@@ -770,25 +770,6 @@ proxy:
   # Proxy URL for internally-built k8s URLs
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
-
-# ==============================================================================
-# MCP TOOLS
-# ==============================================================================
-
-grafana-mcp:
-  enabled: true
-  grafana:
-    url: "grafana.kagent:3000/api"
-    serviceAccountToken: ""
-    # apiKey: "" # Deprecated - use serviceAccountToken instead.
-    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
 
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)
