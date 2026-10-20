@@ -367,15 +367,25 @@ func markdownRenderer(width int) (*glamour.TermRenderer, error) {
 // and would drop text like <pod-name> that the streaming tail still shows.
 func escapeHTML(text string) string {
 	var b strings.Builder
-	inFence := false
+	fence := "" // the open fence's marker run; it closes on the same char, at least as long
 	for line := range strings.SplitAfterSeq(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			inFence = !inFence
-			b.WriteString(line)
-			continue
+		rest := strings.TrimLeft(line, " ")
+		if len(line)-len(rest) < 4 && rest != "" && (rest[0] == '`' || rest[0] == '~') {
+			info := strings.TrimLeft(rest, rest[:1])
+			run := rest[:len(rest)-len(info)]
+			switch {
+			case len(run) < 3:
+			case fence == "" && (run[0] != '`' || !strings.Contains(info, "`")):
+				fence = run
+				b.WriteString(line)
+				continue
+			case fence != "" && run[0] == fence[0] && len(run) >= len(fence) && strings.TrimSpace(info) == "":
+				fence = ""
+				b.WriteString(line)
+				continue
+			}
 		}
-		if inFence {
+		if fence != "" {
 			b.WriteString(line)
 			continue
 		}

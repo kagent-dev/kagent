@@ -144,6 +144,8 @@ func TestRenderMarkdownKeepsAngleBrackets(t *testing.T) {
 		{"inline code", "Run `kubectl logs <pod-name>` now.", "kubectl logs <pod-name>"},
 		{"double backtick code", "Run ``a `<b>` c`` now.", "a `<b>` c"},
 		{"fenced block", "```sh\nkubectl logs <pod-name>\n```", "kubectl logs <pod-name>"},
+		{"tilde inside backtick fence", "```\na\n~~~\nb <y>\n```\nafter <z>", "after <z>"},
+		{"short fence inside long fence", "````\n```\nin <q>\n````\nout <w>", "out <w>"},
 		{"already escaped", `Use \<tag> here.`, "Use <tag> here."},
 		{"link", "See [docs](https://kagent.dev/docs) for <name>.", "docs https://kagent.dev/docs for <name>."},
 	} {
