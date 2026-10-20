@@ -1,5 +1,10 @@
 replicas: 1
 
+# -- Annotations on the Deployment object (not the pod), e.g.
+# `secret.reloader.stakater.com/reload: <secret>` so a token rotated into an
+# externally managed Secret rolls the pod.
+annotations: {}
+
 grafana:
   url: "grafana.kagent:3000/api"
   serviceAccountToken: ""

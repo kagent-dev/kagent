@@ -210,3 +210,21 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: Never
+
+  - it: should set no Deployment annotations by default
+    template: deployment.yaml
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: should render Deployment annotations from values
+    template: deployment.yaml
+    set:
+      annotations:
+        secret.reloader.stakater.com/reload: kagent-grafana-mcp
+    asserts:
+      - equal:
+          path: metadata.annotations["secret.reloader.stakater.com/reload"]
+          value: kagent-grafana-mcp
+      - notExists:
+          path: spec.template.metadata.annotations["secret.reloader.stakater.com/reload"]
