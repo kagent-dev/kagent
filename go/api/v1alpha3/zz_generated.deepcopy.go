@@ -309,11 +309,6 @@ func (in *AgentTemplateSpec) DeepCopyInto(out *AgentTemplateSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.AskUser != nil {
-		in, out := &in.AskUser, &out.AskUser
-		*out = new(bool)
-		**out = **in
-	}
 	if in.Skills != nil {
 		in, out := &in.Skills, &out.Skills
 		*out = make([]AgentTemplateSkill, len(*in))

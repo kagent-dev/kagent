@@ -93,7 +93,9 @@ def static(
         plugins.append(LLMPassthroughPlugin())
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = create_agent(config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
+        root_agent = create_agent(
+            config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled, runtime_config=runtime
+        )
 
         add_tools_with_config(root_agent, config)
 
@@ -244,7 +246,9 @@ async def test_agent(config: Config, agent_card: AgentCard, task: str):
         plugins = [sts_integration]
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = create_agent(config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
+        root_agent = create_agent(
+            config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled, runtime_config=runtime
+        )
         add_tools_with_config(root_agent, config)
         return root_agent
 

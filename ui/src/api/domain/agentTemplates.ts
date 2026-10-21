@@ -107,8 +107,6 @@ export interface AgentTemplateSpec {
   outputSchemaFrom?: ConfigMapKeyRef;
   promptTemplate?: AgentTemplatePromptSpec;
   tools?: ToolBinding[];
-  /** Omitted enables ask_user. False also disables it in shared subagents. */
-  askUser?: boolean;
   skills?: AgentTemplateSkill[];
   plugins?: PluginBundle[];
 }

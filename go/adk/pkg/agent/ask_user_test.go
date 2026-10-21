@@ -22,15 +22,14 @@ import (
 func TestAskUserAvailability(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	for _, tc := range []struct {
-		name        string
-		root, child *bool
-		want        []bool
+		name    string
+		runtime *configv1.ADKRuntimeConfig
+		want    bool
 	}{
-		{name: "omitted", want: []bool{true, true, true}},
-		{name: "enabled", root: new(true), child: new(true), want: []bool{true, true, true}},
-		{name: "disabled", root: new(false), want: []bool{false, false, false}},
-		{name: "child cannot reenable", root: new(false), child: new(true), want: []bool{false, false, false}},
-		{name: "child disables its subtree", child: new(false), want: []bool{true, false, false}},
+		{name: "omitted runtime", want: true},
+		{name: "omitted builtin tools", runtime: &configv1.ADKRuntimeConfig{}, want: true},
+		{name: "enabled", runtime: &configv1.ADKRuntimeConfig{BuiltinTools: &configv1.BuiltinToolsConfig{DisableAskUser: false}}, want: true},
+		{name: "disabled", runtime: &configv1.ADKRuntimeConfig{BuiltinTools: &configv1.BuiltinToolsConfig{DisableAskUser: true}}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requests := make(chan []string, 1)
@@ -60,17 +59,17 @@ func TestAskUserAvailability(t *testing.T) {
 			}))
 			defer server.Close()
 			model := &configv1.ADKModelConfig{Model: "test", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{BaseUrl: server.URL}}}
-			config := &configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{
-				Model: model, Stream: new(false), AskUser: tc.root,
+			config := &configv1.ADKConfig{Runtime: tc.runtime, Agent: &configv1.ADKAgentConfig{
+				Model: model, Stream: new(false),
 				SubAgents: []*configv1.ADKAgentConfig{{
-					Name: "child", Model: model, Stream: new(false), AskUser: tc.child,
-					SubAgents: []*configv1.ADKAgentConfig{{Name: "grandchild", Model: model, Stream: new(false), AskUser: new(true)}},
+					Name: "child", Model: model, Stream: new(false),
+					SubAgents: []*configv1.ADKAgentConfig{{Name: "grandchild", Model: model, Stream: new(false)}},
 				}},
 			}}
 			root, err := CreateGoogleADKAgent(t.Context(), config, "root", nil)
 			require.NoError(t, err)
 			child := root.SubAgents()[0]
-			for i, agent := range []adkagent.Agent{root, child, child.SubAgents()[0]} {
+			for _, agent := range []adkagent.Agent{root, child, child.SubAgents()[0]} {
 				sessions := adksession.InMemoryService()
 				r, err := runner.New(runner.Config{AppName: "test", Agent: agent, SessionService: sessions})
 				require.NoError(t, err)
@@ -81,7 +80,7 @@ func TestAskUserAvailability(t *testing.T) {
 				}
 				select {
 				case names := <-requests:
-					require.Equal(t, tc.want[i], slices.Contains(names, "ask_user"), agent.Name())
+					require.Equal(t, tc.want, slices.Contains(names, "ask_user"), agent.Name())
 					require.Contains(t, names, "read_file", "unrelated built-in tools remain available")
 				case <-time.After(time.Second):
 					t.Fatal("agent completed without a model request")

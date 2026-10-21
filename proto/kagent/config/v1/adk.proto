@@ -37,9 +37,6 @@ message ADKAgentConfig {
   string skills_directory = 16;
   repeated ADKAgentConfig sub_agents = 17;
   ADKOutputConfig output = 18;
-  // Omitted or true enables the built-in ask_user tool. False also applies to
-  // shared descendants; a child cannot re-enable a parent's restriction.
-  optional bool ask_user = 19;
 }
 
 // ADKModelConfig shares transport settings across a single selected provider.

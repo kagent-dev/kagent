@@ -105,6 +105,10 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.True(t, push.Push.AllowHttp)
 	require.True(t, push.Push.AllowPrivateNetworks)
 	require.NotEqual(t, checksum, pushChecksum)
+	tools, toolsChecksum, err := render("config:\n  runtimeDefaults:\n    builtinTools:\n      disableAskUser: true\n")
+	require.NoError(t, err)
+	require.True(t, tools.GetRuntimeDefaults().GetBuiltinTools().GetDisableAskUser())
+	require.NotEqual(t, checksum, toolsChecksum)
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

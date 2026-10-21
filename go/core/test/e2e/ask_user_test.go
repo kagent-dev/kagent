@@ -9,24 +9,31 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestSessionAskUserDisabled(t *testing.T) {
-	t.Parallel()
+	// A controller-wide setting requires exclusive setup and cleanup rollouts.
+	target := interactionTarget(t)
+	updateControllerConfig(t, target, func(cfg *configv1.ControllerConfig) {
+		if cfg.RuntimeDefaults.BuiltinTools == nil {
+			cfg.RuntimeDefaults.BuiltinTools = &configv1.BuiltinToolsConfig{}
+		}
+		cfg.RuntimeDefaults.BuiltinTools.DisableAskUser = true
+	})
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		if harness.name != "kagent" {
-			t.Skip("askUser: false is supported only by the kagent harness")
+		if harness.name == codexE2EHarness || harness.name == claudeE2EHarness {
+			t.Skip("native harnesses do not use ADK built-in tools")
 		}
-		target := interactionTarget(t)
 		kube := interactionKubeClient(t)
 		recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), nil)
 		model := harness.createModel(t, kube, reachableModelURL(t, recorder.URL), map[string]string{"X-Kagent-E2E-Model": "ask-user-disabled"})
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "ask-user-disabled-", Namespace: "kagent", Labels: harness.labels()},
 			Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.", AskUser: new(false),
+				ModelConfig: &corev1.LocalObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 			},
 		}
 		createAndWaitInteractionTemplate(t, harness, kube, template)

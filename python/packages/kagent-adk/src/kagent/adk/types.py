@@ -85,7 +85,7 @@ from kagent.config.v1.adk_pb2 import (
 from kagent.config.v1.adk_pb2 import (
     ADKTokenExchangeConfig as TokenExchangeConfig,
 )
-from kagent.core._runtime_config import optional_field
+from kagent.core._runtime_config import RuntimeConfig, optional_field
 from protovalidate import validate
 
 from kagent.adk._approval import make_approval_callback
@@ -291,6 +291,7 @@ def create_agent(
     name: str,
     sts_integration: Optional[ADKTokenPropagationPlugin] = None,
     propagate_token: bool = False,
+    runtime_config: Optional[RuntimeConfig] = None,
 ) -> Agent:
     validate(config)
     if not config.HasField("model"):
@@ -433,7 +434,7 @@ def create_agent(
 
     model = _create_llm_from_model_config(config.model)
 
-    if not config.HasField("ask_user") or config.ask_user:
+    if runtime_config is None or not runtime_config.builtin_tools.disable_ask_user:
         tools.append(AskUserTool())
 
     # Build before_tool_callback if any tools require approval

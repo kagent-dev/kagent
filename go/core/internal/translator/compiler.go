@@ -265,9 +265,6 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 	var build func(*resolvedTemplate) (*AgentInput, error)
 	build = func(agent *resolvedTemplate) (*AgentInput, error) {
 		template := agent.Template
-		if template.Spec.AskUser != nil && !*template.Spec.AskUser && harnessType(tree.Harness) != HarnessTypeKagent {
-			return nil, NewValidationError("askUser: false is supported only by the kagent harness")
-		}
 		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
 		if err != nil {
 			return nil, err

@@ -198,12 +198,6 @@ type AgentTemplateSpec struct {
 	// +kubebuilder:validation:MaxItems=50
 	// +optional
 	Tools []ToolBinding `json:"tools,omitempty"`
-	// AskUser enables the built-in ask_user tool. Omitted or true preserves the
-	// default. False also disables it for Shared subagents, which cannot override
-	// a parent's restriction. Disabling it is supported only by the kagent harness.
-	// This does not disable MCP approval requirements or remote agents' questions.
-	// +optional
-	AskUser *bool `json:"askUser,omitempty"`
 	// +kubebuilder:validation:MaxItems=50
 	// +listType=map
 	// +listMapKey=name

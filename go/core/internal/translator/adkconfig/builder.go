@@ -71,7 +71,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 			return nil, err
 		}
 	}
-	result, err := c.compileAgent(ctx, input.Root, true)
+	result, err := c.compileAgent(ctx, input.Root)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 	return result, nil
 }
 
-func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput, allowAskUser bool) (*Result, error) {
+func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput) (*Result, error) {
 	modelRuntime := &modelRuntime{}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
@@ -111,10 +111,6 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		stream = modelConfig.Spec.Stream
 	}
 	cfg := &configv1.ADKAgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	// Omitted and explicit true must compile identically to preserve revision identity.
-	if !allowAskUser || (input.Template.Spec.AskUser != nil && !*input.Template.Spec.AskUser) {
-		cfg.AskUser = new(false)
-	}
 	plugins, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
@@ -144,7 +140,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
-		child, err := c.compileAgent(ctx, binding.Agent, cfg.AskUser == nil || cfg.GetAskUser())
+		child, err := c.compileAgent(ctx, binding.Agent)
 		if err != nil {
 			return nil, err
 		}

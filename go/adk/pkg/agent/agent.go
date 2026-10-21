@@ -53,16 +53,15 @@ func CreateGoogleADKAgent(ctx context.Context, config *configv1.ADKConfig, agent
 	if err := protovalidate.Validate(config); err != nil {
 		return nil, err
 	}
-	return createGoogleADKAgent(ctx, config.Agent, agentName, stsPlugin, runtimeconfig.ProcessConfig(config), true, extraTools...)
+	return createGoogleADKAgent(ctx, config.Agent, agentName, stsPlugin, runtimeconfig.ProcessConfig(config), extraTools...)
 }
 
-func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime *configv1.ADKRuntimeConfig, allowAskUser bool, extraTools ...tool.Tool) (agent.Agent, error) {
+func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime *configv1.ADKRuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logging.FromContext(ctx)
 
 	if agentConfig == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
-	allowAskUser = allowAskUser && (agentConfig.AskUser == nil || agentConfig.GetAskUser())
 
 	propagateToken := runtime.GetTokenPropagation().GetEnabled()
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
@@ -115,7 +114,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 		log.InfoContext(ctx, "wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
 	}
 
-	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, allowAskUser, log)
+	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, builtinTools.GetDisableAskUser(), log)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +134,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentCon
 	}
 	var subAgents []agent.Agent
 	for _, childConfig := range agentConfig.SubAgents {
-		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, runtime, allowAskUser)
+		child, err := createGoogleADKAgent(ctx, childConfig, childConfig.Name, stsPlugin, runtime)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create sub-agent %q: %w", childConfig.Name, err)
 		}
@@ -225,7 +224,7 @@ func usesRawOutputSchema(model *configv1.ADKModelConfig) bool {
 	}
 }
 
-func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, extraTools []tool.Tool, allowAskUser bool, log *slog.Logger) ([]tool.Tool, error) {
+func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, extraTools []tool.Tool, disableAskUser bool, log *slog.Logger) ([]tool.Tool, error) {
 	var localTools []tool.Tool
 	if agentConfig.Memory != nil {
 		log.Info("memory configuration detected, adding memory tools")
@@ -237,7 +236,7 @@ func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, ext
 	localTools = append(localTools, remoteAgentTools...)
 	localTools = append(localTools, extraTools...)
 
-	if allowAskUser {
+	if !disableAskUser {
 		askUserTool, err := tools.NewAskUserTool()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create ask_user tool: %w", err)
