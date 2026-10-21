@@ -24,8 +24,6 @@ service MemoryService {
 }
 
 message SessionMemoryInput {
-  reserved 1, 2;
-  reserved "agent_name", "user_id";
   string content = 3;
   repeated float vector = 4;
   google.protobuf.Struct metadata = 5;
@@ -65,8 +63,6 @@ message MemoryServiceAddSessionBatchResponse {
 }
 
 message MemoryServiceSearchRequest {
-  reserved 1, 2;
-  reserved "agent_name", "user_id";
   repeated float vector = 3;
   optional int32 limit = 4;
   optional double min_score = 5;
@@ -77,9 +73,6 @@ message MemoryServiceSearchResponse {
 }
 
 message MemoryServiceListRequest {
-  reserved 2;
-  reserved "user_id";
-
   // User calls must supply the stored agent key. Actor-created memories use
   // "namespace/name"; legacy keys remain valid for managing older memories.
   // Actor calls ignore this field and use the agent from their persisted session.
@@ -91,9 +84,6 @@ message MemoryServiceListResponse {
 }
 
 message MemoryServiceDeleteRequest {
-  reserved 2;
-  reserved "user_id";
-
   // User calls must supply the stored agent key. Actor-created memories use
   // "namespace/name"; legacy keys remain valid for managing older memories.
   // Actor calls ignore this field and use the agent from their persisted session.
