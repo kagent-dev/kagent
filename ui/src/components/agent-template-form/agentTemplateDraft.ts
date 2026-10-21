@@ -49,11 +49,6 @@ export type PromptSource = "inline" | "configMap";
 /** Whether terminal output is prose or constrained by a JSON Schema. */
 export type OutputSource = "text" | "inline" | "configMap";
 
-/**
- * `outputSchemaStrict` is a `*bool` whose absence means something of its own: the
- * provider's default, which differs between OpenAI's Chat Completions and Responses
- * APIs. So the draft holds three states rather than a checkbox's two.
- */
 export type OutputStrictness = "default" | "strict" | "off";
 
 const strictnessFromSpec = (strict: boolean | undefined): OutputStrictness =>

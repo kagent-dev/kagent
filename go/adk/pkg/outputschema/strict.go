@@ -71,10 +71,6 @@ func checkStrict(schema map[string]any, path string) error {
 	return nil
 }
 
-// hasTypeOrAlternative reports whether OpenAI strict mode can tell what a node
-// accepts. It rejects a node without type, such as {"description":"note"} or
-// {"additionalProperties":{"type":"string"}} or {"const":"x"}, unless anyOf,
-// enum or $ref says it instead.
 func hasTypeOrAlternative(schema map[string]any) bool {
 	for _, key := range []string{"type", "anyOf", "enum", "$ref"} {
 		if _, ok := schema[key]; ok {

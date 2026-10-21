@@ -19,10 +19,6 @@ import (
 
 const maxOutputSchemaBytes = 64 << 10
 
-// portableOutputSchemaMetaSchemaTemplate describes the JSON Schema subset that every
-// supported kagent ADK integration can consume. It is deliberately itself a
-// JSON Schema so keyword forms and recursive schema locations are validated by
-// jsonschema-go rather than by a parallel handwritten schema implementation.
 const portableOutputSchemaMetaSchemaTemplate = `{
 	"$schema":"https://json-schema.org/draft/2020-12/schema",
 	"$defs":{
