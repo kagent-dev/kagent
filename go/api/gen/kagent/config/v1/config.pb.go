@@ -113,7 +113,9 @@ func (x *CLIConfig) GetTui() *TUIConfig {
 type TUIConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// sidebar is whether the Namespaces, Agents and Sessions panels show at start; /sidebar toggles them for the run. Default "shown".
-	Sidebar       *string `protobuf:"bytes,1,opt,name=sidebar,proto3,oneof" json:"sidebar,omitempty"`
+	Sidebar *string `protobuf:"bytes,1,opt,name=sidebar,proto3,oneof" json:"sidebar,omitempty"`
+	// bell rings the terminal bell when a turn finishes or waits for input while the terminal window is unfocused; needs a terminal that reports focus. Default true.
+	Bell          *bool `protobuf:"varint,2,opt,name=bell,proto3,oneof" json:"bell,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -153,6 +155,13 @@ func (x *TUIConfig) GetSidebar() string {
 		return *x.Sidebar
 	}
 	return ""
+}
+
+func (x *TUIConfig) GetBell() bool {
+	if x != nil && x.Bell != nil {
+		return *x.Bell
+	}
+	return false
 }
 
 type ConnectionConfig struct {
@@ -2008,11 +2017,13 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\alogging\x18\x03 \x01(\v2\x1f.kagent.config.v1.LoggingConfigR\alogging\x129\n" +
 	"\ainstall\x18\x04 \x01(\v2\x1f.kagent.config.v1.InstallConfigR\ainstall\x12<\n" +
 	"\bdatabase\x18\x05 \x01(\v2 .kagent.config.v1.DatabaseConfigR\bdatabase\x12-\n" +
-	"\x03tui\x18\x06 \x01(\v2\x1b.kagent.config.v1.TUIConfigR\x03tui\"L\n" +
+	"\x03tui\x18\x06 \x01(\v2\x1b.kagent.config.v1.TUIConfigR\x03tui\"n\n" +
 	"\tTUIConfig\x123\n" +
-	"\asidebar\x18\x01 \x01(\tB\x14\xbaH\x11r\x0fR\x05shownR\x06hiddenH\x00R\asidebar\x88\x01\x01B\n" +
+	"\asidebar\x18\x01 \x01(\tB\x14\xbaH\x11r\x0fR\x05shownR\x06hiddenH\x00R\asidebar\x88\x01\x01\x12\x17\n" +
+	"\x04bell\x18\x02 \x01(\bH\x01R\x04bell\x88\x01\x01B\n" +
 	"\n" +
-	"\b_sidebar\"\xbb\x03\n" +
+	"\b_sidebarB\a\n" +
+	"\x05_bell\"\xbb\x03\n" +
 	"\x10ConnectionConfig\x129\n" +
 	"\aapi_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x06apiUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +

@@ -96,11 +96,11 @@ func TestBellWhenAway(t *testing.T) {
 	m.Update(streamMsg{ch: m.chat.streamCh, StreamResult: clia2a.StreamResult{Event: a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateInputRequired, nil)}})
 	assert.Equal(t, 2, rings, "unfocused when the turn began waiting for input")
 
-	t.Setenv("KAGENT_TUI_BELL", "false")
+	m.cfg.MuteBell = true
 	finish()
 	assert.Equal(t, 2, rings, "turned off")
 
-	t.Setenv("KAGENT_TUI_BELL", "true")
+	m.cfg.MuteBell = false
 	m.Update(tea.FocusMsg{})
 	finish()
 	assert.Equal(t, 2, rings, "focused again")

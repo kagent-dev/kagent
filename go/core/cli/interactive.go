@@ -31,7 +31,8 @@ func runInteractive(cmd *cobra.Command, _ []string) (err error) {
 		err = errors.Join(err, session.Close())
 	}()
 
-	workspace := tui.Options{Namespace: session.Namespace, HideSidebar: config.FromContext(cmd.Context()).GetTui().GetSidebar() == "hidden"}
+	tuiConfig := config.FromContext(cmd.Context()).GetTui()
+	workspace := tui.Options{Namespace: session.Namespace, HideSidebar: tuiConfig.GetSidebar() == "hidden", MuteBell: !tuiConfig.GetBell()}
 	if runErr := tui.RunWorkspace(cmd.Context(), workspace, session.API, session.Gateway, options.Verbose); runErr != nil {
 		return fmt.Errorf("run kagent workspace: %w", runErr)
 	}

@@ -27,6 +27,8 @@ message TUIConfig {
       "hidden"
     ]
   }];
+  // bell rings the terminal bell when a turn finishes or waits for input while the terminal window is unfocused; needs a terminal that reports focus. Default true.
+  optional bool bell = 2;
 }
 
 message ConnectionConfig {

@@ -25,7 +25,6 @@ import (
 	sessionview "github.com/kagent-dev/kagent/go/core/cli/internal/tui/session"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 const (
@@ -51,6 +50,8 @@ type Options struct {
 	Namespace string
 	// HideSidebar starts the chat at full width, without the Namespaces, Agents and Sessions panels.
 	HideSidebar bool
+	// MuteBell stops the terminal bell that rings when a turn ends while the window is unfocused.
+	MuteBell bool
 }
 
 // sessionLister narrows the client so tests can supply a fake.
@@ -830,7 +831,7 @@ func (m *workspaceModel) ringIfAway() {
 		return
 	}
 	m.chat.attention = false
-	if m.away && env.TUIBell.Get() {
+	if m.away && !m.cfg.MuteBell {
 		ringBell()
 	}
 }

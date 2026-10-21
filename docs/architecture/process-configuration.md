@@ -37,6 +37,7 @@ database:
     role: kagent_owner
 tui:
   sidebar: shown
+  bell: true
 ```
 
 ```bash
@@ -54,6 +55,9 @@ database commands, which connect as `database.owner`; `--db-url-file` and
 `tui.sidebar: hidden` starts the interactive `kagent` workspace with only the
 chat showing. Typing `/sidebar` in the chat toggles the panels for that run and
 changes no file.
+
+`tui.bell: false` stops the terminal bell that otherwise rings when a turn
+finishes or waits for input while the terminal window is unfocused.
 
 `install.bundledPostgresImage` selects the development PostgreSQL image, including
 mirrors.
