@@ -25,7 +25,9 @@ const (
 // accept raw JSON Schema and for final response validation. genai.Schema lacks
 // const and additionalProperties, and represents enum values as strings, so
 // those constraints may be enforced only by the provider and final validator.
-// It also keeps only the string formats Gemini documents.
+// It also keeps only the string formats Gemini documents. genai.Schema holds
+// one type, so a type list projects "null" to Nullable and leaves Type unset
+// when two or more non-null types remain.
 func ToGenAISchema(raw json.RawMessage) (*genai.Schema, error) {
 	var schema jsonschema.Schema
 	if err := json.Unmarshal(raw, &schema); err != nil {
@@ -36,6 +38,15 @@ func ToGenAISchema(raw json.RawMessage) (*genai.Schema, error) {
 	}
 	converter := schemaConverter{root: &schema}
 	return converter.convert(&schema, nil, 1)
+}
+
+var genaiTypes = map[string]genai.Type{
+	"object":  genai.TypeObject,
+	"array":   genai.TypeArray,
+	"string":  genai.TypeString,
+	"number":  genai.TypeNumber,
+	"integer": genai.TypeInteger,
+	"boolean": genai.TypeBoolean,
 }
 
 type schemaConverter struct {
@@ -81,24 +92,31 @@ func (c *schemaConverter) convert(schema *jsonschema.Schema, stack map[*jsonsche
 	}
 
 	converted := &genai.Schema{Title: schema.Title, Description: schema.Description}
-	switch schema.Type {
-	case "":
-	case "object":
-		converted.Type = genai.TypeObject
-	case "array":
-		converted.Type = genai.TypeArray
-	case "string":
-		converted.Type = genai.TypeString
-	case "number":
-		converted.Type = genai.TypeNumber
-	case "integer":
-		converted.Type = genai.TypeInteger
-	case "boolean":
-		converted.Type = genai.TypeBoolean
-	case "null":
+	types := schema.Types
+	if schema.Type != "" {
+		types = []string{schema.Type}
+	}
+	nullable := false
+	nonNull := make([]genai.Type, 0, len(types))
+	for _, name := range types {
+		if name == "null" {
+			nullable = true
+			continue
+		}
+		mapped, ok := genaiTypes[name]
+		if !ok {
+			return nil, fmt.Errorf("unsupported output schema type %q", name)
+		}
+		nonNull = append(nonNull, mapped)
+	}
+	switch {
+	case len(nonNull) == 0 && nullable:
 		converted.Type = genai.TypeNULL
-	default:
-		return nil, fmt.Errorf("unsupported output schema type %q", schema.Type)
+	case nullable:
+		converted.Nullable = new(true)
+	}
+	if len(nonNull) == 1 {
+		converted.Type = nonNull[0]
 	}
 	converted.Pattern = schema.Pattern
 	if geminiStringFormats[schema.Format] {

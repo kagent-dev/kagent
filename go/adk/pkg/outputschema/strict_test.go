@@ -93,6 +93,19 @@ func TestCheckStrict(t *testing.T) {
 			schema: `{"type":"object","properties":{"level":{"enum":["a","b"]},"note":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["level","note"],"additionalProperties":false}`,
 		},
 		{
+			name:   "nullable closed object and nullable string",
+			schema: `{"type":"object","properties":{"meta":{"type":["object","null"],"properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},"due":{"type":["string","null"]}},"required":["meta","due"],"additionalProperties":false}`,
+		},
+		{
+			name:   "nullable string satisfies must set type",
+			schema: `{"type":"object","properties":{"note":{"type":["string","null"]}},"required":["note"],"additionalProperties":false}`,
+		},
+		{
+			name:    "nullable object left open",
+			schema:  `{"type":"object","properties":{"meta":{"type":["object","null"]}},"required":["meta"],"additionalProperties":false}`,
+			wantErr: "/properties/meta must set additionalProperties to false",
+		},
+		{
 			name:    "root anyOf",
 			schema:  `{"type":"object","anyOf":[{"type":"object","properties":{},"additionalProperties":false}]}`,
 			wantErr: "the root must not use anyOf",

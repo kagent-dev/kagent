@@ -40,7 +40,7 @@ const portableOutputSchemaMetaSchemaTemplate = `{
 				"properties":{"type":"object","additionalProperties":{"$ref":"#/$defs/schema"}},
 				"required":{"type":"array","items":{"type":"string","minLength":1},"uniqueItems":true},
 				"title":{"type":"string"},
-				"type":{"enum":["object","array","string","number","integer","boolean","null"]}
+				"type":{"anyOf":[{"$ref":"#/$defs/typeName"},{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"#/$defs/typeName"}}]}
 			},
 			"additionalProperties":false,
 			"dependentSchemas":{
@@ -48,7 +48,8 @@ const portableOutputSchemaMetaSchemaTemplate = `{
 				"pattern":{"$ref":"#/$defs/stringSchema"}
 			}
 		},
-		"stringSchema":{"properties":{"type":{"const":"string"}},"required":["type"]}
+		"typeName":{"enum":["object","array","string","number","integer","boolean","null"]},
+		"stringSchema":{"properties":{"type":{"anyOf":[{"const":"string"},{"type":"array","contains":{"const":"string"}}]}},"required":["type"]}
 	},
 	"allOf":[{"$ref":"#/$defs/schema"}],
 	"properties":{"type":{"const":"object"}},

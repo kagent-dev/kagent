@@ -28,7 +28,7 @@ func checkStrict(schema map[string]any, path string) error {
 		return fmt.Errorf("strict output schema: %s must set type", pointer(path))
 	}
 	properties, _ := schema["properties"].(map[string]any)
-	if schema["type"] == "object" || properties != nil {
+	if hasType(schema, "object") || properties != nil {
 		if schema["additionalProperties"] != false {
 			return fmt.Errorf("strict output schema: %s must set additionalProperties to false", pointer(path))
 		}
@@ -76,6 +76,16 @@ func hasTypeOrAlternative(schema map[string]any) bool {
 		if _, ok := schema[key]; ok {
 			return true
 		}
+	}
+	return false
+}
+
+func hasType(schema map[string]any, name string) bool {
+	switch value := schema["type"].(type) {
+	case string:
+		return value == name
+	case []any:
+		return slices.Contains(value, any(name))
 	}
 	return false
 }

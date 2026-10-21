@@ -91,6 +91,26 @@ func TestResolveValidatorAssertsFormatInsideNullableAnyOf(t *testing.T) {
 	require.Error(t, validator.Validate(map[string]any{"due": "not-a-date"}))
 }
 
+func TestResolveValidatorAssertsFormatOnNullableTypeArray(t *testing.T) {
+	validator, err := ResolveValidator(json.RawMessage(`{
+		"type":"object",
+		"properties":{"due":{"type":["string","null"],"format":"date-time"}}
+	}`))
+	require.NoError(t, err)
+	require.NoError(t, validator.Validate(map[string]any{"due": "2026-10-19T12:00:00Z"}))
+	require.NoError(t, validator.Validate(map[string]any{"due": nil}))
+	require.Error(t, validator.Validate(map[string]any{"due": "not-a-date"}))
+	require.Error(t, validator.Validate(map[string]any{"due": 1}))
+}
+
+func TestResolveValidatorAcceptsNullableTypeArray(t *testing.T) {
+	validator, err := ResolveValidator(json.RawMessage(`{"type":"object","properties":{"note":{"type":["string","null"]}}}`))
+	require.NoError(t, err)
+	require.NoError(t, validator.Validate(map[string]any{"note": nil}))
+	require.NoError(t, validator.Validate(map[string]any{"note": "ok"}))
+	require.Error(t, validator.Validate(map[string]any{"note": 1.5}))
+}
+
 func TestResolveValidatorAssertsPatternAndFormatTogether(t *testing.T) {
 	validator, err := ResolveValidator(json.RawMessage(`{
 		"type":"object",

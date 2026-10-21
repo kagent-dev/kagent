@@ -444,6 +444,15 @@ func TestCompileAgentOutputSchemaFromStringFormat(t *testing.T) {
 			schema: `{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"}},"required":["due","ticket"],"additionalProperties":false}`,
 		},
 		{
+			name:   "nullable type list with format",
+			schema: `{"type":"object","properties":{"due":{"type":["string","null"],"format":"date-time"}},"required":["due"],"additionalProperties":false}`,
+		},
+		{
+			name:    "format on nullable integer",
+			schema:  `{"type":"object","properties":{"count":{"type":["integer","null"],"format":"date"}}}`,
+			wantErr: "invalid output schema",
+		},
+		{
 			name:    "unsupported format",
 			schema:  `{"type":"object","properties":{"site":{"type":"string","format":"uri"}}}`,
 			wantErr: "invalid output schema",
