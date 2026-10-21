@@ -384,7 +384,7 @@ export function AgentTemplateForm({
                 </div>
                 {readOnly ? null : (
                   <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                    Strict makes OpenAI and Azure OpenAI follow the schema while generating.
+                    Strict makes OpenAI, Azure OpenAI and Foundry follow the schema while generating.
                     It requires a <code>type</code> on every node, every property in{" "}
                     <code>required</code> and <code>additionalProperties: false</code> on
                     every object.
