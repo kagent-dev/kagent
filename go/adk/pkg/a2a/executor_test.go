@@ -405,6 +405,47 @@ func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 	}
 }
 
+func TestTransformStructuredOutputNamesMalformedJSON(t *testing.T) {
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
+		JsonSchema: []byte(`{"type":"object","properties":{"a":{"type":"integer"}},"required":["a"]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		text    string
+		wantErr string
+	}{
+		{name: "one object", text: `{"a":1}`},
+		{name: "two objects", text: "{\"a\":1}\n{\"a\":1}", wantErr: "output_validation_failed: root agent output contains more than one JSON value"},
+		{name: "truncated object", text: `{"a":`, wantErr: "output_validation_failed: root agent output is not valid JSON"},
+		{name: "trailing junk", text: `{"a":1} x`, wantErr: "output_validation_failed: root agent output is not valid JSON"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := &adksession.Event{
+				Author: "root",
+				LLMResponse: model.LLMResponse{
+					Content:      genai.NewContentFromText(test.text, genai.RoleModel),
+					FinishReason: genai.FinishReasonStop,
+				},
+			}
+			update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(test.text))
+			err := transformStructuredOutput(output, "root", event, update)
+			if test.wantErr != "" {
+				if err == nil || err.Error() != test.wantErr {
+					t.Fatalf("transformStructuredOutput() error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("transformStructuredOutput() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestTransformStructuredOutputRejectsIncompleteResponse(t *testing.T) {
 	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
 		JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),

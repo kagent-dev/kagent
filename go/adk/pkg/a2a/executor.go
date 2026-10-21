@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"log/slog"
 	"slices"
@@ -230,8 +231,16 @@ func finalStructuredOutput(event *adksession.Event) (any, error) {
 	if strings.TrimSpace(text.String()) == "" {
 		return nil, fmt.Errorf("output_validation_failed: root agent produced no structured value")
 	}
+	decoder := json.NewDecoder(strings.NewReader(text.String()))
 	var value any
-	if err := json.Unmarshal([]byte(text.String()), &value); err != nil {
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("output_validation_failed: root agent output is not valid JSON")
+	}
+	var extra any
+	switch err := decoder.Decode(&extra); {
+	case err == nil:
+		return nil, fmt.Errorf("output_validation_failed: root agent output contains more than one JSON value")
+	case !errors.Is(err, io.EOF):
 		return nil, fmt.Errorf("output_validation_failed: root agent output is not valid JSON")
 	}
 	return value, nil
