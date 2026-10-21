@@ -1,21 +1,24 @@
 suite: test ui deployment
 templates:
-  - ui-configmap.yaml
   - ui-deployment.yaml
   - ui-nginx-configmap.yaml
 tests:
-  - it: loads browser settings from the ConfigMap and rolls out on changes
+  - it: mounts the rendered env-config.js and rolls out on changes
     template: ui-deployment.yaml
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].envFrom
+          path: spec.template.spec.containers[0].volumeMounts
           content:
-            configMapRef:
-              name: RELEASE-NAME-ui
+            name: ui-config
+            mountPath: /usr/share/nginx/html/env-config.js
+            subPath: env-config.js
+            readOnly: true
+      - notExists:
+          path: spec.template.spec.containers[0].envFrom
       - notExists:
           path: spec.template.spec.containers[0].env
       - matchRegex:
-          path: spec.template.metadata.annotations["checksum/configmap"]
+          path: spec.template.metadata.annotations["checksum/ui-config"]
           pattern: "^[a-f0-9]{64}$"
 
   - it: preserves explicit env overrides and Secret references
@@ -40,13 +43,14 @@ tests:
                 secretKeyRef:
                   name: ui-token
                   key: token
-      - equal:
-          path: data.KAGENT_UI_API_BASE_URL
-          value: /api
-        template: ui-configmap.yaml
-      - notExists:
-          path: data.CUSTOM_TOKEN
-        template: ui-configmap.yaml
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"API_BASE_URL":"/custom-api"'
+        template: ui-nginx-configmap.yaml
+      - notMatchRegex:
+          path: data["env-config.js"]
+          pattern: CUSTOM_TOKEN
+        template: ui-nginx-configmap.yaml
 
   - it: should render ui deployment with default values
     template: ui-deployment.yaml
@@ -210,15 +214,15 @@ tests:
     set:
       ui:
         startupProbe:
-          exec:
-            command: ["curl", "-sf", "http://[::1]:8080/health"]
+          tcpSocket:
+            port: http
           initialDelaySeconds: 5
           periodSeconds: 3
           failureThreshold: 30
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].startupProbe.exec.command
-          value: ["curl", "-sf", "http://[::1]:8080/health"]
+          path: spec.template.spec.containers[0].startupProbe.tcpSocket.port
+          value: http
       - equal:
           path: spec.template.spec.containers[0].startupProbe.periodSeconds
           value: 3
@@ -230,13 +234,13 @@ tests:
     set:
       ui:
         readinessProbe:
-          exec:
-            command: ["curl", "-sf", "http://[::1]:8080/health"]
+          tcpSocket:
+            port: http
           periodSeconds: 10
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].readinessProbe.exec.command
-          value: ["curl", "-sf", "http://[::1]:8080/health"]
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: http
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.periodSeconds
           value: 10
@@ -347,57 +351,52 @@ tests:
       - notExists:
           path: spec.template.spec.topologySpreadConstraints
 
-  - it: should pass runtime browser config to init.sh as env
-    template: ui-configmap.yaml
+  - it: should render default browser settings into env-config.js
+    template: ui-nginx-configmap.yaml
     asserts:
       - equal:
-          path: data.KAGENT_UI_API_BASE_URL
-          value: "/api"
-      - equal:
-          path: data.KAGENT_UI_SSO_REDIRECT_PATH
-          value: "/oauth2/start"
-      - equal:
-          path: data.KAGENT_UI_STREAM_TIMEOUT_MS
-          value: "1800000"
+          path: data["env-config.js"]
+          value: |
+            window.environmentVariables = {"API_BASE_URL":"/api","BASE_PATH":"","ENABLE_MOCK_UI":"false","SSO_REDIRECT_PATH":"/oauth2/start","STREAM_TIMEOUT_MS":"1800000"};
+      - notMatchRegex:
+          path: data["nginx.conf"]
+          pattern: sub_filter
 
   - it: should carry an overridden publicBackendUrl through to the browser config
-    template: ui-configmap.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         publicBackendUrl: "https://api.example.com/api"
     asserts:
-      - equal:
-          path: data.KAGENT_UI_API_BASE_URL
-          value: "https://api.example.com/api"
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"API_BASE_URL":"https://api.example.com/api"'
 
   - it: should fall back to /api when publicBackendUrl is blanked
-    template: ui-configmap.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         publicBackendUrl: ""
     asserts:
-      - equal:
-          path: data.KAGENT_UI_API_BASE_URL
-          value: "/api"
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"API_BASE_URL":"/api"'
 
-  - it: should pass ui.basePath through to the browser config only when set
-    template: ui-configmap.yaml
+  - it: should pass ui.basePath to the browser config and rewrite <base href>
+    template: ui-nginx-configmap.yaml
     set:
       ui:
-        basePath: /ui
+        basePath: /ui/
     asserts:
-      - equal:
-          path: data.KAGENT_UI_BASE_PATH
-          value: "/ui"
-
-  - it: should omit KAGENT_UI_BASE_PATH by default
-    template: ui-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.KAGENT_UI_BASE_PATH
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"BASE_PATH":"/ui"'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "sub_filter '<base href=\"/\"' '<base href=\"/ui/\"';"
 
   - it: should reject a ui.basePath that is not a path
-    template: ui-deployment.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         basePath: ui
@@ -406,7 +405,7 @@ tests:
           errorMessage: ui.basePath must be a path like /ui
 
   - it: should reject a ui.basePath with dot segments
-    template: ui-deployment.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         basePath: /ui/..
@@ -415,7 +414,7 @@ tests:
           errorMessage: ui.basePath must be a path like /ui
 
   - it: should reject a ui.basePath that starts with a path nginx serves
-    template: ui-deployment.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         basePath: /assets/ui
@@ -424,29 +423,58 @@ tests:
           errorMessage: ui.basePath cannot start with a path nginx serves, such as /api or /assets
 
   - it: should accept a ui.basePath that only shares a prefix with a served path
-    template: ui-configmap.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         basePath: /apis
     asserts:
-      - equal:
-          path: data.KAGENT_UI_BASE_PATH
-          value: "/apis"
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"BASE_PATH":"/apis"'
 
   - it: should reflect overridden auth and stream settings
-    template: ui-configmap.yaml
+    template: ui-nginx-configmap.yaml
     set:
       ui:
         auth:
           ssoRedirectPath: /custom/start
         streamTimeoutSeconds: 90
     asserts:
-      - equal:
-          path: data.KAGENT_UI_SSO_REDIRECT_PATH
-          value: "/custom/start"
-      - equal:
-          path: data.KAGENT_UI_STREAM_TIMEOUT_MS
-          value: "90000"
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"SSO_REDIRECT_PATH":"/custom/start"'
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"STREAM_TIMEOUT_MS":"90000"'
+
+  - it: should copy extension settings into env-config.js with markup escaped
+    template: ui-nginx-configmap.yaml
+    set:
+      ui.env:
+        - name: KAGENT_UI_EXTENSION_GREETING
+          value: '</script>"hi"'
+        - name: KAGENT_UI_ENABLE_MOCK
+          value: "true"
+    asserts:
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"KAGENT_UI_EXTENSION_GREETING":"\\u003c/script\\u003e\\"hi\\""'
+      - matchRegex:
+          path: data["env-config.js"]
+          pattern: '"ENABLE_MOCK_UI":"true"'
+
+  - it: should reject an extension setting that uses valueFrom
+    template: ui-nginx-configmap.yaml
+    set:
+      ui.env:
+        - name: KAGENT_UI_EXTENSION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: ui-token
+              key: token
+    asserts:
+      - failedTemplate:
+          errorMessage: "ui.env KAGENT_UI_EXTENSION_TOKEN needs a plain value: the chart renders it into env-config.js"
 
   - it: should not mount a nextjs build cache
     template: ui-deployment.yaml

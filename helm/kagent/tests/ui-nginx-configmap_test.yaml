@@ -123,9 +123,9 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'location = /env-config\.js'
-      - matchRegex:
+      - notMatchRegex:
           path: data["nginx.conf"]
-          pattern: 'alias /tmp/kagent/env-config\.js;'
+          pattern: 'alias /tmp/kagent/'
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'add_header Cache-Control "no-store" always;'

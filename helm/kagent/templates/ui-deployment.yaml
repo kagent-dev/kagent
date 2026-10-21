@@ -18,7 +18,6 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/configmap: {{ include (print $.Template.BasePath "/ui-configmap.yaml") . | sha256sum }}
         checksum/ui-config: {{ include (print $.Template.BasePath "/ui-nginx-configmap.yaml") . | sha256sum }}
         {{- with .Values.ui.podAnnotations | default .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -70,9 +69,6 @@ spec:
           env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          envFrom:
-            - configMapRef:
-                name: {{ include "kagent.fullname" . }}-ui
           ports:
             - name: http
               containerPort: {{ .Values.ui.service.ports.targetPort }}
@@ -83,6 +79,10 @@ spec:
             - name: ui-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+              readOnly: true
+            - name: ui-config
+              mountPath: /usr/share/nginx/html/env-config.js
+              subPath: env-config.js
               readOnly: true
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}

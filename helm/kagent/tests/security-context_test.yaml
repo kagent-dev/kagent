@@ -4,7 +4,6 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
   - ui-deployment.yaml
-  - ui-configmap.yaml
   - ui-nginx-configmap.yaml
 tests:
   # =============================================================================

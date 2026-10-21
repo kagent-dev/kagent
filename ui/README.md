@@ -5,7 +5,7 @@ SWR, components are Ant Design styled with Emotion, and the UI is extensible
 through named extension points — see
 [docs/app-extensions.md](./docs/app-extensions.md).
 
-Node is pinned in [`.nvmrc`](.nvmrc); Yarn ships via corepack.
+Node's major version is set in [`.nvmrc`](.nvmrc); Yarn ships via corepack.
 
 ## Running locally
 
@@ -68,8 +68,8 @@ Nothing above the data layer knows or cares.
 Settings an operator configures per deployment cannot travel in the bundle — the
 bundler inlines `import.meta.env` at build time, which would freeze the chart's
 values as of the image build. They arrive on `window.environmentVariables`
-instead, rendered from the pod's environment by `scripts/init.sh` on every start
-and loaded by a script tag ahead of the app, so they are readable synchronously
+instead, rendered by the Helm chart into `env-config.js` and loaded by a script
+tag ahead of the app, so they are readable synchronously
 by the first module that runs. `src/env.ts` lists them; `.env.example` documents
 setting them locally.
 

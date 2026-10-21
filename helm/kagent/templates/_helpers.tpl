@@ -435,6 +435,45 @@ tag wins over the component tag.
 {{- include "kagent.images.image" (dict "imageRoot" $root "global" $global) -}}
 {{- end -}}
 
+{{/*
+The browser settings nginx serves as /env-config.js, as a JSON object. Keys match
+ui/src/env.ts. Plain-value ui.env entries for KAGENT_UI_EXTENSION_*, KAGENT_UI_ENABLE_MOCK
+and the core settings except the base path are copied in by name.
+*/}}
+{{- define "kagent.ui.environmentVariables" -}}
+{{- $basePath := trimSuffix "/" (.Values.ui.basePath | default "") -}}
+{{- if or (not (regexMatch "^(/[A-Za-z0-9._~-]+)*$" $basePath)) (regexMatch "(^|/)\\.\\.?(/|$)" $basePath) -}}
+{{- fail "ui.basePath must be a path like /ui" -}}
+{{- end -}}
+{{- /* nginx strips the prefix, so it must not start with a path nginx serves. */ -}}
+{{- if regexMatch "^/(api|a2a|assets|health|env-config\\.js|index\\.html|mockServiceWorker\\.js)(/|$)" $basePath -}}
+{{- fail "ui.basePath cannot start with a path nginx serves, such as /api or /assets" -}}
+{{- end -}}
+{{- $vars := dict
+      "API_BASE_URL" (.Values.ui.publicBackendUrl | default "/api")
+      "SSO_REDIRECT_PATH" ((.Values.ui.auth).ssoRedirectPath | default "/oauth2/start")
+      "STREAM_TIMEOUT_MS" (mul (int (.Values.ui.streamTimeoutSeconds | default 1800)) 1000 | toString)
+      "ENABLE_MOCK_UI" "false"
+      "BASE_PATH" $basePath -}}
+{{- $names := dict
+      "KAGENT_UI_API_BASE_URL" "API_BASE_URL"
+      "KAGENT_UI_SSO_REDIRECT_PATH" "SSO_REDIRECT_PATH"
+      "KAGENT_UI_STREAM_TIMEOUT_MS" "STREAM_TIMEOUT_MS"
+      "KAGENT_UI_ENABLE_MOCK" "ENABLE_MOCK_UI" -}}
+{{- range .Values.ui.env -}}
+{{- if or (hasKey $names .name) (hasPrefix "KAGENT_UI_EXTENSION_" .name) -}}
+{{- if not (hasKey . "value") -}}
+{{- fail (printf "ui.env %s needs a plain value: the chart renders it into env-config.js" .name) -}}
+{{- end -}}
+{{- $_ := set $vars (get $names .name | default .name) (toString .value) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^[0-9]+$" $vars.STREAM_TIMEOUT_MS) -}}
+{{- fail "KAGENT_UI_STREAM_TIMEOUT_MS must be a number of milliseconds" -}}
+{{- end -}}
+{{- toJson $vars -}}
+{{- end -}}
+
 {{/* "true" when the controller skips migrations and so needs no owner login. */}}
 {{- define "kagent.database.skipMigrations" -}}
 {{- if dig "database" "skipMigrations" false (.Values.config | default dict) -}}true{{- end -}}

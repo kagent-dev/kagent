@@ -1,5 +1,5 @@
 # Node.js is required: https://nodejs.org/ or use nvm/brew
-# The Node version is pinned in .nvmrc; Yarn ships via corepack.
+# The Node major version is set in .nvmrc; Yarn ships via corepack.
 
 .PHONY: build
 build:
