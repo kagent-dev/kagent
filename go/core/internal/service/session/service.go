@@ -94,13 +94,18 @@ func (s *Service) Create(ctx context.Context, agent *apiv1.ResourceReference, re
 	if err := validateCreate(agent, requestID); err != nil {
 		return nil, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, "")
-	if err != nil {
-		return nil, err
-	}
 	// A share grants access to an existing conversation, never creation.
 	if _, shared := auth.ShareContextFrom(ctx); shared {
 		return nil, serviceerrors.NewPermissionDenied("A Session share cannot create conversations", nil)
+	}
+	// Both checks name the Agent the conversation runs and pass before anything
+	// is reserved, so an authorizer can scope creation to the Agents a caller may use.
+	creator, err := s.authorizeResource(ctx, auth.VerbCreate, auth.Resource{Type: "Session", Namespace: agent.GetNamespace()})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.authorizeResource(ctx, auth.VerbGet, auth.Resource{Type: "Agent", Namespace: agent.GetNamespace(), Name: agent.GetName()}); err != nil {
+		return nil, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -219,7 +224,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		return ListResult{}, err
 	}
 	if request.AllCreators {
-		if _, err := s.authorizeType(ctx, auth.VerbGet, "SessionAllCreators", ""); err != nil {
+		if _, err := s.authorizeResource(ctx, auth.VerbGet, auth.Resource{Type: "SessionAllCreators"}); err != nil {
 			return ListResult{}, err
 		}
 	}
@@ -416,16 +421,16 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 			return share.UserID, nil
 		}
 	}
-	return s.authorizeType(ctx, verb, "Session", name)
+	return s.authorizeResource(ctx, verb, auth.Resource{Type: "Session", Name: name})
 }
 
-func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
+func (s *Service) authorizeResource(ctx context.Context, verb auth.Verb, resource auth.Resource) (string, error) {
 	session, ok := auth.AuthSessionFrom(ctx)
 	if !ok {
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	principal := session.Principal()
-	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
+	if err := s.authorizer.Check(ctx, principal, verb, resource); err != nil {
 		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
 	}
 	return principal.User.ID, nil
