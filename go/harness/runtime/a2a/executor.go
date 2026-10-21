@@ -78,6 +78,8 @@ type activeTask struct {
 	done            chan struct{}
 	cancelRequested bool
 	cancelErr       error // published to Cancel by closing done
+	// usage is the execution's task usage, which Cancel reports once done closes.
+	usage *taskUsage
 }
 
 // parkedTask owns the PendingTurn while its A2A task is waiting for input.
@@ -99,8 +101,9 @@ type continuedTurn struct {
 // native RPC and process cleanup outside the executor mutex.
 type cancelingTask struct {
 	taskRef
-	done chan struct{}
-	err  error
+	done  chan struct{}
+	err   error
+	usage *taskUsage
 }
 
 func (*activeTask) isExecutorState()    {}
@@ -122,6 +125,8 @@ type executionSink struct {
 	compiled tracing.RuntimeTelemetry
 	// inferenceCalls and toolCalls count the agent's own calls in this segment.
 	inferenceCalls, toolCalls int64
+	// usage sums every model call of the task for its terminal status update.
+	usage *taskUsage
 }
 
 var (
@@ -217,6 +222,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			fail("invalid_request", err)
 			return
 		}
+		sink.usage = newTaskUsage(reqCtx.StoredTask)
 		// Capture the current turn's prompt only. A segment that answers an
 		// approval or question carries a structured decision, not prompt text,
 		// so it records no input messages at all.
@@ -241,6 +247,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			taskRef: taskRef{taskID: reqCtx.TaskID, contextID: reqCtx.ContextID},
 			cancel:  cancel,
 			done:    make(chan struct{}),
+			usage:   sink.usage,
 		}
 		continued, err := e.activate(active, resuming)
 		if err != nil {
@@ -359,7 +366,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			message := taskMessage(reqCtx, failureMessage)
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+			yield(sink.usage.stamp(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message)), nil)
 			return
 		}
 		if outcome.Failure != nil && outcome.Pending != nil {
@@ -394,7 +401,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
 			endInvocation()
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
+			yield(sink.usage.stamp(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message)), nil)
 			return
 		}
 		if finish() {
@@ -406,14 +413,14 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if outcome.Failure == nil {
 			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
 			endInvocation()
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
+			yield(sink.usage.stamp(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil)), nil)
 			return
 		}
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
 		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
 		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+		yield(sink.usage.stamp(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message)), nil)
 	}
 }
 
@@ -639,7 +646,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, state.cancelErr, yield)
+				yieldCancellation(ctx, reqCtx, state.cancelErr, state.usage, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -650,11 +657,13 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 				yield(nil, fmt.Errorf("cancellation does not match the parked task"))
 				return
 			}
-			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{})}
+			// A parked task has no running execution: its usage is the total the
+			// input-required status persisted, plus the calls Cancel reaps.
+			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{}), usage: newTaskUsage(reqCtx.StoredTask)}
 			e.state = canceling
 			e.mu.Unlock()
 
-			sink := &executionSink{owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
+			sink := &executionSink{owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry, usage: canceling.usage}
 			err := state.pending.Cancel(ctx, sink)
 			if flushErr := tracing.InvocationFromContext(ctx).Flush(ctx); flushErr != nil {
 				a2alog.Error(ctx, "failed to flush cancellation traces", flushErr)
@@ -666,7 +675,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			}
 			close(canceling.done)
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, err, yield)
+			yieldCancellation(ctx, reqCtx, err, canceling.usage, yield)
 			return
 		case *cancelingTask:
 			if !state.matches(ref) {
@@ -678,7 +687,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, state.err, yield)
+				yieldCancellation(ctx, reqCtx, state.err, state.usage, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -693,7 +702,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 	}
 }
 
-func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, knownErr error, yield func(a2atype.Event, error) bool) {
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, knownErr error, usage *taskUsage, yield func(a2atype.Event, error) bool) {
 	if err := ctx.Err(); err != nil {
 		yield(nil, err)
 		return
@@ -702,7 +711,7 @@ func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, know
 		yield(nil, knownErr)
 		return
 	}
-	yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
+	yield(usage.stamp(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil)), nil)
 }
 
 func (r taskRef) matches(other taskRef) bool {

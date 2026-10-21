@@ -10,9 +10,9 @@ The extension URI is:
 https://kagent.dev/extensions/usage/v1
 ```
 
-The kagent ADK runtimes (Go and Python) advertise that URI on their Agent Card
-with `required: false`. Other harnesses do not emit usage and do not advertise
-it.
+The kagent ADK runtimes (Go and Python) and the Claude and Codex harnesses
+advertise that URI on their Agent Card with `required: false`. BYO agents do not
+advertise it.
 
 ## Activation
 
@@ -96,6 +96,27 @@ the latest one; they never sum values across status updates.
   handles the cancel request. A task with no running execution, such as one
   waiting for input, repeats its persisted total. A call cut off before its
   final response was never reported by the provider and is not counted.
+
+## Claude and Codex harnesses
+
+The Claude and Codex harnesses report the same payload from the shared A2A
+executor in `go/harness/runtime/a2a`. It counts every model call the runtime
+reports to the executor, which are the calls the runtime's chat spans and token
+metrics record. Paused, resumed and canceled executions follow the rules above.
+
+- **Reasoning:** Claude Code and Codex count reasoning tokens inside their output
+  tokens. The executor moves them to `reasoningTokens`, so `outputTokens`
+  excludes them as it does for the ADK runtimes.
+- **Claude session totals:** each turn runs a Claude Code process that resumes the
+  session, and its result reports the session's totals, not the turn's. The
+  Claude harness reads the totals the session saved before the turn and reports
+  what they grew by beyond the calls it already reported, such as the final
+  output of subagent calls. A turn that Claude Code ends at one of its own limits
+  (an `error_max_*` result) fails, and its status carries those tokens too. When
+  the saved totals cannot be read, the turn counts only the calls it reported.
+- **Models:** that remainder names no response model, so it is counted in the
+  top-level totals only.
+- **Cost:** v1 has no cost field. Claude Code's `total_cost_usd` is not reported.
 
 ## Out of scope for v1
 
