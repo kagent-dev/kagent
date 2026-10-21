@@ -175,6 +175,8 @@ describe("the agent template draft", () => {
 
     const strictKept = specFromDraft(inlineDraft, { ...inline, outputSchemaStrict: true });
     expect(strictKept.outputSchemaStrict).toBe(true);
+    const strictOff = specFromDraft(inlineDraft, { ...inline, outputSchemaStrict: false });
+    expect(strictOff.outputSchemaStrict).toBe(false);
   });
 
   it("keeps an MCP binding with no selection because it exposes every server tool", () => {

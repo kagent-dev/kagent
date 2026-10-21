@@ -16,7 +16,7 @@ import (
 	"google.golang.org/genai"
 )
 
-func TestOpenAIModelSendsStrictOutputSchema(t *testing.T) {
+func TestOpenAIModelStrictOutputSchema(t *testing.T) {
 	tests := []struct {
 		name      string
 		apiFormat string
@@ -41,38 +41,53 @@ func TestOpenAIModelSendsStrictOutputSchema(t *testing.T) {
 			},
 		},
 	}
+	strictCases := []struct {
+		name   string
+		strict *bool
+	}{
+		{name: "unset", strict: nil},
+		{name: "false", strict: new(false)},
+		{name: "true", strict: new(true)},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var body map[string]any
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				encoded, _ := io.ReadAll(r.Body)
-				_ = json.Unmarshal(encoded, &body)
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, tt.reply)
-			}))
-			defer server.Close()
+		for _, sc := range strictCases {
+			t.Run(tt.name+"/"+sc.name, func(t *testing.T) {
+				var body map[string]any
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					encoded, _ := io.ReadAll(r.Body)
+					_ = json.Unmarshal(encoded, &body)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, tt.reply)
+				}))
+				defer server.Close()
 
-			llm := &OpenAIModel{
-				Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: tt.apiFormat},
-				Client: openai.NewClient(
-					option.WithAPIKey("test"),
-					option.WithBaseURL(server.URL),
-					option.WithHTTPClient(server.Client()),
-				),
-				Logger:             slog.New(slog.DiscardHandler),
-				StrictOutputSchema: true,
-			}
-			request := &model.LLMRequest{
-				Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "ping"}}}},
-				Config: &genai.GenerateContentConfig{ResponseJsonSchema: map[string]any{
-					"type": "object", "properties": map[string]any{}, "additionalProperties": false,
-				}},
-			}
-			for _, err := range llm.GenerateContent(context.Background(), request, false) {
-				require.NoError(t, err)
-			}
+				llm := &OpenAIModel{
+					Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: tt.apiFormat},
+					Client: openai.NewClient(
+						option.WithAPIKey("test"),
+						option.WithBaseURL(server.URL),
+						option.WithHTTPClient(server.Client()),
+					),
+					Logger:             slog.New(slog.DiscardHandler),
+					StrictOutputSchema: sc.strict,
+				}
+				request := &model.LLMRequest{
+					Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "ping"}}}},
+					Config: &genai.GenerateContentConfig{ResponseJsonSchema: map[string]any{
+						"type": "object", "properties": map[string]any{}, "additionalProperties": false,
+					}},
+				}
+				for _, err := range llm.GenerateContent(context.Background(), request, false) {
+					require.NoError(t, err)
+				}
 
-			require.Equal(t, true, tt.format(body)["strict"])
-		})
+				strict, present := tt.format(body)["strict"]
+				if sc.strict == nil {
+					require.False(t, present, "strict must be omitted when unset")
+					return
+				}
+				require.Equal(t, *sc.strict, strict)
+			})
+		}
 	}
 }

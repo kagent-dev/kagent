@@ -472,6 +472,49 @@ func TestCompileAgentOutputSchemaFromStringFormat(t *testing.T) {
 	}
 }
 
+func TestCompileAgentOutputSchemaStrict(t *testing.T) {
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:    &v1alpha3.KagentHarness{},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+		},
+	}
+	const optionalField = `{"type":"object","properties":{"ticket":{"type":"string"},"note":{"type":"string"}},"required":["ticket"]}`
+	const closed = `{"type":"object","properties":{"ticket":{"type":"string"}},"required":["ticket"],"additionalProperties":false}`
+	for _, tt := range []struct {
+		name    string
+		schema  string
+		strict  *bool
+		wantErr string
+	}{
+		{name: "unset keeps strict absent", schema: optionalField},
+		{name: "false accepts an optional field", schema: optionalField, strict: new(false)},
+		{name: "true accepts a strict schema", schema: closed, strict: new(true)},
+		{name: "true rejects an optional field", schema: optionalField, strict: new(true), wantErr: "outputSchemaStrict"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Name: "root", Namespace: "test", Labels: map[string]string{"runtime": "kagent"}},
+				Spec: v1alpha3.AgentTemplateSpec{
+					ModelConfig:        &corev1.LocalObjectReference{Name: "default-model"},
+					OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(tt.schema)},
+					OutputSchemaStrict: tt.strict,
+				},
+			}
+			revision, err := compiler(t, modelConfig(), harness).CompileAgent(t.Context(), inlineAgent(harness, root))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
+			require.Equal(t, tt.strict, config.Agent.Output.Strict)
+		})
+	}
+}
+
 func TestResolveModelConfigFoundryEndpoint(t *testing.T) {
 	ref := &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "account"}, Key: "endpoint"}
 	const endpoint = "https://example.services.ai.azure.com"

@@ -175,8 +175,8 @@ func generateContentChatCompletions(
 		return
 	} else if schema != nil {
 		jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: structuredOutputName, Schema: schema}
-		if m.StrictOutputSchema {
-			jsonSchema.Strict = param.NewOpt(true)
+		if m.StrictOutputSchema != nil {
+			jsonSchema.Strict = param.NewOpt(*m.StrictOutputSchema)
 		}
 		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
 			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{JSONSchema: jsonSchema},

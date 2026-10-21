@@ -81,7 +81,7 @@ type ResolvedOutputSchema struct {
 	Schema []byte
 	SHA256 string
 	Source *ResolvedConfigMapKeyReference
-	Strict bool
+	Strict *bool
 }
 
 // ResolvedConfigMapKeyReference identifies the exact ConfigMap input used by a

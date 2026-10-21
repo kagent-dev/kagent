@@ -100,7 +100,7 @@ func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.Resol
 	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
-	if output.Strict {
+	if output.Strict != nil && *output.Strict {
 		if err := adkoutputschema.CheckStrict(output.Schema); err != nil {
 			return translator.NewValidationError("outputSchemaStrict: %v", err)
 		}

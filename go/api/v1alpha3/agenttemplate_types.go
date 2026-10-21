@@ -194,14 +194,19 @@ type AgentTemplateSpec struct {
 	// same-namespace ConfigMap key.
 	// +optional
 	OutputSchemaFrom *ConfigMapKeyReference `json:"outputSchemaFrom,omitempty"`
-	// OutputSchemaStrict asks OpenAI, Azure OpenAI, and Foundry OpenAI-compatible
-	// models to follow the output schema while they generate (strict mode),
-	// instead of only validating the answer afterward. The schema must then set
+	// OutputSchemaStrict sets strict mode on OpenAI, Azure OpenAI, and Foundry
+	// OpenAI-compatible models. When true, the request sends strict: true and the
+	// model follows the output schema while it generates, instead of only having
+	// the answer validated afterward. The schema must then set
 	// additionalProperties to false on every object and list every property in
-	// required, and its root must not use anyOf. Other providers do not send
-	// strict, but the schema must still follow these rules.
+	// required, and its root must not use anyOf. When false, the request sends
+	// strict: false and the schema needs none of these rules. When unset, the
+	// request omits strict and the provider default applies: Chat Completions is
+	// not strict, but the Responses API is strict and rejects a schema that breaks
+	// these rules. Other providers never send strict, but true still requires a
+	// schema that follows these rules.
 	// +optional
-	OutputSchemaStrict bool `json:"outputSchemaStrict,omitempty"`
+	OutputSchemaStrict *bool `json:"outputSchemaStrict,omitempty"`
 	// +optional
 	PromptTemplate *AgentTemplatePromptTemplateSpec `json:"promptTemplate,omitempty"`
 	// +kubebuilder:validation:MaxItems=50

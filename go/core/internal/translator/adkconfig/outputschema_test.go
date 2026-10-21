@@ -35,24 +35,29 @@ func TestApplyOutputSchemaRejectsRecursiveADKConversion(t *testing.T) {
 }
 
 func TestApplyOutputSchemaStrict(t *testing.T) {
-	config := &configv1.ADKAgentConfig{}
-	output := &translator.ResolvedOutputSchema{
-		Schema: []byte(`{"type":"object","properties":{"due":{"type":"string"}},"required":["due"],"additionalProperties":false}`),
-		Strict: true,
+	strictSchema := []byte(`{"type":"object","properties":{"due":{"type":"string"}},"required":["due"],"additionalProperties":false}`)
+	openSchema := []byte(`{"type":"object","properties":{"due":{"type":"string"},"note":{"type":"string"}},"required":["due"]}`)
+	for _, tt := range []struct {
+		name    string
+		schema  []byte
+		strict  *bool
+		wantErr string
+	}{
+		{name: "unset with open object", schema: openSchema},
+		{name: "false with open object", schema: openSchema, strict: new(false)},
+		{name: "true with strict schema", schema: strictSchema, strict: new(true)},
+		{name: "true with open object", schema: openSchema, strict: new(true), wantErr: "outputSchemaStrict: strict output schema: the root object must set additionalProperties to false"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &configv1.ADKAgentConfig{}
+			err := applyOutputSchema(config, &translator.ResolvedOutputSchema{Schema: tt.schema, Strict: tt.strict})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				require.Nil(t, config.Output)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.strict, config.Output.Strict)
+		})
 	}
-
-	require.NoError(t, applyOutputSchema(config, output))
-	require.True(t, config.Output.Strict)
-}
-
-func TestApplyOutputSchemaStrictRejectsOpenObject(t *testing.T) {
-	config := &configv1.ADKAgentConfig{}
-	output := &translator.ResolvedOutputSchema{
-		Schema: []byte(`{"type":"object","properties":{"due":{"type":"string"}},"required":["due"]}`),
-		Strict: true,
-	}
-
-	err := applyOutputSchema(config, output)
-	require.ErrorContains(t, err, "outputSchemaStrict: strict output schema: the root object must set additionalProperties to false")
-	require.Nil(t, config.Output)
 }

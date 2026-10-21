@@ -123,23 +123,34 @@ fail compilation.
 
 ## Strict mode
 
-By default, kagent sends the schema to OpenAI, Azure OpenAI, and Foundry's
-OpenAI-compatible surface as guidance
-and validates the answer afterward. Set `outputSchemaStrict: true` next to
-`outputSchema` or `outputSchemaFrom` to also send `strict: true`, on both the
-Chat Completions and Responses APIs. The provider then constrains generation
-to the schema. The final validation still runs.
+`outputSchemaStrict` sets `strict` on requests to OpenAI, Azure OpenAI, and
+Foundry's OpenAI-compatible surface, on both the Chat Completions and Responses
+APIs. It has three values:
+
+| `outputSchemaStrict` | Request | Generation |
+| --- | --- | --- |
+| unset | omits `strict` | Provider default: not strict on Chat Completions, strict on Responses |
+| `false` | `strict: false` | Not strict |
+| `true` | `strict: true` | Strict |
+
+Strict generation means the provider constrains the answer to the schema.
+Without it, the schema is guidance. kagent validates the final answer against
+the schema in every case. Set `false` to turn strict off on the Responses API,
+for example to use a schema with optional fields.
 
 Strict mode accepts fewer schemas. Every object must set
 `additionalProperties: false` and list every property in `required`, and the
-root must not use `anyOf`. Compilation rejects a strict schema that breaks
-these rules, so the Agent reports the error instead of every request failing
-at the provider. To make a field optional under strict mode, give it a
-`null` alternative, for example `anyOf: [{type: string}, {type: "null"}]`.
+root must not use `anyOf`. When `outputSchemaStrict` is `true`, compilation
+rejects a schema that breaks these rules, so the Agent reports the error
+instead of every request failing at the provider. To make a field optional
+under strict mode, give it a `null` alternative, for example
+`anyOf: [{type: string}, {type: "null"}]`.
 
-Other providers do not send `strict`. Compilation still applies the strict
-rules to their schemas, so a schema stays valid when its ModelConfig changes
-provider.
+When `outputSchemaStrict` is unset, compilation does not check these rules. A
+schema that breaks them compiles, then fails at the provider on the Responses
+API. Other providers do not send `strict`. With `true`, compilation still
+applies the strict rules to their schemas, so a schema stays valid when its
+ModelConfig changes provider.
 
 The semantic resolution code is in
 [`go/core/internal/translator/outputschema.go`](../../go/core/internal/translator/outputschema.go).

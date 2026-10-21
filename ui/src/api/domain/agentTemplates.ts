@@ -105,7 +105,10 @@ export interface AgentTemplateSpec {
   outputSchema?: Record<string, unknown>;
   /** A same-namespace ConfigMap key containing the output schema as JSON. */
   outputSchemaFrom?: ConfigMapKeyRef;
-  /** Sends `strict: true` to OpenAI-compatible providers. Requires a schema. */
+  /**
+   * Sends `strict` with this value to OpenAI-compatible providers. Unset omits it, so
+   * the provider default applies. `true` requires a schema.
+   */
   outputSchemaStrict?: boolean;
   promptTemplate?: AgentTemplatePromptSpec;
   tools?: ToolBinding[];
