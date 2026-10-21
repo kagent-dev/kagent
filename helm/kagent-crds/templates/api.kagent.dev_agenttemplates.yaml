@@ -91,9 +91,10 @@ spec:
                   OutputSchemaStrict sets strict mode on OpenAI, Azure OpenAI, and Foundry
                   OpenAI-compatible models. When true, the request sends strict: true and the
                   model follows the output schema while it generates, instead of only having
-                  the answer validated afterward. The schema must then set
-                  additionalProperties to false on every object and list every property in
-                  required, and its root must not use anyOf. When false, the request sends
+                  the answer validated afterward. Every schema node must then set type
+                  (anyOf, enum or $ref may stand in for it), every object must set
+                  additionalProperties to false and list every property in required, and the
+                  root must not use anyOf. When false, the request sends
                   strict: false and the schema needs none of these rules. When unset, the
                   request omits strict and the provider default applies: Chat Completions is
                   not strict, but the Responses API is strict and rejects a schema that breaks

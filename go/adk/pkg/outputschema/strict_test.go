@@ -59,6 +59,40 @@ func TestCheckStrict(t *testing.T) {
 			wantErr: "/$defs/stop must set additionalProperties to false",
 		},
 		{
+			name: "untyped map of strings",
+			schema: `{
+				"type":"object",
+				"properties":{"labels":{"additionalProperties":{"type":"string"}}},
+				"required":["labels"],
+				"additionalProperties":false
+			}`,
+			wantErr: "/properties/labels must set type",
+		},
+		{
+			name: "untyped closed object",
+			schema: `{
+				"type":"object",
+				"properties":{"meta":{"properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}},
+				"required":["meta"],
+				"additionalProperties":false
+			}`,
+			wantErr: "/properties/meta must set type",
+		},
+		{
+			name:    "node with only a description",
+			schema:  `{"type":"object","properties":{"note":{"description":"any note"}},"required":["note"],"additionalProperties":false}`,
+			wantErr: "/properties/note must set type",
+		},
+		{
+			name:    "untyped const",
+			schema:  `{"type":"object","properties":{"owner":{"const":"ops"}},"required":["owner"],"additionalProperties":false}`,
+			wantErr: "/properties/owner must set type",
+		},
+		{
+			name:   "untyped enum and anyOf",
+			schema: `{"type":"object","properties":{"level":{"enum":["a","b"]},"note":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["level","note"],"additionalProperties":false}`,
+		},
+		{
 			name:    "root anyOf",
 			schema:  `{"type":"object","anyOf":[{"type":"object","properties":{},"additionalProperties":false}]}`,
 			wantErr: "the root must not use anyOf",

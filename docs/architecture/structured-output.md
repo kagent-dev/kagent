@@ -138,11 +138,16 @@ Without it, the schema is guidance. kagent validates the final answer against
 the schema in every case. Set `false` to turn strict off on the Responses API,
 for example to use a schema with optional fields.
 
-Strict mode accepts fewer schemas. Every object must set
+Strict mode accepts fewer schemas. Every schema node must set `type` (`anyOf`,
+`enum` or `$ref` may stand in for it), every object must set
 `additionalProperties: false` and list every property in `required`, and the
-root must not use `anyOf`. When `outputSchemaStrict` is `true`, compilation
-rejects a schema that breaks these rules, so the Agent reports the error
-instead of every request failing at the provider. To make a field optional
+root must not use `anyOf`. An untyped `{"const": "x"}` fails, for example.
+Strict mode cannot express a map with free-form keys at all: an object whose
+`additionalProperties` is a schema fails with or without `type: object`. List
+the keys as properties, or set `outputSchemaStrict: false`. When
+`outputSchemaStrict` is `true`, compilation rejects a schema that breaks these
+rules, so the Agent reports the error instead of every request failing at the
+provider. To make a field optional
 under strict mode, give it a `null` alternative, for example
 `anyOf: [{type: string}, {type: "null"}]`.
 

@@ -8,8 +8,9 @@ import (
 
 // CheckStrict reports the first place where a portable output schema breaks
 // the rules OpenAI applies when a request sets strict: the root must not use
-// anyOf, and every object must set additionalProperties to false and list all
-// of its properties in required. OpenAI rejects such a strict request outright,
+// anyOf, every node must set type (or use anyOf, enum or $ref), and
+// every object must set additionalProperties to false and list all of its
+// properties in required. OpenAI rejects such a strict request outright,
 // so kagent checks at compile time instead.
 func CheckStrict(raw json.RawMessage) error {
 	var schema map[string]any
@@ -23,6 +24,9 @@ func CheckStrict(raw json.RawMessage) error {
 }
 
 func checkStrict(schema map[string]any, path string) error {
+	if !hasTypeOrAlternative(schema) {
+		return fmt.Errorf("strict output schema: %s must set type", pointer(path))
+	}
 	properties, _ := schema["properties"].(map[string]any)
 	if schema["type"] == "object" || properties != nil {
 		if schema["additionalProperties"] != false {
@@ -65,6 +69,19 @@ func checkStrict(schema map[string]any, path string) error {
 		}
 	}
 	return nil
+}
+
+// hasTypeOrAlternative reports whether OpenAI strict mode can tell what a node
+// accepts. It rejects a node without type, such as {"description":"note"} or
+// {"additionalProperties":{"type":"string"}} or {"const":"x"}, unless anyOf,
+// enum or $ref says it instead.
+func hasTypeOrAlternative(schema map[string]any) bool {
+	for _, key := range []string{"type", "anyOf", "enum", "$ref"} {
+		if _, ok := schema[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func checkChild(value any, path string) error {
