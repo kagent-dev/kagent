@@ -83,6 +83,7 @@ func TestUsesSetModelResponse(t *testing.T) {
 		{name: "Gemini API", model: &configv1.ADKModelConfig{Model: "gemini-3.5-flash-lite", Provider: &configv1.ADKModelConfig_Gemini{}}, want: true},
 		{name: "Gemini API with models prefix", model: &configv1.ADKModelConfig{Model: "models/Gemini-2.5-pro", Provider: &configv1.ADKModelConfig_Gemini{}}, want: true},
 		{name: "Gemini name through OpenAI", model: &configv1.ADKModelConfig{Model: "gemini-2.5-flash", Provider: &configv1.ADKModelConfig_Openai{}}, want: true},
+		{name: "Gemini API with the default model", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{}}, want: true},
 		{name: "Vertex AI", model: &configv1.ADKModelConfig{Model: "gemini-3.5-flash", Provider: &configv1.ADKModelConfig_GeminiVertexAi{}}},
 		{name: "Gemma on the Gemini API", model: &configv1.ADKModelConfig{Model: "gemma-3-27b-it", Provider: &configv1.ADKModelConfig_Gemini{}}},
 		{name: "OpenAI", model: &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_Openai{}}},

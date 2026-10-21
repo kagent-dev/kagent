@@ -12,8 +12,8 @@ import (
 )
 
 // setModelResponseTypes lists the genai types Go ADK's set_model_response tool
-// can check a value against. Any other type, including an unset one, makes
-// every call to the tool fail.
+// can check a value against. For any other type, including an unset one, the
+// tool rejects every non-null value.
 var setModelResponseTypes = map[genai.Type]bool{
 	genai.TypeString:  true,
 	genai.TypeInteger: true,
@@ -29,18 +29,25 @@ var setModelResponseTypes = map[genai.Type]bool{
 // take the schema natively. kagent agents always have tools, which is the
 // other condition ADK requires.
 func UsesSetModelResponse(model *configv1.ADKModelConfig) bool {
-	if _, vertex := model.GetProvider().(*configv1.ADKModelConfig_GeminiVertexAi); vertex {
-		return false
-	}
 	name := model.GetModel()
+	switch model.GetProvider().(type) {
+	case *configv1.ADKModelConfig_GeminiVertexAi:
+		return false
+	case *configv1.ADKModelConfig_Gemini:
+		// With no model name the runtime falls back to a gemini- default.
+		if name == "" {
+			return true
+		}
+	}
 	name = name[strings.LastIndex(name, "/")+1:]
 	return strings.HasPrefix(strings.ToLower(name), "gemini-")
 }
 
 // CheckSetModelResponse reports the first property of a ToGenAISchema
 // projection that Go ADK's set_model_response tool cannot check. The tool
-// checks each answer property against exactly one type, so a type list with
-// two or more non-null types, anyOf and type null all fail every answer.
+// checks each answer property against exactly one type, so it rejects every
+// non-null value of a property that uses a type list with two or more non-null
+// types, anyOf, or type null.
 func CheckSetModelResponse(schema *genai.Schema) error {
 	return checkSetModelResponseProperties(schema, "")
 }
