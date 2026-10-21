@@ -14,6 +14,7 @@ func TestOwnsEnvironment(t *testing.T) {
 		AnthropicAPIKeyEnvName,
 		ClaudeConfigDirEnvName,
 		MaxRetriesEnvName,
+		DisableNonessentialTrafficEnvName,
 		"CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
 		"OTEL_TRACES_EXPORTER",
 		"OTEL_LOG_RAW_API_BODIES",
