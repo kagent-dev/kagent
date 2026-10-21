@@ -21,6 +21,7 @@ import {
   draftProblems,
   type AgentTemplateDraft,
   type OutputSource,
+  type OutputStrictness,
 } from "./agentTemplateDraft";
 
 const { Text, Paragraph } = Typography;
@@ -363,6 +364,33 @@ export function AgentTemplateForm({
               </Space>
             ) : readOnly ? (
               none("Successful final answers are returned as text.")
+            ) : null}
+
+            {draft.outputSource !== "text" ? (
+              <Space orientation="vertical" size={4}>
+                <Text css={{ fontSize: 12 }}>Strict schema adherence</Text>
+                <div data-testid="template-form-output-strict">
+                  <Select
+                    css={{ minWidth: 240 }}
+                    value={draft.outputStrict}
+                    onChange={(value: OutputStrictness) => set("outputStrict", value)}
+                    options={[
+                      { value: "default", title: "Provider default", label: "Provider default" },
+                      { value: "strict", title: "Strict", label: "Strict" },
+                      { value: "off", title: "Not strict", label: "Not strict" },
+                    ]}
+                    {...readOnlySelect}
+                  />
+                </div>
+                {readOnly ? null : (
+                  <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                    Strict makes OpenAI and Azure OpenAI follow the schema while generating.
+                    It requires a <code>type</code> on every node, every property in{" "}
+                    <code>required</code> and <code>additionalProperties: false</code> on
+                    every object.
+                  </Text>
+                )}
+              </Space>
             ) : null}
           </Space>
         </Form.Item>
