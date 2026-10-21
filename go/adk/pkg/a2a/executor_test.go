@@ -364,19 +364,21 @@ func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing
 
 func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
-		JsonSchema: []byte(`{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"}},"required":["due","ticket"]}`),
+		JsonSchema: []byte(`{"type":"object","properties":{"due":{"type":"string","format":"date-time"},"ticket":{"type":"string","pattern":"^OPS-[0-9]+$"},"host":{"type":"string","format":"ipv6"}},"required":["due","ticket"]}`),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		name    string
-		text    string
-		wantErr bool
+		name         string
+		text         string
+		wantLocation string
 	}{
 		{name: "conforming", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42"}`},
-		{name: "not a date", text: `{"due":"not-a-date","ticket":"OPS-42"}`, wantErr: true},
-		{name: "pattern mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"DEV-42"}`, wantErr: true},
+		{name: "not a date", text: `{"due":"not-a-date","ticket":"OPS-42"}`, wantLocation: "/properties/due (pattern)"},
+		{name: "pattern mismatch", text: `{"due":"2026-10-19T12:00:00Z","ticket":"DEV-42"}`, wantLocation: "/properties/ticket (pattern)"},
+		{name: "not an ipv6 address", text: `{"due":"2026-10-19T12:00:00Z","ticket":"OPS-42","host":"not-an-address"}`, wantLocation: "/properties/host (pattern)"},
+		{name: "missing property", text: `{"due":"2026-10-19T12:00:00Z"}`, wantLocation: "root (required)"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -389,9 +391,10 @@ func TestTransformStructuredOutputAssertsFormatAndPattern(t *testing.T) {
 			}
 			update := a2atype.NewArtifactEvent(&a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "context-1"}, a2atype.NewTextPart(test.text))
 			err := transformStructuredOutput(output, "root", event, update)
-			if test.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "output_validation_failed") {
-					t.Fatalf("transformStructuredOutput() error = %v, want output_validation_failed", err)
+			if test.wantLocation != "" {
+				want := "output_validation_failed: root agent output does not conform to its schema at " + test.wantLocation
+				if err == nil || err.Error() != want {
+					t.Fatalf("transformStructuredOutput() error = %v, want %q", err, want)
 				}
 				return
 			}

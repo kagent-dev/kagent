@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
@@ -163,6 +164,9 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 		return err
 	}
 	if err := output.schema.Validate(value); err != nil {
+		if location := schemaViolationLocation(err); location != "" {
+			return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema at %s", location)
+		}
 		return fmt.Errorf("output_validation_failed: root agent output does not conform to its schema")
 	}
 	if processed == nil || processed.Artifact == nil {
@@ -171,6 +175,38 @@ func transformStructuredOutput(output *structuredOutput, rootName string, event 
 	part := apia2a.NewStructuredOutputPart(value, output.sha256)
 	processed.Artifact.Parts = a2atype.ContentParts{part}
 	return nil
+}
+
+// schemaViolationLocation names the schema node and keyword that rejected a
+// value, such as "/properties/due (pattern)". jsonschema-go has no structured
+// validation error. It wraps one "validating <schema path>" layer per schema
+// node around a "<keyword>: <detail>" leaf. The detail can echo the value and a
+// generated regex, so only the path and keyword are kept.
+func schemaViolationLocation(err error) string {
+	location := ""
+	for inner := errors.Unwrap(err); inner != nil; err, inner = inner, errors.Unwrap(inner) {
+		layer, ok := strings.CutSuffix(err.Error(), ": "+inner.Error())
+		if !ok {
+			break
+		}
+		path, ok := strings.CutPrefix(layer, "validating ")
+		if !ok {
+			break
+		}
+		location = path
+		if errors.Unwrap(inner) == nil {
+			if keyword, _, ok := strings.Cut(inner.Error(), ": "); ok && isKeyword(keyword) {
+				location += " (" + keyword + ")"
+			}
+		}
+	}
+	return location
+}
+
+func isKeyword(s string) bool {
+	return s != "" && strings.IndexFunc(s, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
+	}) < 0
 }
 
 // finalStructuredOutput returns ADK's parsed output when available. Normal A2A
