@@ -1,8 +1,10 @@
 ### STAGE 1: Dependencies
 ARG BASE_IMAGE_REGISTRY=cgr.dev
+ARG WOLFI_BASE_DIGEST=sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
+ARG NGINX_DIGEST=sha256:8a42fb9468e353a6c2501d2657866333b7a2a075912f4a7e4fa73298aafd46d6
 ARG TOOLS_NODE_VERSION=24
 ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS deps
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest@${WOLFI_BASE_DIGEST} AS deps
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 # This is used to print the build platform in the logs
@@ -58,7 +60,7 @@ RUN yarn build \
 ### STAGE 3: Runtime
 # Distroless nginx: no shell or package manager. The chart mounts nginx.conf and
 # env-config.js, so the image carries only the static bundle.
-FROM $BASE_IMAGE_REGISTRY/chainguard/nginx:latest AS final
+FROM $BASE_IMAGE_REGISTRY/chainguard/nginx:latest@${NGINX_DIGEST} AS final
 
 COPY --from=builder /app/ui/dist /usr/share/nginx/html
 
