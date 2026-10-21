@@ -13,9 +13,9 @@ import (
 
 	"github.com/agent-substrate/env/guest"
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -82,7 +82,8 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) EnsureActorEgressPolicy(context.Context, string, string, *ateapipb.EgressPolicy) error {
+func (a *testActors) CheckActorEgressPolicy(context.Context, string, string) error { return nil }
+func (a *testActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "policy")
@@ -100,6 +101,7 @@ func (a *testActors) SuspendActor(context.Context, string, string) (*ateapipb.Ac
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/sandbox"}}}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
 func (a *testActors) DeleteActor(context.Context, string, string) error {
@@ -128,11 +130,12 @@ func guestFixture(t *testing.T) (*sandboxservice.Service, context.Context, *test
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	store := database.NewClient(pool, "public")
-	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
+	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"})
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}, true))
+	}, database.RecordRevisionOptions{Ready: true}))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxTemplate{

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -84,21 +84,21 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
-	sandboxConfig, err := sandboxConfigForClass(spec.SandboxClass)
+	resources, err := actorResources(spec.CPU, spec.Memory)
 	if err != nil {
 		return nil, err
 	}
 
 	template := &ateapipb.ActorTemplate{
-		Metadata:      &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
-		SandboxConfig: sandboxConfig,
+		Metadata:  &ateapipb.ResourceMetadata{Atespace: spec.Namespace, Name: name},
+		Resources: resources,
 		Containers: []*ateapipb.Container{{
 			Name:    defaultContainerName,
 			Image:   spec.Image,
 			Command: append([]string(nil), spec.Command...),
 			Args:    append([]string(nil), spec.Args...),
 			Env:     actorEnv,
-			WakeupProbe: &ateapipb.ContainerWakeupProbe{HttpGet: &ateapipb.HTTPGetAction{
+			WakeupProbe: &ateapipb.WakeupProbe{HttpGet: &ateapipb.HttpGetAction{
 				Path: "/readyz",
 				Port: 8081,
 			}, TimeoutSeconds: 30},
@@ -110,10 +110,10 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		}},
 		WorkerSelector: workerSelectorForPool(workerKey),
 		SnapshotConfig: &ateapipb.SnapshotConfig{
-			StorageLocation: spec.SnapshotLocation,
-			// Substrate 0.5 applies one scope to pause and suspend. Keep process memory
-			// for both until lifecycle v2 separates them again.
-			OnCommit: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL,
+			StorageLocation:   spec.SnapshotLocation,
+			PreferredFidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES,
+			// Pin the server default so immutable comparison survives creation.
+			GoldenSnapshotConfig: &ateapipb.GoldenSnapshotConfig{Mode: ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED},
 		},
 		Volumes: []*ateapipb.Volume{
 			{Name: durableDataVolume, DurableDir: &ateapipb.DurableDirVolumeSource{}},
@@ -130,6 +130,18 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				{TrustBundle: &ateapipb.TrustBundleDataSource{Names: []string{"egress-mitm.ate.dev"}, Path: "trust-bundle.pem"}},
 			}}},
 		},
+	}
+	for i, image := range spec.SkillImages {
+		name := fmt.Sprintf("skill-%d", i)
+		template.Volumes = append(template.Volumes, &ateapipb.Volume{
+			Name: name, Image: &ateapipb.ImageVolumeSource{Reference: string(image)},
+		})
+		template.Containers[0].VolumeMounts = append(template.Containers[0].VolumeMounts, &ateapipb.VolumeMount{
+			Name: name, MountPath: image.MountPath(),
+		})
+	}
+	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
+		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
 	return template, nil
 }
@@ -153,7 +165,6 @@ func actorTemplateSpec(template *ateapipb.ActorTemplate) *ateapipb.ActorTemplate
 		Containers:     template.GetContainers(),
 		Volumes:        template.GetVolumes(),
 		SnapshotConfig: template.GetSnapshotConfig(),
-		SandboxConfig:  template.GetSandboxConfig(),
 		Resources:      template.GetResources(),
 	}
 }
@@ -225,19 +236,13 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 	return result, nil
 }
 
-func sandboxConfigForClass(class atev1alpha1.SandboxClass) (*ateapipb.SandboxConfig, error) {
-	switch class {
-	case "", atev1alpha1.SandboxClassGvisor:
-		return &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR,
-			ConfigName:   "gvisor-default",
-		}, nil
-	case atev1alpha1.SandboxClassMicroVM:
-		return &ateapipb.SandboxConfig{
-			SandboxClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM,
-			ConfigName:   "microvm",
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported sandbox class %q", class)
+// actorResources enforces the required limits at the Substrate boundary.
+func actorResources(cpu, memory string) (*ateapipb.Resources, error) {
+	for _, limit := range []struct{ name, value string }{{"cpu", cpu}, {"memory", memory}} {
+		q, err := resource.ParseQuantity(limit.value)
+		if err != nil || q.Sign() <= 0 || (limit.name == "cpu" && q.Cmp(resource.MustParse("1000")) >= 0) {
+			return nil, fmt.Errorf("invalid runtime %s limit %q", limit.name, limit.value)
+		}
 	}
+	return &ateapipb.Resources{Limits: []*ateapipb.Limits{{Name: "cpu", Quantity: cpu}, {Name: "memory", Quantity: memory}}}, nil
 }

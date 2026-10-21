@@ -30,7 +30,6 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -44,7 +43,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	runtime := adk.ProcessConfig(compiled)
+	runtime := config.ProcessConfig(compiled)
 	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

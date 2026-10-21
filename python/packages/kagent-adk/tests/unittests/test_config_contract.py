@@ -13,7 +13,7 @@ from kagent.adk.types import _create_llm_from_model_config, _mcp_params, parse_c
 
 
 def test_shared_go_agent_contract():
-    path = Path(__file__).resolve().parents[5] / "go/api/adk/testdata/agent.json"
+    path = Path(__file__).resolve().parents[5] / "go/adk/pkg/config/testdata/agent.json"
     compiled = parse_config(path.read_text())
     config = compiled.agent
     assert config.model.openai.seed == 9007199254740993
@@ -57,7 +57,7 @@ def test_invalid_contract(value):
 
 
 _NUMERIC_CASES = json.loads(
-    (Path(__file__).resolve().parents[5] / "go/api/adk/testdata/numeric_cases.json").read_text()
+    (Path(__file__).resolve().parents[5] / "go/adk/pkg/config/testdata/numeric_cases.json").read_text()
 )
 
 

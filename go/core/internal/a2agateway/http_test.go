@@ -136,6 +136,65 @@ func TestGatewayCreatesConversationAndReusesInitialMessage(t *testing.T) {
 	}
 }
 
+func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
+	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
+		for _, test := range []struct {
+			name     string
+			storeErr error
+			taskErr  error
+			authErr  error
+			want     error
+		}{
+			{name: "missing context", storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
+			{name: "expired task", taskErr: database.ErrNotFound, storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
+			{name: "permission denied", authErr: errors.New("denied"), want: a2atype.ErrUnauthorized},
+			{name: "store failure", storeErr: errors.New("private database details"), want: a2atype.ErrInternalError},
+		} {
+			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
+				store := &gatewayTestStore{session: gatewayTestSession(), err: test.storeErr, taskErr: test.taskErr}
+				dialer := &gatewayTestDialer{}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{err: test.authErr}, dialer, "")
+				transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+				params := a2aclient.ServiceParams{"authorization": {"Bearer valid"}}
+				for _, ids := range []struct {
+					contextID string
+					taskID    a2atype.TaskID
+				}{
+					{contextID: gatewayTestID},
+					{taskID: "old-task"},
+					{}, // A new conversation must first resolve the Agent.
+				} {
+					request := gatewayTestRequest()
+					request.Message.ContextID, request.Message.TaskID = ids.contextID, ids.taskID
+					_, err := transport.SendMessage(t.Context(), params, request)
+					require.ErrorIs(t, err, test.want)
+					events := 0
+					for event, err := range transport.SendStreamingMessage(t.Context(), params, request) {
+						require.Nil(t, event)
+						require.ErrorIs(t, err, test.want)
+						events++
+					}
+					require.Equal(t, 1, events)
+				}
+				_, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: "old-task"})
+				require.ErrorIs(t, err, test.want)
+				_, err = transport.GetExtendedAgentCard(t.Context(), params, &a2atype.GetExtendedAgentCardRequest{Tenant: gatewayTestAgent})
+				require.ErrorIs(t, err, test.want)
+				events := 0
+				for event, err := range transport.SubscribeToTask(t.Context(), params, &a2atype.SubscribeToTaskRequest{Tenant: gatewayTestAgent, ID: "old-task"}) {
+					require.Nil(t, event)
+					require.ErrorIs(t, err, test.want)
+					events++
+				}
+				require.Equal(t, 1, events)
+				require.Nil(t, dialer.session, "unavailable conversations must not reach the runtime")
+				require.Zero(t, store.reserveCalls)
+				require.False(t, store.unscoped, "session lookup must retain ownership filtering")
+			})
+		}
+	}
+}
+
 func TestHTTPAgentURLIsAuthoritative(t *testing.T) {
 	for _, tc := range []struct {
 		name, path, tenant string
@@ -298,7 +357,7 @@ func TestHTTPGatewayRejectsInvalidAccess(t *testing.T) {
 		{name: "card needs authentication", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, want: 401},
 		{name: "RPC needs authentication", method: "POST", path: gatewayTestAgent, want: 401},
 		{name: "card needs authorization", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, authzErr: errors.New("denied"), want: 403},
-		{name: "missing session is hidden", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: database.ErrNotFound, want: 403},
+		{name: "missing Agent", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: database.ErrNotFound, want: 404},
 		{name: "internal errors are hidden", method: "GET", path: gatewayTestAgent + a2asrv.WellKnownAgentCardPath, authorized: true, storeErr: errors.New("private connection details"), want: 500},
 		{name: "invalid session ID", method: "GET", path: "invalid!/assistant" + a2asrv.WellKnownAgentCardPath, authorized: true, want: 400},
 		{name: "unknown route", method: "GET", path: gatewayTestAgent + "/unknown", authorized: true, want: 404},

@@ -56,7 +56,7 @@ func TestConfigurationCRDValidation(t *testing.T) {
 				names = append(names, resource.Name)
 			}
 		}
-		require.ElementsMatch(t, []string{"agents", "agenttemplates", "harnesses", "modelconfigs", "modelproviderconfigs", "remotemcpservers", "sandboxtemplates"}, names)
+		require.ElementsMatch(t, []string{"agents", "agenttemplates", "egresspolicies", "harnesses", "modelconfigs", "modelproviderconfigs", "remotemcpservers", "sandboxtemplates"}, names)
 		_, err = discoveryClient.ServerResourcesForGroupVersion("kagent.dev/v1alpha3")
 		require.True(t, apierrors.IsNotFound(err), "the new CRDs must not publish the legacy group: %v", err)
 	})
@@ -89,6 +89,34 @@ func TestConfigurationCRDValidation(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
+		}
+	})
+
+	t.Run("MCP token passthrough owns Authorization", func(t *testing.T) {
+		for _, test := range []struct {
+			name        string
+			passthrough bool
+			header      string
+			wantReject  bool
+		}{
+			{"passthrough without headers", true, "", false},
+			{"passthrough with other header", true, "X-Tenant", false},
+			{"passthrough with Authorization", true, "authorization", true},
+			{"static Authorization without passthrough", false, "Authorization", false},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				server := &RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-passthrough-", Namespace: namespace},
+					Spec: RemoteMCPServerSpec{URL: "https://mcp.example.com", TokenPassthrough: test.passthrough}}
+				if test.header != "" {
+					server.Spec.HeadersFrom = []ValueRef{{Name: test.header, Value: "value"}}
+				}
+				err := cl.Create(ctx, server)
+				if test.wantReject {
+					require.ErrorContains(t, err, "headersFrom cannot set Authorization when tokenPassthrough is enabled")
+				} else {
+					require.NoError(t, err)
+				}
+			})
 		}
 	})
 
@@ -461,6 +489,9 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantReject)
 		})
 	}
+
+	t.Run("egress policies", func(t *testing.T) { testEgressPolicyValidation(t, cl, namespace) })
+	t.Run("MCP credential headers", func(t *testing.T) { testMCPCredentialHeaderValidation(t, cl, namespace) })
 
 	t.Run("literal runtime environment", func(t *testing.T) {
 		harness := validHarness(namespace, "env-harness", HarnessSpec{Kagent: &KagentHarness{}})

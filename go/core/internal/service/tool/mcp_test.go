@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,15 +85,10 @@ func TestRuntimeMCPClientResolveServerMatrix(t *testing.T) {
 			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
-	local := &kmcp.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: "local", Namespace: "team"}}
-	local.Spec.Deployment.Port = 8080
 	collideRemote := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "clash"},
 		Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://remote.example.com/mcp"},
 	}
-	collideLocal := &kmcp.MCPServer{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "clash"}}
-	collideLocal.Spec.Deployment.Port = 9090
-
 	tests := []struct {
 		name      string
 		objects   []client.Object
@@ -104,18 +98,14 @@ func TestRuntimeMCPClientResolveServerMatrix(t *testing.T) {
 		wantError string
 	}{
 		{name: "remote selected", objects: []client.Object{remote}, ref: types.NamespacedName{Namespace: "default", Name: "remote"}, groupKind: "RemoteMCPServer.api.kagent.dev", wantURL: "https://example.com/mcp"},
-		{name: "local selected", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, groupKind: "MCPServer.kagent.dev", wantURL: "http://local.team:8080/mcp"},
-		{name: "empty kind prefers remote", objects: []client.Object{collideRemote, collideLocal}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, wantURL: "https://remote.example.com/mcp"},
-		{name: "empty kind falls back local", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, wantURL: "http://local.team:8080/mcp"},
-		{name: "collision selects local", objects: []client.Object{collideRemote, collideLocal}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, groupKind: "MCPServer.kagent.dev", wantURL: "http://shared.clash:9090/mcp"},
-		{name: "kind without group suffix", objects: []client.Object{collideRemote, collideLocal}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, groupKind: "MCPServer", wantURL: "http://shared.clash:9090/mcp"},
-		{name: "explicit remote missing", objects: []client.Object{local}, ref: types.NamespacedName{Namespace: "team", Name: "local"}, groupKind: "RemoteMCPServer.api.kagent.dev", wantError: "no RemoteMCPServer team/local found"},
-		{name: "both missing", ref: types.NamespacedName{Namespace: "default", Name: "missing"}, wantError: "no RemoteMCPServer or MCPServer"},
+		{name: "empty kind selects remote", objects: []client.Object{collideRemote}, ref: types.NamespacedName{Namespace: "clash", Name: "shared"}, wantURL: "https://remote.example.com/mcp"},
+		{name: "explicit remote missing", ref: types.NamespacedName{Namespace: "team", Name: "missing"}, groupKind: "RemoteMCPServer.api.kagent.dev", wantError: "no RemoteMCPServer team/missing found"},
+		{name: "unsupported kind", ref: types.NamespacedName{Namespace: "default", Name: "local"}, groupKind: "MCPServer.kagent.dev", wantError: "unsupported MCP server kind"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := NewRuntimeMCPClient(toolTestKube(t, true, test.objects...))
+			client := NewRuntimeMCPClient(toolTestKube(t, test.objects...))
 			result, err := client.ResolveServer(t.Context(), MCPServerRef{Ref: test.ref, GroupKind: test.groupKind})
 			if test.wantError != "" {
 				require.Error(t, err)

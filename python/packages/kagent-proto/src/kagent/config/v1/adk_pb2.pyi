@@ -332,28 +332,32 @@ class ADKSSEConnectionParams(_message.Message):
     def __init__(self, url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ..., timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., sse_read_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., tls_insecure_skip_verify: _Optional[bool] = ..., tls_ca_cert_path: _Optional[str] = ..., tls_disable_system_cas: _Optional[bool] = ...) -> None: ...
 
 class ADKHTTPMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
     params: ADKHTTPConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
-    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ...) -> None: ...
+    token_passthrough: bool
+    def __init__(self, params: _Optional[_Union[ADKHTTPConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
 
 class ADKSSEMCPServerConfig(_message.Message):
-    __slots__ = ("params", "tools", "allowed_headers", "require_approval")
+    __slots__ = ("params", "tools", "allowed_headers", "require_approval", "token_passthrough")
     PARAMS_FIELD_NUMBER: _ClassVar[int]
     TOOLS_FIELD_NUMBER: _ClassVar[int]
     ALLOWED_HEADERS_FIELD_NUMBER: _ClassVar[int]
     REQUIRE_APPROVAL_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_PASSTHROUGH_FIELD_NUMBER: _ClassVar[int]
     params: ADKSSEConnectionParams
     tools: _containers.RepeatedScalarFieldContainer[str]
     allowed_headers: _containers.RepeatedScalarFieldContainer[str]
     require_approval: bool
-    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ...) -> None: ...
+    token_passthrough: bool
+    def __init__(self, params: _Optional[_Union[ADKSSEConnectionParams, _Mapping]] = ..., tools: _Optional[_Iterable[str]] = ..., allowed_headers: _Optional[_Iterable[str]] = ..., require_approval: _Optional[bool] = ..., token_passthrough: _Optional[bool] = ...) -> None: ...
 
 class ADKStdioMCPServerConfig(_message.Message):
     __slots__ = ("command", "args", "env", "dir")
@@ -490,16 +494,16 @@ class ADKPluginBundle(_message.Message):
     def __init__(self, source: _Optional[_Union[ADKPluginSource, _Mapping]] = ..., skills: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ADKPluginSource(_message.Message):
-    __slots__ = ("oci", "git", "s3", "path")
-    OCI_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("git", "s3", "directory", "path")
     GIT_FIELD_NUMBER: _ClassVar[int]
     S3_FIELD_NUMBER: _ClassVar[int]
+    DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
-    oci: str
     git: ADKPluginGitSource
     s3: ADKPluginS3Source
+    directory: str
     path: str
-    def __init__(self, oci: _Optional[str] = ..., git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., path: _Optional[str] = ...) -> None: ...
+    def __init__(self, git: _Optional[_Union[ADKPluginGitSource, _Mapping]] = ..., s3: _Optional[_Union[ADKPluginS3Source, _Mapping]] = ..., directory: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
 
 class ADKPluginGitSource(_message.Message):
     __slots__ = ("url", "commit")
@@ -524,7 +528,7 @@ class ADKPluginS3Source(_message.Message):
     def __init__(self, endpoint: _Optional[str] = ..., bucket: _Optional[str] = ..., key: _Optional[str] = ..., version_id: _Optional[str] = ..., region: _Optional[str] = ...) -> None: ...
 
 class ADKRuntimeConfig(_message.Message):
-    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "bash_venv_path", "file_search_tools", "telemetry")
+    __slots__ = ("control_plane_url", "gateway_url", "name", "namespace", "log_level", "host", "port", "max_content_length", "token_propagation", "telemetry", "builtin_tools")
     CONTROL_PLANE_URL_FIELD_NUMBER: _ClassVar[int]
     GATEWAY_URL_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -534,9 +538,8 @@ class ADKRuntimeConfig(_message.Message):
     PORT_FIELD_NUMBER: _ClassVar[int]
     MAX_CONTENT_LENGTH_FIELD_NUMBER: _ClassVar[int]
     TOKEN_PROPAGATION_FIELD_NUMBER: _ClassVar[int]
-    BASH_VENV_PATH_FIELD_NUMBER: _ClassVar[int]
-    FILE_SEARCH_TOOLS_FIELD_NUMBER: _ClassVar[int]
     TELEMETRY_FIELD_NUMBER: _ClassVar[int]
+    BUILTIN_TOOLS_FIELD_NUMBER: _ClassVar[int]
     control_plane_url: str
     gateway_url: str
     name: str
@@ -546,7 +549,6 @@ class ADKRuntimeConfig(_message.Message):
     port: int
     max_content_length: int
     token_propagation: _config_pb2.TokenPropagationConfig
-    bash_venv_path: str
-    file_search_tools: bool
     telemetry: _config_pb2.TelemetryConfig
-    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., bash_venv_path: _Optional[str] = ..., file_search_tools: _Optional[bool] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ...) -> None: ...
+    builtin_tools: _config_pb2.BuiltinToolsConfig
+    def __init__(self, control_plane_url: _Optional[str] = ..., gateway_url: _Optional[str] = ..., name: _Optional[str] = ..., namespace: _Optional[str] = ..., log_level: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., max_content_length: _Optional[int] = ..., token_propagation: _Optional[_Union[_config_pb2.TokenPropagationConfig, _Mapping]] = ..., telemetry: _Optional[_Union[_config_pb2.TelemetryConfig, _Mapping]] = ..., builtin_tools: _Optional[_Union[_config_pb2.BuiltinToolsConfig, _Mapping]] = ...) -> None: ...

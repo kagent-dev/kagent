@@ -8,21 +8,22 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // modelResult is the runtime configuration contributed by one ModelConfig.
 type modelResult struct {
 	Resolved    *translator.ResolvedModelConfig
-	Model       *adk.Model
+	Model       *configv1.ADKModelConfig
 	Environment []corev1.EnvVar
 	Egress      []string
 }
 
 // buildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
+func (c *Builder) buildModel(namespace, name string, agentID types.NamespacedName) (*modelResult, error) {
 	resolved := krt.FetchOne(c.ctx, c.collections.ResolvedModelConfigs, krt.FilterObjectName(types.NamespacedName{Namespace: namespace, Name: name}))
 	if resolved == nil {
 		return nil, fmt.Errorf("model config %q not found", name)
@@ -33,7 +34,13 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 	if failures := resolved.ReferenceFailures; len(failures) > 0 {
 		return nil, fmt.Errorf("ModelConfig %q: %s", name, failures[0].Message)
 	}
-	runtime, err := resolveModel(resolved)
+	model := resolved
+	if modelWantsAgentIDHeader(resolved.Config, agentID) {
+		modelCopy := *resolved
+		modelCopy.Config = modelConfigWithAgentID(resolved.Config, agentID)
+		model = &modelCopy
+	}
+	runtime, err := resolveModel(model)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +49,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 	}
 	return &modelResult{
 		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
-		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
+		Egress: agentConfigDestinations(&configv1.ADKAgentConfig{}, resolved.Config, runtime.Model),
 	}, nil
 }
 
@@ -56,12 +63,12 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 // and egress join the revision, and it joins the provenance so a change to it
 // compiles a new revision. The agent's own model is left out because the
 // runtime already summarizes with it by default.
-func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration) error {
+func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessConfiguration, template *translator.TemplateConfiguration, agentID types.NamespacedName) error {
 	spec := harness.Spec.Kagent.Compaction
 	if spec == nil {
 		return nil
 	}
-	compaction := &adk.AgentCompressionConfig{
+	compaction := &configv1.ADKCompressionConfig{
 		CompactionInterval: runtimeInt(spec.CompactionInterval),
 		OverlapSize:        runtimeInt(spec.OverlapSize),
 		TokenThreshold:     runtimeInt(spec.TokenThreshold),
@@ -70,7 +77,7 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
 		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.Name) {
-			model, err := c.buildModel(harness.Namespace, ref.Name)
+			model, err := c.buildModel(harness.Namespace, ref.Name, agentID)
 			if err != nil {
 				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
 			}
@@ -80,7 +87,7 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 			result.Egress = append(result.Egress, model.Egress...)
 		}
 	}
-	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
+	result.Config.ContextConfig = &configv1.ADKContextConfig{Compaction: compaction}
 	return nil
 }
 
@@ -92,14 +99,14 @@ func isAgentModel(template *translator.TemplateConfiguration, name string) bool 
 // genai.Schema conversion used by the Go runtime, then records the canonical
 // schema for both Go and Python ADK runtimes. This keeps compatibility
 // failures at Harness compilation instead of actor startup.
-func applyOutputSchema(config *adk.AgentConfig, output *translator.ResolvedOutputSchema) error {
+func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
 	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
-	config.Output = &adk.OutputConfig{
+	config.Output = &configv1.ADKOutputConfig{
 		JsonSchema: append(json.RawMessage(nil), output.Schema...),
 		Sha256:     output.SHA256,
 	}
@@ -124,11 +131,11 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 		return nil
 	}
 	name := memory.ModelConfigRef.Name
-	model, err := c.buildModel(harness.Namespace, name)
+	model, err := c.buildModel(harness.Namespace, name, types.NamespacedName{})
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}
-	result.Config.Memory = &adk.MemoryConfig{TtlDays: int64(memory.TTLDays), Embedding: adk.ModelToEmbeddingConfig(model.Model)}
+	result.Config.Memory = &configv1.ADKMemoryConfig{TtlDays: int64(memory.TTLDays), Embedding: runtimeconfig.ModelToEmbeddingConfig(model.Model)}
 	result.Models = append(result.Models, model.Resolved)
 	result.Environment = append(result.Environment, model.Environment...)
 	result.Egress = append(result.Egress, model.Egress...)

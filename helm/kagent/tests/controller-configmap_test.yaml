@@ -3,6 +3,40 @@ templates:
   - controller-configmap.yaml
   - controller-deployment.yaml
 tests:
+  - it: forwards the built-in bash setting to runtime defaults
+    template: controller-configmap.yaml
+    set:
+      config.runtimeDefaults.builtinTools.disableBash: true
+      config.runtimeDefaults.builtinTools.disableFileSearch: true
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'disableBash: true'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'disableFileSearch: true'
+
+  - it: uses full service DNS names for runtime egress
+    template: controller-configmap.yaml
+    set:
+      global.clusterDomain: null
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'controlPlaneUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'gatewayUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083'
+
+  - it: supports a custom Kubernetes DNS domain
+    template: controller-configmap.yaml
+    set:
+      global.clusterDomain: cluster.example
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'controlPlaneUrl: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.example:8083'
+
   - it: mounts one config document and secret files
     template: controller-deployment.yaml
     asserts:

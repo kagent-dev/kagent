@@ -305,6 +305,11 @@ def create_agent(
     sts_header_provider = None
     if sts_integration:
         sts_header_provider = sts_integration.header_provider
+    # TODO: implement RemoteMCPServer tokenPassthrough. Fail rather than
+    # connecting without the caller's credential.
+    for mcp_tool in [*config.http_tools, *config.sse_tools]:
+        if mcp_tool.token_passthrough:
+            raise NotImplementedError("MCP token passthrough is not yet supported by the Python ADK")
     if config.http_tools:
         for http_tool in config.http_tools:  # add http tools
             # Install a TLS-aware httpx_client_factory on the params

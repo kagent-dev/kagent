@@ -2,57 +2,44 @@ package substrate
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
-func TestActorTemplateSandboxClass(t *testing.T) {
-	for _, tt := range []struct {
-		name       string
-		class      atev1alpha1.SandboxClass
-		wantClass  ateapipb.SandboxClass
-		wantConfig string
-		wantError  string
-	}{
-		{name: "default", wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
-		{name: "gvisor", class: atev1alpha1.SandboxClassGvisor, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR, wantConfig: "gvisor-default"},
-		{name: "microvm", class: atev1alpha1.SandboxClassMicroVM, wantClass: ateapipb.SandboxClass_SANDBOX_CLASS_MICROVM, wantConfig: "microvm"},
-		{name: "unsupported", class: "unsupported", wantError: `unsupported sandbox class "unsupported"`},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			spec := &translator.Revision{
-				Namespace: "agents", AgentName: "helper",
-				WorkerPoolName: "pool",
-				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{Streaming: new(true)},
-					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
-					DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
-				},
+func TestActorTemplateSkillVolumeLimit(t *testing.T) {
+	for _, count := range []int{0, 29, 30} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			spec := &translator.Revision{CPU: "1", Memory: "1Gi", Namespace: "test", AgentName: "skills", AgentCard: &a2apb.AgentCard{
+				Name: "skills", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+				DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
+				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			}}
+			for i := range count {
+				spec.SkillImages = append(spec.SkillImages, translator.SkillImage(fmt.Sprintf("example.com/skills-%d@sha256:%064x", i, i)))
 			}
-			// Exercise builder validation independently of Digest's validation.
 			id, err := spec.Digest()
 			require.NoError(t, err)
-			spec.SandboxClass = tt.class
-			template, err := ActorTemplateForRevision(spec, id)
-			if tt.wantError != "" {
-				require.EqualError(t, err, tt.wantError)
-				require.Nil(t, template)
+			actor, err := ActorTemplateForRevision(spec, id)
+			if count > 29 {
+				require.ErrorContains(t, err, "33 volumes and 33 container mounts")
+				require.ErrorContains(t, err, "at most 32 volumes and 32 mounts per container")
+				require.Nil(t, actor)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tt.wantClass, template.GetSandboxConfig().GetSandboxClass())
-			require.Equal(t, tt.wantConfig, template.GetSandboxConfig().GetConfigName())
-			testWorkerPoolSelection(t, template, "agents", "pool")
+			require.Len(t, actor.Volumes, count+3)
+			require.Len(t, actor.Containers[0].VolumeMounts, count+3)
 		})
 	}
 }
@@ -68,7 +55,7 @@ func testWorkerPoolSelection(t *testing.T, template *ateapipb.ActorTemplate, nam
 }
 
 func TestActorTemplateForRevision(t *testing.T) {
-	spec := &translator.Revision{
+	spec := &translator.Revision{CPU: "1", Memory: "1Gi",
 		Namespace: "agents", AgentName: "helper",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Command:        []string{"/agent"},
@@ -93,10 +80,11 @@ func TestActorTemplateForRevision(t *testing.T) {
 	if !slices.Equal(container.Command, spec.Command) || !slices.Equal(container.Args, spec.Args) {
 		t.Fatalf("container command/args = %v %v", container.Command, container.Args)
 	}
-	if template.GetSandboxConfig().GetSandboxClass() != ateapipb.SandboxClass_SANDBOX_CLASS_GVISOR || template.GetSandboxConfig().GetConfigName() != "gvisor-default" || container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
+	if container.GetWakeupProbe().GetHttpGet().GetPath() != "/readyz" || container.GetWakeupProbe().GetHttpGet().GetPort() != 8081 || container.GetWakeupProbe().GetTimeoutSeconds() != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template)
 	}
-	require.Equal(t, ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL, template.GetSnapshotConfig().GetOnCommit())
+	require.Equal(t, ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, template.GetSnapshotConfig().GetPreferredFidelity())
+	require.Equal(t, ateapipb.GoldenSnapshotMode_GOLDEN_SNAPSHOT_MODE_ENABLED, template.GetSnapshotConfig().GetGoldenSnapshotConfig().GetMode())
 	environment := map[string]*ateapipb.EnvVar{}
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
@@ -137,7 +125,7 @@ func TestActorTemplateStampsTheRevisionOnTheResource(t *testing.T) {
 		{name: "replaces forged version", environment: []corev1.EnvVar{{Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "gen_ai.main_agent.name=helper-kagent,service.version=forged"}}, wantPrefix: "gen_ai.main_agent.name=helper-kagent,"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			spec := &translator.Revision{
+			spec := &translator.Revision{CPU: "1", Memory: "1Gi",
 				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
 				AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
 					SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
@@ -200,7 +188,7 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 				Instruction string `json:"instruction"`
 			}{test.instruction})
 			require.NoError(t, err)
-			spec := &translator.Revision{
+			spec := &translator.Revision{CPU: "1", Memory: "1Gi",
 				Namespace: "agents", AgentName: "helper", WorkerPoolName: "default",
 				ConfigJSON: config, Environment: test.environment,
 				AgentCard: &a2apb.AgentCard{Name: "helper", Description: test.description, Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
@@ -217,6 +205,23 @@ func TestActorTemplateEnvironmentValueSize(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, template)
+		})
+	}
+}
+
+func TestActorResources(t *testing.T) {
+	for _, test := range []struct{ cpu, memory, wantError string }{
+		{"500m", "2Gi", ""}, {"", "1Gi", "cpu"}, {"0", "1Gi", "cpu"}, {"-1", "1Gi", "cpu"}, {"1000", "1Gi", "cpu"}, {"1", "", "memory"}, {"1", "0", "memory"}, {"1", "invalid", "memory"},
+	} {
+		t.Run(test.cpu+"/"+test.memory, func(t *testing.T) {
+			resources, err := actorResources(test.cpu, test.memory)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				require.Nil(t, resources)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, []*ateapipb.Limits{{Name: "cpu", Quantity: "500m"}, {Name: "memory", Quantity: "2Gi"}}, resources.Limits)
 		})
 	}
 }

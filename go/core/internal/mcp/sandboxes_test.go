@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"image/png"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -14,8 +16,15 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	"github.com/kagent-dev/kagent/go/core/internal/service/sandbox"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func TestSandboxToolsRegisteredAndValidateBeforeDispatch(t *testing.T) {
@@ -109,6 +118,79 @@ func TestReadFileContent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, textContent("%s", test.want), readFile(t, test.data, test.offset, test.limit))
+		})
+	}
+}
+
+// The MCP template discovery path must apply the same scope as the CRUD API.
+type templateListAuthorizer struct {
+	auth.NoopAuthorizer
+	scope        apiauthorization.AuthorizationScope
+	scopeErr     error
+	verb         auth.Verb
+	resourceType string
+}
+
+var _ auth.CollectionAuthorizer = (*templateListAuthorizer)(nil)
+
+func (a *templateListAuthorizer) Scope(_ context.Context, _ auth.Principal, verb auth.Verb, resourceType string) (apiauthorization.AuthorizationScope, error) {
+	a.verb, a.resourceType = verb, resourceType
+	return a.scope, a.scopeErr
+}
+
+func TestSandboxTemplateToolFiltersAuthorizedTemplates(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		scope     apiauthorization.AuthorizationScope
+		scopeErr  error
+		want      []any
+		wantError bool
+	}{
+		{name: "all", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAll}, want: []any{
+			map[string]any{"namespace": "other", "name": "scratch"},
+			map[string]any{"namespace": "team-a", "name": "hidden"},
+			map[string]any{"namespace": "team-a", "name": "scratch"},
+		}},
+		{name: "namespace and name", scope: apiauthorization.AuthorizationScope{
+			Kind: apiauthorization.ScopeAnyOf,
+			AnyOf: []apiauthorization.ScopeClause{{All: []apiauthorization.ScopePredicate{
+				{Attribute: apiauthorization.AttributeNamespace, Operator: apiauthorization.ScopeIn, Values: []string{"team-a"}},
+				{Attribute: apiauthorization.AttributeName, Operator: apiauthorization.ScopeIn, Values: []string{"scratch"}},
+			}}},
+		}, want: []any{map[string]any{"namespace": "team-a", "name": "scratch"}}},
+		{name: "none", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeNone}, want: []any{}},
+		{name: "invalid scope", scope: apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}, wantError: true},
+		{name: "scope error", scopeErr: errors.New("authorization unavailable"), wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha3.AddToScheme(scheme))
+			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+				&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch"}},
+				&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "hidden"}},
+				&v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "scratch"}},
+			).Build()
+			authorizer := &templateListAuthorizer{scope: test.scope, scopeErr: test.scopeErr}
+			templates := kubecrud.NewService(kube, authorizer, &v1alpha3.SandboxTemplate{}, &v1alpha3.SandboxTemplateList{}, v1alpha3.SandboxTemplateKind)
+			handler, err := New(testSessionService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: &fakeGateway{}}, nil, templates)
+			require.NoError(t, err)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handler.ServeHTTP(w, r.WithContext(auth.AuthSessionTo(r.Context(), testSession{})))
+			}))
+			defer server.Close()
+			response := rawMCPCall(t, server.URL, "tools/call", map[string]any{
+				"name": "list_sandbox_templates", "arguments": map[string]any{},
+			}, false)
+			result := response["result"].(map[string]any)
+			require.Equal(t, auth.VerbList, authorizer.verb)
+			require.Equal(t, v1alpha3.SandboxTemplateKind, authorizer.resourceType)
+			if test.wantError {
+				require.Equal(t, true, result["isError"])
+				require.Empty(t, result["structuredContent"].(map[string]any)["templates"])
+				return
+			}
+			require.NotEqual(t, true, result["isError"])
+			require.Equal(t, test.want, result["structuredContent"].(map[string]any)["templates"])
 		})
 	}
 }

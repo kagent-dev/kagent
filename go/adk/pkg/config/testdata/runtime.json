@@ -1,0 +1,37 @@
+{
+  "control_plane_url": "http://controller:8083",
+  "gateway_url": "https://gateway.example.com",
+  "name": "researcher",
+  "namespace": "team",
+  "log_level": "debug",
+  "host": "0.0.0.0",
+  "port": 8080,
+  "max_content_length": 0,
+  "token_propagation": {
+    "enabled": false,
+    "sts_well_known_uri": "https://sts.example.com/.well-known/oauth-authorization-server",
+    "resources": [
+      "https://tools.example.com"
+    ],
+    "audiences": [
+      "tools"
+    ]
+  },
+  "builtin_tools": {
+    "bash_venv_path": "/opt/venv",
+    "disable_file_search": false,
+    "disable_bash": true
+  },
+  "telemetry": {
+    "capture_content": false,
+    "max_capture_bytes": 1024,
+    "traces": {
+      "endpoint": "http://collector:4318/v1/traces",
+      "protocol": "http/protobuf",
+      "timeout": "1.500s"
+    },
+    "resource_attributes": {
+      "deployment.environment.name": "test"
+    }
+  }
+}

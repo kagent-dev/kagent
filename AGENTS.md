@@ -23,7 +23,10 @@ The release-blocking harnesses are kagent, Codex, and Claude. Prefer clean-insta
 ## 2. Sources of Truth
 
 - Current architecture is documented in [docs/architecture](docs/architecture).
-- Development workflows and current architecture notes are in [.claude/skills/kagent-dev/SKILL.md](.claude/skills/kagent-dev/SKILL.md).
+- Development workflows and current architecture notes are in [.agents/skills/kagent-dev/SKILL.md](.agents/skills/kagent-dev/SKILL.md).
+- `.agents/skills/` is the source of truth for repository skills. Keep one
+  relative per-skill symlink under `.claude/skills/` for Claude Code; do not
+  symlink the whole directory.
 - General and language-specific conventions are in [STYLE.md](STYLE.md).
 - Generated code is never the source of truth. Change the API, protobuf, SQL, or schema source and regenerate its outputs.
 

@@ -46,7 +46,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Metrics:          &configv1.MetricsConfig{BindAddress: new("0")},
 		Logging:          &configv1.LoggingConfig{Level: new("info")},
 		Telemetry:        &configv1.TelemetryConfig{},
-		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
+		RuntimeDefaults:  &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}, Telemetry: &configv1.TelemetryConfig{}},
 	})
 	if cfg.Push.Issuer == nil {
 		cfg.Push.Issuer = new(cfg.Gateway.GetPublicUrl())

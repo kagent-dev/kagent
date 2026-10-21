@@ -6,18 +6,33 @@ Kubernetes resource.
 
 ## Creation and state
 
-Creation selects the latest successful revision for the Agent, creates a deterministic Actor initially suspended, and marks the session
+Fresh creation pins the Agent's latest successful runtime revision. Pending or
+failed edits leave that revision available; an Agent with no successful revision
+cannot create sessions. Creation retries retain the existing session's pinned
+revision. Explicit egress grants are applied from the controller's persisted
+intended policy before execution. Lifecycle
+operations do not read or translate Kubernetes policy.
+
+The control plane creates a deterministic Actor initially suspended and marks the session
 ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v0.4.0-alpha1 requires protocol-specific egress policies. Kagent allows
+Substrate v0.6.0-alpha3 requires protocol-specific egress policies and permits
+DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
 protocols on the same host and port are rejected before Actor creation. Literal
 IP allowlists are unsupported by this Substrate release; model, MCP, and telemetry endpoints
 must use DNS names. Host-based test services use Kubernetes Services and
 EndpointSlices to provide those names.
+
+Runtime endpoints must use full DNS names, such as
+`kagent-controller.kagent.svc.cluster.local`. DNS search-domain expansion of a
+short service name would query a hostname absent from the egress policy. The
+Helm chart uses `global.clusterDomain` (default `cluster.local`) for its generated
+controller and API tool URLs; custom model, MCP, and telemetry URLs must also
+use full names.
 
 Create (including forks), explicit Suspend, Resume, and Delete keep their current
 operation UUID and executor claim on the session row. Fork creation loads its
@@ -96,7 +111,7 @@ A2A event's database timestamp. Forks retain original event timestamps, so their
 own creation time gives them a full idle lifetime. Reads, renames, lifecycle calls,
 and retried writes or settlement do not extend it. Running tasks and
 INPUT_REQUIRED/AUTH_REQUIRED turns never expire, even after that duration. Pending
-lifecycle operations, dispatch reservations, native cleanup, claimed pause/suspend
+lifecycle operations, dispatch reservations, native cleanup, claimed suspend
 work, and checkpoint creation also block expiration.
 
 A leader-only worker scans once per minute in bounded pages. Under the same
@@ -115,6 +130,16 @@ the session, shares, runtime row, and creation receipt. GetSession returns NotFo
 CreateSession or ForkSession with the same caller/request ID can create a fresh
 session. Explicit client deletion still retains its tombstone and request ID.
 
+A2A continuation using a missing or expired context ID returns `TaskNotFound`
+(JSON-RPC `-32001`, gRPC `NOT_FOUND`), matching continuation using an old task ID.
+Ownership-filtered lookup gives the same response for another user's Session;
+the response does not distinguish expiry from absence or hidden ownership.
+Authorization-check failures still return permission denied. Clients can start a
+new conversation after `TaskNotFound` by sending without a context or task ID.
+Service-level not-found errors use this same A2A mapping, including missing Agents.
+Agent-card HTTP discovery returns 404 for not-found errors and 403 for permission
+denials. Starting a new conversation requires an existing, authorized Agent.
+
 The retention rule preserves the existing audit policy: A2A context, tasks, event
 history, and explicit checkpoints remain in PostgreSQL. Retained checkpoints can
 still be forked after the source session expires and retain their own snapshot
@@ -132,9 +157,9 @@ level with `session_id` and `idle_time`.
 
 The runtime stages a final task update and acknowledges it after native cleanup.
 That acknowledgement publishes task state and history atomically, without waiting
-for pause/suspend. A Session lifecycle worker independently claims the idle
-boundary in PostgreSQL. INPUT_REQUIRED/AUTH_REQUIRED pauses the actor on its node;
-terminal work suspends it and records the exact external snapshot. Waiting tasks
+for suspension. A Session lifecycle worker independently claims the idle
+boundary in PostgreSQL. Both INPUT_REQUIRED/AUTH_REQUIRED and terminal work
+suspend the Actor and record the exact durable VOLUMES snapshot. Waiting tasks
 are not forkable. The Session stays logically READY, and Substrate ingress
 resumes it when another authorized interaction arrives.
 
@@ -193,8 +218,8 @@ sequenceDiagram
     Gateway-->>Client: current public task
     Note over Worker,DB: Idle lifecycle runs independently of the client response
     Worker->>DB: claim idle boundary unless new execution superseded it
-    Worker->>Actor: pause or suspend
-    Actor-->>Worker: settled native boundary
+    Worker->>Actor: suspend with VOLUMES snapshot
+    Actor-->>Worker: suspended Actor and durable VOLUMES snapshot
     Worker->>DB: record snapshot and finish idle claim
 ```
 
@@ -213,16 +238,45 @@ state there—local framework state, workspaces, and downloaded assets that must
 survive Actor replacement. This state is runtime-private; public task history
 remains in PostgreSQL.
 
-Substrate v0.5.0-alpha2 applies one content scope to every snapshot of an Actor,
-both the node-local snapshot taken on pause and the one uploaded on suspend.
-Templates use Full, so paused and suspended Actors keep their process memory, and
-their checkpoints cannot be forked until Substrate's lifecycle v2 separates the two
-scopes again. A Data snapshot resumes by starting fresh containers from the OCI
-image with the saved durable directories; Substrate still restores one as Data when
-the Actor's template changed after the snapshot was taken.
+The ADK's built-in file and shell tools use `/data/workspace`, shared by the root
+agent and subagents in one Actor. Workspace files survive VOLUMES snapshots, resume,
+and checkpoint forks. Skills are discovered independently; the workspace has no
+session-specific directories or mutable skills symlinks. The workspace is created
+on first use, with no predefined upload or output directories. File tools accept
+normal relative and absolute paths inside the sandbox; Substrate owns isolation.
+
+Each bash invocation starts a fresh shell with the Actor environment. The working
+directory and configured skills directory are added to `PYTHONPATH`. Commands use
+a 60-second default timeout; `timeout_seconds` can select up to 600 seconds.
+Stdout and stderr are combined, captured up to 64 KiB, and returned with an
+explicit truncation marker. Large results should be redirected to workspace files.
+Commands and their process groups are stopped when a call finishes, times out,
+or is canceled. Background processes are not durable work and have no process
+handle API in the bash tool. Suspending an Actor preserves files, not running
+commands. Command payloads and output are not logged by the shell helpers.
+
+Substrate v0.6.0-alpha3 uses snapshot fidelity. Agent and standalone sandbox
+templates use VOLUMES. Resume starts fresh containers
+from the OCI image with the saved durable directories. Harnesses recover pending
+approvals and user input from their durable state; sandbox guests start with a
+fresh process registry. Agent checkpoints can be forked without carrying the
+source session's process memory or runtime identity into the new session.
+
+Kagent selects the highest snapshot generation and accepts its object-storage
+URI only after its durable status is COMPLETED. A pending generation cannot
+fall back to an older checkpoint. Suspension requires a durable VOLUMES snapshot;
+ROOTFS and MEMORY snapshots are rejected because they restore additional runtime
+state.
+
+Codex and Claude record failed deferred continuations as `abandoned` in their
+existing input journals. Admission rejects abandoned or restored unfinished
+execution phases with an error requiring a new session, instead of restoring a
+pending interaction for a failed task. Failures known to precede execution keep
+the existing retry behavior. This rule is limited to durable deferred input;
+general crash recovery and remote tool outcome reconciliation are follow-up work.
 
 The Go ADK opens and migrates its SQLite session store before readiness, but
-retains no idle database connections. Full and golden restores preserve guest
+retains no idle database connections. MEMORY and golden restores preserve guest
 memory while rematerializing `/data`, so a connection opened before the snapshot
 can retain a stale file identity and reject writes with `SQLITE_READONLY_DBMOVED`.
 Closing connections when returned to the pool keeps quiescent snapshots free of

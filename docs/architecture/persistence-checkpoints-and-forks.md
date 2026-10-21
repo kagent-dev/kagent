@@ -55,17 +55,24 @@ A checkpoint names a durable terminal boundary with a matching native snapshot.
 TaskStore publishes task completion after native cleanup; the independent
 Session lifecycle worker records its snapshot later. Creating a checkpoint
 returns FailedPrecondition until that snapshot is ready.
-Input-required and auth-required tasks are paused on their current node and are
-not checkpointable or forkable; callers must resolve the interaction first.
+Input-required and auth-required tasks are durably suspended with VOLUMES snapshots
+but are not checkpointable or forkable; callers must resolve the interaction first.
 Creating a checkpoint does not suspend the Actor again:
 
 1. Reserve the checkpoint in PostgreSQL.
-2. Verify that the suspended Actor still holds the external snapshot URI and scope recorded on the boundary.
+2. Verify that the suspended Actor still holds the external snapshot URI and fidelity recorded on the boundary.
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
 4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
 
-Substrate v0.4.0-alpha1 records snapshot lineage in
-`Actor.status.external_snapshot.actor_template_uid`. The Tag's template UID must
+Kagent requests synchronous Substrate suspension before recording a checkpoint.
+If an earlier attempt already suspended the Actor but left a pending durable
+upload, the adapter waits within the request deadline for that same snapshot
+generation. Actor replacement, state changes, and generation changes fail the
+attempt; the existing durable workflow retains retry authority.
+
+Substrate v0.6.0-alpha3 records snapshot lineage in
+`Actor.status.snapshots[].actor_template_uid`. Kagent selects the newest generation
+and requires a COMPLETED durable copy. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.
 
 The `CREATING` reservation blocks task writes and idle or explicit lifecycle changes until the
@@ -86,9 +93,24 @@ deleted while its context and checkpoint remain.
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
+Failed checkpoints can also be deleted by their owner. Creation marks a checkpoint
+failed only after snapshot-tag cleanup succeeds or confirms that no tag exists.
+Deletion verifies that absence before removing the row; it never deletes an
+unexpected tag without a retained UID. Backend errors leave the checkpoint in
+`DELETING` for a later delete request to retry. Its history and runtime revision
+references remain retained until deletion completes. Checkpoints still in
+`CREATING` cannot be deleted through this path.
+
+Checkpoint deletion passes the retained tag UID as a Substrate delete precondition,
+so a tag replaced after lookup cannot have its snapshot deleted. A rejected delete
+keeps the checkpoint record and its references for retry.
+
 ## Forking
 
-Forks are currently unavailable. Substrate 0.5.0-alpha2 applies one snapshot scope to pause and suspend, and templates use Full so paused Actors keep their process memory. A Full checkpoint restored into a new Actor would resume processes that still hold the source session's IDs, so `ForkSession` rejects it with `FAILED_PRECONDITION`. Forking returns when Substrate's lifecycle v2 lets templates take Data snapshots on suspend again. The rest of this section describes forks of Data checkpoints.
+Templates use VOLUMES snapshots for suspension. `ForkSession`
+accepts only VOLUMES checkpoints, which cold-boot with fresh session identities;
+MEMORY and ROOTFS checkpoints return `FAILED_PRECONDITION`.
+The rest of this section describes forks of VOLUMES checkpoints.
 
 Forking creates a new Session and context ID. It copies events through the
 saved cutoff and reconstructs task views without reading the source's current task

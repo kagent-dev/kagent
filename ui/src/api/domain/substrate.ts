@@ -12,7 +12,6 @@ export interface SubstrateActorTemplateEntry {
   name: string;
   phase?: string;
   goldenTag?: string;
-  sandboxClass?: string;
   workerSelector?: string;
 }
 

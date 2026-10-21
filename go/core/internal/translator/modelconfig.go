@@ -113,11 +113,11 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 
 	switch config.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		if !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "" {
+		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
 			requireAPIKey()
 		}
 	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry, v1alpha3.ModelProviderMistral:
-		if !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "" {
+		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
 			requireAPIKey()
 		}
 	case v1alpha3.ModelProviderGemini:
@@ -150,7 +150,7 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 			addSemanticFailure("InvalidProviderConfig", "bedrock model config is required")
 			break
 		}
-		if !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "" {
+		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
 			key := types.NamespacedName{Namespace: config.Namespace, Name: config.Spec.APIKeySecret}
 			fetched := krt.FetchOne(ctx, collections.Secrets, krt.FilterObjectName(key))
 			if fetched == nil {
@@ -171,7 +171,7 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 		if config.Spec.SAPAICore == nil {
 			addSemanticFailure("InvalidProviderConfig", "sapAICore model config is required")
 		}
-		if !config.Spec.APIKeyPassthrough && config.Spec.APIKeySecret != "" {
+		if !config.Spec.TokenPassthrough && config.Spec.APIKeySecret != "" {
 			requireSecret(config.Spec.APIKeySecret, "APIKeySecretNotFound", "SAPAICoreCredentialKeyNotFound", "client_id", "client_secret")
 		}
 	case v1alpha3.ModelProviderFoundry:

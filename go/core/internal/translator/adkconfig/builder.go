@@ -14,8 +14,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -44,12 +45,16 @@ func NewBuilder(ctx krt.HandlerContext, collections translator.Collections) *Bui
 }
 
 type Result struct {
-	Config      *adk.AgentConfig
+	Config      *configv1.ADKAgentConfig
 	Models      []*translator.ResolvedModelConfig
 	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
+	SkillImages []translator.SkillImage
 }
+
+// modelAgentIDHeader identifies the runnable Agent on opted-in model requests.
+const modelAgentIDHeader = "X-Agent-Id"
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
 func HarnessEnvironment(harness *translator.HarnessConfiguration) []corev1.EnvVar {
@@ -67,8 +72,8 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 	return c.build(ctx, input, false)
 }
 
-// BuildWithAgentID builds a kagent runtime configuration whose model requests
-// identify the AgentTemplate that issued them.
+// BuildWithAgentID builds a kagent runtime configuration whose opted-in model
+// requests identify the runnable Agent that owns the runtime.
 func (c *Builder) BuildWithAgentID(ctx context.Context, input *translator.HarnessInput) (*Result, error) {
 	return c.build(ctx, input, true)
 }
@@ -79,7 +84,14 @@ func (c *Builder) build(ctx context.Context, input *translator.HarnessInput, inc
 			return nil, err
 		}
 	}
-	result, err := c.compileAgent(ctx, input.Root, includeAgentID)
+	var agentID types.NamespacedName
+	if includeAgentID {
+		if input.AgentName == "" {
+			return nil, translator.NewValidationError("kagent Agent name is required for model identity")
+		}
+		agentID = types.NamespacedName{Namespace: input.Root.Template.Namespace, Name: input.AgentName}
+	}
+	result, err := c.compileAgent(ctx, input.Root, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +99,7 @@ func (c *Builder) build(ctx context.Context, input *translator.HarnessInput, inc
 		if err := applyOutputSchema(result.Config, input.OutputSchema); err != nil {
 			return nil, err
 		}
-		if err := c.applyCompaction(result, input.Harness, input.Root.Template); err != nil {
+		if err := c.applyCompaction(result, input.Harness, input.Root.Template, agentID); err != nil {
 			return nil, err
 		}
 		if err := c.applyMemory(result, input.Harness); err != nil {
@@ -100,7 +112,7 @@ func (c *Builder) build(ctx context.Context, input *translator.HarnessInput, inc
 	return result, nil
 }
 
-func modelConfigWithAgentID(config *v1alpha3.ModelConfig, template *translator.TemplateConfiguration) *v1alpha3.ModelConfig {
+func modelConfigWithAgentID(config *v1alpha3.ModelConfig, agentID types.NamespacedName) *v1alpha3.ModelConfig {
 	compiled := config.DeepCopy()
 	if compiled.Spec.DefaultHeaders == nil {
 		compiled.Spec.DefaultHeaders = make(map[string]string, 1)
@@ -108,26 +120,27 @@ func modelConfigWithAgentID(config *v1alpha3.ModelConfig, template *translator.T
 	// HTTP header names are case-insensitive. Remove any user-provided spelling
 	// so the system-derived identity is the only value serialized at runtime.
 	for name := range compiled.Spec.DefaultHeaders {
-		if strings.EqualFold(name, adk.ModelAgentIDHeader) {
+		if strings.EqualFold(name, modelAgentIDHeader) {
 			delete(compiled.Spec.DefaultHeaders, name)
 		}
 	}
-	compiled.Spec.DefaultHeaders[adk.ModelAgentIDHeader] = types.NamespacedName{
-		Namespace: template.Namespace,
-		Name:      template.Name,
-	}.String()
+	compiled.Spec.DefaultHeaders[modelAgentIDHeader] = agentID.String()
 	return compiled
 }
 
-func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput, includeAgentID bool) (*Result, error) {
+func modelWantsAgentIDHeader(config *v1alpha3.ModelConfig, agentID types.NamespacedName) bool {
+	return agentID.Name != "" && config.Spec.SendAgentIDHeader != nil && *config.Spec.SendAgentIDHeader
+}
+
+func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput, agentID types.NamespacedName) (*Result, error) {
 	modelRuntime := &modelRuntime{}
 	var modelConfig *v1alpha3.ModelConfig
 	if input.ResolvedModelConfig != nil {
 		modelConfig = input.ResolvedModelConfig.Config
 		resolvedModel := input.ResolvedModelConfig
-		if includeAgentID {
+		if modelWantsAgentIDHeader(modelConfig, agentID) {
 			resolvedModelCopy := *input.ResolvedModelConfig
-			resolvedModelCopy.Config = modelConfigWithAgentID(modelConfig, input.Template)
+			resolvedModelCopy.Config = modelConfigWithAgentID(modelConfig, agentID)
 			resolvedModel = &resolvedModelCopy
 		}
 		var err error
@@ -143,13 +156,13 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
 		stream = modelConfig.Spec.Stream
 	}
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
+	cfg := &configv1.ADKAgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
+	plugins, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = adk.PluginConfig(pluginConfig)
+	if len(plugins.Resources.Skills) > 0 || len(plugins.Resources.Plugins) > 0 {
+		cfg.AgentPlugins = runtimeconfig.PluginConfig(plugins.Resources)
 	}
 	for _, tool := range input.MCPTools {
 		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
@@ -166,13 +179,14 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	result := &Result{
 		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), plugins.Egress...),
+		SkillImages: plugins.Images,
 	}
 	if modelConfig != nil {
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
 	}
 	for _, binding := range input.Shared {
-		child, err := c.compileAgent(ctx, binding.Agent, includeAgentID)
+		child, err := c.compileAgent(ctx, binding.Agent, agentID)
 		if err != nil {
 			return nil, err
 		}
@@ -182,6 +196,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		result.Templates = append(result.Templates, child.Templates...)
 		result.Environment = append(result.Environment, child.Environment...)
 		result.Egress = append(result.Egress, child.Egress...)
+		result.SkillImages = append(result.SkillImages, child.SkillImages...)
 	}
 	return result, nil
 }
@@ -338,7 +353,7 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 // agentConfigDestinations extracts the network allowlist required by the
 // resolved model and MCP configuration. Provider defaults are included when
 // no explicit endpoint appears in the serialized model.
-func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model *adk.Model) []string {
+func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3.ModelConfig, model *configv1.ADKModelConfig) []string {
 	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
 	for _, tool := range cfg.HttpTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
@@ -384,7 +399,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.TokenPassthrough
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}

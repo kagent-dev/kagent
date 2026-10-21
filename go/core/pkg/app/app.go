@@ -19,9 +19,8 @@ import (
 	"strings"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/jackc/pgx/v5/pgxpool"
-	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -48,7 +47,6 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
-	mcpservercontroller "github.com/kagent-dev/kagent/go/core/internal/controller/mcpserver"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -70,6 +68,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
@@ -120,6 +119,9 @@ type Options struct {
 	// its own surface here; letting it reclassify core's would turn a config
 	// field into a way to make an authenticated method public.
 	MethodPolicies map[string]auth.AccessMode
+	// EgressPolicyCompilers bind tokenPassthrough targets; with any registered,
+	// all must be bound. Authenticator must not forward the caller token.
+	EgressPolicyCompilers []egresspolicy.Compiler
 }
 
 // resolve substitutes core's defaults for whichever components the caller left
@@ -243,7 +245,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	utilruntime.Must(clientgoscheme.AddToScheme(managerScheme))
 	utilruntime.Must(kagentv1alpha3.AddToScheme(managerScheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(managerScheme))
-	utilruntime.Must(kmcp.AddToScheme(managerScheme))
 	watchNamespaces := cfg.GetKubernetes().GetWatchNamespaces()
 	managerClientOptions := client.Options{}
 	managerCacheOptions := cache.Options{DefaultNamespaces: namespaceCache(watchNamespaces)}
@@ -280,10 +281,12 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	actors, err := substrate.Dial(ctx, substrate.Config{
-		AteAPIEndpoint: cfg.GetSubstrate().GetApiEndpoint(),
-		CAFile:         cfg.GetSubstrate().GetCaFile(),
-		ClientCertFile: cfg.GetSubstrate().GetClientCertFile(),
-		CallTimeout:    30 * time.Second,
+		EgressPolicies:        store,
+		EgressPolicyCompilers: opts.EgressPolicyCompilers,
+		AteAPIEndpoint:        cfg.GetSubstrate().GetApiEndpoint(),
+		CAFile:                cfg.GetSubstrate().GetCaFile(),
+		ClientCertFile:        cfg.GetSubstrate().GetClientCertFile(),
+		CallTimeout:           30 * time.Second,
 	})
 	if err != nil {
 		return err
@@ -312,10 +315,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	remoteMCPDiscovery := remotemcpcontroller.New(manager.GetClient(), mcpClient, store)
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
-	}
-	mcpServerDiscovery := mcpservercontroller.New(manager.GetClient(), mcpClient, store)
-	if err := mcpServerDiscovery.SetupWithManager(manager); err != nil {
-		return fmt.Errorf("set up MCPServer discovery: %w", err)
 	}
 
 	authenticator, authorizer := opts.resolve()

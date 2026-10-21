@@ -62,6 +62,7 @@ func (ControlPlaneSession) Principal() Principal { return Principal{} }
 type AuthProvider interface {
 	Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (Session, error)
 	// add auth to upstream requests of a session for upstream service account.
+	// For A2A calls, UpstreamMethodFrom(r.Context()) names the outgoing method.
 	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
@@ -120,6 +121,22 @@ func AuthSessionFrom(ctx context.Context) (Session, bool) {
 
 func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
+}
+
+type upstreamMethodKeyType struct{}
+
+var upstreamMethodKey = upstreamMethodKeyType{}
+
+// UpstreamMethodFrom returns the outgoing a2a-go method, such as "SendMessage", or false outside an A2A call.
+// A retried streaming send that was already accepted goes out as "SubscribeToTask".
+func UpstreamMethodFrom(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(upstreamMethodKey).(string)
+	return v, ok
+}
+
+// UpstreamMethodTo returns a copy of ctx that names the outgoing a2a-go method.
+func UpstreamMethodTo(ctx context.Context, method string) context.Context {
+	return context.WithValue(ctx, upstreamMethodKey, method)
 }
 
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {

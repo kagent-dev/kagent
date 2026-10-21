@@ -397,16 +397,13 @@ export function AgentTemplateForm({
                     set("mcpTools", next);
                   }}
                   options={(servers.data ?? []).map((server) => {
-                    // Only a RemoteMCPServer can be bound — the compiler resolves no
-                    // other kind. Command servers stay listed, so one that cannot be
-                    // picked reads as a limitation rather than a missing row.
                     const bindable = server.groupKind.startsWith("RemoteMCPServer");
                     return {
                       value: server.ref,
                       title: bindable
                         ? server.ref
-                        : `${server.ref} — a command server cannot be bound to an agent`,
-                      label: bindable ? server.ref : `${server.ref} (command server)`,
+                        : `${server.ref} - unsupported server kind`,
+                      label: bindable ? server.ref : `${server.ref} (unsupported)`,
                       disabled: !bindable,
                     };
                   })}

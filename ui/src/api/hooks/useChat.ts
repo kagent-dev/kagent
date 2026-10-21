@@ -43,7 +43,7 @@ import { getChatClient } from "../chat";
 import { runtimeConfig } from "../runtimeConfig";
 import { randomId } from "../randomId";
 import { conversationKey } from "../chat/types";
-import { mediaTypeOf } from "../chat/attachments";
+import { LinkFile, mediaTypeOf } from "../chat/attachments";
 import {
   IDLE_TURN,
   isActive,
@@ -319,7 +319,8 @@ export function useChat(
           // were a new chat message.
           parts: displayParts ?? [
             ...(text ? [{ kind: "text" as const, text }] : []),
-            ...(files ?? []).map(
+            // A link's URL is already in the text; it gets no chip.
+            ...(files ?? []).filter((file) => !(file instanceof LinkFile)).map(
               (file): ChatPart => ({
                 kind: "file",
                 name: file.name,

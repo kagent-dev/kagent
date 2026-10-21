@@ -1,6 +1,6 @@
 # KAgent OpenAI Agents SDK Integration
 
-OpenAI Agents SDK integration for KAgent with A2A (Agent-to-Agent) protocol support, session management, and optional skills integration.
+OpenAI Agents SDK integration for KAgent with A2A (Agent-to-Agent) protocol support, session management, and optional file and bash tools.
 
 ---
 
@@ -39,25 +39,27 @@ fastapi_app = app.build()
 
 ---
 
-## Agent with Skills
+## Optional tools
 
-Skills provide domain expertise through filesystem-based instruction files and helper tools (read/write/edit files, bash execution). We provide a function to load all skill-related tools. Otherwise, you can select the ones you need by importing from `kagent.openai.tools`.
+BYO harnesses keep agent behavior in user code. Import the basic filesystem and
+bash tools you need from `kagent.openai.tools`:
 
 ```python
 from agents.agent import Agent
-from kagent.openai import get_skill_tools
-
-tools = [my_custom_tool]
-tools.extend(get_skill_tools("./skills"))
+from kagent.openai.tools import bash, edit_file, read_file, write_file
 
 agent = Agent(
-    name="SkillfulAgent",
-    instructions="Use skills and tools when appropriate.",
-    tools=tools,
+    name="Assistant",
+    instructions="Use tools when appropriate.",
+    tools=[read_file, write_file, edit_file, bash],
 )
 ```
 
-See [skills README](../../kagent-skills/README.md) for skill format and structure.
+Skill discovery and loading are user-implemented in BYO harnesses.
+
+File and bash tools share `/data/workspace` within an Actor. Substrate snapshots
+preserve that directory; applications create any upload or output directories
+when needed. See [runtime helpers](../kagent-tools/README.md).
 
 ---
 
@@ -140,7 +142,7 @@ See `samples/openai/` for complete examples:
 ## See Also
 
 - [OpenAI Agents SDK Docs](https://github.com/openai/agents)
-- [KAgent Skills](../../kagent-skills/README.md)
+- [Python runtime helpers](../kagent-tools/README.md)
 - [A2A Protocol](https://docs.kagent.ai/a2a)
 
 ---

@@ -1,0 +1,250 @@
+{
+  "runtime": {
+    "control_plane_url": "http://controller:8083",
+    "gateway_url": "https://gateway.example.com",
+    "name": "researcher",
+    "namespace": "team",
+    "log_level": "debug",
+    "host": "0.0.0.0",
+    "port": 8080,
+    "max_content_length": "0",
+    "token_propagation": {
+      "sts_well_known_uri": "https://sts.example.com/.well-known/oauth-authorization-server",
+      "resources": [
+        "https://tools.example.com"
+      ],
+      "audiences": [
+        "tools"
+      ]
+    },
+    "builtin_tools": {
+      "bash_venv_path": "/opt/venv"
+    },
+    "telemetry": {
+      "traces": {
+        "endpoint": "http://collector:4318/v1/traces",
+        "protocol": "http/protobuf",
+        "timeout": "1.500s"
+      },
+      "resource_attributes": {
+        "deployment.environment.name": "test"
+      },
+      "max_capture_bytes": 1024
+    }
+  },
+  "agent": {
+    "name": "root",
+    "model": {
+      "model": "gpt-4o",
+      "headers": {
+        "x-test": "value"
+      },
+      "tls_insecure_skip_verify": false,
+      "api_key_passthrough": true,
+      "openai": {
+        "base_url": "https://llm.example.com/v1",
+        "max_completion_tokens": "42",
+        "seed": "9007199254740993",
+        "temperature": 0.0,
+        "token_exchange": {
+          "gdch_service_account": {
+            "service_account_path": "/secrets/gdch.json",
+            "audience": "llm"
+          }
+        }
+      }
+    },
+    "description": "Shared contract",
+    "instruction": "Use the tools.",
+    "http_tools": [
+      {
+        "params": {
+          "url": "https://mcp.example.com",
+          "timeout": "0.250s",
+          "terminate_on_close": false,
+          "tls_ca_cert_path": "/etc/ca.pem",
+          "tls_disable_system_cas": false
+        },
+        "tools": [
+          "search"
+        ],
+        "allowed_headers": [
+          "authorization"
+        ],
+        "require_approval": true
+      }
+    ],
+    "sse_tools": [
+      {
+        "params": {
+          "url": "https://mcp.example.com/sse",
+          "sse_read_timeout": "30s"
+        }
+      }
+    ],
+    "stdio_tools": [
+      {
+        "command": "tool-server",
+        "args": [
+          "--stdio"
+        ],
+        "env": {
+          "KEY": "value"
+        },
+        "dir": "/data"
+      }
+    ],
+    "remote_agents": [
+      {
+        "name": "delegate",
+        "url": "https://agent.example.com",
+        "isolate_sessions": true
+      }
+    ],
+    "stream": false,
+    "memory": {
+      "ttl_days": "7",
+      "embedding": {
+        "provider": "foundry",
+        "model": "embed",
+        "tls_insecure_skip_verify": false,
+        "endpoint": "https://azure.example.com",
+        "deployment": "embed",
+        "api_version": "2025-04-01-preview"
+      }
+    },
+    "network": {
+      "allowed_domains": [
+        "*.example.com"
+      ]
+    },
+    "agent_plugins": {
+      "skills": [
+        {
+          "name": "skill",
+          "source": {
+            "directory": "/run/kagent/artifacts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ],
+      "plugins": [
+        {
+          "source": {
+            "git": {
+              "url": "https://git.example.com/plugin",
+              "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "path": "skills"
+          },
+          "skills": [
+            "lookup"
+          ]
+        },
+        {
+          "source": {
+            "s3": {
+              "endpoint": "https://s3.example.com",
+              "bucket": "plugins",
+              "key": "plugin.tar",
+              "version_id": "version",
+              "region": "us-east-1"
+            }
+          }
+        }
+      ]
+    },
+    "context_config": {
+      "compaction": {
+        "compaction_interval": "5",
+        "overlap_size": "0",
+        "summarizer_model": {
+          "model": "gemini",
+          "gemini": {
+            "max_output_tokens": "512"
+          }
+        }
+      }
+    },
+    "share_tools": false,
+    "session_db_url": "sqlite:////data/sessions.db",
+    "skills_directory": "/data/skills",
+    "sub_agents": [
+      {
+        "name": "azure_openai",
+        "model": {
+          "model": "model-azure_openai",
+          "azure_openai": {}
+        }
+      },
+      {
+        "name": "anthropic",
+        "model": {
+          "model": "model-anthropic",
+          "anthropic": {}
+        }
+      },
+      {
+        "name": "gemini_vertex_ai",
+        "model": {
+          "model": "model-gemini_vertex_ai",
+          "gemini_vertex_ai": {}
+        }
+      },
+      {
+        "name": "gemini_anthropic",
+        "model": {
+          "model": "model-gemini_anthropic",
+          "gemini_anthropic": {}
+        }
+      },
+      {
+        "name": "ollama",
+        "model": {
+          "model": "model-ollama",
+          "ollama": {}
+        }
+      },
+      {
+        "name": "gemini",
+        "model": {
+          "model": "model-gemini",
+          "gemini": {}
+        }
+      },
+      {
+        "name": "bedrock",
+        "model": {
+          "model": "model-bedrock",
+          "bedrock": {
+            "additional_model_request_fields": "eyJuZXN0ZWQiOnsiZW5hYmxlZCI6ZmFsc2V9LCJ2YWx1ZXMiOlswLjAsbnVsbCwidGV4dCJdLCJ0aGlua2luZyI6eyJidWRnZXRfdG9rZW5zIjoxMDI0fSwibGFyZ2UiOjkwMDcxOTkyNTQ3NDA5OTN9"
+          }
+        }
+      },
+      {
+        "name": "sap_ai_core",
+        "model": {
+          "model": "model-sap_ai_core",
+          "sap_ai_core": {}
+        }
+      },
+      {
+        "name": "foundry",
+        "model": {
+          "model": "model-foundry",
+          "foundry": {}
+        }
+      },
+      {
+        "name": "mistral",
+        "model": {
+          "model": "model-mistral",
+          "mistral": {}
+        }
+      }
+    ],
+    "output": {
+      "json_schema": "eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJhbnN3ZXIiOnsidHlwZSI6InN0cmluZyJ9fX0=",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

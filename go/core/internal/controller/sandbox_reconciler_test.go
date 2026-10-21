@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -25,11 +25,14 @@ import (
 	kagentfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 // These fakes are also used by the informer/queue integration test.
 type sandboxTestStore struct {
+	egressTargetStoreStub
+	upsertErr      error
 	mu             sync.Mutex
 	desired        database.SandboxTemplateDefinition
 	revision       database.SandboxRevision
@@ -38,21 +41,26 @@ type sandboxTestStore struct {
 	retireAttempts int
 	retireErr      error
 	recordErr      error
+	recordCalls    int
 }
 
 func (s *sandboxTestStore) UpsertSandboxTemplateDefinition(_ context.Context, value database.SandboxTemplateDefinition) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.desired = value
-	return nil
+	return s.upsertErr
 }
-func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, ready bool) error {
+func (s *sandboxTestStore) RecordSandboxRevision(_ context.Context, value database.SandboxRevision, options database.RecordRevisionOptions) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.recordCalls++
 	if s.recordErr != nil {
 		return s.recordErr
 	}
-	s.revision, s.ready = value, ready
+	s.revision = value
+	if options.Ready {
+		s.ready = true
+	}
 	return nil
 }
 func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, string, string) error {
@@ -69,6 +77,7 @@ func (s *sandboxTestStore) RetireSandboxTemplateIdentities(context.Context, stri
 var _ sandboxRevisionStore = (*sandboxTestStore)(nil)
 
 type sandboxTestActors struct {
+	actorEgressStub
 	mu        sync.Mutex
 	store     *sandboxTestStore
 	templates map[string]*ateapipb.ActorTemplate
@@ -203,13 +212,12 @@ func TestSandboxCollectionsTrackDependenciesAndRejectStaleReadiness(t *testing.T
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).ObservedActorTemplate != nil })
 
 	pool := (*pools.GetKey("team-a/default")).DeepCopy()
-	pool.Spec.SandboxClass = atev1alpha1.SandboxClassMicroVM
+	pool.Spec.SandboxClasses = []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}
 	pools.UpdateObject(pool)
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).RevisionID != original.RevisionID })
 	changed := s.collections.states.GetKey(key)
 	require.NotEmpty(t, changed.RevisionID)
 	require.Nil(t, changed.ObservedActorTemplate)
-	require.False(t, proto.Equal(original.DesiredActorTemplate.SandboxConfig, changed.DesiredActorTemplate.SandboxConfig))
 	pools.DeleteObject("team-a/default")
 	waitFor(t, func() bool { return s.collections.states.GetKey(key).Failure != nil })
 	missing := s.collections.states.GetKey(key)
@@ -294,4 +302,13 @@ func TestSandboxPendingStatusRecoversWithoutGraphEvent(t *testing.T) {
 		current, err := s.client.SandboxTemplates("team-a").Get(t.Context(), "scratch", metav1.GetOptions{})
 		return err == nil && apimeta.IsStatusConditionTrue(current.Status.Conditions, "Ready")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func (s *sandboxTestStore) GetSandboxEgressGrant(_ context.Context, namespace, uid string) (egress.Access, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.desired.Namespace == namespace && s.desired.SandboxTemplateUID == uid && !s.retired {
+		return s.desired.EgressGrant, nil
+	}
+	return egress.Access{}, nil
 }

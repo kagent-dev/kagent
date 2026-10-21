@@ -360,4 +360,26 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			require.Equal(t, new(tc.want), stored.Spec.Stream)
 		})
 	}
+
+	for _, tc := range []struct {
+		name    string
+		enabled *bool
+	}{
+		{name: "omitted"},
+		{name: "enabled", enabled: new(true)},
+		{name: "disabled", enabled: new(false)},
+	} {
+		t.Run("sendAgentIDHeader "+tc.name, func(t *testing.T) {
+			model := &ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "mc-agent-id-" + tc.name, Namespace: ns},
+				Spec: ModelConfigSpec{
+					Model: "gpt-4", Provider: ModelProviderOpenAI, SendAgentIDHeader: tc.enabled,
+				},
+			}
+			require.NoError(t, cl.Create(ctx, model))
+			stored := &ModelConfig{}
+			require.NoError(t, cl.Get(ctx, ctrl_client.ObjectKeyFromObject(model), stored))
+			require.Equal(t, tc.enabled, stored.Spec.SendAgentIDHeader)
+		})
+	}
 }

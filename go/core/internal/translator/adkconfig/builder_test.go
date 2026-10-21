@@ -10,18 +10,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
-func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
+func TestBuildWithAgentIDUsesRunnableAgentIdentity(t *testing.T) {
 	model := &translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared-model", Namespace: "agents"},
 		Spec: v1alpha3.ModelConfigSpec{
-			Provider: v1alpha3.ModelProviderOpenAI,
-			Model:    "gpt-4.1-mini",
+			Provider:          v1alpha3.ModelProviderOpenAI,
+			Model:             "gpt-4.1-mini",
+			SendAgentIDHeader: new(true),
 			DefaultHeaders: map[string]string{
 				"X-Tenant":   "acme",
 				"x-agent-id": "user-provided",
@@ -32,24 +34,24 @@ func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
 
 	for _, test := range []struct {
 		name       string
-		template   string
 		wantHeader string
 	}{
-		{name: "refund agent", template: "refund-agent", wantHeader: "agents/refund-agent"},
-		{name: "ticket agent", template: "ticket-agent", wantHeader: "agents/ticket-agent"},
+		{name: "refund-agent", wantHeader: "agents/refund-agent"},
+		{name: "ticket-agent", wantHeader: "agents/ticket-agent"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := builder.BuildWithAgentID(context.Background(), &translator.HarnessInput{
+				AgentName: test.name,
 				Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 				Root: &translator.AgentInput{
-					Template:            &translator.TemplateConfiguration{Name: test.template, Namespace: "agents"},
+					Template:            &translator.TemplateConfiguration{Name: "shared-template", Namespace: "agents"},
 					ResolvedModelConfig: model,
 				},
 			})
 			require.NoError(t, err)
 
 			require.NotNil(t, result.Config.Model)
-			require.Equal(t, test.wantHeader, result.Config.Model.Headers[adk.ModelAgentIDHeader])
+			require.Equal(t, test.wantHeader, result.Config.Model.Headers[modelAgentIDHeader])
 			require.Equal(t, "acme", result.Config.Model.Headers["X-Tenant"])
 			require.NotContains(t, result.Config.Model.Headers, "x-agent-id")
 		})
@@ -59,6 +61,35 @@ func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
 		"X-Tenant":   "acme",
 		"x-agent-id": "user-provided",
 	}, model.Config.Spec.DefaultHeaders, "compilation must not mutate the shared ModelConfig")
+
+	for _, test := range []struct {
+		name    string
+		enabled *bool
+		headers map[string]string
+	}{
+		{name: "omitted"},
+		{name: "explicit false", enabled: new(false)},
+		{name: "manual ID remains", headers: map[string]string{"X-Tenant": "acme", "x-agent-id": "user-provided"}},
+	} {
+		t.Run(test.name+" does not add a header", func(t *testing.T) {
+			withoutHeader := model.Config.DeepCopy()
+			withoutHeader.Spec.SendAgentIDHeader = test.enabled
+			withoutHeader.Spec.DefaultHeaders = test.headers
+			if withoutHeader.Spec.DefaultHeaders == nil {
+				withoutHeader.Spec.DefaultHeaders = map[string]string{"X-Tenant": "acme"}
+			}
+			result, err := builder.BuildWithAgentID(context.Background(), &translator.HarnessInput{
+				AgentName: "refund-agent",
+				Harness:   &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+				Root: &translator.AgentInput{
+					Template:            &translator.TemplateConfiguration{Name: "shared-template", Namespace: "agents"},
+					ResolvedModelConfig: &translator.ResolvedModelConfig{Config: withoutHeader},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, withoutHeader.Spec.DefaultHeaders, result.Config.Model.Headers)
+		})
+	}
 
 	t.Run("default build leaves headers unchanged", func(t *testing.T) {
 		result, err := builder.Build(context.Background(), &translator.HarnessInput{
@@ -74,8 +105,9 @@ func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
 		require.Equal(t, model.Config.Spec.DefaultHeaders, result.Config.Model.Headers)
 	})
 
-	t.Run("shared agent uses its own identity", func(t *testing.T) {
+	t.Run("shared subagent uses the parent Agent identity", func(t *testing.T) {
 		result, err := builder.BuildWithAgentID(context.Background(), &translator.HarnessInput{
+			AgentName: "refund-agent",
 			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
 			Root: &translator.AgentInput{
 				Template:            &translator.TemplateConfiguration{Name: "refund-agent", Namespace: "agents"},
@@ -90,7 +122,18 @@ func TestBuildWithAgentIDAddsHeaderPerTemplate(t *testing.T) {
 		require.Len(t, result.Config.SubAgents, 1)
 		child := result.Config.SubAgents[0].Model
 		require.NotNil(t, child)
-		require.Equal(t, "agents/ticket-agent", child.Headers[adk.ModelAgentIDHeader])
+		require.Equal(t, "agents/refund-agent", child.Headers[modelAgentIDHeader])
+	})
+
+	t.Run("missing runnable Agent name is rejected", func(t *testing.T) {
+		_, err := builder.BuildWithAgentID(context.Background(), &translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+			Root: &translator.AgentInput{
+				Template:            &translator.TemplateConfiguration{Name: "shared-template", Namespace: "agents"},
+				ResolvedModelConfig: model,
+			},
+		})
+		require.ErrorContains(t, err, "kagent Agent name is required for model identity")
 	})
 }
 
@@ -117,10 +160,10 @@ func TestBuildModelStreaming(t *testing.T) {
 			require.NoError(t, err)
 			// The runtime consumes serialized configuration. In particular, false
 			// must survive omitempty rather than reverting to the runtime default.
-			payload, err := adk.Marshal(&adk.Config{Agent: result.Config})
+			payload, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: result.Config})
 			require.NoError(t, err)
-			var config adk.Config
-			require.NoError(t, adk.Unmarshal(payload, &config))
+			var config configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(payload, &config))
 			require.NotNil(t, config.Agent.Stream)
 			require.Equal(t, tc.want, config.Agent.GetStream())
 		})
@@ -181,7 +224,7 @@ func TestBuildCompaction(t *testing.T) {
 		require.NoError(t, err)
 		// The agent's own model is the runtime's default summarizer, so it is
 		// not repeated in the configuration.
-		require.Equal(t, &adk.AgentContextConfig{Compaction: &adk.AgentCompressionConfig{
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
 			CompactionInterval: new(int64(5)), OverlapSize: new(int64(2)), TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
 			PromptTemplate: "Summarize.\n\n{conversation_history}",
 		}}, result.Config.ContextConfig)
@@ -217,6 +260,32 @@ func TestBuildCompaction(t *testing.T) {
 		}))
 		require.ErrorContains(t, err, `summarizer ModelConfig "missing"`)
 	})
+}
+
+func TestBuildWithAgentIDAddsHeaderToOptedInSummarizer(t *testing.T) {
+	agentModel := openAIModel("agent", "https://model.example.com/v1")
+	summarizerModel := openAIModel("summarizer", "https://gateway.example.com/v1")
+	summarizerModel.Spec.SendAgentIDHeader = new(true)
+	collections := contextTestCollections(t, agentModel, summarizerModel)
+	template := &translator.TemplateConfiguration{
+		Name: "shared-template", Namespace: "test",
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &corev1.LocalObjectReference{Name: "agent"}},
+	}
+	harness := &translator.HarnessConfiguration{
+		Namespace: "test",
+		Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Compaction: &v1alpha3.KagentHarnessCompaction{
+			Summarizer: &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &corev1.LocalObjectReference{Name: "summarizer"}},
+		}}},
+	}
+	result, err := NewBuilder(krt.TestingDummyContext{}, collections).BuildWithAgentID(t.Context(), &translator.HarnessInput{
+		AgentName: "researcher",
+		Harness:   harness,
+		Root:      &translator.AgentInput{Template: template, ResolvedModelConfig: resolvedModel(t, collections, "agent")},
+	})
+	require.NoError(t, err)
+	require.NotContains(t, result.Config.Model.Headers, modelAgentIDHeader)
+	require.Equal(t, "test/researcher", result.Config.ContextConfig.Compaction.SummarizerModel.Headers[modelAgentIDHeader])
+	require.Empty(t, summarizerModel.Spec.DefaultHeaders, "compilation must not mutate the ModelConfig")
 }
 
 func openAIModel(name, baseURL string) *v1alpha3.ModelConfig {

@@ -334,3 +334,13 @@ func TestCompileRuntimeTelemetry(t *testing.T) {
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
+
+func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
+	server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "user"}, Spec: v1alpha3.RemoteMCPServerSpec{
+		URL: "https://mcp.example.com/mcp", TokenPassthrough: true,
+	}}
+	_, err := (&Compiler{}).compileMCP(t.Context(), "team", []translator.ResolvedMCPTool{{Server: server}})
+	if want := "Codex does not support RemoteMCPServer \"user\" tokenPassthrough"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected %q, got %v", want, err)
+	}
+}

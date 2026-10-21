@@ -16,6 +16,24 @@ func newAgentClient(client *baseClient) *AgentClient {
 	return &AgentClient{client: client}
 }
 
+func (c *AgentClient) ListAgents(ctx context.Context, request *apiv1.ListAgentsRequest) (*apiv1.ListAgentsResponse, error) {
+	client, callContext, cancel, err := c.client.agentCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return client.ListAgents(callContext, request)
+}
+
+func (c *AgentClient) GetAgent(ctx context.Context, request *apiv1.GetAgentRequest) (*apiv1.GetAgentResponse, error) {
+	client, callContext, cancel, err := c.client.agentCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return client.GetAgent(callContext, request)
+}
+
 func (c *AgentClient) CreateAgent(ctx context.Context, request *apiv1.CreateAgentRequest) (*apiv1.CreateAgentResponse, error) {
 	client, callContext, cancel, err := c.client.agentCall(ctx)
 	if err != nil {
