@@ -81,9 +81,11 @@ is not published or included in errors because it may contain sensitive data.
 Schemas must have an object root. The portable profile supports primitive JSON
 types, nested objects and arrays, `properties`, `required`,
 `additionalProperties`, `items`, `enum`, `const`, `anyOf`, titles and
-descriptions, and non-recursive local references through `$defs`.
+descriptions, and non-recursive local references through `$defs`. `type` is
+one type name or a list of them, such as `type: [string, "null"]`.
 
-Schemas with `"type": "string"` can also use `pattern` and `format`. A
+Schemas whose `type` is `string`, or a list that includes `string`, can also
+use `pattern` and `format`. A
 `pattern` must be a regular expression that Go's RE2 syntax accepts, so
 lookaround and backreferences are rejected. Word boundaries (`\b` and `\B`)
 are also rejected: Claude documents them as unsupported, and Bedrock accepts
@@ -121,10 +123,11 @@ except on Vertex AI. That check needs exactly one type on every property,
 array item and nested property, and an `items` schema on every array. A
 `null` type is allowed only next to one other type, as in
 `type: [string, "null"]`. A type list with two or more non-null types, `anyOf`,
-`type: "null"` alone, or a node with no type fails every answer. When the
-model name starts with `gemini-` and the provider is not GeminiVertexAI,
-compilation rejects such a schema, so the Agent reports the error instead of
-every Task failing.
+`type: "null"` alone, or a node with no type rejects every non-null value of
+that node. Compilation rejects such a schema when the model name starts with
+`gemini-` on any provider but GeminiVertexAI, or is empty on Gemini, which
+then runs a `gemini-` default. The Agent reports the error instead of the Task
+failing.
 
 The serialized schema is limited to 64 KiB. Conversion to the Go ADK schema is
 also limited to 32 levels and 1,000 expanded schema nodes; these bounds include
@@ -158,8 +161,9 @@ the keys as properties, or set `outputSchemaStrict: false`. When
 `outputSchemaStrict` is `true`, compilation rejects a schema that breaks these
 rules, so the Agent reports the error instead of every request failing at the
 provider. To make a field optional
-under strict mode, give it a `null` alternative, for example
-`anyOf: [{type: string}, {type: "null"}]`.
+under strict mode, give it a `null` type, for example
+`type: [string, "null"]`. This form also passes the Gemini check above, which
+rejects `anyOf`.
 
 When `outputSchemaStrict` is unset, compilation does not check these rules. A
 schema that breaks them compiles, then fails at the provider on the Responses
