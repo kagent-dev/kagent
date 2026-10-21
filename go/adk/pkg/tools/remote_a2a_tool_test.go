@@ -215,6 +215,60 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 	})
 }
 
+func TestProcessResult_FailedTaskReportsTheReasonBesideThePartialAnswer(t *testing.T) {
+	s := &remoteA2AState{name: "worker"}
+	status := func(text string) a2atype.TaskStatus {
+		return a2atype.TaskStatus{
+			State:   a2atype.TaskStateFailed,
+			Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(text)),
+		}
+	}
+	artifacts := []*a2atype.Artifact{{Parts: a2atype.ContentParts{a2atype.NewTextPart("the answer starts and is cut")}}}
+
+	tests := []struct {
+		name       string
+		task       *a2atype.Task
+		wantError  string
+		wantResult string
+	}{
+		{
+			name:       "a status message names the failure and the artifacts stay the result",
+			task:       &a2atype.Task{Status: status("model output limit reached (max_tokens=8192): the answer is incomplete"), Artifacts: artifacts},
+			wantError:  "model output limit reached (max_tokens=8192): the answer is incomplete",
+			wantResult: "the answer starts and is cut",
+		},
+		{
+			name:      "a status message alone is the error",
+			task:      &a2atype.Task{Status: status("something broke")},
+			wantError: "something broke",
+		},
+		{
+			name:      "without a status message the artifacts are the error, as before",
+			task:      &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed}, Artifacts: artifacts},
+			wantError: "the answer starts and is cut",
+		},
+		{
+			name:      "without either the agent is named",
+			task:      &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed}},
+			wantError: "Remote agent 'worker' failed.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := s.processResult(nil, "ctx-1", tt.task)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Error != tt.wantError || resp.Result != tt.wantResult {
+				t.Fatalf("response = %+v, want Error %q and Result %q", resp, tt.wantError, tt.wantResult)
+			}
+			if resp.SubagentSessionID != "ctx-1" {
+				t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, "ctx-1")
+			}
+		})
+	}
+}
+
 func TestHandleInputRequiredStoresPublicRemoteHitlState(t *testing.T) {
 	s := &remoteA2AState{name: "worker"}
 	task := &a2atype.Task{
