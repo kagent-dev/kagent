@@ -116,6 +116,16 @@ unsupported keywords are rejected during compilation rather than silently
 weakened for a provider. A provider or model can still reject structured output
 at runtime; in that case the Task fails.
 
+Go ADK checks a Gemini model's answer with its `set_model_response` tool,
+except on Vertex AI. That check needs exactly one type on every property,
+array item and nested property, and an `items` schema on every array. A
+`null` type is allowed only next to one other type, as in
+`type: [string, "null"]`. A type list with two or more non-null types, `anyOf`,
+`type: "null"` alone, or a node with no type fails every answer. When the
+model name starts with `gemini-` and the provider is not GeminiVertexAI,
+compilation rejects such a schema, so the Agent reports the error instead of
+every Task failing.
+
 The serialized schema is limited to 64 KiB. Conversion to the Go ADK schema is
 also limited to 32 levels and 1,000 expanded schema nodes; these bounds include
 nodes expanded through local `$defs` references. Schemas that exceed any limit

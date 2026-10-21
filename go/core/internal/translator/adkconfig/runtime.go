@@ -92,13 +92,20 @@ func isAgentModel(template *translator.TemplateConfiguration, name string) bool 
 // applyOutputSchema verifies the portable schema by performing the same
 // genai.Schema conversion used by the Go runtime, then records the canonical
 // schema for both Go and Python ADK runtimes. This keeps compatibility
-// failures at Harness compilation instead of actor startup.
+// failures at Harness compilation instead of actor startup or, for models
+// whose answers Go ADK checks with set_model_response, every task.
 func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
-	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
+	projected, err := adkoutputschema.ToGenAISchema(output.Schema)
+	if err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
+	}
+	if adkoutputschema.UsesSetModelResponse(config.Model) {
+		if err := adkoutputschema.CheckSetModelResponse(projected); err != nil {
+			return translator.NewValidationError("%v", err)
+		}
 	}
 	if output.Strict != nil && *output.Strict {
 		if err := adkoutputschema.CheckStrict(output.Schema); err != nil {

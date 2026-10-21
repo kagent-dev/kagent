@@ -61,3 +61,50 @@ func TestApplyOutputSchemaStrict(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyOutputSchemaGemini(t *testing.T) {
+	multiType := []byte(`{"type":"object","properties":{"code":{"type":["string","integer"]}}}`)
+	nullable := []byte(`{"type":"object","properties":{"code":{"type":["string","null"]}}}`)
+	for _, tt := range []struct {
+		name    string
+		model   *configv1.ADKModelConfig
+		schema  []byte
+		wantErr string
+	}{
+		{
+			name:    "Gemini with a multi-type list",
+			model:   &configv1.ADKModelConfig{Model: "gemini-3.5-flash-lite", Provider: &configv1.ADKModelConfig_Gemini{}},
+			schema:  multiType,
+			wantErr: "/properties/code must have exactly one type",
+		},
+		{
+			name:   "Gemini with a nullable string",
+			model:  &configv1.ADKModelConfig{Model: "gemini-3.5-flash-lite", Provider: &configv1.ADKModelConfig_Gemini{}},
+			schema: nullable,
+		},
+		{
+			name:   "OpenAI with a multi-type list",
+			model:  &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_Openai{}},
+			schema: multiType,
+		},
+		{
+			name:   "Azure OpenAI with a multi-type list",
+			model:  &configv1.ADKModelConfig{Model: "gpt-5", Provider: &configv1.ADKModelConfig_AzureOpenai{}},
+			schema: multiType,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &configv1.ADKAgentConfig{Model: tt.model}
+			err := applyOutputSchema(config, &translator.ResolvedOutputSchema{Schema: tt.schema})
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				var validation *translator.ValidationError
+				require.ErrorAs(t, err, &validation)
+				require.Nil(t, config.Output)
+				return
+			}
+			require.NoError(t, err)
+			require.JSONEq(t, string(tt.schema), string(config.Output.JsonSchema))
+		})
+	}
+}
