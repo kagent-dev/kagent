@@ -21,10 +21,13 @@ const (
 	Version = 5
 	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
 	// must recheck the telemetry gate in the driver.
-	PinnedClaudeVersion                 = "2.1.285"
-	ClaudeConfigDirEnvName              = "CLAUDE_CONFIG_DIR"
-	DisableUpdatesEnvName               = "DISABLE_UPDATES"
-	MaxRetriesEnvName                   = "CLAUDE_CODE_MAX_RETRIES"
+	PinnedClaudeVersion    = "2.1.285"
+	ClaudeConfigDirEnvName = "CLAUDE_CONFIG_DIR"
+	DisableUpdatesEnvName  = "DISABLE_UPDATES"
+	MaxRetriesEnvName      = "CLAUDE_CODE_MAX_RETRIES"
+	// DisableNonessentialTrafficEnvName keeps Claude Code's calls other than the
+	// model request from dialing api.anthropic.com.
+	DisableNonessentialTrafficEnvName   = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
 	GoogleApplicationCredentialsEnvName = "GOOGLE_APPLICATION_CREDENTIALS"
 	GoogleCredentialsJSONEnvName        = "KAGENT_CLAUDE_GOOGLE_CREDENTIALS_JSON"
 	UseBedrockEnvName                   = "CLAUDE_CODE_USE_BEDROCK"
@@ -49,7 +52,7 @@ func OwnsEnvironment(name string) bool {
 		return true
 	}
 	switch name {
-	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, MaxRetriesEnvName, GoogleApplicationCredentialsEnvName,
+	case ClaudeConfigDirEnvName, DisableUpdatesEnvName, MaxRetriesEnvName, DisableNonessentialTrafficEnvName, GoogleApplicationCredentialsEnvName,
 		GoogleCredentialsJSONEnvName, UseBedrockEnvName, UseVertexEnvName, AWSRegionEnvName,
 		AWSAccessKeyEnvName, AWSSecretKeyEnvName, AWSSessionTokenEnvName, AWSBedrockTokenEnvName,
 		AnthropicAPIKeyEnvName, AnthropicBaseURLEnvName, VertexProjectEnvName, VertexRegionEnvName,
