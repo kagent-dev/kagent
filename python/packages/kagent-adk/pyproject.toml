@@ -35,7 +35,7 @@ dependencies = [
   "filelock>=3.20.3",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
   "python-multipart>=0.0.22",  # CVE-2026-24486: Arbitrary file write via path traversal
   "httpx-sse>=0.4.3",  # U+2028/U+2029 SSE line terminator fix (0.4.2) + performance regression fix (0.4.3)
-  "boto3>=1.28.57",
+  "boto3>=1.43.117",
   "ollama >=0.3.6",  # Ollama SDK
   "numpy>=2.2.6",
 ]

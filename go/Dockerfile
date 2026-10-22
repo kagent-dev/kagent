@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
 ### STAGE 2: final image
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
 ARG TARGETPLATFORM
 
 WORKDIR /
