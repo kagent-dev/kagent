@@ -33,7 +33,7 @@ ARG TARGETPLATFORM
 # The runtime user gets a passwd entry and a home it owns: commands an agent
 # runs (git config --global, CLIs that keep a config under $HOME/.config)
 # write there.
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git && \
+RUN apk upgrade --no-cache && apk add --no-cache bash "ca-certificates>=20261020-r0" git && \
     addgroup -S -g 65532 kagent && \
     adduser -S -D -u 65532 -G kagent -h /home/kagent kagent && \
     mkdir -p /config /skills /plugins /data/plugins && \

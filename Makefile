@@ -107,7 +107,7 @@ LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VE
            -X github.com/kagent-dev/kagent/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
 #tools versions
-TOOLS_UV_VERSION ?= 0.10.4
+TOOLS_UV_VERSION ?= 0.13.5
 TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
 BUF_VERSION ?= v1.72.0

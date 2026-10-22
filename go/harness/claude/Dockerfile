@@ -17,14 +17,14 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     go build -trimpath -o /kagent-claude ./harness/claude/cmd
 
 FROM alpine:3.22
-ARG CLAUDE_CODE_VERSION=2.1.285
-ARG CLAUDE_CODE_AMD64_SHA256=7b4414af1bc06eb6d91730759bd01c4c02a4976d0b8526237e9a6d8c33eaf102
-ARG CLAUDE_CODE_ARM64_SHA256=31efc4136bc678575f4c6730e248d34f89dbfea0468be1c5d012af199cd62ee8
+ARG CLAUDE_CODE_VERSION=2.1.308
+ARG CLAUDE_CODE_AMD64_SHA256=45cc10091e10ca658daa691e879058ba1d4752218c63577d1c7d54b0c7dc9a68
+ARG CLAUDE_CODE_ARM64_SHA256=b820bec20177aa09875515cf5ffadb445ecf814ec7c8ed51ba2f86c3090a692d
 ARG TARGETARCH
 ARG VERSION
 
 ENV USE_BUILTIN_RIPGREP=0
-RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates git libgcc libstdc++ ripgrep \
+RUN apk upgrade --no-cache && apk add --no-cache bash "ca-certificates>=20261020-r0" git libgcc libstdc++ ripgrep \
     && case "${TARGETARCH}" in \
         amd64) platform="linux-x64-musl"; checksum="${CLAUDE_CODE_AMD64_SHA256}" ;; \
         arm64) platform="linux-arm64-musl"; checksum="${CLAUDE_CODE_ARM64_SHA256}" ;; \
