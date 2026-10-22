@@ -780,9 +780,14 @@ export class A2AGrpcChatClient implements ChatClient {
         // A non-streaming agent answers with the whole task instead of updates.
         if (payload.case === "task") {
           const task = payload.value as A2ATask;
+          // An artifact is shown again from every snapshot rather than once: a
+          // later snapshot holds chunks that were sent while the stream was down.
+          const artifactIds = new Set(task.artifacts.map((artifact) => artifact.artifactId));
           for (const message of messagesFromTask(task)) {
-            if (delivered.has(message.id)) continue;
-            delivered.add(message.id);
+            if (!artifactIds.has(message.id)) {
+              if (delivered.has(message.id)) continue;
+              delivered.add(message.id);
+            }
             yield { type: "message", message };
           }
           // A re-attached stream opens with this snapshot, and an artifact still

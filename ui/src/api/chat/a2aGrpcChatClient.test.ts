@@ -1794,6 +1794,49 @@ describe("A2AGrpcChatClient.send, when the stream breaks", () => {
     expect(agent.map(textOf), "not \" gamma\"").toEqual(["alpha beta gamma"]);
   });
 
+  // " gamma" was sent while the second re-attach was waiting, so only the second
+  // snapshot has it.
+  it("shows what a later snapshot adds to a reply already on screen", async () => {
+    const chunk = (value: string, flags: { append?: boolean } = {}) => ({
+      payload: {
+        case: "artifactUpdate" as const,
+        value: {
+          taskId: "task-1",
+          contextId: CONVERSATION.contextId,
+          artifact: { artifactId: "a-1", parts: [text(value)] },
+          ...flags,
+        },
+      },
+    });
+    const withReply = (...chunks: string[]) => ({
+      payload: {
+        case: "task" as const,
+        value: {
+          ...snapshot.payload.value,
+          artifacts: [{ artifactId: "a-1", parts: chunks.map(text) }],
+        },
+      },
+    });
+    const { events, error } = await run(
+      async function* () {
+        yield statusFrame({});
+        throw broken();
+      },
+      async function* (attempt) {
+        if (attempt === 1) {
+          yield withReply("alpha");
+          yield chunk(" beta", { append: true });
+          throw broken();
+        }
+        yield withReply("alpha", " beta", " gamma");
+        yield chunk(" delta", { append: true });
+      },
+    );
+    expect(error).toBeUndefined();
+    const agent = transcript(events).filter((message) => message.role === "agent");
+    expect(agent.map(textOf), "not \"alpha beta delta\"").toEqual(["alpha beta gamma delta"]);
+  });
+
   it("stops waiting to re-attach when the reader presses stop", async () => {
     const subscribed: unknown[] = [];
     serve(({ service }) => {
