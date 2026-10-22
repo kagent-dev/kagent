@@ -17,6 +17,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 func TestRetireAgentIdentities(t *testing.T) {
@@ -564,11 +565,13 @@ func TestRecordReadyRuntimeRevisionOnlyCurrentActivePair(t *testing.T) {
 
 func TestRuntimeRevisionPersistsCredentialBindings(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
-	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}}}
+	revision := RuntimeRevision{Revision: "credential-revision", Namespace: "team", AgentName: "agent", AgentUID: "agent", SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{"https://api.example.com:443"}, ActorTemplateAtespace: "team", ActorTemplateName: "runtime", Credentials: []egress.Credential{{Origin: "https://api.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/team/auth/token"}},
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}}
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
 	got, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
 	require.NoError(t, err)
 	require.Equal(t, revision.Credentials, got.Credentials)
+	require.Equal(t, revision.TokenPassthroughTargets, got.TokenPassthroughTargets)
 	revision.Credentials[0].URI = "ate-secret://k8s.io/default/team/other/token"
 	require.NoError(t, client.RecordRuntimeRevision(t.Context(), revision, RecordRevisionOptions{}))
 	unchanged, err := client.GetRuntimeRevision(t.Context(), revision.Revision)
@@ -585,6 +588,15 @@ func TestRuntimeRevisionRejectsMalformedStoredCredentials(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "decode runtime revision bad-revision credentials")
 	require.ErrorContains(t, err, "exact HTTP(S) DNS origin")
+	require.Nil(t, revision)
+}
+
+func TestRuntimeRevisionRejectsMalformedStoredTokenPassthroughTargets(t *testing.T) {
+	revision, err := toRuntimeRevision(runtimeRevisionRow{
+		Revision:                "bad-revision",
+		TokenPassthroughTargets: []egresspolicy.GatewayTarget{{Origin: "https://*.example.com", Header: "authorization"}},
+	})
+	require.ErrorContains(t, err, "decode runtime revision bad-revision tokenPassthrough targets")
 	require.Nil(t, revision)
 }
 

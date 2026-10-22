@@ -26,6 +26,7 @@ import (
 	claudetranslator "github.com/kagent-dev/kagent/go/core/internal/translator/claude"
 	codextranslator "github.com/kagent-dev/kagent/go/core/internal/translator/codex"
 	kagenttranslator "github.com/kagent-dev/kagent/go/core/internal/translator/kagent"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
@@ -1022,4 +1023,19 @@ func TestResolveModelConfigMistral(t *testing.T) {
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+}
+
+func TestRevisionDigestIncludesTokenPassthroughTargets(t *testing.T) {
+	revision := translator.Revision{AgentName: "agent"}
+	digest := func() translator.RevisionID {
+		id, err := revision.Digest()
+		require.NoError(t, err)
+		return id
+	}
+	without := digest()
+	revision.TokenPassthroughTargets = []egresspolicy.GatewayTarget{{Origin: "https://mcp.example.com:443", Header: "authorization", Prefix: "Bearer "}}
+	bearer := digest()
+	revision.TokenPassthroughTargets[0].Header = "x-api-key"
+	require.NotEqual(t, without, bearer)
+	require.NotEqual(t, bearer, digest(), "the header is part of revision identity")
 }

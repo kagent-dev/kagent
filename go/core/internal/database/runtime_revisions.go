@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 )
 
 // UpsertAgentDefinition records the desired runtime revision for a
@@ -127,7 +128,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 		if err := recordRuntimeRevision(ctx, tx, runtimeRevisionRecord{
 			RuntimeArtifact: RuntimeArtifact{Revision: revision.Revision, Kind: runtimeKindAgent, Namespace: revision.Namespace,
 				ActorTemplateAtespace: revision.ActorTemplateAtespace, ActorTemplateName: revision.ActorTemplateName, ActorTemplateUID: revision.ActorTemplateUID},
-			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughOrigins: revision.TokenPassthroughOrigins,
+			SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations, Credentials: revision.Credentials, TokenPassthroughTargets: revision.TokenPassthroughTargets,
 		}); err != nil {
 			return err
 		}
@@ -159,7 +160,7 @@ func (c *Client) RecordRuntimeRevision(ctx context.Context, revision RuntimeRevi
 func (c *Client) GetRuntimeRevision(ctx context.Context, revision string) (*RuntimeRevision, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT revision, namespace, agent_name, agent_uid,
-		    source_snapshot, egress_destinations, token_passthrough_origins, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
+		    source_snapshot, egress_destinations, token_passthrough_targets, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
 		    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
 	`, pgx.RowToStructByName[runtimeRevisionRow], revision)
 	if err != nil {
@@ -179,12 +180,16 @@ func toRuntimeRevision(row runtimeRevisionRow) (*RuntimeRevision, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode runtime revision %s credentials: %w", row.Revision, err)
 	}
+	targets, err := egress.CanonicalGatewayTargets(row.TokenPassthroughTargets)
+	if err != nil {
+		return nil, fmt.Errorf("decode runtime revision %s tokenPassthrough targets: %w", row.Revision, err)
+	}
 	return &RuntimeRevision{
 		Revision: row.Revision, Namespace: row.Namespace,
 		AgentName: row.AgentName, AgentUID: row.AgentUID,
 		SourceSnapshot: row.SourceSnapshot, AgentCard: card,
 		EgressDestinations:      row.EgressDestinations,
-		TokenPassthroughOrigins: row.TokenPassthroughOrigins,
+		TokenPassthroughTargets: targets,
 		Credentials:             credentials,
 		ActorTemplateAtespace:   row.ActorTemplateAtespace, ActorTemplateName: row.ActorTemplateName,
 		ActorTemplateUID: row.ActorTemplateUID,
@@ -233,7 +238,7 @@ func getAvailableRuntimeRevisionForUpdate(ctx context.Context, tx pgx.Tx, revisi
 	}
 	return queryOne(ctx, tx, `
   SELECT revision, namespace, agent_name, agent_uid,
-   source_snapshot, egress_destinations, token_passthrough_origins, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
+   source_snapshot, egress_destinations, token_passthrough_targets, credentials, actor_template_atespace, actor_template_name, actor_template_uid,
    agent_card, deleted_at FROM agent_runtime_revision WHERE revision = $1
  `, pgx.RowToStructByName[runtimeRevisionRow], revision)
 }
@@ -258,7 +263,7 @@ type runtimeRevisionRecord struct {
 	RuntimeArtifact
 	SourceSnapshot          json.RawMessage
 	EgressDestinations      []string
-	TokenPassthroughOrigins []string
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	Credentials             []egress.Credential
 }
 
@@ -271,17 +276,17 @@ func recordRuntimeRevision(ctx context.Context, tx pgx.Tx, revision runtimeRevis
 	if revision.EgressDestinations == nil {
 		revision.EgressDestinations = []string{}
 	}
-	if revision.TokenPassthroughOrigins == nil {
-		revision.TokenPassthroughOrigins = []string{}
+	if revision.TokenPassthroughTargets == nil {
+		revision.TokenPassthroughTargets = []egresspolicy.GatewayTarget{}
 	}
 	result, err := tx.Exec(ctx, `
   INSERT INTO runtime_revision (revision, kind, namespace, source_snapshot, egress_destinations,
-   actor_template_atespace, actor_template_name, actor_template_uid, credentials, token_passthrough_origins)
+   actor_template_atespace, actor_template_name, actor_template_uid, credentials, token_passthrough_targets)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
   ON CONFLICT (revision) DO UPDATE SET actor_template_uid = EXCLUDED.actor_template_uid, updated_at = NOW()
   WHERE runtime_revision.deleted_at IS NULL AND runtime_revision.kind = EXCLUDED.kind
  `, revision.Revision, revision.Kind, revision.Namespace, revision.SourceSnapshot, revision.EgressDestinations,
-		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials, revision.TokenPassthroughOrigins)
+		revision.ActorTemplateAtespace, revision.ActorTemplateName, revision.ActorTemplateUID, revision.Credentials, revision.TokenPassthroughTargets)
 	if err != nil {
 		return fmt.Errorf("record runtime revision %s: %w", revision.Revision, err)
 	}
@@ -375,7 +380,7 @@ type runtimeRevisionRow struct {
 	AgentUID                string
 	SourceSnapshot          []byte
 	EgressDestinations      []string
-	TokenPassthroughOrigins []string
+	TokenPassthroughTargets []egresspolicy.GatewayTarget
 	Credentials             []egress.Credential
 	ActorTemplateAtespace   string
 	ActorTemplateName       string

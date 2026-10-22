@@ -105,7 +105,7 @@ func (s *sandboxTestServer) CreateSandbox(ctx context.Context, request *apiv1.Cr
 	}}, nil
 }
 
-func (s *sandboxTestServer) StartProcess(ctx context.Context, request *guestpb.StartProcessRequest) (*guestpb.StartProcessResponse, error) {
+func (s *sandboxTestServer) StartProcess(ctx context.Context, request *guestpb.StartProcessRequest) (*guestpb.Process, error) {
 	if err := checkGuestMetadata(ctx); err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (s *sandboxTestServer) StartProcess(ctx context.Context, request *guestpb.S
 	if s.startErr != nil {
 		return nil, s.startErr
 	}
-	return &guestpb.StartProcessResponse{ProcessId: "process-1"}, nil
+	return &guestpb.Process{ProcessId: "process-1", State: guestpb.ProcessState_PROCESS_STATE_RUNNING}, nil
 }
 
 func (s *sandboxTestServer) GetProcess(ctx context.Context, request *guestpb.GetProcessRequest) (*guestpb.Process, error) {
@@ -125,31 +125,36 @@ func (s *sandboxTestServer) GetProcess(ctx context.Context, request *guestpb.Get
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	state := guestpb.ProcessStatus_PROCESS_STATUS_COMPLETED
+	state := guestpb.ProcessState_PROCESS_STATE_EXITED
 	if s.running {
-		state = guestpb.ProcessStatus_PROCESS_STATUS_RUNNING
-	} else if s.exitCode != 0 {
-		state = guestpb.ProcessStatus_PROCESS_STATUS_FAILED
+		state = guestpb.ProcessState_PROCESS_STATE_RUNNING
 	}
-	return &guestpb.Process{ProcessId: request.ProcessId, Status: state, ExitCode: s.exitCode}, nil
+	return &guestpb.Process{ProcessId: request.ProcessId, State: state, ExitCode: s.exitCode}, nil
 }
 
-func (s *sandboxTestServer) StreamProcessOutputs(request *guestpb.StreamProcessOutputsRequest, stream grpc.ServerStreamingServer[guestpb.OutputChunk]) error {
+func (s *sandboxTestServer) StreamProcessOutput(request *guestpb.StreamProcessOutputRequest, stream grpc.ServerStreamingServer[guestpb.ProcessOutput]) error {
 	if err := checkGuestMetadata(stream.Context()); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, output := range []struct {
-		source guestpb.OutputSource
+		wrap   func([]byte) *guestpb.ProcessOutput
 		data   []byte
 		offset int64
-	}{{guestpb.OutputSource_OUTPUT_SOURCE_STDOUT, s.stdout, request.StdoutOffset}, {guestpb.OutputSource_OUTPUT_SOURCE_STDERR, s.stderr, request.StderrOffset}} {
+	}{
+		{func(b []byte) *guestpb.ProcessOutput {
+			return &guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Stdout{Stdout: b}}
+		}, s.stdout, request.StdoutOffset},
+		{func(b []byte) *guestpb.ProcessOutput {
+			return &guestpb.ProcessOutput{Output: &guestpb.ProcessOutput_Stderr{Stderr: b}}
+		}, s.stderr, request.StderrOffset},
+	} {
 		if output.offset < 0 || output.offset > int64(len(output.data)) {
 			return status.Error(codes.OutOfRange, "invalid continuation offset")
 		}
 		if len(output.data[output.offset:]) > 0 {
-			if err := stream.Send(&guestpb.OutputChunk{Source: output.source, Data: output.data[output.offset:]}); err != nil {
+			if err := stream.Send(output.wrap(output.data[output.offset:])); err != nil {
 				return err
 			}
 		}
@@ -189,7 +194,7 @@ func (s *sandboxTestServer) WriteFile(stream grpc.ClientStreamingServer[guestpb.
 	return stream.SendAndClose(&guestpb.WriteFileResponse{BytesWritten: written})
 }
 
-func (s *sandboxTestServer) ReadFile(request *guestpb.ReadFileRequest, stream grpc.ServerStreamingServer[guestpb.FileChunk]) error {
+func (s *sandboxTestServer) ReadFile(request *guestpb.ReadFileRequest, stream grpc.ServerStreamingServer[guestpb.ReadFileResponse]) error {
 	if err := checkGuestMetadata(stream.Context()); err != nil {
 		return err
 	}
@@ -201,7 +206,7 @@ func (s *sandboxTestServer) ReadFile(request *guestpb.ReadFileRequest, stream gr
 	}
 	for len(data) > 0 {
 		n := min(len(data), 64<<10)
-		if err := stream.Send(&guestpb.FileChunk{Data: data[:n]}); err != nil {
+		if err := stream.Send(&guestpb.ReadFileResponse{Chunk: data[:n]}); err != nil {
 			return err
 		}
 		if s.readErr != nil {
@@ -393,4 +398,19 @@ func TestSandboxCLIWithGuest(t *testing.T) {
 	data, err := os.ReadFile(output)
 	require.NoError(t, err)
 	require.Equal(t, "HELLO", string(data))
+
+	out, _, err = runSandboxCLI(t, endpoint, "exec", sandboxTestID, "--cwd", cfg.Workspace, "--wait=false", "-o", "json", "--", "sleep", "60")
+	require.NoError(t, err)
+	var started struct {
+		ProcessID string `json:"process_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &started))
+	require.NotEmpty(t, started.ProcessID)
+	out, _, err = runSandboxCLI(t, endpoint, "kill", sandboxTestID, started.ProcessID)
+	require.NoError(t, err)
+	require.Contains(t, out, started.ProcessID)
+	require.NotContains(t, out, "exit_code")
+	_, _, err = runSandboxCLI(t, endpoint, "wait", sandboxTestID, started.ProcessID)
+	require.ErrorAs(t, err, &exitError)
+	require.Equal(t, 137, exitError.ExitCode())
 }

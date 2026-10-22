@@ -2,6 +2,7 @@ package taskstore
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"testing/synctest"
 
@@ -12,6 +13,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -61,11 +63,11 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 				}
 				before := len(wakes)
 				service := NewService(store, wakes, pushWakes)
-				ctx, cancel := context.WithCancel(auth.AuthSessionTo(t.Context(), runtimeSession{sessionID: "session", atespace: "team-a", actorUID: "actor"}))
+				ctx, cancel := context.WithCancel(runtimeContext(t))
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)
 				go func() {
-					_, err := service.SettleTask(ctx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: "session", TaskId: "task", Version: 1})
+					_, err := service.SettleTask(ctx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: "00000000-0000-0000-0000-000000000001", TaskId: "task", Version: 1})
 					done <- err
 				}()
 				synctest.Wait()
@@ -86,4 +88,17 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 			})
 		})
 	}
+}
+
+type testActorVerifier struct{}
+
+func (testActorVerifier) Verify(context.Context, string) (substrate.ActorIdentity, error) {
+	return substrate.ActorIdentity{ActorName: "session-00000000-0000-0000-0000-000000000001", Atespace: "team-a", ActorUID: "actor"}, nil
+}
+
+func runtimeContext(t *testing.T) context.Context {
+	t.Helper()
+	session, err := runtimeauth.NewAuthenticator(testActorVerifier{}).Authenticate(t.Context(), http.Header{"Authorization": {"Bearer test"}}, nil)
+	require.NoError(t, err)
+	return auth.AuthSessionTo(t.Context(), session)
 }

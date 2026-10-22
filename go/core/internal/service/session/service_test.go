@@ -14,6 +14,7 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -585,6 +586,24 @@ func TestServiceShareCannotCreateSession(t *testing.T) {
 	_, err := service.Create(ctx, &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, "request-1", "")
 	if !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
 		t.Fatalf("Create() = %v, want permission denied", err)
+	}
+}
+
+func TestActorCannotUseShareAuthorityWithoutTransport(t *testing.T) {
+	id := uuid.NewString()
+	ctx := auth.AuthSessionTo(t.Context(), &authimpl.SimpleSession{P: auth.Principal{
+		User: auth.User{ID: "owner"}, Actor: &auth.Actor{SessionID: uuid.NewString()},
+	}})
+	if _, err := ResolveShare(ctx, nil, "share-token"); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		t.Fatalf("ResolveShare() = %v, want permission denied before reading the share", err)
+	}
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{SessionID: id, UserID: "owner"})
+	service := NewService(nil, serviceTestAuthorizer{}, nil)
+	if _, err := service.Get(ctx, id); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		t.Fatalf("Get() = %v, want permission denied before reading another session", err)
+	}
+	if _, err := service.List(ctx, ListRequest{}); !serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied) {
+		t.Fatalf("List() = %v, want permission denied before listing shared sessions", err)
 	}
 }
 

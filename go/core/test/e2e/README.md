@@ -61,10 +61,12 @@ mock servers, and cleanup. The same assertions run against all model protocols.
 The opaque BYO fixture has its own test because it does not consume managed
 agent configuration.
 
-Until Substrate supplies runtime credentials (#1660), TaskStore uses a temporary
-unsigned identity header in every deployment; no test authentication flag is
-needed. Run these prerelease builds in isolated deployments. Verified actor
-credentials will replace this path outright.
+`TestRuntimeActorJWTAuthentication` exercises real Substrate Actor JWT injection
+for every harness on the same controller endpoint used by user calls. It verifies
+that missing, forged, and uninjected credentials are rejected for TaskStore and
+actor-only Memory methods. Controller and runtime images must match. The gRPC
+integration tests cover user and actor memory access on a shared listener, actor
+API restrictions, and rejection of invalid Actor JWTs in both user auth modes.
 
 Add portable tests using this pattern:
 
@@ -272,6 +274,12 @@ an HTTP server that rejects requests unless both Authorization (with a Bearer
 prefix) and X-API-Key (without a prefix) match the Secret. The script has only
 inert placeholders. The test and its harness subtests run in parallel. Actor
 identity, policy checks, and credential injection use the normal Substrate path.
+
+`TestRuntimeActorJWTAuthentication` exercises TaskStore persistence through
+Substrate's Actor JWT injection on every harness, then verifies that direct
+calls with unsigned identity headers, public credentials, or an uninjected
+placeholder are rejected. The checkpoint and suspension tests also exercise
+authentication after the runtime's projected identity changes.
 
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task

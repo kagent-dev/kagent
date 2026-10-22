@@ -14,18 +14,20 @@ import (
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 const (
-	promptLibraryLabelKey = "kagent.dev/prompt-library"
-	promptLibraryLabelVal = "true"
+	promptTemplateResource = "PromptTemplate"
+	promptLibraryLabelKey  = "kagent.dev/prompt-library"
+	promptLibraryLabelVal  = "true"
 )
 
 type Service struct {
 	kubeClient client.Client
-	authorizer auth.Authorizer
+	authorizer auth.CollectionAuthorizer
 }
 
 type Summary struct {
@@ -47,18 +49,23 @@ type CreateRequest struct {
 	Data      map[string]string
 }
 
-func NewService(kubeClient client.Client, authorizer auth.Authorizer) *Service {
+func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer) *Service {
 	return &Service{kubeClient: kubeClient, authorizer: authorizer}
 }
 
 func (s *Service) List(ctx context.Context, namespace string) ([]Summary, error) {
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "PromptTemplate"}); err != nil {
-		return nil, err
-	}
 	if namespace == "" {
 		return nil, serviceerrors.NewInvalidArgument("namespace query parameter is required", nil)
 	}
 
+	matcher, err := kubeauth.CollectionMatcher(ctx, s.authorizer, promptTemplateResource)
+	if err != nil {
+		return nil, err
+	}
+
+	if matcher.Empty() {
+		return []Summary{}, nil
+	}
 	list := &corev1.ConfigMapList{}
 	if err := s.kubeClient.List(
 		ctx,
@@ -70,7 +77,9 @@ func (s *Service) List(ctx context.Context, namespace string) ([]Summary, error)
 
 	result := make([]Summary, 0, len(list.Items))
 	for index := range list.Items {
-		result = append(result, summarize(&list.Items[index]))
+		if matcher.Matches(&list.Items[index]) {
+			result = append(result, summarize(&list.Items[index]))
+		}
 	}
 	slices.SortFunc(result, func(left, right Summary) int {
 		return cmp.Compare(left.Name, right.Name)
@@ -82,25 +91,22 @@ func (s *Service) Get(ctx context.Context, ref types.NamespacedName) (Detail, er
 	if err := validateRef(ref); err != nil {
 		return Detail{}, err
 	}
-	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "PromptTemplate", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: promptTemplateResource, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return Detail{}, err
 	}
 
-	configMap := &corev1.ConfigMap{}
-	if err := s.kubeClient.Get(ctx, ref, configMap); err != nil {
-		if apierrors.IsNotFound(err) {
-			return Detail{}, serviceerrors.NewNotFound("ConfigMap not found", err)
-		}
-		return Detail{}, serviceerrors.NewInternal("Failed to get ConfigMap", err)
+	configMap, err := s.library(ctx, ref)
+	if err != nil {
+		return Detail{}, err
 	}
 	return detail(configMap), nil
 }
 
 func (s *Service) Create(ctx context.Context, request CreateRequest) (Detail, error) {
-	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: "PromptTemplate"}); err != nil {
+	if err := validateCreateRequest(request); err != nil {
 		return Detail{}, err
 	}
-	if err := validateCreateRequest(request); err != nil {
+	if err := s.authorize(ctx, auth.VerbCreate, auth.Resource{Type: promptTemplateResource, Namespace: request.Namespace, Name: request.Name}); err != nil {
 		return Detail{}, err
 	}
 
@@ -125,19 +131,16 @@ func (s *Service) Update(ctx context.Context, ref types.NamespacedName, data map
 	if err := validateRef(ref); err != nil {
 		return Detail{}, err
 	}
-	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: "PromptTemplate", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
+	if err := s.authorize(ctx, auth.VerbUpdate, auth.Resource{Type: promptTemplateResource, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return Detail{}, err
 	}
 	if len(data) == 0 {
 		return Detail{}, serviceerrors.NewInvalidArgument("at least one template key is required", nil)
 	}
 
-	configMap := &corev1.ConfigMap{}
-	if err := s.kubeClient.Get(ctx, ref, configMap); err != nil {
-		if apierrors.IsNotFound(err) {
-			return Detail{}, serviceerrors.NewNotFound("ConfigMap not found", err)
-		}
-		return Detail{}, serviceerrors.NewInternal("Failed to get ConfigMap", err)
+	configMap, err := s.library(ctx, ref)
+	if err != nil {
+		return Detail{}, err
 	}
 	configMap.Data = cloneStringMap(data)
 	if err := s.kubeClient.Update(ctx, configMap); err != nil {
@@ -150,16 +153,13 @@ func (s *Service) Delete(ctx context.Context, ref types.NamespacedName) error {
 	if err := validateRef(ref); err != nil {
 		return err
 	}
-	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: "PromptTemplate", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
+	if err := s.authorize(ctx, auth.VerbDelete, auth.Resource{Type: promptTemplateResource, Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return err
 	}
 
-	configMap := &corev1.ConfigMap{}
-	if err := s.kubeClient.Get(ctx, ref, configMap); err != nil {
-		if apierrors.IsNotFound(err) {
-			return serviceerrors.NewNotFound("ConfigMap not found", err)
-		}
-		return serviceerrors.NewInternal("Failed to get ConfigMap", err)
+	configMap, err := s.library(ctx, ref)
+	if err != nil {
+		return err
 	}
 	if err := s.kubeClient.Delete(ctx, configMap); err != nil {
 		return serviceerrors.NewInternal("Failed to delete ConfigMap", err)
@@ -238,4 +238,20 @@ func validateCreateRequest(request CreateRequest) error {
 		return serviceerrors.NewInvalidArgument("template keys cannot be empty", nil)
 	}
 	return nil
+}
+
+// A prompt reference addresses a library, not an arbitrary ConfigMap. Direct
+// reads and mutations retain the same boundary as label-filtered discovery.
+func (s *Service) library(ctx context.Context, ref types.NamespacedName) (*corev1.ConfigMap, error) {
+	configMap := &corev1.ConfigMap{}
+	if err := s.kubeClient.Get(ctx, ref, configMap); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, serviceerrors.NewNotFound("Prompt library not found", err)
+		}
+		return nil, serviceerrors.NewInternal("Failed to get prompt library", err)
+	}
+	if configMap.Labels[promptLibraryLabelKey] != promptLibraryLabelVal {
+		return nil, serviceerrors.NewNotFound("Prompt library not found", nil)
+	}
+	return configMap, nil
 }

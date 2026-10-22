@@ -23,17 +23,13 @@ is represented as two `AnyOf` clauses. The first contains both predicates in `Al
 
 The shared scope types and attribute names live in [`go/api/authorization`](../../../../go/api/authorization/scope.go). Services use those public types directly.
 
-## Trusted resource attributes
+## Resource identities
 
-Use [`kubeauth.Resource`](../../../../go/core/internal/service/kubeauth/scope.go) to construct authorization input from a Kubernetes object. It supplies `namespace` and `name` from object metadata.
-
-For a single-resource operation:
-
-- Read and delete: load the stored object, then authorize it.
-- Create: validate and normalize the proposed object, then authorize it before checking or writing storage.
-- Update: authorize the stored object before any write.
-
-Do not treat a request reference as stored resource data. Request references are suitable for loading an object, not for constructing its trusted attributes.
+Current object checks use `auth.Resource{Type, Namespace, Name}`.
+Validate the requested reference and authorize its exact namespace/name before reading protected content or writing storage.
+This ordering prevents a denied caller from distinguishing a missing object from an existing one.
+Creates validate and normalize the proposed object identity before checking authorization.
+Do not add caller-controlled attributes beyond this identity without defining their trusted source and validation.
 
 ## Collection flow
 
@@ -54,10 +50,13 @@ Pass scopes as ordinary function arguments. Do not place policy decisions in req
 
 ## Service integration
 
-- `AgentTemplate` and `Harness` use `kubecrud.NewService`, which requires a `CollectionAuthorizer` and always applies collection scopes.
-- `ModelConfig` requests require a `CollectionAuthorizer`; `Service.List` filters the returned Kubernetes list before transport conversion.
-- `ListConfiguredProviders` reads the separate `ModelProviderConfig` resource and remains outside this scope.
-- Legacy `AgentHarness` and `SandboxAgent` operations remain outside this scope.
+- `Agent`, `AgentTemplate`, `Harness`, and `SandboxTemplate` use `kubecrud.NewService` with a required `CollectionAuthorizer`.
+- `ModelConfig` and `ModelProviderConfig` use separate typed CRUD services and resource types. Configured-provider reads and refresh are authorized independently from ModelConfig operations.
+- Prompt libraries, tool discovery, and WorkerPool summary rows use `kubeauth.CollectionMatcher` for custom collection projection.
+- Flat tool discovery must filter through the same exact owning-server identities as server discovery.
+- `GetSubstrateSummary` requires `Check(VerbGet, Resource{Type: "SystemSummary"})` before any resource reads; denial fails the whole request with permission denied. WorkerPool rows then use their own `VerbList` scope.
+- The summary capability covers its ATE inventory. Dedicated actor and worker endpoints independently require `Check(VerbGet, Resource{Type: "Substrate"})`. Both capabilities have empty namespace/name; neither uses `Scope(VerbGet, ...)`.
+- Static provider definitions and supported tool-server types expose no configured object and remain available after authentication.
 
 The default OSS no-op authorizer implements `CollectionAuthorizer` and returns `ScopeAll`, preserving current OSS visibility.
 

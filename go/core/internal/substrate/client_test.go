@@ -71,46 +71,59 @@ func TestDial_verifiedTLSReachesReady(t *testing.T) {
 }
 
 func TestEnsureAtespace(t *testing.T) {
-	t.Run("returns nil when substrate reports AlreadyExists", func(t *testing.T) {
-		fake := &createAtespaceFake{err: status.Error(codes.AlreadyExists, "Atespace kagent already exists")}
-		c := &Client{ControlClient: fake}
-
-		require.NoError(t, c.EnsureAtespace(context.Background(), "kagent"))
-		require.Equal(t, "kagent", fake.lastName)
-	})
-
-	t.Run("returns nil on successful create", func(t *testing.T) {
-		fake := &createAtespaceFake{}
-		c := &Client{ControlClient: fake}
-
-		require.NoError(t, c.EnsureAtespace(context.Background(), "kagent"))
-	})
-
-	t.Run("propagates non-AlreadyExists errors", func(t *testing.T) {
-		fake := &createAtespaceFake{err: status.Error(codes.Internal, "boom")}
-		c := &Client{ControlClient: fake}
-
-		err := c.EnsureAtespace(context.Background(), "kagent")
-		require.Error(t, err)
-		require.Equal(t, codes.Internal, status.Code(err))
-	})
-
-	t.Run("propagates non-gRPC errors", func(t *testing.T) {
-		fake := &createAtespaceFake{err: errors.New("dial failed")}
-		c := &Client{ControlClient: fake}
-
-		err := c.EnsureAtespace(context.Background(), "kagent")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "dial failed")
-	})
+	notFound := status.Error(codes.NotFound, "space missing")
+	denied := status.Error(codes.PermissionDenied, "access denied")
+	internal := status.Error(codes.Internal, "boom")
+	dialError := errors.New("dial failed")
+	for _, tt := range []struct {
+		name       string
+		getErr     error
+		createErr  error
+		wantErr    error
+		wantCreate bool
+	}{
+		{name: "existing space needs no create"},
+		{name: "missing space is created", getErr: notFound, wantCreate: true},
+		{name: "concurrent creation succeeds", getErr: notFound, createErr: status.Error(codes.AlreadyExists, "exists"), wantCreate: true},
+		{name: "denied read does not create", getErr: denied, wantErr: denied},
+		{name: "failed read does not create", getErr: dialError, wantErr: dialError},
+		{name: "create failure propagates", getErr: notFound, createErr: internal, wantErr: internal, wantCreate: true},
+		{name: "non grpc create failure propagates", getErr: notFound, createErr: dialError, wantErr: dialError, wantCreate: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &createAtespaceFake{getErr: tt.getErr, err: tt.createErr}
+			c := &Client{ControlClient: fake}
+			err := c.EnsureAtespace(context.Background(), "kagent")
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+			require.Equal(t, "kagent", fake.getName)
+			if tt.wantCreate {
+				require.Equal(t, "kagent", fake.lastName)
+			} else {
+				require.Empty(t, fake.lastName)
+			}
+		})
+	}
 }
 
-// createAtespaceFake is a partial ControlClient stand-in that captures the last
-// CreateAtespace request and returns a preset error. All other methods panic.
+// createAtespaceFake captures space lookup and creation requests.
 type createAtespaceFake struct {
 	ateapipb.ControlClient
+	getName  string
+	getErr   error
 	lastName string
 	err      error
+}
+
+func (f *createAtespaceFake) GetAtespace(_ context.Context, in *ateapipb.GetAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
+	f.getName = in.GetAtespace().GetName()
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: f.getName}}, nil
 }
 
 type createActorFake struct {

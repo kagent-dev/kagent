@@ -121,7 +121,6 @@ class KAgentApp:
 
             if self.config.agent.HasField("memory"):
                 memory_service = KagentMemoryService(
-                    agent_name=self.app_name,
                     controller_client=controller_client,
                     embedding_config=optional_field(self.config.agent.memory, "embedding"),
                     ttl_days=self.config.agent.memory.ttl_days,

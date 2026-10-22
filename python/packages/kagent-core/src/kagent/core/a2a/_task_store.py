@@ -44,12 +44,9 @@ class KAgentTaskStore(TaskStore):
         return str(UUID(name.removeprefix("session-")))
 
     async def _call(self, method, request):
-        # Temporary identity transport until Substrate injects actor credentials (#1660).
-        # Reread on every call because restore rebinds these files to the new actor.
-        identity = []
-        for field in ("atespace", "name", "uid"):
-            identity.append((await asyncio.to_thread((self.identity_path.parent / field).read_text)).strip())
-        metadata = (("x-kagent-insecure-runtime-identity", "/".join(identity)),)
+        # Substrate replaces the placeholder with the calling Actor's JWT.
+        # Credentials never become part of a runtime snapshot.
+        metadata = (("authorization", "Bearer placeholder"),)
         for attempt in range(4):
             try:
                 return await method(

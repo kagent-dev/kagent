@@ -107,6 +107,7 @@ This reference covers user-configurable settings for the controller, CLI, standa
 | `KUBECONFIG` | String | `(none)` | Kubernetes client configuration file list. When unset, client-go uses its normal in-cluster or user kubeconfig discovery. |
 | `OLLAMA_API_KEY` | String | `(none)` | API key for Ollama Cloud. When set, a cloud-tagged model reaches api.ollama.com directly. |
 | `OPENAI_API_KEY` | String | `(none)` | API key for OpenAI. Upgrade tests fall back to a placeholder when unset or empty. |
+| `SSH_CONNECTION` | String | `(none)` | Set by sshd. The TUI then copies selected text through the terminal (OSC 52) as well as the remote machine's clipboard tools. |
 
 ## controller
 

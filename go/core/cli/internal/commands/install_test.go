@@ -2,8 +2,11 @@ package commands
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,25 +18,126 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
-func TestDeleteCRDsLeavesLegacyGroupAlone(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "kubectl.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$KAGENT_TEST_KUBECTL_LOG\"\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o700))
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("KAGENT_TEST_KUBECTL_LOG", logPath)
+func TestUninstallReversesInstall(t *testing.T) {
+	const (
+		listReleases   = "helm list --all-namespaces --filter ^kagent$ --output json"
+		getDatabase    = "kubectl -n kagent get deployment/kagent-postgresql --ignore-not-found -o name"
+		deleteDatabase = "kubectl delete --ignore-not-found -f -"
+		bundled        = "deployment.apps/kagent-postgresql"
+	)
+	before := []string{
+		listReleases,
+		"kubectl delete sandboxtemplates.api.kagent.dev --all --all-namespaces --ignore-not-found --timeout=5m",
+		"helm uninstall kagent --namespace kagent --wait",
+		"kubectl delete sandboxconfigs.ate.dev --all --ignore-not-found --timeout=5m",
+		"helm uninstall substrate --namespace ate-system --wait",
+		getDatabase,
+	}
+	after := []string{
+		"helm uninstall substrate-podcert --namespace podcertificate-controller-system --wait",
+		"helm uninstall substrate-crds --namespace ate-system --wait",
+		"helm uninstall kagent-crds --namespace kagent --wait",
+		`kubectl patch namespace kagent --type=merge -p {"metadata":{"labels":{"ate.dev/api-access":null}}}`,
+		"kubectl delete namespace podcertificate-controller-system ate-system --ignore-not-found",
+		"kubectl delete clustertrustbundles.certificates.k8s.io " + strings.Join(substrateTrustBundles, " ") + " --ignore-not-found --timeout=5m",
+	}
+	for _, tc := range []struct {
+		name string
+		// releases is what helm list prints for kagent releases in every namespace.
+		releases string
+		// deployment is what kubectl get prints for the bundled PostgreSQL Deployment.
+		deployment string
+		// crdsGone makes kubectl answer as if no CRD served the resource.
+		crdsGone bool
+		// namespaceGone makes kubectl answer as if the kagent namespace did not exist.
+		namespaceGone bool
+		want          []string
+		wantErr       string
+	}{
+		{
+			name:       "deletes the bundled PostgreSQL",
+			releases:   `[{"name":"kagent","namespace":"kagent"}]`,
+			deployment: bundled,
+			want:       slices.Concat(before, []string{deleteDatabase}, after),
+		},
+		{
+			// After --skip-database-setup, Secrets with the bundled names belong to the operator.
+			name:     "after --skip-database-setup, deletes no database",
+			releases: `[{"name":"kagent","namespace":"kagent"}]`,
+			want:     slices.Concat(before, after),
+		},
+		{
+			// A rerun after the CRDs and the kagent namespace are gone finishes the rest.
+			name:          "rerun with the CRDs and kagent namespace already deleted",
+			releases:      `[]`,
+			crdsGone:      true,
+			namespaceGone: true,
+			want:          slices.Concat(before, after),
+		},
+		{
+			name:     "kagent installed in another namespace",
+			releases: `[{"name":"kagent","namespace":"other"}]`,
+			want:     []string{listReleases},
+			wantErr:  "kagent is installed in namespace other, not kagent; rerun with --namespace other",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			logPath := filepath.Join(dir, "commands.log")
+			for _, tool := range []string{"helm", "kubectl"} {
+				script := fmt.Sprintf(`#!/bin/sh
+printf '%%s %%s\n' %s "$*" >> "$KAGENT_TEST_LOG"
+case "$*" in
+  "list "*) printf '%%s\n' "$KAGENT_TEST_RELEASES" ;;
+  *"get deployment/kagent-postgresql"*) printf '%%s\n' "$KAGENT_TEST_DEPLOYMENT" ;;
+  *"delete sandbox"*) [ -n "$KAGENT_TEST_CRDS_GONE" ] && { echo 'error: the server doesn'"'"'t have a resource type "sandboxtemplates"'; exit 1; } ;;
+  *"patch namespace kagent"*) [ -n "$KAGENT_TEST_NAMESPACE_GONE" ] && { echo 'Error from server (NotFound): namespaces "kagent" not found'; exit 1; } ;;
+esac
+cat >/dev/null
+`, tool)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, tool), []byte(script), 0o700))
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("KAGENT_TEST_LOG", logPath)
+			t.Setenv("KAGENT_TEST_RELEASES", tc.releases)
+			t.Setenv("KAGENT_TEST_DEPLOYMENT", tc.deployment)
+			if tc.crdsGone {
+				t.Setenv("KAGENT_TEST_CRDS_GONE", "1")
+			}
+			if tc.namespaceGone {
+				t.Setenv("KAGENT_TEST_NAMESPACE_GONE", "1")
+			}
 
-	require.NoError(t, deleteCRDs(t.Context()))
-	data, err := os.ReadFile(logPath)
+			var err error
+			stdout := captureStdout(t, func() {
+				err = runUninstall(t.Context(), "kagent", "postgres:18-alpine")
+			})
+			commands, readErr := os.ReadFile(logPath)
+			require.NoError(t, readErr)
+			require.Equal(t, tc.want, strings.Split(strings.TrimSpace(string(commands)), "\n"))
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Contains(t, stdout, "kubectl delete namespace kagent")
+		})
+	}
+}
+
+// captureStdout returns what fn writes to os.Stdout.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{
-		"delete crd agents.api.kagent.dev",
-		"delete crd agenttemplates.api.kagent.dev",
-		"delete crd harnesses.api.kagent.dev",
-		"delete crd modelconfigs.api.kagent.dev",
-		"delete crd modelproviderconfigs.api.kagent.dev",
-		"delete crd remotemcpservers.api.kagent.dev",
-	}, strings.Split(strings.TrimSpace(string(data)), "\n"))
+	stdout := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = stdout }()
+	fn()
+	require.NoError(t, w.Close())
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return string(out)
 }
 
 func TestPrepareBundledPostgres(t *testing.T) {

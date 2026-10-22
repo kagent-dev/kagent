@@ -55,7 +55,6 @@ type Config struct {
 	TLSCertFile            string
 	TLSKeyFile             string
 	Authenticator          auth.AuthProvider
-	RuntimeAuthenticator   auth.AuthProvider
 	ShareStore             sessionsvc.ShareStore
 	AgentService           *kubecrud.Service[*v1alpha3.Agent, *v1alpha3.AgentList]
 	AgentTemplateService   *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
@@ -112,14 +111,14 @@ func New(config Config) (*Server, error) {
 		grpc.ChainUnaryInterceptor(
 			loggingUnaryInterceptor,
 			recoverUnaryInterceptor,
-			authenticationUnaryInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
+			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
 			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			loggingStreamInterceptor,
 			recoverStreamInterceptor,
-			authenticationStreamInterceptor(config.Authenticator, config.RuntimeAuthenticator, config.ShareStore, config.MethodPolicies),
+			authenticationStreamInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
 			protovalidatemiddleware.StreamServerInterceptor(validator),
 			errorMappingStreamInterceptor,
 		),

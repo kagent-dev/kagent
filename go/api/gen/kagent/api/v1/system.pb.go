@@ -396,7 +396,8 @@ type GetSubstrateSummaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Kubernetes namespace for workers and pools. Empty uses watched namespaces.
 	Namespace string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// ATE atespace for actors and templates. Empty lists all atespaces.
+	// ATE atespace for actors and templates. Empty uses the watched namespaces, or every
+	// atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
 	Atespace      string `protobuf:"bytes,2,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -614,10 +615,12 @@ func (x *GetSubstrateSummaryResponse) GetActorTemplates() []*ateapipb.ActorTempl
 	return nil
 }
 
-// One upstream page of actors, in Substrate order.
+// One page of actors. A controller that watches some namespaces reads its watched
+// atespaces one at a time, in name order, and Substrate order inside each.
 type ListSubstrateActorsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// ATE atespace of the actor itself. Empty lists all atespaces.
+	// ATE atespace of the actor itself. Empty uses the watched namespaces, or every
+	// atespace on a cluster-wide controller. An unwatched atespace returns PermissionDenied.
 	Atespace string `protobuf:"bytes,6,opt,name=atespace,proto3" json:"atespace,omitempty"`
 	// `limit` is capped at 100 in common.proto and zero means the server's default;
 	// above the cap is refused rather than clamped.
@@ -674,7 +677,9 @@ type ListSubstrateActorsResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	AteApiError string                 `protobuf:"bytes,2,opt,name=ate_api_error,json=ateApiError,proto3" json:"ate_api_error,omitempty"`
 	Actors      []*ateapipb.Actor      `protobuf:"bytes,3,rep,name=actors,proto3" json:"actors,omitempty"`
-	// Upstream continuation token. A page can be empty even when another page exists.
+	// Continuation token. A controller that watches all namespaces passes Substrate's
+	// token through. A controller that watches some issues its own, which names only
+	// watched data. A page can be empty even when another page exists.
 	Page          *PageResponse          `protobuf:"bytes,4,opt,name=page,proto3" json:"page,omitempty"`
 	ComputedAt    *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=computed_at,json=computedAt,proto3" json:"computed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -739,8 +744,10 @@ func (x *ListSubstrateActorsResponse) GetComputedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// One upstream page of workers, in Substrate order.
-// Namespace filtering applies to this page only; it may be empty and still have a next token.
+// One page of workers. A controller that watches all namespaces filters one Substrate
+// page, in Substrate order, which may be empty and still have a next token. A
+// controller that watches some reads every Substrate worker and returns only those of
+// its watched namespaces, in worker name order; only its last page can be empty.
 type ListSubstrateWorkersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`

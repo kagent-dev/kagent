@@ -20,6 +20,7 @@ type transitionActors struct {
 	actor           *ateapipb.Actor
 	calls           []string
 	policyErr       error
+	checkErr        error
 	resumeUID       string
 	suspendSnapshot *ateapipb.Snapshot
 }
@@ -39,6 +40,10 @@ func (a *transitionActors) CreateActor(_ context.Context, space, name, templateS
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 	}
 	return proto.CloneOf(a.actor), nil
+}
+
+func (a *transitionActors) CheckActorEgressPolicy(context.Context, string, string) error {
+	return a.checkErr
 }
 
 func (a *transitionActors) EnsureActorEgressPolicy(context.Context, string, string, string) error {
@@ -158,6 +163,29 @@ func TestActorTransitionAdmission(t *testing.T) {
 			require.Empty(t, actors.calls)
 		})
 	}
+}
+
+func TestActorTransitionChecksEgressPolicyBeforeStartup(t *testing.T) {
+	binding := ActorBinding{Revision: "revision", Atespace: "team-a", Name: "instance", TemplateAtespace: "team-a", TemplateName: "revision"}
+	actors := &transitionActors{checkErr: errors.New("target not bound")}
+	_, err := PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, &ActorCreation{})
+	require.ErrorContains(t, err, "target not bound")
+	_, err = actors.CreateActor(t.Context(), "team-a", "instance", "team-a", "revision")
+	require.NoError(t, err)
+	_, err = PrepareActorTransition(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, nil)
+	require.ErrorContains(t, err, "target not bound")
+	for _, operation := range []apiv1.RuntimeOperation{apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE} {
+		_, err = PrepareActorTransition(t.Context(), actors, binding, operation, nil)
+		require.NoError(t, err, "%s must not depend on the egress policy", operation)
+	}
+
+	// An issued resume may already be running; its retry must reach Ensure.
+	actors.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+	actors.calls, actors.policyErr = nil, errors.New("denied actor egress after extension failure")
+	transition, err := PrepareActorRetry(t.Context(), actors, binding, apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME, nil)
+	require.NoError(t, err)
+	require.Error(t, ApplyActorTransition(t.Context(), actors, transition))
+	require.Equal(t, []string{"policy"}, actors.calls)
 }
 
 func TestActorDeleteStopsRunningCompute(t *testing.T) {

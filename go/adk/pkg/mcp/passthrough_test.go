@@ -21,6 +21,8 @@ func TestTokenPassthroughRoundTripper(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "caller token replaces every other Authorization source", token: "caller-token", wantAuth: "Bearer caller-token"},
+		// The egress gateway replaces this placeholder with the caller's token.
+		{name: "gateway placeholder is forwarded unchanged", token: "kagent-credential-injected", wantAuth: "Bearer kagent-credential-injected"},
 		{name: "missing caller token fails without dialing", wantErr: true},
 	}
 	for _, tt := range tests {

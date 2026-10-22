@@ -37,13 +37,15 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	runtimetaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
+	"github.com/kagent-dev/kagent/go/core/internal/jwttest"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
+	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/service/taskstore"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -84,6 +86,16 @@ func (s *lostRuntimeSaveResponse) CreateRuntimeTask(ctx context.Context, id stri
 
 type taskStoreRuntimeDialer struct{ listener *bufconn.Listener }
 
+type runtimeMemoryStore struct {
+	*database.Client
+	agentName, userID string
+}
+
+func (s *runtimeMemoryStore) ListAgentMemories(_ context.Context, agentName, userID string) ([]database.Memory, error) {
+	s.agentName, s.userID = agentName, userID
+	return nil, nil
+}
+
 func (d taskStoreRuntimeDialer) Dial(ctx context.Context, _ *apiv1.Session) (*a2aclient.Client, error) {
 	return a2aclient.NewFromEndpoints(ctx, []*a2a.AgentInterface{{
 		URL: "127.0.0.1:1234", ProtocolBinding: a2a.TransportProtocolGRPC, ProtocolVersion: a2a.Version,
@@ -113,7 +125,7 @@ func (e *runtimeCancelableExecutor) Cleanup(_ context.Context, input *a2asrv.Exe
 	}
 }
 
-// Exercise the real SDK -> private gRPC -> PostgreSQL path. The public observer
+// Exercise the real SDK -> controller gRPC -> PostgreSQL path. The public observer
 // is disconnected before completion, and a successful save response is lost.
 // Neither fault may cause execution or artifact appends to repeat.
 func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
@@ -128,10 +140,18 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	pushWake := make(chan struct{}, 1)
 	tasks := taskstore.NewService(store, nil, pushWake)
+	issuer := jwttest.New(t)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile)
+	require.NoError(t, err)
+	runtimeToken := "Bearer " + issuer.Token(t, issuer.Claims("team-a", substrate.ActorName(id), "actor-uid"))
+	memories := &runtimeMemoryStore{Client: store.Client}
+	policy := runtimeauth.NewAuthorizer(auth.NoopAuthorizer{}, store)
 	server, err := New(Config{
 		Listener: listener, SystemService: testSystemService(),
-		Authenticator: &authimpl.InsecureAuthenticator{}, RuntimeAuthenticator: &taskstore.Authenticator{},
+		Authenticator:    runtimeauth.NewProvider(&authimpl.InsecureAuthenticator{}, verifier, store, issuer.URL),
 		TaskStoreService: tasks,
+		MemoryService:    memoryservice.NewService(memories, policy),
+		SessionService:   sessionsvc.NewService(store, policy, nil),
 	})
 	require.NoError(t, err)
 	serverCtx, stopServer := context.WithCancel(t.Context())
@@ -152,26 +172,43 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	private := controller.TaskStoreService()
 	read := &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: id, TaskId: "absent"}
 	_, err = private.GetTask(t.Context(), read)
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	forged := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice", "x-agent-name", id))
 	_, err = private.GetTask(forged, read)
-	require.Equal(t, codes.Unauthenticated, status.Code(err))
-	authenticated := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, "team-a/session-"+id+"/actor-uid"))
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	unsigned := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-kagent-insecure-runtime-identity", "team-a/session-"+id+"/actor-uid"))
+	_, err = private.GetTask(unsigned, read)
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	authenticated := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", runtimeToken))
+	publicConn, err := grpc.NewClient("passthrough:///sessions", grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, publicConn.Close()) })
+	publicSessions := apiv1.NewSessionServiceClient(publicConn)
+	_, err = publicSessions.GetSession(authenticated, &apiv1.GetSessionRequest{SessionId: id})
+	require.NoError(t, err)
+	_, err = publicSessions.GetSession(authenticated, &apiv1.GetSessionRequest{SessionId: uuid.NewString()})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	_, err = controller.MemoryService().List(authenticated, &runtimev1.MemoryServiceListRequest{AgentName: "forged/agent"})
+	require.NoError(t, err)
+	require.Equal(t, session.Agent.Namespace+"/"+session.Agent.Name, memories.agentName)
+	require.Equal(t, session.Creator, memories.userID)
 	_, err = private.GetTask(authenticated, &runtimev1.TaskStoreServiceGetTaskRequest{SessionId: uuid.NewString(), TaskId: "absent"})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 	_, err = private.GetTask(metadata.AppendToOutgoingContext(authenticated, "x-share-token", "share"), read)
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	for _, test := range []struct {
 		name     string
 		atespace string
 		actorUID string
 		want     codes.Code
 	}{
-		{"replaced actor", "team-a", "replacement-uid", codes.NotFound},
-		{"wrong atespace", "another-team", "actor-uid", codes.PermissionDenied},
+		{"replaced actor", "team-a", "replacement-uid", codes.Unauthenticated},
+		{"wrong atespace", "another-team", "actor-uid", codes.Unauthenticated},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			badIdentity := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(apia2a.InsecureRuntimeIdentityHeader, fmt.Sprintf("%s/session-%s/%s", test.atespace, id, test.actorUID)))
+			token := issuer.Token(t, issuer.Claims(test.atespace, substrate.ActorName(id), test.actorUID))
+			badIdentity := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", "Bearer "+token))
 			_, err = private.GetTask(badIdentity, read)
 			require.Equal(t, test.want, status.Code(err))
 		})
@@ -181,9 +218,23 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 
 	identityPath := filepath.Join(t.TempDir(), "name")
 	require.NoError(t, os.WriteFile(identityPath, []byte("session-"+id), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(identityPath), "atespace"), []byte("team-a"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(identityPath), "uid"), []byte("actor-uid"), 0o600))
-	runtimeStore := runtimetaskstore.New(controller, identityPath)
+	// Model the external egress boundary: only the runtime client's placeholder
+	// is replaced, before the real gRPC authenticator verifies the signed JWT.
+	runtimeController, err := controllerclient.New(controllerclient.Config{
+		APIURL: "http://api.test", DialOptions: []grpc.DialOption{
+			grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+			grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+				md, _ := metadata.FromOutgoingContext(ctx)
+				require.Equal(t, []string{"Bearer placeholder"}, md.Get("authorization"))
+				md = md.Copy()
+				md.Set("authorization", runtimeToken)
+				return invoke(metadata.NewOutgoingContext(ctx, md), method, req, reply, cc, opts...)
+			}),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtimeController.Close()) })
+	runtimeStore := runtimetaskstore.New(runtimeController, identityPath)
 	release := make(chan struct{})
 	var executions atomic.Int32
 	executor := a2asrv.AgentExecutorFunc(func(ctx context.Context, exec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
@@ -580,8 +631,18 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 			// venv's interpreter.
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
-			go func() { _ = server.server.Serve(listener) }()
-			t.Cleanup(func() { _ = listener.Close() })
+			protocols := new(http.Protocols)
+			protocols.SetUnencryptedHTTP2(true)
+			egress := &http.Server{Protocols: protocols, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("authorization") != "Bearer placeholder" {
+					http.Error(w, "runtime placeholder required", http.StatusUnauthorized)
+					return
+				}
+				r.Header.Set("authorization", runtimeToken)
+				server.server.ServeHTTP(w, r)
+			})}
+			go func() { _ = egress.Serve(listener) }()
+			t.Cleanup(func() { require.NoError(t, egress.Close()) })
 			root, err := filepath.Abs("../../../..")
 			require.NoError(t, err)
 			paths, err := filepath.Glob(filepath.Join(root, "python/packages/*/src"))

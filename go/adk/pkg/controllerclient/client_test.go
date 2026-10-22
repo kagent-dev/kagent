@@ -110,3 +110,16 @@ func TestClientCanDisableDefaultDeadline(t *testing.T) {
 	_, hasDeadline := ctx.Deadline()
 	assert.False(t, hasDeadline)
 }
+
+func TestCallContextRequestsActorJWTWithoutDuplicateCredentials(t *testing.T) {
+	client, err := New(Config{APIURL: "http://controller.test:8084"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	original := metadata.Pairs("authorization", "Bearer inherited", "x-trace-id", "trace")
+	ctx, cancel := client.CallContext(metadata.NewOutgoingContext(t.Context(), original), "")
+	defer cancel()
+	got, _ := metadata.FromOutgoingContext(ctx)
+	require.Equal(t, []string{"Bearer placeholder"}, got.Get("authorization"))
+	require.Equal(t, []string{"trace"}, got.Get("x-trace-id"))
+	require.Equal(t, []string{"Bearer inherited"}, original.Get("authorization"))
+}

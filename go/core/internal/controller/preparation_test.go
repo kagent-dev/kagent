@@ -512,8 +512,15 @@ func TestInvalidActorTemplateHasNoCompiledTarget(t *testing.T) {
 
 func newPreparationTestCollections(t *testing.T, workerPool string) (Collections, krt.StaticCollection[*kagentv1alpha3.Harness]) {
 	t.Helper()
-	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-preparation", nil)
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
+	return newPreparationTestCollectionsFor(t, workerPool, template)
+}
+
+// newPreparationTestCollectionsFor prepares template on a BYO Harness with extra
+// mock objects, such as the RemoteMCPServers the template references.
+func newPreparationTestCollectionsFor(t *testing.T, workerPool string, template *kagentv1alpha3.AgentTemplate, extra ...any) (Collections, krt.StaticCollection[*kagentv1alpha3.Harness]) {
+	t.Helper()
+	opts := krt.NewOptionsBuilder(t.Context().Done(), "test-preparation", nil)
 	runtimeHarness := harness("team-a", "byo", nil)
 	runtimeHarness.UID = "harness-uid"
 	runtimeHarness.Spec.BYO = &kagentv1alpha3.BYOHarness{}
@@ -523,11 +530,11 @@ func newPreparationTestCollections(t *testing.T, workerPool string) (Collections
 		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
-	mock := krttest.NewMock(t, []any{
+	mock := krttest.NewMock(t, append([]any{
 		template,
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "gvisor"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassGvisor}}}},
 		&atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "microvm"}, Spec: atev1alpha1.WorkerPoolSpec{SandboxClasses: []atev1alpha1.WorkerPoolSandboxClass{{Name: atev1alpha1.SandboxClassMicroVM}}}},
-	})
+	}, extra...))
 	collections := Collections{
 		EgressPolicies:           krt.NewStaticCollection[*kagentv1alpha3.EgressPolicy](nil, nil, opts.WithName("EgressPolicies")...),
 		AgentTemplates:           krttest.GetMockCollection[*kagentv1alpha3.AgentTemplate](mock),

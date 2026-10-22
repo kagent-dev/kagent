@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -187,7 +188,7 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 		// Helm creates the namespaces later steps deploy into, so CRDs it does not
 		// own, such as those left by an old install, stop the install.
 		if strings.Contains(output, "exists and cannot be imported into the current release") {
-			return fmt.Errorf("install kagent-crds: Kagent CRDs from a previous installation exist outside Helm. Run `kagent uninstall` or delete them, then retry: %s", strings.TrimSpace(output))
+			return fmt.Errorf("install kagent-crds: Kagent CRDs from a previous installation exist outside Helm. Delete them, then retry: %s", strings.TrimSpace(output))
 		}
 		return fmt.Errorf("install kagent-crds: %s", strings.TrimSpace(output))
 	}
@@ -255,103 +256,169 @@ func install(ctx context.Context, cfg *connection.Options, helmConfig, substrate
 	return nil
 }
 
-// deleteCRDs manually deletes Kubernetes CRDs for kagent
-// This is a workaround for the fact that helm doesn't delete CRDs automatically
-func deleteCRDs(ctx context.Context) error {
-	resources := []string{
-		"agents",
-		"agenttemplates",
-		"harnesses",
-		"modelconfigs",
-		"modelproviderconfigs",
-		"remotemcpservers",
+// uninstallChart removes a Helm release and reports whether it existed, so a
+// rerun after an interrupted uninstall skips the releases already gone.
+func uninstallChart(ctx context.Context, release, namespace string) (bool, error) {
+	out, err := exec.CommandContext(ctx, "helm", "uninstall", release, "--namespace", namespace, "--wait").CombinedOutput()
+	if err == nil {
+		return true, nil
 	}
+	if strings.Contains(string(out), "not found") {
+		return false, nil
+	}
+	return false, fmt.Errorf("uninstall %s: %s", release, strings.TrimSpace(string(out)))
+}
 
-	var deleteErrors []string
-
-	for _, resource := range resources {
-		crd := v1alpha3.GroupVersion.WithResource(resource).GroupResource().String()
-		deleteCmd := exec.CommandContext(ctx, "kubectl", "delete", "crd", crd)
-		if out, err := deleteCmd.CombinedOutput(); err != nil {
-			if !strings.Contains(string(out), "not found") {
-				errMsg := fmt.Sprintf("Error deleting CRD %s: %s", crd, string(out))
-				fmt.Fprintln(os.Stderr, errMsg)
-				deleteErrors = append(deleteErrors, errMsg)
-			}
-		} else {
-			fmt.Fprintf(os.Stdout, "Successfully deleted CRD %s\n", crd)
+// kagentReleaseNamespaces returns the namespaces holding a kagent Helm release.
+func kagentReleaseNamespaces(ctx context.Context) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "helm", "list", "--all-namespaces", "--filter", "^kagent$", "--output", "json").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil, fmt.Errorf("list kagent Helm releases: %s", strings.TrimSpace(string(exitErr.Stderr)))
 		}
+		return nil, fmt.Errorf("list kagent Helm releases: %w", err)
 	}
+	var releases []struct {
+		Namespace string `json:"namespace"`
+	}
+	if err := json.Unmarshal(out, &releases); err != nil {
+		return nil, fmt.Errorf("decode kagent Helm releases: %w", err)
+	}
+	namespaces := make([]string, 0, len(releases))
+	for _, release := range releases {
+		namespaces = append(namespaces, release.Namespace)
+	}
+	return namespaces, nil
+}
 
-	if len(deleteErrors) > 0 {
-		return fmt.Errorf("failed to delete some CRDs: %s", strings.Join(deleteErrors, "; "))
+// deleteServed deletes objects and waits for their finalizers. A resource the
+// cluster no longer serves has nothing to delete, as on a rerun after its CRD
+// is gone.
+func deleteServed(ctx context.Context, resource string, args ...string) error {
+	out, err := kubectl(ctx, "", append(append([]string{"delete", resource}, args...), "--ignore-not-found", "--timeout=5m")...)
+	if err != nil && !strings.Contains(string(out), "doesn't have a resource type") {
+		return err
 	}
 	return nil
 }
 
-func runUninstall(ctx context.Context, namespace string) {
-	// Check if helm is available
+// substrateTrustBundles are the cluster-scoped ClusterTrustBundles Substrate's
+// controllers publish. Kubernetes requires a bundle whose name has a signer
+// prefix to carry that signer, so the names alone identify them.
+var substrateTrustBundles = []string{
+	"podidentity.podcert.ate.dev:identity:primary-bundle",
+	"servicedns.podcert.ate.dev:identity:primary-bundle",
+	"postgres.podcert.ate.dev:identity:primary-bundle",
+	"egress-mitm.ate.dev:mitm:primary-bundle",
+}
+
+// runUninstall removes what install creates, in the reverse of install's order.
+// Install supports one kagent per cluster and owns Substrate, the CRDs, and the
+// bundled database, so uninstall removes them too. Each step skips what is
+// already gone, so running uninstall again finishes an interrupted one.
+func runUninstall(ctx context.Context, namespace, postgresImage string) error {
 	if err := checkHelmAvailable(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		return err
+	}
+	if err := checkKubectlAvailable(); err != nil {
+		return err
+	}
+	// Removing Substrate from under a kagent installed elsewhere strands its
+	// WorkerPool, so a mismatched --namespace stops before anything is deleted.
+	releaseNamespaces, err := kagentReleaseNamespaces(ctx)
+	if err != nil {
+		return err
+	}
+	if len(releaseNamespaces) > 0 && !slices.Contains(releaseNamespaces, namespace) {
+		return fmt.Errorf("kagent is installed in namespace %s, not %s; rerun with --namespace %s", strings.Join(releaseNamespaces, ", "), namespace, releaseNamespaces[0])
 	}
 
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
-
-	// First uninstall kagent
-	s.Suffix = " Uninstalling kagent"
+	defer s.Stop()
 	s.Start()
-
-	args := []string{
-		"uninstall",
-		"kagent",
-		"--namespace",
-		namespace,
+	release := func(name, releaseNamespace string) error {
+		s.Suffix = " Uninstalling " + name
+		found, err := uninstallChart(ctx, name, releaseNamespace)
+		if err == nil && !found {
+			s.Stop()
+			fmt.Fprintf(os.Stderr, "Warning: %s release not found, skipping uninstallation\n", name)
+			s.Start()
+		}
+		return err
 	}
-	cmd := exec.CommandContext(ctx, "helm", args...)
 
-	if out, err := cmd.CombinedOutput(); err != nil {
-		s.Stop()
-		// Check if this is because kagent doesn't exist
-		output := string(out)
-		if strings.Contains(output, "not found") {
-			fmt.Fprintln(os.Stderr, "Warning: kagent release not found, skipping uninstallation")
-		} else {
-			fmt.Fprintln(os.Stderr, "Error uninstalling kagent:", output)
-			return
+	// The kagent controller finalizes SandboxTemplates, so they go while it runs.
+	// Otherwise deleting their CRD waits forever.
+	s.Suffix = " Deleting sandbox templates"
+	if err := deleteServed(ctx, "sandboxtemplates.api.kagent.dev", "--all", "--all-namespaces"); err != nil {
+		return fmt.Errorf("delete sandbox templates: %w", err)
+	}
+	// kagent goes before Substrate. Its release holds the Substrate WorkerPool,
+	// and Helm can delete that only while substrate-crds still serves the kind.
+	if err := release("kagent", namespace); err != nil {
+		return err
+	}
+	// atecontroller releases a SandboxConfig once no WorkerPool uses it. With the
+	// WorkerPool gone, the configs go while atecontroller still runs.
+	s.Suffix = " Deleting Substrate sandbox configs"
+	if err := deleteServed(ctx, "sandboxconfigs.ate.dev", "--all"); err != nil {
+		return fmt.Errorf("delete Substrate sandbox configs: %w", err)
+	}
+	if err := release("substrate", substrateNamespace); err != nil {
+		return err
+	}
+	bundled, err := bundledPostgresExists(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	if bundled {
+		s.Suffix = " Deleting bundled PostgreSQL"
+		if err := deleteBundledPostgres(ctx, namespace, postgresImage); err != nil {
+			return err
 		}
 	}
-
-	// Then uninstall kagent-crds
-	s.Suffix = " Uninstalling kagent-crds"
-
-	args = []string{
-		"uninstall",
-		"kagent-crds",
-		"--namespace",
-		namespace,
+	if err := release(podCertificateRelease, podCertificateNamespace); err != nil {
+		return err
 	}
-	cmd = exec.CommandContext(ctx, "helm", args...)
+	// The CRDs go only through their releases. A list of CRD names falls behind
+	// the chart, so CRDs applied outside Helm stay.
+	if err := release("substrate-crds", substrateNamespace); err != nil {
+		return err
+	}
+	if err := release("kagent-crds", namespace); err != nil {
+		return err
+	}
 
-	if out, err := cmd.CombinedOutput(); err != nil {
-		s.Stop()
-		// Check if this is because kagent-crds doesn't exist
-		output := string(out)
-		if strings.Contains(output, "not found") {
-			fmt.Fprintln(os.Stderr, "Warning: kagent-crds release not found, try to delete crds directly")
-			// delete the CRDs directly, this is a workaround for the fact that helm doesn't delete CRDs
-			if err := deleteCRDs(ctx); err != nil {
-				fmt.Fprintln(os.Stderr, "Error deleting CRDs:", err)
-				return
-			}
-		} else {
-			fmt.Fprintln(os.Stderr, "Error uninstalling kagent-crds:", output)
-			return
-		}
+	// Install labels the kagent namespace so Substrate's API admits it. The
+	// namespace stays, so only the label goes. A null merge patch is a no-op when
+	// the label is absent, so the only "not found" is a namespace that is gone.
+	s.Suffix = " Removing the Substrate API access label"
+	if out, err := kubectl(ctx, "", "patch", "namespace", namespace, "--type=merge",
+		"-p", `{"metadata":{"labels":{"ate.dev/api-access":null}}}`); err != nil && !strings.Contains(string(out), "not found") {
+		return fmt.Errorf("remove the Substrate API access label from namespace %s: %w", namespace, err)
+	}
+
+	// The Substrate prerequisites live outside any release, in these namespaces.
+	// They go after substrate-crds, whose release record ate-system holds. The
+	// kagent namespace stays. Helm creates it without recording ownership, and
+	// --namespace can name a namespace that other workloads share.
+	namespaces := []string{podCertificateNamespace, substrateNamespace}
+	s.Suffix = " Deleting Substrate namespaces"
+	if _, err := kubectl(ctx, "", append(append([]string{"delete", "namespace"}, namespaces...), "--ignore-not-found")...); err != nil {
+		return fmt.Errorf("delete Substrate namespaces: %w", err)
+	}
+	// The controllers republish their trust bundles, so the bundles go once the
+	// namespace deletes above have waited the controllers out.
+	s.Suffix = " Deleting Substrate trust bundles"
+	if err := deleteServed(ctx, "clustertrustbundles.certificates.k8s.io", substrateTrustBundles...); err != nil {
+		return fmt.Errorf("delete Substrate trust bundles: %w", err)
 	}
 
 	s.Stop()
 	fmt.Fprintln(os.Stdout, "\nkagent uninstalled successfully")
+	fmt.Fprintf(os.Stdout, "\nThe %s namespace stays, with anything else in it. To delete it and everything it holds:\n  kubectl delete namespace %s\n", namespace, namespace)
+	return nil
 }
 
 func checkHelmAvailable() error {
@@ -398,14 +465,19 @@ func NewUninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
 		Short: "Uninstall kagent",
-		Long:  `Uninstall kagent`,
+		Long: `Uninstall kagent: the kagent and Substrate Helm releases, their CRDs, the
+bundled PostgreSQL and its data, and the ate-system and
+podcertificate-controller-system namespaces. Removing the CRDs deletes every
+resource created from them, such as agents and model configs.
+
+A database that kagent install did not deploy, such as one used with
+--skip-database-setup, stays. The kagent namespace stays.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
 				return err
 			}
-			runUninstall(cmd.Context(), options.Namespace)
-			return nil
+			return runUninstall(cmd.Context(), options.Namespace, cliconfig.FromContext(cmd.Context()).GetInstall().GetBundledPostgresImage())
 		},
 	}
 }

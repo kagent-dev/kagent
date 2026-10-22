@@ -409,6 +409,10 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (s
 		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
 	}
 	if share, ok := auth.ShareContextFrom(ctx); ok {
+		session, _ := auth.AuthSessionFrom(ctx)
+		if session.Principal().Actor != nil {
+			return "", serviceerrors.NewPermissionDenied("Actors cannot use share credentials", nil)
+		}
 		if verb != auth.VerbGet {
 			return "", serviceerrors.NewPermissionDenied("This share link is read-only", nil)
 		}

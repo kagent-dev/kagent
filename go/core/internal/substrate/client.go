@@ -278,7 +278,17 @@ func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) erro
 func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
+	// Existing spaces only require scoped access, not global create permission.
+	_, err := c.GetAtespace(ctx, &ateapipb.GetAtespaceRequest{
+		Atespace: &ateapipb.ObjectRef{Name: name},
+	})
+	if err == nil {
+		return nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return err
+	}
+	_, err = c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{
 		Atespace: &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: name}},
 	})
 	if err != nil && status.Code(err) == codes.AlreadyExists {
