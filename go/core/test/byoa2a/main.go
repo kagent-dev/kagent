@@ -42,15 +42,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	runtime := compiled.ProcessConfig()
+	runtime := config.ProcessConfig(compiled)
 	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	application, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneURL, MaxContentLength: runtime.MaxContentLength,
+	application, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneUrl, MaxContentLength: runtime.MaxContentLength,
 		AgentCard: a2atype.AgentCard{Name: "opaque-byo", Version: "v1", Capabilities: a2atype.AgentCapabilities{Streaming: true}},
-		Port:      cmp.Or(runtime.Port, "80"), AppName: cmp.Or(runtime.Name, "opaque-byo"), Logger: logger,
+		Port:      fmt.Sprint(cmp.Or(runtime.GetPort(), 80)), AppName: cmp.Or(runtime.Name, "opaque-byo"), Logger: logger,
 	}, executor{})
 	if err != nil {
 		logger.Error("failed to create A2A application", "error", err)

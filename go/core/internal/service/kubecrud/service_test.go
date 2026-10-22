@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -183,6 +184,10 @@ func TestSandboxTemplateAuthorization(t *testing.T) {
 		{verb: auth.VerbDelete, resource: auth.Resource{Type: v1alpha3.SandboxTemplateKind, Namespace: "team", Name: "created"}},
 	}, authorizer.checkCalls)
 	authorizer.checkErr = errors.New("denied")
+	_, err = service.Create(ctx, &v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "forbidden"}})
+	require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+	err = kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "forbidden"}, &v1alpha3.SandboxTemplate{})
+	require.True(t, apierrors.IsNotFound(err))
 	require.Error(t, service.Delete(ctx, types.NamespacedName{Namespace: "team", Name: "a"}))
 	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{Namespace: "team", Name: "a"}, &v1alpha3.SandboxTemplate{}))
 	authorizer.scope = apiauthorization.AuthorizationScope{Kind: apiauthorization.ScopeAnyOf}

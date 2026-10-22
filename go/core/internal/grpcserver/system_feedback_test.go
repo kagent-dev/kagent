@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	atev1alpha1 "go.ate.dev/substrate/pkg/api/v1alpha1"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
@@ -79,8 +79,8 @@ func TestSystemGeneratedClient(t *testing.T) {
 	t.Cleanup(func() { _ = connection.Close() })
 
 	userContext := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "system-user"))
-	systemClient := apiv1alpha1.NewSystemServiceClient(connection)
-	currentUser, err := systemClient.GetCurrentUser(userContext, &apiv1alpha1.GetCurrentUserRequest{})
+	systemClient := apiv1.NewSystemServiceClient(connection)
+	currentUser, err := systemClient.GetCurrentUser(userContext, &apiv1.GetCurrentUserRequest{})
 	if err != nil {
 		t.Fatalf("GetCurrentUser() error = %v", err)
 	}
@@ -88,7 +88,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("GetCurrentUser() sub = %q, want system-user", got)
 	}
 
-	namespaces, err := systemClient.ListNamespaces(userContext, &apiv1alpha1.ListNamespacesRequest{})
+	namespaces, err := systemClient.ListNamespaces(userContext, &apiv1.ListNamespacesRequest{})
 	if err != nil {
 		t.Fatalf("ListNamespaces() error = %v", err)
 	}
@@ -104,7 +104,7 @@ func TestSystemGeneratedClient(t *testing.T) {
 	 * is a successful answer. A service-level test sees none
 	 * of that — it never passes through the interceptors or the generated client.
 	 */
-	summary, err := systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: "alpha"})
+	summary, err := systemClient.GetSubstrateSummary(userContext, &apiv1.GetSubstrateSummaryRequest{Namespace: "alpha"})
 	if err != nil {
 		t.Fatalf("GetSubstrateSummary() error = %v", err)
 	}
@@ -125,9 +125,9 @@ func TestSystemGeneratedClient(t *testing.T) {
 		assert.Equal(t, workerPool.Status, decoded.Status)
 	}
 
-	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
+	actors, err := systemClient.ListSubstrateActors(userContext, &apiv1.ListSubstrateActorsRequest{
 		Atespace: "alpha",
-		Page:     &apiv1alpha1.PageRequest{Limit: 100},
+		Page:     &apiv1.PageRequest{Limit: 100},
 	})
 	if err != nil {
 		t.Fatalf("ListSubstrateActors() error = %v", err)
@@ -136,9 +136,9 @@ func TestSystemGeneratedClient(t *testing.T) {
 		t.Fatalf("ListSubstrateActors() = %+v, want empty page", actors)
 	}
 
-	workers, err := systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
+	workers, err := systemClient.ListSubstrateWorkers(userContext, &apiv1.ListSubstrateWorkersRequest{
 		Namespace: "alpha",
-		Page:      &apiv1alpha1.PageRequest{Limit: 100},
+		Page:      &apiv1.PageRequest{Limit: 100},
 	})
 	if err != nil {
 		t.Fatalf("ListSubstrateWorkers() error = %v", err)
@@ -153,13 +153,13 @@ func TestSystemGeneratedClient(t *testing.T) {
 			if namespace == "" || namespace == "a" || namespace == "team-1" || namespace == strings.Repeat("a", 63) {
 				want = codes.OK
 			}
-			_, err := systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Namespace: namespace})
+			_, err := systemClient.GetSubstrateSummary(userContext, &apiv1.GetSubstrateSummaryRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary")
-			_, err = systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{Atespace: namespace})
+			_, err = systemClient.ListSubstrateActors(userContext, &apiv1.ListSubstrateActorsRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "actors")
-			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1alpha1.GetSubstrateSummaryRequest{Atespace: namespace})
+			_, err = systemClient.GetSubstrateSummary(userContext, &apiv1.GetSubstrateSummaryRequest{Atespace: namespace})
 			assert.Equal(t, want, status.Code(err), "summary atespace")
-			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{Namespace: namespace})
+			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1.ListSubstrateWorkersRequest{Namespace: namespace})
 			assert.Equal(t, want, status.Code(err), "workers")
 		})
 	}
@@ -172,12 +172,12 @@ func TestSystemGeneratedClient(t *testing.T) {
 		{name: "oversized limit", limit: 101},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := systemClient.ListSubstrateActors(userContext, &apiv1alpha1.ListSubstrateActorsRequest{
-				Page: &apiv1alpha1.PageRequest{Limit: tc.limit},
+			_, err := systemClient.ListSubstrateActors(userContext, &apiv1.ListSubstrateActorsRequest{
+				Page: &apiv1.PageRequest{Limit: tc.limit},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "actors")
-			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1alpha1.ListSubstrateWorkersRequest{
-				Page: &apiv1alpha1.PageRequest{Limit: tc.limit},
+			_, err = systemClient.ListSubstrateWorkers(userContext, &apiv1.ListSubstrateWorkersRequest{
+				Page: &apiv1.PageRequest{Limit: tc.limit},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err), "workers")
 		})

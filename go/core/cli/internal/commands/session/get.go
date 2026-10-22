@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
@@ -22,8 +22,8 @@ import (
 const maxPageSize = 100
 
 type getClient interface {
-	GetSession(context.Context, *apiv1alpha1.GetSessionRequest) (*apiv1alpha1.GetSessionResponse, error)
-	ListSessions(context.Context, *apiv1alpha1.ListSessionsRequest) (*apiv1alpha1.ListSessionsResponse, error)
+	GetSession(context.Context, *apiv1.GetSessionRequest) (*apiv1.GetSessionResponse, error)
+	ListSessions(context.Context, *apiv1.ListSessionsRequest) (*apiv1.ListSessionsResponse, error)
 }
 
 // GetCfg configures Session get and list operations.
@@ -85,7 +85,7 @@ func get(
 	out io.Writer,
 ) error {
 	if cfg.SessionID != "" {
-		response, err := client.GetSession(ctx, &apiv1alpha1.GetSessionRequest{
+		response, err := client.GetSession(ctx, &apiv1.GetSessionRequest{
 			SessionId: cfg.SessionID,
 		})
 		if err != nil {
@@ -97,12 +97,12 @@ func get(
 		if format == clioutput.FormatJSON {
 			return clioutput.WriteProto(out, response)
 		}
-		return writeSessionsTable(out, []*apiv1alpha1.Session{response.GetSession()}, "")
+		return writeSessionsTable(out, []*apiv1.Session{response.GetSession()}, "")
 	}
 
-	response, err := client.ListSessions(ctx, &apiv1alpha1.ListSessionsRequest{
+	response, err := client.ListSessions(ctx, &apiv1.ListSessionsRequest{
 
-		Page: &apiv1alpha1.PageRequest{Limit: cfg.PageSize, PageToken: cfg.PageToken},
+		Page: &apiv1.PageRequest{Limit: cfg.PageSize, PageToken: cfg.PageToken},
 	})
 	if err != nil {
 		return fmt.Errorf("list Sessions: %w", err)
@@ -116,7 +116,7 @@ func get(
 	return writeSessionsTable(out, response.GetSessions(), response.GetPage().GetNextPageToken())
 }
 
-func writeSessionsTable(w io.Writer, sessions []*apiv1alpha1.Session, nextPageToken string) error {
+func writeSessionsTable(w io.Writer, sessions []*apiv1.Session, nextPageToken string) error {
 	tw := table.NewWriter()
 	tw.AppendHeader(table.Row{"ID", "AGENT", "STATE", "CREATED"})
 	for _, session := range sessions {
@@ -140,7 +140,7 @@ func writeSessionsTable(w io.Writer, sessions []*apiv1alpha1.Session, nextPageTo
 	return nil
 }
 
-func resourceName(reference *apiv1alpha1.ResourceReference) string {
+func resourceName(reference *apiv1.ResourceReference) string {
 	if reference == nil {
 		return ""
 	}

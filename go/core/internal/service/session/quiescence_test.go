@@ -10,13 +10,13 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 )
 
@@ -181,7 +181,7 @@ func TestIdleLifecycleDoesNotOwnTaskPublication(t *testing.T) {
 			next := a2a.NewSubmittedTask(message, message)
 			_, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], next, "")
 			require.ErrorIs(t, err, database.ErrFailedPrecondition)
-			checkpoint := &apiv1alpha1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
+			checkpoint := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
 			_, _, err = store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", "checkpoint")
 			require.ErrorIs(t, err, database.ErrFailedPrecondition)
 			close(release)

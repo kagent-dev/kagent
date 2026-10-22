@@ -22,8 +22,8 @@ There is no deployment-wide Agent Card because the gateway serves multiple agent
 
 Cards and JSON-RPC calls require the same authentication as the core API. A
 validated `X-Share-Token` supplements the authenticated user's access to its
-session: read-only shares permit card/task reads and subscriptions; read-write
-shares also permit messages and cancellation. Cards are not publicly cached.
+session: shares permit only card/task reads and subscriptions. Sending messages,
+cancellation, and lifecycle mutations are denied. Cards are not publicly cached.
 
 The card comes from the Agent's latest successful revision (or the shared
 session's pinned revision) and advertises

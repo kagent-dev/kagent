@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/cli"
 )
 
@@ -44,7 +44,7 @@ install:
 `), 0600))
 	output, err := executeConfig(t, "--config", path, "config", "view", "--namespace", "flag-ns", "--timeout", "0", "--verbose=false")
 	require.NoError(t, err)
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
 	require.Equal(t, "flag-ns", cfg.GetConnection().GetNamespace())
 	require.Equal(t, "file-user", cfg.GetConnection().GetUserId())
@@ -72,7 +72,7 @@ func TestDefaultConfigIsOptionalAndCommandTreesAreIndependent(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	first, err := executeConfig(t, "config", "view", "--namespace", "first")
 	require.NoError(t, err)
-	cfg := &apiv1.CLIConfig{}
+	cfg := &configv1.CLIConfig{}
 	require.NoError(t, protojson.Unmarshal([]byte(first), cfg))
 	require.Equal(t, "first", cfg.GetConnection().GetNamespace())
 	second, err := executeConfig(t, "config", "view")
@@ -93,4 +93,26 @@ func TestDatabasePreRunLoadsRootConfig(t *testing.T) {
 			require.ErrorContains(t, err, "missing-url")
 		})
 	}
+}
+
+// tui.sidebar is set by hand: shown by default, hidden when the file says so, and nothing else.
+func TestConfigTUISidebar(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		path := filepath.Join(dir, "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(body), 0600))
+		return path
+	}
+	view := func(path string) *configv1.CLIConfig {
+		output, err := executeConfig(t, "--config", path, "config", "view")
+		require.NoError(t, err)
+		cfg := &configv1.CLIConfig{}
+		require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
+		return cfg
+	}
+	require.Equal(t, "shown", view(write("output:\n  format: table\n")).GetTui().GetSidebar(), "the default")
+	require.Equal(t, "hidden", view(write("tui:\n  sidebar: hidden\n")).GetTui().GetSidebar())
+
+	_, err := executeConfig(t, "--config", write("tui:\n  sidebar: closed\n"), "config", "validate")
+	require.ErrorContains(t, err, "tui.sidebar")
 }

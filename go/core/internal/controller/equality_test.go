@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,6 +55,9 @@ func TestAgentReconciliationEquality(t *testing.T) {
 			proto.Size(r.ObservedActorTemplate)
 		}, equal: true},
 		{name: "template source", change: func(r *AgentReconciliation) { r.Agent.Generation++ }},
+		{name: "live grants", change: func(r *AgentReconciliation) {
+			r.EgressGrant.Destinations = []string{"https://tickets.example.com:443"}
+		}},
 		{name: "revision identity", change: func(r *AgentReconciliation) { r.Target.RevisionID[0]++ }},
 		{name: "revision inputs", change: func(r *AgentReconciliation) { r.Target.Revision.SandboxClass = "microvm" }},
 		{name: "agent card", change: func(r *AgentReconciliation) { r.Target.Revision.AgentCard.Name = "changed" }},

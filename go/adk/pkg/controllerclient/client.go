@@ -16,7 +16,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
 const (
@@ -43,8 +43,8 @@ type Client struct {
 	maxMessageBytes  int
 	agentName        string
 	tokenProvider    TokenProvider
-	memoryService    apiv1alpha1.MemoryServiceClient
-	taskStoreService apiv1alpha1.TaskStoreServiceClient
+	memoryService    runtimev1.MemoryServiceClient
+	taskStoreService runtimev1.TaskStoreServiceClient
 	closeOnce        sync.Once
 	closeErr         error
 }
@@ -91,8 +91,8 @@ func New(config Config) (*Client, error) {
 		maxMessageBytes:  config.MaxMessageBytes,
 		agentName:        config.AgentName,
 		tokenProvider:    config.TokenProvider,
-		memoryService:    apiv1alpha1.NewMemoryServiceClient(connection),
-		taskStoreService: apiv1alpha1.NewTaskStoreServiceClient(connection),
+		memoryService:    runtimev1.NewMemoryServiceClient(connection),
+		taskStoreService: runtimev1.NewTaskStoreServiceClient(connection),
 	}, nil
 }
 
@@ -114,11 +114,11 @@ func targetFromURL(rawURL string) (string, bool, error) {
 	}
 }
 
-func (client *Client) MemoryService() apiv1alpha1.MemoryServiceClient {
+func (client *Client) MemoryService() runtimev1.MemoryServiceClient {
 	return client.memoryService
 }
 
-func (client *Client) TaskStoreService() apiv1alpha1.TaskStoreServiceClient {
+func (client *Client) TaskStoreService() runtimev1.TaskStoreServiceClient {
 	return client.taskStoreService
 }
 
@@ -130,21 +130,23 @@ func (client *Client) CallContext(ctx context.Context, userID string) (context.C
 	if userID == "" {
 		userID = auth.UserIDFromContext(ctx)
 	}
-	metadataValues := make([]string, 0, 6)
+	metadataValues, _ := metadata.FromOutgoingContext(ctx)
+	metadataValues = metadataValues.Copy()
+	// Substrate replaces the placeholder at the controller's runtime origin.
+	token := "placeholder"
 	if client.tokenProvider != nil {
-		if token := client.tokenProvider.GetToken(); token != "" {
-			metadataValues = append(metadataValues, "authorization", "Bearer "+token)
+		if supplied := client.tokenProvider.GetToken(); supplied != "" {
+			token = supplied
 		}
 	}
+	metadataValues.Set("authorization", "Bearer "+token)
 	if client.agentName != "" {
-		metadataValues = append(metadataValues, "x-agent-name", client.agentName)
+		metadataValues.Set("x-agent-name", client.agentName)
 	}
 	if userID != "" {
-		metadataValues = append(metadataValues, "x-user-id", userID)
+		metadataValues.Set("x-user-id", userID)
 	}
-	if len(metadataValues) > 0 {
-		ctx = metadata.AppendToOutgoingContext(ctx, metadataValues...)
-	}
+	ctx = metadata.NewOutgoingContext(ctx, metadataValues)
 	if client.timeout <= 0 {
 		return ctx, func() {}
 	}

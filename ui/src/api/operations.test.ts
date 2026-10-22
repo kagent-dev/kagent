@@ -1,5 +1,5 @@
-import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1alpha1/runtime_pb";
-import { ActorState, SandboxClass } from "@/generated/ateapi_pb";
+import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtime_pb";
+import { ActorState, SnapshotStorageStatus } from "@/generated/ateapi_pb";
 /**
  * Every operation, exercised against the real gRPC services running in-process.
  *
@@ -29,15 +29,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import type { ConnectRouter } from "@connectrpc/connect";
-import { ModelService } from "@/generated/kagent/api/v1alpha1/models_pb";
-import { ToolService } from "@/generated/kagent/api/v1alpha1/tools_pb";
-import { PromptTemplateService } from "@/generated/kagent/api/v1alpha1/prompts_pb";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
+import { ToolService } from "@/generated/kagent/api/v1/tools_pb";
+import { PromptTemplateService } from "@/generated/kagent/api/v1/prompts_pb";
 import {
   SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
+} from "@/generated/kagent/api/v1/system_pb";
 import {
   SessionService,
-} from "@/generated/kagent/api/v1alpha1/sessions_pb";
+} from "@/generated/kagent/api/v1/sessions_pb";
 import { ApiError, isNotFound } from "./ApiError";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
@@ -275,36 +275,6 @@ describe("tool servers and tools", () => {
     expect(created.discoveredTools).toEqual([]);
   });
 
-  it("keeps KMCP servers in their own API group", async () => {
-    let received: unknown;
-    serve(({ service }) => {
-      service(ToolService, {
-        createToolServer: (request) => {
-          received = request;
-          return { resource: request.resource };
-        },
-      });
-    });
-
-    const created = await apiClient.mcpServers.create({
-      type: "MCPServer",
-      mcpServer: {
-        metadata: { name: "local", namespace: "kagent" },
-        spec: {
-          deployment: { image: "example.com/mcp:latest", port: 8080 },
-          transportType: "stdio",
-          stdioTransport: {},
-        },
-      },
-    });
-
-    expect(received).toMatchObject({
-      type: "MCPServer",
-      resource: { kind: "MCPServer", apiVersion: "kagent.dev/v1alpha1" },
-    });
-    expect(created.groupKind).toBe("MCPServer.kagent.dev");
-  });
-
   /**
    * The tool rows are `database.Tool` marshalled to JSON and carried through the
    * envelope untouched — which is why their field names are snake-cased, and why
@@ -317,7 +287,7 @@ describe("tool servers and tools", () => {
           tools: [
             {
               resource: {
-                apiVersion: "kagent.api/v1alpha1",
+                apiVersion: "kagent.api/v1",
                 kind: "Tool",
                 value: {
                   id: "k8s_get_resources",
@@ -425,7 +395,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
@@ -442,8 +411,10 @@ describe("the cluster", () => {
                 workerPool: "pool",
                 workerPodIps: ["10.0.0.1", "fd00::1"],
               },
-              externalSnapshot: { snapshotUri: "s3://snapshot" },
-              inProgressLocalSnapshotName: "next-snapshot",
+              snapshots: [
+                { generation: 2, uuid: "next-snapshot", durableSnapshot: { status: SnapshotStorageStatus.PENDING } },
+                { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://snapshot" } } },
+              ],
             },
           }],
         }),
@@ -457,7 +428,6 @@ describe("the cluster", () => {
       name: "tpl",
       phase: "Ready",
       goldenTag: "ate-golden/golden",
-      sandboxClass: "gvisor",
       workerSelector: "pool=agents,zone=east",
     });
     // The request succeeded; the runtime halves may be incomplete. That is a
@@ -516,8 +486,6 @@ describe("the cluster", () => {
     [ActorState.RUNNING, "Running"],
     [ActorState.SUSPENDING, "Suspending"],
     [ActorState.SUSPENDED, "Suspended"],
-    [ActorState.PAUSING, "Pausing"],
-    [ActorState.PAUSED, "Paused"],
     [ActorState.CRASHED, "ACTOR_STATE_CRASHED"],
     [ActorState.DELETING, "ACTOR_STATE_DELETING"],
     [ActorState.REVERTING, "Reverting"],
@@ -542,6 +510,28 @@ describe("the cluster", () => {
       service(SystemService, { getSubstrateSummary: inventory });
     });
     await expect(apiClient.substrate.summary()).rejects.toMatchObject({ kind: "parse" });
+  });
+
+  it.each([
+    [ActorState.SUSPENDED, "Paused"],
+    [ActorState.RUNNING, "Running"],
+  ])("derives pause from snapshot locality only while suspended (%s)", async (state, label) => {
+    serve(({ service }) => {
+      service(SystemService, {
+        listSubstrateActors: () => ({
+          actors: [{ metadata: { name: "a1" }, status: {
+            state,
+            snapshots: [
+              { generation: 2, locality: "node-1" },
+              { generation: 1, durableSnapshot: { status: SnapshotStorageStatus.COMPLETED, object: { snapshotUri: "s3://old" } } },
+            ],
+          } }],
+        }),
+      });
+    });
+    const page = await apiClient.substrate.actors({});
+    expect(page.actors[0].status).toBe(label);
+    expect(page.actors[0].inProgressSnapshot).toBeUndefined();
   });
 
   // Proto3 cannot tell an unset string from an empty one, and an empty warning
@@ -596,7 +586,6 @@ describe("the cluster", () => {
                   goldenTag: { atespace: "ate-golden", name: "golden" },
                 },
               },
-              sandboxConfig: { sandboxClass: SandboxClass.GVISOR },
               workerSelector: { matchLabels: { zone: "east", pool: "agents" } },
             },
           ],
@@ -1066,5 +1055,29 @@ describe("agent instances", () => {
     expect((failure as ApiError).url).toBe(
       "SessionService/SuspendSession",
     );
+  });
+});
+
+describe("session shares", () => {
+  it("creates a read-only share", async () => {
+    serve(({ service }) => {
+      service(SessionService, {
+        createSessionShare: (request) => {
+          expect(request.sessionId).toBe("session");
+          return {
+            share: { id: "share", sessionId: request.sessionId },
+            token: "token",
+          };
+        },
+      });
+    });
+
+    const created = await apiClient.agentInstances.shares.create("session");
+    expect(created.share).toEqual({
+      id: "share",
+      agentInstanceId: "session",
+      createdAt: "",
+    });
+    expect(created.token).toBe("token");
   });
 });

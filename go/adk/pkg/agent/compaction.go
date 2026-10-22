@@ -7,7 +7,8 @@ import (
 
 	"google.golang.org/adk/v2/session/compaction"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -33,7 +34,7 @@ const toolNameInstruction = "\n\nIMPORTANT: When referencing any tools or agents
 // A dedicated summarizer model or a custom prompt template yields an LLM
 // summarizer built here; otherwise the runner summarizes with the agent's own
 // model and ADK's default prompt, which is what the Python runtime does too.
-func CompactionConfig(ctx context.Context, agentConfig *adk.AgentConfig) (*compaction.Config, error) {
+func CompactionConfig(ctx context.Context, agentConfig *configv1.ADKAgentConfig) (*compaction.Config, error) {
 	log := logging.FromContext(ctx)
 	if agentConfig == nil || agentConfig.ContextConfig == nil || agentConfig.ContextConfig.Compaction == nil {
 		log.InfoContext(ctx, "context compaction not configured")
@@ -75,7 +76,7 @@ func CompactionConfig(ctx context.Context, agentConfig *adk.AgentConfig) (*compa
 // only when both of its settings are present. What remains is validated the
 // way the runner validates it, so a configuration the runner would refuse
 // fails here at startup with the reason instead of on the first turn.
-func compactionStrategies(settings *adk.AgentCompressionConfig) (compaction.Config, []string, error) {
+func compactionStrategies(settings *configv1.ADKCompressionConfig) (compaction.Config, []string, error) {
 	cfg := compaction.Config{
 		CompactionInterval: intValue(settings.CompactionInterval),
 		OverlapSize:        intValue(settings.OverlapSize),
@@ -105,7 +106,7 @@ func compactionStrategies(settings *adk.AgentCompressionConfig) (compaction.Conf
 // model or a custom prompt template. It returns nil when neither is set, which
 // leaves the runner to summarize with the agent's own model and ADK's default
 // prompt.
-func compactionSummarizer(ctx context.Context, settings *adk.AgentCompressionConfig, agentModel adk.Model) (compaction.Summarizer, error) {
+func compactionSummarizer(ctx context.Context, settings *configv1.ADKCompressionConfig, agentModel *configv1.ADKModelConfig) (compaction.Summarizer, error) {
 	modelConfig := settings.SummarizerModel
 	if modelConfig == nil {
 		if settings.PromptTemplate == "" {
@@ -145,19 +146,19 @@ func summarizerPromptTemplate(custom string) string {
 
 // summarizerModelDescription names the model that writes the summaries, for
 // the startup log.
-func summarizerModelDescription(settings *adk.AgentCompressionConfig, agentModel adk.Model) string {
+func summarizerModelDescription(settings *configv1.ADKCompressionConfig, agentModel *configv1.ADKModelConfig) string {
 	if settings.SummarizerModel != nil {
-		return settings.SummarizerModel.GetType()
+		return runtimeconfig.ModelType(settings.SummarizerModel)
 	}
 	if agentModel == nil {
 		return "none"
 	}
-	return agentModel.GetType() + " (agent model)"
+	return runtimeconfig.ModelType(agentModel) + " (agent model)"
 }
 
-func intValue(v *int) int {
+func intValue(v *int64) int {
 	if v == nil {
 		return 0
 	}
-	return *v
+	return int(*v)
 }

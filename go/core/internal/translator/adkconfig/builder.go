@@ -9,12 +9,14 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
@@ -43,11 +45,12 @@ func NewBuilder(ctx krt.HandlerContext, collections translator.Collections) *Bui
 }
 
 type Result struct {
-	Config      *adk.AgentConfig
+	Config      *configv1.ADKAgentConfig
 	Models      []*translator.ResolvedModelConfig
 	Templates   []*translator.TemplateConfiguration
 	Environment []corev1.EnvVar
 	Egress      []string
+	SkillImages []translator.SkillImage
 }
 
 // HarnessEnvironment converts portable Harness environment entries to Pod environment variables.
@@ -85,7 +88,7 @@ func (c *Builder) Build(ctx context.Context, input *translator.HarnessInput) (*R
 	}
 	// The Python runtime needs an async SQLite driver; the Go runtime accepts
 	// this URL and strips the driver before opening the same durable database.
-	result.Config.SessionDBURL = "sqlite+aiosqlite:////data/sessions.db"
+	result.Config.SessionDbUrl = "sqlite+aiosqlite:////data/sessions.db"
 	return result, nil
 }
 
@@ -107,13 +110,13 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	if modelConfig != nil && modelConfig.Spec.Stream != nil {
 		stream = modelConfig.Spec.Stream
 	}
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
-	pluginConfig, pluginEgress, err := translator.CompileSkillResources(input.Template)
+	cfg := &configv1.ADKAgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: stream}
+	plugins, err := translator.CompileSkillResources(input.Template)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = &pluginConfig
+	if len(plugins.Resources.Skills) > 0 || len(plugins.Resources.Plugins) > 0 {
+		cfg.AgentPlugins = runtimeconfig.PluginConfig(plugins.Resources)
 	}
 	for _, tool := range input.MCPTools {
 		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
@@ -130,7 +133,8 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 	result := &Result{
 		Config: cfg, Templates: []*translator.TemplateConfiguration{input.Template},
 		Environment: modelRuntime.Environment,
-		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), pluginEgress...),
+		Egress:      append(agentConfigDestinations(cfg, modelConfig, modelRuntime.Model), plugins.Egress...),
+		SkillImages: plugins.Images,
 	}
 	if modelConfig != nil {
 		result.Models = []*translator.ResolvedModelConfig{input.ResolvedModelConfig}
@@ -146,6 +150,7 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 		result.Templates = append(result.Templates, child.Templates...)
 		result.Environment = append(result.Environment, child.Environment...)
 		result.Egress = append(result.Egress, child.Egress...)
+		result.SkillImages = append(result.SkillImages, child.SkillImages...)
 	}
 	return result, nil
 }
@@ -302,7 +307,7 @@ func DedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
 // agentConfigDestinations extracts the network allowlist required by the
 // resolved model and MCP configuration. Provider defaults are included when
 // no explicit endpoint appears in the serialized model.
-func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
+func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3.ModelConfig, model *configv1.ADKModelConfig) []string {
 	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
 	for _, tool := range cfg.HttpTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
@@ -310,7 +315,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 	for _, tool := range cfg.SseTools {
 		destinations = appendURLOrigin(destinations, tool.Params.Url)
 	}
-	modelJSON, _ := json.Marshal(model)
+	modelJSON, _ := protojson.Marshal(model)
 	var values any
 	if json.Unmarshal(modelJSON, &values) == nil {
 		destinations = appendURLValues(destinations, values)
@@ -348,7 +353,7 @@ func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelCo
 			// ignoring the operator's host. That over-allowed egress: with a
 			// host set the request goes to that host, so api.ollama.com never
 			// needs to be reachable.
-			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.APIKeyPassthrough
+			hasCredential := modelConfig.Spec.APIKeySecret != "" || modelConfig.Spec.TokenPassthrough
 			if models.OllamaReachesCloud(modelConfig.Spec.Model, ollama.Host, hasCredential) {
 				destinations = append(destinations, "https://api.ollama.com:443")
 			}

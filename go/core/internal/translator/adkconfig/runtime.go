@@ -8,15 +8,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
 // modelResult is the runtime configuration contributed by one ModelConfig.
 type modelResult struct {
 	Resolved    *translator.ResolvedModelConfig
-	Model       adk.Model
+	Model       *configv1.ADKModelConfig
 	Environment []corev1.EnvVar
 	Egress      []string
 }
@@ -42,7 +43,7 @@ func (c *Builder) buildModel(namespace, name string) (*modelResult, error) {
 	}
 	return &modelResult{
 		Resolved: resolved, Model: runtime.Model, Environment: runtime.Environment,
-		Egress: agentConfigDestinations(&adk.AgentConfig{}, resolved.Config, runtime.Model),
+		Egress: agentConfigDestinations(&configv1.ADKAgentConfig{}, resolved.Config, runtime.Model),
 	}, nil
 }
 
@@ -61,11 +62,11 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	if spec == nil {
 		return nil
 	}
-	compaction := &adk.AgentCompressionConfig{
-		CompactionInterval: spec.CompactionInterval,
-		OverlapSize:        spec.OverlapSize,
-		TokenThreshold:     spec.TokenThreshold,
-		EventRetentionSize: spec.EventRetentionSize,
+	compaction := &configv1.ADKCompressionConfig{
+		CompactionInterval: runtimeInt(spec.CompactionInterval),
+		OverlapSize:        runtimeInt(spec.OverlapSize),
+		TokenThreshold:     runtimeInt(spec.TokenThreshold),
+		EventRetentionSize: runtimeInt(spec.EventRetentionSize),
 	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
@@ -80,7 +81,7 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 			result.Egress = append(result.Egress, model.Egress...)
 		}
 	}
-	result.Config.ContextConfig = &adk.AgentContextConfig{Compaction: compaction}
+	result.Config.ContextConfig = &configv1.ADKContextConfig{Compaction: compaction}
 	return nil
 }
 
@@ -92,16 +93,16 @@ func isAgentModel(template *translator.TemplateConfiguration, name string) bool 
 // genai.Schema conversion used by the Go runtime, then records the canonical
 // schema for both Go and Python ADK runtimes. This keeps compatibility
 // failures at Harness compilation instead of actor startup.
-func applyOutputSchema(config *adk.AgentConfig, output *translator.ResolvedOutputSchema) error {
+func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {
 	if output == nil {
 		return nil
 	}
 	if _, err := adkoutputschema.ToGenAISchema(output.Schema); err != nil {
 		return translator.NewValidationError("output schema is incompatible with Go ADK: %v", err)
 	}
-	config.Output = &adk.OutputConfig{
-		JSONSchema: append(json.RawMessage(nil), output.Schema...),
-		SHA256:     output.SHA256,
+	config.Output = &configv1.ADKOutputConfig{
+		JsonSchema: append(json.RawMessage(nil), output.Schema...),
+		Sha256:     output.SHA256,
 	}
 	return nil
 }
@@ -128,7 +129,7 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 	if err != nil {
 		return fmt.Errorf("resolve memory ModelConfig %q: %w", name, err)
 	}
-	result.Config.Memory = &adk.MemoryConfig{TTLDays: memory.TTLDays, Embedding: adk.ModelToEmbeddingConfig(model.Model)}
+	result.Config.Memory = &configv1.ADKMemoryConfig{TtlDays: int64(memory.TTLDays), Embedding: runtimeconfig.ModelToEmbeddingConfig(model.Model)}
 	result.Models = append(result.Models, model.Resolved)
 	result.Environment = append(result.Environment, model.Environment...)
 	result.Egress = append(result.Egress, model.Egress...)

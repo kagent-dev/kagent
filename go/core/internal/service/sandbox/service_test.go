@@ -8,23 +8,64 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+	"go.ate.dev/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
+
+type denyingGuestAuthorizer struct {
+	verb     auth.Verb
+	resource auth.Resource
+}
+
+var _ auth.Authorizer = (*denyingGuestAuthorizer)(nil)
+
+func (a *denyingGuestAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	a.verb, a.resource = verb, resource
+	return errors.New("denied")
+}
+
+func TestSandboxReadFileAuthorization(t *testing.T) {
+	const id = "00000000-0000-4000-8000-000000000001"
+	for _, test := range []struct {
+		name string
+		mode uint32
+		verb auth.Verb
+	}{
+		{"read existing file", 0, auth.VerbGet},
+		{"create missing file", 0o600, auth.VerbUpdate},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authorizer := &denyingGuestAuthorizer{}
+			service, err := NewService(Config{Authorizer: authorizer, DefaultTTL: time.Hour, MaxTTL: time.Hour})
+			require.NoError(t, err)
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			err = service.ReadFile(ctx, id, &guestpb.ReadFileRequest{Path: "file", Mode: test.mode}, func(*guestpb.ReadFileResponse) error {
+				t.Fatal("unauthorized read returned data")
+				return nil
+			})
+			require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+			require.Equal(t, test.verb, authorizer.verb)
+			require.Equal(t, auth.Resource{Type: "Sandbox", Name: id}, authorizer.resource)
+		})
+	}
+}
 
 func TestSandboxExpirationRejectsInvalidInterval(t *testing.T) {
 	for _, interval := range []time.Duration{0, -time.Second} {
@@ -45,7 +86,7 @@ type testActors struct {
 	substrate.LifecycleClient
 	mu             sync.Mutex
 	actor          *ateapipb.Actor
-	egressPolicy   *ateapipb.EgressPolicy
+	egressRevision string
 	calls          []string
 	readErr        error
 	mutationErr    error
@@ -73,11 +114,12 @@ func (a *testActors) CreateActor(_ context.Context, space, name, templateSpace, 
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
-func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, policy *ateapipb.EgressPolicy) error {
+func (a *testActors) CheckActorEgressPolicy(context.Context, string, string) error { return nil }
+func (a *testActors) EnsureActorEgressPolicy(_ context.Context, _, _ string, revision string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.calls = append(a.calls, "policy")
-	a.egressPolicy = proto.CloneOf(policy)
+	a.egressRevision = revision
 	return a.mutationErr
 }
 func (a *testActors) ResumeActor(context.Context, string, string) (*ateapipb.Actor, error) {
@@ -97,6 +139,7 @@ func (a *testActors) SuspendActor(context.Context, string, string) (*ateapipb.Ac
 	}
 	a.calls = append(a.calls, "suspend")
 	a.actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	a.actor.Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{Status: ateapipb.SnapshotStorageStatus_SNAPSHOT_STORAGE_STATUS_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/sandbox"}}}}
 	return proto.CloneOf(a.actor), a.mutationErr
 }
 func (a *testActors) DeleteActor(context.Context, string, string) error {
@@ -133,11 +176,12 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	require.NoError(t, err)
 	t.Cleanup(pool.Close)
 	store := database.NewClient(pool, "public")
-	require.NoError(t, store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"}))
+	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: "revision"})
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordSandboxRevision(ctx, database.SandboxRevision{
 		RuntimeArtifact:     database.RuntimeArtifact{Revision: "revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "revision", ActorTemplateUID: "revision-uid"},
 		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
-	}, true))
+	}, database.RecordRevisionOptions{Ready: true}))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxTemplate{
@@ -150,15 +194,15 @@ func serviceFixture(t *testing.T) (*Service, context.Context, *testActors) {
 	return service, auth.AuthSessionTo(t.Context(), testSession("alice")), actors
 }
 
-func createRequest() *apiv1alpha1.CreateSandboxRequest {
-	return &apiv1alpha1.CreateSandboxRequest{SandboxTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "scratch"}, RequestId: "create"}
+func createRequest() *apiv1.CreateSandboxRequest {
+	return &apiv1.CreateSandboxRequest{SandboxTemplate: &apiv1.ResourceReference{Namespace: "team-a", Name: "scratch"}, RequestId: "create"}
 }
 
 func TestSandboxLifecycleClientRetriesAfterRestart(t *testing.T) {
 	for _, name := range []string{"create", "suspend", "resume", "delete"} {
 		t.Run(name, func(t *testing.T) {
 			service, ctx, actors := serviceFixture(t)
-			var instance *apiv1alpha1.Sandbox
+			var instance *apiv1.Sandbox
 			if name != "create" {
 				var err error
 				instance, err = service.Create(ctx, createRequest())
@@ -168,7 +212,7 @@ func TestSandboxLifecycleClientRetriesAfterRestart(t *testing.T) {
 					require.NoError(t, err)
 				}
 			}
-			call := func(s *Service) (*apiv1alpha1.Sandbox, error) {
+			call := func(s *Service) (*apiv1.Sandbox, error) {
 				switch name {
 				case "suspend":
 					return s.Suspend(ctx, instance.Id)
@@ -183,25 +227,25 @@ func TestSandboxLifecycleClientRetriesAfterRestart(t *testing.T) {
 			actors.mutationErr = status.Error(codes.Unavailable, "response lost after effect")
 			_, err := call(service)
 			require.Equal(t, codes.Unavailable, status.Code(err))
-			listed, err := service.List(ctx, &apiv1alpha1.ListSandboxesRequest{})
+			listed, err := service.List(ctx, &apiv1.ListSandboxesRequest{})
 			require.NoError(t, err)
 			require.Len(t, listed.Sandboxes, 1)
 			instance = listed.Sandboxes[0]
 			pending, err := service.config.Store.GetSandboxOperation(ctx, instance.Id)
 			require.NoError(t, err)
-			require.NotEqual(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, pending.Instance.Operation)
+			require.NotEqual(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, pending.Instance.Operation)
 			restarted, err := NewService(service.config)
 			require.NoError(t, err)
 			actors.mutationErr = nil
 			result, err := call(restarted)
 			require.NoError(t, err)
-			require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, result.Operation)
-			wanted := apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, result.Operation)
+			wanted := apiv1.RuntimeState_RUNTIME_STATE_READY
 			if name == "suspend" {
-				wanted = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED
+				wanted = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
 			}
 			if name == "delete" {
-				wanted = apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED
+				wanted = apiv1.RuntimeState_RUNTIME_STATE_DELETED
 			}
 			require.Equal(t, wanted, result.State)
 			completed, err := service.config.Store.GetSandboxOperation(ctx, instance.Id)
@@ -214,8 +258,7 @@ func TestSandboxLifecycleClientRetriesAfterRestart(t *testing.T) {
 				}
 			}
 			require.Equal(t, 1, count, "retry must preserve the original Actor and files")
-			require.NotNil(t, actors.egressPolicy)
-			require.Empty(t, actors.egressPolicy.Rules)
+			require.NotEmpty(t, actors.egressRevision)
 		})
 	}
 }
@@ -232,7 +275,7 @@ func TestSandboxPreparationFailureRequiresClientRetry(t *testing.T) {
 		"the expiration worker must not retry ordinary lifecycle work")
 	current, err := service.Create(ctx, createRequest())
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, current.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
 	require.Equal(t, []string{"create", "policy", "resume"}, actors.observedCalls())
 }
 
@@ -242,7 +285,7 @@ func TestExpirationCleansUpIncompleteCreation(t *testing.T) {
 	actors.mutationErr = status.Error(codes.Unavailable, "creation response lost")
 	_, err := service.Create(ctx, createRequest())
 	require.Error(t, err)
-	listed, err := service.List(ctx, &apiv1alpha1.ListSandboxesRequest{})
+	listed, err := service.List(ctx, &apiv1.ListSandboxesRequest{})
 	require.NoError(t, err)
 	require.Len(t, listed.Sandboxes, 1)
 	instance := listed.Sandboxes[0]
@@ -252,7 +295,7 @@ func TestExpirationCleansUpIncompleteCreation(t *testing.T) {
 	startWorker(t, service)
 	require.Eventually(t, func() bool {
 		current, err := service.Get(ctx, instance.Id)
-		return err == nil && current.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED
+		return err == nil && current.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED
 	}, 5*time.Second, 20*time.Millisecond)
 	_, err = service.config.Store.FinishSandboxOperation(ctx, instance.Id, original.ID, original.ExecutorID, "")
 	require.ErrorIs(t, err, database.ErrConflict, "expired generation cannot publish success")
@@ -282,7 +325,80 @@ func TestSandboxConflictingRequestCanRetryAfterActiveAttempt(t *testing.T) {
 	require.NoError(t, <-suspended)
 	current, err := service.Resume(ctx, instance.Id)
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, current.State)
-	require.Equal(t, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
-	require.Equal(t, []string{"create", "policy", "resume", "suspend", "resume"}, actors.observedCalls())
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
+	require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, current.Operation)
+	require.Equal(t, []string{"create", "policy", "resume", "suspend", "policy", "resume"}, actors.observedCalls())
+}
+
+func TestSandboxResolvesCurrentGrantsBeforeResume(t *testing.T) {
+	service, ctx, actors := serviceFixture(t)
+	revision := database.SandboxRevision{
+		RuntimeArtifact:     database.RuntimeArtifact{Revision: "policy-revision", Kind: "sandbox", Namespace: "team-a", ActorTemplateAtespace: "team-a", ActorTemplateName: "policy-runtime", ActorTemplateUID: "policy-runtime-uid"},
+		SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", SourceSnapshot: []byte("{}"),
+	}
+	store := service.config.Store
+	upsertErr := store.UpsertSandboxTemplateDefinition(ctx, database.SandboxTemplateDefinition{Namespace: "team-a", SandboxTemplateName: "scratch", SandboxTemplateUID: "template-uid", DesiredRevision: revision.Revision})
+	require.NoError(t, upsertErr)
+	require.NoError(t, store.RecordSandboxRevision(ctx, revision, database.RecordRevisionOptions{Ready: true}))
+	instance, err := service.Create(ctx, createRequest())
+	require.NoError(t, err)
+	require.Equal(t, revision.Revision, instance.PreparedRevision)
+	require.Equal(t, revision.Revision, actors.egressRevision)
+	calls := actors.observedCalls()
+	require.Less(t, slices.Index(calls, "policy"), slices.Index(calls, "resume"))
+	require.Contains(t, calls, "policy")
+}
+
+type templateDenyingAuthorizer struct {
+	templates []auth.Resource
+	verbs     []auth.Verb
+}
+
+var _ auth.Authorizer = (*templateDenyingAuthorizer)(nil)
+
+func (a *templateDenyingAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, resource auth.Resource) error {
+	if resource.Type == v1alpha3.SandboxTemplateKind {
+		a.templates = append(a.templates, resource)
+		a.verbs = append(a.verbs, verb)
+		return errors.New("template denied")
+	}
+	return nil
+}
+
+func TestSandboxCreateRejectsDeniedTemplateBeforePersistence(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		objects []client.Object
+	}{
+		{name: "existing template", objects: []client.Object{&v1alpha3.SandboxTemplate{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch"},
+		}}},
+		{name: "missing template on retry"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha3.AddToScheme(scheme))
+			authorizer := &templateDenyingAuthorizer{}
+			// Missing store and actor dependencies make any persistence or runtime
+			// work fail the test. Denial must precede both, even when a repeated
+			// request names a template that no longer exists in Kubernetes.
+			service := &Service{config: Config{
+				Kube:       fake.NewClientBuilder().WithScheme(scheme).WithObjects(test.objects...).Build(),
+				Authorizer: authorizer,
+			}}
+			ctx := auth.AuthSessionTo(t.Context(), testSession("alice"))
+			request := createRequest()
+			for range 2 {
+				instance, err := service.Create(ctx, request)
+				require.Nil(t, instance)
+				require.True(t, serviceerrors.IsCode(err, serviceerrors.CodePermissionDenied))
+				require.Equal(t, "SandboxTemplate access denied", serviceerrors.MessageOf(err))
+			}
+			require.Equal(t, []auth.Resource{
+				{Type: v1alpha3.SandboxTemplateKind, Namespace: "team-a", Name: "scratch"},
+				{Type: v1alpha3.SandboxTemplateKind, Namespace: "team-a", Name: "scratch"},
+			}, authorizer.templates)
+			require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbGet}, authorizer.verbs)
+		})
+	}
 }

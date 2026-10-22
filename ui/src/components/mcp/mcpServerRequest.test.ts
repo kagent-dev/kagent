@@ -7,11 +7,10 @@ import {
   type McpServerFormValues,
 } from "./mcpServerRequest";
 
-/** A URL-kind form with a name and host filled in, plus any overrides. */
+/** A form with a name and host filled in, plus any overrides. */
 function urlForm(overrides: Partial<McpServerFormValues> = {}): McpServerFormValues {
   return {
     ...emptyMcpServerForm(),
-    kind: "url",
     name: "my-server",
     namespace: "kagent",
     url: "mcp.example.com/sse",
@@ -55,23 +54,15 @@ describe("validateMcpServerForm — scheme-less URL", () => {
 });
 
 describe("suggestName", () => {
-  it("derives a name from the host or the package", () => {
+  it("derives a name from the host", () => {
     expect(suggestName(urlForm({ name: "", url: "mcp.example.com/sse" }))).toBe(
       "mcp-example-com",
     );
-    expect(
-      suggestName({
-        ...emptyMcpServerForm(),
-        kind: "command",
-        packageName: "@modelcontextprotocol/server-filesystem@1.2.3",
-      }),
-    ).toBe("server-filesystem");
   });
 
   it("suggests nothing when there is nothing to derive from", () => {
-    // Otherwise an unrelated edit — switching kind, typing a namespace — writes
-    // an invented name into a field the reader has not filled in yet.
+    // Otherwise an unrelated edit, such as typing a namespace, writes an invented
+    // name into a field the reader has not filled in yet.
     expect(suggestName(emptyMcpServerForm())).toBe("");
-    expect(suggestName({ ...emptyMcpServerForm(), kind: "command" })).toBe("");
   });
 });

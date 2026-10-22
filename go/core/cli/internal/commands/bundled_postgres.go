@@ -22,8 +22,8 @@ import (
 	"os/exec"
 	"strings"
 
-	substratesetup "github.com/agent-substrate/substrate/pkg/postgressetup"
 	"github.com/google/go-containerregistry/pkg/name"
+	substratesetup "go.ate.dev/substrate/pkg/postgressetup"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	kagentsetup "github.com/kagent-dev/kagent/go/core/pkg/postgressetup"
@@ -97,6 +97,31 @@ func prepareBundledPostgres(ctx context.Context, namespace, image string) error 
 			return fmt.Errorf("prepare bundled PostgreSQL: %w: %s", err, detail)
 		}
 		return fmt.Errorf("prepare bundled PostgreSQL: %w", err)
+	}
+	return nil
+}
+
+// bundledPostgresExists reports whether install deployed the bundled
+// PostgreSQL. After --skip-database-setup it did not, and Secrets with the same
+// names hold the operator's own database credentials, so uninstall never
+// touches them.
+func bundledPostgresExists(ctx context.Context, namespace string) (bool, error) {
+	out, err := kubectl(ctx, "", "-n", namespace, "get", "deployment/kagent-postgresql", "--ignore-not-found", "-o", "name")
+	if err != nil {
+		return false, fmt.Errorf("check for bundled PostgreSQL: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// deleteBundledPostgres deletes the objects prepareBundledPostgres applies,
+// including the volume that holds the data.
+func deleteBundledPostgres(ctx context.Context, namespace, image string) error {
+	manifest, err := bundledPostgresManifest(namespace, image)
+	if err != nil {
+		return err
+	}
+	if _, err := kubectl(ctx, manifest, "delete", "--ignore-not-found", "-f", "-"); err != nil {
+		return fmt.Errorf("delete bundled PostgreSQL: %w", err)
 	}
 	return nil
 }

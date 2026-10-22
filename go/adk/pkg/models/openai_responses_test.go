@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,7 +102,7 @@ func TestGenaiToolsToResponsesTools(t *testing.T) {
 
 func TestApplyOpenAIResponsesConfig(t *testing.T) {
 	temp := 0.5
-	mct := 128
+	mct := int64(128)
 	effort := "low"
 	var params responses.ResponseNewParams
 	applyOpenAIResponsesConfig(&params, &OpenAIConfig{
@@ -311,6 +312,128 @@ func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
 	}
 }
 
+func TestGenaiContentsToResponsesInput_DocumentBytes(t *testing.T) {
+	input, _, err := genaiContentsToResponsesInput([]*genai.Content{{
+		Role: "user",
+		Parts: []*genai.Part{
+			{Text: "summarize"},
+			{InlineData: &genai.Blob{MIMEType: "Application/PDF; name=report.pdf", Data: []byte("%PDF-"), DisplayName: "report.pdf"}},
+		},
+	}}, nil)
+	require.NoError(t, err)
+	b, err := json.Marshal(input[0].OfMessage)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"role":"user","content":[
+		{"type":"input_text","text":"summarize"},
+		{"type":"input_text","text":"File: report.pdf"},
+		{"type":"input_file","file_data":"data:application/pdf;base64,JVBERi0=","filename":"report.pdf"}
+	]}`, string(b))
+}
+
+func TestOpenAIModelProviderAccepts(t *testing.T) {
+	pdf := &genai.Part{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: []byte("%PDF-1.7")}}
+	pdfWithParams := &genai.Part{InlineData: &genai.Blob{MIMEType: "Application/PDF; name=a.pdf", Data: []byte("%PDF-1.7")}}
+	textAsPDF := &genai.Part{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: []byte("hello, not a pdf")}}
+	const docxType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	docx := &genai.Part{InlineData: &genai.Blob{MIMEType: docxType, Data: []byte("PK\x03\x04rest of a zip")}}
+	textAsDocx := &genai.Part{InlineData: &genai.Blob{MIMEType: docxType, Data: []byte("hello, not a docx")}}
+	pdfAsDocx := &genai.Part{InlineData: &genai.Blob{MIMEType: docxType, Data: []byte("%PDF-1.7")}}
+	csv := &genai.Part{InlineData: &genai.Blob{MIMEType: "text/csv"}}
+	link := &genai.Part{FileData: &genai.FileData{FileURI: "https://files.example.com/report.pdf"}}
+	text := genai.NewPartFromText("hi")
+
+	responsesModel := &OpenAIModel{Config: &OpenAIConfig{APIFormat: OpenAIAPIFormatResponses}}
+	chatModel := &OpenAIModel{Config: &OpenAIConfig{}}
+	for _, tc := range []struct {
+		name string
+		m    *OpenAIModel
+		part *genai.Part
+		want bool
+	}{
+		{"responses pdf bytes", responsesModel, pdf, true},
+		{"responses pdf bytes with params", responsesModel, pdfWithParams, true},
+		{"responses text labelled pdf", responsesModel, textAsPDF, false},
+		{"responses docx bytes", responsesModel, docx, true},
+		{"responses text labelled docx", responsesModel, textAsDocx, false},
+		{"responses pdf labelled docx", responsesModel, pdfAsDocx, false},
+		{"responses link", responsesModel, link, true},
+		{"responses csv stays text", responsesModel, csv, false},
+		{"responses text part", responsesModel, text, false},
+		{"chat completions pdf bytes", chatModel, pdf, false},
+		{"chat completions link", chatModel, link, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.m.ProviderAccepts(tc.part))
+		})
+	}
+}
+
+func TestGenaiContentsToResponsesInput_FileCap(t *testing.T) {
+	const mb = 1_000_000
+	pdfBytes := make([]byte, 51*mb)
+	copy(pdfBytes, "%PDF-")
+	type file struct {
+		name string
+		size int
+	}
+	user := func(files ...file) *genai.Content {
+		c := &genai.Content{Role: genai.RoleUser, Parts: []*genai.Part{genai.NewPartFromText("read")}}
+		for _, f := range files {
+			c.Parts = append(c.Parts, &genai.Part{InlineData: &genai.Blob{MIMEType: "application/pdf", Data: pdfBytes[:f.size], DisplayName: f.name}})
+		}
+		return c
+	}
+	reply := &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{genai.NewPartFromText("ok")}}
+
+	for _, tc := range []struct {
+		name               string
+		contents           []*genai.Content
+		wantSent, wantNote []string
+	}{
+		{"all fit", []*genai.Content{user(file{"a.pdf", 10 * mb}), reply, user(file{"b.pdf", 10 * mb})}, []string{"a.pdf", "b.pdf"}, nil},
+		{"exactly the cap fits", []*genai.Content{user(file{"a.pdf", 25 * mb}), reply, user(file{"b.pdf", 25 * mb})}, []string{"a.pdf", "b.pdf"}, nil},
+		{"older file over the cap becomes a note", []*genai.Content{user(file{"a.pdf", 30 * mb}), reply, user(file{"b.pdf", 30 * mb})}, []string{"b.pdf"}, []string{"a.pdf"}},
+		{
+			"newest first: files older than the first that does not fit are notes too",
+			[]*genai.Content{user(file{"small.pdf", 1 * mb}), reply, user(file{"a.pdf", 30 * mb}), reply, user(file{"b.pdf", 30 * mb})},
+			[]string{"b.pdf"}, []string{"a.pdf", "small.pdf"},
+		},
+		{"later file in a turn is newer", []*genai.Content{user(file{"a.pdf", 30 * mb}, file{"b.pdf", 30 * mb})}, []string{"b.pdf"}, []string{"a.pdf"}},
+		{"newest file over the cap alone", []*genai.Content{user(file{"big.pdf", 51 * mb})}, nil, []string{"big.pdf"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input, _, err := genaiContentsToResponsesInput(tc.contents, nil)
+			require.NoError(t, err)
+			var sent, notes []string
+			for _, item := range input {
+				if item.OfMessage == nil {
+					continue
+				}
+				// A message with no file left is one text string.
+				texts := strings.Split(item.OfMessage.Content.OfString.Value, "\n")
+				for _, c := range item.OfMessage.Content.OfInputItemContentList {
+					if c.OfInputFile != nil {
+						sent = append(sent, c.OfInputFile.Filename.Value)
+					} else if c.OfInputText != nil {
+						texts = append(texts, c.OfInputText.Text)
+					}
+				}
+				for _, text := range texts {
+					if strings.HasPrefix(text, "[File ") {
+						require.Contains(t, text, "was not sent: the files in this chat are over the 50 MB limit")
+						notes = append(notes, text)
+					}
+				}
+			}
+			require.ElementsMatch(t, tc.wantSent, sent)
+			require.Len(t, notes, len(tc.wantNote))
+			for _, name := range tc.wantNote {
+				require.True(t, slices.ContainsFunc(notes, func(n string) bool { return strings.Contains(n, `"`+name+`"`) }), "no note for %s in %q", name, notes)
+			}
+		})
+	}
+}
+
 func TestResponsesUsageToGenai(t *testing.T) {
 	t.Run("nil when no tokens", func(t *testing.T) {
 		if got := responsesUsageToGenai(responses.ResponseUsage{}); got != nil {
@@ -318,10 +441,11 @@ func TestResponsesUsageToGenai(t *testing.T) {
 		}
 	})
 
-	t.Run("maps input, output, cached and reasoning tokens", func(t *testing.T) {
+	t.Run("splits reasoning out of output tokens and keeps the provider total", func(t *testing.T) {
 		usage := responses.ResponseUsage{
 			InputTokens:  100,
 			OutputTokens: 50,
+			TotalTokens:  150,
 			InputTokensDetails: responses.ResponseUsageInputTokensDetails{
 				CachedTokens: 80,
 			},
@@ -337,8 +461,11 @@ func TestResponsesUsageToGenai(t *testing.T) {
 		if got.PromptTokenCount != 100 {
 			t.Errorf("PromptTokenCount = %d, want 100", got.PromptTokenCount)
 		}
-		if got.CandidatesTokenCount != 50 {
-			t.Errorf("CandidatesTokenCount = %d, want 50", got.CandidatesTokenCount)
+		if got.CandidatesTokenCount != 20 {
+			t.Errorf("CandidatesTokenCount = %d, want 20", got.CandidatesTokenCount)
+		}
+		if got.TotalTokenCount != 150 {
+			t.Errorf("TotalTokenCount = %d, want 150", got.TotalTokenCount)
 		}
 		if got.CachedContentTokenCount != 80 {
 			t.Errorf("CachedContentTokenCount = %d, want 80", got.CachedContentTokenCount)
@@ -416,18 +543,6 @@ func TestGenaiContentsToResponsesInput_Links(t *testing.T) {
 			user(genai.NewPartFromText("read this"), link("gs://bucket/report.pdf", "application/pdf", "")),
 		}, nil)
 		require.ErrorContains(t, err, `cannot send link "gs://bucket/report.pdf"`)
-	})
-
-	t.Run("non-http link in an older turn becomes a note", func(t *testing.T) {
-		input, _, err := genaiContentsToResponsesInput([]*genai.Content{
-			user(genai.NewPartFromText("read this"), link("gs://bucket/report.pdf", "application/pdf", "report.pdf")),
-			{Role: "model", Parts: []*genai.Part{genai.NewPartFromText("I cannot")}},
-			user(genai.NewPartFromText("hello again")),
-		}, nil)
-		require.NoError(t, err)
-		require.Len(t, input, 3)
-		require.Contains(t, userContent(t, input[0]), `[Link \"report.pdf (gs://bucket/report.pdf)\" was not sent`)
-		require.JSONEq(t, `{"role":"user","content":"hello again"}`, userContent(t, input[2]))
 	})
 }
 

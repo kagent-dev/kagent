@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 // AgentConfigUsage documents how Agent.yaml spec fields map to AgentConfig and are used
@@ -28,15 +28,15 @@ import (
 // Agent.Spec.Tools -> AgentConfig.HttpTools, SseTools, RemoteAgents
 //   - Tools with McpServer -> HttpTools or SseTools (based on protocol)
 //   - Tools with Agent -> RemoteAgents
-//   - Used in AgentConfig.to_agent() to add tools to the agent
+//   - Used in create_agent() to add tools to the agent
 //
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
-//   - Skills are added via SkillsPlugin in Python
+//   - Python adds skill discovery alongside the built-in tools
 //   - In go-adk, skills are handled via AgentConfig.SkillsDirectory
 
 // ValidateAgentConfigUsage validates that all AgentConfig fields are properly used
 // This is a helper function to ensure we're using all fields correctly
-func ValidateAgentConfigUsage(config *adk.AgentConfig) error {
+func ValidateAgentConfigUsage(config *configv1.ADKAgentConfig) error {
 	if config == nil {
 		return fmt.Errorf("agent config is nil")
 	}
@@ -69,14 +69,14 @@ func ValidateAgentConfigUsage(config *adk.AgentConfig) error {
 }
 
 // GetAgentConfigSummary returns a summary of the agent configuration
-func GetAgentConfigSummary(config *adk.AgentConfig) string {
+func GetAgentConfigSummary(config *configv1.ADKAgentConfig) string {
 	if config == nil {
 		return "AgentConfig: nil"
 	}
 
 	summary := "AgentConfig:\n"
 	if config.Model != nil {
-		summary += fmt.Sprintf("  Model: %s (%s)\n", config.Model.GetType(), getModelName(config.Model))
+		summary += fmt.Sprintf("  Model: %s (%s)\n", ModelType(config.Model), config.Model.GetModel())
 	} else {
 		summary += "  Model: (nil)\n"
 	}
@@ -89,25 +89,4 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 	summary += fmt.Sprintf("  RemoteAgents: %d\n", len(config.RemoteAgents))
 
 	return summary
-}
-
-func getModelName(m adk.Model) string {
-	switch m := m.(type) {
-	case *adk.OpenAI:
-		return m.Model
-	case *adk.AzureOpenAI:
-		return m.Model
-	case *adk.Anthropic:
-		return m.Model
-	case *adk.GeminiVertexAI:
-		return m.Model
-	case *adk.GeminiAnthropic:
-		return m.Model
-	case *adk.Ollama:
-		return m.Model
-	case *adk.Gemini:
-		return m.Model
-	default:
-		return "unknown"
-	}
 }

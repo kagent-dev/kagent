@@ -1,0 +1,430 @@
+syntax = "proto3";
+
+package kagent.config.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+import "kagent/config/v1/config.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1";
+
+// ADKConfig is the compiled configuration consumed by both ADK runtimes.
+// It is private runtime input, serialized with ProtoJSON in config.json.
+// Process settings are separate from the recursive agent definition.
+message ADKConfig {
+  ADKRuntimeConfig runtime = 1;
+  ADKAgentConfig agent = 2;
+}
+
+// ADKAgentConfig defines an agent and its subagents within one runtime.
+// A BYO root may omit model; declarative runtimes require one when building it.
+message ADKAgentConfig {
+  string name = 1;
+  ADKModelConfig model = 2;
+  string description = 3;
+  string instruction = 4;
+  repeated ADKHTTPMCPServerConfig http_tools = 5;
+  repeated ADKSSEMCPServerConfig sse_tools = 6;
+  repeated ADKStdioMCPServerConfig stdio_tools = 7;
+  repeated ADKRemoteAgentConfig remote_agents = 8;
+  optional bool stream = 9;
+  ADKMemoryConfig memory = 10;
+  ADKNetworkConfig network = 11;
+  ADKAgentPlugins agent_plugins = 12;
+  ADKContextConfig context_config = 13;
+  optional bool share_tools = 14;
+  string session_db_url = 15;
+  string skills_directory = 16;
+  repeated ADKAgentConfig sub_agents = 17;
+  ADKOutputConfig output = 18;
+}
+
+// ADKModelConfig shares transport settings across a single selected provider.
+message ADKModelConfig {
+  string model = 1;
+  map<string, string> headers = 2;
+  optional bool tls_insecure_skip_verify = 3;
+  optional string tls_ca_cert_path = 4;
+  optional bool tls_disable_system_cas = 5;
+  bool api_key_passthrough = 6;
+  oneof provider {
+    option (buf.validate.oneof).required = true;
+    ADKOpenAI openai = 10;
+    ADKAzureOpenAI azure_openai = 11;
+    ADKAnthropic anthropic = 12;
+    ADKGeminiVertexAI gemini_vertex_ai = 13;
+    ADKGeminiAnthropic gemini_anthropic = 14;
+    ADKOllama ollama = 15;
+    ADKGemini gemini = 16;
+    ADKBedrock bedrock = 17;
+    ADKSAPAICore sap_ai_core = 18;
+    ADKFoundry foundry = 19;
+    ADKMistral mistral = 20;
+  }
+}
+
+message ADKOpenAI {
+  option (buf.validate.message).cel = {
+    id: "openai.token_limits"
+    message: "max_tokens and max_completion_tokens are mutually exclusive"
+    expression: "!has(this.max_tokens) || !has(this.max_completion_tokens)"
+  };
+  string base_url = 1;
+  optional double frequency_penalty = 2 [(buf.validate.field).double = {
+    gte: -2
+    lte: 2
+  }];
+  optional int64 max_tokens = 3 [(buf.validate.field).int64 = {gte: 1}];
+  optional int64 max_completion_tokens = 4 [(buf.validate.field).int64 = {gte: 1}];
+  optional int64 n = 5 [(buf.validate.field).int64 = {gte: 1}];
+  optional double presence_penalty = 6 [(buf.validate.field).double = {
+    gte: -2
+    lte: 2
+  }];
+  optional string reasoning_effort = 7;
+  optional int64 seed = 8;
+  optional double temperature = 9 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  google.protobuf.Duration timeout = 10 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  optional double top_p = 11 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  string api_format = 12 [
+    (buf.validate.field).string.in = "",
+    (buf.validate.field).string.in = "chatCompletions",
+    (buf.validate.field).string.in = "responses"
+  ];
+  ADKTokenExchangeConfig token_exchange = 13;
+}
+message ADKTokenExchangeConfig {
+  oneof source {
+    option (buf.validate.oneof).required = true;
+    ADKGDCHTokenExchangeConfig gdch_service_account = 1;
+  }
+}
+message ADKGDCHTokenExchangeConfig {
+  string service_account_path = 1 [(buf.validate.field).string.min_len = 1];
+  string audience = 2 [(buf.validate.field).string.min_len = 1];
+}
+message ADKAzureOpenAI {
+  string endpoint = 1;
+  string deployment = 2;
+  string api_version = 3;
+  optional int64 max_tokens = 4 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 5 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 6 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  string api_format = 7 [(buf.validate.field).string = {
+    in: [
+      "",
+      "chatCompletions",
+      "responses"
+    ]
+  }];
+}
+message ADKAnthropic {
+  string base_url = 1;
+  optional int64 max_tokens = 2 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 3 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 4 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  optional int64 top_k = 5 [(buf.validate.field).int64 = {gte: 0}];
+  google.protobuf.Duration timeout = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  bool prompt_caching = 7;
+  string cache_ttl = 8 [(buf.validate.field).string = {
+    in: [
+      "",
+      "5m",
+      "1h"
+    ]
+  }];
+}
+message ADKMistral {
+  string base_url = 1;
+  optional int64 max_tokens = 2 [(buf.validate.field).int64 = {gte: 1}];
+  optional double temperature = 3 [(buf.validate.field).double = {
+    gte: 0
+    lte: 2
+  }];
+  optional double top_p = 4 [(buf.validate.field).double = {
+    gte: 0
+    lte: 1
+  }];
+  google.protobuf.Duration timeout = 5 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+}
+message ADKGeminiVertexAI {
+  optional int64 max_output_tokens = 1 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
+}
+message ADKGeminiAnthropic {}
+message ADKOllama {
+  map<string, string> options = 1;
+}
+message ADKGemini {
+  optional int64 max_output_tokens = 1 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
+}
+message ADKBedrock {
+  string region = 1;
+  // Provider-owned JSON object accepted by Bedrock's Converse API. Raw JSON
+  // preserves integer values that google.protobuf.Struct rounds to doubles.
+  bytes additional_model_request_fields = 2;
+  bool prompt_caching = 3;
+  string cache_ttl = 4 [(buf.validate.field).string = {
+    in: [
+      "",
+      "5m",
+      "1h"
+    ]
+  }];
+  ADKBedrockGuardrail guardrail = 5;
+  google.protobuf.Duration read_timeout = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration connect_timeout = 7 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+}
+message ADKBedrockGuardrail {
+  string identifier = 1;
+  string version = 2;
+  string trace = 3;
+}
+message ADKSAPAICore {
+  string base_url = 1;
+  string resource_group = 2;
+  string auth_url = 3;
+}
+message ADKFoundry {
+  string endpoint = 1;
+  string deployment = 2;
+  string api_version = 3;
+  string api_format = 4 [(buf.validate.field).string = {
+    in: [
+      "",
+      "openai",
+      "anthropic"
+    ]
+  }];
+}
+
+message ADKHTTPConnectionParams {
+  string url = 1;
+  map<string, string> headers = 2;
+  google.protobuf.Duration timeout = 3 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration sse_read_timeout = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  optional bool terminate_on_close = 5;
+  optional bool tls_insecure_skip_verify = 6;
+  optional string tls_ca_cert_path = 7;
+  optional bool tls_disable_system_cas = 8;
+}
+message ADKSSEConnectionParams {
+  string url = 1;
+  map<string, string> headers = 2;
+  google.protobuf.Duration timeout = 3 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  google.protobuf.Duration sse_read_timeout = 4 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+  optional bool tls_insecure_skip_verify = 5;
+  optional string tls_ca_cert_path = 6;
+  optional bool tls_disable_system_cas = 7;
+}
+message ADKHTTPMCPServerConfig {
+  ADKHTTPConnectionParams params = 1 [(buf.validate.field).required = true];
+  repeated string tools = 2;
+  repeated string allowed_headers = 3;
+  bool require_approval = 4;
+  // Forward the incoming A2A bearer token as this server's Authorization header.
+  bool token_passthrough = 5;
+}
+message ADKSSEMCPServerConfig {
+  ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
+  repeated string tools = 2;
+  repeated string allowed_headers = 3;
+  bool require_approval = 4;
+  // Forward the incoming A2A bearer token as this server's Authorization header.
+  bool token_passthrough = 5;
+}
+message ADKStdioMCPServerConfig {
+  string command = 1;
+  repeated string args = 2;
+  map<string, string> env = 3;
+  string dir = 4;
+}
+message ADKRemoteAgentConfig {
+  string name = 1;
+  string url = 2;
+  map<string, string> headers = 3;
+  string description = 4;
+  bool isolate_sessions = 5;
+  google.protobuf.Duration timeout = 6 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 9223372036}
+  }];
+}
+message ADKEmbeddingConfig {
+  string provider = 1;
+  string model = 2;
+  string base_url = 3;
+  bool api_key_passthrough = 4;
+  optional bool tls_insecure_skip_verify = 5;
+  optional string tls_ca_cert_path = 6;
+  optional bool tls_disable_system_cas = 7;
+  string endpoint = 8;
+  string deployment = 9;
+  string api_version = 10;
+}
+message ADKMemoryConfig {
+  // Zero uses the server default. Bound days to Go's time.Duration range.
+  int64 ttl_days = 1 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 106751
+  }];
+  ADKEmbeddingConfig embedding = 2;
+}
+message ADKNetworkConfig {
+  repeated string allowed_domains = 1;
+}
+message ADKContextConfig {
+  ADKCompressionConfig compaction = 1;
+}
+message ADKCompressionConfig {
+  optional int64 compaction_interval = 1 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
+  optional int64 overlap_size = 2 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 2147483647
+  }];
+  ADKModelConfig summarizer_model = 3;
+  string prompt_template = 4;
+  optional int64 token_threshold = 5 [(buf.validate.field).int64 = {
+    gte: 1
+    lte: 2147483647
+  }];
+  optional int64 event_retention_size = 6 [(buf.validate.field).int64 = {
+    gte: 0
+    lte: 2147483647
+  }];
+}
+message ADKOutputConfig {
+  // Canonical JSON bytes retain the exact schema hashed by the compiler.
+  bytes json_schema = 1;
+  string sha256 = 2;
+}
+message ADKAgentPlugins {
+  repeated ADKSkill skills = 1;
+  repeated ADKPluginBundle plugins = 2;
+}
+message ADKSkill {
+  string name = 1;
+  ADKPluginSource source = 2;
+}
+message ADKPluginBundle {
+  ADKPluginSource source = 1;
+  repeated string skills = 2;
+}
+message ADKPluginSource {
+  oneof source {
+    option (buf.validate.oneof).required = true;
+    ADKPluginGitSource git = 2;
+    ADKPluginS3Source s3 = 3;
+    string directory = 5;
+  }
+  string path = 4;
+}
+message ADKPluginGitSource {
+  string url = 1;
+  string commit = 2;
+}
+message ADKPluginS3Source {
+  string endpoint = 1;
+  string bucket = 2;
+  string key = 3;
+  string version_id = 4;
+  string region = 5;
+}
+
+// ADKRuntimeConfig configures the root process. Subagents inherit these settings.
+// Session and Actor identity are projected separately by Substrate on launch.
+message ADKRuntimeConfig {
+  string control_plane_url = 1 [
+    (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE,
+    (buf.validate.field).string = {
+      uri: true
+      pattern: "^https?://[^/?#]+"
+    }
+  ];
+  string gateway_url = 2 [
+    (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE,
+    (buf.validate.field).string = {
+      uri: true
+      pattern: "^https?://[^/?#]+"
+    }
+  ];
+  string name = 3;
+  string namespace = 4;
+  string log_level = 5 [(buf.validate.field).string = {
+    in: [
+      "",
+      "debug",
+      "info",
+      "warn",
+      "error"
+    ]
+  }];
+  string host = 6;
+  // Absent selects the runtime's listener default.
+  optional uint32 port = 7 [(buf.validate.field).uint32 = {
+    gt: 0
+    lte: 65535
+  }];
+  // Absent selects the runtime default; zero means unlimited.
+  optional int64 max_content_length = 8 [(buf.validate.field).int64.gte = 0];
+  TokenPropagationConfig token_propagation = 9;
+  TelemetryConfig telemetry = 10 [(buf.validate.field).cel = {
+    id: "runtime.telemetry.service_identity"
+    message: "runtime telemetry resource_attributes must not override compiled service.name or service.namespace"
+    expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
+  }];
+  BuiltinToolsConfig builtin_tools = 11;
+}

@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -60,14 +60,14 @@ func NewInteractionService(store interactionStore, agents agentService, sessions
 // DispatchID is only set for a new attempt; the runtime must present it when saving
 // the input. No database lock is held while the gateway contacts the actor.
 type PreparedSend struct {
-	Session      *apiv1alpha1.Session
+	Session      *apiv1.Session
 	DispatchID   uuid.UUID
 	AcceptedTask *a2atype.Task
 }
 
 // storedSession keeps operation permissions and Agent membership checks private.
 // Callers request domain operations, never an arbitrary authorization verb.
-func (s *InteractionService) storedSession(ctx context.Context, verb auth.Verb, agent types.NamespacedName, contextID string) (*apiv1alpha1.Session, error) {
+func (s *InteractionService) storedSession(ctx context.Context, verb auth.Verb, agent types.NamespacedName, contextID string) (*apiv1.Session, error) {
 	if err := validateInteractionAgent(agent); err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 
 // PrepareCancelTask authorizes cancellation and returns the actor target and
 // committed task. A terminal task needs no actor call.
-func (s *InteractionService) PrepareCancelTask(ctx context.Context, agent types.NamespacedName, req *a2atype.CancelTaskRequest) (*apiv1alpha1.Session, *a2atype.Task, error) {
+func (s *InteractionService) PrepareCancelTask(ctx context.Context, agent types.NamespacedName, req *a2atype.CancelTaskRequest) (*apiv1.Session, *a2atype.Task, error) {
 	if req == nil {
 		return nil, nil, a2atype.ErrInvalidParams
 	}
@@ -189,14 +189,14 @@ func (s *InteractionService) PrepareCancelTask(ctx context.Context, agent types.
 
 // PrepareTaskSubscription resolves a read-authorized task. The gateway decides
 // whether to return this snapshot or subscribe to the actor's live stream.
-func (s *InteractionService) PrepareTaskSubscription(ctx context.Context, agent types.NamespacedName, req *a2atype.SubscribeToTaskRequest) (*apiv1alpha1.Session, *a2atype.Task, error) {
+func (s *InteractionService) PrepareTaskSubscription(ctx context.Context, agent types.NamespacedName, req *a2atype.SubscribeToTaskRequest) (*apiv1.Session, *a2atype.Task, error) {
 	if req == nil {
 		return nil, nil, a2atype.ErrInvalidParams
 	}
 	return s.prepareTask(ctx, agent, req.ID, auth.VerbGet)
 }
 
-func (s *InteractionService) prepareTask(ctx context.Context, agent types.NamespacedName, id a2atype.TaskID, verb auth.Verb) (*apiv1alpha1.Session, *a2atype.Task, error) {
+func (s *InteractionService) prepareTask(ctx context.Context, agent types.NamespacedName, id a2atype.TaskID, verb auth.Verb) (*apiv1.Session, *a2atype.Task, error) {
 	session, err := s.taskSession(ctx, agent, verb, id)
 	if err != nil {
 		return nil, nil, err
@@ -306,14 +306,14 @@ func (s *InteractionService) GetCancelResult(ctx context.Context, agent types.Na
 
 // messageSession rechecks send authority without creating a Session or requiring
 // runtime readiness. Cleanup and recovery must also work after lifecycle changes.
-func (s *InteractionService) messageSession(ctx context.Context, agent types.NamespacedName, message *a2atype.Message) (*apiv1alpha1.Session, error) {
+func (s *InteractionService) messageSession(ctx context.Context, agent types.NamespacedName, message *a2atype.Message) (*apiv1.Session, error) {
 	if message == nil || message.ID == "" {
 		return nil, a2atype.ErrInvalidParams
 	}
 	if err := validateInteractionAgent(agent); err != nil {
 		return nil, err
 	}
-	var session *apiv1alpha1.Session
+	var session *apiv1.Session
 	var err error
 	if message.TaskID != "" {
 		session, err = s.taskSession(ctx, agent, auth.VerbUpdate, message.TaskID)
@@ -382,7 +382,7 @@ func (s *InteractionService) GetAgentCard(ctx context.Context, ref types.Namespa
 	return card, nil
 }
 
-func (s *InteractionService) resolveSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*apiv1alpha1.Session, error) {
+func (s *InteractionService) resolveSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*apiv1.Session, error) {
 	if req == nil || req.Message == nil || req.Message.ID == "" {
 		return nil, a2atype.ErrInvalidParams
 	}
@@ -390,7 +390,7 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		return nil, err
 	}
 	apia2a.SanitizeCallerRequest(req)
-	var session *apiv1alpha1.Session
+	var session *apiv1.Session
 	var err error
 	switch {
 	case req.Message.TaskID != "" || req.Message.ContextID != "":
@@ -401,7 +401,7 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		}
 		// Session creation already deduplicates request IDs per authenticated creator.
 		requestID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("a2a/"+agent.Namespace+"/"+agent.Name+"/"+req.Message.ID)).String()
-		session, err = s.sessions.Create(ctx, &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, requestID, "")
+		session, err = s.sessions.Create(ctx, &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, requestID, "")
 		if err != nil {
 			return nil, interactionError(ctx, err)
 		}
@@ -413,7 +413,7 @@ func (s *InteractionService) resolveSend(ctx context.Context, agent types.Namesp
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match task")
 	}
 	req.Message.ContextID = session.ContextId
-	if session.State != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if session.State != apiv1.RuntimeState_RUNTIME_STATE_READY || session.Operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "Session cannot accept work during a lifecycle operation")
 	}
 	return session, nil
@@ -445,7 +445,7 @@ func (s *InteractionService) acceptedTask(ctx context.Context, sessionID, messag
 	return shapeTask(task, historyLength, true), nil
 }
 
-func (s *InteractionService) taskSession(ctx context.Context, agent types.NamespacedName, verb auth.Verb, taskID a2atype.TaskID) (*apiv1alpha1.Session, error) {
+func (s *InteractionService) taskSession(ctx context.Context, agent types.NamespacedName, verb auth.Verb, taskID a2atype.TaskID) (*apiv1.Session, error) {
 	if err := validateInteractionAgent(agent); err != nil {
 		return nil, err
 	}
@@ -474,7 +474,7 @@ func (s *InteractionService) listSessions(ctx context.Context, agent types.Names
 		return []string{session.Id}, nil
 	}
 	ids := []string{}
-	request := ListRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, PageSize: 100}
+	request := ListRequest{Agent: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}, PageSize: 100}
 	for {
 		page, err := s.sessions.List(ctx, request)
 		if err != nil {
@@ -541,8 +541,11 @@ func interactionError(ctx context.Context, err error) error {
 	switch serviceerrors.CodeOf(err) {
 	case serviceerrors.CodeUnauthenticated:
 		return a2atype.ErrUnauthenticated
-	case serviceerrors.CodePermissionDenied, serviceerrors.CodeNotFound:
+	case serviceerrors.CodePermissionDenied:
 		return a2atype.ErrUnauthorized
+	case serviceerrors.CodeNotFound:
+		// A2A's standard not-found error covers missing Agents and conversations.
+		return a2atype.ErrTaskNotFound
 	case serviceerrors.CodeInvalidArgument, serviceerrors.CodeAlreadyExists:
 		return a2atype.NewError(a2atype.ErrInvalidRequest, serviceerrors.MessageOf(err))
 	case serviceerrors.CodeFailedPrecondition, serviceerrors.CodeAborted:

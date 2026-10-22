@@ -13,26 +13,26 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/scheduledrun"
 )
 
-func createTestSchedule(t *testing.T, c *Client) (*apiv1alpha1.ScheduledRun, []byte) {
+func createTestSchedule(t *testing.T, c *Client) (*apiv1.ScheduledRun, []byte) {
 	t.Helper()
 	sessionFixture(t, c, t.Context(), "team-a", "scheduled-revision", "report", "runtime")
 	hash := sha256.Sum256([]byte("original request"))
-	request := &apiv1alpha1.ScheduledRun{
+	request := &apiv1.ScheduledRun{
 		Creator: "alice",
 
-		Agent:  &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "report"},
-		Config: scheduledrun.Normalize(&apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original prompt"}),
+		Agent:  &apiv1.ResourceReference{Namespace: "team-a", Name: "report"},
+		Config: scheduledrun.Normalize(&apiv1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original prompt"}),
 	}
 	result, err := c.CreateScheduledRun(t.Context(), request, "create", hash[:])
 	require.NoError(t, err)
 	return result, hash[:]
 }
 
-func listTestScheduleExecutions(t *testing.T, c *Client, schedule *apiv1alpha1.ScheduledRun) []*apiv1alpha1.ScheduledRunExecution {
+func listTestScheduleExecutions(t *testing.T, c *Client, schedule *apiv1.ScheduledRun) []*apiv1.ScheduledRunExecution {
 	t.Helper()
 	executions, err := c.ListScheduledRunExecutions(t.Context(), ScheduledRunExecutionQuery{
 		ScheduledRunQuery: ScheduledRunQuery{Creator: schedule.Creator, Limit: 100},
@@ -71,14 +71,14 @@ func TestScheduledExecutionLeasesFenceExpiredWorkers(t *testing.T) {
 	// created and all lifecycle transitions are exercised through store APIs.
 	_, err = db.Exec(t.Context(), `UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() - interval '1 second' WHERE id = $1`, execution.Id)
 	require.NoError(t, err)
-	oldLease.Execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED
+	oldLease.Execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED
 	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), oldLease.Lease, ScheduledRunExecutionProgress{State: oldLease.Execution.State}), ErrConflict)
 	batch, err := c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, batch, 1)
 	require.NotEqual(t, oldLease.Lease.Token, batch[0].Lease.Token)
 	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), oldLease.Lease, ScheduledRunExecutionProgress{State: oldLease.Execution.State}), ErrConflict)
-	batch[0].Execution.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED
+	batch[0].Execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED
 	batch[0].Execution.FailureReason = "Controller denied execution"
 	// A worker snapshot is not a write model: only explicit progress is saved.
 	batch[0].Execution.Id = "replaced"
@@ -293,7 +293,7 @@ func TestScheduledRunConcurrentUpdateAndDelete(t *testing.T) {
 	}
 	require.Equal(t, 1, successes)
 	require.Equal(t, 1, conflicts)
-	var accepted *apiv1alpha1.ScheduledRunExecution
+	var accepted *apiv1.ScheduledRunExecution
 	wg.Go(func() {
 		var err error
 		accepted, err = c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "racing-delete")
@@ -340,7 +340,7 @@ func TestScheduledExecutionSurvivesSessionDeletion(t *testing.T) {
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
 	require.Empty(t, execution.SessionId)
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, execution.State)
 	// Concurrent worker retries must atomically reserve one session and its link.
 	ids := make(chan string, 12)
 	var wg sync.WaitGroup
@@ -393,7 +393,7 @@ func TestScheduledExecutionWaitsForPreparedRevision(t *testing.T) {
 	db := setupTestDB(t)
 	c := NewClient(db, "public")
 	schedule, _ := createTestSchedule(t, c)
-	require.NoError(t, c.RetireAgentIdentities(t.Context(), "team-a", "report", nil))
+	require.NoError(t, c.RetireAgentIdentities(t.Context(), "team-a", "report"))
 	execution, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "manual")
 	require.NoError(t, err)
 	_, err = c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
@@ -432,7 +432,7 @@ func TestScheduledExecutionExpiresBeforeSessionCreation(t *testing.T) {
 	expired, err := c.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
 	require.Empty(t, expired.SessionId)
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, expired.State)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, expired.State)
 	replayed, err := c.TriggerScheduledRun(t.Context(), uuid.MustParse(schedule.Id), "alice", "expires")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(expired, replayed))
@@ -475,7 +475,7 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	leases, err := c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, leases, 1)
-	progress := ScheduledRunExecutionProgress{State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, TaskID: execution.Id}
+	progress := ScheduledRunExecutionProgress{State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, TaskID: execution.Id}
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress))
 	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrConflict)
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() WHERE id = $1", execution.Id)
@@ -487,7 +487,7 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrConflict)
 	// Omitting the already persisted task preserves its identity.
 	progress.TaskID = ""
-	progress.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED
+	progress.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress))
 	loaded, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
@@ -557,7 +557,7 @@ func TestMalformedScheduledExecutionsDoNotDiscardHealthyLeases(t *testing.T) {
 	require.Len(t, leases, 1)
 	require.Equal(t, good.Id, leases[0].Execution.Id)
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, ScheduledRunExecutionProgress{
-		State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, FailureReason: "test completion",
+		State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, FailureReason: "test completion",
 	}))
 	leases, err = c.LeaseScheduledRunExecutions(t.Context(), 8)
 	require.NoError(t, err)
@@ -620,14 +620,14 @@ func TestScheduledDispatchClaimSurvivesLeaseReplacement(t *testing.T) {
 	lease := leases[0].Lease
 	require.NoError(t, client.ClaimScheduledRunDispatch(t.Context(), lease))
 	require.ErrorIs(t, client.ClaimScheduledRunDispatch(t.Context(), lease), ErrConflict)
-	require.ErrorIs(t, client.UpdateScheduledRunExecution(t.Context(), lease, ScheduledRunExecutionProgress{State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING}), ErrConflict)
-	require.NoError(t, client.UpdateScheduledRunExecution(t.Context(), lease, ScheduledRunExecutionProgress{State: apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING}))
+	require.ErrorIs(t, client.UpdateScheduledRunExecution(t.Context(), lease, ScheduledRunExecutionProgress{State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING}), ErrConflict)
+	require.NoError(t, client.UpdateScheduledRunExecution(t.Context(), lease, ScheduledRunExecutionProgress{State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING}))
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() WHERE id = $1", execution.Id)
 	require.NoError(t, err)
 	leases, err = client.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, leases, 1)
 	require.ErrorIs(t, client.ClaimScheduledRunDispatch(t.Context(), leases[0].Lease), ErrConflict)
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, leases[0].Execution.State)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, leases[0].Execution.State)
 	require.Empty(t, leases[0].Execution.TaskId)
 }

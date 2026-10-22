@@ -24,7 +24,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiadk "github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 func TestUserIDCallInterceptorPropagatesUserID(t *testing.T) {
@@ -275,9 +275,9 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 }
 
 func TestTransformStructuredOutputParsesFinalTextWhenADKOutputIsUnset(t *testing.T) {
-	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
-		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
-		SHA256:     "schema-digest",
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
+		JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`),
+		Sha256:     "schema-digest",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +309,7 @@ func TestTransformStructuredOutputParsesFinalTextWhenADKOutputIsUnset(t *testing
 func TestNewKAgentExecutorRejectsInvalidOutputSchema(t *testing.T) {
 	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		Logger: slog.New(slog.DiscardHandler),
-		Output: &apiadk.OutputConfig{JSONSchema: []byte(`{`)},
+		Output: &configv1.ADKOutputConfig{JsonSchema: []byte(`{`)},
 	})
 	if err == nil || executor != nil {
 		t.Fatalf("NewKAgentExecutor() = %#v, %v; want a construction error", executor, err)
@@ -342,8 +342,8 @@ func TestStructuredOutputPartConverterDropsOnlyRootPartials(t *testing.T) {
 }
 
 func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing.T) {
-	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
-		JSONSchema: []byte(`{"type":"object","properties":{"secret":{"type":"integer"}},"required":["secret"]}`),
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
+		JsonSchema: []byte(`{"type":"object","properties":{"secret":{"type":"integer"}},"required":["secret"]}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -363,8 +363,8 @@ func TestTransformStructuredOutputRejectsInvalidValueWithoutLeakingIt(t *testing
 }
 
 func TestTransformStructuredOutputRejectsIncompleteResponse(t *testing.T) {
-	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
-		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
+		JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -384,8 +384,8 @@ func TestTransformStructuredOutputRejectsIncompleteResponse(t *testing.T) {
 }
 
 func TestTransformStructuredOutputAcceptsNormalFinishReasons(t *testing.T) {
-	output, err := resolveStructuredOutput(&apiadk.OutputConfig{
-		JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{
+		JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -418,7 +418,7 @@ func TestTransformStructuredOutputAcceptsNormalFinishReasons(t *testing.T) {
 }
 
 func TestTransformStructuredOutputIgnoresSkipSummarizationEvent(t *testing.T) {
-	output, err := resolveStructuredOutput(&apiadk.OutputConfig{JSONSchema: []byte(`{"type":"object"}`)})
+	output, err := resolveStructuredOutput(&configv1.ADKOutputConfig{JsonSchema: []byte(`{"type":"object"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,9 +493,9 @@ func TestKAgentExecutorStructuredOutputAllowsHITLPause(t *testing.T) {
 				SessionService: adksession.InMemoryService(),
 				Logger:         slog.New(slog.DiscardHandler),
 				RunnerConfig:   runner.Config{AppName: "test-app", Agent: agent},
-				Output: &apiadk.OutputConfig{
-					JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
-					SHA256:     "schema-digest",
+				Output: &configv1.ADKOutputConfig{
+					JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+					Sha256:     "schema-digest",
 				},
 			})
 			if err != nil {
@@ -567,9 +567,9 @@ func TestKAgentExecutorFailsCompletedStructuredOutputWithoutResult(t *testing.T)
 		SessionService: sessionService,
 		Logger:         slog.New(slog.DiscardHandler),
 		RunnerConfig:   runner.Config{AppName: "test-app", Agent: agent},
-		Output: &apiadk.OutputConfig{
-			JSONSchema: []byte(`{"type":"object"}`),
-			SHA256:     "schema-digest",
+		Output: &configv1.ADKOutputConfig{
+			JsonSchema: []byte(`{"type":"object"}`),
+			Sha256:     "schema-digest",
 		},
 	})
 	if err != nil {
@@ -728,9 +728,9 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 	executor, err := NewKAgentExecutor(KAgentExecutorConfig{
 		AppName: appName, SessionService: sessionService, Logger: slog.New(slog.DiscardHandler),
 		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
-		Output: &apiadk.OutputConfig{
-			JSONSchema: []byte(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
-			SHA256:     "schema-digest",
+		Output: &configv1.ADKOutputConfig{
+			JsonSchema: []byte(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+			Sha256:     "schema-digest",
 		},
 	})
 	if err != nil {

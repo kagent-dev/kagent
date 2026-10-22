@@ -15,11 +15,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	k8stesting "k8s.io/client-go/testing"
 
-	clientfake "github.com/kagent-dev/kagent/go/api/clientset/versioned/fake"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
@@ -52,27 +49,57 @@ func TestValidateAgentTemplateGetCfg(t *testing.T) {
 	}
 }
 
+// fakeAgentTemplateReadClient serves AgentTemplates as the kagent API does and records the requests.
+type fakeAgentTemplateReadClient struct {
+	t           *testing.T
+	templates   []apiv1alpha3.AgentTemplate
+	next        string
+	err         error
+	listRequest *apiv1.ListAgentTemplatesRequest
+	getRequest  *apiv1.GetAgentTemplateRequest
+}
+
+func (f *fakeAgentTemplateReadClient) encode(template apiv1alpha3.AgentTemplate) *apiv1.AgentTemplate {
+	resource, err := structuredobject.FromGo(&template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
+	require.NoError(f.t, err)
+	return &apiv1.AgentTemplate{Ref: &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name}, Resource: resource}
+}
+
+func (f *fakeAgentTemplateReadClient) ListAgentTemplates(_ context.Context, request *apiv1.ListAgentTemplatesRequest) (*apiv1.ListAgentTemplatesResponse, error) {
+	f.listRequest = request
+	if f.err != nil {
+		return nil, f.err
+	}
+	response := &apiv1.ListAgentTemplatesResponse{Page: &apiv1.PageResponse{NextPageToken: f.next}}
+	for _, template := range f.templates {
+		response.AgentTemplates = append(response.AgentTemplates, f.encode(template))
+	}
+	return response, nil
+}
+
+func (f *fakeAgentTemplateReadClient) GetAgentTemplate(_ context.Context, request *apiv1.GetAgentTemplateRequest) (*apiv1.GetAgentTemplateResponse, error) {
+	f.getRequest = request
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &apiv1.GetAgentTemplateResponse{AgentTemplate: f.encode(f.templates[0])}, nil
+}
+
 func TestGetAgentTemplatesTableReportsNames(t *testing.T) {
-	clientSet := clientfake.NewSimpleClientset()
-	clientSet.PrependReactor("list", "agenttemplates", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		options := action.(interface{ GetListOptions() metav1.ListOptions }).GetListOptions()
-		assert.Equal(t, int64(3), options.Limit)
-		assert.Equal(t, "previous-page", options.Continue)
-		return true, &apiv1alpha3.AgentTemplateList{
-			ListMeta: metav1.ListMeta{Continue: "next-page"},
-			Items: []apiv1alpha3.AgentTemplate{
-				templateNamed("ready-template"),
-				templateNamed("not-ready-template"),
-				{ObjectMeta: metav1.ObjectMeta{Name: "unknown-template"}},
-			},
-		}, nil
-	})
+	client := &fakeAgentTemplateReadClient{t: t, next: "next-page", templates: []apiv1alpha3.AgentTemplate{
+		templateNamed("ready-template"),
+		templateNamed("not-ready-template"),
+		{ObjectMeta: metav1.ObjectMeta{Name: "unknown-template"}},
+	}}
 	var output bytes.Buffer
 
-	err := getAgentTemplates(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &AgentTemplateGetCfg{
+	err := getAgentTemplates(context.Background(), client, &AgentTemplateGetCfg{
 		Namespace: "kagent", PageSize: 3, PageToken: "previous-page",
 	}, clioutput.FormatTable, &output)
 	require.NoError(t, err)
+	assert.Equal(t, "kagent", client.listRequest.GetNamespace())
+	assert.Equal(t, int32(3), client.listRequest.GetPage().GetLimit())
+	assert.Equal(t, "previous-page", client.listRequest.GetPage().GetPageToken())
 	assert.Contains(t, output.String(), "ready-template")
 	assert.Contains(t, output.String(), "not-ready-template")
 	assert.Contains(t, output.String(), "unknown-template")
@@ -81,30 +108,44 @@ func TestGetAgentTemplatesTableReportsNames(t *testing.T) {
 }
 
 func TestGetAgentTemplatesJSONPreservesListMetadata(t *testing.T) {
-	clientSet := clientfake.NewSimpleClientset()
-	clientSet.PrependReactor("list", "agenttemplates", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		options := action.(interface{ GetListOptions() metav1.ListOptions }).GetListOptions()
-		assert.Equal(t, int64(agentTemplateMaxPageSize), options.Limit)
-		return true, &apiv1alpha3.AgentTemplateList{
-			ListMeta: metav1.ListMeta{Continue: "next-page"},
-			Items: []apiv1alpha3.AgentTemplate{
-				templateNamed("ready-template"),
-				templateNamed("not-ready-template"),
-				{ObjectMeta: metav1.ObjectMeta{Name: "unknown-template"}},
-			},
-		}, nil
-	})
+	client := &fakeAgentTemplateReadClient{t: t, next: "next-page", templates: []apiv1alpha3.AgentTemplate{
+		templateNamed("ready-template"),
+		templateNamed("not-ready-template"),
+		{ObjectMeta: metav1.ObjectMeta{Name: "unknown-template"}},
+	}}
 	var output bytes.Buffer
 
-	err := getAgentTemplates(context.Background(), clientSet.ApiV1alpha3().AgentTemplates("kagent"), &AgentTemplateGetCfg{
+	err := getAgentTemplates(context.Background(), client, &AgentTemplateGetCfg{
 		Namespace: "kagent",
 	}, clioutput.FormatJSON, &output)
 	require.NoError(t, err)
+	assert.Equal(t, int32(agentTemplateMaxPageSize), client.listRequest.GetPage().GetLimit())
 	assert.True(t, json.Valid(output.Bytes()))
 	assert.Contains(t, output.String(), `"continue":"next-page"`)
 	assert.Contains(t, output.String(), `"name":"ready-template"`)
 	assert.Contains(t, output.String(), `"name":"not-ready-template"`)
 	assert.Contains(t, output.String(), `"name":"unknown-template"`)
+}
+
+func TestGetAgentTemplateByName(t *testing.T) {
+	template := templateNamed("ready-template")
+	template.Namespace = "team-a"
+	client := &fakeAgentTemplateReadClient{t: t, templates: []apiv1alpha3.AgentTemplate{template}}
+	var output bytes.Buffer
+
+	err := getAgentTemplates(context.Background(), client, &AgentTemplateGetCfg{Namespace: "team-a", Name: "ready-template"}, clioutput.FormatJSON, &output)
+	require.NoError(t, err)
+	assert.True(t, proto.Equal(&apiv1.ResourceReference{Namespace: "team-a", Name: "ready-template"}, client.getRequest.GetRef()))
+	assert.Contains(t, output.String(), `"name":"ready-template"`)
+}
+
+// An API error is returned as-is, with no fallback to Kubernetes.
+func TestGetAgentTemplatesReturnsAPIErrors(t *testing.T) {
+	client := &fakeAgentTemplateReadClient{t: t, err: status.Error(codes.PermissionDenied, "not allowed")}
+
+	err := getAgentTemplates(context.Background(), client, &AgentTemplateGetCfg{Namespace: "kagent"}, clioutput.FormatTable, &bytes.Buffer{})
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
 func templateNamed(name string) apiv1alpha3.AgentTemplate {
@@ -125,7 +166,7 @@ spec:
 
 	ref, resource, err := readAgentTemplateManifest(manifestPath, "team-a")
 	require.NoError(t, err)
-	assert.Equal(t, &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "researcher"}, ref)
+	assert.Equal(t, &apiv1.ResourceReference{Namespace: "team-a", Name: "researcher"}, ref)
 	decoded := &apiv1alpha3.AgentTemplate{}
 	require.NoError(t, structuredobject.ToGo(resource, agentTemplateKind, decoded, 0))
 	assert.Equal(t, "default", decoded.Spec.ModelConfig.Name)
@@ -153,7 +194,7 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		client := &recordingAgentTemplateClient{template: template}
 		var output bytes.Buffer
 		require.NoError(t, applyAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &output))
-		assert.True(t, proto.Equal(&apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource}, client.createRequest))
+		assert.True(t, proto.Equal(&apiv1.CreateAgentTemplateRequest{Ref: ref, Resource: resource}, client.createRequest))
 		assert.Contains(t, output.String(), "researcher")
 	})
 
@@ -161,11 +202,11 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		client := &recordingAgentTemplateClient{template: template, createErr: status.Error(codes.AlreadyExists, "exists")}
 		require.NoError(t, applyAgentTemplate(t.Context(), client, ref, resource, clioutput.FormatTable, &bytes.Buffer{}))
 		assert.NotNil(t, client.createRequest)
-		assert.True(t, proto.Equal(&apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
+		assert.True(t, proto.Equal(&apiv1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
 	})
 }
 
-func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
+func testAgentTemplateMessage(t *testing.T) *apiv1.AgentTemplate {
 	t.Helper()
 	template := &apiv1alpha3.AgentTemplate{
 		TypeMeta:   metav1.TypeMeta{APIVersion: apiv1alpha3.GroupVersion.String(), Kind: agentTemplateKind},
@@ -174,28 +215,28 @@ func testAgentTemplateMessage(t *testing.T) *apiv1alpha1.AgentTemplate {
 	}
 	resource, err := structuredobject.FromGo(template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
 	require.NoError(t, err)
-	return &apiv1alpha1.AgentTemplate{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
+	return &apiv1.AgentTemplate{
+		Ref:      &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
 		Resource: resource,
 	}
 }
 
 type recordingAgentTemplateClient struct {
-	template      *apiv1alpha1.AgentTemplate
+	template      *apiv1.AgentTemplate
 	createErr     error
-	createRequest *apiv1alpha1.CreateAgentTemplateRequest
-	updateRequest *apiv1alpha1.UpdateAgentTemplateRequest
+	createRequest *apiv1.CreateAgentTemplateRequest
+	updateRequest *apiv1.UpdateAgentTemplateRequest
 }
 
-func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error) {
+func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error) {
 	c.createRequest = request
 	if c.createErr != nil {
 		return nil, c.createErr
 	}
-	return &apiv1alpha1.CreateAgentTemplateResponse{AgentTemplate: c.template}, nil
+	return &apiv1.CreateAgentTemplateResponse{AgentTemplate: c.template}, nil
 }
 
-func (c *recordingAgentTemplateClient) UpdateAgentTemplate(_ context.Context, request *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error) {
+func (c *recordingAgentTemplateClient) UpdateAgentTemplate(_ context.Context, request *apiv1.UpdateAgentTemplateRequest) (*apiv1.UpdateAgentTemplateResponse, error) {
 	c.updateRequest = request
-	return &apiv1alpha1.UpdateAgentTemplateResponse{AgentTemplate: c.template}, nil
+	return &apiv1.UpdateAgentTemplateResponse{AgentTemplate: c.template}, nil
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -21,7 +23,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	configloader "github.com/kagent-dev/kagent/go/core/pkg/config"
 )
@@ -35,9 +38,9 @@ func TestSessionIdleExpiration(t *testing.T) {
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
 		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
-		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: fixture.sessionID})
+		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 		require.NoError(t, err)
-		request := &apiv1alpha1.CreateSessionRequest{Agent: original.Session.Agent, RequestId: uuid.NewString()}
+		request := &apiv1.CreateSessionRequest{Agent: original.Session.Agent, RequestId: uuid.NewString()}
 		created, err := fixture.sessions.CreateSession(fixture.ctx, request)
 		require.NoError(t, err)
 		id := created.Session.Id
@@ -52,13 +55,27 @@ func TestSessionIdleExpiration(t *testing.T) {
 		require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
 		assertActorSuspended(t, &conversation)
 		require.Eventually(t, func() bool {
-			_, err := fixture.sessions.GetSession(fixture.ctx, &apiv1alpha1.GetSessionRequest{SessionId: id})
+			_, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: id})
 			return status.Code(err) == codes.NotFound
 		}, 2*time.Minute, time.Second, "idle session did not expire")
+		for _, message := range []*a2a.Message{
+			{ID: uuid.NewString(), ContextID: conversation.contextID},
+			{ID: uuid.NewString(), ContextID: uuid.NewString()},
+			{ID: uuid.NewString(), TaskID: task.ID},
+		} {
+			message.Role = a2a.MessageRoleUser
+			message.Parts = a2a.ContentParts{a2a.NewTextPart("Continue")}
+			continuation, err := pbconv.ToProtoSendMessageRequest(&a2a.SendMessageRequest{Tenant: conversation.tenant, Message: message})
+			require.NoError(t, err)
+			_, err = fixture.client.SendMessage(fixture.ctx, continuation)
+			require.Equal(t, codes.NotFound, status.Code(err), "expired and missing conversations must be distinguishable from authorization failures")
+		}
+		_, err = fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Tenant: conversation.tenant, Id: string(task.ID)})
+		require.Equal(t, codes.NotFound, status.Code(err))
 		actor, err := findSubstrateActor(fixture.ctx, fixture.system, request.Agent.Namespace, substrate.ActorName(id))
 		require.NoError(t, err)
 		require.Nil(t, actor, "expiration must remove the Substrate Actor")
-		var fresh *apiv1alpha1.CreateSessionResponse
+		var fresh *apiv1.CreateSessionResponse
 		require.Eventually(t, func() bool {
 			fresh, err = fixture.sessions.CreateSession(fixture.ctx, request)
 			return err == nil && fresh.Session.Id != id
@@ -75,7 +92,6 @@ func TestSessionIdleExpiration(t *testing.T) {
 func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) {
 	t.Helper()
 	kube := interactionKubeClient(t)
-	require.NoError(t, appsv1.AddToScheme(kube.Scheme()))
 	deployments := &appsv1.DeploymentList{}
 	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
 	require.Len(t, deployments.Items, 1)
@@ -91,7 +107,7 @@ func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) 
 	configMap := &corev1.ConfigMap{}
 	require.NoError(t, kube.Get(t.Context(), configKey, configMap))
 	original := configMap.Data["controller.yaml"]
-	cfg := &apiv1alpha1.ControllerConfig{}
+	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, configloader.Decode([]byte(original), cfg))
 	configloader.DefaultController(cfg)
 	idle, err := time.ParseDuration(ttl)

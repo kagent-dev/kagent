@@ -30,17 +30,13 @@ import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import type { JsonObject } from "@bufbuild/protobuf";
 import { ApiError } from "../ApiError";
-import type { ResourceReference, StructuredObject } from "@/generated/kagent/api/v1alpha1/common_pb";
+import type { ResourceReference, StructuredObject } from "@/generated/kagent/api/v1/common_pb";
 
 /**
  * The API group and version every kagent custom resource is written under.
  *
- * Note that this is *not* the version in the proto package. The gRPC surface is
- * `kagent.api.v1alpha1` and the custom resources it carries are
- * `api.kagent.dev/v1alpha3`, so the two version numbers in play are deliberately
- * different: one versions the transport API, the other versions the CRDs travelling
- * inside it. Reading a `v1alpha1` import beside a `v1alpha3` payload looks like a
- * mistake and is not one.
+ * The `kagent.api.v1` protobuf package carries custom resources whose
+ * Kubernetes API version remains `api.kagent.dev/v1alpha3`.
  */
 export const KAGENT_API_VERSION = "api.kagent.dev/v1alpha3";
 
@@ -117,7 +113,7 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * with, from the repository root:
  *
  *   awk '/^message /{m=$2} /int64|uint64/{print FILENAME":"FNR" "m}' \
- *     proto/kagent/api/v1alpha1/*.proto
+ *     proto/kagent/api/v1/*.proto
  *
  * `FNR`, not `NR`: `NR` keeps counting across files, so every line number after the
  * first schema comes out wrong — which is how this list drifted last time.
@@ -129,11 +125,10 @@ export function isoFrom(timestamp: Timestamp | undefined): string {
  * - `system.proto`  — `GetSubstrateSummaryResponse.worker_count`        (the same)
  * - `system.proto`  — `GetSubstrateSummaryResponse.running_actor_count` (the same)
  * - `system.proto`  — `GetSubstrateSummaryResponse.busy_worker_count`   (the same)
- * - `memory.proto:38`   — `MemorySummary.access_count` (no operation id yet)
  * - `checkpoints.proto:32` — `Checkpoint.history_sequence` (no operation id yet)
  *
- * The last two have no operation behind them today. They are listed anyway: the
- * moment one gets an id, this is the helper its conversion needs, and a list that
+ * The last one has no operation behind it today. It is listed anyway: the
+ * moment it gets an id, this is the helper its conversion needs, and a list that
  * only covered what happens to be wired is a list that goes stale silently.
  */
 export function toNumber(value: bigint | number | undefined): number {

@@ -30,6 +30,9 @@ func TestCanonicalizeADKEvent(t *testing.T) {
 	if part.Metadata[apia2a.PartTypeMetadataKey] != "function_call" {
 		t.Fatalf("part type = %#v", part.Metadata)
 	}
+	if part.Metadata[apia2a.ThoughtMetadataKey] != true {
+		t.Fatalf("a thought must stay marked once ADK's keys go: %#v", part.Metadata)
+	}
 	if _, ok := part.Metadata["adk_is_long_running"]; ok {
 		t.Fatalf("long-running adapter metadata leaked: %#v", part.Metadata)
 	}

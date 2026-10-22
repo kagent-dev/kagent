@@ -2,7 +2,6 @@ package byo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -11,17 +10,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
-	"github.com/kagent-dev/kagent/go/pkg/telemetry"
 )
 
 func TestCompileOpaqueImage(t *testing.T) {
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}, Args: []string{"serve"}},
+		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}, Args: []string{"serve"}},
 		Env:      []v1alpha3.RuntimeEnvVar{{Name: "MODE", Value: "production"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
 			WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
@@ -31,7 +30,7 @@ func TestCompileOpaqueImage(t *testing.T) {
 		Description: "custom A2A agent", SystemPrompt: "be helpful",
 	}}
 
-	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testCompilerSettings()).Compile(context.Background(), &translator.HarnessInput{
+	revision, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults()).Compile(context.Background(), &translator.HarnessInput{
 		AgentName: "runnable-agent",
 		Harness:   harness, Root: &translator.AgentInput{Template: template, Instruction: template.Spec.SystemPrompt},
 	})
@@ -43,20 +42,20 @@ func TestCompileOpaqueImage(t *testing.T) {
 		{Name: "MODE", Value: "production"},
 	}, revision.Environment)
 
-	var config adk.AgentConfig
-	require.NoError(t, json.Unmarshal(revision.ConfigJSON, &config))
-	require.Nil(t, config.Model)
-	require.Equal(t, "be helpful", config.Instruction)
-	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.SessionDBURL)
+	var config configv1.ADKConfig
+	require.NoError(t, runtimeconfig.Unmarshal(revision.ConfigJSON, &config))
+	require.Nil(t, config.Agent.Model)
+	require.Equal(t, "be helpful", config.Agent.Instruction)
+	require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", config.Agent.SessionDbUrl)
 	require.True(t, revision.AgentCard.GetCapabilities().GetStreaming())
 }
 
 func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
-	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{Traces: translator.SignalConfig{Enabled: true, Endpoint: "http://collector:4317", Protocol: "grpc"}, Exporters: &telemetry.Config{Traces: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"}}}
+	settings := testRuntimeDefaults()
+	settings.Telemetry = &configv1.TelemetryConfig{Traces: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")}}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:      &v1alpha3.BYOHarness{},
-		Workload: v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 		Env: []v1alpha3.RuntimeEnvVar{
 			{Name: "OTEL_SERVICE_NAME", Value: "my-langgraph"},
 			{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: "https://otlp.example.com"},
@@ -82,23 +81,20 @@ func TestCompileOpaqueImageKeepsItsOwnTelemetry(t *testing.T) {
 	require.Contains(t, environment["OTEL_RESOURCE_ATTRIBUTES"], "gen_ai.main_agent.name=runnable-agent")
 }
 
-func testCompilerSettings() translator.CompilerSettings {
-	return translator.CompilerSettings{APIURL: "http://kagent-controller.kagent:8083", GatewayURL: "http://kagent-controller.kagent:8083", LogLevel: "info"}
+func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
+	return &configv1.RuntimeDefaultsConfig{ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
 }
 
 func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
-	settings := testCompilerSettings()
-	settings.Telemetry = translator.TelemetryConfig{
-		Traces: translator.SignalConfig{Enabled: true},
-		Exporters: &telemetry.Config{
-			Traces:  &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-			Metrics: &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-			Logs:    &telemetry.OTLPConfig{Endpoint: "http://collector:4317", Protocol: "grpc"},
-		},
+	settings := testRuntimeDefaults()
+	settings.Telemetry = &configv1.TelemetryConfig{
+		Traces:  &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+		Metrics: &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
+		Logs:    &configv1.OTLPConfig{Endpoint: "http://collector:4317", Protocol: new("grpc")},
 	}
 	harness := &translator.HarnessConfiguration{Name: "byo", Namespace: "test", Source: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},
-		Workload:  v1alpha3.HarnessWorkload{Image: "example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Command: []string{"/agent"}},
+		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Command: []string{"/agent"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	// All three signals must leave room for fourteen user settings. The final
@@ -111,6 +107,8 @@ func TestCompiledTelemetryFitsTheActorEnvironmentBudget(t *testing.T) {
 		AgentName: "runnable-agent", Harness: harness, Root: &translator.AgentInput{Template: template},
 	})
 	require.NoError(t, err)
+	// Placement and limits normally come from the central runtime compiler.
+	revision.CPU, revision.Memory = "1", "1Gi"
 	id, err := revision.Digest()
 	require.NoError(t, err)
 	actor, err := substrate.ActorTemplateForRevision(&revision.Revision, id)

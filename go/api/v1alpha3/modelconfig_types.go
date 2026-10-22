@@ -206,7 +206,7 @@ type AnthropicConfig struct {
 
 // OpenAIConfig contains OpenAI-specific configuration options
 //
-// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
+// +kubebuilder:validation:AtMostOneOf=maxTokens;maxCompletionTokens
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
 	// +optional
@@ -255,10 +255,13 @@ type OpenAIConfig struct {
 
 	// N value
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	N *int `json:"n,omitempty"`
 
 	// Timeout
 	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=9223372036
 	Timeout *int `json:"timeout,omitempty"`
 
 	// Reasoning effort
@@ -323,6 +326,7 @@ type AzureOpenAIConfig struct {
 
 	// Maximum tokens to generate
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxTokens *int `json:"maxTokens,omitempty"`
 
 	// Top-p sampling parameter
@@ -367,6 +371,7 @@ type BedrockConfig struct {
 	// Claude extended thinking or top_k. Values are forwarded as-is to the API.
 	// Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
 	// +optional
+	// +kubebuilder:validation:Type=object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	AdditionalModelRequestFields *apiextensionsv1.JSON `json:"additionalModelRequestFields,omitempty"`
 
@@ -566,8 +571,8 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
-// +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
-// +kubebuilder:validation:XValidation:message="apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
+// +kubebuilder:validation:XValidation:message="tokenPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
+// +kubebuilder:validation:XValidation:message="tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
 type ModelConfigSpec struct {
 	// +required
 	Model string `json:"model"`
@@ -589,12 +594,12 @@ type ModelConfigSpec struct {
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
-	// APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+	// TokenPassthrough enables forwarding the bearer token from incoming A2A requests
 	// directly to the LLM provider as the API key. This is useful for organizations
 	// with federated identity that want to avoid separate secret management.
 	// Mutually exclusive with apiKeySecret.
 	// +optional
-	APIKeyPassthrough bool `json:"apiKeyPassthrough,omitempty"`
+	TokenPassthrough bool `json:"tokenPassthrough,omitempty"`
 
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`

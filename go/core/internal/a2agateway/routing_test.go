@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
@@ -31,7 +31,7 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 	if !ok {
 		return nil, serviceerrors.NewUnauthenticated("authentication required", nil)
 	}
-	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Name: ref.String()}); err != nil {
+	if err := s.authorizer.Check(ctx, authSession.Principal(), auth.VerbGet, auth.Resource{Type: "Agent", Namespace: ref.Namespace, Name: ref.Name}); err != nil {
 		return nil, serviceerrors.NewPermissionDenied("not authorized", err)
 	}
 	if s.store.err != nil {
@@ -45,7 +45,7 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 
 type gatewayTestWorkflow struct{ *sessionsvc.ActorWorkflow }
 
-func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 
@@ -126,7 +126,7 @@ func TestInitialStreamingRetrySubscribesWithoutRedispatch(t *testing.T) {
 func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
 	store := &gatewayTestStore{session: gatewayTestSession()}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, "")
-	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice", ReadOnly: true})
+	ctx := auth.ShareContextTo(gatewayTestContext(), &auth.ShareContext{SessionID: gatewayTestID, UserID: "alice"})
 	_, err := gateway.ListTasks(ctx, &a2a.ListTasksRequest{Tenant: gatewayTestAgent})
 	require.NoError(t, err)
 	require.Equal(t, []string{gatewayTestID}, store.listedIDs)

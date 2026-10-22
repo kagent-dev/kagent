@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -57,7 +57,7 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}, nil
 }
 
-func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
+func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1.Session) (*a2aclient.Client, error) {
 	targetActor, err := substrate.ActorTargetFromHost(session.GetA2AAuthority())
 	if err != nil {
 		return nil, err
@@ -85,12 +85,12 @@ func (d *RuntimeDialer) Dial(ctx context.Context, session *apiv1alpha1.Session) 
 type upstreamAuthInterceptor struct {
 	a2aclient.PassthroughInterceptor
 	authenticator auth.AuthProvider
-	session       *apiv1alpha1.Session
+	session       *apiv1.Session
 	targetActor   string
 }
 
 func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+req.BaseURL, nil)
+	httpRequest, err := http.NewRequestWithContext(auth.UpstreamMethodTo(ctx, req.Method), http.MethodPost, "http://"+req.BaseURL, nil)
 	if err != nil {
 		return ctx, nil, err
 	}

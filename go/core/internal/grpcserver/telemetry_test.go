@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/test/bufconn"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/telemetrytest"
 )
 
@@ -71,7 +71,7 @@ func TestServerTelemetryShape(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = connection.Close() })
 
-	if _, err := apiv1alpha1.NewSystemServiceClient(connection).GetVersion(t.Context(), &apiv1alpha1.GetVersionRequest{}); err != nil {
+	if _, err := apiv1.NewSystemServiceClient(connection).GetVersion(t.Context(), &apiv1.GetVersionRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := grpc_health_v1.NewHealthClient(connection).Check(t.Context(), &grpc_health_v1.HealthCheckRequest{}); err != nil {

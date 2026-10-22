@@ -14,8 +14,6 @@ metadata:
   namespace: kagent
 spec:
   kagent: {}
-  workload:
-    image: ${KAGENT_GO_ADK_IMAGE_DIGEST}
   substrate:
     workerPoolRef:
       name: kagent-default
@@ -45,9 +43,10 @@ spec:
     name: kagent
 ```
 
-Replace `${KAGENT_GO_ADK_IMAGE_DIGEST}` with the full Go ADK image reference,
-including its `@sha256:` digest, and choose your snapshot location. The referenced
-ModelConfig and WorkerPool must already exist.
+This Harness uses the release's default Go ADK image. To override it, set
+`spec.workload.image` to a full image reference including its `@sha256:` digest.
+Choose your snapshot location; the referenced ModelConfig and WorkerPool must
+already exist.
 
 The translator resolves ConfigMap references, validates the portable schema
 profile, and records a canonical schema and digest in the immutable prepared

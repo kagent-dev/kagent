@@ -93,7 +93,7 @@ One command distinguishes a broken transport from an empty list, which look iden
 printf '\x00\x00\x00\x00\x00' > /tmp/gw.bin
 curl -s -D - -X POST -H 'Content-Type: application/grpc-web+proto' -H 'X-Grpc-Web: 1' \
   --data-binary @/tmp/gw.bin \
-  http://127.0.0.1:8083/api/kagent.api.v1alpha1.SystemService/GetVersion | head
+  http://127.0.0.1:8083/api/kagent.api.v1.SystemService/GetVersion | head
 ```
 
 `grpc-status: 0` with a framed body means the whole path is up. An empty `200` means no

@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -75,7 +76,7 @@ type serializedJWTAuthority struct {
 	SigningKeyPKCS8 []byte
 }
 
-func prepareSubstratePrerequisites(ctx context.Context) error {
+func prepareSubstratePrerequisites(ctx context.Context, namespace string) error {
 	restConfig, err := config.GetConfig()
 	if err != nil {
 		return fmt.Errorf("load Kubernetes configuration: %w", err)
@@ -84,10 +85,18 @@ func prepareSubstratePrerequisites(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create Kubernetes client: %w", err)
 	}
-	return ensureSubstratePrerequisites(ctx, client)
+	return ensureSubstratePrerequisites(ctx, client, namespace)
 }
 
-func ensureSubstratePrerequisites(ctx context.Context, client kubernetes.Interface) error {
+func ensureSubstratePrerequisites(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	if err := ensureNamespace(ctx, client, namespace, "", ""); err != nil {
+		return err
+	}
+	// Substrate's API ingress policy admits clients only from opted-in namespaces.
+	if _, err := client.CoreV1().Namespaces().Patch(ctx, namespace, types.MergePatchType,
+		[]byte(`{"metadata":{"labels":{"ate.dev/api-access":"true"}}}`), metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("allow namespace %s to access the Substrate API: %w", namespace, err)
+	}
 	if err := ensureNamespace(ctx, client, substrateNamespace, "", ""); err != nil {
 		return err
 	}

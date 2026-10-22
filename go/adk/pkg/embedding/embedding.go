@@ -21,7 +21,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -38,13 +38,13 @@ type provider interface {
 
 // Client generates embeddings using a configured provider.
 type Client struct {
-	config *adk.EmbeddingConfig
+	config *configv1.ADKEmbeddingConfig
 	p      provider
 }
 
 // Config for creating an embedding client.
 type Config struct {
-	EmbeddingConfig *adk.EmbeddingConfig
+	EmbeddingConfig *configv1.ADKEmbeddingConfig
 }
 
 // New creates a new embedding client.
@@ -65,7 +65,7 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
-func newProvider(cfg *adk.EmbeddingConfig) (provider, error) {
+func newProvider(cfg *configv1.ADKEmbeddingConfig) (provider, error) {
 	switch cfg.Provider {
 	case "azure_openai":
 		return newAzureOpenAIProvider(cfg, nil)
@@ -94,11 +94,11 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 }
 
 type openAIProvider struct {
-	config *adk.EmbeddingConfig
+	config *configv1.ADKEmbeddingConfig
 	client openai.Client
 }
 
-func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
+func newOpenAIProvider(cfg *configv1.ADKEmbeddingConfig) (*openAIProvider, error) {
 	apiKey := env.OpenAIAPIKey.Get()
 	httpClient, err := embeddingHTTPClient(cfg)
 	if err != nil {
@@ -117,7 +117,7 @@ func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
 	}, nil
 }
 
-func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.EmbeddingConfig, provider string, isAzureFamily bool, texts []string) ([][]float32, error) {
+func generateEmbeddings(ctx context.Context, client openai.Client, cfg *configv1.ADKEmbeddingConfig, provider string, isAzureFamily bool, texts []string) ([][]float32, error) {
 	log := logging.FromContext(ctx)
 
 	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
@@ -139,11 +139,11 @@ func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.Embe
 // embeddingPassthroughOpts uses models.PassthroughToken so the embedding client
 // resolves API key passthrough the same way as the chat/completions clients in
 // go/adk/pkg/models.
-func embeddingPassthroughOpts(ctx context.Context, cfg *adk.EmbeddingConfig, isAzureFamily bool) []option.RequestOption {
+func embeddingPassthroughOpts(ctx context.Context, cfg *configv1.ADKEmbeddingConfig, isAzureFamily bool) []option.RequestOption {
 	if cfg == nil {
 		return nil
 	}
-	token, ok := models.PassthroughToken(ctx, cfg.APIKeyPassthrough)
+	token, ok := models.PassthroughToken(ctx, cfg.ApiKeyPassthrough)
 	if !ok {
 		return nil
 	}
@@ -158,14 +158,14 @@ func (p *openAIProvider) generate(ctx context.Context, texts []string) ([][]floa
 }
 
 type azureOpenAIProvider struct {
-	config *adk.EmbeddingConfig
+	config *configv1.ADKEmbeddingConfig
 	client openai.Client
 }
 
 // newAzureOpenAIProvider builds an Azure OpenAI embedding provider. Tests can
 // inject a credential with cred; a nil cred uses the default Azure credential.
-func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*azureOpenAIProvider, error) {
-	apiVersion := cfg.APIVersion
+func newAzureOpenAIProvider(cfg *configv1.ADKEmbeddingConfig, cred azureai.TokenCredential) (*azureOpenAIProvider, error) {
+	apiVersion := cfg.ApiVersion
 	if apiVersion == "" {
 		apiVersion = env.OpenAIAPIVersion.Get()
 	}
@@ -204,7 +204,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 	// overwritten per request by embeddingPassthroughOpts), otherwise the
 	// AZURE_OPENAI_API_KEY Api-Key header, otherwise DefaultAzureCredential.
 	apiKey := env.AzureOpenAIAPIKey.Get()
-	if cfg.APIKeyPassthrough {
+	if cfg.ApiKeyPassthrough {
 		apiKey = "passthrough"
 	}
 	if err := azureai.ApplyImplicitAuth(context.Background(), &clientCfg, azureai.AuthOptions{
@@ -229,11 +229,11 @@ func (p *azureOpenAIProvider) generate(ctx context.Context, texts []string) ([][
 }
 
 type ollamaProvider struct {
-	config *adk.EmbeddingConfig
+	config *configv1.ADKEmbeddingConfig
 	client *api.Client
 }
 
-func newOllamaProvider(cfg *adk.EmbeddingConfig) (*ollamaProvider, error) {
+func newOllamaProvider(cfg *configv1.ADKEmbeddingConfig) (*ollamaProvider, error) {
 	host := cfg.BaseUrl
 	if host == "" {
 		host = env.OllamaAPIBase.Get()
@@ -271,7 +271,7 @@ func (p *ollamaProvider) generate(ctx context.Context, texts []string) ([][]floa
 }
 
 type geminiProvider struct {
-	config  *adk.EmbeddingConfig
+	config  *configv1.ADKEmbeddingConfig
 	once    sync.Once
 	client  *genai.Client
 	initErr error
@@ -316,7 +316,7 @@ func (p *geminiProvider) generate(ctx context.Context, texts []string) ([][]floa
 }
 
 type bedrockProvider struct {
-	config  *adk.EmbeddingConfig
+	config  *configv1.ADKEmbeddingConfig
 	once    sync.Once
 	client  *bedrockruntime.Client
 	initErr error
@@ -373,12 +373,12 @@ type bedrockEmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func embeddingHTTPClient(cfg *adk.EmbeddingConfig) (*http.Client, error) {
-	timeout := int((5 * time.Minute) / time.Second)
+func embeddingHTTPClient(cfg *configv1.ADKEmbeddingConfig) (*http.Client, error) {
+	timeout := 5 * time.Minute
 	return models.BuildHTTPClient(models.TransportConfig{
-		TLSInsecureSkipVerify: cfg.TLSInsecureSkipVerify,
-		TLSCACertPath:         cfg.TLSCACertPath,
-		TLSDisableSystemCAs:   cfg.TLSDisableSystemCAs,
+		TLSInsecureSkipVerify: cfg.TlsInsecureSkipVerify,
+		TLSCACertPath:         cfg.TlsCaCertPath,
+		TLSDisableSystemCAs:   cfg.TlsDisableSystemCas,
 		Timeout:               &timeout,
 	})
 }
@@ -429,18 +429,18 @@ func normalizeL2(vec []float32) []float32 {
 // set, otherwise the provider authenticates with DefaultAzureCredential (Azure
 // Workload Identity in-cluster).
 type foundryProvider struct {
-	config *adk.EmbeddingConfig
+	config *configv1.ADKEmbeddingConfig
 	client openai.Client
 }
 
 // newFoundryProvider builds a Foundry embedding provider. Tests can inject a
 // credential with cred; a nil cred uses the default Azure credential.
-func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*foundryProvider, error) {
+func newFoundryProvider(cfg *configv1.ADKEmbeddingConfig, cred azureai.TokenCredential) (*foundryProvider, error) {
 	deployment := cfg.Deployment
 	if deployment == "" {
 		deployment = cfg.Model
 	}
-	endpoint, deployment, apiVersion := azureai.ResolveFoundry(cfg.Endpoint, deployment, cfg.APIVersion)
+	endpoint, deployment, apiVersion := azureai.ResolveFoundry(cfg.Endpoint, deployment, cfg.ApiVersion)
 	if endpoint == "" {
 		return nil, fmt.Errorf("endpoint is required for Foundry embeddings")
 	}
@@ -461,7 +461,7 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 	// See newAzureOpenAIProvider - the passthrough placeholder short-circuits
 	// past DefaultAzureCredential resolution the same way it does for chat.
 	apiKey := env.FoundryAPIKey.Get()
-	if cfg.APIKeyPassthrough {
+	if cfg.ApiKeyPassthrough {
 		apiKey = "passthrough"
 	}
 	if err := azureai.ApplyImplicitAuth(context.Background(), &clientCfg, azureai.AuthOptions{

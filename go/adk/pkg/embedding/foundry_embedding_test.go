@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 // TestFoundryProviderAPIKey verifies the API-key auth path: the Api-Key header
@@ -33,12 +33,12 @@ func TestFoundryProviderAPIKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p, err := newFoundryProvider(&adk.EmbeddingConfig{
+	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
 		Provider:   "foundry",
 		Model:      "text-embedding-3-small",
 		Endpoint:   server.URL,
 		Deployment: "text-embedding-3-small",
-		APIVersion: "2024-10-21",
+		ApiVersion: "2024-10-21",
 	}, nil)
 	require.NoError(t, err)
 
@@ -75,12 +75,12 @@ func TestFoundryProviderWorkloadIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p, err := newFoundryProvider(&adk.EmbeddingConfig{
+	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
 		Provider:   "foundry",
 		Model:      "emb",
 		Endpoint:   server.URL,
 		Deployment: "emb",
-		APIVersion: "2024-10-21",
+		ApiVersion: "2024-10-21",
 	}, &fakeEmbeddingCredential{token: "entra-token"})
 	require.NoError(t, err)
 
@@ -103,13 +103,13 @@ func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p, err := newFoundryProvider(&adk.EmbeddingConfig{
+	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
 		Provider:          "foundry",
 		Model:             "text-embedding-3-small",
 		Endpoint:          server.URL,
 		Deployment:        "text-embedding-3-small",
-		APIVersion:        "2024-10-21",
-		APIKeyPassthrough: true,
+		ApiVersion:        "2024-10-21",
+		ApiKeyPassthrough: true,
 	}, nil)
 	require.NoError(t, err)
 
@@ -132,13 +132,13 @@ func TestFoundryProviderAPIKeyPassthroughOverridesStaticKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p, err := newFoundryProvider(&adk.EmbeddingConfig{
+	p, err := newFoundryProvider(&configv1.ADKEmbeddingConfig{
 		Provider:          "foundry",
 		Model:             "text-embedding-3-small",
 		Endpoint:          server.URL,
 		Deployment:        "text-embedding-3-small",
-		APIVersion:        "2024-10-21",
-		APIKeyPassthrough: true,
+		ApiVersion:        "2024-10-21",
+		ApiKeyPassthrough: true,
 	}, nil)
 	require.NoError(t, err)
 

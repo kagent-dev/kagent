@@ -1,7 +1,10 @@
 # Protobuf API conventions
 
-Use this guide when adding or changing the gRPC APIs under
-[`proto/kagent/api/v1alpha1`](../proto/kagent/api/v1alpha1). These are design and
+Use this guide when adding or changing the public gRPC APIs under
+[`proto/kagent/api/v1`](../proto/kagent/api/v1) or the runtime contracts under
+[`proto/kagent/runtime/v1`](../proto/kagent/runtime/v1). CLI, controller, and ADK
+configuration messages live under [`proto/kagent/config/v1`](../proto/kagent/config/v1)
+and follow the same schema evolution and generation rules. These are design and
 review guidelines; resource-specific behavior belongs in
 [docs/architecture](architecture/README.md). The source `.proto` files define the
 wire format. See the [Kubernetes guide](kubernetes-api.md) for CRD design.
@@ -42,7 +45,7 @@ change lifecycle state.
   payloads only at boundaries that require them, with explicit size and
   validation rules.
 
-Reuse common types from [common.proto](../proto/kagent/api/v1alpha1/common.proto)
+Reuse common types from [common.proto](../proto/kagent/api/v1/common.proto)
 when their semantics fit. Treat resource IDs as opaque, validate their declared
 format, and keep mutable display names separate from identity. References should
 be structured and have explicit lookup and authorization scope.
@@ -151,10 +154,15 @@ promising a guarantee to clients, and document any gap in that API's contract.
 
 ## Evolution and generation
 
-Reserve removed field names and numbers. Review wire, JSON, validation, and
-behavioral compatibility, including durable protobuf data. Package versions for
-protobuf and Kubernetes are independent. Coordinate breaking changes with all
-callers and stored data; regenerating clients alone does not migrate their usage.
+Kagent's protobuf packages are `kagent.api.v1` for public control-plane APIs,
+`kagent.runtime.v1` for TaskStore and Memory runtime APIs, and `kagent.config.v1`
+for CLI, controller, and ADK configuration. Evolve each stable major version in
+place: deprecate fields before removing them, and reserve removed field names and
+numbers. Kubernetes API versions are independent. Review wire, JSON, validation,
+and behavioral compatibility, including durable protobuf data. Coordinate breaking
+changes with all callers and stored data; regenerating clients alone does not
+migrate their usage. The move from `kagent.api.v1alpha1` to these packages changes
+gRPC method paths, so clients and servers must update together.
 
 Keep upstream schemas, SDK versions, and import mappings aligned. Do not fork
 upstream types to add local semantics. See the [upstream schema notes](../proto/README.md).
@@ -175,7 +183,9 @@ Generation is configured in [buf.gen.yaml](../proto/buf.gen.yaml),
 Review and commit affected generated outputs; never edit them directly.
 `proto-check` runs lint and generation and rejects drift from committed output.
 
-Buf's [breaking-check configuration](../proto/buf.yaml) ignores unstable
-packages, so a passing check does not establish alpha API compatibility.
+Buf's [breaking-check configuration](../proto/buf.yaml) enforces compatibility for
+`kagent.api.v1`, `kagent.runtime.v1`, and `kagent.config.v1`. Its unstable-package exemption applies
+to alpha packages, including the former `kagent.api.v1alpha1` package, rather than
+the stable `v1` packages.
 Test changed validation, authorization, concurrency, retries, and partial failures
 at their owning boundaries, and update affected callers and fixtures.

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	smithyjson "github.com/aws/smithy-go/document/json"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 
@@ -74,7 +76,7 @@ type BedrockConfig struct {
 	TransportConfig
 	Model                        string
 	Region                       string
-	MaxTokens                    *int
+	MaxTokens                    *int32
 	Temperature                  *float64
 	TopP                         *float64
 	AdditionalModelRequestFields map[string]any
@@ -92,6 +94,31 @@ type BedrockConfig struct {
 	GuardrailIdentifier string
 	GuardrailVersion    string
 	GuardrailTrace      string
+}
+
+// DecodeBedrockRequestFields preserves provider JSON numbers using the AWS
+// document decoder, whose number type is understood by the Converse encoder.
+func DecodeBedrockRequestFields(raw []byte) (map[string]any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var fields map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("bedrock additionalModelRequestFields must be valid JSON")
+	}
+	if err := decoder.Decode(&fields); err != nil {
+		return nil, fmt.Errorf("decode bedrock additionalModelRequestFields: %w", err)
+	}
+	if fields == nil {
+		return nil, fmt.Errorf("bedrock additionalModelRequestFields must be a JSON object")
+	}
+	var result map[string]any
+	if err := (&smithyjson.Decoder{}).DecodeJSONInterface(fields, &result); err != nil {
+		return nil, fmt.Errorf("decode bedrock document: %w", err)
+	}
+	return result, nil
 }
 
 func bedrockGuardrailConfig(c *BedrockConfig) *types.GuardrailConfiguration {
@@ -853,7 +880,7 @@ func buildInferenceConfig(cfg *BedrockConfig, thinkingEnabled bool) *types.Infer
 	}
 	ic := &types.InferenceConfiguration{}
 	if cfg.MaxTokens != nil {
-		ic.MaxTokens = aws.Int32(int32(*cfg.MaxTokens))
+		ic.MaxTokens = cfg.MaxTokens
 	}
 	if !thinkingEnabled {
 		if cfg.Temperature != nil {

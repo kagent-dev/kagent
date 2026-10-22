@@ -4,54 +4,18 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
-	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"google.golang.org/protobuf/proto"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
-	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-// CompilerSettings contains only deployment inputs needed by harness compilers.
-// It is resolved once at startup, independently of reconciliation and env.
-type CompilerSettings struct {
-	APIURL     string
-	GatewayURL string
-	LogLevel   string
-	Telemetry  TelemetryConfig
-	Process    adk.RuntimeConfig
-}
-
-func NewCompilerSettings(cfg *apiv1.RuntimeDefaultsConfig) (CompilerSettings, error) {
-	if cfg == nil {
-		return CompilerSettings{}, fmt.Errorf("runtime defaults are required")
-	}
-	if err := config.Validate(cfg); err != nil {
-		return CompilerSettings{}, err
-	}
-	telemetry, err := TelemetryConfigFromSettings(cfg.GetTelemetry())
-	if err != nil {
-		return CompilerSettings{}, err
-	}
-	return CompilerSettings{APIURL: cfg.GetControlPlaneUrl(), GatewayURL: cfg.GetGatewayUrl(), LogLevel: cfg.GetLogging().GetLevel(), Telemetry: telemetry, Process: adk.RuntimeConfig{
-		// Preserve presence: nil selects the runtime default; zero disables the limit.
-		MaxContentLength: cfg.MaxContentLength,
-		FileSearchTools:  cfg.GetFileSearchTools(),
-		BashVenvPath:     cfg.GetBashVenvPath(),
-		TokenPropagation: adk.TokenPropagationConfig{Enabled: cfg.GetTokenPropagation().GetEnabled(), STSWellKnownURI: cfg.GetTokenPropagation().GetStsWellKnownUri(), Resources: cfg.GetTokenPropagation().GetResources(), Audiences: cfg.GetTokenPropagation().GetAudiences()},
-	}}, nil
-}
-
-func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, error) {
-	result := TelemetryConfig{}
+func TelemetryConfigFromSettings(cfg *configv1.TelemetryConfig) (TelemetryConfig, error) {
+	result := TelemetryConfig{Runtime: config.RuntimeTelemetry(cfg)}
 	if cfg == nil {
 		return result, nil
 	}
-	exporters := config.Telemetry(cfg)
-	result.Exporters = &exporters
-	result.CaptureSensitiveContent = cfg.GetCaptureContent()
-	result.CaptureRawAPIBodies = cfg.GetCaptureRawApiBodies()
-	result.OpenAINativeTracing = cfg.GetOpenaiNativeTracing()
-	result.MaxCaptureBytes = int(cfg.GetMaxCaptureBytes())
-	for signal, source := range map[Signal]*apiv1.OTLPConfig{SignalTraces: cfg.GetTraces(), SignalMetrics: cfg.GetMetrics(), SignalLogs: cfg.GetLogs()} {
+	for signal, source := range map[Signal]*configv1.OTLPConfig{SignalTraces: cfg.GetTraces(), SignalMetrics: cfg.GetMetrics(), SignalLogs: cfg.GetLogs()} {
 		if source == nil {
 			continue
 		}
@@ -65,12 +29,16 @@ func TelemetryConfigFromSettings(cfg *apiv1.TelemetryConfig) (TelemetryConfig, e
 	return result, nil
 }
 
-// RuntimeConfig supplies process settings for root ADK and BYO JSON only.
-func (s CompilerSettings) RuntimeConfig(name, namespace string) *adk.RuntimeConfig {
-	result := s.Process
-	result.ControlPlaneURL, result.GatewayURL = s.APIURL, s.GatewayURL
-	result.Name, result.Namespace = name, namespace
-	result.LogLevel, result.Port = s.LogLevel, "80"
-	result.Telemetry = tracing.RuntimeTelemetry{Exporters: s.Telemetry.Exporters, CaptureContent: s.Telemetry.CaptureSensitiveContent, MaxCaptureBytes: s.Telemetry.MaxCaptureBytes, CaptureRawAPIBodies: s.Telemetry.CaptureRawAPIBodies, OpenAINativeTracing: s.Telemetry.OpenAINativeTracing}
-	return &result
+// RuntimeConfig builds the per-agent ADK or BYO process configuration from the
+// controller's validated runtime defaults, without reading process environment.
+func RuntimeConfig(cfg *configv1.RuntimeDefaultsConfig, name, namespace string) *configv1.ADKRuntimeConfig {
+	return &configv1.ADKRuntimeConfig{
+		ControlPlaneUrl: cfg.GetControlPlaneUrl(), GatewayUrl: cfg.GetGatewayUrl(),
+		Name: name, Namespace: namespace, LogLevel: cfg.GetLogging().GetLevel(), Port: new(uint32(80)),
+		// Preserve optional presence: zero disables the runtime's request limit.
+		MaxContentLength: cfg.MaxContentLength,
+		BuiltinTools:     proto.CloneOf(cfg.GetBuiltinTools()),
+		TokenPropagation: proto.CloneOf(cfg.GetTokenPropagation()),
+		Telemetry:        proto.CloneOf(cfg.GetTelemetry()),
+	}
 }

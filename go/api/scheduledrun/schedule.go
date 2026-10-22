@@ -12,14 +12,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // Normalize supplies defaults without mutating a caller's request.
-func Normalize(config *apiv1alpha1.ScheduledRunConfig) *apiv1alpha1.ScheduledRunConfig {
+func Normalize(config *apiv1.ScheduledRunConfig) *apiv1.ScheduledRunConfig {
 	result := proto.CloneOf(config)
 	if result == nil {
-		result = &apiv1alpha1.ScheduledRunConfig{}
+		result = &apiv1.ScheduledRunConfig{}
 	}
 	result.Schedule = strings.Join(strings.Fields(result.Schedule), " ")
 	if result.TimeZone == "" {
@@ -33,7 +33,7 @@ func Normalize(config *apiv1alpha1.ScheduledRunConfig) *apiv1alpha1.ScheduledRun
 
 // Next requires five cron fields, even though ParseStandard also accepts macros.
 // All callers, including transactions, use the same timezone and DST semantics.
-func Next(config *apiv1alpha1.ScheduledRunConfig, after time.Time) (time.Time, error) {
+func Next(config *apiv1.ScheduledRunConfig, after time.Time) (time.Time, error) {
 	if len(strings.Fields(config.GetSchedule())) != 5 {
 		return time.Time{}, fmt.Errorf("schedule must contain five cron fields")
 	}

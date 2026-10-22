@@ -8,10 +8,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
-func expirationFixture(t *testing.T) (*Client, *apiv1alpha1.Session) {
+func expirationFixture(t *testing.T) (*Client, *apiv1.Session) {
 	t.Helper()
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision-1", "assistant", "kagent")
@@ -40,7 +40,7 @@ func TestSessionExpirationTaskAdmission(t *testing.T) {
 			client, session := expirationFixture(t)
 			task := newSessionTask(uuid.NewString(), "message")
 			task.ContextID, task.Status.State = session.ContextId, test.state
-			snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", ContentScope: "FULL"}
+			snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}
 			require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, snapshot))
 			_, err := client.BeginIdleSessionDeletion(t.Context(), session.Id, time.Now())
 			if test.allow {
@@ -72,7 +72,7 @@ func TestSessionExpirationRechecksActivity(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.ErrorIs(t, err, ErrFailedPrecondition, "a claimed suspension blocks expiration")
-	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", ContentScope: "FULL"}))
+	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}))
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, before)
 	require.ErrorIs(t, err, ErrConflict, "an event after the scan starts a new idle period")
 	ids, err = client.ListIdleSessions(ctx, before, "", 100)
@@ -100,14 +100,14 @@ func TestSessionExpirationFencesDispatchAndRetries(t *testing.T) {
 
 	work, err := client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.NoError(t, err)
-	require.Equal(t, apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETING, work.Operation.Instance.State)
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, work.Operation.Instance.State)
 	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), "next"), ErrConflict)
 	pending, created, err := client.CreateSession(ctx, newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), "conversation")
 	require.NoError(t, err)
 	require.Equal(t, session.Id, pending.Id)
 	require.False(t, created, "runtime deletion must finish before the receipt is removed")
 
-	op, err := client.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	op, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 	require.NoError(t, err)
 	require.Equal(t, work.Operation.ID, op.ID, "explicit deletion joins the admitted idle deletion")
 	_, err = client.FinishSessionOperation(ctx, session.Id, op.ID, uuid.Nil, "", "", "temporary preparation failure")
@@ -130,11 +130,11 @@ func TestSessionExpirationFencesDispatchAndRetries(t *testing.T) {
 func TestSessionExpirationSkipsLifecycleAndExplicitTombstones(t *testing.T) {
 	client, session := expirationFixture(t)
 	ctx := t.Context()
-	_, err := client.BeginSessionOperation(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
+	_, err := client.BeginSessionOperation(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND)
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
 	require.ErrorIs(t, err, ErrConflict)
-	_, err = finishSessionOperation(ctx, client, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, "")
+	_, err = finishSessionOperation(ctx, client, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, "")
 	require.NoError(t, err)
 	require.NoError(t, deleteSession(ctx, client, session.Id))
 	_, err = client.BeginIdleSessionDeletion(ctx, session.Id, time.Now())
@@ -151,8 +151,8 @@ func TestSessionExpirationCheckpointAdmission(t *testing.T) {
 	client, session := expirationFixture(t)
 	task := newSessionTask(uuid.NewString(), "message")
 	task.ContextID, task.Status.State = session.ContextId, a2a.TaskStateCompleted
-	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", ContentScope: "DATA"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1alpha1.Checkpoint{
+	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
+	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, "checkpoint")
 	require.NoError(t, err)
@@ -197,7 +197,7 @@ func TestSessionExpirationIgnoresMetadataAndLifecycle(t *testing.T) {
 	before := time.Now()
 	_, err := client.UpdateSessionName(t.Context(), session.Id, session.Creator, "renamed")
 	require.NoError(t, err)
-	_, err = finishSessionOperation(t.Context(), client, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, "")
+	_, err = finishSessionOperation(t.Context(), client, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND, "")
 	require.NoError(t, err)
 	_, err = client.GetSessionByID(t.Context(), session.Id)
 	require.NoError(t, err)

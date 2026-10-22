@@ -16,11 +16,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
-	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
-	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
@@ -46,11 +44,11 @@ type AgentTemplateManifestCfg struct {
 }
 
 type lifecycleClient interface {
-	CreateAgentTemplate(context.Context, *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error)
-	UpdateAgentTemplate(context.Context, *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error)
+	CreateAgentTemplate(context.Context, *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error)
+	UpdateAgentTemplate(context.Context, *apiv1.UpdateAgentTemplateRequest) (*apiv1.UpdateAgentTemplateResponse, error)
 }
 
-type agentTemplateManifestOperation func(context.Context, lifecycleClient, *apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, clioutput.Format, io.Writer) error
+type agentTemplateManifestOperation func(context.Context, lifecycleClient, *apiv1.ResourceReference, *apiv1.StructuredObject, clioutput.Format, io.Writer) error
 
 func runAgentTemplateManifest(
 	ctx context.Context,
@@ -77,7 +75,7 @@ func runAgentTemplateManifest(
 	return operation(ctx, session.API.AgentTemplate, ref, resource, format, out)
 }
 
-func readAgentTemplateManifest(filename, namespace string) (*apiv1alpha1.ResourceReference, *apiv1alpha1.StructuredObject, error) {
+func readAgentTemplateManifest(filename, namespace string) (*apiv1.ResourceReference, *apiv1.StructuredObject, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read AgentTemplate manifest %q: %w", filename, err)
@@ -99,32 +97,32 @@ func readAgentTemplateManifest(filename, namespace string) (*apiv1alpha1.Resourc
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode AgentTemplate manifest %q: %w", filename, err)
 	}
-	return &apiv1alpha1.ResourceReference{Namespace: namespace, Name: manifest.Name}, resource, nil
+	return &apiv1.ResourceReference{Namespace: namespace, Name: manifest.Name}, resource, nil
 }
 
 func applyAgentTemplate(
 	ctx context.Context,
 	client lifecycleClient,
-	ref *apiv1alpha1.ResourceReference,
-	resource *apiv1alpha1.StructuredObject,
+	ref *apiv1.ResourceReference,
+	resource *apiv1.StructuredObject,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
-	created, err := client.CreateAgentTemplate(ctx, &apiv1alpha1.CreateAgentTemplateRequest{Ref: ref, Resource: resource})
+	created, err := client.CreateAgentTemplate(ctx, &apiv1.CreateAgentTemplateRequest{Ref: ref, Resource: resource})
 	if status.Code(err) != codes.AlreadyExists {
 		if err != nil {
 			return fmt.Errorf("apply AgentTemplate: %w", err)
 		}
 		return writeAgentTemplateResult(out, format, created, created.GetAgentTemplate())
 	}
-	updated, err := client.UpdateAgentTemplate(ctx, &apiv1alpha1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource})
+	updated, err := client.UpdateAgentTemplate(ctx, &apiv1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource})
 	if err != nil {
 		return fmt.Errorf("apply AgentTemplate: %w", err)
 	}
 	return writeAgentTemplateResult(out, format, updated, updated.GetAgentTemplate())
 }
 
-func writeAgentTemplateResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1alpha1.AgentTemplate) error {
+func writeAgentTemplateResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1.AgentTemplate) error {
 	if result == nil {
 		return errors.New("AgentTemplate operation returned no AgentTemplate")
 	}
@@ -138,8 +136,13 @@ func writeAgentTemplateResult(w io.Writer, format clioutput.Format, response pro
 	return writeAgentTemplatesTable(w, []apiv1alpha3.AgentTemplate{*template}, false, "")
 }
 
-// runGetAgentTemplate gets one AgentTemplate or lists AgentTemplates through Kubernetes.
-func runGetAgentTemplate(ctx context.Context, cfg *AgentTemplateGetCfg, out io.Writer) error {
+type agentTemplateReadClient interface {
+	ListAgentTemplates(context.Context, *apiv1.ListAgentTemplatesRequest) (*apiv1.ListAgentTemplatesResponse, error)
+	GetAgentTemplate(context.Context, *apiv1.GetAgentTemplateRequest) (*apiv1.GetAgentTemplateResponse, error)
+}
+
+// runGetAgentTemplate gets one AgentTemplate or lists AgentTemplates through the kagent API.
+func runGetAgentTemplate(ctx context.Context, options connection.Options, cfg *AgentTemplateGetCfg, out io.Writer) (err error) {
 	format, err := clioutput.Parse(cfg.OutputFormat)
 	if err != nil {
 		return err
@@ -148,11 +151,14 @@ func runGetAgentTemplate(ctx context.Context, cfg *AgentTemplateGetCfg, out io.W
 		return err
 	}
 
-	clients, err := commonk8s.NewKagentClientset()
+	session, err := connection.OpenAPI(ctx, options)
 	if err != nil {
 		return err
 	}
-	return getAgentTemplates(ctx, clients.ApiV1alpha3().AgentTemplates(cfg.Namespace), cfg, format, out)
+	defer func() {
+		err = errors.Join(err, session.Close())
+	}()
+	return getAgentTemplates(ctx, session.API.AgentTemplate, cfg, format, out)
 }
 
 func validateAgentTemplateGetCfg(cfg *AgentTemplateGetCfg) error {
@@ -167,34 +173,61 @@ func validateAgentTemplateGetCfg(cfg *AgentTemplateGetCfg) error {
 
 func getAgentTemplates(
 	ctx context.Context,
-	client typedapiv1alpha3.AgentTemplateInterface,
+	client agentTemplateReadClient,
 	cfg *AgentTemplateGetCfg,
 	format clioutput.Format,
 	out io.Writer,
 ) error {
 	if cfg.Name != "" {
-		template, err := client.Get(ctx, cfg.Name, metav1.GetOptions{})
+		response, err := client.GetAgentTemplate(ctx, &apiv1.GetAgentTemplateRequest{Ref: &apiv1.ResourceReference{Namespace: cfg.Namespace, Name: cfg.Name}})
 		if err != nil {
 			return fmt.Errorf("get AgentTemplate %q: %w", cfg.Name, err)
 		}
-		if format == clioutput.FormatJSON {
-			return clioutput.WriteJSON(out, template)
+		item, err := decodeAgentTemplate(response.GetAgentTemplate())
+		if err != nil {
+			return err
 		}
-		return writeAgentTemplatesTable(out, []apiv1alpha3.AgentTemplate{*template}, false, "")
+		if format == clioutput.FormatJSON {
+			return clioutput.WriteJSON(out, item)
+		}
+		return writeAgentTemplatesTable(out, []apiv1alpha3.AgentTemplate{*item}, false, "")
 	}
 
 	pageSize := cfg.PageSize
 	if pageSize == 0 {
 		pageSize = agentTemplateMaxPageSize
 	}
-	templates, err := client.List(ctx, metav1.ListOptions{Limit: pageSize, Continue: cfg.PageToken})
+	response, err := client.ListAgentTemplates(ctx, &apiv1.ListAgentTemplatesRequest{
+		Namespace: cfg.Namespace,
+		Page:      &apiv1.PageRequest{Limit: int32(pageSize), PageToken: cfg.PageToken},
+	})
 	if err != nil {
 		return fmt.Errorf("list AgentTemplates: %w", err)
 	}
-	if format == clioutput.FormatJSON {
-		return clioutput.WriteJSON(out, templates)
+	// The Kubernetes list shape keeps JSON output and its continue token as they were.
+	list := &apiv1alpha3.AgentTemplateList{ListMeta: metav1.ListMeta{Continue: response.GetPage().GetNextPageToken()}}
+	for _, result := range response.GetAgentTemplates() {
+		item, err := decodeAgentTemplate(result)
+		if err != nil {
+			return err
+		}
+		list.Items = append(list.Items, *item)
 	}
-	return writeAgentTemplatesTable(out, templates.Items, true, templates.Continue)
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteJSON(out, list)
+	}
+	return writeAgentTemplatesTable(out, list.Items, true, list.Continue)
+}
+
+func decodeAgentTemplate(result *apiv1.AgentTemplate) (*apiv1alpha3.AgentTemplate, error) {
+	if result == nil {
+		return nil, errors.New("agent template operation returned no AgentTemplate")
+	}
+	item := &apiv1alpha3.AgentTemplate{}
+	if err := structuredobject.ToGo(result.GetResource(), agentTemplateKind, item, 0); err != nil {
+		return nil, fmt.Errorf("decode AgentTemplate: %w", err)
+	}
+	return item, nil
 }
 
 func writeAgentTemplatesTable(w io.Writer, templates []apiv1alpha3.AgentTemplate, list bool, nextPageToken string) error {
@@ -246,7 +279,7 @@ func newAgentTemplateReadCmd(list bool) *cobra.Command {
 			cfg.Namespace = options.Namespace
 			cfg.OutputFormat = format
 			cfg.Name = name
-			return runGetAgentTemplate(cmd.Context(), cfg, cmd.OutOrStdout())
+			return runGetAgentTemplate(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
 	if list {

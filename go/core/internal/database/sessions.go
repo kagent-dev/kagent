@@ -11,14 +11,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // toSession decodes a session and uses indexed columns for its identity, owner,
 // revision, and lifecycle. Malformed payloads or unknown lifecycle values return
 // an error.
-func toSession(row sessionRow) (*apiv1alpha1.Session, error) {
-	session := &apiv1alpha1.Session{}
+func toSession(row sessionRow) (*apiv1.Session, error) {
+	session := &apiv1.Session{}
 	if err := proto.Unmarshal(row.Data, session); err != nil {
 		return nil, fmt.Errorf("decode Session %s: %w", row.ID, err)
 	}
@@ -28,8 +28,8 @@ func toSession(row sessionRow) (*apiv1alpha1.Session, error) {
 	}
 	// Columns own identity, authorization, revision retention and lifecycle.
 	// The full protobuf retains the remaining fields, including unknown fields.
-	session.State = apiv1alpha1.RuntimeState(state)
-	session.Operation = apiv1alpha1.RuntimeOperation(operation)
+	session.State = apiv1.RuntimeState(state)
+	session.Operation = apiv1.RuntimeOperation(operation)
 	session.Id = row.ID.String()
 	session.ContextId = row.ContextID.String()
 	session.Creator = row.UserID
@@ -39,7 +39,7 @@ func toSession(row sessionRow) (*apiv1alpha1.Session, error) {
 
 // marshalSession encodes a session for durable storage, preserving protobuf fields
 // unknown to this binary.
-func marshalSession(session *apiv1alpha1.Session) ([]byte, error) {
+func marshalSession(session *apiv1.Session) ([]byte, error) {
 	data, err := proto.Marshal(session)
 	if err != nil {
 		return nil, fmt.Errorf("encode Session %s: %w", session.GetId(), err)
@@ -48,24 +48,24 @@ func marshalSession(session *apiv1alpha1.Session) ([]byte, error) {
 }
 
 // sameSessionRequest reports whether two creation requests target the same Agent. Names and other mutable fields do not affect retry identity.
-func sameSessionRequest(session, request *apiv1alpha1.Session) bool {
+func sameSessionRequest(session, request *apiv1.Session) bool {
 	return proto.Equal(session.GetAgent(), request.GetAgent())
 }
 
 // CreateSession atomically reserves a session, its conversation history, and the
-// latest successful runtime revision. A repeated creator/requestID returns the existing
-// session when the Agent matches, or ErrIdempotencyConflict otherwise. A
-// deleted session returns ErrFailedPrecondition and keeps its request ID reserved. The
-// boolean reports whether this call created the session; runtime provisioning belongs to
-// the caller.
-func (c *Client) CreateSession(ctx context.Context, request *apiv1alpha1.Session, requestID string) (*apiv1alpha1.Session, bool, error) {
+// latest successful revision, or returns ErrNotFound if none is available. A repeated
+// creator/requestID returns the existing session when the Agent matches, or
+// ErrIdempotencyConflict otherwise. A deleted session returns ErrFailedPrecondition
+// and keeps its request ID reserved. The boolean reports whether this call created
+// the session; runtime provisioning belongs to the caller.
+func (c *Client) CreateSession(ctx context.Context, request *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {
 	existing, err := readSessionRequest(ctx, c.db, request.GetCreator(), requestID)
 	if err == nil {
 		session, err := toSession(existing)
 		if err == nil && (existing.SourceCheckpointID != nil || !sameSessionRequest(session, request)) {
 			return nil, false, ErrIdempotencyConflict
 		}
-		if err == nil && session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+		if err == nil && session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
 			return nil, false, ErrFailedPrecondition
 		}
 		return session, false, err
@@ -88,7 +88,7 @@ func (c *Client) CreateSession(ctx context.Context, request *apiv1alpha1.Session
 		if err == nil && (existing.SourceCheckpointID != nil || !sameSessionRequest(session, request)) {
 			return nil, false, ErrIdempotencyConflict
 		}
-		if err == nil && session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
+		if err == nil && session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
 			return nil, false, ErrFailedPrecondition
 		}
 		return session, false, err
@@ -101,22 +101,23 @@ func (c *Client) CreateSession(ctx context.Context, request *apiv1alpha1.Session
 }
 
 // insertSession reserves a new conversation in CREATING/CREATE and pins the active
-// Agent's latest successful revision. Callers must supply a transaction so
-// the history and session commit together. A missing prepared target returns ErrNotFound;
-// a duplicate creator/requestID returns pgx.ErrNoRows for the caller to resolve.
-func insertSession(ctx context.Context, db pgx.Tx, request *apiv1alpha1.Session, requestID string) (sessionRow, error) {
+// Agent's latest successful revision, locking the revision against cleanup. Callers must supply
+// a transaction so the history and session commit together. A missing prepared target
+// returns ErrNotFound; a duplicate creator/requestID returns pgx.ErrNoRows for the caller
+// to resolve.
+func insertSession(ctx context.Context, db pgx.Tx, request *apiv1.Session, requestID string) (sessionRow, error) {
 	type preparedRevision struct {
 		Revision string
 		DBTime   time.Time
 	}
 	revision, err := queryOne(ctx, db, `
-		SELECT r.revision, clock_timestamp() AS db_time
+		SELECT p.latest_successful_revision AS revision, clock_timestamp() AS db_time
 		FROM agent_definition p
-		JOIN agent_runtime_revision r ON r.revision = p.latest_successful_revision
-  WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
- `, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
+		WHERE p.namespace = $1 AND p.agent_name = $2 AND p.retired_at IS NULL
+		    AND p.latest_successful_revision IS NOT NULL
+	`, pgx.RowToStructByName[preparedRevision], request.GetAgent().GetNamespace(), request.GetAgent().GetName())
 	if err != nil {
-		return sessionRow{}, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+		return sessionRow{}, fmt.Errorf("get latest prepared runtime revision: %w", notFoundOr(err))
 	}
 	if _, err := getAvailableRuntimeRevisionForUpdate(ctx, db, revision.Revision); err != nil {
 		return sessionRow{}, err
@@ -125,8 +126,8 @@ func insertSession(ctx context.Context, db pgx.Tx, request *apiv1alpha1.Session,
 	historyID := uuid.New()
 	session.ContextId = session.Id
 	session.PreparedRevision = revision.Revision
-	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING
-	session.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE
+	session.State = apiv1.RuntimeState_RUNTIME_STATE_CREATING
+	session.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE
 	session.CreatedAt = timestamppb.New(revision.DBTime)
 	session.UpdatedAt = timestamppb.New(revision.DBTime)
 	return insertSessionRecords(ctx, db, session, requestID, historyID, nil)
@@ -134,7 +135,7 @@ func insertSession(ctx context.Context, db pgx.Tx, request *apiv1alpha1.Session,
 
 // GetSessionByID returns a session without filtering by owner, or ErrNotFound if
 // absent or deleted. Callers must authorize access; malformed UUIDs return an error.
-func (c *Client) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Session, error) {
+func (c *Client) GetSessionByID(ctx context.Context, id string) (*apiv1.Session, error) {
 	uid, err := uuid.Parse(id)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Session ID: %w", err)
@@ -149,7 +150,7 @@ func (c *Client) GetSessionByID(ctx context.Context, id string) (*apiv1alpha1.Se
 // GetSessionForRuntime binds a verified Substrate actor UID to the
 // session created for it. Deleted sessions and obsolete actors cannot access
 // retained task data. Actor identity is private and is never caller metadata.
-func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) (*apiv1alpha1.Session, error) {
+func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) (*apiv1.Session, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id, operation_id, executor_id
@@ -164,7 +165,7 @@ func (c *Client) GetSessionForRuntime(ctx context.Context, id, actorUID string) 
 
 // GetSession returns a session only when it belongs to userID. Missing sessions
 // and sessions owned by another user return ErrNotFound. Tombstones are hidden.
-func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1alpha1.Session, error) {
+func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1.Session, error) {
 	row, err := queryOne(ctx, c.db, `
 		SELECT id, user_id, prepared_revision, state, data, operation, context_id,
 		    source_checkpoint_id, history_id, operation_id, executor_id FROM session_record WHERE id = $1 AND user_id = $2 AND state <> 'RUNTIME_STATE_DELETED'
@@ -178,7 +179,7 @@ func (c *Client) GetSession(ctx context.Context, id, userID string) (*apiv1alpha
 // ListSessions returns up to Limit sessions in ascending ID order after AfterID,
 // filtered by optional Agent reference. It restricts results to
 // UserID unless AllUsers is set; callers must authorize that broader access.
-func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1alpha1.Session, error) {
+func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1.Session, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT i.id, i.user_id, i.prepared_revision, i.state, i.data, i.operation,
 		    i.context_id, i.source_checkpoint_id, i.history_id, i.operation_id, i.executor_id FROM session_record i
@@ -195,7 +196,7 @@ func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1
 	if err != nil {
 		return nil, fmt.Errorf("list Sessions: %w", err)
 	}
-	result := make([]*apiv1alpha1.Session, 0, len(rows))
+	result := make([]*apiv1.Session, 0, len(rows))
 	for _, row := range rows {
 		session, err := toSession(row)
 		if err != nil {
@@ -208,14 +209,14 @@ func (c *Client) ListSessions(ctx context.Context, query SessionQuery) ([]*apiv1
 
 // UpdateSessionName renames an owned session while preserving concurrent lifecycle
 // changes. Missing sessions and sessions owned by another user return ErrNotFound.
-func (c *Client) UpdateSessionName(ctx context.Context, id, userID, name string) (*apiv1alpha1.Session, error) {
-	var result *apiv1alpha1.Session
+func (c *Client) UpdateSessionName(ctx context.Context, id, userID, name string) (*apiv1.Session, error) {
+	var result *apiv1.Session
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSession(ctx, tx, id)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if row.UserID != userID || row.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String() {
+		if row.UserID != userID || row.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED.String() {
 			return ErrNotFound
 		}
 		session, err := toSession(row)
@@ -287,7 +288,7 @@ func readSession(ctx context.Context, db dbExecutor, id string) (sessionRow, err
 // insertSessionRecords stores a new session and its independent history together.
 // Callers supply a transaction and a prepared CREATING/CREATE session; a duplicate
 // creator/requestID returns pgx.ErrNoRows so the caller can roll back and resolve it.
-func insertSessionRecords(ctx context.Context, db pgx.Tx, session *apiv1alpha1.Session, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (sessionRow, error) {
+func insertSessionRecords(ctx context.Context, db pgx.Tx, session *apiv1.Session, requestID string, historyID uuid.UUID, sourceCheckpointID *uuid.UUID) (sessionRow, error) {
 	data, err := marshalSession(session)
 	if err != nil {
 		return sessionRow{}, err

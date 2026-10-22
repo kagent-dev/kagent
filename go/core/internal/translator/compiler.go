@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
@@ -18,6 +20,8 @@ type Compiler struct {
 	ctx              krt.HandlerContext
 	collections      Collections
 	harnessCompilers map[HarnessType]HarnessCompiler
+	images           *configv1.HarnessImagesConfig
+	settings         *configv1.RuntimeDefaultsConfig
 }
 
 // HarnessType identifies the runtime selected by a Harness.
@@ -88,8 +92,8 @@ type AgentInputBinding struct {
 }
 
 // NewCompiler constructs the runtime compiler.
-func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
-	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers)}
+func NewCompiler(ctx krt.HandlerContext, collections Collections, harnessCompilers map[HarnessType]HarnessCompiler, images *configv1.HarnessImagesConfig, settings *configv1.RuntimeDefaultsConfig) *Compiler {
+	return &Compiler{ctx: ctx, collections: collections, harnessCompilers: maps.Clone(harnessCompilers), images: images, settings: settings}
 }
 
 // CompileAgent resolves inline or referenced behavior with its referenced
@@ -121,7 +125,7 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 		return nil, fmt.Errorf("resolve Harness %q: not found", harnessKey)
 	}
 	harness := harnessConfiguration(*foundHarness)
-	result, err := c.compileConfiguration(ctx, agent.Name, harness, template)
+	result, err := c.compileConfiguration(ctx, agent, harness, template)
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +142,9 @@ func (c *Compiler) CompileAgent(ctx context.Context, agent *v1alpha3.Agent) (*Co
 	return result, nil
 }
 
-// compileConfiguration compiles resolved configuration for the named Agent.
+// compileConfiguration resolves inputs and compiles configuration for the Agent.
 // The Agent name owns runtime identity; template and Harness names are provenance.
-func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
+func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Agent, harness *HarnessConfiguration, template *TemplateConfiguration) (*CompileResult, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, NewValidationError("Harness runtime is not supported by any compiler")
@@ -153,7 +157,11 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if err != nil {
 		return nil, err
 	}
-	input.AgentName = agentName
+	input.AgentName = agent.Name
+	image, err := harnessImage(harness, c.images)
+	if err != nil {
+		return nil, err
+	}
 	result, err := harnessCompiler.Compile(ctx, input)
 	if err != nil {
 		return nil, err
@@ -163,8 +171,15 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agentName string, h
 	if workerPool == nil {
 		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
 	}
-	result.AgentName = agentName
-	result.SandboxClass = (*workerPool).Spec.SandboxClass
+	result.AgentName = agent.Name
+	result.Image = image
+	result.CPU = c.settings.GetCpu()
+	result.Memory = c.settings.GetMemory()
+	result.SandboxClass = (*workerPool).Spec.DefaultSandboxClass()
+	// Shared agents and plugin selections can contribute the same image.
+	// Normalize once after the complete harness configuration has been compiled.
+	slices.Sort(result.SkillImages)
+	result.SkillImages = slices.Compact(result.SkillImages)
 	return result, nil
 }
 

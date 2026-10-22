@@ -7,7 +7,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type testResource struct {
@@ -74,16 +74,16 @@ func TestToGoValidation(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		object  *apiv1alpha1.StructuredObject
+		object  *apiv1.StructuredObject
 		kind    string
 		max     int
 		wantErr error
 	}{
 		{name: "nil object", wantErr: ErrNilValue},
-		{name: "nil value", object: &apiv1alpha1.StructuredObject{Kind: "Example"}, wantErr: ErrNilValue},
-		{name: "wrong kind", object: &apiv1alpha1.StructuredObject{Kind: "Other", Value: value}, kind: "Example", wantErr: ErrKindMismatch},
-		{name: "too large", object: &apiv1alpha1.StructuredObject{Kind: "Example", Value: value}, kind: "Example", max: 1, wantErr: ErrValueTooLarge},
-		{name: "unknown field", object: &apiv1alpha1.StructuredObject{Kind: "Example", Value: value}, kind: "Example"},
+		{name: "nil value", object: &apiv1.StructuredObject{Kind: "Example"}, wantErr: ErrNilValue},
+		{name: "wrong kind", object: &apiv1.StructuredObject{Kind: "Other", Value: value}, kind: "Example", wantErr: ErrKindMismatch},
+		{name: "too large", object: &apiv1.StructuredObject{Kind: "Example", Value: value}, kind: "Example", max: 1, wantErr: ErrValueTooLarge},
+		{name: "unknown field", object: &apiv1.StructuredObject{Kind: "Example", Value: value}, kind: "Example"},
 	}
 
 	for _, test := range tests {

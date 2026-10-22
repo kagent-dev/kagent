@@ -18,7 +18,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -28,7 +28,7 @@ import (
 // actual CRD schema. The normal Go test job supplies KUBEBUILDER_ASSETS.
 func TestSandboxTemplateCatalog(t *testing.T) {
 	testEnv := &envtest.Environment{
-		CRDDirectoryPaths: []string{"../../../api/config/crd/bases"}, ErrorIfCRDPathMissing: true,
+		CRDDirectoryPaths: []string{"../../../../helm/kagent-crds/templates"}, ErrorIfCRDPathMissing: true,
 	}
 	config, err := testEnv.Start()
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 	kubeClient, err := ctrlclient.New(config, ctrlclient.Options{Scheme: scheme})
 	require.NoError(t, err)
 	require.NoError(t, kubeClient.Create(t.Context(), &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team"}}))
-	client := apiv1alpha1.NewSandboxTemplateServiceClient(newConfigurationConnection(t, kubeClient))
+	client := apiv1.NewSandboxTemplateServiceClient(newConfigurationConnection(t, kubeClient))
 	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
 	resource := &v1alpha3.SandboxTemplate{Spec: v1alpha3.SandboxTemplateSpec{
 		Workload: v1alpha3.SandboxTemplateWorkload{Image: testHarnessImage},
@@ -49,8 +49,8 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 			SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 		},
 	}}
-	request := &apiv1alpha1.CreateSandboxTemplateRequest{
-		Ref:      &apiv1alpha1.ResourceReference{Namespace: "team", Name: "environment"},
+	request := &apiv1.CreateSandboxTemplateRequest{
+		Ref:      &apiv1.ResourceReference{Namespace: "team", Name: "environment"},
 		Resource: structured(t, resource, v1alpha3.SandboxTemplateKind),
 	}
 	created, err := client.CreateSandboxTemplate(ctx, request)
@@ -61,7 +61,7 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 	_, err = client.CreateSandboxTemplate(ctx, request)
 	require.Equal(t, codes.AlreadyExists, status.Code(err))
 	for _, namespace := range []string{"team", ""} {
-		listed, err := client.ListSandboxTemplates(ctx, &apiv1alpha1.ListSandboxTemplatesRequest{Namespace: namespace})
+		listed, err := client.ListSandboxTemplates(ctx, &apiv1.ListSandboxTemplatesRequest{Namespace: namespace})
 		require.NoError(t, err)
 		require.Len(t, listed.SandboxTemplates, 1)
 		listedTemplate := listed.SandboxTemplates[0]
@@ -75,54 +75,54 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 
 	for _, tt := range []struct {
 		name   string
-		mutate func(*apiv1alpha1.CreateSandboxTemplateRequest)
+		mutate func(*apiv1.CreateSandboxTemplateRequest)
 	}{
-		{"missing ref", func(r *apiv1alpha1.CreateSandboxTemplateRequest) { r.Ref = nil }},
-		{"missing resource", func(r *apiv1alpha1.CreateSandboxTemplateRequest) { r.Resource = nil }},
-		{"missing value", func(r *apiv1alpha1.CreateSandboxTemplateRequest) { r.Resource.Value = nil }},
-		{"invalid namespace", func(r *apiv1alpha1.CreateSandboxTemplateRequest) { r.Ref.Namespace = "INVALID" }},
-		{"wrong kind", func(r *apiv1alpha1.CreateSandboxTemplateRequest) { r.Resource.Kind = "Harness" }},
-		{"wrong version", func(r *apiv1alpha1.CreateSandboxTemplateRequest) { r.Resource.ApiVersion = "kagent.dev/v1alpha2" }},
-		{"conflicting kind", func(r *apiv1alpha1.CreateSandboxTemplateRequest) {
+		{"missing ref", func(r *apiv1.CreateSandboxTemplateRequest) { r.Ref = nil }},
+		{"missing resource", func(r *apiv1.CreateSandboxTemplateRequest) { r.Resource = nil }},
+		{"missing value", func(r *apiv1.CreateSandboxTemplateRequest) { r.Resource.Value = nil }},
+		{"invalid namespace", func(r *apiv1.CreateSandboxTemplateRequest) { r.Ref.Namespace = "INVALID" }},
+		{"wrong kind", func(r *apiv1.CreateSandboxTemplateRequest) { r.Resource.Kind = "Harness" }},
+		{"wrong version", func(r *apiv1.CreateSandboxTemplateRequest) { r.Resource.ApiVersion = "kagent.dev/v1alpha2" }},
+		{"conflicting kind", func(r *apiv1.CreateSandboxTemplateRequest) {
 			r.Resource.Value.Fields["kind"] = structpb.NewStringValue("Harness")
 		}},
-		{"conflicting namespace", func(r *apiv1alpha1.CreateSandboxTemplateRequest) {
+		{"conflicting namespace", func(r *apiv1.CreateSandboxTemplateRequest) {
 			r.Resource.Value.Fields["metadata"] = structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"namespace": structpb.NewStringValue("other")}})
 		}},
-		{"conflicting name", func(r *apiv1alpha1.CreateSandboxTemplateRequest) {
+		{"conflicting name", func(r *apiv1.CreateSandboxTemplateRequest) {
 			r.Resource.Value.Fields["metadata"] = structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"name": structpb.NewStringValue("other")}})
 		}},
-		{"mutable image rejected by Kubernetes", func(r *apiv1alpha1.CreateSandboxTemplateRequest) {
+		{"mutable image rejected by Kubernetes", func(r *apiv1.CreateSandboxTemplateRequest) {
 			r.Resource.Value.Fields["spec"].GetStructValue().Fields["workload"].GetStructValue().Fields["image"] = structpb.NewStringValue("example.com/guest:latest")
 		}},
-		{"startup is not template configuration", func(r *apiv1alpha1.CreateSandboxTemplateRequest) {
+		{"startup is not template configuration", func(r *apiv1.CreateSandboxTemplateRequest) {
 			r.Resource.Value.Fields["spec"].GetStructValue().Fields["workload"].GetStructValue().Fields["command"] = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("/agent")}})
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			invalid := proto.Clone(request).(*apiv1alpha1.CreateSandboxTemplateRequest)
+			invalid := proto.Clone(request).(*apiv1.CreateSandboxTemplateRequest)
 			invalid.Ref.Name = "invalid"
 			tt.mutate(invalid)
 			_, err := client.CreateSandboxTemplate(ctx, invalid)
 			require.Equal(t, codes.InvalidArgument, status.Code(err), "%v", err)
 		})
 	}
-	_, err = client.DeleteSandboxTemplate(ctx, &apiv1alpha1.DeleteSandboxTemplateRequest{})
+	_, err = client.DeleteSandboxTemplate(ctx, &apiv1.DeleteSandboxTemplateRequest{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	_, err = client.ListSandboxTemplates(ctx, &apiv1alpha1.ListSandboxTemplatesRequest{Namespace: "INVALID"})
+	_, err = client.ListSandboxTemplates(ctx, &apiv1.ListSandboxTemplatesRequest{Namespace: "INVALID"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	_, err = client.DeleteSandboxTemplate(ctx, &apiv1alpha1.DeleteSandboxTemplateRequest{Ref: request.Ref})
+	_, err = client.DeleteSandboxTemplate(ctx, &apiv1.DeleteSandboxTemplateRequest{Ref: request.Ref})
 	require.NoError(t, err)
-	_, err = client.DeleteSandboxTemplate(ctx, &apiv1alpha1.DeleteSandboxTemplateRequest{Ref: request.Ref})
+	_, err = client.DeleteSandboxTemplate(ctx, &apiv1.DeleteSandboxTemplateRequest{Ref: request.Ref})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	listed, err := client.ListSandboxTemplates(ctx, &apiv1alpha1.ListSandboxTemplatesRequest{})
+	listed, err := client.ListSandboxTemplates(ctx, &apiv1.ListSandboxTemplatesRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.SandboxTemplates)
 }
 
 func TestSandboxTemplateMethodPolicies(t *testing.T) {
 	policies := DefaultMethodPolicies()
-	require.Equal(t, auth.AccessRead, policies[apiv1alpha1.SandboxTemplateService_ListSandboxTemplates_FullMethodName])
-	require.Equal(t, auth.AccessCreate, policies[apiv1alpha1.SandboxTemplateService_CreateSandboxTemplate_FullMethodName])
-	require.Equal(t, auth.AccessDelete, policies[apiv1alpha1.SandboxTemplateService_DeleteSandboxTemplate_FullMethodName])
+	require.Equal(t, auth.AccessRead, policies[apiv1.SandboxTemplateService_ListSandboxTemplates_FullMethodName])
+	require.Equal(t, auth.AccessCreate, policies[apiv1.SandboxTemplateService_CreateSandboxTemplate_FullMethodName])
+	require.Equal(t, auth.AccessDelete, policies[apiv1.SandboxTemplateService_DeleteSandboxTemplate_FullMethodName])
 }

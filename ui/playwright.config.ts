@@ -131,7 +131,7 @@ export default defineConfig({
    * machine leave the servers transforming modules for whoever asks first.
    *
    * A share, not a number, because that failure mode is about how much machine there
-   * is: `ubuntu-latest` is four cores, where a flat `4` would thrash with two engines
+   * is: the CI runner is four cores, where a flat `4` would thrash with two engines
    * running, and a runner that grows should get the benefit without another edit.
    *
    * `retries` stays at two deliberately. Raising concurrency without keeping the net

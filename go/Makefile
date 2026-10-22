@@ -8,13 +8,6 @@ LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VE
            -X github.com/kagent-dev/kagent/go/core/internal/version.BuildDate=$(BUILD_DATE) \
            -X github.com/kagent-dev/kagent/go/core/internal/version.SubstrateVersion=$(SUBSTRATE_VERSION)
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
-ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
-else
-GOBIN=$(shell go env GOBIN)
-endif
-
 default: help
 
 .PHONY: help
@@ -23,9 +16,11 @@ help: ## list makefile targets
 
 ##@ Code Generation (api module)
 
+CRD_OUTPUT_DIR := ../helm/kagent-crds/templates
+
 .PHONY: manifests
 manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=$(CRD_OUTPUT_DIR)
 
 .PHONY: generate
 generate: controller-gen client-generate ## Generate DeepCopy methods and Kubernetes clients.
@@ -50,32 +45,29 @@ fmt: ## Run go fmt.
 vet: ## Run go vet.
 	go vet ./...
 
-KUBE_API_LINTER_TOOL ?= golangci-lint-kube-api-linter
-KUBE_API_LINTER_PACKAGES ?= ./api/v1alpha3
+CUSTOM_GOLANGCI_LINT_BIN ?= $(CURDIR)/bin/golangci-lint-custom
+CUSTOM_GOLANGCI_LINT ?= $(CUSTOM_GOLANGCI_LINT_BIN)
+GOLANGCI_LINT ?= go tool golangci-lint
+LINT_ARGS ?=
 
 .PHONY: lint
-lint: golangci-lint kube-api-lint ## Run golangci-lint and kube-api-linter.
-	$(GOLANGCI_LINT) run
-
-.PHONY: kube-api-lint
-kube-api-lint: ## Run kube-api-linter against the Kubernetes API packages.
-	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
-		GOOS=linux "$$KUBE_API_LINTER_BIN" run --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
+lint: $(CUSTOM_GOLANGCI_LINT_BIN) ## Run golangci-lint and kube-api-linter.
+	$(CUSTOM_GOLANGCI_LINT) run $(LINT_ARGS)
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint and kube-api-linter with auto-fix.
-	$(GOLANGCI_LINT) run --fix
-	@KUBE_API_LINTER_BIN="$$(go tool -n $(KUBE_API_LINTER_TOOL))" && \
-		GOOS=linux "$$KUBE_API_LINTER_BIN" run --fix --config .golangci-kal.yaml $(KUBE_API_LINTER_PACKAGES)
+lint-fix: LINT_ARGS := --fix
+lint-fix: lint ## Run golangci-lint and kube-api-linter with auto-fix.
 
 .PHONY: lint-config
-lint-config: golangci-lint ## Verify golangci-lint linter configuration.
-	$(GOLANGCI_LINT) config verify
+lint-config: $(CUSTOM_GOLANGCI_LINT_BIN) ## Verify golangci-lint linter configuration.
+	$(CUSTOM_GOLANGCI_LINT) config verify
+
+$(CUSTOM_GOLANGCI_LINT_BIN): go.mod go.sum .custom-gcl.yml
+	$(GOLANGCI_LINT) custom
 
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck.
-	$(call go-install-tool,bin/govulncheck,golang.org/x/vuln/cmd/govulncheck,latest)
-	go mod tidy -v && bin/govulncheck-latest ./...
+	go mod tidy -v && go tool govulncheck ./...
 
 ##@ Build (core module — CLI binaries)
 
@@ -124,9 +116,14 @@ build: core/bin/kagent-linux-amd64.sha256 core/bin/kagent-linux-arm64.sha256 cor
 run: fmt vet ## Run a controller from your host.
 	go run ./core/cmd/controller/main.go
 
+GO_TEST_FLAGS ?= -race
+GO_TEST_PACKAGES ?= $(shell go list ./... | grep -vE "/test/")
+
 .PHONY: test
-test: ## Run all unit tests.
-	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) go test -race -skip 'TestE2E.*' -v ./...
+test: setup-envtest ## Run all unit tests.
+	KAGENT_TEST_UPDATE_GOLDEN=$(KAGENT_TEST_UPDATE_GOLDEN) \
+		KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
+		go test $(GO_TEST_FLAGS) $(GO_TEST_PACKAGES)
 
 # Pin e2e tests to the kind cluster so a stray current-context (or an
 # ambient KUBECONFIG) can't leak resources onto a remote cluster. Override
@@ -153,27 +150,21 @@ LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
-## Tool Binaries
+## Tool Commands
 KUBECTL ?= kubectl
-CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
-ENVTEST ?= $(LOCALBIN)/setup-envtest
-GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+CONTROLLER_GEN ?= go tool controller-gen
+ENVTEST ?= go tool setup-envtest
 
-## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.19.0
-#ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
-ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
-#ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
+## Envtest Assets
+# ENVTEST_K8S_VERSION is the Kubernetes version used to set up envtest binaries (for example, 1.31).
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.13.0
 
 .PHONY: controller-gen
-controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
-$(CONTROLLER_GEN): $(LOCALBIN)
-	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+controller-gen: ## Verify the controller-gen Go tool dependency.
+	@$(CONTROLLER_GEN) --version
 
 .PHONY: setup-envtest
-setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
+setup-envtest: envtest $(LOCALBIN) ## Download the binaries required for ENVTEST in the local bin directory.
 	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path || { \
 		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
@@ -181,31 +172,9 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 	}
 
 .PHONY: envtest-path
-envtest-path: envtest ## Print the path to the envtest binaries (downloads them if absent).
+envtest-path: $(LOCALBIN) ## Print the path to the envtest binaries (downloads them if absent).
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
 .PHONY: envtest
-envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
-$(ENVTEST): $(LOCALBIN)
-	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
-
-.PHONY: golangci-lint
-golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-$(GOLANGCI_LINT): $(LOCALBIN)
-	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
-
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary
-# $2 - package url which can be installed
-# $3 - specific version of package
-define go-install-tool
-@[ -f "$(1)-$(3)" ] || { \
-set -e; \
-package=$(2)@$(3) ;\
-echo "Downloading $${package}" ;\
-rm -f $(1) || true ;\
-GOBIN=$(LOCALBIN) go install $${package} ;\
-mv $(1) $(1)-$(3) ;\
-} ;\
-ln -sf $(1)-$(3) $(1)
-endef
+envtest: ## Verify the setup-envtest Go tool dependency.
+	@$(ENVTEST) version

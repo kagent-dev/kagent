@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
@@ -37,9 +37,9 @@ import (
 func TestScheduledRunServicePersistence(t *testing.T) {
 	store, client, sessions, owner := scheduledRunTestServer(t)
 	visitor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "bob"))
-	request := &apiv1alpha1.CreateScheduledRunRequest{
-		Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
-		Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
+	request := &apiv1.CreateScheduledRunRequest{
+		Agent: &apiv1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
+		Config: &apiv1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
 	}
 	created, err := client.CreateScheduledRun(owner, request)
 	require.NoError(t, err)
@@ -50,42 +50,42 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	require.NotNil(t, schedule.NextExecutionTime)
 	_, err = uuid.Parse(schedule.Id)
 	require.NoError(t, err)
-	_, err = client.GetScheduledRun(visitor, &apiv1alpha1.GetScheduledRunRequest{ScheduledRunId: schedule.Id})
+	_, err = client.GetScheduledRun(visitor, &apiv1.GetScheduledRunRequest{ScheduledRunId: schedule.Id})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	listed, err := client.ListScheduledRuns(visitor, &apiv1alpha1.ListScheduledRunsRequest{})
+	listed, err := client.ListScheduledRuns(visitor, &apiv1.ListScheduledRunsRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.ScheduledRuns)
 
 	config := proto.CloneOf(schedule.Config)
 	config.Paused = true
-	updated, err := client.UpdateScheduledRun(owner, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: schedule.Id, Etag: schedule.Etag, Config: config})
+	updated, err := client.UpdateScheduledRun(owner, &apiv1.UpdateScheduledRunRequest{ScheduledRunId: schedule.Id, Etag: schedule.Etag, Config: config})
 	require.NoError(t, err)
 	require.Nil(t, updated.ScheduledRun.NextExecutionTime)
-	_, err = client.UpdateScheduledRun(owner, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: schedule.Id, Etag: schedule.Etag, Config: config})
+	_, err = client.UpdateScheduledRun(owner, &apiv1.UpdateScheduledRunRequest{ScheduledRunId: schedule.Id, Etag: schedule.Etag, Config: config})
 	require.Equal(t, codes.Aborted, status.Code(err))
-	trigger := &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "manual"}
+	trigger := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "manual"}
 	reserved, err := client.TriggerScheduledRun(owner, trigger)
 	require.NoError(t, err)
 	require.NotEmpty(t, reserved.Execution.Id)
-	require.Equal(t, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, reserved.Execution.State)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, reserved.Execution.State)
 	require.Equal(t, "original", reserved.Execution.Prompt)
 	_, err = client.TriggerScheduledRun(visitor, trigger)
 	require.Equal(t, codes.NotFound, status.Code(err))
-	_, err = client.GetScheduledRunExecution(visitor, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: reserved.Execution.Id})
+	_, err = client.GetScheduledRunExecution(visitor, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: reserved.Execution.Id})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	second, err := client.TriggerScheduledRun(owner, &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "second"})
+	second, err := client.TriggerScheduledRun(owner, &apiv1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "second"})
 	require.NoError(t, err)
-	firstPage, err := client.ListScheduledRunExecutions(owner, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id, Page: &apiv1alpha1.PageRequest{Limit: 1}})
+	firstPage, err := client.ListScheduledRunExecutions(owner, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id, Page: &apiv1.PageRequest{Limit: 1}})
 	require.NoError(t, err)
 	require.Len(t, firstPage.Executions, 1)
 	require.Equal(t, second.Execution.Id, firstPage.Executions[0].Id, "newest firing is visible without paging through history")
 	require.NotEmpty(t, firstPage.Page.NextPageToken)
-	secondPage, err := client.ListScheduledRunExecutions(owner, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id, Page: &apiv1alpha1.PageRequest{Limit: 1, PageToken: firstPage.Page.NextPageToken}})
+	secondPage, err := client.ListScheduledRunExecutions(owner, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id, Page: &apiv1.PageRequest{Limit: 1, PageToken: firstPage.Page.NextPageToken}})
 	require.NoError(t, err)
 	require.Len(t, secondPage.Executions, 1)
 	require.Equal(t, reserved.Execution.Id, secondPage.Executions[0].Id)
 	require.Empty(t, secondPage.Page.NextPageToken)
-	_, err = client.DeleteScheduledRun(owner, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: schedule.Id})
+	_, err = client.DeleteScheduledRun(owner, &apiv1.DeleteScheduledRunRequest{ScheduledRunId: schedule.Id})
 	require.NoError(t, err)
 	replayed, err := client.TriggerScheduledRun(owner, trigger)
 	require.NoError(t, err)
@@ -93,37 +93,37 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	trigger.RequestId = "after-delete"
 	_, err = client.TriggerScheduledRun(owner, trigger)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	history, err := client.ListScheduledRunExecutions(owner, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id})
+	history, err := client.ListScheduledRunExecutions(owner, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id})
 	require.NoError(t, err)
 	require.Len(t, history.Executions, 2)
 	require.True(t, proto.Equal(reserved.Execution, history.Executions[1]))
-	privateHistory, err := client.ListScheduledRunExecutions(visitor, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id})
+	privateHistory, err := client.ListScheduledRunExecutions(visitor, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: schedule.Id})
 	require.NoError(t, err)
 	require.Empty(t, privateHistory.Executions)
 	// The interceptor must reject malformed IDs before handlers convert to UUIDs.
 	for _, id := range []string{"", "invalid"} {
-		_, err = client.GetScheduledRun(owner, &apiv1alpha1.GetScheduledRunRequest{ScheduledRunId: id})
+		_, err = client.GetScheduledRun(owner, &apiv1.GetScheduledRunRequest{ScheduledRunId: id})
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "get schedule: %v", err)
-		_, err = client.UpdateScheduledRun(owner, &apiv1alpha1.UpdateScheduledRunRequest{ScheduledRunId: id, Etag: schedule.Etag, Config: config})
+		_, err = client.UpdateScheduledRun(owner, &apiv1.UpdateScheduledRunRequest{ScheduledRunId: id, Etag: schedule.Etag, Config: config})
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "update schedule: %v", err)
-		_, err = client.DeleteScheduledRun(owner, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: id})
+		_, err = client.DeleteScheduledRun(owner, &apiv1.DeleteScheduledRunRequest{ScheduledRunId: id})
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "delete schedule: %v", err)
-		_, err = client.TriggerScheduledRun(owner, &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: id, RequestId: "invalid-id"})
+		_, err = client.TriggerScheduledRun(owner, &apiv1.TriggerScheduledRunRequest{ScheduledRunId: id, RequestId: "invalid-id"})
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "trigger schedule: %v", err)
-		_, err = client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: id})
+		_, err = client.GetScheduledRunExecution(owner, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: id})
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "get execution: %v", err)
-		_, err = client.ListScheduledRunExecutions(owner, &apiv1alpha1.ListScheduledRunExecutionsRequest{ScheduledRunId: id})
+		_, err = client.ListScheduledRunExecutions(owner, &apiv1.ListScheduledRunExecutionsRequest{ScheduledRunId: id})
 		require.Equal(t, codes.InvalidArgument, status.Code(err), "list executions: %v", err)
 	}
 	// Execution history survives deleting the linked conversation and schedule.
 	linked, err := store.ReserveScheduledRunExecutionSession(t.Context(), uuid.MustParse(reserved.Execution.Id), "alice")
 	require.NoError(t, err)
 	require.NotEmpty(t, linked.SessionId)
-	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.SessionId, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
+	_, err = (&scheduledControllerWorkflow{store: store}).finish(t.Context(), linked.SessionId, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 	require.NoError(t, err)
-	_, err = sessions.GetSession(owner, &apiv1alpha1.GetSessionRequest{SessionId: linked.SessionId})
+	_, err = sessions.GetSession(owner, &apiv1.GetSessionRequest{SessionId: linked.SessionId})
 	require.Equal(t, codes.NotFound, status.Code(err))
-	loaded, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: linked.Id})
+	loaded, err := client.GetScheduledRunExecution(owner, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: linked.Id})
 	require.NoError(t, err)
 	require.True(t, proto.Equal(linked, loaded.Execution))
 	trigger.RequestId = "manual"
@@ -141,22 +141,22 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		change func(*apiv1alpha1.CreateScheduledRunRequest)
+		change func(*apiv1.CreateScheduledRunRequest)
 	}{
-		{"invalid namespace", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Agent.Namespace = "Bad/Namespace" }},
-		{"missing config", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Config = nil }},
-		{"blank prompt", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Config.Prompt = " \n\t" }},
-		{"negative duration", func(r *apiv1alpha1.CreateScheduledRunRequest) {
+		{"invalid namespace", func(r *apiv1.CreateScheduledRunRequest) { r.Agent.Namespace = "Bad/Namespace" }},
+		{"missing config", func(r *apiv1.CreateScheduledRunRequest) { r.Config = nil }},
+		{"blank prompt", func(r *apiv1.CreateScheduledRunRequest) { r.Config.Prompt = " \n\t" }},
+		{"negative duration", func(r *apiv1.CreateScheduledRunRequest) {
 			r.Config.ExecutionTimeout = durationpb.New(-time.Second)
 		}},
-		{"sub-microsecond duration", func(r *apiv1alpha1.CreateScheduledRunRequest) {
+		{"sub-microsecond duration", func(r *apiv1.CreateScheduledRunRequest) {
 			r.Config.ExecutionTimeout = durationpb.New(time.Nanosecond)
 		}},
-		{"overflow duration", func(r *apiv1alpha1.CreateScheduledRunRequest) {
+		{"overflow duration", func(r *apiv1.CreateScheduledRunRequest) {
 			r.Config.ExecutionTimeout = &durationpb.Duration{Seconds: 10000000000}
 		}},
-		{"invalid cron", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Config.Schedule = "@hourly" }},
-		{"invalid zone", func(r *apiv1alpha1.CreateScheduledRunRequest) { r.Config.TimeZone = "Bad/Zone" }},
+		{"invalid cron", func(r *apiv1.CreateScheduledRunRequest) { r.Config.Schedule = "@hourly" }},
+		{"invalid zone", func(r *apiv1.CreateScheduledRunRequest) { r.Config.TimeZone = "Bad/Zone" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			invalid := proto.CloneOf(request)
@@ -168,7 +168,7 @@ func TestScheduledRunServicePersistence(t *testing.T) {
 	}
 }
 
-func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.ScheduledRunServiceClient, apiv1alpha1.SessionServiceClient, context.Context) {
+func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1.ScheduledRunServiceClient, apiv1.SessionServiceClient, context.Context) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("requires PostgreSQL")
@@ -180,12 +180,13 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 	t.Cleanup(db.Close)
 	store := database.NewClient(db, "public")
 	pair := database.AgentDefinition{Namespace: "team", AgentName: "report", AgentUID: "template-uid", DesiredRevision: "scheduled-revision"}
-	require.NoError(t, store.UpsertAgentDefinition(t.Context(), pair))
+	upsertErr := store.UpsertAgentDefinition(t.Context(), pair)
+	require.NoError(t, upsertErr)
 	require.NoError(t, store.RecordRuntimeRevision(t.Context(), database.RuntimeRevision{
 		Revision: pair.DesiredRevision, Namespace: pair.Namespace, AgentName: pair.AgentName, AgentUID: pair.AgentUID,
 		SourceSnapshot: []byte("{}"), AgentCard: &a2apb.AgentCard{}, EgressDestinations: []string{},
 		ActorTemplateAtespace: "team", ActorTemplateName: "runtime", ActorTemplateUID: "runtime-uid",
-	}, true))
+	}, database.RecordRevisionOptions{Ready: true}))
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team", Name: "report"}, Spec: v1alpha3.AgentSpec{
@@ -209,22 +210,22 @@ func scheduledRunTestServer(t *testing.T) (*database.Client, apiv1alpha1.Schedul
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	client := apiv1alpha1.NewScheduledRunServiceClient(connection)
-	sessions := apiv1alpha1.NewSessionServiceClient(connection)
+	client := apiv1.NewScheduledRunServiceClient(connection)
+	sessions := apiv1.NewSessionServiceClient(connection)
 	owner := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "alice"))
 	return store, client, sessions, owner
 }
 
 func TestScheduledRunServiceDeletesMalformedConfig(t *testing.T) {
 	store, client, _, owner := scheduledRunTestServer(t)
-	created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
+	created, err := client.CreateScheduledRun(owner, &apiv1.CreateScheduledRunRequest{
 
-		Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
-		Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
+		Agent: &apiv1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "create",
+		Config: &apiv1.ScheduledRunConfig{Schedule: "* * * * *", Prompt: "original"},
 	})
 	require.NoError(t, err)
 	schedule := created.ScheduledRun
-	execution, err := client.TriggerScheduledRun(owner, &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "manual"})
+	execution, err := client.TriggerScheduledRun(owner, &apiv1.TriggerScheduledRunRequest{ScheduledRunId: schedule.Id, RequestId: "manual"})
 	require.NoError(t, err)
 	// Inject a persisted config that public request validation would reject.
 	// The internal write commits, then its response decoder rejects the payload.
@@ -232,10 +233,10 @@ func TestScheduledRunServiceDeletesMalformedConfig(t *testing.T) {
 	invalid.Prompt = " "
 	_, err = store.UpdateScheduledRun(t.Context(), uuid.MustParse(schedule.Id), schedule.Creator, schedule.Etag, invalid)
 	require.Error(t, err)
-	_, err = client.GetScheduledRun(owner, &apiv1alpha1.GetScheduledRunRequest{ScheduledRunId: schedule.Id})
+	_, err = client.GetScheduledRun(owner, &apiv1.GetScheduledRunRequest{ScheduledRunId: schedule.Id})
 	require.Equal(t, codes.Internal, status.Code(err))
 	visitor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "bob"))
-	request := &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: schedule.Id}
+	request := &apiv1.DeleteScheduledRunRequest{ScheduledRunId: schedule.Id}
 	_, err = client.DeleteScheduledRun(visitor, request)
 	require.Equal(t, codes.NotFound, status.Code(err))
 	deleted, err := client.DeleteScheduledRun(owner, request)
@@ -247,10 +248,10 @@ func TestScheduledRunServiceDeletesMalformedConfig(t *testing.T) {
 	again, err := client.DeleteScheduledRun(owner, request)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(deleted, again))
-	listed, err := client.ListScheduledRuns(owner, &apiv1alpha1.ListScheduledRunsRequest{})
+	listed, err := client.ListScheduledRuns(owner, &apiv1.ListScheduledRunsRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.ScheduledRuns)
-	history, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: execution.Execution.Id})
+	history, err := client.GetScheduledRunExecution(owner, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: execution.Execution.Id})
 	require.NoError(t, err)
 	require.True(t, proto.Equal(execution.Execution, history.Execution))
 }

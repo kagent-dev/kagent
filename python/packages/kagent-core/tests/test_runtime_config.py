@@ -2,27 +2,32 @@ import json
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from google.protobuf.json_format import ParseError
+from protovalidate import ValidationError
 
 from kagent.core import KAgentConfig
-from kagent.core._runtime_config import RuntimeConfig
+from kagent.core._runtime_config import RuntimeConfig, parse_runtime_config
 
 
 def test_shared_go_runtime_contract():
-    path = Path(__file__).resolve().parents[4] / "go/api/adk/testdata/runtime.json"
-    cfg = RuntimeConfig.model_validate_json(path.read_text())
+    path = Path(__file__).resolve().parents[4] / "go/adk/pkg/config/testdata/runtime.json"
+    cfg = parse_runtime_config(path.read_text())
     assert cfg.max_content_length == 0
     assert cfg.token_propagation.enabled is False
+    assert cfg.builtin_tools.bash_venv_path == "/opt/venv"
+    assert cfg.builtin_tools.disable_file_search is False
+    assert cfg.builtin_tools.disable_bash is True
     assert cfg.telemetry.capture_content is False
-    assert cfg.telemetry.exporters.traces.timeout_ms == 1500
+    assert cfg.telemetry.traces.timeout.ToMilliseconds() == 1500
     assert KAgentConfig(runtime=cfg).api_url == "http://controller:8083"
 
 
 def test_runtime_defaults():
     cfg = RuntimeConfig()
-    assert cfg.max_content_length is None
-    assert not cfg.file_search_tools
-    assert cfg.telemetry.exporters is None
+    assert not cfg.HasField("max_content_length")
+    assert not cfg.builtin_tools.disable_file_search
+    assert not cfg.builtin_tools.disable_bash
+    assert not cfg.HasField("telemetry")
 
 
 @pytest.mark.parametrize(
@@ -32,17 +37,18 @@ def test_runtime_defaults():
         {"max_content_length": -1},
         {"control_plane_url": "file:///private"},
         {"token_propagation": {"resources": [""]}},
-        {"telemetry": {"agent_name": "partial"}},
-        {"telemetry": {"exporters": {"resource_attributes": {"service.name": "shared"}}}},
-        {"telemetry": {"exporters": {"resource_attributes": {"service.namespace": "shared"}}}},
+        {"telemetry": {"max_capture_bytes": -1}},
+        {"telemetry": {"resource_attributes": {"service.name": "shared"}}},
+        {"telemetry": {"resource_attributes": {"service.namespace": "shared"}}},
         {"log_level": "verbose"},
-        {"file_search_tools": "false"},
+        {"builtin_tools": {"disable_file_search": "false"}},
+        {"builtin_tools": {"disable_bash": "true"}},
         {"unknown": True},
     ],
 )
 def test_invalid_runtime_settings(value):
-    with pytest.raises(ValidationError):
-        RuntimeConfig.model_validate(value)
+    with pytest.raises((ValidationError, ParseError)):
+        parse_runtime_config(value)
 
 
 def test_load_generated_root_settings(tmp_path, monkeypatch):

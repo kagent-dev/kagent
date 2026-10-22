@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 func TestProtovalidateUnaryInterceptor(t *testing.T) {
@@ -25,7 +25,7 @@ func TestProtovalidateUnaryInterceptor(t *testing.T) {
 	handled := false
 	_, err = protovalidatemiddleware.UnaryServerInterceptor(validator)(
 		t.Context(),
-		&apiv1alpha1.CreateSessionRequest{},
+		&apiv1.CreateSessionRequest{},
 		&grpc.UnaryServerInfo{},
 		func(context.Context, any) (any, error) {
 			handled = true
@@ -53,23 +53,23 @@ func TestSessionRequestValidation(t *testing.T) {
 		request proto.Message
 		valid   bool
 	}{
-		{"ordinary name", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "Deploy 🚀"}, true},
-		{"list without namespace", &apiv1alpha1.ListSessionsRequest{}, true},
-		{"missing target namespace", &apiv1alpha1.ListSessionsRequest{Agent: &apiv1alpha1.ResourceReference{Name: "assistant"}}, false},
-		{"leading whitespace", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
-		{"control character", &apiv1alpha1.CreateSessionRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
-		{"invalid template filter", &apiv1alpha1.ListSessionsRequest{Agent: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
-		{"valid rename", &apiv1alpha1.UpdateSessionNameRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
-		{"invalid rename id", &apiv1alpha1.UpdateSessionNameRequest{SessionId: "not-a-uuid", Name: "New title"}, false},
-		{"valid checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},
-		{"empty checkpoint rename", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111"}, true},
-		{"checkpoint without selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
-		{"checkpoint selected task", &apiv1alpha1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request", ExpectedHeadTaskId: "task"}, true},
-		{"checkpoint rename control character", &apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
-		{"share without ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE}, true},
-		{"share positive ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(time.Hour)}, true},
-		{"share zero ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(0)}, false},
-		{"share negative ttl", &apiv1alpha1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_WRITE, Ttl: durationpb.New(-time.Second)}, false},
+		{"ordinary name", &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "Deploy 🚀"}, true},
+		{"list without namespace", &apiv1.ListSessionsRequest{}, true},
+		{"missing target namespace", &apiv1.ListSessionsRequest{Agent: &apiv1.ResourceReference{Name: "assistant"}}, false},
+		{"leading whitespace", &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
+		{"control character", &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
+		{"invalid template filter", &apiv1.ListSessionsRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
+		{"valid rename", &apiv1.UpdateSessionNameRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
+		{"invalid rename id", &apiv1.UpdateSessionNameRequest{SessionId: "not-a-uuid", Name: "New title"}, false},
+		{"valid checkpoint rename", &apiv1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},
+		{"empty checkpoint rename", &apiv1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111"}, true},
+		{"checkpoint without selected task", &apiv1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
+		{"checkpoint selected task", &apiv1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request", ExpectedHeadTaskId: "task"}, true},
+		{"checkpoint rename control character", &apiv1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
+		{"share without ttl", &apiv1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111"}, true},
+		{"share positive ttl", &apiv1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Ttl: durationpb.New(time.Hour)}, true},
+		{"share zero ttl", &apiv1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Ttl: durationpb.New(0)}, false},
+		{"share negative ttl", &apiv1.CreateSessionShareRequest{SessionId: "11111111-1111-4111-8111-111111111111", Ttl: durationpb.New(-time.Second)}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := validator.Validate(test.request)
@@ -86,20 +86,20 @@ func TestInvalidSessionAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	requests := []proto.Message{
-		&apiv1alpha1.GetSessionRequest{SessionId: "invalid"},
-		&apiv1alpha1.UpdateSessionNameRequest{SessionId: "invalid"},
-		&apiv1alpha1.SuspendSessionRequest{SessionId: "invalid"},
-		&apiv1alpha1.ResumeSessionRequest{SessionId: "invalid"},
-		&apiv1alpha1.DeleteSessionRequest{SessionId: "invalid"},
-		&apiv1alpha1.CreateSessionShareRequest{SessionId: "invalid", Permission: apiv1alpha1.SessionSharePermission_SESSION_SHARE_PERMISSION_READ_ONLY},
-		&apiv1alpha1.ListSessionSharesRequest{SessionId: "invalid"},
-		&apiv1alpha1.RevokeSessionShareRequest{ShareId: "invalid"},
-		&apiv1alpha1.CreateCheckpointRequest{SessionId: "invalid", RequestId: "request"},
-		&apiv1alpha1.GetCheckpointRequest{CheckpointId: "invalid"},
-		&apiv1alpha1.ListCheckpointsRequest{SessionId: "invalid"},
-		&apiv1alpha1.DeleteCheckpointRequest{CheckpointId: "invalid"},
-		&apiv1alpha1.ForkSessionRequest{CheckpointId: "invalid", RequestId: "request"},
-		&apiv1alpha1.UpdateCheckpointNameRequest{CheckpointId: "invalid"},
+		&apiv1.GetSessionRequest{SessionId: "invalid"},
+		&apiv1.UpdateSessionNameRequest{SessionId: "invalid"},
+		&apiv1.SuspendSessionRequest{SessionId: "invalid"},
+		&apiv1.ResumeSessionRequest{SessionId: "invalid"},
+		&apiv1.DeleteSessionRequest{SessionId: "invalid"},
+		&apiv1.CreateSessionShareRequest{SessionId: "invalid"},
+		&apiv1.ListSessionSharesRequest{SessionId: "invalid"},
+		&apiv1.RevokeSessionShareRequest{ShareId: "invalid"},
+		&apiv1.CreateCheckpointRequest{SessionId: "invalid", RequestId: "request"},
+		&apiv1.GetCheckpointRequest{CheckpointId: "invalid"},
+		&apiv1.ListCheckpointsRequest{SessionId: "invalid"},
+		&apiv1.DeleteCheckpointRequest{CheckpointId: "invalid"},
+		&apiv1.ForkSessionRequest{CheckpointId: "invalid", RequestId: "request"},
+		&apiv1.UpdateCheckpointNameRequest{CheckpointId: "invalid"},
 	}
 	for _, request := range requests {
 		t.Run(string(proto.MessageName(request)), func(t *testing.T) {
@@ -122,27 +122,32 @@ func TestAgentRequestValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"}
-	resource := &apiv1alpha1.StructuredObject{}
+	ref := &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}
+	resource := &apiv1.StructuredObject{}
 	for _, test := range []struct {
 		name    string
 		request proto.Message
 		valid   bool
 	}{
-		{"list", &apiv1alpha1.ListAgentsRequest{Namespace: "team-a"}, true},
-		{"list missing namespace", &apiv1alpha1.ListAgentsRequest{}, false},
-		{"list invalid namespace", &apiv1alpha1.ListAgentsRequest{Namespace: "team/a"}, false},
-		{"get", &apiv1alpha1.GetAgentRequest{Ref: ref}, true},
-		{"get missing ref", &apiv1alpha1.GetAgentRequest{}, false},
-		{"get invalid ref", &apiv1alpha1.GetAgentRequest{Ref: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "INVALID"}}, false},
-		{"create", &apiv1alpha1.CreateAgentRequest{Ref: ref, Resource: resource}, true},
-		{"create missing ref", &apiv1alpha1.CreateAgentRequest{Resource: resource}, false},
-		{"create missing resource", &apiv1alpha1.CreateAgentRequest{Ref: ref}, false},
-		{"update", &apiv1alpha1.UpdateAgentRequest{Ref: ref, Resource: resource}, true},
-		{"update missing ref", &apiv1alpha1.UpdateAgentRequest{Resource: resource}, false},
-		{"update missing resource", &apiv1alpha1.UpdateAgentRequest{Ref: ref}, false},
-		{"delete", &apiv1alpha1.DeleteAgentRequest{Ref: ref}, true},
-		{"delete missing ref", &apiv1alpha1.DeleteAgentRequest{}, false},
+		{"list", &apiv1.ListAgentsRequest{Namespace: "team-a"}, true},
+		{"list every namespace", &apiv1.ListAgentsRequest{}, true},
+		{"list page", &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 100, PageToken: "token"}}, true},
+		{"list page over the limit", &apiv1.ListAgentsRequest{Page: &apiv1.PageRequest{Limit: 101}}, false},
+		{"template list every namespace", &apiv1.ListAgentTemplatesRequest{}, true},
+		{"template list", &apiv1.ListAgentTemplatesRequest{Namespace: "team-a"}, true},
+		{"template list invalid namespace", &apiv1.ListAgentTemplatesRequest{Namespace: "team/a"}, false},
+		{"list invalid namespace", &apiv1.ListAgentsRequest{Namespace: "team/a"}, false},
+		{"get", &apiv1.GetAgentRequest{Ref: ref}, true},
+		{"get missing ref", &apiv1.GetAgentRequest{}, false},
+		{"get invalid ref", &apiv1.GetAgentRequest{Ref: &apiv1.ResourceReference{Namespace: "team-a", Name: "INVALID"}}, false},
+		{"create", &apiv1.CreateAgentRequest{Ref: ref, Resource: resource}, true},
+		{"create missing ref", &apiv1.CreateAgentRequest{Resource: resource}, false},
+		{"create missing resource", &apiv1.CreateAgentRequest{Ref: ref}, false},
+		{"update", &apiv1.UpdateAgentRequest{Ref: ref, Resource: resource}, true},
+		{"update missing ref", &apiv1.UpdateAgentRequest{Resource: resource}, false},
+		{"update missing resource", &apiv1.UpdateAgentRequest{Ref: ref}, false},
+		{"delete", &apiv1.DeleteAgentRequest{Ref: ref}, true},
+		{"delete missing ref", &apiv1.DeleteAgentRequest{}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			handled := false

@@ -43,7 +43,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	runtime := compiled.ProcessConfig()
+	runtime := config.ProcessConfig(compiled)
 	logger, err := logging.New(os.Stderr, cmp.Or(runtime.LogLevel, "info"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -119,7 +119,7 @@ func main() {
 	}
 	executor := adka2a.NewExecutor(execConfig)
 
-	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneURL, MaxContentLength: runtime.MaxContentLength,
+	kagentApp, err := app.New(app.AppConfig{ControlPlaneURL: runtime.ControlPlaneUrl, MaxContentLength: runtime.MaxContentLength,
 		AgentCard: a2atype.AgentCard{
 			Name:        "byo-parallel-agent",
 			Description: "A BYO agent that runs creative and technical writers in parallel",
@@ -140,7 +140,7 @@ func main() {
 				},
 			},
 		},
-		Port:   cmp.Or(runtime.Port, "8082"),
+		Port:   fmt.Sprint(cmp.Or(runtime.GetPort(), 8082)),
 		Logger: logger,
 		Agent:  parallelAgent,
 	}, executor)

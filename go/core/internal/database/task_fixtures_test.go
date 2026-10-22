@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // saveRuntimeTask runs the runtime persistence protocol for fixtures. Tests of
@@ -42,17 +42,20 @@ func saveRuntimeTask(t *testing.T, client *Client, sessionID string, task *a2a.T
 	}
 	require.Equal(t, sessionID, work.Session.Id)
 	require.Equal(t, string(task.ID), work.TaskID)
+	if snapshot == nil && !work.State.Terminal() {
+		snapshot = &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/waiting-" + work.TaskID, Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
+	}
 	return client.FinishSessionQuiescence(ctx, work, snapshot)
 }
 
 // finishSessionOperation simulates successful runtime work through the same
 // lifecycle operations used by the service, preserving their checks and fencing.
-func finishSessionOperation(ctx context.Context, client *Client, id string, kind apiv1alpha1.RuntimeOperation, authority string) (*apiv1alpha1.Session, error) {
+func finishSessionOperation(ctx context.Context, client *Client, id string, kind apiv1.RuntimeOperation, authority string) (*apiv1.Session, error) {
 	work, err := client.BeginSessionOperation(ctx, id, kind)
 	if err != nil {
 		return nil, err
 	}
-	if work.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if work.Instance.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return work.Instance, nil
 	}
 	executor := uuid.New()
@@ -64,14 +67,14 @@ func finishSessionOperation(ctx context.Context, client *Client, id string, kind
 		return nil, fmt.Errorf("fixture lifecycle operation already claimed: %w", ErrConflict)
 	}
 	actorUID := ""
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		actorUID = "actor-" + id
 	}
 	return client.FinishSessionOperation(ctx, id, work.ID, executor, authority, actorUID, "")
 }
 
 func deleteSession(ctx context.Context, client *Client, id string) error {
-	_, err := finishSessionOperation(ctx, client, id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
+	_, err := finishSessionOperation(ctx, client, id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 	return err
 }
 
@@ -81,11 +84,11 @@ func taskMutationHash(value string) []byte {
 	return hash[:]
 }
 
-func waitingTaskFixture(t *testing.T, client *Client) (*apiv1alpha1.Session, *a2a.Task) {
+func waitingTaskFixture(t *testing.T, client *Client) (*apiv1.Session, *a2a.Task) {
 	return waitingTaskWithPushFixture(t, client, nil)
 }
 
-func waitingTaskWithPushFixture(t *testing.T, client *Client, config *a2a.PushConfig) (*apiv1alpha1.Session, *a2a.Task) {
+func waitingTaskWithPushFixture(t *testing.T, client *Client, config *a2a.PushConfig) (*apiv1.Session, *a2a.Task) {
 	t.Helper()
 	session, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", ""), uuid.NewString())
 	require.NoError(t, err)

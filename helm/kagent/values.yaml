@@ -17,12 +17,15 @@ ipv6:
 # Values under `global` are visible to this chart and to every subchart. A parent
 # chart or an operator sets one value here instead of one value per chart.
 global:
+  # -- Kubernetes DNS domain used in runtime-facing service URLs.
+  clusterDomain: cluster.local
   # -- Registry that overrides every per-image registry when set. This is the
   # air-gap mirror knob: one value redirects all images. Repository and tag stay
   # per-image. For per-image control, leave this unset and set the per-image
   # registry keys. Covers this chart's own images: controller, sandbox guest, ui,
-  # grafana-mcp, and substrateWorkerPool.workerImage. The vendored subcharts
-  # (kagent-tools, kmcp) adopt it when their pinned versions bump.
+  # substrateWorkerPool.workerImage, and built-in Harness images
+  # (both packaged defaults and config.harnessImages overrides). The vendored subcharts
+  # kagent-tools adopts it when its pinned version bumps.
   imageRegistry: ""
   # -- Pull secrets for every pod. The chart merges this list (union) into each
   # pod's own imagePullSecrets, so a local secret is never removed. Coverage
@@ -145,6 +148,10 @@ rbac:
 # Kubernetes kind/version envelope. Durations use seconds (e.g. 3600s).
 # Namespace, listeners, endpoints and secret paths are supplied by the chart.
 config:
+  # Digest-pinned built-in Harness images, merged over the packaged release
+  # catalog. Keys: release, kagent, claude, codex. Empty images disable defaults.
+  # global.imageRegistry rewrites both packaged defaults and overrides set here.
+  harnessImages: {}
   kubernetes: {}
   server:
     auth:
@@ -164,10 +171,11 @@ config:
     # Skip applying migrations at controller startup; verify they are already applied.
     # Apply migrations out-of-band before installing or upgrading when true.
     skipMigrations: false
-  gateway:
-    push:
-      allowHttp: false
-      allowPrivateNetworks: false
+  push:
+    allowHttp: false
+    allowPrivateNetworks: false
+    # Recovery scans for missed wake-ups and unbound registration cleanup.
+    recoveryInterval: 60s
   sessions:
     idleTtl: 604800s
     shareMaxTtl: 0s
@@ -180,6 +188,8 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: http://atenet-router.ate-system.svc:80
+    # Must match Substrate's ateApi.actorJWTIssuer; discovery uses substrate.caFile.
+    actorJwtIssuer: https://idp.ate-system.svc
   logging:
     level: info
   metrics:
@@ -187,6 +197,13 @@ config:
     secure: true
   telemetry: {}
   runtimeDefaults:
+    # Limits for each agent runtime; Substrate requires both.
+    cpu: "1"
+    memory: 1Gi
+    builtinTools:
+      disableFileSearch: false
+      bashVenvPath: ""
+      disableBash: false
     logging:
       level: info
     telemetry: {}
@@ -379,7 +396,7 @@ substrateWorkerPool:
   workerImage: ""
   # sandboxClass selects the sandbox runtime family (gvisor|microvm) for workers
   # and kagent-generated ActorTemplates whose Harness references this pool.
-  # Use a matching workerImage (ateom-gvisor or ateom-microvm). Substrate must have
+  # Use a matching workerImage (ateworker-gvisor or ateworker-microvm). Substrate must have
   # the corresponding SandboxConfig installed (gvisor-default or microvm);
   # microvm also requires runtime assets and KVM-capable nodes with atelet's device plugin.
   sandboxClass: gvisor
@@ -699,16 +716,6 @@ providers:
     # apiKey: ""
 
 # ==============================================================================
-# KMCP
-# ==============================================================================
-
-kmcp:
-  enabled: true
-  nameOverride: "kmcp"
-  fullnameOverride: "" # Override if desired
-  namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
-
-# ==============================================================================
 # BUILT-IN TOOLS
 # ==============================================================================
 
@@ -758,32 +765,13 @@ kagent-tools:
 # This proxy applies to all internally-built k8s URLs:
 # - Agents as tools (agent -> agent traffic)
 # - Services as MCP Tools
-# - MCPServer resources and RemoteMCPServer resources with internal k8s URLs
+# - RemoteMCPServer resources with internal k8s URLs
 # Set this once and the controller will apply it to all agents automatically
 # Note: RemoteMCPServer resources use user-supplied URLs and do not use this proxy unless the URL is an internal k8s URL.
 proxy:
   # Proxy URL for internally-built k8s URLs
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
-
-# ==============================================================================
-# MCP TOOLS
-# ==============================================================================
-
-grafana-mcp:
-  enabled: true
-  grafana:
-    url: "grafana.kagent:3000/api"
-    serviceAccountToken: ""
-    # apiKey: "" # Deprecated - use serviceAccountToken instead.
-    # secretRef: ""  # Name of Secret to reference (contains GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_API_KEY)
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
 
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)

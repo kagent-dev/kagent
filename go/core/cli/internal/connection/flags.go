@@ -1,8 +1,11 @@
 package connection
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"google.golang.org/grpc"
 )
 
 // Flag names are unexported so RegisterFlags and OptionsFromCommand are the
@@ -29,6 +32,14 @@ func RegisterFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagVerbose, "v", defaults.Verbose, "Verbose output")
 	flags.Duration(flagTimeout, defaults.Timeout, "Timeout")
 	flags.String(flagUserID, defaults.UserID, "Caller identity used to select the server-side data partition")
+}
+
+type dialOptionsKey struct{}
+
+// WithDialOptions makes OptionsFromCommand add options to every client built
+// from a command run with ctx.
+func WithDialOptions(ctx context.Context, options []grpc.DialOption) context.Context {
+	return context.WithValue(ctx, dialOptionsKey{}, options)
 }
 
 // OptionsFromCommand resolves connection options from the flags a command was
@@ -60,6 +71,9 @@ func OptionsFromCommand(cmd *cobra.Command) (Options, error) {
 	}
 	if options.UserID, err = flags.GetString(flagUserID); err != nil {
 		return Options{}, err
+	}
+	if cmd.Context() != nil {
+		options.DialOptions, _ = cmd.Context().Value(dialOptionsKey{}).([]grpc.DialOption)
 	}
 	return options, nil
 }

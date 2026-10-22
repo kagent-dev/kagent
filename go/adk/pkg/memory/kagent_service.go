@@ -15,41 +15,35 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
-	"github.com/kagent-dev/kagent/go/api/adk"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // KagentMemoryService implements memory.Service by storing memories
-// via the Kagent backend API (backed by pgvector). Memory ownership comes only
-// from the caller identity in context, never from ADK's local session keys.
+// via the Kagent backend API (backed by pgvector). The controller derives memory
+// ownership from the authenticated actor's session, never from ADK's local keys.
 type KagentMemoryService struct {
-	agentName        string
 	controllerClient *controllerclient.Client
-	ttlDays          int
+	ttlDays          int64
 	embeddingClient  *embedding.Client
 	model            adkmodel.LLM // Optional: for session summarization
 }
 
 // Config for creating a new KagentMemoryService.
 type Config struct {
-	// AgentName is used as the namespace for memory storage
-	AgentName string
 	// ControllerClient is the shared authenticated native gRPC client.
 	ControllerClient *controllerclient.Client
 	// TTLDays is the TTL for memory entries in days (0 uses server default of 15)
-	TTLDays int
+	TTLDays int64
 	// EmbeddingConfig for generating embeddings (optional but recommended)
-	EmbeddingConfig *adk.EmbeddingConfig
+	EmbeddingConfig *configv1.ADKEmbeddingConfig
 	// Model for session summarization (optional)
 	Model adkmodel.LLM
 }
 
 // New creates a new KagentMemoryService.
 func New(cfg Config) (*KagentMemoryService, error) {
-	if cfg.AgentName == "" {
-		return nil, fmt.Errorf("agent name is required")
-	}
 	if cfg.ControllerClient == nil {
 		return nil, fmt.Errorf("controller client is required")
 	}
@@ -65,7 +59,6 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}
 
 	return &KagentMemoryService{
-		agentName:        cfg.AgentName,
 		controllerClient: cfg.ControllerClient,
 		ttlDays:          cfg.TTLDays,
 		embeddingClient:  embClient,
@@ -130,11 +123,9 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, content string, v
 	if err != nil {
 		return err
 	}
-	memoryInput := &apiv1alpha1.SessionMemoryInput{
-		AgentName: s.agentName,
-		UserId:    userID,
-		Content:   content,
-		Vector:    vector,
+	memoryInput := &runtimev1.SessionMemoryInput{
+		Content: content,
+		Vector:  vector,
 	}
 	if s.ttlDays != 0 {
 		memoryInput.TtlDays = new(int32(s.ttlDays))
@@ -142,7 +133,7 @@ func (s *KagentMemoryService) storeMemory(ctx context.Context, content string, v
 
 	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
 	defer cancel()
-	_, err = s.controllerClient.MemoryService().AddSession(callContext, &apiv1alpha1.MemoryServiceAddSessionRequest{Memory: memoryInput})
+	_, err = s.controllerClient.MemoryService().AddSession(callContext, &runtimev1.MemoryServiceAddSessionRequest{Memory: memoryInput})
 	if err != nil {
 		return fmt.Errorf("add session memory: %w", err)
 	}
@@ -180,12 +171,10 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 	}
 
 	// Prepare API request
-	searchRequest := &apiv1alpha1.MemoryServiceSearchRequest{
-		AgentName: s.agentName,
-		UserId:    userID,
-		Vector:    vector,
-		Limit:     new(int32(5)),
-		MinScore:  new(0.3),
+	searchRequest := &runtimev1.MemoryServiceSearchRequest{
+		Vector:   vector,
+		Limit:    new(int32(5)),
+		MinScore: new(0.3),
 	}
 	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
 	defer cancel()

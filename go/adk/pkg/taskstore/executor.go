@@ -13,7 +13,7 @@ import (
 	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -48,8 +48,12 @@ func (e *settledExecutor) Before(ctx context.Context, call *a2asrv.CallContext, 
 		if send.Message == nil {
 			return ctx, nil, a2a.ErrInvalidParams
 		}
-		if reservation, ok := e.AgentExecutor.(interface{ ReservedTaskID() a2a.TaskID }); ok {
-			if id := reservation.ReservedTaskID(); id != "" && send.Message.TaskID != id {
+		if reservation, ok := e.AgentExecutor.(interface{ ReservedTaskID() (a2a.TaskID, error) }); ok {
+			id, err := reservation.ReservedTaskID()
+			if err != nil {
+				return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, err.Error())
+			}
+			if id != "" && send.Message.TaskID != id {
 				return ctx, nil, a2a.NewError(a2a.ErrUnsupportedOperation, "native session is waiting for another task")
 			}
 		}
@@ -277,7 +281,7 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	}
 	id, settleErr := e.store.sessionID()
 	if settleErr == nil {
-		request := &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: id, TaskId: string(input.TaskID), Version: version}
+		request := &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: id, TaskId: string(input.TaskID), Version: version}
 		settleErr = e.store.retry(finish, func(ctx context.Context) error {
 			_, err := e.store.client.TaskStoreService().SettleTask(ctx, request)
 			return err

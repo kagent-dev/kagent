@@ -72,18 +72,24 @@ func TestMaterializeGitPlugin(t *testing.T) {
 
 func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 	destination := t.TempDir()
-	if err := os.WriteFile(filepath.Join(destination, "SKILL.md"), []byte("# Existing"), 0o644); err != nil {
+	if err := os.Mkdir(filepath.Join(destination, "selected"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, "selected/SKILL.md"), []byte("# Existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(destination, "unrelated-link")); err != nil {
 		t.Fatal(err)
 	}
 
 	root, err := fetchSource(context.Background(), agentplugin.Source{Git: &agentplugin.GitSource{
 		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
-	}}, destination, "SKILL.md")
+	}, Path: "selected"}, destination, "SKILL.md")
 	if err != nil {
 		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
 	}
-	if root != canonicalPath(destination) {
-		t.Fatalf("fetchSource() root = %q, want %q", root, canonicalPath(destination))
+	if want := canonicalPath(filepath.Join(destination, "selected")); root != want {
+		t.Fatalf("fetchSource() root = %q, want %q", root, want)
 	}
 }
 

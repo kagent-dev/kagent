@@ -32,10 +32,18 @@ type Agent struct {
 	ID string
 }
 
+// Actor identifies a verified runtime caller. User is its session's owner, not
+// a grant of that user's permissions; Agent is the session's namespaced agent.
+// Caller-supplied agent headers never establish an Actor identity.
+type Actor struct {
+	SessionID string
+}
+
 // Authn
 type Principal struct {
 	User   User
 	Agent  Agent
+	Actor  *Actor
 	Claims map[string]any // Raw JWT claims (nil for non-JWT auth)
 }
 
@@ -62,6 +70,7 @@ func (ControlPlaneSession) Principal() Principal { return Principal{} }
 type AuthProvider interface {
 	Authenticate(ctx context.Context, reqHeaders http.Header, query url.Values) (Session, error)
 	// add auth to upstream requests of a session for upstream service account.
+	// For A2A calls, UpstreamMethodFrom(r.Context()) names the outgoing method.
 	UpstreamAuth(r *http.Request, session Session, upstreamPrincipal Principal) error
 }
 
@@ -69,8 +78,8 @@ type AuthProvider interface {
 //
 // It lives here rather than beside the server because a library consumer
 // registering its own services has to name these, and the server package is
-// internal. AccessPublic skips authentication. AccessRuntime requires the
-// separate workload authenticator; the remaining modes use public identity.
+// internal. AccessPublic permits anonymous calls. AccessRuntime requires a
+// verified actor; other modes accept either identity and authorize in services.
 type AccessMode string
 
 const (
@@ -122,22 +131,31 @@ func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
 }
 
+type upstreamMethodKeyType struct{}
+
+var upstreamMethodKey = upstreamMethodKeyType{}
+
+// UpstreamMethodFrom returns the outgoing a2a-go method, such as "SendMessage", or false outside an A2A call.
+// A retried streaming send that was already accepted goes out as "SubscribeToTask".
+func UpstreamMethodFrom(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(upstreamMethodKey).(string)
+	return v, ok
+}
+
+// UpstreamMethodTo returns a copy of ctx that names the outgoing a2a-go method.
+func UpstreamMethodTo(ctx context.Context, method string) context.Context {
+	return context.WithValue(ctx, upstreamMethodKey, method)
+}
+
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for the health endpoint used by probes.
-			if r.URL.Path == "/health" {
-				next.ServeHTTP(w, r)
-				return
-			}
 			session, err := authn.Authenticate(r.Context(), r.Header, r.URL.Query())
-			if err != nil {
+			if err != nil || session == nil {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
-			if session != nil {
-				r = r.WithContext(AuthSessionTo(r.Context(), session))
-			}
+			r = r.WithContext(AuthSessionTo(r.Context(), session))
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type sandboxRow struct {
@@ -26,8 +26,8 @@ type sandboxRow struct {
 	ExpiresAt           time.Time
 }
 
-func (r sandboxRow) sandbox() (*apiv1alpha1.Sandbox, error) {
-	s := &apiv1alpha1.Sandbox{}
+func (r sandboxRow) sandbox() (*apiv1.Sandbox, error) {
+	s := &apiv1.Sandbox{}
 	if err := proto.Unmarshal(r.Data, s); err != nil {
 		return nil, fmt.Errorf("decode Sandbox %s: %w", r.ID, err)
 	}
@@ -40,7 +40,7 @@ func (r sandboxRow) sandbox() (*apiv1alpha1.Sandbox, error) {
 	s.State, s.Operation = state, operation
 	s.PreparedRevision, s.ExpiresAt = r.RevisionReceipt, timestamppb.New(r.ExpiresAt)
 	if s.SandboxTemplate == nil {
-		s.SandboxTemplate = &apiv1alpha1.ResourceReference{}
+		s.SandboxTemplate = &apiv1.ResourceReference{}
 	}
 	s.SandboxTemplate.Namespace, s.SandboxTemplate.Name = r.Namespace, r.SandboxTemplateName
 	return s, nil
@@ -48,7 +48,7 @@ func (r sandboxRow) sandbox() (*apiv1alpha1.Sandbox, error) {
 
 // saveSandboxPayload preserves the full protobuf, including unknown fields.
 // Callers hold the runtime row lock and commit lifecycle columns with this write.
-func saveSandboxPayload(ctx context.Context, tx pgx.Tx, instance *apiv1alpha1.Sandbox) ([]byte, error) {
+func saveSandboxPayload(ctx context.Context, tx pgx.Tx, instance *apiv1.Sandbox) ([]byte, error) {
 	data, err := proto.Marshal(instance)
 	if err != nil {
 		return nil, fmt.Errorf("encode Sandbox %s: %w", instance.Id, err)
@@ -63,10 +63,11 @@ type SandboxCreateOptions struct {
 	TTL         time.Duration
 }
 
-// CreateSandbox atomically reserves a sandbox and its prepared revision. A
-// duplicate creator/requestID returns the original resource when inputs match.
+// CreateSandbox atomically reserves a sandbox and its latest successful revision,
+// or returns ErrNotFound if none is available. A duplicate creator/requestID
+// returns the original resource when inputs match.
 // The boolean reports whether this call created the sandbox.
-func (c *Client) CreateSandbox(ctx context.Context, request *apiv1alpha1.Sandbox, requestID string, options SandboxCreateOptions) (*apiv1alpha1.Sandbox, bool, error) {
+func (c *Client) CreateSandbox(ctx context.Context, request *apiv1.Sandbox, requestID string, options SandboxCreateOptions) (*apiv1.Sandbox, bool, error) {
 	existing, err := readSandboxRequest(ctx, c.db, request.GetCreator(), requestID)
 	if err == nil {
 		if !bytes.Equal(existing.RequestHash, options.RequestHash) {
@@ -113,9 +114,10 @@ func readSandboxRequest(ctx context.Context, db dbExecutor, userID, requestID st
 }
 
 // insertSandbox reserves a new sandbox in CREATING/CREATE and pins the active
-// template's latest successful revision. A duplicate creator/requestID returns
+// template's latest successful revision. A missing prepared
+// target returns ErrNotFound. A duplicate creator/requestID returns
 // pgx.ErrNoRows so the caller can roll back and read the winning transaction.
-func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1alpha1.Sandbox, requestID string, options SandboxCreateOptions) (sandboxRow, error) {
+func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1.Sandbox, requestID string, options SandboxCreateOptions) (sandboxRow, error) {
 	if options.TTL < time.Second || options.TTL > 24*time.Hour {
 		return sandboxRow{}, ErrFailedPrecondition
 	}
@@ -124,7 +126,8 @@ func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1alpha1.Sandbox,
 	err := tx.QueryRow(ctx, `
 		SELECT latest_successful_revision, clock_timestamp() FROM sandbox_template_definition
 		WHERE namespace = $1 AND sandbox_template_name = $2 AND sandbox_template_uid = $3
-		    AND retired_at IS NULL AND latest_successful_revision IS NOT NULL FOR UPDATE
+		    AND retired_at IS NULL AND latest_successful_revision IS NOT NULL
+		FOR UPDATE
 	`, request.GetSandboxTemplate().GetNamespace(), request.GetSandboxTemplate().GetName(), options.TemplateUID).Scan(&revision, &createdAt)
 	if err != nil {
 		return sandboxRow{}, notFoundOr(err)
@@ -134,8 +137,8 @@ func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1alpha1.Sandbox,
 	}
 	instance := proto.CloneOf(request)
 	instance.PreparedRevision = revision
-	instance.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING
-	instance.Operation = apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE
+	instance.State = apiv1.RuntimeState_RUNTIME_STATE_CREATING
+	instance.Operation = apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE
 	instance.CreatedAt = timestamppb.New(createdAt)
 	instance.UpdatedAt = timestamppb.New(createdAt)
 	instance.ExpiresAt = timestamppb.New(createdAt.Add(options.TTL))
@@ -160,7 +163,7 @@ func insertSandbox(ctx context.Context, tx pgx.Tx, request *apiv1alpha1.Sandbox,
 }
 
 // GetSandbox includes deletion tombstones so authorized retries can observe cleanup.
-func (c *Client) GetSandbox(ctx context.Context, id, userID string) (*apiv1alpha1.Sandbox, error) {
+func (c *Client) GetSandbox(ctx context.Context, id, userID string) (*apiv1.Sandbox, error) {
 	row, err := queryOne(ctx, c.db, `SELECT * FROM sandbox_record WHERE id = $1 AND user_id = $2`, pgx.RowToStructByName[sandboxRow], id, userID)
 	if err != nil {
 		return nil, notFoundOr(err)
@@ -168,7 +171,7 @@ func (c *Client) GetSandbox(ctx context.Context, id, userID string) (*apiv1alpha
 	return row.sandbox()
 }
 
-func (c *Client) ListSandboxes(ctx context.Context, userID, afterID string, limit int, template *apiv1alpha1.ResourceReference) ([]*apiv1alpha1.Sandbox, error) {
+func (c *Client) ListSandboxes(ctx context.Context, userID, afterID string, limit int, template *apiv1.ResourceReference) ([]*apiv1.Sandbox, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT * FROM sandbox_record WHERE user_id = $1 AND state <> 'RUNTIME_STATE_DELETED'
 		    AND ($2::text = '' OR id > NULLIF($2, '')::uuid)
@@ -177,7 +180,7 @@ func (c *Client) ListSandboxes(ctx context.Context, userID, afterID string, limi
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*apiv1alpha1.Sandbox, 0, len(rows))
+	result := make([]*apiv1.Sandbox, 0, len(rows))
 	for _, row := range rows {
 		s, err := row.sandbox()
 		if err != nil {
@@ -196,16 +199,16 @@ func lockSandbox(ctx context.Context, tx pgx.Tx, id string) (sandboxRow, error) 
 	return queryOne(ctx, tx, `SELECT * FROM sandbox_record WHERE id = $1 FOR UPDATE`, pgx.RowToStructByName[sandboxRow], id)
 }
 
-type SandboxOperation = RuntimeOperation[*apiv1alpha1.Sandbox]
+type SandboxOperation = RuntimeOperation[*apiv1.Sandbox]
 
-func (c *Client) BeginSandboxOperation(ctx context.Context, id string, kind apiv1alpha1.RuntimeOperation) (*SandboxOperation, error) {
+func (c *Client) BeginSandboxOperation(ctx context.Context, id string, kind apiv1.RuntimeOperation) (*SandboxOperation, error) {
 	var result SandboxOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSandbox(ctx, tx, id)
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if kind != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+		if kind != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 			expired, err := queryOne(ctx, tx, `SELECT expires_at <= clock_timestamp() FROM sandbox WHERE id = $1`, pgx.RowTo[bool], id)
 			if err != nil {
 				return err
@@ -248,43 +251,43 @@ func (c *Client) BeginSandboxOperation(ctx context.Context, id string, kind apiv
 
 // Sandbox lifecycle requests may supersede pending work after its active attempt
 // ends. Operation IDs reject stale completions.
-func sandboxOperationNeeded(row runtimeInstanceRow, requested apiv1alpha1.RuntimeOperation) (bool, error) {
+func sandboxOperationNeeded(row runtimeInstanceRow, requested apiv1.RuntimeOperation) (bool, error) {
 	state, operation, err := row.lifecycle()
 	if err != nil {
 		return false, err
 	}
-	if requested < apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE || requested > apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+	if requested < apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE || requested > apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 		return false, ErrFailedPrecondition
 	}
-	if state == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED {
-		if requested == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+	if state == apiv1.RuntimeState_RUNTIME_STATE_DELETED {
+		if requested == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 			return false, nil
 		}
 		return false, ErrNotFound
 	}
-	if operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE && requested != operation {
+	if operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE && requested != operation {
 		return false, ErrFailedPrecondition
 	}
-	if requested == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE && state != apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING {
+	if requested == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE && state != apiv1.RuntimeState_RUNTIME_STATE_CREATING {
 		return false, nil
 	}
-	if state == apiv1alpha1.RuntimeState_RUNTIME_STATE_CREATING && requested != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE && requested != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
+	if state == apiv1.RuntimeState_RUNTIME_STATE_CREATING && requested != apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE && requested != apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE {
 		return false, ErrFailedPrecondition
 	}
-	if operation != apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if operation != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operation != requested || row.OperationID == nil, nil
 	}
 	switch requested {
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
-		return state != apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED, nil
-	case apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
-		return state != apiv1alpha1.RuntimeState_RUNTIME_STATE_READY, nil
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND:
+		return state != apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED, nil
+	case apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME:
+		return state != apiv1.RuntimeState_RUNTIME_STATE_READY, nil
 	default:
 		return true, nil
 	}
 }
 
-func beginSandboxOperation(ctx context.Context, tx pgx.Tx, row sandboxRow, kind apiv1alpha1.RuntimeOperation) (sandboxRow, error) {
+func beginSandboxOperation(ctx context.Context, tx pgx.Tx, row sandboxRow, kind apiv1.RuntimeOperation) (sandboxRow, error) {
 	var err error
 	row.runtimeInstanceRow, err = beginRuntimeOperation(ctx, tx, row.runtimeInstanceRow, runtimeKindSandbox, kind)
 	if err != nil {
@@ -303,8 +306,8 @@ func (c *Client) ClaimSandboxOperation(ctx context.Context, id string, operation
 	return c.claimRuntimeOperation(ctx, id, runtimeKindSandbox, operationID, executorID)
 }
 
-func (c *Client) FinishSandboxOperation(ctx context.Context, id string, operationID, executorID uuid.UUID, failure string) (*apiv1alpha1.Sandbox, error) {
-	var result *apiv1alpha1.Sandbox
+func (c *Client) FinishSandboxOperation(ctx context.Context, id string, operationID, executorID uuid.UUID, failure string) (*apiv1.Sandbox, error) {
+	var result *apiv1.Sandbox
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockSandbox(ctx, tx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -328,7 +331,7 @@ func (c *Client) FinishSandboxOperation(ctx context.Context, id string, operatio
 		result.UpdatedAt = timestamppb.Now()
 		result.Failure = nil
 		if failure != "" {
-			result.Failure = &apiv1alpha1.Failure{Reason: "PreparationFailed", Message: failure}
+			result.Failure = &apiv1.Failure{Reason: "PreparationFailed", Message: failure}
 		}
 		_, err = saveSandboxPayload(ctx, tx, result)
 		return err
@@ -358,14 +361,14 @@ func (c *Client) RecordSandboxOperationFailure(ctx context.Context, id string, o
 		if err != nil {
 			return err
 		}
-		if row.OperationID == nil || *row.OperationID != operationID || row.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE.String() {
+		if row.OperationID == nil || *row.OperationID != operationID || row.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE.String() {
 			return nil
 		}
 		instance, err := row.sandbox()
 		if err != nil {
 			return err
 		}
-		instance.Failure = &apiv1alpha1.Failure{Reason: "RuntimeUnavailable", Message: "Runtime operation is pending; retry the lifecycle request"}
+		instance.Failure = &apiv1.Failure{Reason: "RuntimeUnavailable", Message: "Runtime operation is pending; retry the lifecycle request"}
 		instance.UpdatedAt = timestamppb.Now()
 		_, err = saveSandboxPayload(ctx, tx, instance)
 		return err

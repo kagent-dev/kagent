@@ -83,3 +83,9 @@ tests:
           value:
             PrivateDNSName: kagent
             service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
+
+  - it: should use one controller port for users and actors
+    asserts:
+      - lengthEqual:
+          path: spec.ports
+          count: 1

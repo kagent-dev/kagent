@@ -1,6 +1,6 @@
 import { useLayoutEffect } from "react";
 import { registerApiTransform } from "./extensionPoints";
-import type { ApiCallId, ApiRequestContext } from "./extensionPoints";
+import type { ApiRequestContext } from "./extensionPoints";
 
 /**
  * The header a share link is spent with.
@@ -79,25 +79,7 @@ export function useAgentInstanceShareToken(
 }
 
 /**
- * Operations a share over one conversation is authority for.
- *
- * Enumerated for the reason the session set is, and kept to the lifecycle a visitor
- * can legitimately reach. Deleting is not here: a share is permission to use somebody
- * else's conversation, not to destroy it, and the controller would refuse it anyway —
- * an entry here would only turn a clear refusal into a confusing one.
- *
- * Read-only shares are not filtered here either. The backend refuses any non-read RPC
- * for one before it reaches the service, which is where that rule belongs; a second
- * copy of it in the client would be a rule that could disagree with itself.
- */
-const INSTANCE_OPERATIONS = new Set<ApiCallId>([
-  "agentInstances.get",
-  "agentInstances.suspend",
-  "agentInstances.resume",
-]);
-
-/**
- * Adds the token to calls about one conversation, and to nothing else.
+ * Adds the token to reads of the shared conversation.
  *
  * The instance is read from the request message rather than from the address, so a
  * call about a different conversation is left alone even though it is the same
@@ -108,7 +90,7 @@ export function withInstanceShareToken(
   id: string,
   token: string,
 ): ApiRequestContext {
-  if (!INSTANCE_OPERATIONS.has(context.endpoint)) return context;
+  if (context.endpoint !== "agentInstances.get") return context;
   const message = context.message as
     | { sessionId?: unknown }
     | undefined;

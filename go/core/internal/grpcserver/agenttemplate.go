@@ -6,7 +6,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
@@ -16,7 +16,7 @@ import (
 const agentTemplateKind = "AgentTemplate"
 
 type agentTemplateServer struct {
-	apiv1alpha1.UnimplementedAgentTemplateServiceServer
+	apiv1.UnimplementedAgentTemplateServiceServer
 	service         *kubecrud.Service[*v1alpha3.AgentTemplate, *v1alpha3.AgentTemplateList]
 	maxMessageBytes int
 }
@@ -25,12 +25,16 @@ func newAgentTemplateServer(service *kubecrud.Service[*v1alpha3.AgentTemplate, *
 	return &agentTemplateServer{service: service, maxMessageBytes: maxMessageBytes}
 }
 
-func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *apiv1alpha1.ListAgentTemplatesRequest) (*apiv1alpha1.ListAgentTemplatesResponse, error) {
+func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *apiv1.ListAgentTemplatesRequest) (*apiv1.ListAgentTemplatesResponse, error) {
 	items, err := s.service.List(ctx, request.GetNamespace())
 	if err != nil {
 		return nil, err
 	}
-	templates := make([]*apiv1alpha1.AgentTemplate, 0, len(items))
+	items, next, err := kubecrud.Page(items, int(request.GetPage().GetLimit()), request.GetPage().GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	templates := make([]*apiv1.AgentTemplate, 0, len(items))
 	for _, item := range items {
 		template, err := s.agentTemplate(item)
 		if err != nil {
@@ -38,10 +42,10 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 		}
 		templates = append(templates, template)
 	}
-	return &apiv1alpha1.ListAgentTemplatesResponse{AgentTemplates: templates}, nil
+	return &apiv1.ListAgentTemplatesResponse{AgentTemplates: templates, Page: &apiv1.PageResponse{NextPageToken: next}}, nil
 }
 
-func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *apiv1alpha1.GetAgentTemplateRequest) (*apiv1alpha1.GetAgentTemplateResponse, error) {
+func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *apiv1.GetAgentTemplateRequest) (*apiv1.GetAgentTemplateResponse, error) {
 	ref, err := requiredAgentTemplateRef(request.GetRef())
 	if err != nil {
 		return nil, err
@@ -54,10 +58,10 @@ func (s *agentTemplateServer) GetAgentTemplate(ctx context.Context, request *api
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.GetAgentTemplateResponse{AgentTemplate: template}, nil
+	return &apiv1.GetAgentTemplateResponse{AgentTemplate: template}, nil
 }
 
-func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *apiv1alpha1.CreateAgentTemplateRequest) (*apiv1alpha1.CreateAgentTemplateResponse, error) {
+func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error) {
 	incoming := &v1alpha3.AgentTemplate{}
 	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
 		return nil, err
@@ -70,10 +74,10 @@ func (s *agentTemplateServer) CreateAgentTemplate(ctx context.Context, request *
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.CreateAgentTemplateResponse{AgentTemplate: template}, nil
+	return &apiv1.CreateAgentTemplateResponse{AgentTemplate: template}, nil
 }
 
-func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *apiv1alpha1.UpdateAgentTemplateRequest) (*apiv1alpha1.UpdateAgentTemplateResponse, error) {
+func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *apiv1.UpdateAgentTemplateRequest) (*apiv1.UpdateAgentTemplateResponse, error) {
 	ref, err := requiredAgentTemplateRef(request.GetRef())
 	if err != nil {
 		return nil, err
@@ -96,10 +100,10 @@ func (s *agentTemplateServer) UpdateAgentTemplate(ctx context.Context, request *
 	if err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.UpdateAgentTemplateResponse{AgentTemplate: template}, nil
+	return &apiv1.UpdateAgentTemplateResponse{AgentTemplate: template}, nil
 }
 
-func (s *agentTemplateServer) DeleteAgentTemplate(ctx context.Context, request *apiv1alpha1.DeleteAgentTemplateRequest) (*apiv1alpha1.DeleteAgentTemplateResponse, error) {
+func (s *agentTemplateServer) DeleteAgentTemplate(ctx context.Context, request *apiv1.DeleteAgentTemplateRequest) (*apiv1.DeleteAgentTemplateResponse, error) {
 	ref, err := requiredAgentTemplateRef(request.GetRef())
 	if err != nil {
 		return nil, err
@@ -107,20 +111,20 @@ func (s *agentTemplateServer) DeleteAgentTemplate(ctx context.Context, request *
 	if err := s.service.Delete(ctx, ref); err != nil {
 		return nil, err
 	}
-	return &apiv1alpha1.DeleteAgentTemplateResponse{}, nil
+	return &apiv1.DeleteAgentTemplateResponse{}, nil
 }
 
-func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*apiv1alpha1.AgentTemplate, error) {
+func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*apiv1.AgentTemplate, error) {
 	resource, err := structuredobject.FromGo(template, v1alpha3.GroupVersion.String(), agentTemplateKind, s.maxMessageBytes)
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to encode AgentTemplate resource", err)
 	}
-	var modelConfigRef *apiv1alpha1.ResourceReference
+	var modelConfigRef *apiv1.ResourceReference
 	if template.Spec.ModelConfig != nil {
-		modelConfigRef = &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}
+		modelConfigRef = &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}
 	}
-	return &apiv1alpha1.AgentTemplate{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
+	return &apiv1.AgentTemplate{
+		Ref: &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name},
 		// The model config lives in the template's own namespace: the CRD's
 		// reference is name-only and same-namespace by construction.
 		ModelConfigRef: modelConfigRef,
@@ -132,7 +136,7 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 // decodeResource reads the CR out of the request and forces its metadata to
 // agree with the ref, so a payload naming a different object cannot be used to
 // write outside the namespace the caller was authorized against.
-func (s *agentTemplateServer) decodeResource(ref *apiv1alpha1.ResourceReference, resource *apiv1alpha1.StructuredObject, destination *v1alpha3.AgentTemplate) error {
+func (s *agentTemplateServer) decodeResource(ref *apiv1.ResourceReference, resource *apiv1.StructuredObject, destination *v1alpha3.AgentTemplate) error {
 	if ref == nil || ref.GetNamespace() == "" || ref.GetName() == "" {
 		return serviceerrors.NewInvalidArgument("AgentTemplate namespace and name are required", nil)
 	}
@@ -150,7 +154,7 @@ func (s *agentTemplateServer) decodeResource(ref *apiv1alpha1.ResourceReference,
 	return nil
 }
 
-func requiredAgentTemplateRef(ref *apiv1alpha1.ResourceReference) (types.NamespacedName, error) {
+func requiredAgentTemplateRef(ref *apiv1.ResourceReference) (types.NamespacedName, error) {
 	if ref == nil || ref.GetNamespace() == "" || ref.GetName() == "" {
 		return types.NamespacedName{}, serviceerrors.NewInvalidArgument("AgentTemplate namespace and name are required", nil)
 	}

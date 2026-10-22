@@ -17,8 +17,9 @@ from kagent.core._config_materialize import materialize_from_env
 from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
-from . import AgentConfig, KAgentApp
-from .tools import add_skills_tool_to_agent
+from . import Config, KAgentApp
+from .tools import add_builtin_tools_to_agent
+from .types import create_agent, parse_config
 
 logger = logging.getLogger(__name__)
 logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLevel(logging.ERROR)
@@ -30,20 +31,28 @@ def create_sts_integration(settings: TokenPropagationConfig) -> Optional[ADKToke
     if settings.sts_well_known_uri or settings.enabled:
         integration = ADKSTSIntegration(settings.sts_well_known_uri) if settings.sts_well_known_uri else None
         return ADKTokenPropagationPlugin(
-            integration, resource=settings.resources or None, audience=settings.audiences or None
+            integration, resource=list(settings.resources) or None, audience=list(settings.audiences) or None
         )
     return None
 
 
-def maybe_add_skills_with_config(root_agent: BaseAgent, agent_config: Optional[AgentConfig] = None):
-    if agent_config and agent_config.skills_directory:
-        runtime = agent_config.runtime or RuntimeConfig()
-        add_skills_tool_to_agent(
-            agent_config.skills_directory,
-            root_agent,
-            file_search_tools=runtime.file_search_tools,
-            bash_venv_path=runtime.bash_venv_path,
+def add_tools_with_config(root_agent: BaseAgent, config: Optional[Config] = None):
+    runtime = config.runtime if config is not None else RuntimeConfig()
+
+    def add_tools(agent: BaseAgent, agent_config=None):
+        settings = runtime.builtin_tools
+        add_builtin_tools_to_agent(
+            agent_config.skills_directory if agent_config and agent_config.skills_directory else None,
+            agent,
+            disable_file_search=settings.disable_file_search,
+            bash_venv_path=settings.bash_venv_path,
+            disable_bash=settings.disable_bash,
         )
+        child_configs = {child.name: child for child in agent_config.sub_agents} if agent_config else {}
+        for child in agent.sub_agents:
+            add_tools(child, child_configs.get(child.name))
+
+    add_tools(root_agent, config.agent if config is not None else None)
 
 
 def parse_agent_card(data: dict) -> AgentCard:
@@ -64,8 +73,8 @@ def static(
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)
-    agent_config = AgentConfig.model_validate(config)
-    runtime = agent_config.runtime or RuntimeConfig()
+    config = parse_config(config)
+    runtime = config.runtime
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
@@ -76,7 +85,7 @@ def static(
     if sts_integration:
         plugins = [sts_integration]
 
-    if agent_config.model.api_key_passthrough:
+    if config.agent.model.api_key_passthrough:
         from ._llm_passthrough_plugin import LLMPassthroughPlugin
 
         if plugins is None:
@@ -84,9 +93,9 @@ def static(
         plugins.append(LLMPassthroughPlugin())
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, runtime.token_propagation.enabled)
+        root_agent = create_agent(config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
 
-        maybe_add_skills_with_config(root_agent, agent_config)
+        add_tools_with_config(root_agent, config)
 
         return root_agent
 
@@ -96,8 +105,8 @@ def static(
         app_cfg.api_url,
         app_cfg.app_name,
         plugins=plugins,
-        stream=agent_config.stream if agent_config.stream is not None else False,
-        agent_config=agent_config,
+        stream=config.agent.stream,
+        config=config,
     )
 
     server = kagent_app.build()
@@ -148,16 +157,16 @@ def run(
     ] = False,
 ):
     # Load agent config to get stream setting
-    agent_config = None
+    config = None
     config_path = os.path.join(working_dir, name, "config.json")
     try:
         with open(config_path, "r") as f:
             config = json.load(f)
-        agent_config = AgentConfig.model_validate(config)
+        config = parse_config(config)
     except FileNotFoundError:
         logger.debug(f"No config.json found at {config_path}, using defaults")
 
-    runtime = agent_config.runtime if agent_config and agent_config.runtime else RuntimeConfig()
+    runtime = config.runtime if config is not None else RuntimeConfig()
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
 
@@ -174,7 +183,7 @@ def run(
         if sts_integration:
             add_to_agent(sts_integration, root_agent)
 
-        maybe_add_skills_with_config(root_agent, agent_config)
+        add_tools_with_config(root_agent, config)
 
         return root_agent
 
@@ -198,8 +207,8 @@ def run(
         app_cfg.app_name,
         lifespan=lifespan,
         plugins=plugins,
-        stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
-        agent_config=agent_config,
+        stream=config.agent.stream if config else False,
+        config=config,
     )
 
     if local:
@@ -221,27 +230,25 @@ def run(
     )
 
 
-async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
+async def test_agent(config: Config, agent_card: AgentCard, task: str):
     app_cfg = KAgentConfig(
         api_url="http://fake-api.example.com",
         gateway_url="http://fake-gateway.example.com",
         name="test-agent",
         namespace="kagent",
     )
-    runtime = agent_config.runtime or RuntimeConfig()
+    runtime = config.runtime
     plugins = None
     sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
         plugins = [sts_integration]
 
     def root_agent_factory() -> BaseAgent:
-        root_agent = agent_config.to_agent(app_cfg.name, sts_integration, runtime.token_propagation.enabled)
-        maybe_add_skills_with_config(root_agent, agent_config)
+        root_agent = create_agent(config.agent, app_cfg.name, sts_integration, runtime.token_propagation.enabled)
+        add_tools_with_config(root_agent, config)
         return root_agent
 
-    app = KAgentApp(
-        root_agent_factory, agent_card, app_cfg.api_url, app_cfg.app_name, plugins=plugins, agent_config=agent_config
-    )
+    app = KAgentApp(root_agent_factory, agent_card, app_cfg.api_url, app_cfg.app_name, plugins=plugins, config=config)
     await app.test(task)
 
 
@@ -257,8 +264,8 @@ def test(
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
     agent_card = parse_agent_card(agent_card)
-    agent_config = AgentConfig.model_validate(config)
-    asyncio.run(test_agent(agent_config, agent_card, task))
+    config = parse_config(config)
+    asyncio.run(test_agent(config, agent_card, task))
 
 
 def run_cli():

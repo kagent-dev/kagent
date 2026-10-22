@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // ErrDispatchBusy means a send has not been forwarded because another dispatch
@@ -130,7 +130,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		if err != nil {
 			return notFoundOr(err)
 		}
-		if session.State == apiv1alpha1.RuntimeState_RUNTIME_STATE_DELETED.String() {
+		if session.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED.String() {
 			return ErrNotFound
 		}
 		if task.ContextID != session.ContextID.String() {
@@ -185,10 +185,11 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 				return fmt.Errorf("a terminal task cannot be updated: %w", ErrFailedPrecondition)
 			}
 		}
+		wasWaiting := stored != nil && (stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired)
 		if session.State != "RUNTIME_STATE_READY" || session.Operation != "RUNTIME_OPERATION_NONE" {
 			return fmt.Errorf("session cannot accept runtime updates during a lifecycle operation: %w", ErrConflict)
 		}
-		if (stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired) && dispatchID != "" {
+		if (stored == nil || wasWaiting) && dispatchID != "" {
 			tag, err := tx.Exec(ctx, `
 				UPDATE session SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
 				    dispatch_expires_at = CASE WHEN $3 THEN dispatch_expires_at END
@@ -206,7 +207,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		}
 		// New execution supersedes idle work that no worker has claimed yet.
 		// Keep the marker for idempotent acknowledgements of the older boundary.
-		if stored == nil || stored.Status.State == a2a.TaskStateInputRequired || stored.Status.State == a2a.TaskStateAuthRequired {
+		if stored == nil || wasWaiting {
 			if err := execSQL(ctx, tx, `
 				UPDATE session_task_event SET quiescence_pending = FALSE
 				WHERE history_id = $1 AND quiescence_pending
@@ -226,6 +227,13 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 		}
 		if err := storeSessionTaskEvent(ctx, tx, session, task, event, boundary); err != nil {
 			return err
+		}
+		// Clear the old waiting notice when execution resumes. Input-only saves
+		// while waiting and ordinary active progress do not need this cleanup.
+		if wasWaiting && (task.Status.State == a2a.TaskStateSubmitted || task.Status.State == a2a.TaskStateWorking) {
+			if err := clearTaskPushDelivery(ctx, tx, session.HistoryID, string(task.ID)); err != nil {
+				return err
+			}
 		}
 		if err := bindInitialPushForTask(ctx, tx, session.HistoryID, string(task.ID)); err != nil {
 			return err
@@ -346,7 +354,7 @@ func storeSessionTaskEvent(ctx context.Context, tx pgx.Tx, session sessionRow, t
 	var stored *a2apb.Task
 	var taskRow sessionTaskRow
 	if row, err := queryOne(ctx, tx, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_fidelity, history_sequence, position FROM
 		    session_task WHERE history_id = $1 AND id = $2 FOR UPDATE
 	`, pgx.RowToStructByName[sessionTaskRow], historyID, string(task.ID)); err == nil {
 		taskRow = row
@@ -508,7 +516,7 @@ func (c *Client) ListSessionTasks(ctx context.Context, sessionID, afterID string
 	}
 	rows, err := queryMany(ctx, c.db, `
 		SELECT t.history_id, t.id, t.state, t.status_timestamp, t.data, t.created_at,
-		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_content_scope,
+		    t.snapshot_atespace, t.snapshot_uri, t.snapshot_fidelity,
 		    t.history_sequence, t.position FROM session_task t
 		WHERE t.history_id = $1
 		  AND ($2::text = '' OR t.position > (
@@ -690,42 +698,42 @@ func unmarshalSessionTask(data []byte) (*a2a.Task, error) {
 }
 
 type sessionTaskRow struct {
-	HistoryID            uuid.UUID
-	ID                   string
-	State                string
-	StatusTimestamp      *time.Time
-	Data                 []byte
-	CreatedAt            time.Time
-	SnapshotAtespace     *string
-	SnapshotURI          *string
-	SnapshotContentScope *string
-	HistorySequence      *int64
-	Position             int64
+	HistoryID        uuid.UUID
+	ID               string
+	State            string
+	StatusTimestamp  *time.Time
+	Data             []byte
+	CreatedAt        time.Time
+	SnapshotAtespace *string
+	SnapshotURI      *string
+	SnapshotFidelity *string
+	HistorySequence  *int64
+	Position         int64
 }
 
 type sessionTaskEventRow struct {
-	Sequence             int64
-	HistoryID            uuid.UUID
-	TaskID               string
-	Data                 []byte
-	CreatedAt            time.Time
-	MessageID            *string
-	TaskPosition         *int64
-	SnapshotAtespace     *string
-	SnapshotURI          *string
-	SnapshotContentScope *string
+	Sequence         int64
+	HistoryID        uuid.UUID
+	TaskID           string
+	Data             []byte
+	CreatedAt        time.Time
+	MessageID        *string
+	TaskPosition     *int64
+	SnapshotAtespace *string
+	SnapshotURI      *string
+	SnapshotFidelity *string
 }
 
 type taskEventWrite struct {
-	HistoryID            uuid.UUID
-	TaskID               string
-	MessageID            *string
-	Data                 []byte
-	SnapshotAtespace     *string
-	SnapshotURI          *string
-	SnapshotContentScope *string
-	TaskPosition         *int64
-	CreatedAt            *time.Time
+	HistoryID        uuid.UUID
+	TaskID           string
+	MessageID        *string
+	Data             []byte
+	SnapshotAtespace *string
+	SnapshotURI      *string
+	SnapshotFidelity *string
+	TaskPosition     *int64
+	CreatedAt        *time.Time
 }
 
 type taskHistoryRow struct {
@@ -742,7 +750,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 	return queryOne(ctx, db, `
 		WITH inserted AS (
 		    INSERT INTO session_task_event
-		        (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_content_scope,
+		        (history_id, task_id, message_id, data, snapshot_atespace, snapshot_uri, snapshot_fidelity,
 		         task_position, created_at)
 		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::timestamptz, NOW()))
 		    ON CONFLICT (history_id, task_id, message_id)
@@ -757,7 +765,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 		LIMIT 1
 	`,
 		pgx.RowTo[int64], event.HistoryID, event.TaskID, event.MessageID, event.Data, event.SnapshotAtespace,
-		event.SnapshotURI, event.SnapshotContentScope, event.TaskPosition,
+		event.SnapshotURI, event.SnapshotFidelity, event.TaskPosition,
 		event.CreatedAt,
 	)
 }
@@ -766,7 +774,7 @@ func insertTaskEvent(ctx context.Context, db dbExecutor, event taskEventWrite) (
 // history. Missing tasks return pgx.ErrNoRows; callers authorize access.
 func readSessionTask(ctx context.Context, db dbExecutor, historyID uuid.UUID, taskID string) (sessionTaskRow, error) {
 	return queryOne(ctx, db, `
-		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position FROM
+		SELECT history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_fidelity, history_sequence, position FROM
 		    session_task
 		WHERE history_id = $1 AND id = $2
 	`, pgx.RowToStructByName[sessionTaskRow], historyID, taskID)
@@ -783,7 +791,7 @@ func saveTaskProjection(ctx context.Context, db dbExecutor, historyID uuid.UUID,
 		    state = EXCLUDED.state,
 		    status_timestamp = EXCLUDED.status_timestamp,
 		    data = EXCLUDED.data
-		RETURNING history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_content_scope, history_sequence, position
+		RETURNING history_id, id, state, status_timestamp, data, created_at, snapshot_atespace, snapshot_uri, snapshot_fidelity, history_sequence, position
 	`, pgx.RowToStructByName[sessionTaskRow], historyID, taskID, state, statusTimestamp, data)
 }
 

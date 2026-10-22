@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
 
 func TestValidateAgentConfigUsage_NilConfig(t *testing.T) {
@@ -18,7 +18,7 @@ func TestValidateAgentConfigUsage_NilConfig(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_MissingModel(t *testing.T) {
-	config := &adk.AgentConfig{
+	config := &configv1.ADKAgentConfig{
 		Instruction: "test",
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -31,8 +31,8 @@ func TestValidateAgentConfigUsage_MissingModel(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_ValidMinimal(t *testing.T) {
-	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &configv1.ADKAgentConfig{
+		Model:       &configv1.ADKModelConfig{Model: "gpt-4", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 		Instruction: "You are helpful.",
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -42,11 +42,11 @@ func TestValidateAgentConfigUsage_ValidMinimal(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_HttpToolMissingURL(t *testing.T) {
-	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &configv1.ADKAgentConfig{
+		Model:       &configv1.ADKModelConfig{Model: "gpt-4", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 		Instruction: "test",
-		HttpTools: []adk.HttpMcpServerConfig{
-			{Params: adk.StreamableHTTPConnectionParams{Url: ""}},
+		HttpTools: []*configv1.ADKHTTPMCPServerConfig{
+			{Params: &configv1.ADKHTTPConnectionParams{Url: ""}},
 		},
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -59,11 +59,11 @@ func TestValidateAgentConfigUsage_HttpToolMissingURL(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_SseToolMissingURL(t *testing.T) {
-	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &configv1.ADKAgentConfig{
+		Model:       &configv1.ADKModelConfig{Model: "gpt-4", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 		Instruction: "test",
-		SseTools: []adk.SseMcpServerConfig{
-			{Params: adk.SseConnectionParams{Url: ""}},
+		SseTools: []*configv1.ADKSSEMCPServerConfig{
+			{Params: &configv1.ADKSSEConnectionParams{Url: ""}},
 		},
 	}
 	err := ValidateAgentConfigUsage(config)
@@ -76,10 +76,10 @@ func TestValidateAgentConfigUsage_SseToolMissingURL(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_RemoteAgentMissingURL(t *testing.T) {
-	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &configv1.ADKAgentConfig{
+		Model:       &configv1.ADKModelConfig{Model: "gpt-4", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 		Instruction: "test",
-		RemoteAgents: []adk.RemoteAgentConfig{
+		RemoteAgents: []*configv1.ADKRemoteAgentConfig{
 			{Name: "agent1", Url: ""},
 		},
 	}
@@ -93,10 +93,10 @@ func TestValidateAgentConfigUsage_RemoteAgentMissingURL(t *testing.T) {
 }
 
 func TestValidateAgentConfigUsage_RemoteAgentMissingName(t *testing.T) {
-	config := &adk.AgentConfig{
-		Model:       &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &configv1.ADKAgentConfig{
+		Model:       &configv1.ADKModelConfig{Model: "gpt-4", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 		Instruction: "test",
-		RemoteAgents: []adk.RemoteAgentConfig{
+		RemoteAgents: []*configv1.ADKRemoteAgentConfig{
 			{Name: "", Url: "http://example.com"},
 		},
 	}
@@ -117,13 +117,13 @@ func TestGetAgentConfigSummary_Nil(t *testing.T) {
 }
 
 func TestGetAgentConfigSummary_WithModel(t *testing.T) {
-	config := &adk.AgentConfig{
-		Model:        &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4"}},
+	config := &configv1.ADKAgentConfig{
+		Model:        &configv1.ADKModelConfig{Model: "gpt-4", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
 		Description:  "Test agent",
 		Instruction:  "Be helpful",
-		HttpTools:    []adk.HttpMcpServerConfig{},
-		SseTools:     []adk.SseMcpServerConfig{},
-		RemoteAgents: []adk.RemoteAgentConfig{},
+		HttpTools:    []*configv1.ADKHTTPMCPServerConfig{},
+		SseTools:     []*configv1.ADKSSEMCPServerConfig{},
+		RemoteAgents: []*configv1.ADKRemoteAgentConfig{},
 	}
 	s := GetAgentConfigSummary(config)
 	if !strings.Contains(s, "openai") {

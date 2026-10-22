@@ -16,10 +16,12 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -74,14 +76,15 @@ type mcpServerParams struct {
 	Headers               map[string]string
 	AllowedHeaders        []string              // header names to forward from incoming request
 	PropagateToken        bool                  // when true, Authorization is forwarded independently of AllowedHeaders
+	TokenPassthrough      bool                  // when true, Authorization is always the caller's bearer token
 	HeaderProvider        DynamicHeaderProvider // optional per-request headers derived from invocation context (e.g., STS exchanged access tokens)
 	ServerType            string                // "http" or "sse"
 	Command               string
 	Args                  []string
 	Env                   map[string]string
 	Dir                   string
-	Timeout               *float64
-	SseReadTimeout        *float64
+	Timeout               *durationpb.Duration
+	SseReadTimeout        *durationpb.Duration
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
@@ -100,9 +103,9 @@ type mcpServerParams struct {
 // derived from invocation context (e.g., STS exchanged access tokens).
 func CreateToolsets(
 	ctx context.Context,
-	httpTools []adk.HttpMcpServerConfig,
-	sseTools []adk.SseMcpServerConfig,
-	stdioTools []adk.StdioMcpServerConfig,
+	httpTools []*configv1.ADKHTTPMCPServerConfig,
+	sseTools []*configv1.ADKSSEMCPServerConfig,
+	stdioTools []*configv1.ADKStdioMCPServerConfig,
 	propagateToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
@@ -128,13 +131,14 @@ func CreateToolsets(
 			Headers:               httpTool.Params.Headers,
 			AllowedHeaders:        httpTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
+			TokenPassthrough:      httpTool.TokenPassthrough,
 			HeaderProvider:        headerProvider,
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: httpTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         httpTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   httpTool.Params.TLSDisableSystemCAs,
+			TLSInsecureSkipVerify: httpTool.Params.TlsInsecureSkipVerify,
+			TLSCACertPath:         httpTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs:   httpTool.Params.TlsDisableSystemCas,
 		}
 		ts, err := addToolset(ctx, log, params, httpTool.Tools, httpTool.RequireApproval, "HTTP", i+1)
 		if err != nil {
@@ -150,13 +154,14 @@ func CreateToolsets(
 			Headers:               sseTool.Params.Headers,
 			AllowedHeaders:        sseTool.AllowedHeaders,
 			PropagateToken:        propagateToken,
+			TokenPassthrough:      sseTool.TokenPassthrough,
 			HeaderProvider:        headerProvider,
 			ServerType:            "sse",
 			Timeout:               sseTool.Params.Timeout,
 			SseReadTimeout:        sseTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: sseTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         sseTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   sseTool.Params.TLSDisableSystemCAs,
+			TLSInsecureSkipVerify: sseTool.Params.TlsInsecureSkipVerify,
+			TLSCACertPath:         sseTool.Params.TlsCaCertPath,
+			TLSDisableSystemCAs:   sseTool.Params.TlsDisableSystemCas,
 		}
 		ts, err := addToolset(ctx, log, params, sseTool.Tools, sseTool.RequireApproval, "SSE", i+1)
 		if err != nil {
@@ -215,18 +220,15 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	operationTimeout := defaultTimeout
-	if params.Timeout != nil && *params.Timeout > 0 {
-		operationTimeout = max(time.Duration(*params.Timeout)*time.Second, 1*time.Second)
+	if params.Timeout != nil {
+		operationTimeout = params.Timeout.AsDuration()
 	}
 
 	httpTimeout := operationTimeout
-	if params.ServerType == "sse" && params.SseReadTimeout != nil && *params.SseReadTimeout > 0 {
-		configuredSseTimeout := time.Duration(*params.SseReadTimeout) * time.Second
+	if params.ServerType == "sse" && params.SseReadTimeout != nil {
+		configuredSseTimeout := params.SseReadTimeout.AsDuration()
 		if configuredSseTimeout > operationTimeout {
 			httpTimeout = configuredSseTimeout
-		}
-		if httpTimeout < 1*time.Second {
-			httpTimeout = 1 * time.Second
 		}
 	}
 
@@ -263,13 +265,14 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	}
 
 	var httpTransport http.RoundTripper = baseTransport
-	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil {
+	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil || params.TokenPassthrough {
 		httpTransport = &headerRoundTripper{
-			base:           baseTransport,
-			headers:        params.Headers,
-			allowedHeaders: params.AllowedHeaders,
-			propagateToken: params.PropagateToken,
-			headerProvider: params.HeaderProvider,
+			base:             baseTransport,
+			headers:          params.Headers,
+			allowedHeaders:   params.AllowedHeaders,
+			propagateToken:   params.PropagateToken,
+			headerProvider:   params.HeaderProvider,
+			tokenPassthrough: params.TokenPassthrough,
 		}
 	}
 
@@ -306,14 +309,18 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 //     CallContext and forwarded unconditionally (independent of allowedHeaders).
 //  2. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
 //  3. headerProvider: runtime headers derived from ADK context, such as STS tokens.
-//  4. headers: static key/value pairs configured on the MCP server spec (highest
-//     priority — always wins).
+//  4. headers: static key/value pairs configured on the MCP server spec.
+//
+// When tokenPassthrough is set, Authorization is then replaced with the
+// caller's bearer token, and requests without one fail rather than falling
+// back to a weaker credential.
 type headerRoundTripper struct {
-	base           http.RoundTripper
-	headers        map[string]string
-	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
-	propagateToken bool     // when true, Authorization is forwarded independently
-	headerProvider DynamicHeaderProvider
+	base             http.RoundTripper
+	headers          map[string]string
+	allowedHeaders   []string // header names (case-insensitive) to forward from A2A context
+	propagateToken   bool     // when true, Authorization is forwarded independently
+	headerProvider   DynamicHeaderProvider
+	tokenPassthrough bool
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -353,6 +360,14 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		req.Header.Set(key, value)
 	}
 
+	if rt.tokenPassthrough {
+		token, ok := models.PassthroughToken(req.Context(), true)
+		if !ok {
+			return nil, fmt.Errorf("MCP token passthrough requires a caller bearer token")
+		}
+		req.Header.Set(constants.AuthorizationHeader, "Bearer "+token)
+	}
+
 	return rt.base.RoundTrip(req)
 }
 
@@ -365,20 +380,17 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	toolPredicate, appToolNames, err := agentVisibleToolFilter(ctx, params, toolFilter)
-	if err != nil {
-		logging.FromContext(ctx).ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
-		appToolNames = nil
-		if len(toolFilter) > 0 {
-			allowedTools := make([]string, 0, len(toolFilter))
-			for name, enabled := range toolFilter {
-				if enabled {
-					allowedTools = append(allowedTools, name)
-				}
-			}
-			toolPredicate = tool.StringPredicate(allowedTools)
-		} else {
-			toolPredicate = nil
+	var toolPredicate tool.Predicate
+	var appToolNames map[string]bool
+	if params.TokenPassthrough {
+		// Startup has no caller token, so discover lazily on the first invocation.
+		toolPredicate = configuredToolPredicate(toolFilter)
+	} else {
+		toolPredicate, appToolNames, err = agentVisibleToolFilter(ctx, params, toolFilter)
+		if err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to classify MCP tools; falling back to lazy tool discovery", "error", err, "url", params.URL)
+			appToolNames = nil
+			toolPredicate = configuredToolPredicate(toolFilter)
 		}
 	}
 
@@ -396,4 +408,19 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		visibleTools = tool.FilterToolset(toolset, toolPredicate)
 	}
 	return &mcpAppToolset{inner: visibleTools, appToolNames: appToolNames}, nil
+}
+
+// configuredToolPredicate selects the configured tool names, or every tool
+// when none are configured.
+func configuredToolPredicate(toolFilter map[string]bool) tool.Predicate {
+	if len(toolFilter) == 0 {
+		return nil
+	}
+	allowedTools := make([]string, 0, len(toolFilter))
+	for name, enabled := range toolFilter {
+		if enabled {
+			allowedTools = append(allowedTools, name)
+		}
+	}
+	return tool.StringPredicate(allowedTools)
 }

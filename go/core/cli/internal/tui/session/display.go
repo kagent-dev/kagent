@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 const statePrefix = "RUNTIME_STATE_"
@@ -25,13 +25,13 @@ func ShortID(id string) string {
 }
 
 // StateLabel renders a lifecycle state without its protobuf enum prefix.
-func StateLabel(state apiv1alpha1.RuntimeState) string {
+func StateLabel(state apiv1.RuntimeState) string {
 	return strings.TrimPrefix(state.String(), statePrefix)
 }
 
 // Ready reports whether a Session can serve A2A calls; the gateway rejects every other state.
-func Ready(session *apiv1alpha1.Session) bool {
-	return session.GetState() == apiv1alpha1.RuntimeState_RUNTIME_STATE_READY
+func Ready(session *apiv1.Session) bool {
+	return session.GetState() == apiv1.RuntimeState_RUNTIME_STATE_READY
 }
 
 // Age renders elapsed time; an absent timestamp renders empty rather than as the Unix epoch.

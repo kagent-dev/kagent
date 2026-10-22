@@ -29,10 +29,10 @@ type AnthropicConfig struct {
 	TransportConfig
 	Model       string
 	BaseUrl     string // Optional: override API base URL
-	MaxTokens   *int
+	MaxTokens   *int64
 	Temperature *float64
 	TopP        *float64
-	TopK        *int
+	TopK        *int64
 	// PromptCaching, when true, marks the last tool definition, the last system
 	// prompt block and the last block of the latest conversation turn with a
 	// cache_control breakpoint so Anthropic bills the stable prefix of an agent

@@ -93,7 +93,7 @@ export interface ModelConfigSpec {
   provider: string;
   apiKeySecret?: string;
   apiKeySecretKey?: string;
-  apiKeyPassthrough?: boolean;
+  tokenPassthrough?: boolean;
   defaultHeaders?: Record<string, string>;
   tls?: TLSConfig;
   openAI?: OpenAIConfig;

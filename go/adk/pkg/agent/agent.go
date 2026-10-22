@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
+	"buf.build/go/protovalidate"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	adkmodel "google.golang.org/adk/v2/model"
@@ -17,14 +20,16 @@ import (
 	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 	"google.golang.org/genai"
+	"google.golang.org/protobuf/types/known/durationpb"
 
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
-	"github.com/kagent-dev/kagent/go/api/adk"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -36,35 +41,44 @@ const (
 	DefaultOllamaModel    = "llama3.2"
 )
 
-// CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
+// CreateGoogleADKAgent creates a Google ADK agent tree using the shared runtime settings.
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 // Optional stsPlugin can be provided for token propagation to MCP tools; pass
 // nil if token propagation is not needed.
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
-	if agentConfig == nil {
+func CreateGoogleADKAgent(ctx context.Context, config *configv1.ADKConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
+	if config.GetAgent() == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
-	if err := agentConfig.ValidateRuntime(); err != nil {
+	if err := protovalidate.Validate(config); err != nil {
 		return nil, err
 	}
-	return createGoogleADKAgent(ctx, agentConfig, agentName, stsPlugin, agentConfig.ProcessConfig(), extraTools...)
+	return createGoogleADKAgent(ctx, config.Agent, agentName, stsPlugin, runtimeconfig.ProcessConfig(config), extraTools...)
 }
 
-func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime adk.RuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
+func createGoogleADKAgent(ctx context.Context, agentConfig *configv1.ADKAgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, runtime *configv1.ADKRuntimeConfig, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logging.FromContext(ctx)
 
 	if agentConfig == nil {
 		return nil, fmt.Errorf("agent config is required")
 	}
 
-	propagateToken := runtime.TokenPropagation.Enabled
+	propagateToken := runtime.GetTokenPropagation().GetEnabled()
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
 	skillsDirectory := agentConfig.SkillsDirectory
+	builtinTools := runtime.GetBuiltinTools()
+	executionTools, err := tools.NewBuiltinTools(tools.BuiltinToolsConfig{
+		SkillsDirectory: skillsDirectory, BashVenvPath: builtinTools.GetBashVenvPath(),
+		DisableFileSearch: builtinTools.GetDisableFileSearch(), DisableBash: builtinTools.GetDisableBash(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create built-in tools: %w", err)
+	}
+	extraTools = append(extraTools, executionTools...)
 	if skillsDirectory != "" {
 		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
 		skills, err := skillsSource.ListFrontmatters(ctx)
@@ -72,18 +86,12 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			return nil, fmt.Errorf("failed to load skills: %w", err)
 		}
 		if len(skills) > 0 {
-			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory, runtime.FileSearchTools)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
-			}
-			extraTools = append(extraTools, executionTools...)
-
 			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
 			}
 			toolsets = append(toolsets, skillsToolset)
-			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills), "execution_tool_count", len(executionTools))
+			log.InfoContext(ctx, "wired local skills", "skills_directory", skillsDirectory, "skill_count", len(skills))
 		}
 	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
@@ -94,7 +102,11 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 			log.InfoContext(ctx, "skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
+		var httpClient *http.Client
+		if remoteAgent.Timeout != nil {
+			httpClient = &http.Client{Timeout: remoteAgent.Timeout.AsDuration()}
+		}
+		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, httpClient, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
@@ -162,7 +174,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		},
 	}
 	if agentConfig.Output != nil {
-		llmAgentConfig.OutputSchema, err = adkoutputschema.ToGenAISchema(agentConfig.Output.JSONSchema)
+		llmAgentConfig.OutputSchema, err = adkoutputschema.ToGenAISchema(agentConfig.Output.JsonSchema)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +185,7 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 				llmAgentConfig.GenerateContentConfig = &genai.GenerateContentConfig{}
 			}
 			var rawSchema any
-			if err := json.Unmarshal(agentConfig.Output.JSONSchema, &rawSchema); err != nil {
+			if err := json.Unmarshal(agentConfig.Output.JsonSchema, &rawSchema); err != nil {
 				return nil, fmt.Errorf("decode raw output schema: %w", err)
 			}
 			llmAgentConfig.GenerateContentConfig.ResponseJsonSchema = rawSchema
@@ -203,16 +215,16 @@ func createGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 // usesRawOutputSchema reports whether the kagent provider adapter has a native
 // raw JSON Schema request field. Gemini is intentionally absent: upstream ADK
 // owns its native-vs-set_model_response selection using the typed projection.
-func usesRawOutputSchema(model adk.Model) bool {
-	switch model.(type) {
-	case *adk.OpenAI, *adk.AzureOpenAI, *adk.Anthropic, *adk.GeminiAnthropic, *adk.Bedrock, *adk.Foundry:
+func usesRawOutputSchema(model *configv1.ADKModelConfig) bool {
+	switch model.GetProvider().(type) {
+	case *configv1.ADKModelConfig_Openai, *configv1.ADKModelConfig_AzureOpenai, *configv1.ADKModelConfig_Anthropic, *configv1.ADKModelConfig_GeminiAnthropic, *configv1.ADKModelConfig_Bedrock, *configv1.ADKModelConfig_Foundry:
 		return true
 	default:
 		return false
 	}
 }
 
-func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
+func buildAgentTools(agentConfig *configv1.ADKAgentConfig, remoteAgentTools, extraTools []tool.Tool, log *slog.Logger) ([]tool.Tool, error) {
 	var localTools []tool.Tool
 	if agentConfig.Memory != nil {
 		log.Info("memory configuration detected, adding memory tools")
@@ -240,13 +252,13 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 // The native Gemini models read generation config from the per-request
 // LLMRequest.Config rather than from the model definition, so a
 // ModelConfig-level setting such as maxOutputTokens must be applied here.
-func generateContentConfig(m adk.Model) *genai.GenerateContentConfig {
-	var maxOutputTokens *int
-	switch m := m.(type) {
-	case *adk.Gemini:
-		maxOutputTokens = m.MaxOutputTokens
-	case *adk.GeminiVertexAI:
-		maxOutputTokens = m.MaxOutputTokens
+func generateContentConfig(m *configv1.ADKModelConfig) *genai.GenerateContentConfig {
+	var maxOutputTokens *int64
+	switch p := m.GetProvider().(type) {
+	case *configv1.ADKModelConfig_Gemini:
+		maxOutputTokens = p.Gemini.MaxOutputTokens
+	case *configv1.ADKModelConfig_GeminiVertexAi:
+		maxOutputTokens = p.GeminiVertexAi.MaxOutputTokens
 	}
 	if maxOutputTokens == nil || *maxOutputTokens <= 0 {
 		return nil
@@ -256,38 +268,38 @@ func generateContentConfig(m adk.Model) *genai.GenerateContentConfig {
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.
 // This is exported to allow reuse of model creation logic (e.g., for memory summarization).
-func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
-	switch m := m.(type) {
-	case *adk.OpenAI:
+func CreateLLM(ctx context.Context, m *configv1.ADKModelConfig) (adkmodel.LLM, error) {
+	switch p := m.GetProvider().(type) {
+	case *configv1.ADKModelConfig_Openai:
 		cfg := &models.OpenAIConfig{
-			TransportConfig:     transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig:     transportConfigFromBase(m, modelDuration(p.Openai.Timeout)),
 			Model:               m.Model,
-			BaseUrl:             m.BaseUrl,
-			FrequencyPenalty:    m.FrequencyPenalty,
-			MaxTokens:           m.MaxTokens,
-			MaxCompletionTokens: m.MaxCompletionTokens,
-			N:                   m.N,
-			PresencePenalty:     m.PresencePenalty,
-			ReasoningEffort:     m.ReasoningEffort,
-			Seed:                m.Seed,
-			Temperature:         m.Temperature,
-			TopP:                m.TopP,
-			APIFormat:           m.APIFormat,
+			BaseUrl:             p.Openai.BaseUrl,
+			FrequencyPenalty:    p.Openai.FrequencyPenalty,
+			MaxTokens:           p.Openai.MaxTokens,
+			MaxCompletionTokens: p.Openai.MaxCompletionTokens,
+			N:                   p.Openai.N,
+			PresencePenalty:     p.Openai.PresencePenalty,
+			ReasoningEffort:     p.Openai.ReasoningEffort,
+			Seed:                p.Openai.Seed,
+			Temperature:         p.Openai.Temperature,
+			TopP:                p.Openai.TopP,
+			APIFormat:           p.Openai.ApiFormat,
 		}
 		return models.NewOpenAIModel(ctx, cfg)
 
-	case *adk.AzureOpenAI:
+	case *configv1.ADKModelConfig_AzureOpenai:
 		cfg := &models.AzureOpenAIConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m, nil),
 			Model:           m.Model,
-			Endpoint:        m.Endpoint,
-			Deployment:      m.Deployment,
-			APIVersion:      m.APIVersion,
-			APIFormat:       m.APIFormat,
+			Endpoint:        p.AzureOpenai.Endpoint,
+			Deployment:      p.AzureOpenai.Deployment,
+			APIVersion:      p.AzureOpenai.ApiVersion,
+			APIFormat:       p.AzureOpenai.ApiFormat,
 		}
 		return models.NewAzureOpenAIModel(ctx, cfg)
 
-	case *adk.Gemini:
+	case *configv1.ADKModelConfig_Gemini:
 		apiKey := env.GoogleAPIKey.Get()
 		if apiKey == "" {
 			apiKey = env.GeminiAPIKey.Get()
@@ -299,7 +311,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m.BaseModel, nil))
+		httpClient, err := models.BuildHTTPClient(transportConfigFromBase(m, nil))
 		if err != nil {
 			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
 		}
@@ -308,7 +320,7 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			HTTPClient: httpClient,
 		})
 
-	case *adk.GeminiVertexAI:
+	case *configv1.ADKModelConfig_GeminiVertexAi:
 		project := env.GoogleCloudProject.Get()
 		location := env.GoogleCloudLocation.Get()
 		if location == "" {
@@ -327,37 +339,36 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			Location: location,
 		})
 
-	case *adk.Anthropic:
+	case *configv1.ADKModelConfig_Anthropic:
 		modelName := m.Model
 		if modelName == "" {
 			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig: transportConfigFromBase(m, modelDuration(p.Anthropic.Timeout)),
 			Model:           modelName,
-			BaseUrl:         m.BaseUrl,
-			MaxTokens:       m.MaxTokens,
-			Temperature:     m.Temperature,
-			TopP:            m.TopP,
-			TopK:            m.TopK,
-			PromptCaching:   m.PromptCaching,
-			CacheTTL:        m.CacheTTL,
+			BaseUrl:         p.Anthropic.BaseUrl,
+			MaxTokens:       p.Anthropic.MaxTokens,
+			Temperature:     p.Anthropic.Temperature,
+			TopP:            p.Anthropic.TopP,
+			TopK:            p.Anthropic.TopK,
+			PromptCaching:   p.Anthropic.PromptCaching,
+			CacheTTL:        p.Anthropic.CacheTtl,
 		}
 		return models.NewAnthropicModel(ctx, cfg)
 
-	case *adk.Mistral:
+	case *configv1.ADKModelConfig_Mistral:
 		cfg := &models.MistralConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, m.Timeout),
+			TransportConfig: transportConfigFromBase(m, modelDuration(p.Mistral.Timeout)),
 			Model:           m.Model,
-			BaseUrl:         m.BaseUrl,
-			MaxTokens:       m.MaxTokens,
-			Temperature:     m.Temperature,
-			TopP:            m.TopP,
-			Timeout:         m.Timeout,
+			BaseUrl:         p.Mistral.BaseUrl,
+			MaxTokens:       p.Mistral.MaxTokens,
+			Temperature:     p.Mistral.Temperature,
+			TopP:            p.Mistral.TopP,
 		}
 		return models.NewMistralModel(ctx, cfg)
 
-	case *adk.Ollama:
+	case *configv1.ADKModelConfig_Ollama:
 		// Leave the host empty when the controller did not set one: NewOllamaModel
 		// then applies the cloud/local routing. Defaulting it to localhost here
 		// would look like an operator-chosen endpoint and pin every cloud model
@@ -369,17 +380,17 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		}
 		// Create OllamaConfig with native SDK support for Ollama-specific options
 		cfg := &models.OllamaConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m, nil),
 			Model:           modelName,
 			Host:            baseURL,
 			// The environment holds only the gateway credential placeholder.
 			APIKey:  env.OllamaAPIKey.Get(),
-			Options: m.Options,
+			Options: p.Ollama.Options,
 		}
 		return models.NewOllamaModel(ctx, cfg)
 
-	case *adk.Bedrock:
-		region := m.Region
+	case *configv1.ADKModelConfig_Bedrock:
+		region := p.Bedrock.Region
 		if region == "" {
 			region = env.AWSRegion.Get()
 		}
@@ -394,24 +405,28 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 		// ReadTimeout maps to the overall HTTP client timeout (whole Converse
 		// request) and ConnectTimeout to the dialer, mirroring the Python ADK's
 		// botocore read/connect timeouts so the config is honored on both runtimes.
-		tc := transportConfigFromBase(m.BaseModel, m.ReadTimeout)
-		tc.ConnectTimeout = m.ConnectTimeout
+		tc := transportConfigFromBase(m, modelDuration(p.Bedrock.ReadTimeout))
+		tc.ConnectTimeout = modelDuration(p.Bedrock.ConnectTimeout)
+		additionalFields, err := models.DecodeBedrockRequestFields(p.Bedrock.GetAdditionalModelRequestFields())
+		if err != nil {
+			return nil, err
+		}
 		cfg := &models.BedrockConfig{
 			TransportConfig:              tc,
 			Model:                        modelName,
 			Region:                       region,
-			AdditionalModelRequestFields: m.AdditionalModelRequestFields,
-			PromptCaching:                m.PromptCaching,
-			CacheTTL:                     m.CacheTTL,
+			AdditionalModelRequestFields: additionalFields,
+			PromptCaching:                p.Bedrock.PromptCaching,
+			CacheTTL:                     p.Bedrock.CacheTtl,
 		}
-		if m.Guardrail != nil {
-			cfg.GuardrailIdentifier = m.Guardrail.Identifier
-			cfg.GuardrailVersion = m.Guardrail.Version
-			cfg.GuardrailTrace = m.Guardrail.Trace
+		if p.Bedrock.Guardrail != nil {
+			cfg.GuardrailIdentifier = p.Bedrock.Guardrail.Identifier
+			cfg.GuardrailVersion = p.Bedrock.Guardrail.Version
+			cfg.GuardrailTrace = p.Bedrock.Guardrail.Trace
 		}
 		return models.NewBedrockModel(ctx, cfg)
 
-	case *adk.GeminiAnthropic:
+	case *configv1.ADKModelConfig_GeminiAnthropic:
 		// GeminiAnthropic = Claude models accessed through Google Cloud Vertex AI.
 		// Uses the Anthropic SDK's built-in Vertex AI support with Application Default Credentials.
 		project := env.GoogleCloudProject.Get()
@@ -427,55 +442,55 @@ func CreateLLM(ctx context.Context, m adk.Model) (adkmodel.LLM, error) {
 			modelName = DefaultAnthropicModel
 		}
 		cfg := &models.AnthropicConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m, nil),
 			Model:           modelName,
 		}
 		return models.NewAnthropicVertexAIModel(ctx, cfg, region, project)
 
-	case *adk.SAPAICore:
+	case *configv1.ADKModelConfig_SapAiCore:
 		cfg := models.SAPAICoreConfig{
 			Model:         m.Model,
-			BaseUrl:       m.BaseUrl,
-			ResourceGroup: m.ResourceGroup,
-			AuthUrl:       m.AuthUrl,
+			BaseUrl:       p.SapAiCore.BaseUrl,
+			ResourceGroup: p.SapAiCore.ResourceGroup,
+			AuthUrl:       p.SapAiCore.AuthUrl,
 			Headers:       extractHeaders(m.Headers),
 		}
 		return models.NewSAPAICoreModel(ctx, cfg)
 
-	case *adk.Foundry:
-		if m.APIFormat == adk.FoundryAPIFormatAnthropic {
+	case *configv1.ADKModelConfig_Foundry:
+		if p.Foundry.ApiFormat == runtimeconfig.FoundryAPIFormatAnthropic {
 			// Claude on Foundry uses the Anthropic Messages API, not the
 			// OpenAI-compatible surface, so it maps to an AnthropicModel.
 			// The request model is the Foundry deployment name (the constructor
 			// resolves and sets it).
 			cfg := &models.AnthropicConfig{
-				TransportConfig: transportConfigFromBase(m.BaseModel, nil),
-				Model:           m.Deployment,
+				TransportConfig: transportConfigFromBase(m, nil),
+				Model:           p.Foundry.Deployment,
 			}
-			return models.NewFoundryAnthropicModel(ctx, cfg, m.Endpoint, m.Deployment, nil)
+			return models.NewFoundryAnthropicModel(ctx, cfg, p.Foundry.Endpoint, p.Foundry.Deployment, nil)
 		}
 		cfg := &models.FoundryConfig{
-			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig: transportConfigFromBase(m, nil),
 			Model:           m.Model,
-			Endpoint:        m.Endpoint,
-			Deployment:      m.Deployment,
-			APIVersion:      m.APIVersion,
+			Endpoint:        p.Foundry.Endpoint,
+			Deployment:      p.Foundry.Deployment,
+			APIVersion:      p.Foundry.ApiVersion,
 		}
 		return models.NewFoundryModel(ctx, cfg)
 
 	default:
-		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
+		return nil, fmt.Errorf("unsupported model type: %s", runtimeconfig.ModelType(m))
 	}
 }
 
-// transportConfigFromBase builds a TransportConfig from the shared BaseModel fields.
-func transportConfigFromBase(b adk.BaseModel, timeout *int) models.TransportConfig {
+// transportConfigFromBase builds a TransportConfig from the shared model fields.
+func transportConfigFromBase(b *configv1.ADKModelConfig, timeout *time.Duration) models.TransportConfig {
 	return models.TransportConfig{
 		Headers:               extractHeaders(b.Headers),
-		TLSInsecureSkipVerify: b.TLSInsecureSkipVerify,
-		TLSCACertPath:         b.TLSCACertPath,
-		TLSDisableSystemCAs:   b.TLSDisableSystemCAs,
-		APIKeyPassthrough:     b.APIKeyPassthrough,
+		TLSInsecureSkipVerify: b.TlsInsecureSkipVerify,
+		TLSCACertPath:         b.TlsCaCertPath,
+		TLSDisableSystemCAs:   b.TlsDisableSystemCas,
+		APIKeyPassthrough:     b.ApiKeyPassthrough,
 		Timeout:               timeout,
 	}
 }
@@ -547,4 +562,11 @@ func mapKeys(m map[string]any) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+func modelDuration(value *durationpb.Duration) *time.Duration {
+	if value == nil {
+		return nil
+	}
+	return new(value.AsDuration())
 }

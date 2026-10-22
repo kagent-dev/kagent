@@ -25,7 +25,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -55,7 +55,7 @@ func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, leas
 		progress.TaskID = ""
 		// Simulate losing the observation, including a final task recovered by
 		// the gateway. A successful observation cannot lose only its identity.
-		progress.State = apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
+		progress.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 	}
 	err := s.Client.UpdateScheduledRunExecution(ctx, lease, progress)
 	if err == nil && s.updated != nil {
@@ -67,12 +67,12 @@ func (s lostTaskLinkStore) UpdateScheduledRunExecution(ctx context.Context, leas
 	return err
 }
 
-func (w *scheduledControllerWorkflow) Create(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (w *scheduledControllerWorkflow) Create(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	authority := substrate.ActorHost("team", substrate.ActorName(session.GetId()), "")
-	return w.finish(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE, authority)
+	return w.finish(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE, authority)
 }
 
-func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
+func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	if w.failCleanup && w.cleanupFailed.CompareAndSwap(false, true) {
 		return nil, errors.New("temporary Substrate outage before dispatch")
 	}
@@ -80,16 +80,16 @@ func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv
 	return session, err
 }
 
-func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1alpha1.Session) (*apiv1alpha1.Session, error) {
-	return w.finish(ctx, session.Id, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
+func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return w.finish(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 }
 
-func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1alpha1.Session) (*database.SessionTaskSnapshot, error) {
+func (w *scheduledControllerWorkflow) Quiesce(context.Context, *apiv1.Session) (*database.SessionTaskSnapshot, error) {
 	w.quiesces.Add(1)
-	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", ContentScope: "FULL"}, nil
+	return &database.SessionTaskSnapshot{Atespace: "team", URI: "s3://snapshots/snapshot", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}, nil
 }
 
-func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1alpha1.Session) error {
+func (w *scheduledControllerWorkflow) Pause(context.Context, *apiv1.Session) error {
 	return nil
 }
 
@@ -311,15 +311,15 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 		name        string
 		state       a2atype.TaskState
 		timeout     time.Duration
-		want        apiv1alpha1.ScheduledRunExecutionState
+		want        apiv1.ScheduledRunExecutionState
 		stream      bool
 		clockOffset time.Duration
 	}{
-		{"stream outlives reconciliation", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true, 0},
-		{"lost dispatch response", a2atype.TaskStateCompleted, time.Minute, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false, 0},
-		{"timeout retries cleanup", a2atype.TaskStateWorking, 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
-		{"timeout with slow runtime clock", a2atype.TaskStateWorking, 2 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, -time.Minute},
-		{"auth required retains task", a2atype.TaskStateAuthRequired, 3 * time.Second, apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
+		{"stream outlives reconciliation", a2atype.TaskStateCompleted, time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true, 0},
+		{"lost dispatch response", a2atype.TaskStateCompleted, time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false, 0},
+		{"timeout retries cleanup", a2atype.TaskStateWorking, 2 * time.Second, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
+		{"timeout with slow runtime clock", a2atype.TaskStateWorking, 2 * time.Second, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, -time.Minute},
+		{"auth required retains task", a2atype.TaskStateAuthRequired, 3 * time.Second, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
@@ -338,31 +338,31 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			dialer, err := a2agateway.NewRuntimeDialer("http://"+listener.Addr().String(), authenticator)
 			require.NoError(t, err)
 			workflow := &scheduledControllerWorkflow{store: store, failCleanup: tc.state == a2atype.TaskStateWorking}
-			created, err := client.CreateScheduledRun(owner, &apiv1alpha1.CreateScheduledRunRequest{
-				Agent: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
-				Config: &apiv1alpha1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},
+			created, err := client.CreateScheduledRun(owner, &apiv1.CreateScheduledRunRequest{
+				Agent: &apiv1.ResourceReference{Namespace: "team", Name: "report"}, RequestId: "worker",
+				Config: &apiv1.ScheduledRunConfig{Schedule: "* * * * *", Paused: true, Prompt: "immutable scheduled prompt", ExecutionTimeout: durationpb.New(tc.timeout)},
 			})
 			require.NoError(t, err)
-			trigger := &apiv1alpha1.TriggerScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id, RequestId: "firing"}
+			trigger := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id, RequestId: "firing"}
 			accepted, err := client.TriggerScheduledRun(owner, trigger)
 			require.NoError(t, err)
 			// Accepted work survives both editing and deleting its parent schedule.
-			_, err = client.DeleteScheduledRun(owner, &apiv1alpha1.DeleteScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id})
+			_, err = client.DeleteScheduledRun(owner, &apiv1.DeleteScheduledRunRequest{ScheduledRunId: created.ScheduledRun.Id})
 			require.NoError(t, err)
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
 			controllerStore := lostTaskLinkStore{Client: store, updated: make(chan struct{}, 1)}
-			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
+			if tc.want == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
 			interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil), false)
 			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), time.Second)
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
-			if tc.want == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
-				var running *apiv1alpha1.ScheduledRunExecution
+			if tc.want == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED {
+				var running *apiv1.ScheduledRunExecution
 				require.Eventually(t, func() bool {
-					response, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
+					response, err := client.GetScheduledRunExecution(owner, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
 					if err != nil {
 						return false
 					}
@@ -372,7 +372,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 						defer runtime.mu.Unlock()
 						return runtime.sends == 1 && running.TaskId == ""
 					}
-					return running.State == apiv1alpha1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING && (running.TaskId != "") == tc.stream
+					return running.State == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING && (running.TaskId != "") == tc.stream
 				}, 5*time.Second, 20*time.Millisecond)
 				// Stop between reconciliations after the lease was released, not
 				// during dispatch (which deliberately retains an uncertain lease).
@@ -400,9 +400,9 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 				controller = scheduledrun.NewController(store, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), time.Second)
 				go func() { done <- controller.Start(ctx) }()
 			}
-			var execution *apiv1alpha1.ScheduledRunExecution
+			var execution *apiv1.ScheduledRunExecution
 			require.Eventually(t, func() bool {
-				response, err := client.GetScheduledRunExecution(owner, &apiv1alpha1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
+				response, err := client.GetScheduledRunExecution(owner, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: accepted.Execution.Id})
 				if err != nil {
 					return false
 				}
@@ -440,12 +440,12 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	}
 }
 
-func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1alpha1.RuntimeOperation, authority string) (*apiv1alpha1.Session, error) {
+func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1.RuntimeOperation, authority string) (*apiv1.Session, error) {
 	operation, err := w.store.BeginSessionOperation(ctx, id, kind)
 	if err != nil {
 		return nil, err
 	}
-	if operation.Instance.Operation == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+	if operation.Instance.Operation == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return operation.Instance, nil
 	}
 	executor := uuid.New()
@@ -457,7 +457,7 @@ func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kin
 		return nil, database.ErrConflict
 	}
 	actorUID := ""
-	if kind == apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
+	if kind == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE {
 		actorUID = "actor-" + id
 	}
 	return w.store.FinishSessionOperation(ctx, id, operation.ID, executor, authority, actorUID, "")

@@ -25,7 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -55,7 +55,7 @@ type gatewayTestStore struct {
 	initialID        string
 	listedIDs        []string
 	revoked          bool
-	session          *apiv1alpha1.Session
+	session          *apiv1.Session
 	revision         *database.RuntimeRevision
 	err              error
 	task             *a2atype.Task
@@ -68,7 +68,7 @@ type gatewayTestStore struct {
 	id, userID       string
 	unscoped         bool
 	settledRead      func() error
-	created          map[string]*apiv1alpha1.Session
+	created          map[string]*apiv1.Session
 }
 
 func (s *gatewayTestStore) RegisterSessionPushNotification(_ context.Context, sessionID, messageID, taskID string, config *a2atype.PushConfig) error {
@@ -88,13 +88,13 @@ func (s *gatewayTestStore) RevokeSessionDispatch(ctx context.Context, _ string, 
 	return s.revoked, nil
 }
 
-func (s *gatewayTestStore) GetSessionByID(_ context.Context, id string) (*apiv1alpha1.Session, error) {
+func (s *gatewayTestStore) GetSessionByID(_ context.Context, id string) (*apiv1.Session, error) {
 	s.id, s.userID = id, ""
 	s.unscoped = true
 	return s.session, s.err
 }
 
-func (s *gatewayTestStore) GetSession(_ context.Context, id, userID string) (*apiv1alpha1.Session, error) {
+func (s *gatewayTestStore) GetSession(_ context.Context, id, userID string) (*apiv1.Session, error) {
 	s.id, s.userID = id, userID
 	if s.err == nil && (s.session == nil || id != s.session.Id) {
 		return nil, database.ErrNotFound
@@ -102,7 +102,7 @@ func (s *gatewayTestStore) GetSession(_ context.Context, id, userID string) (*ap
 	return s.session, s.err
 }
 
-func (s *gatewayTestStore) CreateSession(_ context.Context, request *apiv1alpha1.Session, requestID string) (*apiv1alpha1.Session, bool, error) {
+func (s *gatewayTestStore) CreateSession(_ context.Context, request *apiv1.Session, requestID string) (*apiv1.Session, bool, error) {
 	if s.created == nil {
 		return s.session, true, s.err
 	}
@@ -116,7 +116,7 @@ func (s *gatewayTestStore) CreateSession(_ context.Context, request *apiv1alpha1
 	return session, true, nil
 }
 
-func (s *gatewayTestStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1alpha1.Session, error) {
+func (s *gatewayTestStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -126,7 +126,7 @@ func (s *gatewayTestStore) ListSessions(_ context.Context, query database.Sessio
 	if query.Agent != nil && (query.Agent.Namespace != s.session.GetAgent().GetNamespace() || query.Agent.Name != s.session.GetAgent().GetName()) {
 		return nil, nil
 	}
-	return []*apiv1alpha1.Session{s.session}, nil
+	return []*apiv1.Session{s.session}, nil
 }
 
 func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
@@ -173,11 +173,11 @@ func (a *gatewayTestAuthorizer) Check(_ context.Context, principal auth.Principa
 
 type gatewayTestDialer struct {
 	client  *a2aclient.Client
-	session *apiv1alpha1.Session
+	session *apiv1.Session
 	err     error
 }
 
-func (d *gatewayTestDialer) Dial(_ context.Context, session *apiv1alpha1.Session) (*a2aclient.Client, error) {
+func (d *gatewayTestDialer) Dial(_ context.Context, session *apiv1.Session) (*a2aclient.Client, error) {
 	d.session = session
 	return d.client, d.err
 }
@@ -298,14 +298,14 @@ func gatewayTestContextWithRoute(namespace, id string) context.Context {
 	return a2atype.AttachTenant(ctx, namespace+"/assistant")
 }
 
-func gatewayTestSession() *apiv1alpha1.Session {
-	return &apiv1alpha1.Session{
+func gatewayTestSession() *apiv1.Session {
+	return &apiv1.Session{
 		Id: gatewayTestID, ContextId: gatewayTestContextID, Creator: "alice",
 		PreparedRevision: "revision-1",
-		Agent:            &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
+		Agent:            &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 		A2AAuthority:     "private-runtime-authority",
-		State:            apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
-		Operation:        apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+		State:            apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Operation:        apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
 	}
 }
 
@@ -450,7 +450,7 @@ func TestGatewayRoutesByGRPCTenant(t *testing.T) {
 }
 
 func TestRuntimeDialerRequiresAuthority(t *testing.T) {
-	if _, err := (&RuntimeDialer{}).Dial(t.Context(), &apiv1alpha1.Session{}); err == nil {
+	if _, err := (&RuntimeDialer{}).Dial(t.Context(), &apiv1.Session{}); err == nil {
 		t.Fatal("Dial() accepted an empty runtime authority")
 	}
 }
@@ -515,7 +515,7 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
  */
 func TestGatewayReadsTasksWhileSuspended(t *testing.T) {
 	session := gatewayTestSession()
-	session.State = apiv1alpha1.RuntimeState_RUNTIME_STATE_SUSPENDED
+	session.State = apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED
 	task := &a2atype.Task{ID: gatewayTestID, ContextID: gatewayTestContextID}
 	store := &gatewayTestStore{session: session, task: task, tasks: []*a2atype.Task{task}, total: 1}
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
@@ -610,7 +610,6 @@ func TestGatewayHonoursSessionShare(t *testing.T) {
 		Token:     "share",
 		UserID:    "the-owner",
 		SessionID: session.GetId(),
-		ReadOnly:  true,
 	})
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs())
 

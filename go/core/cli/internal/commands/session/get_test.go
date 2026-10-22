@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
@@ -50,8 +50,8 @@ func TestGetSessionTableUsesFullID(t *testing.T) {
 	var output bytes.Buffer
 
 	require.NoError(t, get(t.Context(), client, cfg, clioutput.FormatTable, &output))
-	assert.Equal(t, &apiv1alpha1.ListSessionsRequest{
-		Page: &apiv1alpha1.PageRequest{},
+	assert.Equal(t, &apiv1.ListSessionsRequest{
+		Page: &apiv1.PageRequest{},
 	}, client.listRequest)
 	assert.Contains(t, output.String(), testSessionID)
 	assert.Contains(t, output.String(), "smoke")
@@ -87,37 +87,37 @@ func TestListSessionsJSONPreservesNextPageToken(t *testing.T) {
 }
 
 type fakeSessionClient struct {
-	session       *apiv1alpha1.Session
+	session       *apiv1.Session
 	nextPageToken string
-	getRequest    *apiv1alpha1.GetSessionRequest
-	listRequest   *apiv1alpha1.ListSessionsRequest
+	getRequest    *apiv1.GetSessionRequest
+	listRequest   *apiv1.ListSessionsRequest
 }
 
 func (c *fakeSessionClient) GetSession(
 	_ context.Context,
-	request *apiv1alpha1.GetSessionRequest,
-) (*apiv1alpha1.GetSessionResponse, error) {
+	request *apiv1.GetSessionRequest,
+) (*apiv1.GetSessionResponse, error) {
 	c.getRequest = request
-	return &apiv1alpha1.GetSessionResponse{Session: c.session}, nil
+	return &apiv1.GetSessionResponse{Session: c.session}, nil
 }
 
 func (c *fakeSessionClient) ListSessions(
 	_ context.Context,
-	request *apiv1alpha1.ListSessionsRequest,
-) (*apiv1alpha1.ListSessionsResponse, error) {
+	request *apiv1.ListSessionsRequest,
+) (*apiv1.ListSessionsResponse, error) {
 	c.listRequest = request
-	return &apiv1alpha1.ListSessionsResponse{
-		Sessions: []*apiv1alpha1.Session{c.session},
-		Page:     &apiv1alpha1.PageResponse{NextPageToken: c.nextPageToken},
+	return &apiv1.ListSessionsResponse{
+		Sessions: []*apiv1.Session{c.session},
+		Page:     &apiv1.PageResponse{NextPageToken: c.nextPageToken},
 	}, nil
 }
 
-func testSession() *apiv1alpha1.Session {
-	return &apiv1alpha1.Session{
+func testSession() *apiv1.Session {
+	return &apiv1.Session{
 		Id: testSessionID, Creator: "e2e",
 
-		Agent:     &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: "smoke"},
-		State:     apiv1alpha1.RuntimeState_RUNTIME_STATE_READY,
+		Agent:     &apiv1.ResourceReference{Namespace: "kagent", Name: "smoke"},
+		State:     apiv1.RuntimeState_RUNTIME_STATE_READY,
 		CreatedAt: timestamppb.New(time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)),
 	}
 }

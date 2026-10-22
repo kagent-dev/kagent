@@ -31,12 +31,15 @@ import (
 
 func TestEnsureSubstratePrerequisites(t *testing.T) {
 	client := fake.NewSimpleClientset()
-	require.NoError(t, ensureSubstratePrerequisites(t.Context(), client))
+	require.NoError(t, ensureSubstratePrerequisites(t.Context(), client, "kagent"))
 
 	for _, namespace := range []string{substrateNamespace, podCertificateNamespace} {
 		_, err := client.CoreV1().Namespaces().Get(t.Context(), namespace, metav1.GetOptions{})
 		require.NoError(t, err)
 	}
+	kagentNS, err := client.CoreV1().Namespaces().Get(t.Context(), "kagent", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "true", kagentNS.Labels["ate.dev/api-access"])
 	podCertificateNS, err := client.CoreV1().Namespaces().Get(t.Context(), podCertificateNamespace, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Equal(t, "Helm", podCertificateNS.Labels["app.kubernetes.io/managed-by"])
@@ -82,7 +85,14 @@ func TestEnsureSubstratePrerequisites(t *testing.T) {
 	require.Contains(t, authentication.Data["authentication.yaml"], "issuer: https://kubernetes.default.svc")
 	require.Contains(t, authentication.Data["authentication.yaml"], "audiences: [api.ate-system.svc]")
 
-	require.NoError(t, ensureSubstratePrerequisites(t.Context(), client))
+	kagentNS.Labels["team"] = "existing"
+	_, err = client.CoreV1().Namespaces().Update(t.Context(), kagentNS, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	require.NoError(t, ensureSubstratePrerequisites(t.Context(), client, "kagent"))
+	kagentNS, err = client.CoreV1().Namespaces().Get(t.Context(), "kagent", metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "existing", kagentNS.Labels["team"])
+	require.Equal(t, "true", kagentNS.Labels["ate.dev/api-access"])
 	for key, original := range originalPools {
 		namespace, name, _ := strings.Cut(key, "/")
 		secret, err := client.CoreV1().Secrets(namespace).Get(t.Context(), name, metav1.GetOptions{})

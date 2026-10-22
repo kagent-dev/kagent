@@ -1,5 +1,12 @@
 # End-to-end tests
 
+`TestBuiltinHarnessDefaultImages` prepares all three built-in runtimes with an
+omitted image in a referenced Harness. CI packages the
+Buildx digest metadata into the installed chart. To run this test locally, supply
+the three `config.harnessImages` defaults matching the explicit Harness
+fixtures. The test checks runtime readiness, effective-image status, and that
+the controller leaves the user spec unchanged.
+
 The standalone sandbox suite needs a Substrate WorkerPool with available capacity.
 Set `config.sandboxes.guestImage` to the
 guest image built for the test. The controller passes the pinned image reference
@@ -54,10 +61,12 @@ mock servers, and cleanup. The same assertions run against all model protocols.
 The opaque BYO fixture has its own test because it does not consume managed
 agent configuration.
 
-Until Substrate supplies runtime credentials (#1660), TaskStore uses a temporary
-unsigned identity header in every deployment; no test authentication flag is
-needed. Run these prerelease builds in isolated deployments. Verified actor
-credentials will replace this path outright.
+`TestRuntimeActorJWTAuthentication` exercises real Substrate Actor JWT injection
+for every harness on the same controller endpoint used by user calls. It verifies
+that missing, forged, and uninjected credentials are rejected for TaskStore and
+actor-only Memory methods. Controller and runtime images must match. The gRPC
+integration tests cover user and actor memory access on a shared listener, actor
+API restrictions, and rejection of invalid Actor JWTs in both user auth modes.
 
 Add portable tests using this pattern:
 
@@ -79,9 +88,8 @@ default. Missing Harness fixtures, preparation failures, and runtime errors
 must fail, not skip. Keep genuinely harness-specific features (native tool
 events, SDK tracing, kagent compaction) in separate tests.
 
-Current explicit gaps are structured output outside kagent, native Codex/Claude
-ask-user model fixtures, and the Codex shared-subagent model fixture. These
-gaps appear as skips in verbose/JSON test output, including in CI.
+Current explicit gaps are structured output outside kagent and the Codex
+shared-subagent model fixture. These gaps appear as skips in verbose/JSON test output, including in CI.
 
 Run one behavior across all harnesses, or select one harness for debugging:
 
@@ -145,7 +153,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=0.4.0-alpha1 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=0.6.0-alpha3 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release to use its asset installer and caches
 the downloaded assets under `.cache/substrate/microvm-assets/`.
 
@@ -195,11 +203,30 @@ cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
 `KAGENT_E2E_LOCAL_HOST` when the cluster uses a different host address.
 
 Substrate policies require DNS names and explicit protocols and ports.
-The mocks use Kubernetes Service names. For tracing, configure the controller's
-OTLP endpoint as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
+The mocks use full Kubernetes Service names. Substrate alpha3 returns NXDOMAIN
+for denied search-expanded names, so musl-based native clients can resolve the
+allowed hostname without trailing dots or worker DNS overrides.
+
+`TestSessionEgressDeniesUnconfiguredDestination` first proves the redirect
+destination works when configured, then verifies that an unconfigured redirect
+fails without reaching it. The denied call must reach FAILED within 30 seconds,
+with exactly one model request and no access to the denied destination.
+The lifecycle and tracing Harness fixtures set the hidden, test-only environment
+variables `KAGENT_TEST_CODEX_DISABLE_RETRIES=true` and
+`KAGENT_TEST_CLAUDE_DISABLE_RETRIES=true` for their respective adapters. These
+disable Codex's OpenAI-compatible request/stream retries and set Claude's native
+`CLAUDE_CODE_MAX_RETRIES=0`. Unset, empty, or false preserves native retry defaults;
+Codex's unbounded connection retries remain disabled in production and tests.
+The DNS fix allows service resolution, but the patched-worker experiment still
+retried denied requests for 28 seconds in Codex and 177 seconds in Claude.
+TODO: REMOVE these switches and revisit the one-request assertion and deadline
+when denial handling permits native retries in tests (see
+[substrate#2663](https://github.com/agent-substrate/substrate/issues/2663)).
+
+For tracing, configure the controller's `telemetry` and `runtimeDefaults.telemetry`
+OTLP endpoints as `http://e2e-otlp.kagent.svc.cluster.local:14317` and apply
 `manifests/tracing.yaml.tmpl` with `KAGENT_E2E_LOCAL_HOST` set to the test host's
 reachable IPv4 address. Its Service and EndpointSlice route to the receiver.
-
 `TestMCPInteraction` starts `mockmcp` on the same reachable host, registers it
 as a `RemoteMCPServer`, and verifies an actual `tools/call` request.
 
@@ -220,6 +247,40 @@ input continuation, and cancellation.
 
 `mocks/` contains the deterministic LLM responses used by interaction tests.
 
+`TestOCISkillsSurviveSuspension` publishes a tiny skill image to the local
+registry named by `KAGENT_E2E_RUNTIME_IMAGE`. It exercises golden preparation,
+standalone and selected plugin skills, executable file modes, and execution
+after suspend/resume across the harness matrix. It checks discovery metadata,
+then uses Go ADK's `load_skill`, Claude's `Skill`, or Codex's `shell_command` to
+load each `SKILL.md` before execution. Assertions require fresh instructions and
+script output to reach the model in both turns, and unselected skills must be
+absent. The deterministic model verifies runtime wiring, not real-model skill
+selection quality. The registry must accept pushes from the test runner and be
+reachable by Substrate workers through their existing registry rewrite.
+Private-registry credentials are not required.
+
+`TestSessionEgressPolicyUpdatesLiveActors` loads the same OCI skill and runs
+the same HTTP probe script through each harness's shell tool. During a single
+active invocation, it adds a policy reference and revokes the destination,
+checking actual script output and destination requests without replacing the
+actor. It also checks that deleting a policy while suspended revokes access
+after resume and in a checkpoint fork. Runtime configuration stays on the same
+prepared revision. New sessions continue using that revision with current grants
+even when a policy cannot resolve. `TestSandboxEgressPolicyUpdatesLiveActor` exercises live
+grant, revocation, and resume through the standalone sandbox process API.
+
+`TestEgressPolicyCredentialDelivery` runs the same skill on every harness against
+an HTTP server that rejects requests unless both Authorization (with a Bearer
+prefix) and X-API-Key (without a prefix) match the Secret. The script has only
+inert placeholders. The test and its harness subtests run in parallel. Actor
+identity, policy checks, and credential injection use the normal Substrate path.
+
+`TestRuntimeActorJWTAuthentication` exercises TaskStore persistence through
+Substrate's Actor JWT injection on every harness, then verifies that direct
+calls with unsigned identity headers, public credentials, or an uninjected
+placeholder are rejected. The checkpoint and suspension tests also exercise
+authentication after the runtime's projected identity changes.
+
 `TestSessionHTTPInteraction` discovers an Agent's Agent Card, invokes
 the advertised JSON-RPC interface, streams a second turn, and checks task
 persistence across HTTP and gRPC. `TestSessionHTTPResubscribeAndCancel`
@@ -232,3 +293,8 @@ For local interaction debugging, start any retained response fixture from the
 ```bash
 go run ./core/hack/mockllm invoke_mcp_agent.json
 ```
+
+Pending-input coverage waits for a suspended Actor and a verified durable VOLUMES
+snapshot before approval, denial, cancellation, and native ask-user responses.
+The approval matrix asserts one MCP execution on approval and none on denial or
+cancellation; native question continuations preserve the task and context IDs.

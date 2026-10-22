@@ -2,6 +2,7 @@ package taskstore
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"testing/synctest"
 
@@ -9,8 +10,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -24,8 +27,8 @@ type settlementStore struct {
 
 var _ Store = (*settlementStore)(nil)
 
-func (s *settlementStore) GetSessionForRuntime(_ context.Context, id, _ string) (*apiv1alpha1.Session, error) {
-	return &apiv1alpha1.Session{Id: id, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
+func (s *settlementStore) GetSessionForRuntime(_ context.Context, id, _ string) (*apiv1.Session, error) {
+	return &apiv1.Session{Id: id, A2AAuthority: substrate.ActorHost("team-a", substrate.ActorName(id), "")}, nil
 }
 
 func (s *settlementStore) SettleSessionTask(context.Context, string, string, int64) error {
@@ -54,28 +57,48 @@ func TestSettleTaskWakesOnlyAfterCommit(t *testing.T) {
 				if test.queued {
 					wakes <- struct{}{}
 				}
+				pushWakes := make(chan struct{}, 1)
+				if test.queued {
+					pushWakes <- struct{}{}
+				}
 				before := len(wakes)
-				service := NewService(store, wakes)
-				ctx, cancel := context.WithCancel(auth.AuthSessionTo(t.Context(), runtimeSession{sessionID: "session", atespace: "team-a", actorUID: "actor"}))
+				service := NewService(store, wakes, pushWakes)
+				ctx, cancel := context.WithCancel(runtimeContext(t))
 				cancel() // A disconnected caller must not suppress the post-commit hint.
 				done := make(chan error, 1)
 				go func() {
-					_, err := service.SettleTask(ctx, &apiv1alpha1.TaskStoreServiceSettleTaskRequest{SessionId: "session", TaskId: "task", Version: 1})
+					_, err := service.SettleTask(ctx, &runtimev1.TaskStoreServiceSettleTaskRequest{SessionId: "00000000-0000-0000-0000-000000000001", TaskId: "task", Version: 1})
 					done <- err
 				}()
 				synctest.Wait()
 				require.False(t, store.committed)
 				require.Len(t, wakes, before, "must not signal before the commit")
+				require.Len(t, pushWakes, before, "must not signal push before the commit")
 				commit <- struct{}{}
 				require.Equal(t, test.want, status.Code(<-done), "a queued hint must not block settlement")
 				if test.err == nil {
 					require.True(t, store.committed)
 					require.Len(t, wakes, 1)
+					require.Len(t, pushWakes, 1)
 				} else {
 					require.False(t, store.committed)
 					require.Empty(t, wakes)
+					require.Empty(t, pushWakes)
 				}
 			})
 		})
 	}
+}
+
+type testActorVerifier struct{}
+
+func (testActorVerifier) Verify(context.Context, string) (substrate.ActorIdentity, error) {
+	return substrate.ActorIdentity{ActorName: "session-00000000-0000-0000-0000-000000000001", Atespace: "team-a", ActorUID: "actor"}, nil
+}
+
+func runtimeContext(t *testing.T) context.Context {
+	t.Helper()
+	session, err := runtimeauth.NewAuthenticator(testActorVerifier{}).Authenticate(t.Context(), http.Header{"Authorization": {"Bearer test"}}, nil)
+	require.NoError(t, err)
+	return auth.AuthSessionTo(t.Context(), session)
 }

@@ -4,14 +4,39 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kagent-dev/kagent/go/api/adk"
+	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
+
+func TestBedrockProviderJSONRoundTrip(t *testing.T) {
+	for _, raw := range []string{"", "{}", `{"thinking":{"budget_tokens":1024},"large":9007199254740993,"values":[0,false,null,0.25]}`} {
+		t.Run(raw, func(t *testing.T) {
+			bedrock := &v1alpha3.BedrockConfig{Region: "us-east-1"}
+			if raw != "" {
+				bedrock.AdditionalModelRequestFields = &apiextensionsv1.JSON{Raw: []byte(raw)}
+			}
+			model, _, err := translateModel(&translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{
+				Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderBedrock, Model: "claude", Bedrock: bedrock},
+			}})
+			require.NoError(t, err)
+			encoded, err := runtimeconfig.Marshal(&configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{Model: model}})
+			require.NoError(t, err)
+			var decoded configv1.ADKConfig
+			require.NoError(t, runtimeconfig.Unmarshal(encoded, &decoded))
+			require.Equal(t, raw, string(decoded.GetAgent().GetModel().GetBedrock().GetAdditionalModelRequestFields()))
+			if raw == "" {
+				require.NotContains(t, string(encoded), "additional_model_request_fields")
+			}
+		})
+	}
+}
 
 func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 	secret := types.NamespacedName{Namespace: "test", Name: "credentials"}
@@ -104,8 +129,8 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			spec: v1alpha3.ModelConfigSpec{
 				Provider: v1alpha3.ModelProviderOllama, Model: "deepseek-v4-flash:0731-cloud",
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
-				APIKeyPassthrough: true,
-				Ollama:            &v1alpha3.OllamaConfig{},
+				TokenPassthrough: true,
+				Ollama:           &v1alpha3.OllamaConfig{},
 			},
 			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),
@@ -238,10 +263,11 @@ func TestTranslateAnthropicPromptCaching(t *testing.T) {
 			}
 			got, _, err := translateModel(resolved)
 			require.NoError(t, err)
-			anthropic, ok := got.(*adk.Anthropic)
-			require.True(t, ok, "model is %T, want *adk.Anthropic", got)
+			anthropic := got.GetAnthropic()
+			ok := anthropic != nil
+			require.True(t, ok, "model is %T, want *configv1.ADKAnthropic", got)
 			require.Equal(t, tt.wantCaching, anthropic.PromptCaching)
-			require.Equal(t, tt.wantTTL, anthropic.CacheTTL)
+			require.Equal(t, tt.wantTTL, anthropic.CacheTtl)
 		})
 	}
 }
@@ -256,5 +282,5 @@ func TestTranslateAzureOpenAIAPIFormat(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	require.Equal(t, "responses", got.(*adk.AzureOpenAI).APIFormat)
+	require.Equal(t, "responses", got.GetAzureOpenai().ApiFormat)
 }

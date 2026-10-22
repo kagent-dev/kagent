@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 type sessionDeletionReason string
@@ -19,7 +19,7 @@ const (
 // beginSessionDeletion attaches the reason to ordinary lifecycle admission.
 // The caller holds the session lock and has checked any reason-specific policy.
 func beginSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow, reason sessionDeletionReason) (*SessionOperation, error) {
-	operation, err := beginSessionOperation(ctx, tx, row, apiv1alpha1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
+	operation, err := beginSessionOperation(ctx, tx, row, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE)
 	if err != nil {
 		return nil, err
 	}
