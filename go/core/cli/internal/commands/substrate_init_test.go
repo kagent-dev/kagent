@@ -87,8 +87,12 @@ func TestEnsureSubstratePrerequisites(t *testing.T) {
 
 	authentication, err := client.CoreV1().ConfigMaps(substrateNamespace).Get(t.Context(), "ate-api-authentication", metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Contains(t, authentication.Data["authentication.yaml"], "issuer: https://kubernetes.default.svc")
-	require.Contains(t, authentication.Data["authentication.yaml"], "audiences: [api.ate-system.svc]")
+	require.Equal(t, `jwtProviders:
+- name: kubernetes
+  issuer: https://kubernetes.default.svc
+  audiences: [api.ate-system.svc]
+  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token`, authentication.Data["authentication.yaml"])
 
 	kagentNS.Labels["team"] = "existing"
 	_, err = client.CoreV1().Namespaces().Update(t.Context(), kagentNS, metav1.UpdateOptions{})
@@ -103,6 +107,31 @@ func TestEnsureSubstratePrerequisites(t *testing.T) {
 		secret, err := client.CoreV1().Secrets(namespace).Get(t.Context(), name, metav1.GetOptions{})
 		require.NoError(t, err)
 		require.Equal(t, original, secret.Data["pool"], "%s was rotated", key)
+	}
+}
+
+func TestEnsureAPIAuthenticationPreservesProviders(t *testing.T) {
+	const providers = `jwtProviders:
+- name: custom
+  issuer: https://issuer.example.com
+  audiences: [custom-audience]`
+	for _, obsolete := range []bool{false, true} {
+		authentication := providers
+		if obsolete {
+			authentication = "actorIdentityJWTProvider: kubernetes\n" + providers
+		}
+		client := fake.NewSimpleClientset(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: substrateNamespace, Name: "ate-api-authentication"},
+			Data:       map[string]string{"authentication.yaml": authentication, "unrelated": "preserved"},
+		})
+		require.NoError(t, ensureAPIAuthentication(t.Context(), client))
+		if !obsolete {
+			require.Len(t, client.Actions(), 1, "current authentication config should only be read")
+		}
+		configMap, err := client.CoreV1().ConfigMaps(substrateNamespace).Get(t.Context(), "ate-api-authentication", metav1.GetOptions{})
+		require.NoError(t, err)
+		require.Equal(t, providers, configMap.Data["authentication.yaml"])
+		require.Equal(t, "preserved", configMap.Data["unrelated"])
 	}
 }
 

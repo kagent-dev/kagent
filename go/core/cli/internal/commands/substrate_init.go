@@ -31,7 +31,6 @@ import (
 	"time"
 
 	"github.com/lestrrat-go/jwx/jwk"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -352,18 +351,29 @@ func ensureActorIDCACerts(ctx context.Context, client kubernetes.Interface) erro
 }
 
 func ensureAPIAuthentication(ctx context.Context, client kubernetes.Interface) error {
-	if _, err := client.CoreV1().ConfigMaps(substrateNamespace).Get(ctx, "ate-api-authentication", metav1.GetOptions{}); err == nil {
+	configMap, err := client.CoreV1().ConfigMaps(substrateNamespace).Get(ctx, "ate-api-authentication", metav1.GetOptions{})
+	if err == nil {
+		// Earlier installers wrote this field, which Substrate v0.6.0 removed.
+		// Preserve the configured providers and any operator customizations.
+		authentication, obsolete := strings.CutPrefix(configMap.Data["authentication.yaml"], "actorIdentityJWTProvider: kubernetes\n")
+		if !obsolete {
+			return nil
+		}
+		configMap.Data["authentication.yaml"] = authentication
+		if _, err := client.CoreV1().ConfigMaps(substrateNamespace).Update(ctx, configMap, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("update API authentication config: %w", err)
+		}
 		return nil
 	} else if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("get API authentication config: %w", err)
 	}
 	issuer := clusterOIDCIssuer(ctx, client)
-	authentication := fmt.Sprintf("actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: %s\n  audiences: [api.%s.svc]\n", issuer, substrateNamespace)
+	authentication := fmt.Sprintf("jwtProviders:\n- name: kubernetes\n  issuer: %s\n  audiences: [api.%s.svc]\n", issuer, substrateNamespace)
 	if issuer == inClusterIssuer || issuer == inClusterIssuer+".cluster.local" {
 		authentication += "  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n" +
 			"  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n"
 	}
-	configMap := &corev1.ConfigMap{
+	configMap = &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Namespace: substrateNamespace, Name: "ate-api-authentication"},
 		Data:       map[string]string{"authentication.yaml": strings.TrimRight(authentication, "\n")},
 	}
